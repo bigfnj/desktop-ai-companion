@@ -494,6 +494,23 @@ Assert-True (
     $releaseWorkflow -notmatch '\$lines \| Set-Content'
 ) 'SHA256SUMS.txt is written with LF endings, so sha256sum -c can actually read the filenames'
 
+# The installer must NOT carry MsiLogging. It reads like a helpful default and is the opposite: it makes
+# Windows Installer open a log file on every install, uninstall and repair, so on any machine where %TEMP%
+# is not writable the user gets "Error opening installation log file" instead of a working install. That
+# dialog was reported once already, from a management agent holding a transaction, and the package was
+# clean -- adding this property is exactly the change that would make it ours and make it permanent.
+# Opt-in logging is documented in SUPPORT.md instead.
+$installerWxs = Get-Content -LiteralPath (
+    Join-Path $repoRoot 'installer\DesktopAICompanion.wxs') -Raw
+Assert-True (
+    (Remove-LineComments $installerWxs) -notmatch 'MsiLogging'
+) 'the installer does not force Windows Installer logging on every run'
+Assert-True (
+    # ...and the escape hatch is actually written down, so "no logging" is a documented choice rather than
+    # an omission someone later fixes by adding the property.
+    (Get-Content -LiteralPath (Join-Path $repoRoot 'SUPPORT.md') -Raw) -match '/l\*v'
+) 'SUPPORT.md tells a user how to produce an installer log on demand'
+
 # Every tray surface that holds only a pet ID must resolve it through DisplayNameForId, which reads the
 # pet's own header. DisplayName(id, null) has no catalog name to consult and falls through to the prettified
 # folder id, so "Remove a pet" and "Pet Speech" read "Shimeji 3x56f4pl" while "Add a pet" -- which enumerates
