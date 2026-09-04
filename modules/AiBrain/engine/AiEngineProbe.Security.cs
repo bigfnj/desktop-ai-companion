@@ -759,7 +759,7 @@ namespace DesktopAICompanion.AiBrainModule
                 TextModel = new string('m', 400),
                 VisionModel = new string('v', 400),
                 TesseractPath = new string('t', 2000),
-                PetName = new string('p', 200),
+                CompanionName = new string('p', 200),
                 UserName = new string('u', 200),
                 Disposition = "NOT-A-DISPOSITION",
                 Provider = "NOT-A-PROVIDER",
@@ -783,7 +783,7 @@ namespace DesktopAICompanion.AiBrainModule
                 settings.TextModel.Length <= 256 &&
                 settings.VisionModel.Length <= 256 &&
                 settings.TesseractPath.Length <= 1024 &&
-                settings.PetName.Length <= 80 &&
+                settings.CompanionName.Length <= 80 &&
                 settings.UserName.Length <= 80);
             ok &= Check(sb, "AI settings values clamped",
                 settings.Provider == "" &&

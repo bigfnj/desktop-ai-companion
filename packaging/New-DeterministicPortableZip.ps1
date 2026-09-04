@@ -6,7 +6,7 @@ param(
     [string]$ManifestPath,
     [string]$MarkerPath,
     # Optional read-only content subtrees bundled beside the runtime payload
-    # (portable zip only). Each entry is a hashtable @{ Prefix = 'pets'; Source =
+    # (portable zip only). Each entry is a hashtable @{ Prefix = 'companions'; Source =
     # '<dir>' }; every file under Source is added deterministically as
     # '<Prefix>/<relative/path>'.
     [hashtable[]]$ContentDirectories = @(),

@@ -70,12 +70,12 @@ namespace DesktopAICompanion
         /// pets are still run through <see cref="CompanionXmlValidator"/> before use; bundled fortune files are
         /// loaded read-only in addition to the user's writable <see cref="FortunesDirectory"/>.
         /// </summary>
-        public static string BundledPetsDirectory { get { return Path.Combine(ExecutableDirectory, "pets"); } }
+        public static string BundledPetsDirectory { get { return Path.Combine(ExecutableDirectory, "companions"); } }
         public static string BundledFortunesDirectory { get { return Path.Combine(ExecutableDirectory, "fortunes"); } }
 
         /// <summary>Writable pet library under the data root: where pets downloaded from the
         /// runtime catalog are installed, alongside the read-only bundled pets beside the exe.</summary>
-        public static string LibraryPetsDirectory { get { return Path.Combine(DataRoot, "pets"); } }
+        public static string LibraryPetsDirectory { get { return Path.Combine(DataRoot, "companions"); } }
 
         /// <summary>
         /// Legacy mapped configuration files considered for the one-time settings migration.

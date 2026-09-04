@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
@@ -182,7 +182,7 @@ namespace DesktopAICompanion.AiBrainModule
                 Schema = new[]
                 {
                     new SettingField { Id = "enabled", Label = "Enable AI brain", Kind = SettingKind.Bool, Group = "AI brain" },
-                    new SettingField { Id = "petName", Label = "Pet name", Kind = SettingKind.Text, Group = "Persona" },
+                    new SettingField { Id = "companionName", Label = "Companion name", Kind = SettingKind.Text, Group = "Persona" },
                     new SettingField { Id = "userName", Label = "Your name (optional)", Kind = SettingKind.Text, Group = "Persona" },
                     new SettingField { Id = "disposition", Label = "Disposition", Kind = SettingKind.Enum, Options = DispositionNames(), Group = "Persona" },
                     // Local provider (always available; defaults to Ollama but can instead speak the
@@ -344,7 +344,7 @@ namespace DesktopAICompanion.AiBrainModule
             if (s != null)
             {
                 d["enabled"] = s.AiBrainEnabled ? "true" : "false";
-                d["petName"] = s.PetName ?? "";
+                d["companionName"] = s.CompanionName ?? "";
                 d["userName"] = s.UserName ?? "";
                 d["disposition"] = DispositionNameForId(s.Disposition);
                 // Local provider slot (always available; Ollama-native by default, or a generic
@@ -379,7 +379,7 @@ namespace DesktopAICompanion.AiBrainModule
             string v;
             bool b;
             if (values.TryGetValue("enabled", out v) && bool.TryParse(v, out b)) s.AiBrainEnabled = b;
-            if (values.TryGetValue("petName", out v)) s.PetName = (v ?? "").Trim();
+            if (values.TryGetValue("companionName", out v)) s.CompanionName = (v ?? "").Trim();
             if (values.TryGetValue("userName", out v)) s.UserName = (v ?? "").Trim();
             if (values.TryGetValue("disposition", out v)) s.Disposition = DispositionIdForName(v);
             // ---- Local provider slot: always present; Ollama-native by default, or a generic
@@ -832,7 +832,7 @@ namespace DesktopAICompanion.AiBrainModule
                 // same bug wearing a hat: that pet showed no "…" and was never asked.
                 if (!host.IsCompanionAlive(subject))
                 {
-                    host.Log(Info.Id, "answer dropped: the pet it was for is no longer on screen");
+                    host.Log(Info.Id, "answer dropped: the companion it was for is no longer on screen");
                     return;
                 }
                 try

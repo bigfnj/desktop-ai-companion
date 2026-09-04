@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
@@ -1035,7 +1035,7 @@ namespace DesktopAICompanion.FortunesModule
         internal static string EmptyPoolReason(bool anyPacksInstalled)
         {
             return anyPacksInstalled
-                ? "No fortunes match these filters — the pet will stay silent. " +
+                ? "No fortunes match these filters — the companion will stay silent. " +
                   "Widen the content level, or enable more packs below."
                 : "No fortunes yet — add a pack, then rebuild.";
         }

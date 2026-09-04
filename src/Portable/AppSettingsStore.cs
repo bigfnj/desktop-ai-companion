@@ -43,7 +43,7 @@ namespace DesktopAICompanion
         [JsonPropertyName("scalePercent"), JsonPropertyOrder(15)]
         public int ScalePercent;
 
-        [JsonPropertyName("autoStartPets"), JsonPropertyOrder(4)]
+        [JsonPropertyName("autoStartCompanions"), JsonPropertyOrder(4)]
         public int AutoStartPets;
 
         [JsonPropertyName("multiScreen"), JsonPropertyOrder(5)]
@@ -73,12 +73,12 @@ namespace DesktopAICompanion
         // The on-screen pet mix: how many pets of each type to spawn/restore. id "" = the active/
         // default pet (the one described by Xml above); other ids are pet folder ids. Introduced in
         // schema v2; migrated from the single AutoStartPets count for older docs (see Normalize).
-        [JsonPropertyName("pets"), JsonPropertyOrder(13)]
+        [JsonPropertyName("companions"), JsonPropertyOrder(13)]
         public List<CompanionCountEntry> Pets;
 
         // Per-pet size overrides: pet id -> scale level (1/2/3). Absent = follow the global ScaleLevel;
         // id "" is the active/default pet. Optional (older docs carry none). Sits alongside the pet mix.
-        [JsonPropertyName("petSizes"), JsonPropertyOrder(14)]
+        [JsonPropertyName("companionSizes"), JsonPropertyOrder(14)]
         public List<CompanionSizeEntry> PetSizes;
 
         // Which monitor a pet TYPE is pinned to. Absent from the list = unpinned, which is the default and
@@ -86,7 +86,7 @@ namespace DesktopAICompanion
         // monitor a fullscreen app has taken. A pin is an explicit instruction and is honoured strictly --
         // a pinned pet HIDES rather than moving, because "put Hornet on monitor 2" is not a preference the
         // app should quietly override the first time a game starts.
-        [JsonPropertyName("petMonitors"), JsonPropertyOrder(36)]
+        [JsonPropertyName("companionMonitors"), JsonPropertyOrder(36)]
         public List<CompanionMonitorEntry> PetMonitors;
 
         // UI theme for the settings window: "system" (follow the OS), "light", or "dark". Optional
@@ -100,13 +100,13 @@ namespace DesktopAICompanion
 
         // Pet type ids whose animation sounds are muted (per-pet sound toggle, B3). Absent from this list =
         // sound on (the default). id "" is the active/default pet. Optional (older docs mute nothing).
-        [JsonPropertyName("mutedPets"), JsonPropertyOrder(17)]
+        [JsonPropertyName("mutedCompanions"), JsonPropertyOrder(17)]
         public List<string> MutedPets;
 
         // The real id of the active/default pet, so per-pet settings (size/sound) key by the actual pet
         // rather than the "" active-slot placeholder. Default = the built-in eSheep. Set when the user picks
         // a pet ("Use"/restore). Optional (older docs default to the built-in).
-        [JsonPropertyName("activePetId"), JsonPropertyOrder(18)]
+        [JsonPropertyName("activeCompanionId"), JsonPropertyOrder(18)]
         public string ActivePetId;
 
         // Master "don't say the same message twice in a row" guard, enforced in the host's SayAll so it covers
@@ -128,7 +128,7 @@ namespace DesktopAICompanion
         // same reason RandomDropEnabled is nullable): the pet's own <sound> SFX, and module notification
         // sounds (chimes) played through IHost.PlaySound. Off silences that whole category regardless of the
         // finer per-pet mute / per-module toggles.
-        [JsonPropertyName("petSoundsEnabled"), JsonPropertyOrder(30)]
+        [JsonPropertyName("companionSoundsEnabled"), JsonPropertyOrder(30)]
         public bool? PetSoundsEnabled;
 
         [JsonPropertyName("notificationSoundsEnabled"), JsonPropertyOrder(31)]
@@ -160,7 +160,7 @@ namespace DesktopAICompanion
         // on screen. Before this, SayAll drew a bubble on EVERY pet at the same instant, which the ABI's own
         // comment already called out as reading like a bug. Stored as a pet TYPE id, not a live pet handle,
         // because the choice has to survive the pet being removed and re-added.
-        [JsonPropertyName("defaultSpeakingPet"), JsonPropertyOrder(32)]
+        [JsonPropertyName("defaultSpeakingCompanion"), JsonPropertyOrder(32)]
         public string DefaultSpeakingPet;
 
         // Nullable for the same reason as MonthlyModuleUpdateCheck: a doc written before this field existed
@@ -195,14 +195,14 @@ namespace DesktopAICompanion
 
         // Nullable for the same reason as the two above it: a doc written before this field existed must
         // read as absent and be treated as ON, not as an explicit false.
-        [JsonPropertyName("petUpdateCheck"), JsonPropertyOrder(39)]
+        [JsonPropertyName("companionUpdateCheck"), JsonPropertyOrder(39)]
         public bool? PetUpdateCheck;
 
-        [JsonPropertyName("petUpdateLastCheckUtc"), JsonPropertyOrder(40)]
+        [JsonPropertyName("companionUpdateLastCheckUtc"), JsonPropertyOrder(40)]
         public string PetUpdateLastCheckUtc;
 
         // "id;id", the catalog pets whose installed copy no longer matches the catalog hash.
-        [JsonPropertyName("petUpdateStaleIds"), JsonPropertyOrder(41)]
+        [JsonPropertyName("companionUpdateStaleIds"), JsonPropertyOrder(41)]
         public string PetUpdateStaleIds;
 
         // Keep in sync with CompanionCatalog.BuiltInPetId (which AppSettingsStore can't reference — it compiles

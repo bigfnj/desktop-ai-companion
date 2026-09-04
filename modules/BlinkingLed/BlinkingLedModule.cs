@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using DesktopAICompanion.ModuleKit;
@@ -117,7 +117,7 @@ namespace DesktopAICompanion.BlinkingLed
                     new SettingField
                     {
                         Id = "announce",
-                        Label = "Pet says when it is switched on or off",
+                        Label = "Companion says when it is switched on or off",
                         Kind = SettingKind.Bool,
                         Group = "Blinking LED",
                     },

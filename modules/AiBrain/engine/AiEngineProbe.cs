@@ -62,7 +62,7 @@ namespace DesktopAICompanion.AiBrainModule
                 // --- the crown jewel: the DPAPI-scoped settings store, end to end, in the module ALC ---
                 // Proves AtomicFile.TryWriteAllText + CrossSessionLock + ProtectedData all rebound cleanly.
                 AiSettings s = AiSettings.Load();
-                s.PetName = "ProbePet";
+                s.CompanionName = "ProbeCompanion";
                 s.Provider = "openai";
                 s.OpenAiBaseUrl = "https://api.openai.com/v1";
                 string setError;
@@ -71,7 +71,7 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "settings save (atomic write + cross-session lock) succeeds", saved);
 
                 AiSettings reloaded = AiSettings.Load();
-                ok &= Check(sb, "settings scalar round-trips (PetName)", string.Equals(reloaded.PetName, "ProbePet", StringComparison.Ordinal));
+                ok &= Check(sb, "settings scalar round-trips (CompanionName)", string.Equals(reloaded.CompanionName, "ProbeCompanion", StringComparison.Ordinal));
                 if (keyStored)
                 {
                     // DPAPI encrypted the key on Save; reload must decrypt it back to plaintext.

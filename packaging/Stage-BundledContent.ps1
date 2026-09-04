@@ -31,7 +31,7 @@ foreach ($required in @($petsSource, $packsSource)) {
     }
 }
 
-$petsStage = Join-Path $StagingRoot 'pets'
+$petsStage = Join-Path $StagingRoot 'companions'
 $fortunesStage = Join-Path $StagingRoot 'fortunes'
 New-Item -ItemType Directory -Path $petsStage, $fortunesStage -Force | Out-Null
 

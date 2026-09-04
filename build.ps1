@@ -249,7 +249,7 @@ if ($Zip) {
             -DestinationPath $zipPath `
             -ManifestPath $runtimeManifestPath `
             -ContentDirectories @(
-                @{ Prefix = 'pets'; Source = (Join-Path $contentStaging 'pets') }
+                @{ Prefix = 'companions'; Source = (Join-Path $contentStaging 'companions') }
                 @{ Prefix = 'fortunes'; Source = (Join-Path $contentStaging 'fortunes') }
             )
     }

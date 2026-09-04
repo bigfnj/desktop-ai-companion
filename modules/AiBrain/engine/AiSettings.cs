@@ -101,8 +101,8 @@ namespace DesktopAICompanion.Ai
 
         // ---- Phase 5: persona ----------------------------------------------
 
-        /// <summary>The pet's name, injected into its persona. Empty -> a generic "desktop pet".</summary>
-        public string PetName = "eSheep";
+        /// <summary>The pet's name, injected into its persona. Empty -> a generic "desktop companion".</summary>
+        public string CompanionName = "eSheep";
 
         /// <summary>Optional name the pet may address you by. Empty -> it won't use one.</summary>
         public string UserName = "";
@@ -596,7 +596,7 @@ namespace DesktopAICompanion.Ai
             changed |= NormalizeModel(ref TextModel, "llama3.1:8b");
             changed |= NormalizeModel(ref VisionModel, "gemma3:4b");
             changed |= NormalizeString(ref TesseractPath, "", MaximumPathCharacters);
-            changed |= NormalizeString(ref PetName, "eSheep", MaximumNameCharacters);
+            changed |= NormalizeString(ref CompanionName, "eSheep", MaximumNameCharacters);
             changed |= NormalizeString(ref UserName, "", MaximumNameCharacters);
             changed |= NormalizeString(ref Disposition, Dispositions.DefaultId, 32);
             string canonicalDisposition = Disposition.ToLowerInvariant();

@@ -81,7 +81,7 @@ namespace DesktopAICompanion.Ai
         /// </summary>
         private string BuildSystemPrompt()
         {
-            string name        = string.IsNullOrWhiteSpace(_settings.PetName) ? "a tiny desktop pet" : _settings.PetName.Trim();
+            string name        = string.IsNullOrWhiteSpace(_settings.CompanionName) ? "a tiny desktop companion" : _settings.CompanionName.Trim();
             string disposition = Dispositions.InstructionForId(_settings.Disposition);
             string userName = string.IsNullOrWhiteSpace(_settings.UserName) ? "" : _settings.UserName.Trim();
             // Allow the configured name but don't force it into every remark, and forbid reading a name
@@ -94,7 +94,7 @@ namespace DesktopAICompanion.Ai
                    " — never invent one or use any other name, username or handle you see on the screen.");
 
             return
-                "You are " + name + ", a tiny pet living on the user's screen. " +
+                "You are " + name + ", a tiny companion living on the user's screen. " +
                 "Disposition (apply to the remark text only, keep the JSON exactly as specified): " + disposition +
                 " Commit to it fully and stay in character in every word." + user +
                 " It is currently " + TimeOfDay() + ". " +

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -62,7 +62,7 @@ namespace DesktopAICompanion.ReminderModule
                                  //        every module restarts its numbering here alongside the app.
                                  // 1.8.1: payload refresh only -- the bundled ModuleKit gained the fullscreen
                                  //        test double (host 1.9.9).
-                                 // 1.8.0: NEW: a per-calendar "Reminder pet" -- pick WHICH pet announces each
+                                 // 1.8.0: NEW: a per-calendar "Reminder companion" -- pick WHICH pet announces each
                                  //        calendar, offered only from the pets actually on screen. Needed no ABI
                                  //        change: IHost.Say(pet, ...) and IsCompanionAlive have existed since 1.5.0.
                                  //        When the chosen pet is not out, the reminder still speaks through the
@@ -366,7 +366,7 @@ namespace DesktopAICompanion.ReminderModule
         private static string SlotId(int i) { return "cal" + i.ToString(CultureInfo.InvariantCulture); }
         private static string SlotKey(int i, string key) { return SlotId(i) + "." + key; }
 
-        internal const string SpeakerAnyLabel = "Any pet (whoever speaks for the app)";
+        internal const string SpeakerAnyLabel = "Any companion (whoever speaks for the app)";
 
         /// <summary>
         /// Speak a reminder through the pet this calendar names, falling back to the app's own speaker when
@@ -406,7 +406,7 @@ namespace DesktopAICompanion.ReminderModule
         {
             for (int i = 1; i <= MaxSlots; i++)
                 if (string.Equals(SlotId(i), slotId ?? "", StringComparison.Ordinal))
-                    return _settings.Get(SlotKey(i, "pet"), "");
+                    return _settings.Get(SlotKey(i, "companion"), "");
             return "";
         }
 
@@ -477,8 +477,8 @@ namespace DesktopAICompanion.ReminderModule
                 // repopulate it from the live pets each time the pane opens.
                 _speakerFields[i] = new SettingField
                 {
-                    Id = SlotKey(i, "pet"),
-                    Label = "Reminder pet (which pet speaks this calendar)",
+                    Id = SlotKey(i, "companion"),
+                    Label = "Reminder companion (which companion speaks this calendar)",
                     Kind = SettingKind.Enum,
                     Options = new[] { SpeakerAnyLabel },
                     Group = g,
@@ -500,8 +500,8 @@ namespace DesktopAICompanion.ReminderModule
             fields.Add(new SettingField { Id = "hushPresenting", Label = "Stay quiet while presenting or in Do Not Disturb", Kind = SettingKind.Bool, Group = "Quiet hours" });
             fields.Add(new SettingField { Id = "briefingOn", Label = "Read me the day's agenda each morning", Kind = SettingKind.Bool, Group = "Daily briefing" });
             fields.Add(new SettingField { Id = "briefingTime", Label = "Briefing time (HH:mm, 24h)", Kind = SettingKind.Text, Group = "Daily briefing" });
-            fields.Add(new SettingField { Id = "reactOn", Label = "Make the pet react when a reminder fires", Kind = SettingKind.Bool, Group = "Pet reaction" });
-            fields.Add(new SettingField { Id = "reactAnimations", Label = "Animations to try, in order (first one the pet defines wins)", Kind = SettingKind.Text, Group = "Pet reaction" });
+            fields.Add(new SettingField { Id = "reactOn", Label = "Make the companion react when a reminder fires", Kind = SettingKind.Bool, Group = "Companion reaction" });
+            fields.Add(new SettingField { Id = "reactAnimations", Label = "Animations to try, in order (first one the companion defines wins)", Kind = SettingKind.Text, Group = "Companion reaction" });
             fields.Add(new SettingField { Id = "status", Label = "Feed status", Kind = SettingKind.Info, Group = "Status" });
             return fields.ToArray();
         }
@@ -559,11 +559,11 @@ namespace DesktopAICompanion.ReminderModule
                     RefreshSpeakerOptions();
                     for (int i = 1; i <= MaxSlots; i++)
                     {
-                        // An unset choice, or one whose pet is no longer out, both show "Any pet" WITHOUT
+                        // An unset choice, or one whose pet is no longer out, both show "Any companion" WITHOUT
                         // clearing the stored id: that pet may come back and the preference should survive.
-                        string savedPet = _settings.Get(SlotKey(i, "pet"), "");
+                        string savedPet = _settings.Get(SlotKey(i, "companion"), "");
                         string petLabel;
-                        values[SlotKey(i, "pet")] = _speakerTypeToLabel.TryGetValue(savedPet ?? "", out petLabel)
+                        values[SlotKey(i, "companion")] = _speakerTypeToLabel.TryGetValue(savedPet ?? "", out petLabel)
                             ? petLabel
                             : SpeakerAnyLabel;
                         values[SlotKey(i, "type")] = _settings.Get(SlotKey(i, "type"), SourceOff);
@@ -602,11 +602,11 @@ namespace DesktopAICompanion.ReminderModule
                         if (values.TryGetValue(SlotKey(i, "file"), out v)) _settings.Set(SlotKey(i, "file"), (v ?? "").Trim());
                         // An unrecognized label (the pet was removed while the window was open) leaves the
                         // saved choice alone rather than silently rewriting it to "any".
-                        if (values.TryGetValue(SlotKey(i, "pet"), out v))
+                        if (values.TryGetValue(SlotKey(i, "companion"), out v))
                         {
                             string chosenType;
                             if (_speakerLabelToType.TryGetValue(v ?? "", out chosenType))
-                                _settings.Set(SlotKey(i, "pet"), chosenType);
+                                _settings.Set(SlotKey(i, "companion"), chosenType);
                         }
                         if (values.TryGetValue(SlotKey(i, "chimeOn"), out v)) { bool cb; if (bool.TryParse(v, out cb)) _settings.Set(SlotKey(i, "chimeOn"), cb ? "true" : "false"); }
                         if (values.TryGetValue(SlotKey(i, "chime"), out v)) _settings.Set(SlotKey(i, "chime"), (v ?? "").Trim());
@@ -1242,7 +1242,7 @@ namespace DesktopAICompanion.ReminderModule
             IReadOnlyList<string> defaults = ParseAnimationCandidates(DefaultReactAnimations);
             check("the default reaction list parses to several candidates", defaults.Count == 4);
             check("the first default candidate is boing", defaults.Count > 0 && defaults[0] == "boing");
-            check("order is preserved (the host takes the first the pet defines)",
+            check("order is preserved (the host takes the first the companion defines)",
                 defaults.Count == 4 && defaults[3] == "flower");
             check("whitespace and empty entries are dropped",
                 ParseAnimationCandidates(" jump , , run ,").Count == 2);

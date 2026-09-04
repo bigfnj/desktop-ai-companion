@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -203,7 +203,7 @@ namespace DesktopAICompanion
             if (root == null || JsonRead.IntOrNull(root["version"]) != 1)
                 throw new InvalidDataException("Unsupported catalog version.");
 
-            var pets = root["pets"] as JsonArray;
+            var pets = root["companions"] as JsonArray;
             var packs = root["packs"] as JsonArray;
             var modules = root["modules"] as JsonArray;
             if ((pets != null && pets.Count > MaximumEntries) ||
@@ -409,7 +409,7 @@ namespace DesktopAICompanion
             bool ok = true;
 
             string validJson =
-                "{ \"version\": 1, \"pets\": [ { \"id\": \"fox\", \"name\": \"Fox\", " +
+                "{ \"version\": 1, \"companions\": [ { \"id\": \"fox\", \"name\": \"Fox\", " +
                 "\"author\": \"Michelle\", \"url\": \"" + PetUrlBase +
                 "fox/animations.xml\", \"sha256\": \"" + SampleSha + "\", \"bytes\": 33556 } ], " +
                 "\"packs\": [ { \"id\": \"tech\", \"name\": \"Tech\", \"desc\": \"quips\", " +
@@ -452,25 +452,25 @@ namespace DesktopAICompanion
             // Each of these must be rejected.
             var rejects = new[]
             {
-                "{ \"version\": 2, \"pets\": [], \"packs\": [] }",                       // bad version
-                "{ \"version\": 1, \"pets\": [ { \"id\": \"fox\", \"name\": \"Fox\", " +
+                "{ \"version\": 2, \"companions\": [], \"packs\": [] }",                       // bad version
+                "{ \"version\": 1, \"companions\": [ { \"id\": \"fox\", \"name\": \"Fox\", " +
                     "\"url\": \"" + PetUrlBase + "fox/animations.xml\", " +
                     "\"sha256\": \"notahash\", \"bytes\": 33556 } ], \"packs\": [] }",   // bad sha
-                "{ \"version\": 1, \"pets\": [ { \"id\": \"fox\", \"name\": \"Fox\", " +
+                "{ \"version\": 1, \"companions\": [ { \"id\": \"fox\", \"name\": \"Fox\", " +
                     "\"url\": \"https://evil.example.com/x/animations.xml\", " +
                     "\"sha256\": \"" + SampleSha + "\", \"bytes\": 10 } ], \"packs\": [] }",   // bad host
-                "{ \"version\": 1, \"pets\": [ { \"id\": \"fox\", \"name\": \"Fox\", " +
+                "{ \"version\": 1, \"companions\": [ { \"id\": \"fox\", \"name\": \"Fox\", " +
                     "\"url\": \"" + PetUrlBase + "notfox/animations.xml\", \"sha256\": \"" +
                     SampleSha + "\", \"bytes\": 10 } ], \"packs\": [] }",                // id/path mismatch
-                "{ \"version\": 1, \"pets\": [], \"packs\": [ { \"id\": \"../etc\", " +
+                "{ \"version\": 1, \"companions\": [], \"packs\": [ { \"id\": \"../etc\", " +
                     "\"name\": \"x\", \"url\": \"" + PackUrlBase + "x.txt\", \"sha256\": \"" +
                     SampleSha + "\", \"bytes\": 10, \"count\": 1, \"dataSchema\": 2 } ] }", // unsafe id
                 // An EMPTY permission list is still malformed. An unrecognised NAME is not -- see below.
-                "{ \"version\": 1, \"pets\": [], \"packs\": [], \"modules\": [ { \"id\": \"x\", " +
+                "{ \"version\": 1, \"companions\": [], \"packs\": [], \"modules\": [ { \"id\": \"x\", " +
                     "\"name\": \"X\", \"version\": \"1.0\", \"url\": \"" + ModuleUrlBase +
                     "x.zip\", \"sha256\": \"" + SampleSha +
                     "\", \"bytes\": 10, \"permissions\": \"\" } ] }",                 // empty permissions
-                "{ \"version\": 1, \"pets\": [], \"packs\": [], \"modules\": [ { \"id\": \"x\", " +
+                "{ \"version\": 1, \"companions\": [], \"packs\": [], \"modules\": [ { \"id\": \"x\", " +
                     "\"name\": \"X\", \"version\": \"1.0\", \"url\": \"" + ModuleUrlBase +
                     "x.zip\", \"sha256\": \"" + SampleSha +
                     "\", \"bytes\": 10, \"permissions\": \"Speech,,Storage\" } ] }"   // malformed list
@@ -496,7 +496,7 @@ namespace DesktopAICompanion
             try
             {
                 string forwardCompatible =
-                    "{ \"version\": 1, \"pets\": [], \"packs\": [], \"modules\": [ { \"id\": \"x\", " +
+                    "{ \"version\": 1, \"companions\": [], \"packs\": [], \"modules\": [ { \"id\": \"x\", " +
                     "\"name\": \"X\", \"version\": \"1.0\", \"url\": \"" + ModuleUrlBase +
                     "x.zip\", \"sha256\": \"" + SampleSha +
                     "\", \"bytes\": 10, \"permissions\": \"Speech, FromAFutureHost, Storage\" } ] }";

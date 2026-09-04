@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using DesktopAICompanion.Modules;
 
@@ -36,7 +36,7 @@ namespace DesktopAICompanion.TestModule
                 new TrayItem { Label = "TestModule OK", Group = 9, Order = 0, Click = TrayClicked },
                 new TrayItem
                 {
-                    Label = "Preview a pet from XML",
+                    Label = "Preview a companion from XML",
                     Group = 9,
                     Order = 1,
                     Visible = delegate { return _preview == null || !_preview.IsAlive; },
@@ -44,7 +44,7 @@ namespace DesktopAICompanion.TestModule
                 },
                 new TrayItem
                 {
-                    Label = "Remove the preview pet",
+                    Label = "Remove the preview companion",
                     Group = 9,
                     Order = 2,
                     Visible = delegate { return _preview != null && _preview.IsAlive; },
@@ -92,7 +92,7 @@ namespace DesktopAICompanion.TestModule
             }
             if (xml == null)
             {
-                _host.SayAll("No installed pet to preview. Download one from Options, Pets first.");
+                _host.SayAll("No installed companion to preview. Download one from Options, Companions first.");
                 return;
             }
 
@@ -104,7 +104,7 @@ namespace DesktopAICompanion.TestModule
 
             _preview = pets.SpawnPreview(xml, out error);
             _host.SayAll(_preview != null
-                ? "Preview pet spawned. It is NOT in your saved pet mix."
+                ? "Preview companion spawned. It is NOT in your saved companion mix."
                 : "Preview refused: " + error);
         }
 
@@ -124,7 +124,7 @@ namespace DesktopAICompanion.TestModule
             {
                 if (string.IsNullOrEmpty(typeId)) return null;
                 string root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                string path = System.IO.Path.Combine(root, "DesktopAICompanion", "pets", typeId, "animations.xml");
+                string path = System.IO.Path.Combine(root, "DesktopAICompanion", "companions", typeId, "animations.xml");
                 return System.IO.File.Exists(path) ? System.IO.File.ReadAllText(path) : null;
             }
             catch { return null; }

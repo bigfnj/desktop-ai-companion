@@ -148,7 +148,7 @@ namespace DesktopAICompanion.Wpf
             // Held by reference so Load() can refresh its Options in place before the field is rendered.
             var speakerField = new SettingField
             {
-                Id = "defaultSpeakingPet",
+                Id = "defaultSpeakingCompanion",
                 Label = "Companion that speaks for the app (reminders, fortunes)",
                 Kind = SettingKind.Enum,
                 Options = speakerLabels.ToArray(),
@@ -167,13 +167,13 @@ namespace DesktopAICompanion.Wpf
                     // Says what it actually governs. BuildStartupSpawnPlan uses the saved pet MIX whenever there
                     // is one and only falls back to this count, so the old bare "Companions at startup" label claimed
                     // authority it does not have: set it to 2 with a six-pet mix and you still get six.
-                    new SettingField { Id = "petsAtStartup", Label = "Companions at startup (only when you haven't picked specific companions)", Kind = SettingKind.Int, Min = 1, Max = 16, Group = "Startup & window" },
+                    new SettingField { Id = "companionsAtStartup", Label = "Companions at startup (only when you haven't picked specific companions)", Kind = SettingKind.Int, Min = 1, Max = 16, Group = "Startup & window" },
                     // Per-pet size lives in the Pets module now (the size cycle on each pet card); the global
                     // scale stays only as the internal fallback for pets without an override, so it's no longer
                     // a Preferences field.
                     new SettingField { Id = "volume", Label = "Volume (0-10, 0 = mute)", Kind = SettingKind.Int, Min = 0, Max = 10, Group = "Sound" },
                     new SettingField { Id = "audioDevice", Label = "Sound output device", Kind = SettingKind.Enum, Options = deviceNames.ToArray(), Group = "Sound" },
-                    new SettingField { Id = "petSounds", Label = "Play companion sounds (a companion's own sound effects)", Kind = SettingKind.Bool, Group = "Sound" },
+                    new SettingField { Id = "companionSounds", Label = "Play companion sounds (a companion's own sound effects)", Kind = SettingKind.Bool, Group = "Sound" },
                     new SettingField { Id = "notificationSounds", Label = "Play notification sounds (module chimes, e.g. reminders)", Kind = SettingKind.Bool, Group = "Sound" },
                     new SettingField { Id = "speech", Label = "Enable speech bubbles", Kind = SettingKind.Bool, Group = "Speech" },
                     new SettingField { Id = "speechSeconds", Label = "Speech duration (seconds)", Kind = SettingKind.Int, Min = 2, Max = 30, Group = "Speech" },
@@ -195,7 +195,7 @@ namespace DesktopAICompanion.Wpf
                     // Renaming it would drag a settings migration through three files to change a string
                     // nobody sees; the label is the part the user reads.
                     new SettingField { Id = "monthlyModuleUpdateCheck", Label = "Check weekly for module updates (tells you; never installs on its own)", Kind = SettingKind.Bool, Group = "Modules" },
-                    new SettingField { Id = "petUpdateCheck", Label = "Check weekly for companion updates (tells you; never installs on its own)", Kind = SettingKind.Bool, Group = "Modules" },
+                    new SettingField { Id = "companionUpdateCheck", Label = "Check weekly for companion updates (tells you; never installs on its own)", Kind = SettingKind.Bool, Group = "Modules" },
                     // Hourly rather than weekly, deliberately: missing a new app version for an hour matters
                     // because a user restarts expecting to be told, whereas content updates are not urgent.
                     new SettingField { Id = "appUpdateCheck", Label = "Check weekly for a new app version (tells you; never installs on its own)", Kind = SettingKind.Bool, Group = "Modules" },
@@ -210,8 +210,8 @@ namespace DesktopAICompanion.Wpf
                         d["windowForeground"] = data.GetWindowForeground() ? "true" : "false";
                         d["stealFocus"] = data.GetStealTaskbarFocus() ? "true" : "false";
                         d["multiscreen"] = data.GetMultiscreen() ? "true" : "false";
-                        d["petsAtStartup"] = data.GetAutoStartPets().ToString(CultureInfo.InvariantCulture);
-                        d["petSounds"] = data.GetPetSoundsEnabled() ? "true" : "false";
+                        d["companionsAtStartup"] = data.GetAutoStartPets().ToString(CultureInfo.InvariantCulture);
+                        d["companionSounds"] = data.GetPetSoundsEnabled() ? "true" : "false";
                         d["notificationSounds"] = data.GetNotificationSoundsEnabled() ? "true" : "false";
                         d["speech"] = data.GetSpeechEnabled() ? "true" : "false";
                         d["speechSeconds"] = data.GetSpeechDuration().ToString(CultureInfo.InvariantCulture);
@@ -238,7 +238,7 @@ namespace DesktopAICompanion.Wpf
                         d["randomDropMinutes"] = data.GetRandomDropMinutes().ToString(CultureInfo.InvariantCulture);
                         d["randomDropJitter"] = data.GetRandomDropJitterMinutes().ToString(CultureInfo.InvariantCulture);
                         d["monthlyModuleUpdateCheck"] = data.GetMonthlyModuleUpdateCheck() ? "true" : "false";
-                        d["petUpdateCheck"] = data.GetPetUpdateCheck() ? "true" : "false";
+                        d["companionUpdateCheck"] = data.GetPetUpdateCheck() ? "true" : "false";
                         d["appUpdateCheck"] = data.GetAppUpdateCheck() ? "true" : "false";
 
                         // Rebuild the speaker list from the pets on screen RIGHT NOW and refresh the field's
@@ -252,7 +252,7 @@ namespace DesktopAICompanion.Wpf
                         // survive the round trip (same rule as Trigger Speech above).
                         string savedSpeaker = data.GetDefaultSpeakingPet();
                         string speakerLabel;
-                        d["defaultSpeakingPet"] = speakerTypeToLabel.TryGetValue(savedSpeaker ?? "", out speakerLabel)
+                        d["defaultSpeakingCompanion"] = speakerTypeToLabel.TryGetValue(savedSpeaker ?? "", out speakerLabel)
                             ? speakerLabel
                             : SpeakerDefaultLabel;
                     }
@@ -269,8 +269,8 @@ namespace DesktopAICompanion.Wpf
                     if (values.TryGetValue("windowForeground", out s) && bool.TryParse(s, out b)) ok &= data.SetWindowForeground(b);
                     if (values.TryGetValue("stealFocus", out s) && bool.TryParse(s, out b)) ok &= data.SetStealTaskbarFocus(b);
                     if (values.TryGetValue("multiscreen", out s) && bool.TryParse(s, out b)) ok &= data.SetMultiscreen(b);
-                    if (values.TryGetValue("petsAtStartup", out s) && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out n)) ok &= data.SetAutoStartPets(Math.Max(1, Math.Min(16, n)));
-                    if (values.TryGetValue("petSounds", out s) && bool.TryParse(s, out b)) ok &= data.SetPetSoundsEnabled(b);
+                    if (values.TryGetValue("companionsAtStartup", out s) && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out n)) ok &= data.SetAutoStartPets(Math.Max(1, Math.Min(16, n)));
+                    if (values.TryGetValue("companionSounds", out s) && bool.TryParse(s, out b)) ok &= data.SetPetSoundsEnabled(b);
                     if (values.TryGetValue("notificationSounds", out s) && bool.TryParse(s, out b))
                     {
                         ok &= data.SetNotificationSoundsEnabled(b);
@@ -288,9 +288,9 @@ namespace DesktopAICompanion.Wpf
                     if (values.TryGetValue("speechSeconds", out s) && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out n)) ok &= data.SetSpeechDuration(Math.Max(2, Math.Min(30, n)));
                     if (values.TryGetValue("noRepeat", out s) && bool.TryParse(s, out b)) ok &= data.SetSuppressRepeats(b);
                     if (values.TryGetValue("monthlyModuleUpdateCheck", out s) && bool.TryParse(s, out b)) ok &= data.SetMonthlyModuleUpdateCheck(b);
-                    if (values.TryGetValue("petUpdateCheck", out s) && bool.TryParse(s, out b)) ok &= data.SetPetUpdateCheck(b);
+                    if (values.TryGetValue("companionUpdateCheck", out s) && bool.TryParse(s, out b)) ok &= data.SetPetUpdateCheck(b);
                     if (values.TryGetValue("appUpdateCheck", out s) && bool.TryParse(s, out b)) ok &= data.SetAppUpdateCheck(b);
-                    if (values.TryGetValue("defaultSpeakingPet", out s))
+                    if (values.TryGetValue("defaultSpeakingCompanion", out s))
                     {
                         string chosenType;
                         // An unrecognized label (the pet was removed while the window was open) leaves the

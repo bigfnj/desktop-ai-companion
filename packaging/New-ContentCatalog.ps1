@@ -232,7 +232,7 @@ if (-not $appVersion) {
 $catalog = [ordered]@{
     version = 1
     app     = [ordered]@{ version = $appVersion; releases = "https://github.com/bigfnj/desktop-ai-companion/releases" }
-    pets    = @($pets)
+    companions = @($pets)
     packs   = @($packs)
     modules = @($modules)
 }

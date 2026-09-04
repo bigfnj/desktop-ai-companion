@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
@@ -490,7 +490,7 @@ namespace DesktopAICompanion
                 "  \"schemaVersion\": 1,\n" +
                 "  \"volume\": 0.3,\n" +
                 "  \"scaleLevel\": 1,\n" +
-                "  \"autoStartPets\": 1,\n" +
+                "  \"autoStartCompanions\": 1,\n" +
                 "  \"multiScreen\": false,\n" +
                 "  \"windowForeground\": false,\n" +
                 "  \"stealTaskbarFocus\": false,\n" +
@@ -525,14 +525,22 @@ namespace DesktopAICompanion
         {
             string directory = NewDirectory("settings-petmix-migrate");
             string path = Path.Combine(directory, "settings.json");
-            // A schema-v1 doc with a legacy pet count and blob and NO "pets" list.
+            // A schema-v1 doc with a legacy scalar count and blob and NO companion-mix list.
+            //
+            // The key is spelled with the CURRENT name deliberately. A historically accurate v1 file would
+            // say "autoStartPets", but no such file can reach a 1.0.0 install: the product moved to a new
+            // data root at the same time it renamed its settings keys, so nothing on disk is both v1-shaped
+            // and readable. What is still worth testing, and what this covers, is the SHAPE migration --
+            // a scalar count becoming a one-entry mix keyed to the active ("") companion, and the legacy
+            // XML blob surviving. Renaming the key here does not weaken that; pointing it at a key the
+            // deserialiser no longer binds would just make the test pass vacuously with a count of 0.
             File.WriteAllText(
                 path,
                 "{\n" +
                 "  \"schemaVersion\": 1,\n" +
                 "  \"volume\": 0.3,\n" +
                 "  \"scaleLevel\": 1,\n" +
-                "  \"autoStartPets\": 3,\n" +
+                "  \"autoStartCompanions\": 3,\n" +
                 "  \"speechDurationSeconds\": 6,\n" +
                 "  \"xml\": \"legacy-blob\"\n" +
                 "}",
@@ -548,7 +556,7 @@ namespace DesktopAICompanion
 
             JsonNode onDisk = JsonNode.Parse(File.ReadAllText(path, Encoding.UTF8));
             AssertEqual(2, (int)onDisk["schemaVersion"], "The upgraded schema version was not persisted.");
-            AssertTrue(onDisk["pets"] is JsonArray, "The migrated pets array was not written to disk.");
+            AssertTrue(onDisk["companions"] is JsonArray, "The migrated pets array was not written to disk.");
         }
 
         private static void TestSettingsPetMixValidation()
@@ -611,7 +619,7 @@ namespace DesktopAICompanion
                 "  \"schemaVersion\": 2,\n" +
                 "  \"volume\": 0.3,\n" +
                 "  \"scaleLevel\": 1,\n" +
-                "  \"autoStartPets\": 1,\n" +
+                "  \"autoStartCompanions\": 1,\n" +
                 "  \"speechEnabled\": true,\n" +
                 "  \"speechDurationSeconds\": 6,\n" +
                 "  \"xml\": \"\",\n" +
@@ -631,7 +639,7 @@ namespace DesktopAICompanion
             AssertTrue(secondStore.Save(second), "Second stale save failed.");
 
             JsonNode merged = JsonNode.Parse(File.ReadAllText(path, Encoding.UTF8));
-            JsonArray pets = (JsonArray)merged["pets"];
+            JsonArray pets = (JsonArray)merged["companions"];
             AssertTrue(
                 pets.Count == 1 && (string)pets[0]["id"] == "red_sheep" && (int)pets[0]["count"] == 2,
                 "A stale save lost the other process's pet-mix change.");
