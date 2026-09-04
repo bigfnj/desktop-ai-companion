@@ -105,8 +105,19 @@ function Get-PrettyName([string]$Id) {
 $petsRoot = Join-Path $RepoRoot 'Companions'
 $authors = @{}
 $names = @{}
-$petsJson = Join-Path $petsRoot 'pets.json'
-if (Test-Path -LiteralPath $petsJson) {
+$petsJson = Join-Path $petsRoot 'companions.json'
+# HARD FAIL, not a skip. Without this manifest every entry silently falls back to the title-cased folder id
+# with no author -- so all 53 companions come out named "Shimeji 88f9sqb5" instead of "skeleton Halloween",
+# and the catalog looks plausible rather than broken. That is exactly what happened when the directory was
+# renamed from Pets to Companions: this path is composed at runtime, so a search-and-replace over the
+# composed string "Pets/pets.json" never touched it, Test-Path quietly returned false, and the published
+# catalog lost every real name and every author at once.
+if (-not (Test-Path -LiteralPath $petsJson -PathType Leaf)) {
+    throw ("Companion manifest not found: $petsJson. Without it every companion would be named after its " +
+           "folder id and lose its author, which is a plausible-looking catalog rather than an obvious " +
+           "failure -- so this refuses to write one.")
+}
+if ($true) {
     foreach ($p in (Get-Content -LiteralPath $petsJson -Raw -Encoding UTF8 | ConvertFrom-Json).pets) {
         $authors[[string]$p.folder] = [string]$p.author
         # An optional explicit display name (converted skins carry their character name here); pets without
