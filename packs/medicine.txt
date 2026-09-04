@@ -1,0 +1,50 @@
+medicine	society	observation	general	0	A woman physician has made the statement that smoking is neither physically defective nor morally degrading, and that nicotine, even when indulged to in excess, is less harmful than excessive petting."
+medicine	life	joke	general	0	After twelve years of therapy my psychiatrist said something that brought tears to my eyes. He said, "No hablo ingles."
+medicine	life	quip	general	0	Anyone who goes to a psychiatrist ought to have his head examined.
+medicine	life	dark	general	0	Be a better psychiatrist and the world will beat a psychopath to your door.
+medicine	life	wisdom	general	0	Better to use medicines at the outset than at the last moment.
+medicine	life	dark	general	0	Cure the disease and kill the patient.
+medicine	science	quip	general	0	Death has been proven to be 99% fatal in laboratory rats.
+medicine	health-body	pun	general	0	Dental health is next to mental health.
+medicine	faith	quip	general	0	God is dead and I don't feel all too well either....
+medicine	life	dark	general	0	"Good health" is merely the slowest rate at which one can die.
+medicine	life	aphorism	general	0	Happiness is good health and a bad memory.
+medicine	life	dark	general	0	Health is merely the slowest possible rate at which one can die.
+medicine	life	dark	general	0	Health nuts are going to feel stupid someday, lying in hospitals dying of nothing.
+medicine	life	quip	general	0	His ideas of first-aid stopped short of squirting soda water.
+medicine	health-body	quip	general	0	I get my exercise acting as pallbearer to my friends who exercise.
+medicine	work-money	quip	general	0	I got the bill for my surgery. Now I know what those doctors were wearing masks for.
+medicine	life	joke	general	0	"I keep seeing spots in front of my eyes." "Did you ever see a doctor?" "No, just spots."
+medicine	life	joke	general	0	If you look like your driver's license photo -- see a doctor. If you look like your passport photo -- it's too late for a doctor.
+medicine	life	quip	general	0	It is very vulgar to talk like a dentist when one isn't a dentist. It produces a false impression.
+medicine	life	dark	general	0	It's no longer a question of staying healthy. It's a question of finding a sickness you like.
+medicine	life	quip	general	0	It's not reality or how you perceive things that's important -- it's what you're taking for it...
+medicine	health-body	observation	general	0	Just because your doctor has a name for your condition doesn't mean he knows what it is.
+medicine	science	pun	general	0	Laetrile is the pits.
+medicine	life	quip	general	0	My doctorate's in Literature, but it seems like a pretty good pulse to me.
+medicine	life	quip	general	0	Neurotics build castles in the sky, Psychotics live in them, And psychiatrists collect the rent.
+medicine	life	quip	general	0	Never go to a doctor whose office plants have died.
+medicine	life	quip	general	0	New England Life, of course. Why do you ask?
+medicine	life	quip	general	0	Paralysis through analysis.
+medicine	science	quip	general	0	Proper treatment will cure a cold in seven days, but left to itself, a cold will hang on for a week.
+medicine	life	quip	general	0	Psychiatry enables us to correct our faults by confessing our parents' shortcomings.
+medicine	health-body	quip	general	0	Psychoanalysis is that mental illness for which it regards itself a therapy.
+medicine	life	pun	general	0	Psychiatry is the care of the id by the odd.
+medicine	life	quip	general	0	Show me a sane man and I will cure him for you.
+medicine	life	pun	general	0	Psychology. Mind over matter. Mind under matter? It doesn't matter. Never mind.
+medicine	life	quip	general	0	Pushing 30 is exercise enough.
+medicine	health-body	observation	general	0	Pushing 40 is exercise enough.
+medicine	life	dark	general	0	Quit worrying about your health. It'll go away.
+medicine	life	pun	general	0	Sigmund's wife wore Freudian slips.
+medicine	life	quip	general	0	Some people need a good imaginary cure for their painful imaginary ailment.
+medicine	life	wisdom	general	0	Sometimes the best medicine is to stop taking something.
+medicine	life	quip	general	0	Straw? No, too stupid a fad. I put soot on warts.
+medicine	society	quip	general	0	The 80's -- when you can't tell hairstyles from chemotherapy.
+medicine	life	joke	general	0	"... the Mayo Clinic, named after its founder, Dr. Ted Clinic ..."
+medicine	life	quip	general	0	"The molars, I'm sure, will be all right, the molars can take care of themselves," the old man said, no longer to me. "But what will become of the bicuspids?"
+medicine	life	joke	general	0	The New England Journal of Medicine reports that 9 out of 10 doctors agree that 1 out of 10 doctors is an idiot.
+medicine	science	quip	general	0	The real reason psychology is hard is that psychologists are trying to do the impossible.
+medicine	science	quip	general	0	The reason they're called wisdom teeth is that the experience makes you wise.
+medicine	food	quip	general	0	The secret of healthy hitchhiking is to eat junk food.
+medicine	health-body	dark	general	0	The trouble with heart disease is that the first symptom is often hard to deal with: death.
+medicine	health-body	quip	general	0	When a lot of remedies are suggested for a disease, that means it can't be cured.

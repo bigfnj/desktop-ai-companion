@@ -1,0 +1,17 @@
+---
+layout: default
+---
+
+<article class="post">
+  <h1>Pet: {{ page.title }}</h1>
+
+  <div class="entry">
+    {{ content }}
+  </div>
+
+  {% include disqus.html %}
+  <p class="historical-preview-disabled">
+    The historical browser-based live preview has been disabled. Pet definitions remain available
+    as static repository files for inspection with the current application and validation tools.
+  </p>
+</article>

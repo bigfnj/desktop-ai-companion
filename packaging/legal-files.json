@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "files": [
+    {
+      "outputName": "DOTNET_10_THIRD_PARTY_NOTICES.txt",
+      "sourceKind": "nuget",
+      "package": "Microsoft.Bcl.AsyncInterfaces",
+      "version": "10.0.10",
+      "sourcePath": "THIRD-PARTY-NOTICES.TXT",
+      "sha256": "6D15E10A101C6BFFF2AB4429ED061BF76C456FC4B23AD6B03E0D0F8377148A21",
+      "equivalentSources": [
+        {
+          "package": "System.IO.Pipelines",
+          "version": "10.0.10",
+          "sourcePath": "THIRD-PARTY-NOTICES.TXT"
+        },
+        {
+          "package": "System.Security.Permissions",
+          "version": "10.0.10",
+          "sourcePath": "THIRD-PARTY-NOTICES.TXT"
+        },
+        {
+          "package": "System.Text.Encodings.Web",
+          "version": "10.0.10",
+          "sourcePath": "THIRD-PARTY-NOTICES.TXT"
+        },
+        {
+          "package": "System.Text.Json",
+          "version": "10.0.10",
+          "sourcePath": "THIRD-PARTY-NOTICES.TXT"
+        }
+      ]
+    },
+    {
+      "outputName": "DOTNET_5_THIRD_PARTY_NOTICES.txt",
+      "sourceKind": "nuget",
+      "package": "Microsoft.Win32.Registry",
+      "version": "5.0.0",
+      "sourcePath": "THIRD-PARTY-NOTICES.TXT",
+      "sha256": "78E22D4D24A710D2A09426C09060F3448204778ED506B1DA55447A6089B54FAE",
+      "equivalentSources": [
+        {
+          "package": "System.Security.Principal.Windows",
+          "version": "5.0.0",
+          "sourcePath": "THIRD-PARTY-NOTICES.TXT"
+        }
+      ]
+    },
+    {
+      "outputName": "DOTNET_6_THIRD_PARTY_NOTICES.txt",
+      "sourceKind": "nuget",
+      "package": "System.Security.AccessControl",
+      "version": "6.0.1",
+      "sourcePath": "THIRD-PARTY-NOTICES.TXT",
+      "sha256": "7E96BFBC9187981D10B946A1F2C26609D968E645DD7521E6129389D03473E519"
+    },
+    {
+      "outputName": "DOTNET_8_THIRD_PARTY_NOTICES.txt",
+      "sourceKind": "nuget",
+      "package": "System.Resources.Extensions",
+      "version": "8.0.0",
+      "sourcePath": "THIRD-PARTY-NOTICES.TXT",
+      "sha256": "19C19DCAC9F3EE6302CFBC6745BB8E79F08EFC4C933EB8DC5509BF14B88347EC"
+    },
+    {
+      "outputName": "DOTNET_RUNTIME_LICENSE.txt",
+      "sourceKind": "nuget",
+      "package": "Microsoft.Win32.Registry",
+      "version": "5.0.0",
+      "sourcePath": "LICENSE.TXT",
+      "sha256": "D7A68596AB69B06F51CA278A6545148E4269A9381C26D597C13DF5D88E08CF5B",
+      "equivalentSources": [
+        {
+          "package": "System.Resources.Extensions",
+          "version": "8.0.0",
+          "sourcePath": "LICENSE.TXT"
+        },
+        {
+          "package": "System.Security.AccessControl",
+          "version": "6.0.1",
+          "sourcePath": "LICENSE.TXT"
+        },
+        {
+          "package": "System.Security.Principal.Windows",
+          "version": "5.0.0",
+          "sourcePath": "LICENSE.TXT"
+        }
+      ]
+    },
+    {
+      "outputName": "NAUDIO_LICENSE.txt",
+      "sourceKind": "repository",
+      "sourcePath": "packaging/licenses/NAUDIO_LICENSE.txt",
+      "sha256": "B3B45984823D8604640D080A0254627E95D238F674DBAAF1A6D06196A420DA7C"
+    },
+    {
+      "outputName": "ONNXRUNTIME_LICENSE.txt",
+      "sourceKind": "nuget",
+      "package": "Microsoft.ML.OnnxRuntime",
+      "version": "1.28.0",
+      "sourcePath": "LICENSE",
+      "sha256": "C250D6278F0B47A6439FB7592B08B58A55EB9F535AA49A1DB63211C3F982B674",
+      "equivalentSources": [
+        {
+          "package": "Microsoft.ML.OnnxRuntime.Managed",
+          "version": "1.28.0",
+          "sourcePath": "LICENSE.txt"
+        }
+      ]
+    },
+    {
+      "outputName": "ONNXRUNTIME_THIRD_PARTY_NOTICES.txt",
+      "sourceKind": "nuget",
+      "package": "Microsoft.ML.OnnxRuntime",
+      "version": "1.28.0",
+      "sourcePath": "ThirdPartyNotices.txt",
+      "sha256": "FB0AF774B4D7CFFC5B9D046F2AAEADE2F37DF2F80ABF8033C95DFFFCC77A8866",
+      "equivalentSources": [
+        {
+          "package": "Microsoft.ML.OnnxRuntime.Managed",
+          "version": "1.28.0",
+          "sourcePath": "ThirdPartyNotices.txt"
+        }
+      ]
+    }
+  ]
+}

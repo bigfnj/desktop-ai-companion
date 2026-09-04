@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Remembrance module: records a meeting (a selectable microphone + the system output over WASAPI
+       loopback), transcribes it offline with a local Whisper, names it from the calendar (via the Reminder
+       module's "meeting.current" shared-context publish), snapshots the screen on a hotkey, and purges the
+       audio + snapshots after 72 hours while keeping the transcript. References ONLY the plugin ABI
+       (Private=false => the host's single shared DesktopAICompanion.Contracts) + ModuleKit (its own copy). WinForms
+       is on for the UI-thread timer, a FolderBrowserDialog (storage location), and System.Drawing screen
+       capture. NAudio (bundled, module load context) does the audio capture + realtime mix. -->
+  <PropertyGroup>
+    <!-- windows10.0.19041: NAudio.Wasapi (WASAPI loopback capture) ships only a net_-windows10.0.19041 asset,
+         and WASAPI loopback needs Win10 anyway. The base stays on windows7.0 (DirectSound) because it never
+         captures; this module does, so it targets the higher Windows API level. -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>DesktopAICompanion.RemembranceModule</RootNamespace>
+    <AssemblyName>Remembrance</AssemblyName>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <Deterministic>true</Deterministic>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateDependencyFile>true</GenerateDependencyFile>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <!-- CS0618: WasapiCapture / WasapiLoopbackCapture are marked obsolete in favour of WasapiRecorder, which
+         is not in the pinned NAudio 3.0.0-preview.6 (it is unreleased). The classic classes are the stable
+         capture API here; suppress the obsolete-usage warning deliberately. -->
+    <NoWarn>$(NoWarn);618</NoWarn>
+    <OutputPath>..\..\build\DesktopAICompanionPortable\bin\$(Configuration)\x64\modules\remembrance\</OutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DesktopAICompanion.Contracts\DesktopAICompanion.Contracts.csproj" Private="false" />
+    <!-- ModuleKit ships inside the module folder (NOT Private=false) so each load context carries its own. -->
+    <ProjectReference Include="..\..\src\DesktopAICompanion.ModuleKit\DesktopAICompanion.ModuleKit.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NAudio.Core" Version="3.0.0-preview.6" />
+    <PackageReference Include="NAudio.Wasapi" Version="3.0.0-preview.6" />
+  </ItemGroup>
+
+  <!-- Tray icons, read at Init via EmbeddedResources.LoadBytes (matches on the trailing file name). Every
+       tray entry this module contributes has its own, which is a project convention. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\recording.png" />
+    <EmbeddedResource Include="Resources\snapshot.png" />
+  </ItemGroup>
+
+</Project>

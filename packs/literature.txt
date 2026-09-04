@@ -1,0 +1,212 @@
+literature	work-money	aphorism	general	0	A banker is a fellow who lends you his umbrella when the sun is shining and wants it back the minute it begins to rain.
+literature	arts	quip	general	0	A classic is something that everyone wants to have read and nobody wants to read.
+literature	life	tv-quote	general	0	A horse! A horse! My kingdom for a horse!
+literature	arts	observation	general	0	A hundred years from now it is very likely that [of Twain's works] "The Jumping Frog" alone will be remembered.
+literature	life	quip	general	0	A is for Apple.
+literature	arts	quip	general	0	A kind of Batman of contemporary letters.
+literature	love	aphorism	general	0	A light wife doth make a heavy husband.
+literature	life	pun	general	0	A man was reading The Canterbury Tales one Saturday morning, when his wife asked "What have you got there?" Replied he, "Just my cup and Chaucer."
+literature	life	quip	general	0	... A solemn, unsmiling, sanctimonious old iceberg who looked like he was waiting for a vacancy in the Trinity.
+literature	arts	quip	general	0	After all, all he did was string together a lot of old, well-known quotations.
+literature	love	aphorism	general	0	Alas, how love can trifle with itself!
+literature	life	quip	general	0	All generalizations are false, including this one.
+literature	arts	wisdom	general	0	All I know is what the words know, and dead things, and that makes a handsome little sum, with a beginning and a middle and an end, as in the well-built phrase and the long sonata of the dead.
+literature	life	dark	general	0	All say, "How hard it is that we have to die"--a strange complaint to come from the mouths of people who have had to live.
+literature	life	quip	general	0	"... all the modern inconveniences ..."
+literature	life	wisdom	general	0	All things that are, are with more spirit chased than enjoyed.
+literature	life	wisdom	general	0	Always do right. This will gratify some people and astonish the rest.
+literature	life	wisdom	general	0	Always the dullness of the fool is the whetstone of the wits.
+literature	life	quip	general	0	"... an experienced, industrious, ambitious, and often quite picturesque liar."
+literature	life	wisdom	general	0	An honest tale speeds best being plainly told.
+literature	life	tv-quote	general	0	And do you think (fop that I am) that I could be the Scarlet Pumpernickel?
+literature	life	wisdom	general	0	Anyone who has had a bull by the tail knows five or six more things than someone who hasn't.
+literature	life	aphorism	general	0	April 1 This is the day upon which we are reminded of what we are on the other three hundred and sixty-four.
+literature	life	dark	general	0	As flies to wanton boys are we to the gods; they kill us for their sport.
+literature	arts	aphorism	general	0	As to the Adjective: when in doubt, strike it out.
+literature	life	verse	general	0	AWAKE! FEAR! FIRE! FOES! AWAKE! FEAR! FIRE! FOES! AWAKE! AWAKE!
+literature	life	quip	general	0	Be careful of reading health books, you might die of a misprint.
+literature	work-money	aphorism	general	0	Behold, the fool saith, "Put not all thine eggs in the one basket"--which is but a manner of saying, "Scatter your money and your attention;" but the wise man saith, "Put all your eggs in the one basket and--WATCH THAT BASKET."
+literature	arts	quip	general	0	Big book, big bore.
+literature	life	quip	general	0	But, for my own part, it was Greek to me.
+literature	life	quip	general	0	By trying we can easily learn to endure adversity. Another man's, I mean.
+literature	society	quip	general	0	Civilization is the limitless multiplication of unnecessary necessities.
+literature	arts	quip	general	0	Condense soup, not books!
+literature	life	wisdom	general	0	Conscience doth make cowards of us all.
+literature	life	wisdom	general	0	Consider well the proportions of things. It is better to be a young June-bug than an old bird of paradise.
+literature	tech	quip	general	0	Delay not, Caesar. Read it instantly. -- Shakespeare, "Julius Caesar" 3,1 Here is a letter, read it at your leisure. -- Shakespeare, "Merchant of Venice" 5,1 [Quoted in "VMS Internals and Data Structures", V4.4, when referring to I/O system services.]
+literature	life	wisdom	general	0	Don't go around saying the world owes you a living. The world owes you nothing. It was here first.
+literature	arts	tv-quote	general	0	"Elves and Dragons!" I says to him. "Cabbages and potatoes are better for you and me."
+literature	arts	quip	general	0	English literature's performing flea.
+literature	nature	aphorism	general	0	Every cloud engenders not a storm.
+literature	life	aphorism	general	0	Every why hath a wherefore.
+literature	life	aphorism	general	0	Extreme fear can neither fight nor fly.
+literature	arts	quip	general	0	F.S. Fitzgerald to Hemingway: "Ernest, the rich are different from us." Hemingway: "Yes. They have more money."
+literature	life	aphorism	general	0	Fame is a vapor; popularity an accident; the only earthly certainty is oblivion.
+literature	family	quip	general	0	Familiarity breeds contempt -- and children.
+literature	life	quip	general	0	Few things are harder to put up with than the annoyance of a good example.
+literature	life	aphorism	general	0	For a light heart lives long.
+literature	life	aphorism	general	0	For courage mounteth with occasion.
+literature	life	wisdom	general	0	For there are moments when one can neither think nor feel. And if one can neither think nor feel, she thought, where is one?
+literature	arts	verse	general	0	For years a secret shame destroyed my peace-- I'd not read Eliot, Auden or MacNiece. But now I think a thought that brings me hope: Neither had Chaucer, Shakespeare, Milton, Pope.
+literature	arts	wisdom	general	0	Go not to the elves for counsel, for they will say both yes and no.
+literature	life	wisdom	general	0	Gratitude and treachery are merely the two extremities of the same procession. You have seen all of it that is worth staying for when the band and the gaudy officials have gone by.
+literature	life	wisdom	general	0	Grief can take care of itself; but to get the full value of a joy you must have somebody to divide it with.
+literature	life	wisdom	general	0	Habit is habit, and not to be flung out of the window by any man, but coaxed down-stairs a step at a time.
+literature	society	aphorism	general	0	Hain't we got all the fools in town on our side? And hain't that a big enough majority in any town?
+literature	life	aphorism	general	0	Harp not on that string.
+literature	life	quip	general	0	Have a place for everything and keep the thing somewhere else; this is not advice, it is merely custom.
+literature	life	aphorism	general	0	Having nothing, nothing can he lose.
+literature	arts	quip	general	0	He draweth out the thread of his verbosity finer than the staple of his argument.
+literature	life	quip	general	0	He hath eaten me out of house and home.
+literature	life	quip	general	0	He is now rising from affluence to poverty.
+literature	life	aphorism	general	0	He jests at scars who never felt a wound.
+literature	life	wisdom	general	0	He that breaks a thing to find out what it is has left the path of wisdom.
+literature	life	aphorism	general	0	He that is giddy thinks the world turns round.
+literature	life	quip	general	0	He was part of my dream, of course -- but then I was part of his dream too.
+literature	life	dark	general	0	Hell is empty and all the devils are here.
+literature	society	aphorism	general	0	How apt the poor are to be proud.
+literature	life	quip	general	0	I do desire we may be better strangers.
+literature	life	quip	general	0	I don't know half of you half as well as I should like; and I like less than half of you half as well as you deserve.
+literature	life	quip	general	0	I dote on his very absence.
+literature	arts	quip	general	0	I fell asleep reading a dull book, and I dreamt that I was reading on, so I woke up from sheer boredom.
+literature	life	quip	general	0	I have never let my schooling interfere with my education.
+literature	life	quip	general	0	I must have a prodigious quantity of mind; it takes me as much as a week sometimes to make it up.
+literature	life	dark	general	0	I think we are in Rats' Alley where the dead men lost their bones.
+literature	life	quip	general	0	I was gratified to be able to answer promptly, and I did. I said I didn't know.
+literature	arts	quip	general	0	I'll burn my books.
+literature	life	verse	general	0	I've touch'd the highest point of all my greatness; And from that full meridian of my glory I haste now to my setting. I shall fall, Like a bright exhalation in the evening And no man see me more.
+literature	life	wisdom	general	0	If more of us valued food and cheer and song above hoarded gold, it would be a merrier world.
+literature	arts	wisdom	general	0	If one cannot enjoy reading a book over and over again, there is no use in reading it at all.
+literature	love	dark	general	0	If two people love each other, there can be no happy end to it.
+literature	society	quip	general	0	If you laid all of our laws end to end, there would be no end.
+literature	nature	aphorism	general	0	If you pick up a starving dog and make him prosperous, he will not bite you. This is the principal difference between a dog and a man.
+literature	life	aphorism	general	0	If you tell the truth you don't have to remember anything.
+literature	society	fact	general	0	In a museum in Havana, there are two skulls of Christopher Columbus, "one when he was a boy and one when he was a man."
+literature	nature	quip	general	0	In India, "cold weather" is merely a conventional phrase and has come into use through the necessity of having some way to distinguish between weather which will melt a brass door-knob and weather which will only make it mushy.
+literature	life	observation	general	0	In Marseilles they make half the toilet soap we consume in America, but the Marseillaise only have a vague theoretical idea of its use, which they have obtained from books of travel.
+literature	society	quip	general	0	In the first place, God made idiots; this was for practice; then he made school boards.
+literature	nature	observation	general	0	In the Spring, I have counted 136 different kinds of weather inside of 24 hours.
+literature	life	wisdom	general	0	It has long been an axiom of mine that the little things are infinitely the most important.
+literature	family	wisdom	general	0	It is a wise father that knows his own child.
+literature	society	quip	general	0	It is by the fortune of God that, in this country, we have three benefits: freedom of speech, freedom of thought, and the wisdom never to use either.
+literature	life	observation	general	0	It is easy to find fault, if one has that disposition. There was once a man who, not being able to find any other fault with his coal, complained that there were too many prehistoric toads in it.
+literature	life	wisdom	general	0	It is often the case that the man who can't tell a lie thinks he is the best judge of one.
+literature	life	quip	general	0	It usually takes more than three weeks to prepare a good impromptu speech.
+literature	life	aphorism	general	0	It were not best that we should all think alike; it is difference of opinion that makes horse-races.
+literature	society	quip	general	0	Its name is Public Opinion. It is held in reverence. It settles everything. Some think it is the voice of God.
+literature	life	wisdom	general	0	Kindness is a language which the deaf can hear and the blind can read.
+literature	love	verse	general	0	Kiss me, Kate, we will be married o' Sunday.
+literature	life	quip	general	0	Lay on, MacDuff, and curs'd be him who first cries, "Hold, enough!".
+literature	life	quip	general	0	Let him choose out of my files, his projects to accomplish.
+literature	life	quip	general	0	Let me take you a button-hole lower.
+literature	life	wisdom	general	0	Let us endeavor so to live that when we come to die even the undertaker will be sorry.
+literature	life	aphorism	general	0	Lord, what fools these mortals be!
+literature	life	observation	general	0	Man is the only animal that blushes -- or needs to.
+literature	arts	wisdom	general	0	Many a writer seems to think he is never profound except when he can't understand his own meaning.
+literature	life	observation	general	0	Many pages make a thick book, except for pocket Bibles which are on very very thin paper.
+literature	life	aphorism	general	0	Many pages make a thick book.
+literature	arts	quip	general	0	Must I hold a candle to my shames?
+literature	love	verse	general	0	My only love sprung from my only hate! Too early seen unknown, and known too late!
+literature	life	aphorism	general	0	Never laugh at live dragons.
+literature	society	quip	general	0	No group of professionals meets except to conspire against the public at large.
+literature	life	quip	general	0	No violence, gentlemen -- no violence, I beg of you! Consider the furniture!
+literature	life	quip	general	0	Noise proves nothing. Often a hen who has merely laid an egg cackles as if she laid an asteroid.
+literature	life	insult	general	0	"Not Hercules could have knock'd out his brains, for he had none."
+literature	life	quip	general	0	Nothing so needs reforming as other people's habits.
+literature	life	wisdom	general	0	O, it is excellent To have a giant's strength; but it is tyrannous To use it like a giant.
+literature	society	quip	general	0	October 12, the Discovery. It was wonderful to find America, but it would have been more wonderful to miss it.
+literature	work-money	quip	general	0	October. This is one of the peculiarly dangerous months to speculate in stocks in. The others are July, January, September, April, November, May, March, June, December, August, and February.
+literature	life	verse	general	0	O, what a tangled web we weave, When first we practice to deceive.
+literature	life	quip	general	0	One of the most striking differences between a cat and a lie is that a cat has only nine lives.
+literature	life	aphorism	general	0	Patch griefs with proverbs.
+literature	arts	wisdom	general	0	Perilous to all of us are the devices of an art deeper than we ourselves possess. -- Gandalf the Grey [J.R.R. Tolkien, "Lord of the Rings"]
+literature	arts	quip	general	0	Persons attempting to find a motive in this narrative will be prosecuted; persons attempting to find a moral in it will be banished; persons attempting to find a plot in it will be shot. By Order of the Author
+literature	tech	quip	general	0	question = ( to ) ? be : ! be
+literature	society	quip	general	0	Reader, suppose you were an idiot. And suppose you were a member of Congress. But I repeat myself.
+literature	life	quip	general	0	Rebellion lay in his way, and he found it.
+literature	life	insult	general	0	Remark of Dr. Baldwin's concerning upstarts: We don't care to eat toadstools that think they are truffles.
+literature	life	observation	general	0	Repartee is something we think of twenty-four hours too late.
+literature	arts	tv-quote	general	0	ROMEO: Courage, man; the hurt cannot be much. MERCUTIO: No, 'tis not so deep as a well, nor so wide as a church-door; but 'tis enough, 'twill serve.
+literature	life	wisdom	general	0	Seeing that death, a necessary end, Will come when it will come.
+literature	life	quip	general	0	She is not refined. She is not unrefined. She keeps a parrot.
+literature	life	aphorism	general	0	Small things make base men proud.
+literature	life	quip	general	0	So so is good, very good, very excellent good: and yet it is not; it is but so so.
+literature	society	quip	general	0	Soap and education are not as sudden as a massacre, but they are more deadly in the long run.
+literature	arts	tv-quote	general	0	Something's rotten in the state of Denmark.
+literature	life	quip	general	0	Sometimes I wonder if I'm in my right mind. Then it passes off and I'm as intelligent as ever.
+literature	life	wisdom	general	0	Steady movement is more important than speed, much of the time. So long as there is a regular progression of stimuli to get your mental hooks into, there is room for lateral movement. Once this begins, its rate is a matter of discretion.
+literature	life	aphorism	general	0	Suspicion always haunts the guilty mind.
+literature	life	quip	general	0	Swerve me? The path to my fixed purpose is laid with iron rails, whereon my soul is grooved to run. Over unsounded gorges, through the rifled hearts of mountains, under torrents' beds, unerringly I rush!
+literature	life	aphorism	general	0	Talkers are no good doers.
+literature	life	aphorism	general	0	Tell the truth or trump--but get the trick.
+literature	life	aphorism	general	0	Tempt not a desperate man.
+literature	society	wisdom	general	0	The abuse of greatness is when it disjoins remorse from power.
+literature	life	verse	general	0	The bay-trees in our country are all wither'd And meteors fright the fixed stars of heaven; The pale-faced moon looks bloody on the earth And lean-look'd prophets whisper fearful change. These signs forerun the death or fall of kings.
+literature	life	aphorism	general	0	The better part of valor is discretion.
+literature	faith	aphorism	general	0	The devil can cite Scripture for his purpose.
+literature	faith	observation	general	0	The difference between a Miracle and a Fact is exactly the difference between a mermaid and a seal.
+literature	arts	wisdom	general	0	The difference between the right word and the almost right word is the difference between lightning and the lightning bug.
+literature	life	aphorism	general	0	The fashion wears out more apparel than the man.
+literature	society	quip	general	0	The first thing we do, let's kill all the lawyers.
+literature	love	aphorism	general	0	The holy passion of Friendship is of so sweet and steady and loyal and enduring a nature that it will last through a whole lifetime, if not asked to lend money.
+literature	life	wisdom	general	0	The human race has one really effective weapon, and that is laughter.
+literature	life	quip	general	0	The human race is a race of cowards; and I am not only marching in that procession but carrying a banner.
+literature	arts	verse	general	0	The lunatic, the lover, and the poet, Are of imagination all compact...
+literature	life	aphorism	general	0	The man who sets out to carry a cat by its tail learns something that will always be useful and which never will grow dim or doubtful.
+literature	life	pun	general	0	The naked truth of it is, I have no shirt.
+literature	life	dark	general	0	The only way to keep your health is to eat what you don't want, drink what you don't like, and do what you'd rather not.
+literature	society	wisdom	general	0	The Public is merely a multiplied "me."
+literature	life	aphorism	general	0	The ripest fruit falls first.
+literature	arts	wisdom	general	0	The secret source of humor is not joy but sorrow; there is no humor in Heaven.
+literature	life	aphorism	general	0	The smallest worm will turn being trodden on.
+literature	life	quip	general	0	The surest protection against temptation is cowardice.
+literature	society	aphorism	general	0	The very ink with which all history is written is merely fluid prejudice.
+literature	life	wisdom	general	0	There are more things in heaven and earth, Horatio, than are dreamt of in your philosophy.
+literature	arts	quip	general	0	There is a great discovery still to be made in Literature: that of paying literary men by the quantity they do NOT write.
+literature	arts	quip	general	0	There is always one thing to remember: writers are always selling somebody out.
+literature	life	dark	general	0	There is an old time toast which is golden for its beauty. "When you ascend the hill of prosperity may you not meet a friend."
+literature	society	quip	general	0	There is no distinctly native American criminal class except Congress.
+literature	life	dark	general	0	There is no hunting like the hunting of man, and those who have hunted armed men long enough and liked it, never care for anything else thereafter.
+literature	life	aphorism	general	0	There's small choice in rotten apples.
+literature	arts	quip	general	0	They have been at a great feast of languages, and stolen the scraps.
+literature	life	quip	general	0	They spell it "da Vinci" and pronounce it "da Vinchy". Foreigners always spell better than they pronounce.
+literature	life	quip	general	0	Things past redress and now with me past care.
+literature	society	wisdom	general	0	This is the first age that's paid much attention to the future, which is a little ironic since we may not have one.
+literature	nature	verse	general	0	This night methinks is but the daylight sick.
+literature	life	quip	general	0	This was the most unkindest cut of all.
+literature	arts	quip	general	0	To be or not to be.
+literature	life	quip	general	0	Too much is just enough.
+literature	life	wisdom	general	0	Training is everything. The peach was once a bitter almond; cauliflower is nothing but cabbage with a college education.
+literature	life	quip	general	0	Truth is the most valuable thing we have -- so let us economize it.
+literature	arts	quip	general	0	Wagner's music is better than it sounds.
+literature	life	quip	general	0	Water, taken in moderation cannot hurt anybody.
+literature	nature	observation	general	0	We know all about the habits of the ant, we know all about the habits of the bee, but we know nothing at all about the habits of the oyster. It seems almost certain that we have been choosing the wrong time for studying the oyster.
+literature	arts	quip	general	0	What good is an obscenity trial except to popularize literature?
+literature	life	aphorism	general	0	What I tell you three times is true.
+literature	life	aphorism	general	0	When angry, count four; when very angry, swear.
+literature	life	wisdom	general	0	When I reflect upon the number of disagreeable people who I know who have gone to a better world, I am moved to lead a different life.
+literature	life	quip	general	0	When I was younger, I could remember anything, whether it had happened or not; but my faculties are decaying now and soon I shall be so I cannot remember any but the things that never happened. It is sad to go to pieces like this but we all have to do it.
+literature	life	aphorism	general	0	When in doubt, tell the truth.
+literature	life	dark	general	0	When one burns one's bridges, what a very nice fire it makes.
+literature	life	dark	general	0	When you are about to die, a wombat is better than no company at all.
+literature	arts	quip	general	0	Whenever the literary German dives into a sentence, that is the last you are going to see of him until he emerges on the other side of his Atlantic with his verb in his mouth.
+literature	society	wisdom	general	0	Whenever you find that you are on the side of the majority, it is time to reform.
+literature	life	dark	general	0	Whoever has lived long enough to find out what life is, knows how deep a debt of gratitude we owe to Adam, the first great benefactor of our race. He brought death into the world.
+literature	life	dark	general	0	Why is it that we rejoice at a birth and grieve at a funeral? It is because we are not the person involved.
+literature	work-money	wisdom	general	0	Work consists of whatever a body is obliged to do. Play consists of whatever a body is not obliged to do.
+literature	life	wisdom	general	0	Wrinkles should merely indicate where smiles have been.
+literature	arts	quip	general	0	Writing is easy; all you do is sit staring at the blank sheet of paper until drops of blood form on your forehead.
+literature	arts	quip	general	0	Writing is turning one's worst moments into money.
+literature	arts	quip	general	0	"You have been in Afghanistan, I perceive."
+literature	arts	quip	general	0	"You have heard me speak of Professor Moriarty?" "The famous scientific criminal, as famous among crooks as --" "My blushes, Watson," Holmes murmured, in a deprecating voice. "I was about to say 'as he is unknown to the public.'"
+literature	arts	quip	general	0	You may my glories and my state dispose, But not my griefs; still am I king of those.
+literature	life	tv-quote	general	0	You mentioned your name as if I should recognize it, but beyond the obvious facts that you are a bachelor, a solicitor, a freemason, and an asthmatic, I know nothing whatever about you.
+literature	arts	wisdom	general	0	You never have to change anything you got up in the middle of the night to write.
+literature	life	quip	general	0	You tread upon my patience.
+literature	food	tv-quote	general	0	You will remember, Watson, how the dreadful business of the Abernetty family was first brought to my notice by the depth which the parsley had sunk into the butter upon a hot day.
+literature	arts	quip	general	0	Your manuscript is both good and original, but the part that is good is not original and the part that is original is not good.
+literature	family	tv-quote	general	0	Zounds! I was never so bethumped with words since I first called my brother's father dad.
+literature	life	wisdom	general	0	The mind is its own place, and in itself Can make a Heav'n of Hell, a Hell of Heav'n.
+literature	science	quip	general	0	"I understand this is your first dead client," Sabian was saying. The absurdity of the statement made me want to laugh but they don't call me Deadpan Allie and lie.
+literature	work-money	quip	general	0	I got a hint of things to come when I overheard my boss lamenting, 'The books are done and we still don't have an author! I must sign someone today!
+literature	tech	quip	general	0	"It is an established fact that 99.83% conversations on block chain are non-consentual" -Cory Doctorow, "The Internet Con"

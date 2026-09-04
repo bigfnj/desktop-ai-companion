@@ -1,0 +1,163 @@
+tv-batman	life	tv-quote	general	0	Commissioner Gordon: I don't know who he is beneath that mask of his, but I know when we need him, and we need him now!
+tv-batman	life	tv-quote	general	0	Robin: Gosh, if I could just figure out that riddle. Why can't I get it? Batman: Maybe your mind's on that cute little teenager who waved to you on the way across town, eh? Robin: Awww, come on, Batman.
+tv-batman	life	tv-quote	general	0	Riddler: Did you hear about Greta Garbo? She dreamed one night she sprinkled 6 boxes of grass seed in her hair, and woke up moaning: "I vant to be a lawn!"
+tv-batman	life	tv-quote	general	0	Batman: The joke's on you, Riddler! Robin: When is a donkey spelled with 1 letter?! When it's "U"!
+tv-batman	life	tv-quote	general	0	Robin: What do we do, tip off Commissioner Gordon? Batman: No, not on your life, old man. The Penguin and I have a score to settle.
+tv-batman	society	tv-quote	general	0	Celebrity: I'm not a person! I'm just a commodity!
+tv-batman	life	tv-quote	general	0	Aunt Harriet: Oh, Alfred! [She faints upon seeing Alfred and the movie star unconcious.]
+tv-batman	society	tv-quote	general	0	Chief O'Hara: He's been sprung!
+tv-batman	life	tv-quote	general	0	The Joker: [laughing] And now people of Gotham City, the moment you have all been waiting for. [Continuously Laughing] The grand finale!; The climax of my performance! The zenith of my career! The unmasking of Batman and Robin the Boy Wonder!
+tv-batman	life	tv-quote	general	0	Joker: Egads! What sorcery is this? There was enough paralyzing gas in that cork to keep ordinary men unconscious for hours! Batman: No sorcery! Merely the precaution of a universal antidote pill!
+tv-batman	life	tv-quote	general	0	Joker: Wrong, panel! [laughs] A switch, but not electric. As you doubters know, every wrong answer means that we contribute $1.00 to the famous Joker's home for worn out bats!
+tv-batman	arts	tv-quote	general	0	Batman: I'm afraid you're under arrest, madam. Queenie: Couldn't we talk it over, handsome? Batman: Poor, deluded child!
+tv-batman	life	tv-quote	general	0	Batman: Poor devil...forced to live in an air-conditioned suit that keeps his body temperature down to 50 degrees below zero! No wonder his mind is warped.
+tv-batman	life	tv-quote	general	0	Mr. Freeze [after freezing Batman & Robin]: I'm sorry, Batman. I wanted to toy with you a little longer, but that is the way the ice cube crumbles!
+tv-batman	life	tv-quote	general	0	Batman: [Insisting that he be substituted for a hostage against the strong opposition of Gordon and O'Hara] Sorry, Diamante is the idol of millions of impressionable young lads who look up to him. He must live to inspire the youth of today who will be the men of tomorrow.
+tv-batman	life	tv-quote	general	0	Robin: Diamente means diamond in Italian.
+tv-batman	life	tv-quote	general	0	Robin:(to Zelda The Great)We've got you bank bandit! [She disappears using a mirror trick.] Robin: Holy Hole in a Doughnut. What happened?
+tv-batman	life	tv-quote	general	0	Zelda: Oh, it seems such a waste. They are such handsome creatures. Eivol: Shut up! Zelda: Eivol, Eivol, can I help being a woman? Eivol: Shut up, I said!
+tv-batman	life	tv-quote	general	0	Robin: Suspended in a straightjacket over a...holy birthday cake! Batman: That's right. Robin: My last birthday. You took me to see her. We even met her backstage. Batman: Zelda the Great.
+tv-batman	love	tv-quote	general	0	Zelda: Some other lifetime, Batman? Batman: Perhaps, some other lifetime. [Zelda continues to shed tears as Batman cuffs her.]
+tv-batman	life	tv-quote	general	0	Mousey: Gee, I've never met royalty before! It's pretty thrilling! Riddler: Royalty? You've never met royalty? And just whom do you think stands before you, my cherub? I am The Prince Of Puzzlers, The Count Of Conundrums, The King Of Crime! I hold court here, no one else!!!
+tv-batman	life	tv-quote	general	0	Riddler: So many people have tried...The Penguin, Mr. Freeze, The Joker, all masters of their craft, granted, but I, only I have succeeded in ridding Gotham's criminal kingdom of The Dynamic Duo!
+tv-batman	life	tv-quote	general	0	Riddler [reading]: "What squeals louder than a caught rat?" [thinks, reads again] "Answer: several caught...rat...s." I've...been...outriddled!
+tv-batman	life	tv-quote	general	0	Batman: (to Mousey) I'll never understand why you girls get involved in these things. Mousey: Kicks, I guess. Been looking for them ever since I dropped out of high school. But I'm sort of glad they didn't do you in! Batman: Yes. Thank you.
+tv-batman	life	tv-quote	general	0	Henchman: Many others have tried killing Batman. Mad Hatter: Many others do not have the lethal equipment of my hat factory.
+tv-batman	life	tv-quote	general	0	Robin: Well, I'm used to seeing you do the impossible, but getting out of that plaster tomb was impossible! Batman: Much easier than it seemed, Robin, I simply held my breath. Robin: Holy Frogman!
+tv-batman	life	tv-quote	general	0	Batman: The police department is on its toes. Six more kidnappings.
+tv-batman	life	tv-quote	general	0	The Joker: Hello, kiddies! A-meet the Joker!
+tv-batman	life	tv-quote	general	0	Robin: Holy Benedict Arnold-Susie! Chief cheerleader, a member of The Joker's criminal gang!
+tv-batman	life	tv-quote	general	0	Joker: [laughing] Have a sneeze on me, Batman! [Joker administers sneezing powder upon Batman, which has no effect.] Batman: No use, Joker! I knew you'd employ your sneezing powder, so I took an Anti-Allergy Pill! Instead of a sneeze, I've caught you cold!
+tv-batman	life	tv-quote	general	0	False Face: The Express will be here inside of five minutes, Batman. Inside of six, no more Batman! Robin: Fiend!! Batman: False Face, you'll regret this!......eventually.
+tv-batman	life	tv-quote	general	0	Chief O'Hara: Commissioner, there's only one man living who can unmask False Face. [They glance at the Batphone.] Commissioner Gordon: Chief O'Hara, you've spoken for all of us. Our only hope is that tower of power for right and justice, the Caped Crusader!
+tv-batman	life	tv-quote	general	0	False Face: What? Is it possible? Batman: Not only possible, but true. False Face: Please! Not that word. Robin: We've turned your own tricky tables on you, False Face, via a false vault! False Face: I'm never outturned until the last turn, Boy Wonder! [They start fighting.]
+tv-batman	life	tv-quote	general	0	Radio Announcer: To the friends of Batman: "Many are called, but two are chosen. Be receptive."
+tv-batman	arts	tv-quote	general	0	Batman: You feline devil. What have you done with Robin? Catwoman: Is that any way to greet an old friend? Not even a hello, how are you?
+tv-batman	life	tv-quote	general	0	[Catwoman is about to feed Robin to a tiger.] Robin: Catwoman, you are not a nice person.
+tv-batman	life	tv-quote	general	0	Narrator: Great Scott, Alfred! Have you forgotten? Batman told you to switch cigarette holders with the Penguin! You're meant to palm off the trick one with the tiny super-powered transmitter inside! Quick, before it's too late! Create that diversion!
+tv-batman	life	tv-quote	general	0	Penguin: Back from the grave, you tricksters, eh?! Robin: Back to send you on a honeymoon cruise, Penguin...up the river to the pen! Batman: "Gone straight," huh?! Robin: We'll straighten YOU out!!
+tv-batman	life	tv-quote	general	0	Robin: Why did you steal that book on the lost treasure of the Incas? Riddler: For two people about to become human candles, you ask a lot of questions! Batman: I'm always interested in the way of the criminal mind.
+tv-batman	life	tv-quote	general	0	Moth: Oh, Batman, honey, Moth has learned her lesson, really she has. Crime doesn't pay! Batman: Unfortunately you've learned your lesson too late, Moth. A moth who flies around candles is liable to get burned.
+tv-batman	life	tv-quote	general	0	Riddler [as he is led away in handcuffs]: Batman! You may have won the battle, but the war isn't over yet!
+tv-batman	life	tv-quote	general	0	[Batman and Robin are on a golf course in the Batmobile.] Robin: Let's get going and make an emergency bat-turn! Batman: Not this time, old chum. Have to think of the golfers. The retro-rockets would burn up the course for a hundred yards.
+tv-batman	life	tv-quote	general	0	Henchman #1: Hey boss, hey boss, boss, boss, boss, look, look, look, they're up in the chimney! Joker: I know that you fool! Henchman #1: Well how'd they get up there? Joker: [Sarcastically] They took the elevator, what do you think!
+tv-batman	life	tv-quote	general	0	Robin: How far did you say that room was underground? Batman: About 50 feet. Enough to give us good momentum. Robin: Oh boy, I'll say. Can I go first? I want to see their faces. Batman: [Holding Robin back] Dynamic seniority.
+tv-batman	food	tv-quote	general	0	King Tut: [to Nefertiti] How many times must I tell you?! Queens consume nectar and ambrosia, not hot dogs!
+tv-batman	life	tv-quote	general	0	Batman: Human mechanisms are made by human hands, Robin. None of them is infallible. It is a lesson which must be faced.
+tv-batman	life	tv-quote	general	0	Robin: [about Lydia Limpet] Gosh, Batman, those look like honest eyes. Batman: Never trust the old chestnut, "Crooks have beady little eyes". It's false.
+tv-batman	life	tv-quote	general	0	Batman: Don't interrupt! I'm trying to fathom the sub-conscience of a deadly criminal!
+tv-batman	health-body	tv-quote	general	0	Robin: Holy molars! Am I ever glad I take good care of my teeth! Batman: True. You owe your life to dental hygiene.
+tv-batman	life	tv-quote	general	0	Riddler: [holding up Van Jones] Mr. Van Jones, why are you like a clock at midnight? Answer: because both your hands are goin' straight up right now!
+tv-batman	life	tv-quote	general	0	Batman: [about to cross the street] Remember Robin, always look both ways.
+tv-batman	life	tv-quote	general	0	Miss Kitka: When I close my eyes, I imagine a world at peace. Bruce: That's strange... when I close my eyes, I imagine something quite astonishingly different.
+tv-batman	life	tv-quote	general	0	Robin: A giant cake of foam rubber! What are the chances? Batman: I'd say the odds against it would make even the most reckless gambler cringe!
+tv-batman	life	tv-quote	general	0	Batman: Some days, you just can't get rid of a bomb!
+tv-batman	life	tv-quote	general	0	Alan A. Dale: I like that cape, Batman. Very chic.
+tv-batman	life	tv-quote	general	0	Batman: Remember the Boy Scouts' motto. Robin: 'Be prepared'. Batman: It would do well to keep that in mind at all times.
+tv-batman	life	tv-quote	general	0	Catwoman: I'm not just pussyfooting around this time, Batman!
+tv-batman	life	tv-quote	general	0	Robin: Holy oleo! Catwoman: I didn't know you could yodel.
+tv-batman	life	tv-quote	general	0	Robin: You can't get away from Batman that easy! Batman: Easily. Robin: Easily. Batman: Good grammar is essential, Robin. Robin: Thank you. Batman: You're welcome.
+tv-batman	life	tv-quote	general	0	Robin [as he and Batman are spun around on the rotating spit]: Is this it, Batman? Is this the end?? Batman: If it is...let's not lose our dignity!
+tv-batman	society	tv-quote	general	0	Robin: But what is it? Batman: Saribus Sacer. A species of ancient Egyptian beetle, sacred to the Sun God, Hymeopolos. And from which the term scarab is derived. But, you should know that, Robin, if you are up on your studies of Egyptology. Robin: You're right.
+tv-batman	life	tv-quote	general	0	Batman: I know. Hieroglyphics self-taught are a chore, Robin; but, it is a surefire way to unravel the secrets of the ancient mystics.
+tv-batman	life	tv-quote	general	0	Batman: Experience teaches slowly, Robin. And at a cost of many mistakes.
+tv-batman	life	tv-quote	general	0	[Chief O'Hara leads away King Tut, who is back in his persona of Professor McElroy] King Tut: I'm a professor at Yale! You can't-! The PTA shall hear of this!....
+tv-batman	life	tv-quote	general	0	Batman: Ma Parker's girl is more dangerous than her three boys. Robin: Her legs sort of reminded me of Catwoman's. Batman: You're growing up, Robin. Remember, in crime-fighting always keep your sights raised.
+tv-batman	life	tv-quote	general	0	Clock King: Some people kill time, but this time, time is going to kill you!
+tv-batman	life	tv-quote	general	0	Robin: I AM a little hungry. Batman: Of course, Robin. Even crime-fighters must eat. And especially you. You're a growing boy and you need your nutrition.
+tv-batman	life	tv-quote	general	0	Henchman: You've done what nobody else could have done. You've finished off Batman and Robin. [followed by applause] Clock King: Thank you. I deserve it, of course, but I thank you.
+tv-batman	life	tv-quote	general	0	Clock King: No! It can't be true! You're dead! You have to be dead! Robin: Maybe we're living on borrowed time! Batman: But now, it's round-up time!
+tv-batman	life	tv-quote	general	0	Robin: Prepare yourself for an eggs-peditious defeat! Batman: Very apt, Robin. Robin: Oh. Glad you liked it.
+tv-batman	life	tv-quote	general	0	Egghead: Woe is me. My criminal career is now eggstinct! Batman: Foolish, evil man! Robin: You're going to go where all the broken eggshells end up: in the garbage!
+tv-batman	life	tv-quote	general	0	Robin: Holy Metronome! What a fatepunched into player-piano rolls! Batman: True, Robin, scarcely an end I'd rather anticipate! Lifea cupful of surprises to the last drop!
+tv-batman	life	tv-quote	general	0	Robin: Self-control is sure tough sometimes, Batman! Batman: All virtues are, old chum. Indeed, that's why they're virtues.
+tv-batman	society	tv-quote	general	0	Penguin: [to his election crew] Plenty of girls and bands and slogans and lots of hoopla, but remember, no politics. Issues confuse people!
+tv-batman	society	tv-quote	general	0	Penguin: That Batman won't garner enough votes to become elected dogcatcher!
+tv-batman	life	tv-quote	general	0	Robin: [to Batman, after falling in, but surviving, the sulphuric acid deathtrap] Good thing we just got these new acid-proof suits, Batman!
+tv-batman	society	tv-quote	general	0	Batman: [to an offer from the Democratic National Committee] But I thought you already had a candidate for 1968.
+tv-batman	life	tv-quote	general	0	Robin: Gosh Batman, dig those flavors; Lemon-Lime, Orange, Raspberry, Pineapple... Mr. Freeze: Pick your choice, Boy Wonder!
+tv-batman	life	tv-quote	general	0	Mr. Freeze [recurring line]: Wild!
+tv-batman	life	tv-quote	general	0	Batman: Tarnished reputations are unfortunate, Robin. We can live with those. However, a threat to all of Gotham City is something else.
+tv-batman	life	tv-quote	general	0	Cornelia: It's a cool pad, Joker. Joker: Huh, all you've seen of this cool pad, Cornelia, is that mirror. Vanity is a waste of time. I never look at myself. Cornelia: Well I'm younger, Joker, and a girl; and it is a cool pad. Joker: Well, it will do for the purpose.
+tv-batman	life	tv-quote	general	0	Robin: And if you want to pollute any more water, you'll find plenty where you're going up the river!!
+tv-batman	life	tv-quote	general	0	Narrator: Watch out, Batman! The powers of darkness lurk in this room!
+tv-batman	life	tv-quote	general	0	Robin: [to Marsha] Batman's never rude to a lady. But you're no lady.
+tv-batman	life	tv-quote	general	0	[Marsha wanted to marry Batman in order to get into the Batcave, but some friends come to save him.] Batman: An older head can't be put on younger shoulders.
+tv-batman	life	tv-quote	general	0	Shame: I'll tell the world you died with your Bat-boots on! [laughs maniacally]
+tv-batman	life	tv-quote	general	0	Batman: Shame on you, Shame!
+tv-batman	life	tv-quote	general	0	Robin: But he knows that we know about his hideout there! Batman: Correct! However, knowing that, he'd think that we'd think he would not return there, therefore he did and so will we! Robin: Holy Bat Logic.
+tv-batman	life	tv-quote	general	0	Shame: I knew he'd think I'd think he'd think I'd think he'd come back here.
+tv-batman	life	tv-quote	general	0	Batman: [to Robin] When you get a little older, you'll see how easy it is to become lured by the female of the species.
+tv-batman	life	tv-quote	general	0	Puzzler: When you reach 20,000 feet, an automatic mechanism will release the basket from the balloon, and you both will reaffirm Newton's law of universal gravitation - back down 20,000 feet! Robin: I'll bet even Shakespeare didn't have words for such villainy!
+tv-batman	life	tv-quote	general	0	Ramjet [to Batman and Robin, who are in Puzzler's hot-air balloon trap]: Hey, you guys want some gum? Puzzler: Really, Ramjet! Ramjet: That's what they give you in the airlines before you take off.
+tv-batman	life	quip	general	0	Sandman: It's naptime for both of you!
+tv-batman	life	tv-quote	general	0	The Mad Hatter: This phase of my career will never be over, until I have The Caped Crusader's cowl safely in my custody!
+tv-batman	life	tv-quote	general	0	Mad Hatter: Who made Batman and Robin famous crime fighters? Criminals, that's who. If you want to show a little respect to the departed, stay crooked! That's the least you can do.
+tv-batman	life	tv-quote	general	0	Venus: What's inside, Joker? $2000 is a lot of money! Joker: Ah, this merchandise is WORTH $2000!
+tv-batman	life	tv-quote	general	0	[Penguin pops out of the box.] Penguin: It's worth $200,000, you cheapskate! At least you could have sent me a plane ticket!
+tv-batman	life	tv-quote	general	0	Robin: Venus seemed like a nice girl in that costume. Batman: I suspect she is a nice girl down deep, but she's fallen in with bad companions. And who knows what her home life was like?
+tv-batman	life	tv-quote	general	0	Batman: Catwoman, I find you to be odious, abhorrent and egregious. Catwoman: A dealing with you is expanding my vocabulary... erm... a whole lot.
+tv-batman	life	tv-quote	general	0	Catwoman: Robin? Robin: Yeah? Catwoman: Slay the blue dragon. Robin: Groovy. Batman: Oh, no. Robin: Oh, yes.
+tv-batman	society	tv-quote	general	0	O'Hara: What she (Pussycat) needs is a good slap on the wrist. Gordon: That's enough. You know I'm violently opposed to police brutality.
+tv-batman	life	tv-quote	general	0	Batman: The green button will turn the car a la izquierda o a la derecha. Robin: To the left or right. Threw in a little Spanish on me, huh, Batman? Batman: One should always keep abreast of foreign tongues, Robin.
+tv-batman	life	tv-quote	general	0	Batman: Chief O'Hara, may I have the keys to your patrol car? Chief O'Hara: ...are you insured? Comissioner Gordon: Give him the keys, O'Hara! Chief O'Hara: Yes, sir.
+tv-batman	life	tv-quote	general	0	Batman: [after cracking a safe] It's not difficult, if you have steady nerves and a good ear. Quality is destroyed by the tenor of criminal life.
+tv-batman	life	tv-quote	general	0	Down: [after successfully robbing a flooded band and escaping the dynamic duo] Worked like a charm, Riddler! Riddler: Why not? There's a difference between a batman and a frogman!! One quick stop and then lets go dry our money!!!
+tv-batman	life	tv-quote	general	0	Batman: Only The Riddler and his ilk would have such a flagrant disregard for private property! This door will have to be repaired.
+tv-batman	life	tv-quote	general	0	Batman: I always imagined it would end differently, but yet less ignominiously. To drown in my own anniversary cake!
+tv-batman	life	tv-quote	general	0	Riddler: How can you LAMEBRAINS play CARDS at a time like this?!!!
+tv-batman	life	tv-quote	general	0	Joker: We who laugh and run away, live to laugh another day!
+tv-batman	life	tv-quote	general	0	Robin: [(After Bruce explains how his ventriloquism skills allowed Alfred to imitate his voice)] Gosh, yes, I should have thought of that. Bruce: Ah, don't blame yourself, Robin. It's sometimes difficult to think clearly when you're strapped to a printing press.
+tv-batman	love	tv-quote	general	0	Catwoman: I could give you more happiness than anyone in the world. Batman: How do you propose to do that? Catwoman: By being your partner in life, I mean it's me and you against the world. Batman: What about Robin? Catwoman: Hmmm. . . I know. We'll kill him.
+tv-batman	love	tv-quote	general	0	Robin: [After Catwoman has just tried, unsuccessfully, to lure Batman with her feminine charms] Good job. That love stuff doesn't work on me - I'm way too young for that sort of thing!
+tv-batman	life	tv-quote	general	0	Kato: Kung fu is kung fu- it's not child's play.
+tv-batman	life	tv-quote	general	0	Batman: That's one trouble with dual identities, Robin. Dual responsibilities.
+tv-batman	life	tv-quote	general	0	Britt Reid: [aka the Green Hornet, referring to Batman] I wouldn't be caught dead in that crazy cowl of his.
+tv-batman	life	tv-quote	general	0	Kato: I'm glad those guys are on our side even though they don't know it.
+tv-batman	life	tv-quote	general	0	Robin: Good thing those guys aren't here every week!
+tv-batman	life	tv-quote	general	0	King Tut: If the Caped Crumb is here, the cowled creep can't be far behind.
+tv-batman	life	tv-quote	general	0	King Tut: It isn't that I love you any less, Batman. Simply that I love me more.
+tv-batman	life	tv-quote	general	0	King Tut: When we get to the Royal Oil Boiling Room, be sure to prepare some real boiling royal boiling oil to boil the Boy Wonder in. Royally.
+tv-batman	life	tv-quote	general	0	Lisa: Would you like to come in for a glass of milk and cookies? Bruce: I'm afraid it's rather late. Why, it's 10:30!
+tv-batman	life	tv-quote	general	0	Batman: [to Black Widow] I never touch spirits. Have you some milk?
+tv-batman	life	tv-quote	general	0	Joker: That's terrible. It looks like it was made by a 3-year old. Here. Let me show you. Bruce Wayne: (After Joker works with clay). Yes. I see what you mean. That looks very much like the work of a 3 year old. Joker: I'll do the jokes around here, Wayne!
+tv-batman	life	tv-quote	general	0	Joker: Where's Bruce Wayne? Alfred: Mr. Wayne is not at home, sir. Joker: Too bad. I'll get my revenge later. Right now, I'll settle for cash. Where's the safe? Alfred: My duties do not include aiding and abetting thievery.
+tv-batman	life	tv-quote	general	0	Robin: [to Carpet King] You must be that gentleman I've read about. Aren't you a king or something? Batman: Robin, England has no king now. England has a queen, and a great lady she is, too.
+tv-batman	life	tv-quote	general	0	Robin: To the batcave? Batman: And up the batpoles. Robin: The batpoles? Batman: Even crimefighters need their sleep, Robin.
+tv-batman	life	tv-quote	general	0	Robin: Picked up the seal pulsator yet, Batman? Batman: We're still over land, Robin, and a seal is an aquatic, marine mammal. Robin: Gosh, yes, Batman, I forgot.
+tv-batman	life	tv-quote	general	0	Robin: Where'd you get a live fish, Batman? Batman: The true crimefighter always carries everything he needs in his utility belt, Robin
+tv-batman	life	tv-quote	general	0	Penguin: I don't know whether to call him "daddy" or just Commissioner. [Batman and Robin arrive] Batman: If I were you, Penguin, I'd call help right now! Robin: When we get through with you, Penguin, you'll be hollering "uncle" instead of "daddy"!
+tv-batman	arts	tv-quote	general	0	Robin: Batman, maybe I should stay home tonight. Homework, you know. Batman: I think you should acquire a taste for opera, Robin, as one does for poetry and olives.
+tv-batman	life	tv-quote	general	0	Batgirl: What's up your sleeve this time? Riddler: Up my sleeve, Batgirl? Riddle me once: what's most alluring when it's highest or lowest; when it's in the air or in a hole; when it's served you, yet you can't touch it? An enchanting ace!
+tv-batman	life	tv-quote	general	0	[The Dynamic Duo re-enter the Batmobile and discover that they have been glued to the seats, thanks to Penguin] Robin: Holy mucilage!! Batman: Things...are..about...to...get...stickier, Robin.
+tv-batman	life	tv-quote	general	0	Batman: Go back outside and calm the flower children. Robin: They'll mob me! Batman: Groovy.
+tv-batman	life	tv-quote	general	0	Egghead: Never mind the pastrami. Chief O'Hara would like to have half a dozen eggs. Chief O'Hara: Why you. . . Egghead: Now! One hand on me and you'll never see your dear commissioner again, Chief. Chief O'Hara: You win Egghead. Egghead: Now how did you say you liked your eggs?
+tv-batman	life	tv-quote	general	0	Batman: Too many Bessarovian Cossacks around here, Robin. If I'd joined you in the fight, some of them may have been injured.
+tv-batman	life	tv-quote	general	0	Robin: [about Batgirl] She's gone again! For once, Batman, let's follow her. Batman: No, Robin. With my head sticking out of this neosaurus costume, I might not appear like an ordinary, run of the mill crime fighter.
+tv-batman	life	tv-quote	general	0	Joker: Then, after I've gotten rid of Batman and Robin for good, I will rule the waves. Me, the Joker, king of the surf and all the surfers. Then, Gotham City! Later, the world!
+tv-batman	life	tv-quote	general	0	Robin: Let's go! Batman: Not you, Robin. They have strict licensing laws in this country. A boy of your age is not allowed in a drinking tavern.
+tv-batman	life	tv-quote	general	0	Batman: You're far from mod, Robin. And many hippies are older than you are.
+tv-batman	life	tv-quote	general	0	Superintendent Watson: Well, I think this calls for a cup of char at venerable Ireland Yard. Robin: Char? Batman: Yes, Robin, a colloquialism for tea.
+tv-batman	life	tv-quote	general	0	Batgirl: And you, Catwoman are an even bigger fool than even I thought you were. We, who enforce the law, would gladly give our lives for it Catwoman: Gag her. Heroines are to be seen, not heard.
+tv-batman	life	tv-quote	general	0	Robin: If we close our eyes, we can't see anything. Batman: A sound observation, Robin.
+tv-batman	love	tv-quote	general	0	Olga: [to Egghead] You are a heartless, hairless man. I am liking you more and more.
+tv-batman	life	tv-quote	general	0	Gordon: I'm sure they won't find caviar on the menu at Gotham State Prison. Batman: Probably not, but they will get a well-balanced diet thanks to Warden Crichton's emphasis on proper nutrition.
+tv-batman	life	tv-quote	general	0	Batman: What took you so long, Batgirl? Batgirl: Rush hour traffic, plus all the lights were against me. And you wouldn't want me to speed, would you? Robin: Your good driving habits almost cost us our lives! Batman: Rules are rules, Robin. But you do have a point.
+tv-batman	life	tv-quote	general	0	Batman: Cattail Lane and Nine Lives Alley. The Grimalkin Novelty Company is on that corner. Robin: Grimalkin? What kind of a name is that? Batman: An obscure but nevertheless acceptable synonym for cat, Robin.
+tv-batman	life	tv-quote	general	0	Robin: How about rushing the place, Batman? Batman: Shh. I think not, Robin. All they've done so far is stolen a few items, attempted to kill you, me, and Batgirl. No, I think they plan something really big.
+tv-batman	life	tv-quote	general	0	Nora: [regarding Batgirl] Oh yes! I forgot about her. With a woman helping them, the Dynamic Duo could give us some trouble...
+tv-batman	life	tv-quote	general	0	Nora: [holding a sharp pin to Batgirl's neck] Alright girls, let's tie the Terrific Trio - into Terrific Siamese Human Knots.
+tv-batman	life	tv-quote	general	0	Penguin: You used a foul trick to murder those innocent fruit flies! Batman: You murdered them, Penguin...when you let them out!
+tv-batman	life	tv-quote	general	0	Calamity Jan: [After Chief Standing Pat takes a puff from his cigar] That's how he talks. He said "It's a honor to meet you and I look forward to working with you." Shame: You got all that with one puff? Calamity Jan: He talks in shorthand.
+tv-batman	life	tv-quote	general	0	Fred: Your lack of coherence is exceeded only by your penchant for gibberish. Shame: Why thank you kindly, Fred. That's awful nice of you to say.
+tv-batman	life	tv-quote	general	0	Shame: When the big hand is on the 12 and the little hand is on the 11, that would be... Calamity Jan: Eleven o'clock, Shame honey. Shame: Eleven o'clock, Shame honey...doggone it, I know!
+tv-batman	life	tv-quote	general	0	Batman: ...it shouldn't take us more than three minutes to run the mile. Robin: Gosh, Batman, that's a new world's record. Batman: Breaking world's records is just part of crime fighting, Robin.
+tv-batman	life	tv-quote	general	0	Batman: It is the duty of every good citizen of Gotham City to report meeting a man from Mars in a public park.
+tv-batman	life	tv-quote	general	0	Joker: I wanted to rule the world from Mars! I like the looks of that place! [Batman and Robin suddenly appear] Batman: Yes, I think you'd be more comfortable there at the moment, Joker.
+tv-batman	life	tv-quote	general	0	[Robin looks at Batgirl.] Robin: You know something, Batman? Batman: What's that, Robin? Robin: She looks very pretty when she's asleep. Batman: I thought you might eventually notice that. That single statement indicates to me the first oncoming thrust of manhood, old chum.
+tv-batman	life	tv-quote	general	0	Gordon: Batman, you unscrambled that safe's combination in three seconds flat! How did you do it? Batman: With my Three-Seconds-Flat-Bat-Combination-Unscrambler, Commissioner.
+tv-batman	life	tv-quote	general	0	Robin: What happened to Batgirl?! Batman: Who knows, Robin? Who ever knows? [The last original scene of the series]
+tv-batman	life	tv-quote	general	0	Robin: I guess you can never trust a woman. Batman: You've made a hasty generalization, Robin. It's a bad habit to get into.
+tv-batman	life	tv-quote	general	0	Robin: That's an impossible shot, Batman. Batman: That's a negative attitude, Robin.
+tv-batman	life	tv-quote	general	0	Batman: That's life, Robin, full of ups and downs. It ill befits any of us to become too confident.
+tv-batman	arts	tv-quote	general	0	Robin: We better hurry, Batman. Batman: Not too fast, Robin. In good bat-climbing, as in good driving, one must never sacrifice safety for speed. Robin: Right again, Batman.

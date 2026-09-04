@@ -1,0 +1,78 @@
+groucho	nature	observation	general	0	A black cat crossing your path signifies that the animal is going somewhere.
+groucho	life	quip	general	0	A child of five would understand this. Send someone to fetch a child of five.
+groucho	life	quip	general	0	A hospital bed is a parked taxi with the meter running.
+groucho	love	quip	general	0	A man's only as old as the woman he feels.
+groucho	life	dark	general	0	A woman is an occasional pleasure but a cigar is always a smoke.
+groucho	life	aphorism	general	0	Age is not a particularly interesting subject. Anyone can get old. All you have to do is live long enough.
+groucho	love	quip	general	0	Alimony is like buying hay for a dead horse.
+groucho	society	quip	general	0	All people are born alike - except Republicans and Democrats.
+groucho	life	quip	general	0	Anyone who says he can see through women is missing a lot.
+groucho	life	quip	general	0	Before I speak, I have something important to say.
+groucho	love	quip	general	0	Behind every successful man is a woman, behind her is his wife.
+groucho	life	quip	general	0	Either he's dead or my watch has stopped.
+groucho	life	dark	general	0	Either this man is dead or my watch has stopped.
+groucho	arts	quip	general	0	From the moment I picked up your book until I laid it down, I was convulsed with laughter. Some day I intend reading it.
+groucho	arts	quip	general	0	From the moment I picked your book up until I laid it down, I was convulsed with laughter. Someday I intend reading it.
+groucho	life	quip	general	0	Getting older is no problem. You just have to live long enough.
+groucho	life	quip	general	0	Go, and never darken my towels again.
+groucho	life	wisdom	general	0	Humor is reason gone mad.
+groucho	love	quip	general	0	I could dance with you until the cows come home. On second thought I'd rather dance with the cows until you come home.
+groucho	arts	quip	general	0	I didn't like the play, but then I saw it under adverse conditions - the curtain was up.
+groucho	life	quip	general	0	I don't care to belong to a club that accepts people like me as members.
+groucho	life	quip	general	0	I find television very educating. Every time somebody turns on the set, I go into the other room and read a book.
+groucho	life	quip	general	0	I have a mind to join a club and beat you over the head with it.
+groucho	life	quip	general	0	I have had a perfectly wonderful evening, but this wasn't it.
+groucho	life	quip	general	0	I intend to live forever, or die trying.
+groucho	life	quip	general	0	I must confess, I was born at a very early age.
+groucho	life	quip	general	0	I must say I find television very educational. The minute somebody turns it on, I go to the library and read a good book.
+groucho	life	insult	general	0	I never forget a face, but in your case I'll be glad to make an exception.
+groucho	society	observation	general	0	I read in the newspapers they are going to have 30 minutes of intellectual stuff on television every Monday from 7:30 to 8. to educate America. They couldn't educate America if they started at 6:30.
+groucho	life	quip	general	0	I refuse to join any club that would have me as a member.
+groucho	life	quip	general	0	I remember the first time I had sex - I kept the receipt.
+groucho	life	quip	general	0	I sent the club a wire stating, PLEASE ACCEPT MY RESIGNATION. I DON'T WANT TO BELONG TO ANY CLUB THAT WILL ACCEPT ME AS A MEMBER.
+groucho	love	quip	general	0	I was married by a judge. I should have asked for a jury.
+groucho	life	dark	general	0	I wish to be cremated. One tenth of my ashes shall be given to my agent, as written in our contract.
+groucho	life	quip	general	0	I won't belong to any organization that would have me as a member.
+groucho	work-money	quip	general	0	I worked my way up from nothing to a state of extreme poverty.
+groucho	life	quip	general	0	I'm leaving because the weather is too good. I hate London when it's not raining.
+groucho	life	quip	general	0	I'm not feeling very well - I need a doctor immediately. Ring the nearest golf course.
+groucho	life	quip	general	0	I've got the brain of a four year old. I'll bet he was glad to be rid of it.
+groucho	life	quip	general	0	I've had a perfectly wonderful evening. But this wasn't it.
+groucho	life	wisdom	general	0	I, not events, have the power to make me happy or unhappy today. I can choose which it shall be. Yesterday is dead, tomorrow hasn't arrived yet. I have just one day, today, and I'm going to be happy in it.
+groucho	love	quip	general	0	If I held you any closer I would be on the other side of you.
+groucho	life	quip	general	0	If you've heard this story before, don't stop me, because I'd like to hear it again.
+groucho	love	quip	general	0	In Hollywood, brides keep the bouquets and throw away the groom.
+groucho	life	quip	general	0	It isn't necessary to have relatives in Kansas City in order to be unhappy.
+groucho	life	quip	general	0	Man does not control his own fate. The women in his life do that for him.
+groucho	love	quip	general	0	Marriage is a wonderful institution, but who wants to live in an institution?
+groucho	love	quip	general	0	Marry me and I'll never look at another horse!
+groucho	society	quip	general	0	Military intelligence is a contradiction in terms.
+groucho	society	quip	general	0	Military justice is to justice what military music is to music.
+groucho	work-money	quip	general	0	Money frees you from doing things you dislike. Since I dislike doing nearly everything, money is handy.
+groucho	life	quip	general	0	My favourite poem is the one that starts 'Thirty days hath September' because it actually tells you something.
+groucho	family	dark	general	0	My mother loved children - she would have given anything if I had been one.
+groucho	life	quip	general	0	Next time I see you, remind me not to talk to you.
+groucho	work-money	dark	general	0	No man goes before his time - unless the boss leaves early.
+groucho	nature	joke	general	0	One morning I shot an elephant in my pajamas. How he got into my pajamas I'll never know.
+groucho	life	joke	general	0	Outside of a dog, a book is a man's best friend. Inside of a dog it's too dark to read.
+groucho	arts	joke	general	0	Outside of a dog, a book is man's best friend. Inside of a dog it's too dark to read.
+groucho	life	quip	general	0	Please accept my resignation. I don't care to belong to any club that will have me as a member.
+groucho	life	quip	general	0	Politics doesn't make strange bedfellows - marriage does.
+groucho	society	quip	general	0	Politics is the art of looking for trouble, finding it everywhere, diagnosing it incorrectly and applying the wrong remedies.
+groucho	arts	quip	general	0	Practically everybody in New York has half a mind to write a book, and does.
+groucho	life	quip	general	0	Quote me as saying I was mis-quoted.
+groucho	life	quip	general	0	Room service? Send up a larger room.
+groucho	health-body	quip	general	0	She got her looks from her father. He's a plastic surgeon.
+groucho	life	wisdom	general	0	The first thing which I can record concerning myself is, that I was born. These are wonderful words. This life, to which neither time nor eternity can bring diminution - this everlasting living soul, began. My mind loses itself in these depths.
+groucho	life	quip	general	0	The secret of life is honesty and fair dealing. If you can fake that, you've got it made.
+groucho	life	quip	general	0	There's one way to find out if a man is honest - ask him. If he says, 'Yes,' you know he is a crook.
+groucho	life	quip	general	0	Those are my principles, and if you don't like them... well, I have others.
+groucho	life	pun	general	0	Time flies like an arrow. Fruit flies like a banana.
+groucho	life	wisdom	general	0	Well, Art is Art, isn't it? Still, on the other hand, water is water. And east is east and west is west and if you take cranberries and stew them like applesauce they taste much more like prunes than rhubarb does. Now you tell me what you know.
+groucho	life	quip	general	0	Who are you going to believe, me or your own eyes?
+groucho	life	quip	general	0	Whoever named it necking was a poor judge of anatomy.
+groucho	life	quip	general	0	Why a four-year-old child could understand this report. Run out and find me a four-year-old child. I can't make head nor tail out of it.
+groucho	life	quip	general	0	Why should I care about posterity? What's posterity ever done for me?
+groucho	life	quip	general	0	Why, I'd horse-whip you if I had a horse.
+groucho	love	observation	general	0	Wives are people who feel they don't dance enough.
+groucho	love	insult	general	0	Women should be obscene and not heard.

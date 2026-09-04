@@ -1,0 +1,363 @@
+tv-koth	life	tv-quote	general	0	Dale Gribble: I know what's wrong with it. It's a Ford. You know what they say Ford stands for, don't ya? It stands for 'Fix it again, Tony'. Hank Hill: You're thinking of a Fiat, Dale. Dale Gribble: Fix... it... again...
+tv-koth	life	tv-quote	general	0	Hank Hill: Whatcha listenin' to, son? Bobby Hill: I don't think you'd like it. Hank Hill: Well, why not? I like this new generation of music. [puts headphones on] Old woman on tape: Hello?
+tv-koth	life	tv-quote	general	0	Bobby knocks over some cans swinging a cardboard roll around. Buckley: You're gonna have to pay for that, dude. Hank Hill: [Shouting] You're fired!
+tv-koth	life	tv-quote	general	0	Hank Hill: Bobby, you can't make an omelette without breakin' eggs, and you can't get on base without takin' a swing. Bobby Hill: The pitcher could walk me, couldn't he? Hank Hill: Don't play lawyer-ball, son.
+tv-koth	life	tv-quote	general	0	Jeff Boomhauer: [discussing Seinfeld] See that part where dang ol' George come in there, he talks 'bout tastin' his own burp and Kramer comes slidin' in there just like he always does. I tell ya what, man, them dang ol' New York boys, just a show about nothin'.
+tv-koth	life	tv-quote	general	0	Bobby is talking with Joseph Bobby: (Mocking his dad) Git out my house! My boy ain't much, but he's all I got!
+tv-koth	life	tv-quote	general	0	Peggy: Now, Bobby, you may have noticed that there is a difference between a man and a woman.
+tv-koth	life	tv-quote	general	0	Bobby remains silent Peggy: ...a rather obvious difference.
+tv-koth	work-money	tv-quote	general	0	Hank Hill: [As a child] When I grow up, I want to sell propane and propane accessories, if my grades are good enough!
+tv-koth	life	tv-quote	general	0	Luanne: Fish sticks? (begins to cry)
+tv-koth	life	tv-quote	general	0	Hank Hill: (repeated line) You look pretty.
+tv-koth	life	tv-quote	general	0	Hank Hill: Your heart is telling you?! Who's the boss, you or your heart? You are! Your heart is your employee! So get your heart off its butt and back to work!
+tv-koth	life	tv-quote	general	0	Cotton turns a toilet handle on Hank's headstone. Hank's coffin is sucked into the ground. Nancy Gribble: (on TV) The temperature is a pleasant 70 degrees. And on a more personal note, I'd like to wish my friend Hank Hill a quick recovery from his embarrassing consti
+tv-koth	life	tv-quote	general	0	Hank changes the channel. C. Everett Koop: -pation.
+tv-koth	life	tv-quote	general	0	Hank Hill: (While constipated and watching his dog poo outside) Showoff. Hank Hill:"Don't touch me. I'm on the John."
+tv-koth	society	tv-quote	general	0	Hank Hill: What the hell kind of country is this where I can only hate a man if he's white?
+tv-koth	love	tv-quote	general	0	Peggy Hill: Do you... do you think my feet are too big, Hank? Hank Hill: No, hon. Just... more of you to love.
+tv-koth	life	tv-quote	general	0	[He takes a step forward towards her, like an on-screen embrace] Peggy Hill: Ow.
+tv-koth	life	tv-quote	general	0	[Hanks looks down to see he's stepping on Peggy's feet] Hank Hill: Oh, sorry.
+tv-koth	society	tv-quote	general	0	Hank ponders this for a few seconds. Hank Hill: So are you Chinese or Japanese? Kahn Souphanousinphone: [groans]
+tv-koth	life	tv-quote	general	0	Hank Hill: He thinks just 'cause I'm from Texas that means I'm a redneck. Chinese people and their stupid stereotypes!
+tv-koth	life	tv-quote	general	0	Dale Gribble: They'll probably get you with a blow-dart; that's their way. But you'll just think its a mosquito bite until you die, then you'll know the truth.
+tv-koth	life	tv-quote	general	0	Kahn Souphanousinphone:: I could just stay home, order a bucket of chicken and watch Hee Haw; same thing [as going to the Hills' for dinner].
+tv-koth	family	tv-quote	general	0	Hank Hill: You know Kahn, we may deny our kids completely different deserts, but they both go to bed hungry, and that's what really matters.
+tv-koth	life	tv-quote	general	0	Cotton discovers that Bobby began a sexist riot at his school. Cotton Hill: Bobby, I'm proud of what you did at school today....So I'm buyin' you a hooker!
+tv-koth	life	tv-quote	general	0	Hank thanks Cotton for bringing a horse ("Oh Dad, you didn't have to do this.") Cotton Hill: Well, you know me I'm larger than life.
+tv-koth	life	tv-quote	general	0	Hank Hill: Now you listen to me! THE NAME IS HANK HILL! MR. HANK HILL! PEGGY MARRIED ME! I DIDN'T MARRY HER! What are you
+tv-koth	life	tv-quote	general	0	[Minh has just lost $13 to Peggy playing Boggle.] Minh Souphanousinphone: Thank you for Boggle lesson, Peggy Hill. Maybe next weekend I teach you mahjong. Bring your checkbook!
+tv-koth	life	tv-quote	general	0	Hank Hill: Is this John occupied? Esta es Juan occupado? Bobby Hill: Sí.
+tv-koth	life	tv-quote	general	0	Hank Hill: Uh, I got to go do some stuff. I think I might have left the blender turned on.
+tv-koth	family	tv-quote	general	0	Peggy Hill: (to Bobby) Only trailer trash smoke nowadays. Do you wanna look like trailer trash? Luanne Platter: (crying) That's not fair! I don't smoke!
+tv-koth	family	tv-quote	general	0	Peggy Hill: Oh, honey, you are not trash just 'cause you grew up in a trailer and your mama's in prison.
+tv-koth	family	tv-quote	general	0	Peggy Hill: Well, look at us. At each other's throats. And after all we've been through. This family has survived fires and twisters and every strain of flu the Orient could throw at us. Well, we are not going to be done in by a lousy tobacco leaf.
+tv-koth	life	tv-quote	general	0	(Note: the following quote comes from a deleted scene.) Kahn Souphanousinphone: Put on shoes, hillbilly!
+tv-koth	life	tv-quote	general	0	Bobby Hill: (Hypnotized by the Queen) ...YES... ...MY... ...QUEEN...
+tv-koth	family	tv-quote	general	0	Hank Hill:(Said to Dale Gribble after he mistakenly thought Dale had died from a poisonous ant attack) You gave your life to save my son. I guess that makes us even for you ruinin' my lawn. What am I saying? Of course, it makes us even!
+tv-koth	life	tv-quote	general	0	Bobby:(Talking to a mannequin head) "You look really special tonight."
+tv-koth	society	tv-quote	general	0	Peggy on what their course of action after catching Bobby kissing the mannequin head Peggy: We'll move to Berlin. Bobby will be accepted there. I read somewhere that Germans are a very tolerant people. Their culture admires all kinds of freaks.
+tv-koth	life	tv-quote	general	0	The salsa music playing during Bobby's 'seduction' of the plastic head is Discarga Criolla by Ray Barreto. Hank is taking Bobby to the gun club Bobby Hill: Wow, I always thought this was a crack house.
+tv-koth	life	tv-quote	general	0	Bobby: Can I put a gun rack on my bike? Hank: Do you know how long I've been waiting for you to ask me that?
+tv-koth	life	tv-quote	general	0	Hank Hill: Why don't we get you into one of those safety courses and if you're still interested after they've taken all the fun out of it, then we'll see about the ponchos and the... uh... tournament.
+tv-koth	society	tv-quote	general	0	Dale: Guns don't kill people, the government does.
+tv-koth	love	tv-quote	general	0	Peggy discovers that Hank is not skilled at shooting a rifle. Peggy Hill: I still love you!
+tv-koth	society	tv-quote	general	0	Cotton Hill: Sorry I'm late, I had to stop at the wax museum and give the finger to FDR.
+tv-koth	life	tv-quote	general	0	Hank Hill: Six AM and already the boy ain't right...
+tv-koth	life	tv-quote	general	0	Hank Hill: Don't play mind checkers with me, man. I'm not in the mood.
+tv-koth	life	tv-quote	general	0	Dale Gribble: This tornado's already registered a level two on the Fujisaki [sic] scale. A storm that strong will send an egg through a barn door two barn doors if one of them's open.
+tv-koth	life	tv-quote	general	0	Bill walks over to Hank's truck. Hank Hill: Bill, thank God! Make this idiot let me pass.
+tv-koth	family	tv-quote	general	0	Hank Hill: What did I do to deserve this? I didn't mean to curse my wife to Hell!
+tv-koth	life	tv-quote	general	0	Hank looks at a worker with a vacuum walking towards the container. Lightning flashes and Hank sees in the worker's place the Grim Reaper for half a second, then reality returns. Hank Hill: [worried] Ohh...
+tv-koth	life	tv-quote	general	0	Hank switches the gear into drive, and floors it. The tornado is rapidly approaching Shining Pines. Hank Hill: Ahhh... AAHH!! NO!!!!!!!!!!!
+tv-koth	life	tv-quote	general	0	Bobby attempts to get an egg thrown through a brick wall via the force of an F-5 tornado after Dale's story of such an occurrence. Bobby Hill: This is the chance I've been waiting for!
+tv-koth	life	tv-quote	general	0	Bobby throws the egg and it flies back into his face. Hank:You're tough, Bill.You're the toughest Army barber I know. Dale:Set your mousse to stun, there, Bill.
+tv-koth	life	tv-quote	general	0	Nancy is reporting on the tornado. Nancy Gribble: Mention your home was destroyed, and get a free 5-pound bag of onions.
+tv-koth	life	tv-quote	general	0	Hank Hill: Fine. But I think you owe my lawn an apology. *pauses* We're waiting!
+tv-koth	society	tv-quote	general	0	Dale is wearing a suit for Halloween. Dale Gribble: Booooo! I am a high-priced Washington lobbyist, peddling influence! Who wants candy?
+tv-koth	family	tv-quote	general	0	Peggy: Luanne and Bobby are at Junie Harper's house Hank:[Nearly chokes on his beer before swallowing] I came very close to spitting out beer!
+tv-koth	faith	tv-quote	general	0	Luanne: Halloween is a satanic holiday. It was invented by the Dru-ish.
+tv-koth	life	tv-quote	general	0	Hank: Dale, you giblet-head, if you were gonna cheat, why'd you buy a frozen bass? Dale: I had a coupon.
+tv-koth	life	tv-quote	general	0	Bobby: Are you taking me to the vet?
+tv-koth	life	tv-quote	general	0	Bobby: Hey I'm dressed like a football coach! You call that a block?!
+tv-koth	life	tv-quote	general	0	Bobby: Dad, a man took pictures of me!
+tv-koth	love	tv-quote	general	0	Hank:(finding Luanne in bed with Buckley) I'm in a crisis situation here, I gotta go find Bobby. You two take turns kicking each other's asses.
+tv-koth	life	tv-quote	general	0	Dale Gribble: I thought we agreed to never discuss the horrors we saw on the killing fields of the Family Fun Center.
+tv-koth	life	tv-quote	general	0	Cane Skretteberg: I don't care how many guys you held in the men's room, you still can't beat us!
+tv-koth	life	tv-quote	general	0	Luanne: This is a great Xerox of you!
+tv-koth	life	tv-quote	general	0	Bobby: Hey his scoop's bigger.
+tv-koth	life	tv-quote	general	0	Pops: And there's doodies in there, right!?
+tv-koth	life	tv-quote	general	0	Hank:(Shouting to Bobby stumbling around on the roof) It's a roof! Not American Bandstand!
+tv-koth	family	tv-quote	general	0	Dale: When I need to correct Joseph, I tell him he's adopted.
+tv-koth	society	tv-quote	general	0	Peggy Hill: Did a woman ruin the Supreme Court? Hank Hill: Yes, and that woman's name was Earl Warren.
+tv-koth	life	tv-quote	general	0	Bobby Hill: (about an athletic cup) This cup has holes in it. How am I supposed to drink out of this?
+tv-koth	life	tv-quote	general	0	Doug the basketball coach: Bounce a ball in hockey?! Well that's a mandatory drug test right there!
+tv-koth	life	tv-quote	general	0	Wrestling Coach: Shouldn't you be teaching the girls about their monthlies?
+tv-koth	life	tv-quote	general	0	Connie: I wanna go to a party school! Yeah, Chico State!
+tv-koth	life	tv-quote	general	0	Bobby: Some of the older ones have some breasts!
+tv-koth	life	tv-quote	general	0	Bobby: Can I have some Gatorade now?
+tv-koth	life	tv-quote	general	0	Clark Peters: Hey, Bobby, if you don't beat Connie, we don't know what we'll do. So you better beat her!
+tv-koth	life	tv-quote	general	0	Bill: I'm all for lady's wrestling. Except when they do it in pudding. That's just demeaning to the human beings who make pudding.
+tv-koth	life	tv-quote	general	0	Bobby Hill: (Stereotypical Yiddish accent) Blind he's gone now!
+tv-koth	life	tv-quote	general	0	Hank:Where's my finger?
+tv-koth	family	tv-quote	general	0	Bobby: Are you a war hero like my biological grandfather?
+tv-koth	life	tv-quote	general	0	Bobby: That is so Arizona!
+tv-koth	life	tv-quote	general	0	Gary Kazner: There's a uh, what are those things called?A semi, a demi, a coupla-dozen-wheelers.
+tv-koth	faith	quip	general	0	Bill:I would never join a religion that restricted my diet. I don't want to get into heaven that way.
+tv-koth	life	tv-quote	general	0	Hank: It seems the other eye compensates by shutting itself down. It's one of nature's wonders.
+tv-koth	life	tv-quote	general	0	Bill: Okey doke. Bring! Bring! Phone for you, Hank [takes off shoe and gives it to Hank]
+tv-koth	life	tv-quote	general	0	[Everyone laughs but Hank]
+tv-koth	life	tv-quote	general	0	Hank: The joke's on you, funny man.
+tv-koth	life	tv-quote	general	0	[Hank throws the shoe out of the room. Ladybird chases after it while dragging Hank with her]
+tv-koth	faith	tv-quote	general	0	Hank: Suffering is a part of every religion, Peggy. I mean ... look at what the Jews have been through, and you never hear them complaining.
+tv-koth	life	tv-quote	general	0	Hank Hill: Hey Vickers, who do you like for the Super Bowl next year? The Doopie Loopies or the Shimmie Shammies? [Laughing] Vickers: Okay, okay, very funny. But I like the Bills.
+tv-koth	life	tv-quote	general	0	Buck Strickland: Got-dangit Hank, I'm having an infarction!
+tv-koth	society	tv-quote	general	0	[Dale is a poor lawyer.] Judge: You will pay the condo manager 8,000 pesos. Dale Gribble: But if the key does fit then you must acquit. Judge: 10,000 pesos. Baliff, confiscate their identification.
+tv-koth	life	tv-quote	general	0	[A border guard approaches them.] Border Guard: Morning. Where are you gentlemen from? Dale: (voice breaking): Arlen, Texas. Border Guard: I've been to Arlen. Nice town. Dale: Run!
+tv-koth	life	tv-quote	general	0	Boomhauer: Yeah, man, talkin 'bout that dang ol' Cuffs and Collars, man, like when they come over to clean that pool, man, it starts goin' wakka-wakka-wakka-wakka...
+tv-koth	life	tv-quote	general	0	Dale Gribble:Who's not a quitter? My dead friend Hank Hill or my new friend Rusty Shackleford?
+tv-koth	life	tv-quote	general	0	Dale Gribble: I never thought I'd say this, but, I don't think I can finish my beer.
+tv-koth	love	tv-quote	general	0	Peggy Hill: Honey, marriage is about trust and she...well she betrayed him. It was like a knife in his heart when she stuck that fork in his back.
+tv-koth	life	tv-quote	general	0	Leanne Platter: Oh, you have such a lovely home here. Of course if somebody turned on a fire hose it would all be ruined.
+tv-koth	life	tv-quote	general	0	Hank Hill: Hey, Leanne. How's that job search coming along? Leanne Platter: Not so good. My best reference just went in for chemical castration.
+tv-koth	life	tv-quote	general	0	Bill is announcing his engagement to a drunk Leanne. Bill Dauterive: We're engaged! Leanne Platter: It was supposed to be a surprise! (punches Bill and burps) I need a smoke! Bill Dauterive: This is the happiest day of my life!
+tv-koth	life	tv-quote	general	0	Luanne is begging a drunk Leanne to stop being provocative at Leanne's engagement party. Luanne Platter: Mama, please! Leanne Platter: Will you quit callin' me that?! I might be 34.
+tv-koth	life	tv-quote	general	0	Leanne is about to stab Buckley with a fork when Peggy stops her. Peggy Hill: Excuse me, ma'am, but that was my fork.
+tv-koth	life	tv-quote	general	0	Dale Gribble: Poor Peggy, she's dead.
+tv-koth	life	tv-quote	general	0	Leanne steals a truck and leaves. Bill Dauterive: If she doesn't come back, that means she and I weren't meant to be and if she does come back, well then...then I'll call the police.
+tv-koth	family	tv-quote	general	0	Hank:Bobby, if you weren't my son I'd hug you.
+tv-koth	life	tv-quote	general	0	(Hank panting) Witchard: Ah! (laughing) You can't get me! Hank: BWAAAAAHHH!!! (breaks the caged fence and chases after Witchard) Witchard: (screams)
+tv-koth	food	tv-quote	general	0	Bobby Hill: There's some milk in the fridge that is about to go bad....and there it goes.
+tv-koth	life	tv-quote	general	0	Bobby Hill: There are 96 ridges on every checker...except this one.
+tv-koth	life	tv-quote	general	0	Buckley: Sir, there's no yelling in the propane department. Some of these gases are extremely valublilous.
+tv-koth	life	tv-quote	general	0	Boomhauer: Hey man, is this dang ol' 911? Hey listen, there's a dang ol' fire in here, and dang ol' Mega-Lo-Mart went boom! 911 Operator: Sir, you are going to have to speak a lot more slowly. Boomhauer: Dang... ol'... Mega-Lo-Mart... done git went got it, and dang ol' boom!
+tv-koth	life	tv-quote	general	0	Peggy: HAAAAAANNNNNKKKK! Bill: CHUUUUUCCCCCKKK! Mega Lo Mart Employee: Buckley and Luanne are in there!
+tv-koth	work-money	tv-quote	general	0	Hank: MEGA-LO-MART?! WELL WHY DON'T YOU JUST GO TO HELL AND WORK FOR THE DEVIL?! Luanne: Good thing I don't have dangerous brain powers, or right now you'd be in a thousand little pieces!
+tv-koth	life	tv-quote	general	0	Bobby: (With his pants pulled up, in heavy Yiddish accent) "What are you talkin' about?"
+tv-koth	food	tv-quote	general	0	Peggy is trying to think of new musings for the local newspaper. Peggy Hill: Mix pineapple juice and club soda, and you've got yourself a big bucket of crap.
+tv-koth	life	tv-quote	general	0	From Peggy's newspaper article. Peggy Hill: You hear the expression "Lie like a dog" so much it is almost a cliché.
+tv-koth	life	tv-quote	general	0	Peggy Hill: Well, well, well Jo-hon Redcorn. John Redcorn: Oh, Peggy. Nancy's headache's very severe this morning, um... must be the pollen. Peggy Hill: Well, well, well. John Redcorn: Well. Peggy Hill: Jo-hon Redcorn. John Redcorn: Pe-eggy Hill.
+tv-koth	food	tv-quote	general	0	(Long silence) Bill Dauterive: (tapping glass with knife then getting up to propose a toast) To the Stuffing! Might taste like Garbage, but it sure fills you up!
+tv-koth	food	tv-quote	general	0	Cotton Hill: I'm goin' down to the corn dog shack to watch the girlies make lem-o-nade.
+tv-koth	life	tv-quote	general	0	Bill: (in falsetto voice) Why do you keep calling me "Bill?"
+tv-koth	life	tv-quote	general	0	Hank walks in the room with a food dish. Dale Gribble: Whatd'ya got under the foil, Mr. Party Pooper, some party poop?
+tv-koth	life	tv-quote	general	0	Hank Hill: "Heck, I thought I'd go ahead and sharpen all the axes." Dale Gribble: (singing) "Hank's a lumberjack and he's OK..."
+tv-koth	life	tv-quote	general	0	Heck Dorland: "I got bad news, men. Chet Elderson died. Natural causes." (Bill farts while his butt is hanging out the top of the fire pole) "Oh, for cryin' out loud!"
+tv-koth	life	tv-quote	general	0	[Bobby is doing push-ups on the muddy grass.] Bobby: Coach, I think I swallowed too much mud. Coach Sauers: Take a salt tablet.
+tv-koth	life	tv-quote	general	0	Coach Sauers: I'm gonna ride you guys so hard your gonna wish you were all dead! I'm gonna chew ya up spit ya out take a big dump on top of that and then i'm gonna get tough! LETS ROLLLLLLL EM OUT!
+tv-koth	life	tv-quote	general	0	Hank Hill: Boys, the Welton Wolves have already left their mark on this bridge. Now, what does a cougar do when a wolf comes into his neck of the woods? Bobby Hill: Beats him in football? Hank Hill: Yeah, that's where I was gonna end up.
+tv-koth	life	tv-quote	general	0	Hank Hill: God bless America on three...One...two...three Team & Hank Hill: Gooooooood bless America! Coach Sauers: Hey, butter ball, drag the body back!
+tv-koth	life	tv-quote	general	0	Hank Hill: Soccer was invented by european housewives as a way to keep busy while their husbands did the cooking
+tv-koth	life	tv-quote	general	0	Peggy Hill (To a group of soccer moms): If we were in Canada you ladies would be snooty Quebecoise.
+tv-koth	family	tv-quote	general	0	Kahn sees the fake wedding between Luanne and Bobby and believes it is real. Kahn Souphanousinphone: Minh, come quick! It's finally happening! Bobby Hillbilly marrying hillbilly cousin. You owe me five dollars. In your face!
+tv-koth	family	tv-quote	general	0	Luanne Platter Kleinschmidt: Uncle Hank! Bobby's trying to get out of marrying me! Hank Hill: Bobby, you cut that out! Bobby: "Dad! I've gotten Luanne pregnant!"
+tv-koth	faith	tv-quote	general	0	Bobby: [Bobby is presenting Jesus' miracles in the form of a magic show] Now, for my next trick, I'm gonna need a large wooden cross and a couple of volunteers... Hank & Peggy: NOOOOOOOOOOOOO!!!!!
+tv-koth	life	tv-quote	general	0	Bobby Hill: I've got gout!
+tv-koth	life	tv-quote	general	0	Dale: "I killed eight gophers last year and a purebred Tennessee walking horse that was looking at me funny."
+tv-koth	life	tv-quote	general	0	Dale Gribble: Boil up some Mountain Dew; it's gonna be a long night.
+tv-koth	life	tv-quote	general	0	Dale Gribble: Hank, you were right! The Cubans have my mower!
+tv-koth	life	tv-quote	general	0	Dale Gribble: What time is it, 3 AM, 4 AM? Nancy Gribble: It's six. Dale Gribble: AM?! Nancy Gribble: No. Dale Gribble: Oh. Is dinner ready?
+tv-koth	life	tv-quote	general	0	Dale Gribble: They wanted to see me wet my pants from fear... but they're too late!
+tv-koth	life	tv-quote	general	0	Hank Hill: You are officially the coolest.
+tv-koth	life	tv-quote	general	0	Hank tells Dale to come down from a clock tower before someone gets hurt. Dale Gribble: Too late, I killed Shackleford! No...wait, correction, Shackleford wants a pizza.
+tv-koth	life	tv-quote	general	0	Nancy Gribble: Hey, whatever turns you on, that's what I always say.
+tv-koth	life	tv-quote	general	0	Bobby Hill: I'd like a one-way ticket to Mexico por favor. That means 'today.'
+tv-koth	life	tv-quote	general	0	Hank Hill: What's that smell?
+tv-koth	life	tv-quote	general	0	Cotton Hill: Look for the man with the terrible smell!
+tv-koth	family	tv-quote	general	0	Cotton Hill: I'm an old man. Everybody already hates me. But Bobby is just a child; he has his whole life ahead of him. ... If I could take a bullet for my grandson, I would. Just not in the face; that's how I make my livings.
+tv-koth	faith	tv-quote	general	0	Cotton Hill: Ah leave it to a woman to turn god's house into a love shack.
+tv-koth	life	tv-quote	general	0	Dale: (After a trampoline falls on his foot) "Aah! This is a sign that we have been playing God with Buckley's trampoline and now God is playing God with us, and He's a whole lot better at it. I refuse to touch this portal to hell!"
+tv-koth	life	tv-quote	general	0	[Hank is hanging around Buckley's trampoline. Dale peeks out his window and yells:] Dale: Run, Hank! Portal to Hell! [Dale quickly closes his curtains.]
+tv-koth	family	tv-quote	general	0	Didi is handed G.H., the baby to which she just finishing giving birth. Didi Hill: What's his name?
+tv-koth	life	tv-quote	general	0	Hank Hill: Dad, this isn't right. If you call him Good Hank, it makes it sound like I'm Bad Hank. Cotton Hill: Well, you burnt my burgers, didn't you, B.H.?
+tv-koth	life	tv-quote	general	0	Bill: (Trying to put on his old football helmet) Hank, how did my head get so fat?
+tv-koth	life	tv-quote	general	0	Hank: Using a saw for a weapon makes about as much sense as using a gun to cut a two-by-four. That's how my dad built my treehouse... how he cleaned it, too.
+tv-koth	life	tv-quote	general	0	Connie is trying to explain her problem to Hank Connie: Well, um, you see, uhh... Hank: What?
+tv-koth	life	tv-quote	general	0	Connie writes something on paper and hands it to Hank Hank: (Reading the note) 'Mr. Hill, I just got my first period.' Bwaaaaah!
+tv-koth	life	tv-quote	general	0	Peggy: 'Hank do you want to be in Charge?' Hank: 'No.'
+tv-koth	life	tv-quote	general	0	[After viewing Bill's huge septic tank] Hank: It's a shame we have to put her in the ground.
+tv-koth	life	tv-quote	general	0	Dale: I am the hoe master! Watch me hoe! [nearly runs over Hank and Bill and damages Bill's wall]
+tv-koth	life	tv-quote	general	0	[Dale and Bill are secretly following Hank and Hal to the sporting goods store.] Dale: (Talking into tape recorder) 10:15. Hank picks up Hal. Bill: What?
+tv-koth	life	tv-quote	general	0	[Dale rewinds tape recorder and plays it next to Bill's ear.] Dale: (On tape recorder) 10:15. Hank picks up Hal. Bill: (On tape recorder) What? Dale: I said, "10:15, Hank picks up Hal!"
+tv-koth	life	tv-quote	general	0	Hank: Bobby, you name a pet, you name a guitar, but you do not name a filthy animal!
+tv-koth	life	tv-quote	general	0	Dale: [while standing on a tree branch] This...isn't...over. So long, suckers! [caws like a bird]
+tv-koth	life	tv-quote	general	0	[He jumps off and falls flat on his face.] Dale: [while laying face down in the dirt] Hank, I can see your house from up here.
+tv-koth	life	tv-quote	general	0	Dale enters his basement and sees that his hamster has eaten all of his food stores. Dale Gribble: How could you do this to me Puff-puff
+tv-koth	nature	tv-quote	general	0	Dale Gribble: My gerbil screwed me!
+tv-koth	life	tv-quote	general	0	Chappy: I live in a shack, I poop in an outhouse, I eat what I kill. Hank Hill: There isn't a Mrs. Chappy, is there Chappy?
+tv-koth	love	tv-quote	general	0	Luanne Platter: (sighs) Mr. Strickland's wife is beautiful. Hank Hill: That's NOT his wife. That's Debbie from work. Pretty girl like that should have been able to get a date. Peggy gives Hank a look as if he has no clue about his boss' reputation
+tv-koth	life	tv-quote	general	0	Luanne: My class was cancelled and the library was closed. I love college.
+tv-koth	life	tv-quote	general	0	Dale is talking to his pet turtle. Dale Gribble: C'mon, I'm not leaving without my kiss. I can wait.... I can destroy you.
+tv-koth	life	tv-quote	general	0	(Reading math word problem) Bobby: Mrs. Johnson's bag has six puppies. Mr. Peterson's bag has minus four puppies...
+tv-koth	life	tv-quote	general	0	Joseph is crouched down, his face is pressed against the door handle. Joseph: Why don't your doors have keyholes? Bobby: You're really starting to creep me out, now go home!
+tv-koth	life	tv-quote	general	0	Bobby shoves Joseph, who hits the door and makes a noise and runs away. The door opens. Bobby gasps. Luanne: Bobby, it's perfectly natural to want to see a woman naked, but I am your cousin. Now, the first time was an accident, but if I catch you again, you are going to hell.
+tv-koth	life	tv-quote	general	0	Bobby sees Joseph outside in the bushes. Bobby: Are you crazy? We're going to get caught. I could go to hell! Joseph: I can't help myself. I've got a monkey on my back and it wants to see Luanne naked!
+tv-koth	life	tv-quote	general	0	Dale Gribble: Hey you, crazy guy. I'll give you a smoke if you trade clothes with me.
+tv-koth	life	tv-quote	general	0	Dale Gribble: Infiltration of mental hospital complete. Proceed to phase two; exfiltration of mental hospital.
+tv-koth	life	tv-quote	general	0	Dale tries to open a locked door. Dale Gribble: Apparently this door has some kind of anti-opening device.
+tv-koth	life	tv-quote	general	0	Bill: (In a self-help class in a mental hospital) It's just that in the alley, no one cares what I have to say, but here, I feel heard and accepted and dare I say... loved?
+tv-koth	life	wisdom	general	0	Dale: We gotta get out of here. The smoking breaks are too short, the food is good at best and the anti-depressants are making my mouth dry and happy.
+tv-koth	society	tv-quote	general	0	Bill raises his hand. Bill: (shouting) Can I get some glitter please? Bill: Why don't we just call Hank? Dale: No. Hank must never know we were in here. Our society stigmatizes the mentally ill... and rightfully so, these people are nuts!
+tv-koth	life	tv-quote	general	0	Luanne Platter: Aunt Peggy, Mister Kahn saw me naked! Joseph: (driving by on his bike) Oh man!
+tv-koth	life	tv-quote	general	0	Hank: So you found yourself a project. Do you get the same, uh, high I get from lawn care?
+tv-koth	life	tv-quote	general	0	[Dale's finger is stuck in Bill's beer can] Dale: "Let go of my finger!" Bill: "You let go of my beer!" Dale: "So help me, Bill don't mess with my trigger finger!" Bill: "Oh, what are you going to do, shoot me with my beer? I don't think so!"
+tv-koth	society	tv-quote	general	0	Peggy sees a bumper sticker reading; 'My child is an honor roll student.' Peggy Hill: Oh yeah? Well my child is God to billions of Asians!
+tv-koth	life	tv-quote	general	0	Joe Jack:"Baby did a bad, bad thing."
+tv-koth	life	tv-quote	general	0	Dale: [while forming a line while skating with Nancy] Love train! Woo, woo!
+tv-koth	life	tv-quote	general	0	Dale: Aw, I've been at John Redc- uh, the gun club ... playing Russian Roulette. Nancy: Did you win? Dale: You're not familiar with the game, are you? Nancy: No... Dale: Yeah, I won.
+tv-koth	life	tv-quote	general	0	Hank installs a low-flow toilet and flushes twice. Hank Hill: Still?
+tv-koth	family	tv-quote	general	0	Hank's lawn dies due to a drought and Bobby tries to help. Bobby Hill: Dad! I just took a thirty second shower and I'm gonna dry myself off on the lawn!
+tv-koth	life	tv-quote	general	0	Kahn attempts to explain why his lawn is so green during a severe drought. Kahn Souphanousinphone: I use secret Asian watering technique! I could spit in a thimble and water Central Park.
+tv-koth	life	tv-quote	general	0	Hank is offered low flow toilets from water meter reader guy. Hank Hill: Well, I don't know. My toilets have given 15 years of dependable service. I'm not one of those guys who turns 40 and runs out and buys fancy new toilets.
+tv-koth	life	tv-quote	general	0	Hank Hill:..But, unfortunately, in the real world, where things don't flush like they do in the movies...
+tv-koth	life	tv-quote	general	0	Dale: "That makes a whole lot of sense... A whole lot of nonsense!"
+tv-koth	life	tv-quote	general	0	Kahn: [Answering a knock at the door] Use doorbell, you idiot. [Kahn opens the door and sees Joseph standing there] Connie, it's for you! Connie: If it's Bobby, slam the door in his face! Kahn: Oh, I wish it was, so I could!
+tv-koth	life	tv-quote	general	0	Didi Hill: Sorry I'm late; I had to take three buses to get here: one to get here, one to go back and get G.H., and one to get here.
+tv-koth	faith	tv-quote	general	0	[Hank and Peggy are looking at all the children at the Santa's Village at Bill's house.] Peggy: Rented snow machines, all these lights it's like a carnival. I wonder how Jesus feels about this. Hank: It's Christmas and Bill's happy. I'll tell you how Jesus feels great.
+tv-koth	life	tv-quote	general	0	Bill: "Can't a man get his own Ranger Dog?"
+tv-koth	life	tv-quote	general	0	Hank: I'm gonna kick your asses!
+tv-koth	life	tv-quote	general	0	Dale: Why is it always about asses with you, Hank?
+tv-koth	life	tv-quote	general	0	[Dale has hired Octavio to destroy a puppet that frightens him. Octavio spies on Hank and Bobby while Dale spies on Octavio.]
+tv-koth	life	tv-quote	general	0	Octavio: (Into a tape recorder) 11:15 A.M.: The man and the boy and the puppet leave the house.
+tv-koth	life	tv-quote	general	0	Hank Hill: The only woman I'm pimping from now on is Sweet Lady Propane. And I'm tricking her out all over this town.
+tv-koth	life	tv-quote	general	0	[Trying to act like a pimp while confronting one.] Hank Hill: Alright, man, get outta that Jalopy and let's talk some bui'ness!
+tv-koth	life	tv-quote	general	0	Hank Hill: I am the mack daddy of Heimlich County, I play it straight up, yo. You get the hell outta my 'hood!
+tv-koth	life	tv-quote	general	0	Hank Hill: You get out... your hooker stuff... of my house!
+tv-koth	life	tv-quote	general	0	[Realizing the pimp realated stuff going on] Hank Hill: Son of a... BWAAH!!
+tv-koth	life	tv-quote	general	0	Dale: "Turbines!" (NOTE: He is in a air vent filled with roaches, he promptly rotates and kills several)
+tv-koth	life	tv-quote	general	0	A sleeping Hank is awakened by a telephone call at home. Hank Hill: Uhh...Strickland Propane, taste the...I mean, hello?
+tv-koth	life	tv-quote	general	0	Luanne Platter: Uncle Hank, I quit being a virgin the first time I had sex.
+tv-koth	love	tv-quote	general	0	Hank Hill: Peggy...I can see your whatnots.
+tv-koth	life	tv-quote	general	0	[Hank learns that Peggy had sex with another man before she got married.] Hank: Bwaaah!!! Peggy: He's gay now, if that makes you feel better. Hank: BWAAAAAAAAAH!!! Peggy: Of course it doesn't.
+tv-koth	life	tv-quote	general	0	Boomhauer: (To Bobby) "Hey man, your daddy quotes me? Hey man, maybe we'll stay mad at Hank for just one week." (Versus three)
+tv-koth	life	tv-quote	general	0	Hank: Why couldn't it have been me and Boomhauer that did something horrible to you guys? Bill: 'Cause Boomhauer's a saint.
+tv-koth	life	tv-quote	general	0	Hank: You want me to wear a fake hiney?
+tv-koth	life	tv-quote	general	0	Dr. Tate: Mr. Hill, are your shoes fake feet?
+tv-koth	life	quip	general	0	Diminished Glutes Support Group: [Chanting at race]: We're here! No rear! Get used to it!
+tv-koth	life	tv-quote	general	0	Dale: (When Dale's Porta Potti collapses while Hanks's in it) "He's a squatter!"
+tv-koth	life	tv-quote	general	0	Senior#1: (Enters the boys' bathroom with his friends while Bobby is washing his hands) "Ha. Hey, Fresh meat, This is the seniors bathroom. I'm gonna shove your head in the toilet".
+tv-koth	life	tv-quote	general	0	Bobby: That's my purse! I don't know you!
+tv-koth	life	tv-quote	general	0	[Bobby talks about his new penchant for kicking people in the groin.] Bobby: Hey, I didn't go looking for trouble. Trouble came-a-knockin' and Bobby Hill's foot answered the door.
+tv-koth	family	tv-quote	general	0	Bill: I wish I had a son to kick me in the nuts.
+tv-koth	life	tv-quote	general	0	[Dale suddenly kicks Bill in the groin] Dale: Be careful what you wish for.
+tv-koth	life	tv-quote	general	0	Bobby: I'm sorry, Mom. It was a reflex. [Peggy jumps on him, then noogies him] Mom, okay! I said I was sorry! [groaning]
+tv-koth	life	tv-quote	general	0	Dale Gribble: (holding a plate of macaroons, small macaroons on one side, large macaroons on the other side) Macaroon? I've got entrance wound size, and exit wound size. (The small macaroons are called "entrance wound size", and the large macaroons are called "exit wound size".)
+tv-koth	life	tv-quote	general	0	Dale: "Pocket sand!" (tosses sand in the eyes of his attacker)
+tv-koth	family	tv-quote	general	0	Hank is trying to choose a Christmas ornament. Hank Hill: How about this one? Cotton Hill: Peace!? I bet you would like that! Why don't you get one with a flag-burnin' on it? Besides, we're a Joy family.
+tv-koth	faith	tv-quote	general	0	Hank Hill: Dad, it's Jesus peace, not Hippie peace...
+tv-koth	life	tv-quote	general	0	Didi Hill: I'm lucky. Cotton is so easy to shop for. Either he likes what I get him, and he's happy, or he hates it, and he shoots it, and he's happy.
+tv-koth	nature	tv-quote	general	0	Dale: Falcon, bring us back a vole. Sh-sh-sha!
+tv-koth	life	tv-quote	general	0	[The falcon immediately attacks Bill.] Bill: AAAAAAAAAAAHHHH!! It bites!
+tv-koth	life	tv-quote	general	0	[Bill runs off.] Dale: ...so Bill's a vole.
+tv-koth	life	tv-quote	general	0	Dale: It said P-lacebo... it must be made by P-fizer.
+tv-koth	life	tv-quote	general	0	Dale: Gentlemen, the crap has literally been scared out of me.
+tv-koth	life	tv-quote	general	0	Dale is talking to Joseph. Dale Gribble: You're like E.T., except E.T. was a purebred alien with a heart of gold. You're only half-alien and at times can be a tad self-absorbed.
+tv-koth	life	tv-quote	general	0	Both he and his father believing he's an alien, Joseph explains to Bobby why Dale suddenly buys him a new large TV Joseph Gribble: He's just being nice to me so my real dad won't freeze him in carbonite and trade him for spice.
+tv-koth	life	tv-quote	general	0	Bill Dauterive: I've never had a caddy before. I'm gonna treat him like crap.
+tv-koth	society	tv-quote	general	0	At a market near the Mexico/US border Dale Gribble: I don't mean to sound racist, but this by far is the best selection of beans I have ever seen. I'm serious.
+tv-koth	life	tv-quote	general	0	Hank Hill: No, you are not tripping, that is an emu.
+tv-koth	life	tv-quote	general	0	[Dale confronts his father.] Dale Gribble: Prepare to be beaten by the deadliest form of martial arts. Monkey style! Ooh, ooh, ahh, ahh!
+tv-koth	life	tv-quote	general	0	[Dale believes his father is hitting on his wife. Thus, he throws a knife and hits a mannequin near them.] Dale Gribble: Get away from my wife or next time I'll aim for the mannequin and hit you.
+tv-koth	life	tv-quote	general	0	[Dale talks to the audience at a gay rodeo.] Dale Gribble: Attention homosexuals and so called "bi"-sexuals.
+tv-koth	faith	tv-quote	general	0	Nancy Gribble: This is supposed to be my re-wedding to Dale! My second chance! Why is God punishin' me? (looks up with her arms in the air) Why, sug?!
+tv-koth	life	tv-quote	general	0	Bug Gribble: : Oh my god, Hank! Are you gay? Hank Hill: What?! No! I sell propane!
+tv-koth	family	tv-quote	general	0	Nancy Gribble: So, are you really okay with your dad being gay? Dale Gribble: Why would I have a problem with it? John Redcorn's gay, and I've been friends with him for years!
+tv-koth	love	tv-quote	general	0	Marlene: I'm going to be honest with you I only understand about half of what you say. The other times I just nod and smile and wait for your pants to come off.
+tv-koth	life	tv-quote	general	0	Peggy: Bill is picking on Boomhauer? He hasn't done that since he had hair.
+tv-koth	family	tv-quote	general	0	Luanne: She's not coming back, honey.
+tv-koth	life	tv-quote	general	0	Bobby: 'Course she is. She's Mr. Boomhauer's girlfriend.
+tv-koth	love	tv-quote	general	0	Luanne: Let's see, how can I explain this...? You know how you can be happy eating vanilla ice cream day after day after day? Well, Mr. Boomhauer isn't just like that. See, he likes to try different flavors.
+tv-koth	life	tv-quote	general	0	Bobby: But he can have a new flavor every day! He's dating the ice cream lady!
+tv-koth	life	tv-quote	general	0	Luanne: Mr. Boomhauer had grown-up sex with the ice cream lady, and now he's dumped her. You're never gonna have ice cream again, Bobby.
+tv-koth	life	tv-quote	general	0	Dale: We gotta do something. The alley was balanced before. A cool single guy, and a cool married guy. A loser single guy, and a loser married guy. Now it's me and three losers!
+tv-koth	family	tv-quote	general	0	[Hank meets his Japanese half-brother, who looks astonishingly like him, for the first time.] Hank: Bwah!!! Junichiro: (In unison with hank) Hwah!!!
+tv-koth	life	tv-quote	general	0	Bobby: Good God! That is the biggest Hello Kitty store I've ever seen!
+tv-koth	life	tv-quote	general	0	Junichiro: (To Hank) With all respect and honor, I would not be saddened if both you and your father went to Hell!
+tv-koth	life	tv-quote	general	0	Michiko (Junichiro's mother): This arrangement offered me many opportunities for difficulty.
+tv-koth	life	tv-quote	general	0	[Hank and Junichiro have just watch Cotton depart from the train station.] Junichiro: He will be proud of me. I was abrupt with an elderly woman. Hank: [sighs] We're too late. Our dad's on his way to spit in the emperor's face. Junichiro: Hwah!!!
+tv-koth	life	tv-quote	general	0	Hank: (Referring to Bobby's dancing at a concert) They weren't dancing like you and I dance. They were...enjoying it.
+tv-koth	life	tv-quote	general	0	Hank: (Upon Hank finding Bobby holding a Cheerleader uniform) There better be a naked cheerleader under your bed.
+tv-koth	family	tv-quote	general	0	Hank- "If bobby Learns to cook and clean for himself whats his motivation to ever get married." Hank Hill: You shut your got-dang mouth or I'll shove that Ditch Witch down your throat and dig a tunnel straight through to sunshine!
+tv-koth	life	tv-quote	general	0	Big Jim: Ha ha, that's telling him.
+tv-koth	life	tv-quote	general	0	Hank Hill: 'Felt good, too.
+tv-koth	life	tv-quote	general	0	Dale Gribble: Back off, Hank, or Octavio will mess you up.
+tv-koth	work-money	tv-quote	general	0	Octavio: Gribble, I don't care if he stays or goes. Where's the money you owe me, esse?
+tv-koth	life	tv-quote	general	0	Dale Gribble: You heard him.
+tv-koth	life	tv-quote	general	0	Hank Hill: No, I don't.
+tv-koth	life	tv-quote	general	0	Big Jim: No you don't, that's right! What are you looking at, sport? Don't you eyeball me! Don't you eyeball a JUNKYARD DOG! ARF! ARF! ARF! NOW YOU GOT THE DOG BARKING! YOU GOT IT! YOU GOT IT! ARF! ARF!
+tv-koth	life	tv-quote	general	0	[yells, bellows, suddenly grabs his chest and keels over]
+tv-koth	life	tv-quote	general	0	Hank Hill:I don't have an anger problem, I have an idiot problem!"
+tv-koth	life	tv-quote	general	0	Bill Dauterive: You cut Dale's finger off for building a tunnel. I once made a vest out of your wife's underpants. I can't imagine what you'd do to me.
+tv-koth	life	tv-quote	general	0	Police Office (thinking it's a domestic abuse situation): It always happens to the younger, prettier ones.
+tv-koth	life	tv-quote	general	0	Dale Gribble: (Yelling at Hank) If it were up to you, you would have filled my buddy tunnel with cement, so no one else could use it! (Note the sexual innuendo/double entendre, based on context of scene).
+tv-koth	life	tv-quote	general	0	Didi Hill: Hank has always been angry. When we were in kindergarten, and the other children would use the finger paints, he would pinch them. Hank Hill: You are a BALD FACED LIAR!
+tv-koth	life	tv-quote	general	0	Hank Hill(To Dale): It's gonna take a lot of hard work to repair this floor, and since this is all your fault, Mister, I'm not gonna let you help me. Bobby Hill:Can I help? Hank Hill:Yes, Bobby.
+tv-koth	life	tv-quote	general	0	Dale Gribble:Objection, Conjecture, Objecture! Hank Hill: That's not even a word!
+tv-koth	work-money	tv-quote	general	0	Dale Gribble: I hear Mega Lo Mart is taking bids for a rat problem. Boy, that'd be a sweet gig. I could finally start paying for Nancy's health insurance instead of just telling Nancy I'm paying for it.
+tv-koth	life	tv-quote	general	0	Hank Hill: Dale's losing it at Mega Lo Mart, Nancy. We need some traps for the rat, and a tranquilizer gun for... uh... also for the rat.
+tv-koth	nature	tv-quote	general	0	Dale Gribble: Well, that's the calculated risk you take when you release a mongoose.
+tv-koth	life	tv-quote	general	0	(Dale and Chuck Mangione argue who's crazier) Chuck Mangione: You let a mongoose out in the store. Dale Gribble: You're living in a T.P. fort. Chuck Mangione: Let's agree to disagree.
+tv-koth	life	tv-quote	general	0	Boomhauer (In disbelief): Chuck Mangione. He's probably out there in Hollywood, you know, sticking his horn to dang ole Minnie Driver.
+tv-koth	love	tv-quote	general	0	Luanne Platter: I closed my eyes and I was thinking of those stupid guys in my math class... oh, and the guy in the parking lot... and that volunteer pool cleaner who always comes by when I'm swimming. Angela: Tell me about it. I once fell for a free breast examination in a bar.
+tv-koth	life	tv-quote	general	0	Luanne Platter: Yeah, there's nothing worse than people not respecting you. Every time I get hooted at I have to take an hour of Tae Bo. Hank Hill: Tae Bo, is that that new oriental way of moving your couch around?
+tv-koth	life	tv-quote	general	0	Hank Hill: (after Luanne explains Tae-Bo): Oh, it's dancing. Bobby Hill: Hmm. That sounds Hank Hill: No.
+tv-koth	life	tv-quote	general	0	Angela: Men are never going to respect us. That's why we've got to use what God or the surgeon gave us to get what they got: Money. Luanne Platter: So you'd do anything for money? Angela: Or a car.
+tv-koth	life	tv-quote	general	0	Peggy: It's for the freakin' children!
+tv-koth	life	tv-quote	general	0	Bobby Hill: The clock radio smells like my Game Boy, but it tastes like my library card. I wonder if it smells different when it's on...
+tv-koth	life	tv-quote	general	0	Hank gives a toast at Patch's rehearsal dinner. Hank Hill: Hank Hill, best man, Strickland Propane.
+tv-koth	life	tv-quote	general	0	Patch tries to shift the blame after being found out by his fiancee Patch Boomhauer: It was... Hank! Hank loves hookers!
+tv-koth	faith	tv-quote	general	0	Hank Hill: Can't you see you're not making Christianity better, you're just making rock and roll worse?
+tv-koth	life	tv-quote	general	0	Hank punches Dale in the arm. Peggy: Hank, there's something I have to tell you. Hank: You did what?!
+tv-koth	life	tv-quote	general	0	Kahn is watching the Hills through binoculars. Kahn: Minh! Come quick! Hank and Peggy having old-school red-neck domestic squabble on front lawn!
+tv-koth	life	tv-quote	general	0	Mihn runs in with binoculars. Hank: How could you, Peggy? Minh: Oh, I bet she burn the meat loaf! Hank: It caused what? Minh: Why he point at his crotch like that? Hank: 20% shrinkage?! You want me to put a patch on my what?! Kahn: OK, this going in a weird direction now.
+tv-koth	life	tv-quote	general	0	The park ranger wishes all of the hippies well as they finally leave the park. Park Ranger!: Good Riddance! Go to Hell!
+tv-koth	food	tv-quote	general	0	Bobby Hill: I ate hippie gumbo!
+tv-koth	life	tv-quote	general	0	During the middle of a flood, the town seeks shelter in the school gym. Kahn Souphanousinphone: Chaos already ruling. This like when city of Luang Prabang fall, and we snag sweet diplomatic license plates!
+tv-koth	life	tv-quote	general	0	Bobby starts passing out. Joe Jack: How is your back, honey? Hank Hill: Great Joe Jack, how is your gambling problem?
+tv-koth	life	tv-quote	general	0	Hank Hill: Dang it, I am sick and tired of everyone's asinine ideas about me. I'm not a redneck, and I'm not some Hollywood jerk. I'm something else entirely. I'm... I'm complicated!
+tv-koth	nature	observation	general	0	Little girl:( as she notices the cattle coming) Look, Mommy! Moo cow!
+tv-koth	life	tv-quote	general	0	While staying in a time-share condominium in Mexico, Cotton comments on the quality of the bottled water in the room. Cotton Hill: They got the water what don't give you the hot poops!
+tv-koth	life	tv-quote	general	0	Bill Dauterive(Bill's card has been denied) I've Got other Cards, Do you take Blockbuster Hank Hill: Why would anyone do drugs when they can just mow a lawn
+tv-koth	life	tv-quote	general	0	Bobby is mocking Hank when Hank is mistaken as female on his driver's license Bobby Hill: Now where did I put my pantyhose?
+tv-koth	life	tv-quote	general	0	Dale Gribble: I'm all jacked up on America right now! Anyone want to hear me recite the Constitution?
+tv-koth	life	tv-quote	general	0	Kahn Souphanousinphone: I will now tell stories of my childhood in Laos. Growing up in the village, I had two chickens. One of these was named "Phouma." I don't recall the name of the other chicken. Sometimes I would put both chickens in the wheelbarrow. This was very funny.
+tv-koth	arts	tv-quote	general	0	(Meeting a famous Laotian soldier named Nguc Phong) Kahn Souphanousinphone: Hey, Minh, this guy serious butt-kicker! Anyway, I sorry they kill all your friends. Nguc Phong: Yes, that was unhappy for me.
+tv-koth	life	tv-quote	general	0	Lucky: My father said he wouldn't get married until he became the Disputed Heavyweight Wrestling Champion of the World.
+tv-koth	life	tv-quote	general	0	Hank: Uhhhhh. Did your father ever become the Heavyweight wrestling Champion of the World?
+tv-koth	life	tv-quote	general	0	Lucky: No, neither he qualified for the weight. And my grandfather said he wouldn't get married until he spoke perfect French.
+tv-koth	life	tv-quote	general	0	Peggy: Oh, I don't think old grandpa ever got past saying "Bonjour".
+tv-koth	life	tv-quote	general	0	Lucky: Nope.
+tv-koth	life	tv-quote	general	0	Hank: Well I hate those pants more than life itself
+tv-koth	life	tv-quote	general	0	Joseph: Oh man, he's really got it going on. Wait, did I just sound like a chick?
+tv-koth	life	tv-quote	general	0	Hank is playing a Grand Theft Auto style video game called "Pro-Pain!" Hank Hill: Oh, God, I just stabbed a parking attendant! Where's the button to turn myself in?
+tv-koth	life	tv-quote	general	0	Hank Character in Pro-Pain!: I tell you what!
+tv-koth	food	tv-quote	general	0	Hank Character in Pro-Pain!: Taste the meat and the heat!
+tv-koth	society	tv-quote	general	0	Bobby and all of his classmates are marching down the street protesting. Old Man 1: Here they come to kill us. Oh well. Old Man 2: I liked it when we could just stick 'em in factories.
+tv-koth	life	tv-quote	general	0	Alejandro: We want a plane to Disney World. And 100 gallons of diesel fuel! Olivia: And we're not leaving until we get some Yuengling!
+tv-koth	life	tv-quote	general	0	Joseph is dressed as a Powder Puff cheerleader and is told to redress into his normal clothing. Joseph Gribble: But I'm so pretty!
+tv-koth	life	tv-quote	general	0	Dale: (After blowing up the shack that Hank just built because Hank's father wanted it destroyed) "Yee-haw! That was for you colonel!" (runs off)
+tv-koth	life	tv-quote	general	0	Lucky: Lucky is on the case. That's usually what I say when I drink beer, but this time it refers to this mystery.
+tv-koth	life	tv-quote	general	0	(Kahn trying to find out who had sex in a train lavatory) Bill: I don't have an alibi. Kahn: You're Bill Dauterive, that's your alibi.
+tv-koth	life	tv-quote	general	0	Lucky: You really enjoyed yourself this evening, didn't you Aunt Peggy? Peggy: (gasps) You know? Lucky: Good for you. Happy Birthday Aunt Peggy.
+tv-koth	family	tv-quote	general	0	Dale Gribble: Well, Joseph went to his first sleepover last night. Didn't go so well, he's a cuddler, so I had to go pick him up.
+tv-koth	life	tv-quote	general	0	After Dale tells Hank he saw him driving away from the explosion: Peggy Hill: (Whispers) Oh, Hank! You must cover your tracks! We'll have to kill Dale!
+tv-koth	life	tv-quote	general	0	Bobby Hill: Dad, I'm confused. So you should trust people until they betray you, and then try to blow them up?
+tv-koth	work-money	tv-quote	general	0	Luanne: Normal people buy things with credit cards.
+tv-koth	life	tv-quote	general	0	Lucky: Are you saying that Georgers are not normal people because they pay for things with cash?
+tv-koth	work-money	tv-quote	general	0	[Hank is helping Lucky with his credit card application] Hank: Here under employer you put Costco, you never worked for Costco.
+tv-koth	life	tv-quote	general	0	Lucky: No, but Costco gave me the slip on pee-pee money for my settlement.
+tv-koth	work-money	tv-quote	general	0	Hank: Pee-pee money is not an employment history and look, you left your social security number blank here [points to blank spot on Lucky's application].
+tv-koth	life	tv-quote	general	0	Lucky: Oh, I don't have one of them social cards or a driver's license. My dad always said a man's wallet should only hold cash, razor blade and a lucky poker chip.
+tv-koth	life	tv-quote	general	0	Dale: Gentlemen, I'm sure you recall my long dreamt dream about building a guard tower in my yard.
+tv-koth	society	tv-quote	general	0	Hank: Dale, the zoning board has turned you down six times and the last refusal was with extreme prejudice.
+tv-koth	life	tv-quote	general	0	Dale: True, but for a structure under 40 feet no variance is needed. Soon you'll live under the protection of my 39 foot guard tower! The zoning board has no say.
+tv-koth	life	tv-quote	general	0	Hank: Dale, that is [Dale cuts him off mid-sentence]...
+tv-koth	life	tv-quote	general	0	Dale: NO SAY!
+tv-koth	family	tv-quote	general	0	Hoyt: (giving Bobby a gift) Here's something for this kid of yours.
+tv-koth	life	tv-quote	general	0	Bobby: My name is Bobby, Uncle Hoyt.
+tv-koth	life	tv-quote	general	0	Peggy:[sings to the tune of "La Cucaracha"] La Peggy Hill cha, la Peggy Hill cha! Doin' dishes in the sink.
+tv-koth	life	tv-quote	general	0	Hank: Well, we're doing great on our list, Lucky. Later today we'll go see my guy about a will, you want to make sure the right people inherit your debts.
+tv-koth	life	tv-quote	general	0	Hoyt: I'll be back so quick you'll call me...Quickie McGee!
+tv-koth	life	tv-quote	general	0	Hoyt:I'm a lot better now, here I owe you. [takes out some cigarettes from the pack and hands them to Lucky] See, on the oil rig, these are like money.
+tv-koth	life	tv-quote	general	0	Lucky: Dad,were you in the state oil rig or in the federal?
+tv-koth	life	tv-quote	general	0	Hoyt: Smart man. [lays more cigarettes on the patio table] That means we're like family. Say I got 10 cigarettes and you pay me 10 more for watching your back. Now how many I got?
+tv-koth	life	tv-quote	general	0	Lucky: Twenty.
+tv-koth	life	tv-quote	general	0	Hoyt: No! Only 15 cause I gotta pay a tax to the guard.
+tv-koth	work-money	tv-quote	general	0	Lucky: Cigarette math is full of surprises.
+tv-koth	life	tv-quote	general	0	Kahn: Inspector, fine this redneck for reckless redneck-itude!
+tv-koth	life	tv-quote	general	0	[after Hoyt lands his 3rd strike and will be serving a lifetime prison sentence] Luanne: I'm just sad that Daddy had to back to his oil rig again.[turns to Lucky] He would be so proud of you.
+tv-koth	life	tv-quote	general	0	Hank: Well, he sure would but they really need him on that oil rig. Otherwise they wouldn't have given him a life time contract.
+tv-koth	society	tv-quote	general	0	Peggy: Oil is very important to America.
+tv-koth	life	tv-quote	general	0	Luanne: Even more important than propane?
+tv-koth	life	tv-quote	general	0	Hank: Uh...yes Luanne. Oil is even more important...than propane.
+tv-koth	life	tv-quote	general	0	Hank: About that science teacher of yours, does he ever talk about, uh, going green? Bobby: I don't know. Do you ever talk about propane? My point is, he talks about all the time.
+tv-koth	life	tv-quote	general	0	Ted Wassanasong: This was no act of God; look at those sledgehammer marks! It was the act of rednecks, on a drunken rampage.
+tv-koth	life	tv-quote	general	0	Dale: (After they rebuild neighbor's house) We should do this to Bill's house when he dies.
+tv-koth	life	tv-quote	general	0	Bill: What a nice lady. We used to talk about puppies and serial killers through the fence.
+tv-koth	life	tv-quote	general	0	Lucky: I've seen a lot of nature documentaries and I find that most of life's questions can be answered with another question: what would a monkey do?
+tv-koth	family	tv-quote	general	0	Hank Hill: Aw, you're (his new grand-niece) a cute one, I tell you what.
+tv-koth	society	tv-quote	general	0	[Looking for a party] Buck Strickland: Son, what's the bad part of Memphis called? Jody "Ray Roy" Strickland: Memphis!
+tv-koth	life	tv-quote	general	0	Dale: (Imitating Survivorman) There is no greater survival skill that the ability to start a fire without matches. Fortunately Arlen is rich in natural propane tank deposits.
+tv-koth	life	tv-quote	general	0	Peggy has asked for a cassette tape at a CD store. A man walks up to the clerk who is assisting Peggy. Man: Hey, do you have that song that goes, "Wah-nah-nah-nah-nah scroun-scrouna Wah-nah-nah-nah-nah scroun-scrouna?" Clerk: (To Peggy) I gotta... yeah.
+tv-koth	life	tv-quote	general	0	[Dale and Bill are wrestling over a beer can.] Kahn Souphinousaphone: Chain-smoking anorexic vs. that heart attack waiting to happen! Who will die first? Let's watch!
+tv-koth	life	tv-quote	general	0	Cotton Hill: (In a letter) "Hank, if you're readin' this it means Fatty's dead. So I have to leave this task to the one most likely to screw it up: You."
+tv-koth	family	tv-quote	general	0	[The series' last lines] Bobby: Well, Dad, it looks like this is the last one. Hank: Oh, you're just getting started, Bobby. You'll be grilling your whole life. Bobby: Just like you. Hank: Yep. Bobby: Yep.

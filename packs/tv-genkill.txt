@@ -1,0 +1,43 @@
+tv-genkill	life	tv-quote	edgy	1	Cpl Gabe Garza: How's it feel, motherfucker? How's it feel to be fuckin' dead? Cpl Jason Lilley: Bro, it feels sad. I feel very alone. And also, I gotta take a shit.
+tv-genkill	life	tv-quote	general	0	Cpl Josh Ray Person: You know, it doesn't make you gay if you think Rudy's hot. We all think he's hot.
+tv-genkill	life	tv-quote	nsfw	1	Cpl Anthony 'Maninmal' Jacks: Did you know that wetback pussy is actually warmer than a normal, average white pussy?
+tv-genkill	life	tv-quote	edgy	1	Sgt Larry Shawn "Pappy" Patrick: Well, we all got jobs to do. Sgt. Maj. Sixta's job is to be an asshole... and he excels at the position.
+tv-genkill	life	tv-quote	edgy	1	Cpl Josh Ray Person: There's layers of retardation that most people don't even know about. You should quote me on that!
+tv-genkill	life	tv-quote	general	0	Sgt Brad "Iceman" Colbert: Wake up, Trombley. You're missing the invasion.
+tv-genkill	life	tv-quote	general	0	HM2 Robert Timothy Bryan: Where did we get that so-called translator? 1stLt Nathaniel Fick: He told me he worked for General Mattis. Wright: He told me he worked for the CIA. Sgt Brad 'Iceman' Colbert: Back at Mathilda, he said he could hook me up with free satellite TV.
+tv-genkill	life	tv-quote	general	0	Sgt Brad "Iceman" Colbert: Look at this, gents. Little more than 48 hours into the war and First Marine Division, out of Camp Pendleton, Oceanside, California, is rolling with impunity on Saddam's highway.
+tv-genkill	life	tv-quote	general	0	Sgt Brad "Iceman" Colbert: That song is straight homosexual, country music, special Olympic gay.
+tv-genkill	life	tv-quote	general	0	Sgt Brad "Iceman" Colbert: We're Marines. We obey our orders. Our mission now is not to do our original mission. Cpl Gabe Garza: Semper Gumby, always flexible.
+tv-genkill	life	tv-quote	general	0	Cpt Dave "Cpt. America" McGraw: Corporal, stow this next to my seat. Better be prepared, never know when you might need an AK.
+tv-genkill	life	tv-quote	edgy	1	GySgt Mike "Gunny" Wynn: Garza, how your legs, they all right, standing on that turret all day. Cpl Gabe Garza: Good, Gunny. I'm Mexican, too hard to feel nothin' from that. I got retard strength.
+tv-genkill	life	tv-quote	general	0	HM2 Robert Timothy "Doc" Bryan: This lunatic doesn't even know he's in Iraq. Thinks he's a super hero, some Japanese comic. Sgt Rodolfo "Rudy" Reyes: Hey, I put on my super hero uniform every day I'm in the Corps, brother. Oorah? It's how we find our true Dharma.
+tv-genkill	society	tv-quote	edgy	1	Cpl Josh Ray Person: I see foot mobiles. 12 o'clock, a hundred meters. Damn. Brad, they're fuckin' hotties! I didn't know hajis could be hotties! I thought that they were all camel-faced hags! Hey, Assalamu Alaikum, ladies!
+tv-genkill	life	tv-quote	edgy	1	Sgt Brad "Iceman" Colbert: Fucking officers will be the death of us yet.
+tv-genkill	life	tv-quote	nsfw	1	Sgt. Brad "Iceman" Colbert: Sir, the main weapon on your point vehicle is unreliable. Given the prevailing climatic conditions, using this lubricant is like trying to buttfuck a virgin, underage Phuket whore with chalk when is clearly called for, Sir.
+tv-genkill	life	tv-quote	general	0	Lt. Nathaniel "Nate" Fick: You want logistics? Join the Army. Marines make do.
+tv-genkill	life	tv-quote	general	0	Lance Cpl. Harold James Trombley: Yo, lets shoot some of these dogs. Sgt. Brad "Iceman" Colbert: Trombley, I keep telling you, we don't shoot dogs, we shoot people. And we generally only shoot people if we have to.
+tv-genkill	life	tv-quote	general	0	Cpl. Josh Ray Person: Yeah, looks like Saddam's big bad Republican Guard hajjis got wind I was coming. As the great warrior-poet Ice Cube once said, "If the day does not require an AK, it is good".
+tv-genkill	life	tv-quote	edgy	1	Sergeant Brad 'Iceman' Colbert: Gentlemen, we just seized an airfield. [grins] That was pretty fucking ninja.
+tv-genkill	society	tv-quote	general	0	Lance Cpl. Harold James Trombley: Look, I didn't mean to shoot innocent camels, alright? I'm sure I shot people.
+tv-genkill	life	tv-quote	general	0	Cpl. Josh Ray Person: That's 'cause he's a psycho. But at least he's our psycho.
+tv-genkill	life	tv-quote	edgy	1	Cpl. Josh Ray Person: Damn, sucker. I just got some. Look at me, Brad, I'm a man now, just like you. Except, I don't look like a faggot and talk all educated.
+tv-genkill	life	tv-quote	edgy	1	Sgt. Antonio "Poke" Espera: Captain America's gone, dog. You see that look in his eyes? Like he's afraid if he takes a shit hajis gonna come crawling out of his ass.
+tv-genkill	life	tv-quote	edgy	1	Cpl. Walt Hasser: Hey, where's Brad? Cpl. Josh Ray Person: Jesus fucking Christ, Walt. Are you serious? My first combat jack! Cpl. Walt Hasser: Fuck your jack, we're being overrun by armor! Cpl. Josh Ray Person: He's in his grave.
+tv-genkill	society	tv-quote	general	0	Cpt. Bryan Patterson: Eleven thousand pounds of ordinance dropped and we didn't hit any armor. We didn't destroy any villages though either. Guess that sort of goes in the win column, right?
+tv-genkill	society	tv-quote	general	0	Lance Cpl. Harold James Trombley: I know this may sound weird but deep down, I kinda wanted to know what it feels like to get shot. I mean, not actually shot but, I don't know, I just get more nervous watching a game show at home on T.V. than I do here, in all this, you know.
+tv-genkill	society	tv-quote	edgy	1	Lt. Nathaniel "Nate" Fick: I know this looks like some Blackhawk Down shit we're doin', but we'll be the ones initiating contact, not the bad guys.
+tv-genkill	life	tv-quote	edgy	1	Sergeant Brad 'Iceman' Colbert: [regarding Ray Person] Need I remind you that he is the best damn RTO in the business? As long as you keep him away from your uglier daughters and your smaller livestock.
+tv-genkill	life	tv-quote	edgy	1	Corporal Josh Ray Person: Goddamn Baptista! How the fuck would he like it if I joined the Brazilian Marines and only spoke English?
+tv-genkill	life	tv-quote	edgy	1	Corporal Josh Ray Person: Lilley! What the fuck?! Would you please BACK the FUCK UP!?!
+tv-genkill	society	tv-quote	edgy	1	Cpt. Dave "Captain America" McGraw: "How's it feel now you filthy motherfuckers!? Goddamn dirty hajji motherfuckers trying to fuck with me? FUCK YOU! That's what you get when you try to ambush Marines, motherfucker, you get DEAD! Fucking bitch!
+tv-genkill	life	tv-quote	general	0	Lance Cpl. Harold James Trombley: Did you know people shiver when they have an excess of adrenaline? Cuts the blood flow or something. They taught us that in . Evan "Scribe" Wright: Is that what happens to you? Lance Cpl. Harold James Trombley: No, I get a woody.
+tv-genkill	society	tv-quote	edgy	1	Sgt. Antonio "Poke" Espera: What the fuck is wrong with you dog? What is it with you white boys? Leave you alone for ten minutes and you go all Lord of the Flies and shit.
+tv-genkill	food	tv-quote	edgy	1	Sgt. Antonio "Poke" Espera: Lt.'s boys are eatin' some weird-ass meat over there. It's like picnic. Makes you appreciate shit. Makes you appreciate shit like good old-fashioned [reads label] chunk formed meat patties.
+tv-genkill	life	tv-quote	edgy	1	Sgt. Brad "Iceman" Colbert: What kind of goddamn sadists work at the MRE factory? Ten days and nothing but peanut butter. When the fuck am I gonna get a jalapeno cheese?
+tv-genkill	society	tv-quote	general	0	Lt. Nathaniel Fick: Walt, finish your report, get it to me asap. You did nothing wrong, but... we're gonna see if there's a better way to stop these cars. Cpl. Josh Ray Person: Walt's got a great way, LT. Shoot the driver, stop the car.
+tv-genkill	life	tv-quote	edgy	1	Cpl. Josh Ray Person: Damn, Brad, what else you got hidden in the humvee -- a fat chick?
+tv-genkill	society	tv-quote	edgy	1	Sergeant Antonio 'Poke' Espera: Check it, bro. The men all sit around talking shit, the women are all working. Corporal Jason Lilley: Brah, if we fight the women instead of the men, we'd get our asses kicked.
+tv-genkill	life	tv-quote	general	0	Cpl. Josh Ray Person: It looks like vodka. I think it's a kind of gin. Lt. Nathaniel Fick: [Walking by with Gunny Wynn] It's the kind that doesn't come out when officers and senior NCO's are present.
+tv-genkill	society	tv-quote	general	0	Lance Cpl. Harold James Trombley: See Sergeant, we do shoot dogs in Iraq.
+tv-genkill	life	tv-quote	edgy	1	[SgtMaj. Sixta is watching the men of Bravo Company celebrate the fall of Saddam Hussein's regime] SgtMaj. Sixta: Y'all gets a free pass on the hooch tonight. But tomorry, y'all tighten up your assholes.
+tv-genkill	life	tv-quote	general	0	Cpl. Josh Ray Person: Hey Rudy! My sister wants her shorts back!

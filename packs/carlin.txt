@@ -1,0 +1,53 @@
+carlin	love	pun	edgy	0	'I am' is reportedly the shortest sentence in the English language. Could it be that 'I do' is the longest sentence?
+carlin	life	aphorism	edgy	0	Always do whatever's next.
+carlin	life	dark	edgy	0	At a formal dinner party, the person nearest death should always be seated closest to the bathroom.
+carlin	faith	pun	edgy	0	Atheism is a non-prophet organization.
+carlin	life	wisdom	edgy	0	By and large, language is a tool for concealing the truth.
+carlin	life	joke	edgy	0	Death is caused by swallowing small amounts of saliva over a long period of time.
+carlin	life	quip	edgy	0	Don't sweat the petty things and don't pet the sweaty things.
+carlin	life	quip	edgy	0	Dusting is a good example of the futility of trying to put things right. As soon as you dust, the fact of your next dusting has already been established.
+carlin	science	observation	edgy	0	Electricity is really just organized lightning.
+carlin	faith	quip	edgy	0	Frisbeetarianism is the belief that when you die, your soul goes up on the roof and gets stuck.
+carlin	life	observation	edgy	0	Have you ever noticed that anybody driving slower than you is an idiot, and anyone going faster than you is a maniac?
+carlin	faith	quip	edgy	0	I have as much authority as the Pope, I just don't have as many people who believe it.
+carlin	life	joke	edgy	0	I recently went to a new doctor and noticed he was located in something called the Professional Building. I felt better right away.
+carlin	health-body	observation	edgy	0	I think it would be interesting if old people got anti-Alzheimer's disease where they slowly began to recover other people's lost memories.
+carlin	society	quip	edgy	0	I think people should be allowed to do anything they want. We haven't tried that for a while. Maybe this time it'll work.
+carlin	faith	quip	edgy	0	I was thinking about how people seem to read the Bible a whole lot more as they get older; then it dawned on me - they're cramming for their final exam.
+carlin	life	joke	edgy	0	I went to a bookstore and asked the saleswoman, 'Where's the self-help section?' She said if she told me, it would defeat the purpose.
+carlin	faith	quip	edgy	0	I would never want to be a member of a group whose symbol was a guy nailed to two pieces of wood.
+carlin	life	dark	edgy	0	I'm always relieved when someone is delivering a eulogy and I realize I'm listening to it.
+carlin	faith	quip	edgy	0	I'm completely in favor of the separation of Church and State. My idea is that these two institutions screw us up enough on their own, so both of them together is certain death.
+carlin	life	quip	edgy	0	I'm not concerned about all hell breaking loose, but that a PART of hell will break loose... it'll be much harder to detect.
+carlin	life	dark	edgy	0	If it's true that our species is alone in the universe, then I'd have to say the universe aimed rather low and settled for very little.
+carlin	society	dark	edgy	0	If we could just find out who's in charge, we could kill him.
+carlin	life	quip	edgy	0	If you can't beat them, arrange to have them beaten.
+carlin	life	fact	edgy	0	In comic strips, the person on the left always speaks first.
+carlin	life	wisdom	edgy	0	Inside every cynical person, there is a disappointed idealist.
+carlin	life	aphorism	edgy	0	Just cause you got the monkey off your back doesn't mean the circus has left town.
+carlin	life	quip	edgy	0	May the forces of evil become confused on the way to your house.
+carlin	work-money	observation	edgy	0	Most people work just hard enough not to get fired and get paid just enough money not to quit.
+carlin	life	quip	edgy	0	Not only do I not know what's going on, I wouldn't know what to do about it if I did.
+carlin	life	quip	edgy	0	One can never know for sure what a deserted area looks like.
+carlin	life	joke	edgy	0	One tequila, two tequila, three tequila, floor.
+carlin	life	observation	edgy	0	People who say they don't care what people think are usually desperate to have people think they don't care what people think.
+carlin	faith	quip	edgy	0	Religion is just mind control.
+carlin	work-money	quip	edgy	0	Some people see things that are and ask, Why? Some people dream of things that never were and ask, Why not? Some people have to go to work and don't have time for all that.
+carlin	life	observation	edgy	0	Standing ovations have become far too commonplace. What we need are ovations where the audience members all punch and kick one another.
+carlin	life	quip	edgy	0	The main reason Santa is so jolly is because he knows where all the bad girls live.
+carlin	life	quip	edgy	0	The other night I ate at a real nice family restaurant. Every table had an argument going.
+carlin	life	quip	edgy	0	The reason I talk to myself is that I'm the only one whose answers I accept.
+carlin	society	quip	edgy	0	The status quo sucks.
+carlin	life	dark	edgy	0	The very existence of flame-throwers proves that some time, somewhere, someone said to themselves, You know, I want to set those people over there on fire, but I'm just not close enough to get the job done.
+carlin	nature	verse	edgy	0	There are nights when the wolves are silent and only the moon howls.
+carlin	life	wisdom	edgy	0	There's no present. There's only the immediate future and the recent past.
+carlin	arts	aphorism	edgy	0	Think off-center.
+carlin	life	quip	edgy	0	Weather forecast for tonight: dark.
+carlin	society	quip	edgy	0	Well, if crime fighters fight crime and fire fighters fight fire, what do freedom fighters fight? They never mention that part to us, do they?
+carlin	life	quip	edgy	0	What does it mean to pre-board? Do you get on before you get on?
+carlin	science	observation	edgy	0	When Thomas Edison worked late into the night on the electric light, he had to do it by gas lamp or candle. I'm sure it made the work seem that much more urgent.
+carlin	life	observation	edgy	0	When someone is impatient and says, 'I haven't got all day,' I always wonder, How can that be? How can you not have all day?
+carlin	life	observation	edgy	0	When you step on the brakes your life is in your foot's hands.
+carlin	society	dark	edgy	0	When you're born you get a ticket to the freak show. When you're born in America, you get a front row seat.
+carlin	life	observation	edgy	0	You know an odd feeling? Sitting on the toilet eating a chocolate candy bar.
+carlin	society	dark	edgy	0	You know the good part about all those executions in Texas? Fewer Texans.

@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "bigfnj",
+  "classifications": [ "DesktopAICompanion", "Plugin", "Module" ],
+  "identity": "DesktopAICompanion.Module.CSharp",
+  "name": "DesktopAICompanion plugin module",
+  "shortName": "desktop-ai-companion-module",
+  "description": "A DesktopAICompanion plugin module: an IModule against DesktopAICompanion.Contracts, wired to ModuleKit, with a tray item, a settings pane and a self-test.",
+  "tags": {
+    "language": "C#",
+    "type": "project"
+  },
+  "sourceName": "SampleModule",
+  "preferNameDirectory": true,
+  "defaultName": "MyModule",
+  "symbols": {
+    "moduleId": {
+      "type": "parameter",
+      "datatype": "string",
+      "defaultValue": "samplemodule",
+      "replaces": "samplemodule",
+      "description": "The module's id: lowercase, no spaces. It names the output folder (modules/<id>/), the settings/storage key, the self-test flag (--<id>-selftest) and the catalog entry. Hard to change later, so pick it deliberately."
+    },
+    "displayName": {
+      "type": "parameter",
+      "datatype": "string",
+      "defaultValue": "Sample Module",
+      "replaces": "SAMPLE_DISPLAY_NAME",
+      "description": "The name shown in the Modules pane and the settings pane title."
+    },
+    "minHostVersion": {
+      "type": "parameter",
+      "datatype": "string",
+      "defaultValue": "1.4.8",
+      "replaces": "SAMPLE_MIN_HOST",
+      "description": "The oldest host this module runs on. Raise it only when you actually call a newer ABI member: a module declaring a version above the shipped host is refused forever."
+    },
+    "standalone": {
+      "type": "parameter",
+      "datatype": "bool",
+      "defaultValue": "false",
+      "description": "Build OUTSIDE the desktopPet repository, referencing DesktopAICompanion.Contracts and DesktopAICompanion.ModuleKit from NuGet instead of by project path. Use this for your own module in your own repo."
+    },
+    "packageVersion": {
+      "type": "parameter",
+      "datatype": "string",
+      "defaultValue": "1.4.8",
+      "replaces": "SAMPLE_PKG_VERSION",
+      "description": "The DesktopAICompanion.Contracts / DesktopAICompanion.ModuleKit NuGet version to reference (standalone only). Normally the host version you are targeting."
+    }
+  },
+  "sources": [
+    {
+      "modifiers": [
+        {
+          "exclude": [ "README.md" ]
+        }
+      ]
+    }
+  ]
+}

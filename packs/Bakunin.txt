@@ -1,0 +1,38 @@
+Bakunin	society	wisdom	general	0	A country bent on conquest is necessarily a country internally enslaved.
+Bakunin	faith	wisdom	general	0	A jealous lover of human liberty, and deeming it the absolute condition of all that we admire and respect in humanity, I reverse the phrase of Voltaire, and say that, if God really existed, it would be necessary to abolish him.
+Bakunin	society	wisdom	general	0	Beware of shearers, for where there is a flock there necessarily must be shepherds also to shear and devour it.
+Bakunin	life	wisdom	general	0	By striving to do the impossible, man has always achieved what is possible. Those who have cautiously done no more than they believed possible have never taken a single step forward.
+Bakunin	society	wisdom	general	0	Do you want to make it impossible for anyone to oppress his fellow-man? Then make sure that no one shall possess power.
+Bakunin	society	quip	general	0	El que desea, no la Libertad, sino el Estado no debe jurar la revolucion.
+Bakunin	society	wisdom	general	0	Every command slaps liberty in the face.
+Bakunin	society	aphorism	general	0	From each according to his faculties; to each according to his needs
+Bakunin	society	dark	general	0	He who is given power will inevitably become an oppressor and exploiter of society.
+Bakunin	society	wisdom	general	0	Human nature is so constituted that the propensity for evil is always intensified by external circumstances, and the morality of the individual depends much more on the conditions of his existence and the environment in which he lives than on his own will.
+Bakunin	society	wisdom	general	0	I am truly free only when all human beings, men and women, are equally free. The freedom of other men, far from negating or limiting my freedom, is, on the contrary, its necessary premise and confirmation.
+Bakunin	faith	quip	general	0	I reverse the phrase of Voltaire, and say that if God really existed, it would be necessary to abolish him.
+Bakunin	faith	quip	general	0	If God really existed, it would be necessary to abolish Him.
+Bakunin	society	wisdom	general	0	If there is a State, there must be the domination of one class by another and, as a result, slavery; the State without slavery is unthinkable - and this is why we are the enemies of the State.
+Bakunin	society	wisdom	general	0	If there is an undeniable fact, attested to a thousand times by experience, it is the corrupting effect produced by authority on those who manipulate it It is absolutely impossible for a man who wields power to remain a moral man....
+Bakunin	society	wisdom	general	0	If you took the most ardent revolutionary, vested him in absolute power, within a year he would be worse than the Tsar himself.
+Bakunin	society	wisdom	general	0	Improve working conditions, render to labor what is justly due to labor, and thereby give the people security, comfort, and leisure Then, believe me, they will educate themselves; they will create a larger, saner, higher civilization than this.
+Bakunin	faith	wisdom	general	0	It should be added that, in general, it is the character of every metaphysical and theological argument to seek to explain one absurdity by another. Michael Bakunin, Unknown Book 9062488
+Bakunin	society	wisdom	general	0	My personal freedom, confirmed by the liberty of all, extends to infinity.
+Bakunin	faith	wisdom	general	0	People go to church for the same reasons they go to a tavern: to stupefy themselves, to forget their misery, to imagine themselves, for a few minutes anyway, free and happy.
+Bakunin	faith	wisdom	general	0	Prima revolt este mpotriva tiraniei supreme a teologiei, a fantomei lui Dumnezeu. Ct timp avem un stpn n rai, vom fi sclavi pe pmnt.
+Bakunin	life	wisdom	general	0	Real humanity presents a mixture of all that is most sublime and beautiful with all that is vilest and most monstrous in the world. Mikhail Alexandrovich Bakunin, God and the State
+Bakunin	society	wisdom	general	0	Ser livre na liberdade dos outros, eis todo meu credo.
+Bakunin	faith	aphorism	general	0	Si Dieu est, l'homme est esclave ; or l'homme peut, doit tre libre, donc Dieu n'existe pas. Je dfie qui que ce soit de sortir de ce cercle; et maintenant, qu'on choisisse. Mikhail Alexandrovich Bakunin, God and the State
+Bakunin	faith	wisdom	general	0	The first revolt is against the supreme tyranny of theology, of the phantom of God. As long as we have a master in heaven, we will be slaves on Earth.
+Bakunin	society	wisdom	general	0	The freedom of all is essential to my freedom.
+Bakunin	society	wisdom	general	0	The freedom of each is therefore realizable only in the equality of all. The realization of freedom through equality, in principle and in fact, is justice.
+Bakunin	society	wisdom	general	0	The glory and grandeur of a nation lie only in the development of its humanity. Its strength and inner vitality are measured by the degree of its liberty.
+Bakunin	faith	observation	general	0	The idea of God implies the abdication of human reason and justice; it is the most decisive negation of human liberty and necessarily ends in the enslavement of mankind both in theory and practice.
+Bakunin	society	wisdom	general	0	The liberty of man consists solely in this, that he obeys the laws of nature because he has himself recognized them as such, and not because they have been imposed upon him externally by any foreign will whatsoever, human or divine, collective or individual.
+Bakunin	arts	wisdom	general	0	The passion for destruction is also a creative passion
+Bakunin	life	wisdom	general	0	The real school for the people and for all grown men is life.
+Bakunin	arts	wisdom	general	0	The urge for destruction is also a creative urge! Mikhail Alexandrovich Bakunin
+Bakunin	arts	wisdom	general	0	The urge to destroy is also a creative urge.
+Bakunin	faith	aphorism	general	0	There will be a qualitative transformation, a new living, life-giving revelation, a new heaven and a new earth, a young and mighty world in which all our present dissonances will be resolved into a harmonious whole.
+Bakunin	society	wisdom	general	0	We are convinced that liberty without socialism is privilege, injustice; and that socialism without liberty is slavery and brutality.
+Bakunin	society	wisdom	general	0	When the people are being beaten with a stick, they are not much happier if it is called the People's Stick.
+Bakunin	faith	observation	general	0	unless it be done deliberately, as sometimes in the case of the Jews of Russia and Poland, who get baptised three or four times in order to receive each time the remuneration allowed them

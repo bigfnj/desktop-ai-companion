@@ -1,0 +1,23 @@
+# Canonical Windows x64 runtime payload (.NET 10, framework-dependent).
+# Both the portable ZIP and MSI contain this exact runtime list. The ZIP alone also
+# contains the package-mode marker DesktopAICompanion.portable. Keep one runtime file name
+# per line, relative to the Release x64 output directory (leaf names only; the flat
+# layout is enforced by pinning the win-x64 RID so package native assets are not nested
+# under runtimes\). The app is framework-dependent: DesktopAICompanion.exe is the apphost and
+# DesktopAICompanion.dll is the managed assembly; the .NET 10 Desktop runtime is a prerequisite.
+DesktopAICompanion.Contracts.dll
+DesktopAICompanion.deps.json
+DesktopAICompanion.dll
+DesktopAICompanion.exe
+DesktopAICompanion.runtimeconfig.json
+LICENSE.txt
+NAUDIO_LICENSE.txt
+NAudio.Core.dll
+NAudio.Dmo.dll
+NAudio.Midi.dll
+NAudio.WinMM.dll
+PRIVACY.md
+System.Numerics.Tensors.dll
+PROVENANCE.md
+SUPPORT.md
+THIRD_PARTY_NOTICES.md

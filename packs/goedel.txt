@@ -1,0 +1,43 @@
+goedel	tech	quip	general	0	Beware of computerized fortune-tellers!
+goedel	food	quip	general	0	Chocolate chip.
+goedel	tech	quip	general	0	DELETE A FORTUNE! Don't some of these fortunes just drive you nuts?! Wouldn't you like to see some of them deleted from the system? You can! Just mail to `fortune' with the fortune you hate most, and we'll make sure it gets expunged.
+goedel	life	dark	general	0	Do not read this fortune under penalty of law. Violators will be prosecuted. (Penal Code sec. 2.3.2 (II.a.))
+goedel	life	quip	general	0	For 20 dollars, I'll give you a good fortune next time ...
+goedel	life	quip	general	0	For some reason, this fortune reminds everyone of Marvin Zelkowitz.
+goedel	life	quip	general	0	Fortune's current rates: Answers .10 Long answers .25 Answers requiring thought .50 Correct answers $1.00 Dumb looks are still free.
+goedel	life	quip	general	0	Generic Fortune.
+goedel	life	quip	general	0	Ginger snap.
+goedel	life	quip	general	0	Hi there! This is just a note from me, to you, to tell you, the person reading this note, that I can't think up any more famous quotes, jokes, nor bizarre stories, so you may as well go home.
+goedel	life	quip	general	0	I know you believe you understand what you think this fortune says, but I'm not sure you realize that what you are reading is not what it means.
+goedel	life	quip	general	0	If it's Tuesday, this must be someone else's fortune.
+goedel	life	quip	general	0	If there are epigrams, there must be meta-epigrams.
+goedel	life	quip	general	0	If this fortune didn't exist, somebody would have invented it.
+goedel	life	quip	general	0	If you wish to live wisely, ignore sayings -- including this one.
+goedel	life	quip	general	0	Ignore previous fortune.
+goedel	life	observation	general	0	In which level of metalanguage are you now speaking?
+goedel	food	quip	general	0	Oatmeal raisin.
+goedel	tech	quip	general	0	Pardon this fortune. Database under reconstruction.
+goedel	life	quip	general	0	Pick another fortune cookie.
+goedel	life	observation	general	0	Since before the Earth was formed and before the sun burned hot in space, cosmic forces of inexorable power have been working relentlessly toward this moment in space-time -- your receiving this fortune.
+goedel	life	quip	general	0	Sorry, no fortune this time.
+goedel	tech	quip	general	0	The fortune program is supported, in part, by user contributions and by a major grant from the National Endowment for the Inanities.
+goedel	life	quip	general	0	There is no such thing as fortune. Try again.
+goedel	life	quip	general	0	This Fortune Examined By INSPECTOR NO. 2-14
+goedel	life	quip	general	0	This fortune intentionally left blank.
+goedel	life	quip	general	0	This fortune intentionally not included.
+goedel	life	quip	general	0	This fortune intentionally says nothing.
+goedel	life	quip	general	0	This fortune is dedicated to your mother, without whose invaluable assistance last night would never have been possible.
+goedel	tech	quip	general	0	This fortune is encrypted -- get your decoder rings ready!
+goedel	life	quip	general	0	This fortune is false.
+goedel	tech	quip	general	0	This fortune is inoperative. Please try another.
+goedel	tech	quip	general	0	This fortune soaks up 47 times its own weight in excess memory.
+goedel	life	tv-quote	general	0	This fortune was brought to you by the people at Hewlett-Packard.
+goedel	life	quip	general	0	This fortune would be seven words long if it were six words shorter.
+goedel	life	quip	general	0	This is your fortune.
+goedel	food	quip	general	0	Vanilla wafer.
+goedel	life	quip	general	0	Very few profundities can be expressed in less than 80 characters.
+goedel	life	quip	general	0	WARNING: Reading this fortune can affect the dimensionality of your mind, change the curvature of your spine, cause the growth of hair on your palms, and make a difference in the outcome of your favorite war.
+goedel	life	quip	general	0	We interrupt this fortune for an important announcement...
+goedel	life	quip	general	0	What does it mean if there is no fortune for you?
+goedel	tech	quip	general	0	When you're not looking at it, this fortune is written in FORTRAN.
+goedel	life	quip	general	0	You will think of something funnier than this to add to the fortunes.

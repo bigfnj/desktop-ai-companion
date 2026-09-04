@@ -1,0 +1,105 @@
+subgenius	life	quip	general	0	"ANYTHING THAT MAKES IT HARDER TO PEE IS ANTISLACK." ~ Sternodox
+subgenius	life	quip	general	0	"Any time you can tape record a fart, you should.*" ~ J.R. "Bob" Dobbs in a new 1991(!) memo
+subgenius	life	quip	general	0	"Bob" smoked it, I bought it, that settles it!
+subgenius	life	dark	general	0	"But after I lick that toad day and night, it'll sure as hell look smooth to me." ~ Rev. Wilds ( Dobbstown initiation oath )
+subgenius	life	quip	general	0	"FREE THE DOBBSTOWN 2.71828!!!" ~ Batrix
+subgenius	life	quip	general	0	"From now on, as of this moment, you can do whatever you want."
+subgenius	life	quip	general	0	"From now on, as of this moment, you can do whatever you want." ~ Rev. Willie at Slack Attack Devival, Dallas
+subgenius	society	quip	general	0	"Give me Slack, or give me Apache helicopters, Sidewinder Missiles and nuclear warheads." ~ Rev. Ivan Stang getting all worked up on Hour of Slack radio broadcast
+subgenius	life	quip	edgy	1	"He's an asshole but even assholes have dreams." ~ Sam Lowry in BRAZIL "Mine certainly does." ~ "Bob"
+subgenius	faith	quip	general	0	"How'd it be if J.R. "Bob" Dobbs gave you a molten lead enema as 'part of the satire'?" ~ Rev. Dr. Onan Canobite to hostile debunker caller
+subgenius	life	quip	edgy	1	"I am a man who pisses largely and frequently. This, they say, is a sign of great mental activity." ~ Henry Miller
+subgenius	life	quip	general	0	"I can handle it - I know when to quit. FASTER, NHEE GHEE, MORE REEFERS!!!" ~ Billy Samuels
+subgenius	life	quip	general	0	"I never leave until I bleed 'em out of house and Launch Pad." ~ Anonymous note (could be Cleve)
+subgenius	life	quip	edgy	1	"I think I'll just lie here and try to dream some more about the Planet of the Beautiful Blind Women." ~ an anonymous lonely SubGenius boy with his dick in his hand
+subgenius	life	quip	general	0	"I think, therefore I'm going to have breakfast." ~ Charles Fort ("Bob's" third cousin)
+subgenius	faith	quip	general	0	"I'm afraid I just got no use at all for any god that's little enough to fit inside of some old PILL." ~ Nenslo 1990
+subgenius	life	quip	general	0	"I'm going to ask you to exercise glands you never knew existed." ~ J.R. "Bob" Dobbs
+subgenius	faith	quip	general	0	"I'm not into SubGenius for the religious aspect so much. I see the Church more as... genetic stuntmen." ~ St. Joe Riley
+subgenius	life	quip	general	0	"It's the bizarre idiots that act smart." ~ Rev. Capt. H. M. Smith
+subgenius	life	quip	general	0	"Learn to be a Connoisseur of the Obvious." ~ Clevecclesians 6:14
+subgenius	life	quip	general	0	"Real sex is Fats Domino. Bad sex is... Pat Boone." ~ Rev. Bleepo Abernathy
+subgenius	life	aphorism	general	0	"Should" ain't "is". ~ "Bob" talking to his son Adam Kadmon after Adam's first date
+subgenius	life	dark	general	0	"So I says to him, I says: "Look. Either we all come from monkeys or we're supposed to be like this, and I don't like it either way." And he says, "Ich verstehe nicht." So I killed him. ~ Rev. Dr. Chris Gross
+subgenius	faith	quip	general	0	"SubGenius is the link between revolution and evolution." ~ Batrix
+subgenius	life	quip	nsfw	1	"The dicks you can't see are always longer." ~ Dobbs, 1957, in his cups in a bar after discovering his wife Connie had been having an affair.
+subgenius	faith	quip	general	0	"The difference between Heaven and Hell is which end of the pitchfork you're on." ~ Rev. Sheldon DeWehr
+subgenius	nature	aphorism	general	0	"The toad may stand in the rain day and night, but its skin will never be smooth." ~ Malay proverb
+subgenius	life	dark	general	0	"There'll be no smoking in the gas chamber." ~ Jimi Hendrix
+subgenius	food	quip	general	0	"They'll take away my 'Frappy when they pry it out of my cold dead fingers." ~ Rev. Ivan Stang
+subgenius	life	aphorism	general	0	"Too much" is always better than not enough.
+subgenius	faith	tv-quote	general	0	"WHO DIED AND MADE YOU GOD?" ~ J.R. "Bob" Dobbs
+subgenius	society	dark	general	0	"What do you throw a Pink who's drowning in quicksand?" "His wife and child." ~ Boxholder
+subgenius	arts	quip	general	0	"With great power there must also come - great hair and makeup!"
+subgenius	faith	quip	general	0	"Without 'Frop I would go mad with ambition. I would beat my wife and kids. I believe in Salvation through 'Frop. If I 'Frop, it is so that others may live." ~ J.R. "Bob" Dobbs
+subgenius	life	quip	edgy	1	"You do not fuck with a doktor unless he offers you the vaseline personally!" ~ G. Gordon Gordon
+subgenius	society	dark	general	0	(With pictures of confederate flag and US flag): My Pride Squirts White Stuff What Does Yours Do?
+subgenius	life	quip	general	0	* "But don't leave it by phone on a friend's answering machine, because you won't want your face near your mouthpiece again for the rest of the day."
+subgenius	life	quip	general	0	Act like a dumbshit and they'll treat you like an equal!
+subgenius	life	quip	general	0	Any time you can tape record a fart, you should.* (1991(!) memo) (ibid) ~ J.R. "Bob" Dobbs
+subgenius	society	quip	general	0	As he knows, "Bob" is merely an enema for a constipated society. ~ Mark Mothersbaugh at Subcon 1981 or 1982, 7:09
+subgenius	life	tv-quote	general	0	Bleeding Head Good, Healed Head Bad!
+subgenius	life	quip	general	0	Do What Keepeth Thou from Wilting Shall Be the Loophole of The Law.
+subgenius	life	quip	general	0	Don't forgive them, for they know exactly what they do.
+subgenius	food	quip	general	0	Don't just eat a hamburger, eat the HELL outta it!
+subgenius	food	quip	general	0	Don't just eat that hamburger, eat the HELL out of it!
+subgenius	faith	quip	general	0	Eternal Salvation
+subgenius	faith	quip	general	0	Eternal salvation or triple your money back!
+subgenius	life	quip	general	0	Everyone here is stupid.
+subgenius	life	quip	edgy	1	Fuck "Bob"! Praise Connie!
+subgenius	life	quip	edgy	1	Fuck 'em if they can't take a joke!
+subgenius	life	dark	general	0	Give me (Slack, food, money, a job, etc.), or KILL ME!
+subgenius	life	quip	general	0	Give me Slack, OR KILL ME!
+subgenius	life	quip	general	0	Gooble gobble, gooble gobble, we accept you, one of us. -- Freaks (film, 1932)
+subgenius	life	quip	general	0	I always lie . . . and I'm always right.
+subgenius	life	quip	general	0	I am the global village idiot!
+subgenius	faith	quip	general	0	I choose to believe in an afterlife only because it is too horrible to believe that such a cool stud as myself could be allowed to disappear from the universe. [Diary entry, age 15]
+subgenius	life	tv-quote	general	0	I don't care! As "Bob" as my witness, I'm never gonna use that potty again! ~ Chuckie in "Chuckie vs. The Potty", episode of RugRats
+subgenius	life	quip	general	0	I don't practice what I preach because I'm not the kind of person I'm preaching to!" ~ J.R. "Bob" Dobbs
+subgenius	life	quip	general	0	I don't practice what I preach because I'm not the kind of person I'm preaching to.
+subgenius	life	quip	general	0	I think, therefore I'm going to have breakfast.
+subgenius	life	tv-quote	general	0	I'd rather be caught twixt a pair of scrapping bobcats than two women trying to run the same house. -- J.D. "Jed" Clampett in Jed's Dilemma (episode inspired by Connie and Bobra Dobbs living in the same house)
+subgenius	life	quip	general	0	I'd rather be lucky than good any day.
+subgenius	life	quip	general	0	I'm going to ask you to exercise glands you never knew existed. (ibid) ~ J.R. "Bob" Dobbs
+subgenius	life	quip	general	0	I'm mad too, "Bob"!
+subgenius	life	quip	general	0	If humor is based on the misfortune of others, then I suppose you might call me the greatest comedian of all time.
+subgenius	faith	quip	general	0	If it were not for the Discordians, I never would have set the Church loose on the world -- for I know that they will always be around to DESTROY IT if it gets OUT OF HAND. ~ J.R. "Bob" Dobbs
+subgenius	life	wisdom	general	0	If you have no Pipe I will give you one; if you do not, I will take it away from you.
+subgenius	life	quip	general	0	Ignore this fnord.
+subgenius	family	quip	general	0	In My Father's Midway Are Many Bumper Car Rides.
+subgenius	faith	quip	edgy	1	Just because some jackass is an atheist doesn't mean that his prophets and gods are any less false.
+subgenius	life	quip	general	0	Kill "Bob"!
+subgenius	work-money	quip	general	0	Make them pay as much as they think they can afford. (1953) ~ J.R. "Bob" Dobbs
+subgenius	faith	quip	general	0	Moses parted the Red Sea, Oppenheimer split the atom, but "Bob" cut the crap. ~ Steve Antczak
+subgenius	life	quip	nsfw	1	Nothing does the job like a Blow Job. -- (Bobra "B.J." Dobbs in ads for Blow Job hairdryers).
+subgenius	society	quip	general	0	PEE WEE HERMAN FOR PRESIDENT "Give us back our Willies!" ~ RAW
+subgenius	faith	quip	general	0	Praise "Bob"!
+subgenius	life	dark	general	0	Pull off your pants and roll in your own mistakes.
+subgenius	life	aphorism	general	0	Pull the wool over your own eyes!
+subgenius	life	quip	general	0	Relax in the safety of your own delusions!
+subgenius	life	quip	general	0	Repent! Quit your job! Slack off!
+subgenius	faith	quip	general	0	Science does not remove the terror of The Gods!
+subgenius	life	quip	general	0	See "Bob"'s pretty slick. He's like the opposite of neutral. ~ Dr. Agon Fly at 2005 teX-DAY Survival Drill and Devival, 1.24
+subgenius	life	quip	edgy	1	Sometimes it takes an asshole to bring all your shit together." ~ JoX the Bobtist (1814 - 1941)
+subgenius	life	quip	general	0	The SubGenius must have Slack!
+subgenius	life	quip	nsfw	1	The dicks you can't see are always longer. (1957, in his cups in a bar after discovering his wife Connie had been having an affair.) ~ J.R. "Bob" Dobbs
+subgenius	faith	quip	general	0	The love of "Bob" can kill normals. ~ Rev. Ivan Stang, "The Rant of Ivan Stang Nov. 9, 1985" 3.46
+subgenius	faith	quip	general	0	The real role of the Church of the SubGenius is to completely destroy the Conspiracy of the Normals. But don't repeat that, ever. (July 1953) ~ J.R. "Bob" Dobbs
+subgenius	life	aphorism	general	0	The stupider it looks, the more important it probably is.
+subgenius	life	dark	general	0	The world ends tomorrow and you may die!
+subgenius	faith	quip	general	0	There IS no God - but if you're any kind of real American, you'll demand that He treat you as an EQUAL.
+subgenius	faith	quip	general	0	There IS no God - but if you're any kind of real American, you'll demand that He treat you as an EQUAL. ~ J.R. "Bob" Dobbs (Revelation X: The "Bob" Apocryphon, said to a child in 1956 at the dedication of the first Home for Slackless Children)
+subgenius	life	quip	general	0	There are two kinds of people in the world: those who say, "There are two kinds of people in the world: those who say there are two kinds of people in the world, and the other kind," and there's who don't say. Well, then there's me.
+subgenius	life	quip	general	0	They may be Pink, but their money's still green!
+subgenius	faith	quip	general	0	This "Church of the SubGenius" is the best scam I ever pulled!
+subgenius	life	quip	general	0	WHO DIED AND MADE YOU GOD? (ibid) ~ J.R. "Bob" Dobbs
+subgenius	life	quip	general	0	Wanna know how dumb the average person is? Half of 'em are even dumber than THAT!
+subgenius	life	quip	general	0	Why NOT a Goat?
+subgenius	life	quip	general	0	You know how dumb the average person is? Well, by definition, half of 'em are even dumber than THAT.
+subgenius	faith	quip	general	0	You must be saved, even if it kills you!
+subgenius	work-money	aphorism	general	0	You won't appreciate it if you don't pay for it. (1953, said to "Kitten" Anderson) ~ J.R. "Bob" Dobbs
+subgenius	life	quip	general	0	You'd PAY to know what you REALLY think. (1961) ~ J.R. "Bob" Dobbs
+subgenius	life	quip	general	0	You'll PAY to know what you REALLY think!
+subgenius	society	dark	general	0	[on capital punishment] Forgive them first... then kill them.
+subgenius	faith	quip	general	0	[when asked if he was interested in discovering what was behind the Veil of Illusion] HELL no! I'm interested in what's behind the veil of ORDINARY REALITY.
+subgenius	life	quip	general	0	you may now stop reading forever!

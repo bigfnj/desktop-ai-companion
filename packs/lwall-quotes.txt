@@ -1,0 +1,369 @@
+lwall-quotes	tech	quip	general	0	"...this does not mean that some of us should not want, in a rather dispassionate sort of way, to put a bullet through csh's head." Larry Wall in <1992Aug6.221512.5963@netlabs.com>
+lwall-quotes	life	quip	general	0	"And I don't like doing silly things (except on purpose)."
+lwall-quotes	work-money	quip	general	0	"Best effort" is one of those phrases that doesn't mean what it means...
+lwall-quotes	life	quip	general	0	"Help save the world!"
+lwall-quotes	tech	quip	general	0	"I find this a nice feature but it is not according to the documentation. Or is it a BUG?" "Let's call it an accidental feature. :-)"
+lwall-quotes	tech	quip	general	0	"It is easier to port a shell than a shell script."
+lwall-quotes	life	aphorism	general	0	"The road to hell is paved with melting snowballs."
+lwall-quotes	society	aphorism	general	0	"We all agree on the necessity of compromise. We just can't agree on when it's necessary to compromise."
+lwall-quotes	tech	quip	general	0	"What is the sound of Perl? Is it not the sound of a wall that people have stopped banging their heads against?"
+lwall-quotes	tech	quip	general	0	"You can't have filenames longer than 14 chars. You can't even think about them!"
+lwall-quotes	tech	quip	general	0	#define NULL 0 /* silly thing is, we don't even use this */
+lwall-quotes	tech	quip	general	0	#define SIGILL 6 /* blech */
+lwall-quotes	tech	quip	general	0	#else /* !STDSTDIO */ /* The big, slow, and stupid way */
+lwall-quotes	tech	quip	general	0	'Course, that doesn't work when 'a' contains parentheses.
+lwall-quotes	life	tv-quote	general	0	(Never thought I'd be telling Malcolm and Ilya the same thing... :-)
+lwall-quotes	tech	quip	general	0	(Presuming for the sake of argument that it's even *possible* to design better code in Perl than in C. :-)
+lwall-quotes	tech	quip	general	0	(To the extent that anyone but a Prolog programmer can understand \X totally. (And to the extent that a Prolog programmer can understand "cut". :-))
+lwall-quotes	tech	quip	general	0	*** The previous line contains the naughty word "$&".\n if /(ibm|apple|awk)/; # :-)
+lwall-quotes	tech	quip	general	0	...a Lazy has to be aware of when it is out of values, and when it should call into some meta-Lazy for more iterator values. And I suppose that meta-Lazy could in turn have a meta-meta-Lazy, which could have a meta-meta-meta-Lazy, and now my brane hurts.
+lwall-quotes	life	quip	general	0	...sometimes collections of stupid utterances can be rather clever. If my writings are ever published posthumously, they should probably be called "A Collection of Stupid Utterances", or some such... :-)
+lwall-quotes	tech	quip	general	0	/* And you'll never guess what the dog had */ /* in its mouth... */
+lwall-quotes	tech	quip	general	0	/* This bit of chicanery makes a unary function followed by a parenthesis into a function with one argument, highest precedence. */
+lwall-quotes	tech	quip	general	0	/* dbmrefcnt--; */ /* doesn't work, rats */
+lwall-quotes	tech	quip	general	0	/* now make a new head in the exact same spot */
+lwall-quotes	tech	quip	general	0	/* we have tried to make this normal case as abnormal as possible */
+lwall-quotes	tech	quip	general	0	: - cut in regexps I don't think we reached consensus on that. We're still backtracking...
+lwall-quotes	tech	quip	general	0	: 1. What is the possibility of this being added in the future? In the near future, the probability is close to zero. In the distant future, I'll be dead, and posterity can do whatever they like... :-) --lwall
+lwall-quotes	tech	quip	general	0	: And it goes against the grain of building small tools. Innocent, Your Honor. Perl users build small tools all day long.
+lwall-quotes	tech	quip	general	0	: But for some things, Perl just isn't the optimal choice. (yet) :-)
+lwall-quotes	tech	quip	general	0	: I could understand principles of Perl source in 2-3 days [. . .] Gee, it took me about eleven years. :-)
+lwall-quotes	tech	quip	general	0	: I hope I never have to design my own language. I would be schizophrenic : before the day ends. That's backwards. You have to be schizophrenic before the day starts.
+lwall-quotes	tech	quip	general	0	: I'm about to learn myself perl6 (after using perl5 for some time). I'm also trying to learn perl6 after using perl5 for some time. :-)
+lwall-quotes	tech	quip	general	0	: I've heard that there is a shell (bourne or csh) to perl filter, does : anyone know of this or where I can get it? Yeah, you filter it through Tom Christiansen. :-)
+lwall-quotes	tech	quip	general	0	: I've tried (in vi) "g/[a-z]\n[a-z]/s//_/"...but that doesn't : cut it. Any ideas? (I take it that it may be a two-pass sort of solution). In the first pass, install perl. :-)
+lwall-quotes	life	quip	general	0	: No comment, since this is still hovering (see Larry's reply). Flutter, flutter.
+lwall-quotes	life	quip	general	0	: What do people think? What, do people think? :-)
+lwall-quotes	faith	quip	general	0	: Why Bible quotes exclusively? What happened to the Eastern religions? I'm still working on the Unicode mods.
+lwall-quotes	tech	observation	general	0	> (It's sorta like sed, but not. It's sorta like awk, but not. etc.) Guilty as charged. Perl is happily ugly, and happily derivative.
+lwall-quotes	tech	quip	general	0	> This made me wonder, suddenly: can telnet be written in perl? Of course it can be written in Perl. Now if you'd said nroff, that would be more challenging...
+lwall-quotes	tech	quip	general	0	A "goto" in Perl falls into the category of hard things that should be possible, not easy things that should be easy.
+lwall-quotes	tech	quip	general	0	Accidental stacks considered harmful.
+lwall-quotes	tech	quip	general	0	All language designers are arrogant. Goes with the territory... :-)
+lwall-quotes	tech	quip	general	0	Almost nothing in Perl serves a single purpose.
+lwall-quotes	tech	observation	general	0	Almost nothing in the design of Perl 6 is there for a single purpose.
+lwall-quotes	tech	quip	general	0	Although the Perl Slogan is There's More Than One Way to Do It, I hesitate to make 10 ways to do something. :-)
+lwall-quotes	tech	quip	general	0	And besides, if Perl really takes off in the Windows space, I think the rest of us would just as soon have a double-agent within ActiveState. :-)
+lwall-quotes	tech	quip	general	0	And don't tell me there isn't one bit of difference between null and space, because that's exactly how much difference there is. :-)
+lwall-quotes	tech	quip	general	0	And in the limiting case where the optimizer is completely broken because it's not implemented yet, we get to work around that too. Optionally...
+lwall-quotes	tech	quip	general	0	And other operators aren't so special syntactically, but weird in other ways, like "scalar", and "goto".
+lwall-quotes	tech	quip	general	0	And we can always supply them with a program that makes identical files into links to a single file.
+lwall-quotes	tech	quip	general	0	And you can still put in all that cruft if you want to. You can even force yourself to have to do it. But to me, it feels a bit like slavery, so I'm still looking for a land flowing with milk and honey, even if there are a few giants in it.
+lwall-quotes	tech	quip	general	0	Another way to look at it is that screensavers are sort of a poor man's LSD, without the bad trips.
+lwall-quotes	tech	quip	general	0	Any false value is gonna be fairly boring in Perl, mathematicians notwithstanding.
+lwall-quotes	tech	quip	general	0	Anybody want a binary telemetry frame editor written in Perl?
+lwall-quotes	life	quip	general	0	Anything is *possible* in PUGS. :-)
+lwall-quotes	tech	quip	general	0	Anyway, my money is still on use strict vars . . .
+lwall-quotes	life	quip	general	0	Anyway, please don't anyone take offense at my free associations. Even if they're true.
+lwall-quotes	tech	quip	general	0	Anyway, there's plenty of room for doubt. It might seem easy enough, but computer language design is just like a stroll in the park. Jurassic Park, that is.
+lwall-quotes	tech	quip	general	0	Appearances to the contrary notwithstanding, I'm not trying to break Perl 5 constructs just for the heck of it.
+lwall-quotes	tech	quip	general	0	Are you going to bother to set up an unspoofable identity for every shirt in your closet?
+lwall-quotes	tech	quip	general	0	Are you perchance running on a 64-bit machine?
+lwall-quotes	life	quip	general	0	As long as "we" includes "you", that's fine by "me". :-)
+lwall-quotes	tech	quip	general	0	As pointed out in a followup, Real Perl Programmers prefer things to be visually distinct.
+lwall-quotes	tech	quip	general	0	As someone pointed out, you could have an attribute that says "optimize the heck out of this routine", and your definition of heck would be a parameter to the optimizer.
+lwall-quotes	life	quip	general	0	As usual, I'm overstating the case to knock a few neurons loose, but the truth is usually somewhere in the muddle, uh, middle.
+lwall-quotes	life	quip	general	0	As with all the other proposals, it's basically just a list of words. You can deal with that... :-)
+lwall-quotes	tech	quip	general	0	At many levels, Perl is a "diagonal" language.
+lwall-quotes	tech	quip	general	0	Backtracking is a wonderful concept till you have to do it.
+lwall-quotes	tech	quip	general	0	Bare S-expressions won't work in standard Perl, of course, unless you make "(foo" parse like some kind of reserved word for a known set of "foo". I'm sure if you did that someone would consider it perverse.
+lwall-quotes	life	aphorism	general	0	Be consistent.
+lwall-quotes	arts	quip	general	0	Beauty? What's that?
+lwall-quotes	tech	quip	general	0	Because . doesn't match \n. [\0-\377] is the most efficient way to match everything currently. Maybe \e should match everything. And \E would of course match nothing. :-)
+lwall-quotes	tech	quip	general	0	Besides, REAL computers have a rename() system call. :-)
+lwall-quotes	tech	quip	general	0	Besides, including <std_ice_cubes.h> is a fatal error on machines that don't have it yet. Bad language design, there... :-)
+lwall-quotes	tech	quip	general	0	Besides, it's good to force C programmers to use the toolbox occasionally. :-)
+lwall-quotes	science	joke	general	0	Biologist: What's worse than being chased by a Velociraptor? Physicist: Obviously, being chased by an Acceloraptor.
+lwall-quotes	tech	quip	general	0	Birds naturally prefer early binding to late binding; worms will naturally disagree. Rolling stones gather no type constraints.
+lwall-quotes	life	wisdom	general	0	But I know what's important to me, and what isn't. And I think I know what people can get used to, and what they can even learn to like. (It just takes some people longer than others. :-)
+lwall-quotes	tech	quip	general	0	But I'm sure some will argue that's too subtle. (Hi, @Larry<Damian>.)
+lwall-quotes	tech	quip	general	0	But at some point you just give up and call it cheating, er, I mean, AOP. :-)
+lwall-quotes	tech	quip	general	0	But let me put this on the record: I specifically disrecommend use of grammar tweaks that will incite lynch mobs. You have been warned. :-)
+lwall-quotes	life	quip	general	0	But maybe we could try to set some slushiness milestones on the road to hell freezing over...
+lwall-quotes	tech	quip	general	0	But the possibility of abuse may be a good reason for leaving capabilities out of other computer languages, it's not a good reason for leaving capabilities out of Perl.
+lwall-quotes	life	quip	general	0	But we can both blame it all on Henry.
+lwall-quotes	faith	quip	general	0	But you have to allow a little for the desire to evangelize when you think you have good news.
+lwall-quotes	life	quip	general	0	Call me bored, but don't call me boring.
+lwall-quotes	tech	quip	general	0	Chip Salzenberg sent me a complete patch to add System V IPC (msg, sem and shm calls), so I added them. If that bothers you, you can always undefine them in config.sh. :-)
+lwall-quotes	life	quip	general	0	Clear conceptual splits often hide false dichotomies.
+lwall-quotes	tech	quip	general	0	Does the same as the system call of that name. If you don't know what it does, don't worry about it.
+lwall-quotes	tech	quip	general	0	Doing linear scans over an associative array is like trying to club someone to death with a loaded Uzi.
+lwall-quotes	tech	quip	general	0	Double *sigh*. _04 is going onto thousands of CDs even as we speak, so to speak.
+lwall-quotes	life	dark	general	0	Down that path lies madness. On the other hand, the road to hell is paved with melting snowballs.
+lwall-quotes	tech	quip	general	0	Dude, nowadays we're trying to make Perl 6 more Unicode aware, not less; /usr/share/dict/words is so, like, monocultural, and stuff.
+lwall-quotes	tech	quip	general	0	Er, Tom, I hate to be the one to point this out, but your fix list is starting to resemble a feature list. You must be human or something.
+lwall-quotes	tech	wisdom	general	0	Even if you aren't in doubt, consider the mental welfare of the person who has to maintain the code after you, and who will probably put parens in the wrong place.
+lwall-quotes	society	observation	general	0	Even the White House has a press agent. :-)
+lwall-quotes	life	quip	general	0	Every day it gets a little harder to distinguish my senility from my insanity...
+lwall-quotes	tech	quip	general	0	Execute! (I hope that's the right word...)
+lwall-quotes	life	quip	general	0	For the sake of argument I'll ignore all your fighting words.
+lwall-quotes	tech	quip	general	0	Hey, I had to let awk be better at *something*... :-)
+lwall-quotes	tech	joke	general	0	Hey, if pi == 3, and three == 0, does that make pi == 0? :-)
+lwall-quotes	tech	fact	general	0	Historically Tcl has always stored all intermediate results as strings. (With 8.0 they're rethinking that. Of course, Perl rethought that from the start.)
+lwall-quotes	tech	observation	general	0	Hmm, doubtful. The source code generally wasn't there when I needed it.
+lwall-quotes	life	quip	general	0	Hmm, where there's a way, there's a will, I guess.
+lwall-quotes	tech	quip	general	0	Hmm. What would it mean to goto a class?
+lwall-quotes	tech	quip	general	0	How do Crays and Alphas handle the POSIX problem?
+lwall-quotes	tech	quip	general	0	How long before someone writes $x.ugly('Python'), I wonder...
+lwall-quotes	tech	quip	general	0	I already have too much problem with people thinking the efficiency of a perl construct is related to its length. On the other hand, I'm perfectly capable of changing my mind next week... :-) --lwall
+lwall-quotes	life	quip	general	0	I don't believe I've ever cuddled my elses.
+lwall-quotes	tech	observation	general	0	I don't have ADHD. I tend to perseverate and not get distracted when I should get distracted . . . My good friend Tom Christiansen, who does have ADHD, once said jokingly that I have "task-switching deficit" disorder.
+lwall-quotes	life	quip	general	0	I don't know if it's what you want, but it's what you get. :-)
+lwall-quotes	life	quip	general	0	I don't like this official/unofficial distinction. It sound, er, officious.
+lwall-quotes	life	quip	general	0	I don't think it's worth washing hogs over.
+lwall-quotes	tech	quip	general	0	I dunno, I dream in Perl sometimes...
+lwall-quotes	tech	quip	general	0	I dunno. Perhaps you should be happy that I have a policy of refraining from grumbling about handicapped operating systems. :-)
+lwall-quotes	tech	quip	general	0	I have no opinion on its suitability for any particular task. I'm just the language designer--my job is to shoot you in the foot and make you think you did it to yourself. :-)
+lwall-quotes	life	quip	general	0	I hope I'm not getting so famous that I can't think out load [sic] anymore.
+lwall-quotes	tech	quip	general	0	I knew I'd hate COBOL the moment I saw they'd used "perform" instead of "do".
+lwall-quotes	tech	quip	general	0	I know it's weird, but it does make it easier to write poetry in perl. :-)
+lwall-quotes	tech	quip	general	0	I might be able to shoehorn a reference count in on top of the numeric value by disallowing multiple references on scalars with a numeric value, but it wouldn't be as clean. I do occasionally worry about that. --lwall
+lwall-quotes	tech	quip	general	0	I note that the Python folks still think they like JPython. I wonder how long that will last?
+lwall-quotes	life	quip	general	0	I recommend not remaking my mistakes. Please make different mistakes. :-)
+lwall-quotes	tech	quip	general	0	I suppose one could claim that an undocumented feature has no semantics. :-(
+lwall-quotes	tech	quip	general	0	I suppose that :byte could also take an argument to force a particular old-style (single-byte) locale, if we choose to support them, and are willing to take the consequences of Jarkko going postal. :-)
+lwall-quotes	tech	quip	general	0	I suppose you could switch grammars once you've seen "use strict subs". :-)
+lwall-quotes	tech	quip	general	0	I surely do hope that's a syntax error.
+lwall-quotes	tech	quip	general	0	I think $[ is more like a coelacanth than a mastadon.
+lwall-quotes	tech	quip	general	0	I think I'm happier with that. $rubyometer += 0.3 or so. :-)
+lwall-quotes	tech	quip	general	0	I think a p6explain would be a rather popular program.
+lwall-quotes	tech	quip	general	0	I think it's a new feature. Don't tell anyone it was an accident. :-)
+lwall-quotes	tech	quip	general	0	I think so--a pair can always pretend to be a very small hash.
+lwall-quotes	life	quip	general	0	I think that's easier to read. Pardon me. Less difficult to read.
+lwall-quotes	tech	quip	general	0	I think you didn't get a reply because you used the terms "correct" and "proper", neither of which has much meaning in Perl culture. :-)
+lwall-quotes	tech	quip	general	0	I try not to confuse roles and traits in my own life. Being the Perl god is a role. Being a stubborn cuss is a trait. :-)
+lwall-quotes	tech	quip	general	0	I view the JVM as just another architecture that Perl ought to be ported to. (That, and the Underwood typewriter...)
+lwall-quotes	tech	wisdom	general	0	I want to see people using Perl to glue things together creatively, not just technically but also socially.
+lwall-quotes	life	quip	general	0	I was about to say, "Avoid fame like the plague," but you know, they can cure the plague with penicillin these days.
+lwall-quotes	tech	quip	general	0	I was trying not to mention backtracking. Which, of course, means that yours is "righter" than mine, in a theoretical sense.
+lwall-quotes	tech	quip	general	0	I wasn't recommending that we make the links for them, only provide them with the tools to do so if they want to take the gamble (or the gambol).
+lwall-quotes	tech	quip	general	0	I won't mention any names, because I don't want to get sun4's into trouble... :-)
+lwall-quotes	tech	quip	general	0	I would estimate that the number of programs it breaks in the world will be less than 10. As long as one of those 10 isn't CGI.pm, we're probably okay.
+lwall-quotes	tech	quip	general	0	I wouldn't ever write the full sentence myself, but then, I never use goto either.
+lwall-quotes	tech	quip	general	0	I'd make people say 'use Fork;' if I thought I could get away with it.
+lwall-quotes	life	quip	general	0	I'd put my money where my mouth is, but my mouth keeps moving.
+lwall-quotes	life	quip	general	0	I'll say it again for the logic impaired.
+lwall-quotes	life	quip	general	0	I'm afraid my gut level reaction is basically, "'proceed' is cute, but cute doesn't cut it in the emergency room."
+lwall-quotes	life	quip	general	0	I'm not consistent about consistency, you see, except when I am... And I try to believe six foolish consistencies before breakfast each day. :-)
+lwall-quotes	tech	quip	general	0	I'm reminded of the day my daughter came in, looked over my shoulder at some Perl 4 code, and said, "What is that, swearing?"
+lwall-quotes	life	wisdom	general	0	I'm serious about thinking through all the possibilities before we settle on anything. All things have the advantages of their disadvantages, and vice versa.
+lwall-quotes	science	quip	general	0	I'm sure a mathematician would claim that 0 and 1 are both very interesting numbers. :-)
+lwall-quotes	tech	quip	general	0	I'm sure that that could be indented more readably, but I'm scared of the awk parser.
+lwall-quotes	tech	quip	general	0	I've always maintained a cordial dislike for indent, because it's usually right.
+lwall-quotes	tech	quip	general	0	If I allowed "next $label" then I'd also have to allow "goto $label", and I don't think you really want that... :-)
+lwall-quotes	tech	quip	general	0	If I don't document something, it's usually either for a good reason, or a bad reason. In this case it's a good reason. :-)
+lwall-quotes	tech	quip	general	0	If I thought that I could design a language that will never disappoint anyone, I'd be a lot stupider than I already think I am, I think.
+lwall-quotes	life	uplifting	general	0	If someone stinks, view it as a reason to help them, not a reason to avoid them.
+lwall-quotes	tech	quip	general	0	If this were Ada, I suppose we'd just constant fold 1/0 into die "Illegal division by zero"
+lwall-quotes	tech	quip	general	0	If this were Ada, we'd simply doc it as "erroneous".
+lwall-quotes	life	quip	general	0	If you consistently take an antagonistic approach, however, people are going to start thinking you're from New York. :-)
+lwall-quotes	tech	quip	general	0	If you remove stricture from a large Perl program currently, you're just installing delayed bugs, whereas with this feature, you're installing an instant bug that's easily fixed. Whoopee.
+lwall-quotes	tech	quip	general	0	If you want to program in C, program in C. It's a nice language. I use it occasionally... :-)
+lwall-quotes	tech	quip	general	0	If you want to see useful Perl examples, we can certainly arrange to have comp.lang.misc flooded with them, but I don't think that would help the advance of civilization. :-)
+lwall-quotes	tech	quip	general	0	If you want your program to be readable, consider supplying the argument.
+lwall-quotes	life	quip	general	0	If you write something wrong enough, I'll be glad to make up a new witticism just for you.
+lwall-quotes	tech	quip	general	0	If you're going to define a shortcut, then make it the base [sic] darn shortcut you can.
+lwall-quotes	society	quip	general	0	In Clintonese, that would be "You are free to infer that I was saying that." :-)
+lwall-quotes	tech	quip	general	0	In any event (no pun intended), I've always wondered how it is you can "kill" a process with a SIGCONT. As long as we're fixing everything else, maybe we can fix Unix too. :-)
+lwall-quotes	tech	quip	general	0	In any event, the real geeks will probably just have the screen tattooed on their chest. Or their stomachs. Teletubbies "R" us.
+lwall-quotes	tech	quip	general	0	In general, if you think something isn't in Perl, try it out, because it usually is. :-)
+lwall-quotes	tech	quip	general	0	In general, they do what you want, unless you want consistency.
+lwall-quotes	tech	quip	general	0	Interestingly enough, since subroutine declarations can come anywhere, you wouldn't have to put BEGIN {} at the beginning, nor END {} at the end. Interesting, no? I wonder if Henry would like it. :-) --lwall
+lwall-quotes	life	quip	general	0	Is that enough muddy thinking for one morning?
+lwall-quotes	life	wisdom	general	0	It is my job in life to travel all roads, so that some may take the road less travelled, and others the road more travelled, and all have a pleasant day.
+lwall-quotes	life	wisdom	general	0	It is my persistent belief (and fond hope) that theory and practice don't always have to pull in opposite directions.
+lwall-quotes	tech	quip	general	0	It is, of course, written in Perl. Translation to C is left as an exercise for the reader. :-)
+lwall-quotes	tech	quip	general	0	It may be possible to get this condition from within Perl if a signal handler runs at just the wrong moment. Another point for Chip... :-)
+lwall-quotes	tech	quip	general	0	It might do what you mean. Personally, I would never mean that if I could help it. :-)
+lwall-quotes	life	quip	general	0	It seems like a sane thing to me, but that's a rather low standard.
+lwall-quotes	tech	quip	general	0	It should be illegal to yell "Y2K" in a crowded economy. :-)
+lwall-quotes	tech	quip	general	0	It won't be covered in the book. The source code has to be useful for something, after all... :-)
+lwall-quotes	tech	quip	general	0	It would be possible to optimize some forms of goto, but I haven't bothered.
+lwall-quotes	tech	observation	general	0	It'd be really nice to find a way to explain continuations to people without inflicting the typical torturous explanations on people who aren't interested in brain pretzels.
+lwall-quotes	life	quip	general	0	It's all magic. :-)
+lwall-quotes	arts	observation	general	0	It's appositival, if it's there. And it doesn't have to be there. And it's really obvious that it's there when it's there.
+lwall-quotes	tech	quip	general	0	It's certainly easy to calculate the average attendance for Perl conferences.
+lwall-quotes	life	quip	general	0	It's documented in The Book, somewhere...
+lwall-quotes	tech	joke	general	0	It's easy to solve the halting problem with a shotgun. :-)
+lwall-quotes	life	quip	general	0	It's getting harder and harder to think out loud. One of these days someone's gonna go off and kill Thomas a'Becket for me...
+lwall-quotes	tech	quip	general	0	It's hard to tune heavily tuned code. :-)
+lwall-quotes	tech	observation	general	0	It's kinda funny to watch the Parrot folks reinventing a similar scheme. (Er, no pun intended. Really!)
+lwall-quotes	tech	quip	general	0	It's not designed to make people happy who want to confuse those issues. We have macros for that.
+lwall-quotes	life	quip	general	0	It's not really a rule--it's more like a trend.
+lwall-quotes	life	quip	general	0	It's the Magic that counts.
+lwall-quotes	tech	quip	general	0	It's there as a sop to former Ada programmers. :-)
+lwall-quotes	tech	quip	general	0	It's, uh, pseudo code. Yeah, that's the ticket... [...] And "unicode" is pseudo code for $encoding. :-)
+lwall-quotes	tech	quip	general	0	Just don't anyone suggest that we indicate what's modified *syntactically* by placing the adverb directly under it... Yow. Two-dimensional programs. Reminds me of BF... Maybe we should just pass this suggestion on to Guido... :-)
+lwall-quotes	tech	quip	general	0	Just don't compare it with a real language, or you'll be unhappy... :-)
+lwall-quotes	tech	quip	general	0	Just don't create a file called -rf. :-)
+lwall-quotes	tech	quip	general	0	Just don't make the '9' format pack/unpack numbers... :-)
+lwall-quotes	tech	quip	general	0	Just put in another goto, and then it'll be readable. :-)
+lwall-quotes	tech	quip	general	0	Let us be charitable, and call it a misleading feature :-)
+lwall-quotes	tech	quip	general	0	Let's say the docs present a simplified view of reality... :-)
+lwall-quotes	life	observation	general	0	Life gets boring, someone invents another necessity, and once again we turn the crank on the screwjack of progress hoping that nobody gets screwed.
+lwall-quotes	tech	quip	general	0	Lispers are among the best grads of the Sweep-It-Under-Someone-Else's-Carpet School of Simulated Simplicity. [Was that sufficiently incendiary? :-)]
+lwall-quotes	tech	quip	general	0	Magically turning people's old scalar contexts into list contexts is a recipe for several kinds of disaster.
+lwall-quotes	tech	aphorism	general	0	May you do Good Magic with Perl.
+lwall-quotes	life	quip	general	0	Maybe I'm a little bit crazy, but I can't decide if it's psychotic or neurotic. You know the difference, don't you? A psychotic thinks that 2 + 2 = 5. A neurotic knows that 2 + 2 = 4, but it makes him nervous.
+lwall-quotes	tech	quip	general	0	Maybe we should take a clue from FTP and put in an option like "print hash marks on every 1024 iterations". :-)
+lwall-quotes	tech	quip	general	0	Must be a different Larry Wall. There are at least 137 of us in the U.S.
+lwall-quotes	tech	quip	general	0	My arthritic pinkies are already starting to ache just thinking about ||||=.
+lwall-quotes	tech	quip	general	0	My assertion that we can do better with computer languages is a persistent belief and fond hope, but you'll note I don't actually claim to be either rational or right. Except when it's convenient. :-)
+lwall-quotes	faith	quip	general	0	My suggestion would be to assume that the Apocalypses are primarily intended to be entertaining rather than factual. :-)
+lwall-quotes	science	wisdom	general	0	No prisoner's dilemma here. Over the long term, symbiosis is more useful than parasitism. More fun, too. Ask any mitochondria.
+lwall-quotes	life	quip	general	0	No, I'm not going to explain it. If you can't figure it out, you didn't want to know anyway... :-)
+lwall-quotes	life	quip	general	0	Not that I have anything much against redundancy. But I said that already.
+lwall-quotes	life	quip	general	0	Not that I'm against sneaking some notions into people's heads upon occasion. (Or blasting them in outright.)
+lwall-quotes	life	quip	general	0	OK, enough hype.
+lwall-quotes	tech	quip	general	0	OOPS! You naughty creature! You didn't run Configure with sh! I will attempt to remedy the situation by running sh for you...
+lwall-quotes	life	quip	general	0	Obviously I was either onto something, or on something.
+lwall-quotes	life	quip	general	0	Odd that we think definitions are definitive. :-)
+lwall-quotes	tech	quip	general	0	Of course, I reserve the right to make wholly stupid changes to Perl if I think they improve the language. :-)
+lwall-quotes	tech	quip	general	0	Of course, this being Perl, we could always take both approaches. :-)
+lwall-quotes	tech	quip	general	0	Oh, get ahold of yourself. Nobody's proposing that we parse English.
+lwall-quotes	tech	quip	general	0	Oh, right--I'd better learn to read Perl 6 one of these days. :-)
+lwall-quotes	life	quip	general	0	Oh, wait, that was Randal...nevermind...
+lwall-quotes	tech	quip	general	0	On the plus side, it's a lot easier in general to find /usr/include than cpp.
+lwall-quotes	tech	quip	general	0	One error message that would be of great benefit to novices is if we could guess where the missing brace is based on indentation. (But not *assuming* the missing brace, of course--this isn't Python... :-)
+lwall-quotes	tech	quip	general	0	One operator is no big deal. That can be fixed in a jiffy.
+lwall-quotes	life	quip	general	0	One thing I do understand is that people get scared when I start thinking out loud. :-)
+lwall-quotes	society	quip	general	0	Or I suppose we could always recontextualize the meaning of "is" instead. There is prior art...
+lwall-quotes	tech	quip	general	0	Orthogonality for orthogonality's sake is not something I'm keen on.
+lwall-quotes	faith	observation	general	0	P.S. I suppose I really should be nicer to people today, considering I'll be singing in Billy Graham's choir tonight... :-)
+lwall-quotes	tech	quip	general	0	P.S. Perl's master plan (or what passes for one) is to take over the world like English did. Er, *as* English did...
+lwall-quotes	tech	aphorism	general	0	Part of language design is purturbing the proposed feature in various directions to see how it might generalize in the future.
+lwall-quotes	life	quip	general	0	People who understand context would be steamed to have someone else dictating how they can call it.
+lwall-quotes	life	quip	general	0	Perhaps I'm missing the gene for making enemies. :-)
+lwall-quotes	life	quip	general	0	Perhaps they will have to outlaw sending random lists of words. fee fie foe foo
+lwall-quotes	tech	quip	general	0	Perhaps you should compile your Perl with long doubles one of these megaseconds.
+lwall-quotes	tech	quip	general	0	Perl did not get where it is by ignoring psychological factors.
+lwall-quotes	tech	quip	general	0	Perl has a long tradition of working around compilers.
+lwall-quotes	tech	wisdom	general	0	Perl is designed to give you several ways to do anything, so consider picking the most readable one.
+lwall-quotes	tech	quip	general	0	Perl itself is usually pretty good about telling you what you shouldn't do. :-)
+lwall-quotes	tech	quip	general	0	Perl programming is an *empirical* science!
+lwall-quotes	tech	quip	general	0	Perl should remain fast and intuitive (to the extent that it is :-)
+lwall-quotes	tech	quip	general	0	Perl will always provide the null.
+lwall-quotes	tech	quip	general	0	Personally I'm looking forward to seeing what the .mathematica method spits out for a junction, but maybe I'll have to settle for a .apl method instead.
+lwall-quotes	life	quip	general	0	Personally, I like to defiantly split my infinitives. :-)
+lwall-quotes	life	observation	general	0	Personally, Rorschach blots always look like butterflies to me. Or pelvis bones, I admit it.
+lwall-quotes	tech	quip	general	0	Portability should be the default.
+lwall-quotes	life	quip	general	0	Psychotics are consistently inconsistent. The essence of sanity is to be inconsistently inconsistent.
+lwall-quotes	tech	quip	general	0	Python's syntax succeeds in combining the mistakes of Lisp and Fortran. I do not contrue that as progress.
+lwall-quotes	tech	quip	general	0	Q. Why is this so clumsy? A. The trick is to use Perl's strengths rather than its weaknesses.
+lwall-quotes	life	quip	general	0	Randal can write one-liners again. Everyone is happy, and peace spreads over the whole Earth.
+lwall-quotes	tech	quip	general	0	Randal said it would be tough to do in sed. He didn't say he didn't understand sed. Randal understands sed quite well. Which is why he uses Perl. :-)
+lwall-quotes	tech	quip	general	0	Real programmers can write assembly code in any language. :-)
+lwall-quotes	faith	quip	general	0	Real theology is always rather shocking to people who already think they know what they think. I'm still shocked myself. :-)
+lwall-quotes	tech	quip	general	0	Remember though that THERE IS NO GENERAL RULE FOR CONVERTING A LIST INTO A SCALAR.
+lwall-quotes	life	quip	general	0	Reserve your abuse for your true friends.
+lwall-quotes	life	quip	general	0	Sex is fun, but it probably doesn't solve all your problems.
+lwall-quotes	tech	quip	general	0	So I'm thinking about ??, or !!, or //, or \\, or whatever. But I think I like ?? the best so far. Or the least worst.
+lwall-quotes	tech	quip	general	0	So far we've managed to avoid turning Perl into APL. :-)
+lwall-quotes	tech	dark	general	0	So please don't think I have a "down" on the MVS people. I'm just pulling off their arms to beat other people over the head with.
+lwall-quotes	life	quip	general	0	Sometimes we choose the generalization. Sometimes we don't.
+lwall-quotes	tech	quip	general	0	Sorry. My testing organization is either too small, or too large, depending on how you look at it. :-)
+lwall-quotes	life	observation	general	0	Symmetry is overrated. Overrated is symmetry.
+lwall-quotes	society	dark	general	0	Tactical? TACTICAL!?!? Hey, buddy, we went from kilotons to megatons several minutes ago. We don't need no stinkin' tactical nukes. (By the way, do you have change for 10 million people?) --lwall
+lwall-quotes	tech	quip	general	0	Tcl long ago fell into the Forth trap, and is now trying desperately to extricate itself (with some help from Sun's marketing department).
+lwall-quotes	tech	quip	general	0	Tcl tends to get ported to weird places like routers.
+lwall-quotes	tech	quip	general	0	That being said, I think we should immediately deprecate any string concatenation that combines "19" with "99". :-)
+lwall-quotes	tech	quip	general	0	That could certainly be done, but I don't want to fall into the Forth trap, where every running Forth implementation is really a different language.
+lwall-quotes	tech	quip	general	0	That gets us out of deciding how to spell Reg[eE]xp?|RE . . . Of course, then we have to decide what ref $re returns... :-)
+lwall-quotes	tech	quip	general	0	That is a known bug in 5.00550. Either an upgrade or a downgrade will fix it.
+lwall-quotes	tech	quip	general	0	That means I'll have to use $ans to suppress newlines now. Life is ridiculous.
+lwall-quotes	tech	quip	general	0	That should probably be written: no !@#$%^&*:@!semicolon
+lwall-quotes	life	quip	general	0	That which hits the fan tends to get flung in all directions.
+lwall-quotes	life	quip	general	0	That's a valid argument. I just don't think it's valid enough. :-)
+lwall-quotes	life	quip	general	0	That's what Sleepy Brain says. But Coffee Brain despises Sleepy Brain. :-)
+lwall-quotes	life	tv-quote	general	0	That's...sick... I love it. *Please* don't tell Damian.
+lwall-quotes	society	observation	general	0	The Golden Gate wasn't our fault either, but we still put a bridge across it.
+lwall-quotes	tech	quip	general	0	The autodecrement is not magical.
+lwall-quotes	tech	wisdom	general	0	The choice of approaches could be made the responsibility of the programmer.
+lwall-quotes	tech	quip	general	0	The code also assumes that it's difficult to misspell "a" or "b". :-)
+lwall-quotes	tech	wisdom	general	0	The compiler is not immutable; it is a means to an end. And the end I am imagining is one that I cannot imagine.
+lwall-quotes	tech	aphorism	general	0	The computer should be doing the hard work. That's what it's paid to do, after all.
+lwall-quotes	tech	quip	general	0	The court finds everyone to be in contempt (including himself :-), and orders everyone sentenced to five years hard labor. (Working on Perl, of course.)
+lwall-quotes	tech	observation	general	0	The following two statements are usually both true: There's not enough documentation. There's too much documentation.
+lwall-quotes	life	quip	general	0	The human psyche is a mishmash of rules of thumb, and Einstein's thumb is only two of them.
+lwall-quotes	tech	quip	general	0	The only disadvantage I see is that it would force everyone to get Perl. Horrors. :-)
+lwall-quotes	arts	quip	general	0	The problem with a thesaurus is that it only gives you synonyms, not the word you really want. :-)
+lwall-quotes	tech	quip	general	0	The random quantum fluctuations of my brain are historical accidents that happen to have decided that the concepts of dynamic scoping and lexical scoping are orthogonal and should remain that way.
+lwall-quotes	life	observation	general	0	The semantics of alcohol don't change when you reach drinking age. Only the pragmatics change.
+lwall-quotes	society	quip	general	0	The stupid people are the ones proposing to outlaw stupidity. :-)
+lwall-quotes	tech	quip	general	0	The way I see it, if you declare something portable, you'll always be wrong, and if you declare it non-portable, you'll always be right. :-)
+lwall-quotes	tech	quip	general	0	The way these things go, there are probably 6 or 8 kludgey ways to do it, and a better way that involves rethinking something that hasn't been rethunk yet.
+lwall-quotes	tech	observation	general	0	The whole history of computers is rampant with cheerleading at best and bigotry at worst.
+lwall-quotes	tech	wisdom	general	0	The whole intent of Perl 5's module system was to encourage the growth of Perl culture rather than the Perl core.
+lwall-quotes	tech	quip	general	0	Then people who believe only in Interfaces can use the same underlying system-defined Roles without compromising their Java-bedeviled value system. :-)
+lwall-quotes	life	wisdom	general	0	There ain't nothin' in this world that's worth being a snot over.
+lwall-quotes	tech	quip	general	0	There are many times when you want it to ignore the rest of the string just like atof() does. Oddly enough, Perl calls atof(). How convenient. :-)
+lwall-quotes	tech	quip	general	0	There are probably better ways to do that, but it would make the parser more complex. I do, occasionally, struggle feebly against complexity... :-)
+lwall-quotes	tech	quip	general	0	There are still some other things to do, so don't think if I didn't fix your favorite bug that your bug report is in the bit bucket. (It may be, but don't think it. :-) Larry Wall in <7238@jpl-devvax.JPL.NASA.GOV>
+lwall-quotes	tech	quip	general	0	There is, however, a strange, musty smell in the air that reminds me of something...hmm...yes...I've got it...there's a VMS nearby, or I'm a Blit.
+lwall-quotes	life	quip	general	0	There's more than one method to our madness.
+lwall-quotes	life	wisdom	general	0	There's often more than one correct thing. There's often more than one right thing. There's often more than one obvious thing.
+lwall-quotes	life	dark	general	0	There's some entertainment value in watching people juggle nitroglycerin.
+lwall-quotes	tech	quip	general	0	There's something to be said for returning the whole syntax tree.
+lwall-quotes	life	uplifting	general	0	These days I may be missing the bottom of my stomach, but I still have the bottom of my heart. So I would like to thank you from the bottom of my heart for being precisely who you are.
+lwall-quotes	tech	quip	general	0	They can always run stderr through uniq. :-)
+lwall-quotes	tech	quip	general	0	Think of prototypes as a funny markup language--the interpretation is left up to the rendering engine.
+lwall-quotes	life	quip	general	0	This has been planned for some time. I guess we'll just have to find someone with an exceptionally round tuit.
+lwall-quotes	tech	quip	general	0	Though I'll admit readability suffers slightly...
+lwall-quotes	tech	quip	general	0	To Perl, or not to Perl, that is the kvetching.
+lwall-quotes	faith	wisdom	general	0	To ordinary folks, conversion is not always automatic. It's something that may or may not require explicit assistance. See Billy Graham. :-)
+lwall-quotes	tech	quip	general	0	True, it returns "" for false, but "" is an even more interesting number than 0.
+lwall-quotes	tech	quip	general	0	Two-dimensional parsing is fun...
+lwall-quotes	life	quip	general	0	Uh, yeah. Obviously, 11 pm is still to early in the day for me...
+lwall-quotes	tech	quip	general	0	Unix is like a toll road on which you have to stop every 50 feet to pay another nickel. But hey! You only feel 5 cents poorer each time.
+lwall-quotes	tech	quip	general	0	We didn't put in ^^ because then we'd have to keep telling people what it means, and then we'd have to keep telling them why it doesn't short circuit. :-/
+lwall-quotes	tech	quip	general	0	We don't have enough parallel universes to allow all uses of all junction types--in the absence of quantum computing the combinatorics are not in our favor...
+lwall-quotes	life	quip	general	0	We question most of the mantras around here periodically, in case you hadn't noticed. :-)
+lwall-quotes	life	uplifting	general	0	We're a hospital of people helping each other, performing random acts of beauty for each other, even when no one is watching but God.
+lwall-quotes	tech	quip	general	0	We're still discussing it on @Larry, but I think we can make that work.
+lwall-quotes	tech	quip	general	0	Well, I think Perl should run faster than C. :-)
+lwall-quotes	tech	quip	general	0	Well, enough clowning around. Perl is, in intent, a cleaned up and summarized version of that wonderful semi-natural language known as "Unix".
+lwall-quotes	tech	quip	general	0	Well, hey, let's just make everything into a closure, and then we'll have our general garbage collector, installed by "use less memory".
+lwall-quotes	tech	quip	general	0	Well, hey, we'll have to leave some of the programming up to you. :-)
+lwall-quotes	life	observation	general	0	Well, some of that relates to the fact that last year I basically had to take half a year off to participate in various non-optional gastric revisions.
+lwall-quotes	tech	quip	general	0	Well, sure, I explicitly mentioned "vtables" last time I brought this up. But a single pointer is fairly paltry, as tables go. :-)
+lwall-quotes	tech	quip	general	0	Well, that's more-or-less what I was saying, though obviously addition is a little more cosmic than the bitwise operators.
+lwall-quotes	tech	quip	general	0	Well, you can implement a Perl peek() with unpack('P',...). Once you have that, there's only security through obscurity. :-)
+lwall-quotes	faith	dark	general	0	Well, you know, Hubbard had a bunch of people sworn to commit suicide when he died. So of course he never officially died...
+lwall-quotes	arts	quip	general	0	What about WRITING it first and rationalizing it afterwords? :-)
+lwall-quotes	tech	quip	general	0	Wheelbarrow is a scavenger. That is to say, he's a sysadmin.
+lwall-quotes	tech	quip	general	0	When in doubt, parenthesize. At the very least it will let some poor schmuck bounce on the % key in vi.
+lwall-quotes	life	quip	general	0	Would you trust the linguistic intuitions of someone who has been studying Latin or Greek for three days?
+lwall-quotes	society	quip	general	0	Wow, I'm being shot at from both sides. That means I *must* be right. :-)
+lwall-quotes	tech	quip	general	0	Y'know, there are other possibilities if we assume that filenames are UTF-8...yikes...wait, put down that meat cleaver! Aieeee!!!
+lwall-quotes	life	quip	general	0	Yes, I'm a megalomaniac to think that I can set a better standard than the French... :-)
+lwall-quotes	tech	quip	general	0	Yes, it's a slippery slope. No, we are not sliding all the way down it. And it's just as easy to slide up this slope as well as down, and end up with Lisp rather than APL. Neither extreme is healthy.
+lwall-quotes	tech	quip	general	0	Yes, we have consensus that we need 64 bit support. :-)
+lwall-quotes	tech	quip	general	0	You can prove anything by mentioning another computer language. :-)
+lwall-quotes	tech	quip	general	0	You don't have to wait--you can have it in 5.004_54 or so. :-)
+lwall-quotes	life	quip	general	0	You have the irritating habit of asking good questions I don't have an easy answer for. Please don't stop.
+lwall-quotes	tech	quip	general	0	You have to admit that it's difficult to misplace the Perl sources. :-)
+lwall-quotes	tech	quip	general	0	You might as well write your warning in Russian for all the good it'll do. :-)
+lwall-quotes	tech	quip	general	0	You tell it that it's indicative by appending $!. That's why we made $! such a short variable name, after all. :-)
+lwall-quotes	tech	quip	general	0	You want it in one line? Does it have to fit in 80 columns? :-)
+lwall-quotes	tech	quip	general	0	Your csh still thinks true is false. Write to your vendor today and tell them that next year Configure ought to "rm /bin/csh" unless they fix their blasted shell. :-)
+lwall-quotes	life	quip	general	0	[End of diatribe. We now return you to your regularly scheduled programming...]
+lwall-quotes	tech	quip	general	0	break; /* don't do magic till later */
+lwall-quotes	tech	quip	general	0	double value; /* or your money back! */ short changed; /* so triple your money back! */
+lwall-quotes	tech	quip	general	0	echo "Congratulations. You aren't running Eunice."
+lwall-quotes	tech	quip	general	0	echo "Hmmm...you don't have Berkeley networking in libc.a..." echo "but the Wollongong group seems to have hacked it in."
+lwall-quotes	tech	quip	general	0	echo "ICK, NOTHING WORKED!!! You may have to diddle the includes."
+lwall-quotes	tech	quip	general	0	echo "Your stdio isn't very std."
+lwall-quotes	tech	quip	general	0	echo $package has manual pages available in source form. echo "However, you don't have nroff, so they're probably useless to you."
+lwall-quotes	tech	quip	general	0	fail("Language designer not persuaded"); # :-)
+lwall-quotes	tech	quip	general	0	if (instr(buf,sys_errlist[errno])) /* you don't see this */
+lwall-quotes	tech	quip	general	0	if (rsfp = mypopen("/bin/mail root","w")) { /* heh, heh */
+lwall-quotes	tech	quip	general	0	last|perl -pe '$_ x=/(..:..)...(.*)/&&"'$1'"ge$1&&"'$1'"lt$2' That's gonna be tough for Randal to beat... :-)
+lwall-quotes	tech	quip	general	0	pos += screamnext[pos] /* does this goof up anywhere? */
+lwall-quotes	tech	quip	general	0	print rand rand rand 1, "\n"; # interesting distribution
+lwall-quotes	tech	quip	general	0	s = (char*)(long)retval; /* ouch */
+lwall-quotes	tech	quip	general	0	signal(i, SIG_DFL); /* crunch, crunch, crunch */
+lwall-quotes	tech	quip	general	0	stab_val(stab)->str_nok = 1; /* what a wonderful hack! */
+lwall-quotes	tech	quip	general	0	str->str_pok |= SP_FBM; /* deep magic */ s = (unsigned char*)(str->str_ptr); /* deeper magic */
+lwall-quotes	tech	quip	general	0	sub eval_C ($proggie) { CGrammar.top($proggie).compile.link.run.dump.gdb }
+lwall-quotes	tech	quip	general	0	switch (ref $@) { OverflowError => warn "Dam needs to be drained"; DomainError => warn "King needs to be trained"; NuclearWarError => die; }
+lwall-quotes	tech	quip	general	0	tmps_base = tmps_max; /* protect our mortal string */

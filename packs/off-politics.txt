@@ -1,0 +1,252 @@
+off-politics	society	dark	edgy	1	A bureaucracy is like a septic tank -- all the really big shits float to the top.
+off-politics	life	joke	general	0	A chubby man with a white beard and a red suit will approach you soon. Avoid him. He's a Commie.
+off-politics	society	quip	general	0	A conservative is a man who believes that nothing should be done for the first time.
+off-politics	society	quip	general	0	A conservative is a man who is too cowardly to fight and too fat to run.
+off-politics	society	quip	general	0	A conservative is a man with two perfectly good legs who has never learned to walk.
+off-politics	work-money	quip	general	0	A friendly message from your Internal Revenue Service: tax time is coming again soon. Bend over.
+off-politics	society	quip	general	0	A liberal is a man too broadminded to take his own side in a quarrel.
+off-politics	society	quip	general	0	A liberal is a person whose interests aren't at stake at the moment.
+off-politics	society	quip	general	0	A liberal is someone too poor to be a capitalist, and too rich to be a communist.
+off-politics	society	quip	general	0	A Nixon [is preferable to] a Dean Rusk -- who will be passionately wrong with a high sense of consistency.
+off-politics	society	observation	general	0	A non-vegetarian anti-abortionist is a contradiction in terms.
+off-politics	society	quip	general	0	A person who has both feet planted firmly in the air can be safely called a liberal.
+off-politics	society	quip	general	0	A reactionary is a man whose political opinions always manage to keep up with yesterday.
+off-politics	society	observation	general	0	A rich man told me recently that a liberal is a man who tells other people what to do with their money.
+off-politics	society	aphorism	general	0	A single death is a tragedy, a million deaths is a statistic.
+off-politics	society	quip	general	0	Aide to Raygun: Sir, the poor are outside protesting your budget cuts. Raygun himself: Tell them they'll have to help themselves. Aide to Raygun: Sir, the Pentagon wants another $30 billion. Raygun himself: Tell them to help themselves.
+off-politics	society	quip	nsfw	1	Al Gore resembled a Vulcan desperately in need of a blow job.
+off-politics	society	dark	general	0	America ... just a nation of two hundred million used car salesman with all the money we need to buy guns and no qualms about killing anybody else in the world who tries to make us uncomfortable.
+off-politics	tech	observation	general	0	American cars are made shoddily... Cars made overseas are far superior.
+off-politics	society	quip	general	0	An appeaser is one who feeds a crocodile -- hoping that it will eat him last.
+off-politics	society	dark	general	0	Antique fairy tale: Little Red Riding Hood. Modern fairy tale: Oswald, acting alone, shot Kennedy.
+off-politics	society	dark	general	0	Any president should have the right to shoot at least two people a year without explanation.
+off-politics	society	quip	general	0	Anybody has a right to evade taxes if he can get away with it. No citizen has a moral obligation to assist in maintaining his government.
+off-politics	nature	quip	general	0	"Approximately 80% of our air pollution stems from hydrocarbons released by vegetation, so let's not go overboard in setting and enforcing tough emissions standards from man-made sources."
+off-politics	society	quip	general	0	ARCHDUKE FERDINAND FOUND ALIVE
+off-politics	society	quip	general	0	As for Carter being for registration but against the draft, isn't that sort of being like for putting it in and not taking it out? Even if it was possible not to follow through, you'd still be getting screwed.
+off-politics	life	quip	general	0	At twenty-six, Kate, though not promiscuous, had slept with most of the decent men in public life.
+off-politics	society	quip	general	0	Atlee is a very modest man. And with reason.
+off-politics	society	quip	general	0	"Avoid revolution or expect to get shot. Mother and I will grieve, but we will gladly buy a dinner for the National Guardsman who shot you."
+off-politics	society	quip	general	0	Being in politics is like being a football coach. You have to be smart enough to understand the game and dumb enough to think it's important.
+off-politics	society	quip	general	0	Being in the army is like being in the Boy Scouts, except that the Boy Scouts have adult supervision.
+off-politics	work-money	quip	general	0	Being the #2 man in the Justice Department under Ed Meese is akin to standing next to a lamp post infested with pigeons. -- unamed Justice Department official
+off-politics	society	quip	general	0	Black people have never rioted. A riot is what white people think blacks are involved in when they burn stores.
+off-politics	society	observation	general	0	"California is proud to be the home of the freeway."
+off-politics	life	quip	general	0	Calvin Coolidge looks as if he had been weaned on a pickle.
+off-politics	society	quip	general	0	Calvin Coolidge was the greatest man who ever came out of Plymouth Corner, Vermont.
+off-politics	society	wisdom	general	0	Capitalism is the extraordinary belief that the nastiest of men, for the nastiest of reasons, will somehow work for the benefit of us all.
+off-politics	work-money	wisdom	general	0	Civilization and profits go hand in hand.
+off-politics	society	quip	general	0	Come home America.
+off-politics	society	aphorism	general	0	Corrupt, stupid grasping functionaries will make at least as big a muddle of socialism as stupid, selfish and acquisitive employers can make of capitalism.
+off-politics	society	quip	general	0	Democracy can learn some things from Communism: for example, when a Communist politician is through, he is through.
+off-politics	society	quip	general	0	Democracy is also a form of worship. It is the worship of Jackals by Jackasses.
+off-politics	society	quip	general	0	Democracy is the theory that the common people know what they want, and deserve to get it good and hard.
+off-politics	society	quip	general	0	Do you realize the responsibility I carry? I'm the only person standing between Nixon and the White House.
+off-politics	society	quip	edgy	1	Doing business with the government is like fucking sheep. It's easy, but it's not very satisfying.
+off-politics	society	quip	general	0	Don't buy a landslide. I don't want to have to pay for one more vote than I have to.
+off-politics	society	aphorism	general	0	Don't do the crime, if you can't do the time.
+off-politics	society	quip	edgy	1	Don't get the idea that I'm one of those goddamn radicals. Don't get the idea that I'm knocking the American system.
+off-politics	society	quip	general	0	Don't knock President Fillmore. He kept us out of Vietnam.
+off-politics	work-money	quip	general	0	Don't take a nickel, just hand them your business card.
+off-politics	society	quip	general	0	Draft beer, not boys!
+off-politics	society	quip	general	0	Draft beer, not people.
+off-politics	society	quip	general	0	During the Reagan-Mondale debates: Q: "Do you feel that a person's age affects his ability to perform as president?" Reagan: "I refuse to make an issue out of my opponent's youth and inexperience."
+off-politics	faith	wisdom	general	0	Even God cannot change the past.
+off-politics	society	dark	general	0	Everlasting peace will come to the world when the last man has slain the last but one.
+off-politics	society	quip	general	0	"First World" nations are the ones where people drive Japanese cars; "Second World" nations are where First World residents go on vacation; and "Third World" nations are the ones where people still dive out of trees to prove their manhood.
+off-politics	society	quip	general	0	"Follow me around. I don't care. I'm serious. If anybody wants to put a tail on me, go ahead. They'd be very bored."
+off-politics	society	aphorism	general	0	Forgive your enemies, but don't forget their names.
+off-politics	society	quip	general	0	Gaiety is the most outstanding feature of the Soviet Union.
+off-politics	society	dark	general	0	Gary Hart's biggest mistake was not getting Teddy Kennedy to drive Donna Rice home.
+off-politics	society	joke	general	0	George Washington not only chopped down his father's cherry tree, but he also admitted doing it. Now, do you know why his father didn't punish him? Because George still had the axe in his hand.
+off-politics	society	aphorism	general	0	Going into politics is as fatal to a gentleman as going into a bordello is fatal to a virgin.
+off-politics	society	quip	general	0	He wasn't much of an actor, he wasn't much of a Governor -- Hell, they HAD to make him President of the United States. It's the only job he's qualified for!
+off-politics	society	quip	edgy	1	He's a son-of-a-bitch, but he's our son-of-a-bitch. -- FDR on Nicaraguan dictator Anastasio Somoza
+off-politics	love	quip	general	0	Heard tell that the Iron Magnolia wanted to divorce ol' Jimmy. Seems he's screwing everyone but her.
+off-politics	society	quip	general	0	Hell hath no fury like a bureaucrat scorned.
+off-politics	society	quip	general	0	"How do you like the new America? We've cut the fat out of the government, and more recently the heart and brain (the backbone was gone some time ago). All we seem to have left now is muscle. We'll be lucky to escape with our skins!"
+off-politics	life	quip	general	0	I acted to show my love for Jodie Foster.
+off-politics	society	quip	general	0	I ain't got no quarrel with them Viet Congs.
+off-politics	society	quip	general	0	I am not a crook.
+off-politics	society	quip	general	0	I am not now and never have been a girl friend of Henry Kissinger.
+off-politics	society	quip	general	0	I believe that Ronald Reagan will someday make this country what it once was ... an arctic wilderness.
+off-politics	society	quip	general	0	I belong to no organized party. I am a Democrat.
+off-politics	society	quip	general	0	"I can remember when a good politician had to be 75 percent ability and 25 percent actor, but I can well see the day when the reverse could be true."
+off-politics	society	quip	edgy	1	I don't give a shit what happens. I want you all to stonewall it. Let them plead the Fifth Amendment, cover up, or anything else if it'll save the plan.
+off-politics	work-money	quip	general	0	I don't see what's wrong with giving Bobby a little experience before he starts to practice law.
+off-politics	society	quip	edgy	1	I don't think they are going to give a shit about the Republican Committee trying to bug the Democratic Committee's headquarters.
+off-politics	society	observation	general	0	I don't understand what all the fuss was about in Los Angeles. It's not like we looted Brooks Brothers when Oliver North got off.
+off-politics	faith	quip	general	0	I go the way that Providence dictates.
+off-politics	society	wisdom	edgy	1	I had never been too political, but I knew how white people treated black people and it was hard for me to come back to the bullshit white people put a black person through in this country. To realize you don't have any power to make things different is a bitch.
+off-politics	society	quip	general	0	I have nothing but utter contempt for the courts of this land.
+off-politics	love	quip	general	0	I have often looked at women and committed adultery in my heart.
+off-politics	life	quip	general	0	I never did give anybody hell. I just told the truth and they thought it was hell.
+off-politics	life	dark	general	0	I never trust a man unless I've got his pecker in my pocket.
+off-politics	life	dark	nsfw	1	I regret to say that we of the F.B.I. are powerless to act in cases of oral-genital intimacy, unless it has in some way obstructed interstate commerce.
+off-politics	society	dark	general	0	I shall give a propagandist reason for starting the war, no matter whether it is plausible or not. The victor will not be asked afterwards whether he told the truth or not. When starting and waging war it is not right that matters, but victory.
+off-politics	work-money	quip	general	0	I think any man in business would be foolish to fool around with his secretary. If it's somebody else's secretary, fine.
+off-politics	faith	quip	edgy	1	I think every good Christian ought to kick Falwell right in the ass.
+off-politics	society	wisdom	general	0	I was in accord with the system so long as it permitted me to function effectively.
+off-politics	faith	quip	general	0	I would have made a good pope.
+off-politics	society	quip	general	0	I would not like to be a political leader in Russia. They never know when they're being taped.
+off-politics	society	wisdom	general	0	I'm fed up to the ears with old men dreaming up wars for young men to die in.
+off-politics	life	dark	general	0	I'm never through with a girl until I've had her three ways.
+off-politics	life	quip	general	0	I'm not a lovable man.
+off-politics	society	quip	general	0	I'm not sure I've even got the brains to be President.
+off-politics	life	quip	general	0	I'm sorry I missed.
+off-politics	life	quip	general	0	I've got Hubert's pecker in my pocket.
+off-politics	life	wisdom	general	0	I've never been hurt by anything I didn't say.
+off-politics	society	quip	general	0	If a man is not a liberal at 25, he has no heart. If he's not a conservative by 45, he has no brain.
+off-politics	society	dark	general	0	If any demonstrator ever lays down in front of my car, it'll be the last car he ever lays down in front of.
+off-politics	society	quip	general	0	If Carter is the answer, it must have been a VERY silly question.
+off-politics	life	quip	general	0	If clear thinking created sparks, we could safely store dynamite in James Watt's office.
+off-politics	society	dark	general	0	If I made peace with Russia today, I'd only attack her again tomorrow. I just couldn't help myself.
+off-politics	society	quip	general	0	If it takes a bloodbath, lets get it over with. No more appeasement.
+off-politics	society	dark	general	0	If people say that here and there someone has been taken away and maltreated, I can only reply: You can't make an omelette without breaking eggs.
+off-politics	society	quip	general	0	If Presidents don't do it to their wives, they do it to the country.
+off-politics	society	quip	general	0	If Reagan is the answer, it must have been a VERY silly question.
+off-politics	society	dark	general	0	If the Nazis had television with satellite technology, we'd all be goose-stepping. Americans are just as suggestible.
+off-politics	science	quip	general	0	"If we relied conclusively on scientific data for every one of our findings, I'm afraid all of our work would be inconclusive."
+off-politics	life	quip	general	0	If you cannot convince them, confuse them.
+off-politics	society	quip	general	0	If you have seen one city slum you have seen them all.
+off-politics	society	quip	general	0	If you think the United States has stood still, who built the largest shopping center in the world?
+off-politics	life	wisdom	general	0	If you treat people right they will treat you right -- 90% of the time.
+off-politics	nature	quip	general	0	If you've seen one redwood, you've seen them all.
+off-politics	society	quip	general	0	Imagine me going around with a pot belly. It would mean political ruin.
+off-politics	society	dark	general	0	In a country where the sole employer is the State, opposition means death by slow starvation. The old principle: Who does not work shall not eat, has been replaced by a new one: Who does not obey shall not eat.
+off-politics	society	dark	general	0	In any country there must be people who have to die. They are the sacrifices any nation has to make to achieve law and order.
+off-politics	society	quip	general	0	In the future, there will be fewer but better Russians.
+off-politics	society	quip	general	0	In this world of sin and sorrow there is always something to be thankful for; as for me, I rejoice that I am not a Republican.
+off-politics	society	quip	general	0	It is dangerous for a national candidate to say things that people might remember.
+off-politics	society	quip	general	0	It's easier to be a liberal a long way from home.
+off-politics	life	quip	general	0	It's our fault. We should have given him better parts.
+off-politics	society	quip	general	0	John Birch Society -- that pathetic manifestation of organized apoplexy.
+off-politics	society	aphorism	general	0	Justice is incidental to law and order.
+off-politics	society	quip	general	0	Laissez Faire Economics is the theory that if each acts like a vulture, all will end as doves.
+off-politics	society	wisdom	general	0	Law enforcement officers should use only the minimum force necessary in dealing with disorders when they arise.
+off-politics	society	quip	general	0	"Lemme show ya the odds, Sparky... In yer country, ya got 14 million black people, and 3 million white people. Now, does the name `Custer' mean anything to you?"
+off-politics	society	quip	general	0	Liberals are the first to dump you if you con them or get into trouble. Conservatives are better. They never run out on you. -- Joseph "Crazy Joe" Gallo
+off-politics	life	quip	general	0	"Listen to what I say, not what I mean. I mean ...."
+off-politics	society	dark	general	0	Long ago I proposed that unsuccessful candidates for the Presidency be quietly hanged, as a matter of public sanitation and decorum. The sight of their grief must have a very evil effect upon the young.
+off-politics	faith	quip	general	0	Mayor Vincent J. `Buddy' Cianci on the ACLU's suit to have a city nativity scene removed: "They're just jealous because they don't have three wise men and a virgin in the whole organization."
+off-politics	society	fact	general	0	More people died at Chappaquidick than at 3-mile island.
+off-politics	society	dark	general	0	More people have died in Ted Kennedy's car than in nuclear power plants.
+off-politics	society	insult	edgy	1	"Most legislators are so dumb that they couldn't pour piss out of a boot if the instructions were printed on the heel."
+off-politics	family	quip	general	0	Mothers all want their sons to grow up to be President, but they don't want them to become politicians in the process.
+off-politics	society	quip	general	0	My advice to the women's clubs of America is to raise more hell and fewer dahlias.
+off-politics	society	quip	general	0	My rackets are run on strictly American lines, and they're going to stay that way.
+off-politics	society	quip	general	0	Nancy Reagan wants to divorce old Ron... seems he's making it hard for everyone but her.
+off-politics	society	quip	general	0	New book out from Gary Hart; "Six Inches from the White House".
+off-politics	society	quip	general	0	Ninety percent of the politicians give the other ten percent a bad reputation.
+off-politics	society	quip	general	0	No Marxist can deny that the interests of socialism are higher than the interests of the right of nations to self-determination.
+off-politics	arts	aphorism	general	0	No television performance takes as much preparation as an off-the-cuff talk.
+off-politics	society	dark	general	0	[Nuclear war] ... may not be desirable.
+off-politics	life	wisdom	general	0	Oh, my friend, it is not what they take away from you that counts -- it's what you do with what you have left.
+off-politics	life	quip	general	0	Once at a social gathering, Gladstone said to Disraeli, "I predict, Sir, that you will die either by hanging or of some vile disease." Disraeli replied, "That all depends upon whether I embrace your principles or your mistress."
+off-politics	family	observation	general	0	Our parents were of Midwestern stock and very strict. They didn't want us to grow up to be spoiled and rich. If we left our tennis racquets in the rain, we were punished.
+off-politics	society	quip	general	0	Politics is supposed to be the second oldest profession. I have come to realize that it bears a very close resemblance to the first.
+off-politics	society	quip	general	0	President Thieu says he'll quit if he doesn't get more than 50% of the vote. In a democracy, that's not called quitting.
+off-politics	society	quip	general	0	[Prime Minister Joseph] Chamberlain loves the working man -- he loves to see him work.
+off-politics	society	quip	general	0	Reagan can't act either.
+off-politics	society	dark	general	0	Republicans consume three-fourths of the rutabaga produced in this country. The remainder is thrown out.
+off-politics	society	observation	general	0	Richard Nixon was the most dishonest individual I have ever met in my life. He lied to his wife, his family, his friends, his colleagues in the Congress, lifetime members of his own political party, the American people, and the world.
+off-politics	society	quip	general	0	Ronald Reagan -- America's favorite placebo
+off-politics	faith	quip	general	0	Russia has abolished God, but so far God has been more tolerant.
+off-politics	society	quip	edgy	1	Seems to me that both the Democrats and the Republicans should change their symbols to a contraceptive device; it stands for inflation, inhibits production, protects a bunch of pricks and gives everyone a false sense of security while they're being screwed.
+off-politics	society	quip	general	0	Senor Castro has been accused of communist sympathies, but this means very little since all opponents of the regime are automatically called communists. In fact he is further to the right than General Batista. -- "Cuba's Rightist Rebel", The Economist, April 26, 1958
+off-politics	society	quip	nsfw	1	She hates testicles, thus limiting the men she can admire to Democratic candidates for president.
+off-politics	life	quip	general	0	Sink or Swim with Teddy!
+off-politics	work-money	quip	general	0	Sometimes, at the end of the day, when I'm smiling and shaking their hands, I want to kick them.
+off-politics	society	dark	general	0	Sooner or later, generals will own you.
+off-politics	society	dark	general	0	Success is the sole earthly judge of right and wrong.
+off-politics	society	quip	general	0	Support the right of unborn males to bear arms! -- A public service announcement from Phyllis Schlafly, the Catholic Church, and the National Rifle Association
+off-politics	society	quip	general	0	Sure there are dishonest men in local government. But there are dishonest men in national government too.
+off-politics	society	quip	general	0	Sure, Reagan has promised to take senility tests. But what if he forgets?
+off-politics	work-money	quip	general	0	"Taxes should hurt. I just mailed my own tax return last night and I am prepared to say `ouch!' as loud as anyone."
+off-politics	society	quip	general	0	Teddy Kennedy: A Blonde in Every Pond!
+off-politics	life	quip	general	0	Thank God I've always avoided persecuting my enemies.
+off-politics	society	quip	general	0	That segment of the community with which one has the greatest sympathy as a liberal, inevitably turns out to be one of the most narrow-minded and bigoted segments of the community.
+off-politics	society	wisdom	general	0	The American system of ours, call it Americanism, call it Capitalism, call it what you like, gives each and every one of us a great opportunity if we only seize it with both hands and make the most of it.
+off-politics	society	quip	general	0	The Army has carried the American ... ideal to its logical conclusion. Not only do they prohibit discrimination on the grounds of race, creed and color, but also on ability.
+off-politics	work-money	quip	general	0	"The Army is a place where you get up early in the morning to be yelled at by people with short haircuts and tiny brains."
+off-politics	society	aphorism	general	0	The broad mass of a nation... will more easily fall victim to a big lie than to a small one.
+off-politics	society	quip	general	0	The conservation movement is a breeding ground of Communists and other subversives. We intend to clean them out, even if it means rounding up every bird watcher in the country.
+off-politics	society	quip	general	0	The difference between a misfortune and a calamity? If Gladstone fell into the Thames, it would be a misfortune. But if someone dragged him out again, it would be a calamity.
+off-politics	society	dark	general	0	The fact that Hitler was a political genius unmasks the nature of politics in general as no other can.
+off-politics	faith	fact	general	0	The government of the United States is not in any sense founded on the Christian Religion.
+off-politics	society	dark	general	0	The great nations have always acted like gangsters and the small nations like prostitutes.
+off-politics	society	dark	general	0	The illegal we do immediately. The unconstitutional takes a little longer.
+off-politics	society	quip	general	0	The language of politics is poetry, not prose. Jackson is poetry. Cuomo is poetry. Dukakis is a word processor.
+off-politics	society	quip	general	0	The liberals can understand everything but people who don't understand them.
+off-politics	society	quip	general	0	The longer I am out of office, the more infallible I appear to myself.
+off-politics	society	aphorism	general	0	The marriage of Marxism and feminism has been like the marriage of husband and wife depicted in English common law: Marxism and feminism are one, and that one is marxism.
+off-politics	society	quip	general	0	[The members of the Chamberlain government] are decided only to be undecided, resolved to be irresolute, adamant for drift, all-powerful for impotency.
+off-politics	society	dark	general	0	The Moscow Evening News advertised a contest for the best political joke. First prize was ten years in prison; second prize, five years; third prize, three years; and there were six honorable mentions of one year each.
+off-politics	society	wisdom	general	0	The notion that the church, the press, and the universities should serve the state is essentially a Communist notion ... In a free society these institutions must be wholly free -- which is to say that their function is to serve as checks upon the state.
+off-politics	society	dark	general	0	The only way I can lose this election is if I'm caught in bed with a dead girl or a live boy.
+off-politics	society	quip	general	0	"The policeman isn't there to create disorder. The policeman is there to preserve disorder."
+off-politics	life	quip	general	0	The problem with me is that I am fifty or one hundred years ahead of my time. My speed is very fast. Some ministers have had to drop out of my government because they could not keep up.
+off-politics	society	quip	general	0	The problems with "Medflies" may have hurt Jerry Brown's chances to become a Senator. After all, if they won't allow California fruit out of the state, how is Brown going to get to Washington?
+off-politics	society	aphorism	general	0	The right to be heard does not automatically include the right to be taken seriously.
+off-politics	society	wisdom	general	0	The right to be let alone is indeed the beginning of all freedom.
+off-politics	society	wisdom	general	0	The right to revolt has sources deep in our history.
+off-politics	society	quip	general	0	The rights you have are the rights given you by this Committee [the House Un-American Activities Committee]. We will determine what rights you have and what rights you have not got.
+off-politics	science	quip	general	0	The Russians have put a small ball up in the air. That does not raise my apprehensions one iota.
+off-politics	society	quip	general	0	"The State of California has no business subsidizing intellectual curiosity."
+off-politics	society	quip	general	0	The streets are safe in Philadelphia, it's only the people who make them unsafe.
+off-politics	society	quip	general	0	The United States also has its native Fascists who say that they are "100 percent American" ...
+off-politics	life	dark	general	0	The very first essential for success is a perpetually constant and regular employment of violence.
+off-politics	faith	quip	general	0	The VFW represents many who died to give this country a second chance to make it what it is supposed to be -- God's guest house on earth.
+off-politics	society	quip	edgy	1	"The voters have spoken, the bastards ..."
+off-politics	society	observation	general	0	The War on Drugs is just a small part of the War on the United States Constitution.
+off-politics	society	quip	general	0	The warning message we sent the Russians was a calculated ambiguity that would be clearly understood.
+off-politics	society	dark	general	0	There are also a lot of nice buildings in Haiphong. What their contributions are to the war effort I don't know, but the desire to bomb a virgin building is terrific.
+off-politics	society	pun	general	0	There is a new anti-communist organization that advocates the use of wooden toilet seats. It's called the Birch John Society.
+off-politics	society	wisdom	general	0	There is a road to freedom. Its milestones are Obedience, Endeavor, Honesty, Order, Cleanliness, Sobriety, Truthfulness, Sacrifice, and love of the Fatherland.
+off-politics	society	dark	edgy	1	"There was only six Democrats in all of Hinsdale County and you, you son of a bitch, you ate five of them." -- Colorado judge, sentencing Alfred E. Packer for cannibalism in 1874.
+off-politics	work-money	quip	general	0	These activities have their own rules and methods of concealment which seek to mislead and obscure.
+off-politics	society	quip	general	0	They say it's the responsibility of the media to look at government -- especially the president -- with a microscope. I don't argue with that, but when they use a proctoscope, it's going too far.
+off-politics	society	wisdom	general	0	Those who make peaceful revolution impossible will make violent revolution inevitable.
+off-politics	society	quip	general	0	Three things have been difficult to tame: The oceans, fools, and women. We may soon be able to tame the ocean. Fools and women will take a little longer.
+off-politics	society	quip	general	0	Tip O'Neill is just like Congress; old, fat and out of control.
+off-politics	society	quip	general	0	"To be responsive at this time, though I will simply say, and therefore this is a repeat of what I said previously, that which I am unable to offer in response is based on information available to make no such statement."
+off-politics	society	wisdom	general	0	To defend the Saigon regime is not worth one more human life.
+off-politics	society	aphorism	general	0	To jaw-jaw is better than to war-war.
+off-politics	society	quip	general	0	To the best of my recollection, Senator, I can't recall.
+off-politics	society	quip	general	0	Tom Hayden is the kind of politician who gives opportunism a bad name.
+off-politics	society	quip	general	0	Uncle Sam comes off as the perverted relative who'll offer you a bit of candy, but if you won't bend over for him, you get a beating.
+off-politics	society	quip	general	0	"Under capitalism, man exploits man. Under Communism, it's just the opposite."
+off-politics	society	observation	general	0	Uppers are no longer stylish, methedrine is almost as rare as pure acid or DMT. "Consciousness Expansion" went out with LBJ and it is worth noting, historically, that downers came in with Nixon.
+off-politics	society	quip	general	0	Vote early and vote often.
+off-politics	society	dark	general	0	Waldheimer's disease is what you have when you can't remember you were a Nazi.
+off-politics	society	quip	general	0	Washington [D.C.] is a city of Southern efficiency and Northern charm.
+off-politics	society	quip	general	0	Washington, D.C. Wasting your money since 1810.
+off-politics	society	quip	general	0	We are going to give a little something, a few little years more, to socialism, because socialism is defunct. It dies all by itself. The bad thing is that socialism, being a victim of its ... Did I say socialism?
+off-politics	society	quip	general	0	We are going to have peace even if we have to fight for it.
+off-politics	society	quip	general	0	We are the unwilling... led by the unqualified... to do the unnecessary... for the ungrateful... -- GI in Vietnam, 1970
+off-politics	life	quip	general	0	We are upping our standards ... so up yours.
+off-politics	life	dark	general	0	We cannot put the face of a person on a stamp unless said person is deceased. My suggestion, therefore, is that you drop dead.
+off-politics	life	quip	general	0	We could do that, but it would be wrong, that's for sure.
+off-politics	society	dark	general	0	We could nuke Baghdad into glass, wipe it with Windex, tie fatback on our feet and go skating.
+off-politics	faith	dark	general	0	We don't have to protect the environment -- the Second Coming is at hand.
+off-politics	society	dark	general	0	We have no scorched earth policy. We have a policy of scorched Communists.
+off-politics	society	wisdom	general	0	We must remember that in time of war what is said on the enemy's side of the front is always propaganda and what is said on our side of the front is truth and righteousness, the cause of humanity and a crusade for peace.
+off-politics	society	dark	general	0	"We should declare war on North Vietnam. We could pave the whole country and put parking strips on it, and still be home by Christmas."
+off-politics	society	dark	general	0	We should keep the Panama Canal. After all, we stole it fair and square.
+off-politics	life	joke	general	0	What did Mickey Mouse get for Christmas? A Dan Quayle watch.
+off-politics	tech	joke	general	0	What is the difficulty with writing a PDP-8 program to emulate Jerry Ford? Figuring out what to do with the other 3K.
+off-politics	society	dark	general	0	What luck for the rulers that men do not think.
+off-politics	society	quip	general	0	"When are you BUTTHEADS gonna learn that you can't oppose Gestapo tactics *with* Gestapo tactics?"
+off-politics	society	quip	general	0	When I grow up, I want to be an honest lawyer so things like that can't happen.
+off-politics	life	quip	general	0	When more and more people are thrown out of work, unemployment results.
+off-politics	society	quip	general	0	When the President does it, that means it is not illegal.
+off-politics	society	quip	general	0	"White House carpenters have reworked the master bedroom, remodeling it so that Ronnie can sleep with his head in the hall. That way, by the time he wakes up, somebody will have already shined his hair."
+off-politics	society	quip	general	0	Who can take the demands of the SDS seriously?
+off-politics	society	quip	general	0	"Yes, that was Richard Nixon. He used to be President. When he left the White House, the Secret Service would count the silverware."
+off-politics	society	wisdom	general	0	You can build a throne out of bayonets, but you can't sit on it for very long.
+off-politics	life	wisdom	general	0	You can't depend on the man who made the mess to clean it up.
+off-politics	life	wisdom	general	0	You can't underestimate the power of fear.
+off-politics	society	dark	general	0	You couldn't even prove the White House staff sane beyond a reasonable doubt.
+off-politics	society	quip	general	0	You guys have been practicing discrimination for years. Now it's our turn.
+off-politics	society	quip	general	0	You know very well that whether you are on page one or page thirty depends on whether [the press] fear you. It is just as simple as that.
+off-politics	society	observation	general	0	You need only reflect that one of the best ways to get yourself a reputation as a dangerous citizen these days is to go about repeating the very phrases which our founding fathers used in the struggle for independence.

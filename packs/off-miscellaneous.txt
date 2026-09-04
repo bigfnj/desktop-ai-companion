@@ -1,0 +1,52 @@
+off-miscellaneous	society	quip	general	0	A game can by God repent or we'll punish it. That's how they did it in Salem in the seventeenth century, and that's how we'll do it now.
+off-miscellaneous	society	quip	general	0	America, I'm putting my queer shoulder to the wheel.
+off-miscellaneous	society	aphorism	general	0	An Army travels on her stomach.
+off-miscellaneous	society	quip	general	0	Being a woman is of special interest only to aspiring male transsexuals. To actual women it is merely a good excuse not to play football.
+off-miscellaneous	life	quip	general	0	Beware of altruism. It is based on self-deception, the root of all evil.
+off-miscellaneous	life	quip	general	0	Bringing your mate to a convention is like taking a game warden hunting.
+off-miscellaneous	society	fact	general	0	Britain has lowered the tax on chastity belts by about 60 cents each... [reclassifying them] as a safety device rather than... clothing
+off-miscellaneous	arts	verse	general	0	But sex and drugs and rock & roll, why, they'd bring our blackest day.
+off-miscellaneous	arts	observation	general	0	Clark Kent is a transvestite.
+off-miscellaneous	family	joke	general	0	Dad," the 13-year-old boy asked, looking up from his social-studies text, "what did you do during the sexual revolution?" "Well, son," his father confided, "I guess you could say I was captured early and spent the duration doing the dishes."
+off-miscellaneous	food	dark	general	0	Don't cook tonight -- starve a rat today!
+off-miscellaneous	life	aphorism	general	0	Don't eat yellow snow.
+off-miscellaneous	society	quip	general	0	Don't forget to support the ERA apersonment.
+off-miscellaneous	love	dark	general	0	Evening hours "all clear" for romance! (Tell mate you have to work late.)
+off-miscellaneous	life	pun	general	0	Ever wondered why you always run out of breath when you throw up? Ah, but a man's retch should exceed his gasp, else what's a heaving for?
+off-miscellaneous	faith	quip	general	0	Faith is the quality that enables you to eat blackberry jam on a picnic without looking to see whether the seeds move.
+off-miscellaneous	life	quip	general	0	"For an adequate time call 555-3321"
+off-miscellaneous	life	insult	general	0	"He could be a poster child for retroactive birth control."
+off-miscellaneous	life	pun	general	0	He who sneezes without a handkerchief takes matters into his own hands.
+off-miscellaneous	family	dark	general	0	Home is where the hurt is.
+off-miscellaneous	life	quip	general	0	Hugh Hefner is a virgin.
+off-miscellaneous	society	quip	general	0	Hypocrisy is the vaseline of social intercourse.
+off-miscellaneous	life	quip	general	0	I don't care who you are, Fatso. Get those reindeer off my roof.
+off-miscellaneous	life	joke	general	0	"I was plodding through the woods when suddenly a giant brown bear grabbed me from behind and made me drop my gun. He picked it up and stuck it in my back." "What did you do?" "What *could* I do? I married his daughter."
+off-miscellaneous	love	joke	general	0	I went into a bar feeling a little depressed, the bartender said, "What'll you have, Bud"? I said," I don't know, surprise me". So he showed me a nude picture of my wife.
+off-miscellaneous	family	dark	general	0	"I've had one child. My husband wants to have another. I'd like to watch him have another."
+off-miscellaneous	life	quip	general	0	If I could reach, I'd never leave the house.
+off-miscellaneous	faith	quip	general	0	Ignorance is the Mother of Devotion.
+off-miscellaneous	nature	joke	nsfw	1	In breeding cattle you need one bull for every twenty-five cows, unless the cows are known sluts.
+off-miscellaneous	love	joke	general	0	In light of the New Morality, Playboy Inc. is offering a new version of its magazine, for married men. Every month it has the same centerfold.
+off-miscellaneous	life	pun	general	0	It is better to have Uranus in Cancer than to have Cancer in Uranus.
+off-miscellaneous	life	quip	general	0	It takes a brave man to admit his mistakes. Especially in a paternity hearing.
+off-miscellaneous	love	quip	general	0	It was a female that drove me to drink and I didn't even have the kindness to thank her.
+off-miscellaneous	faith	joke	general	0	Jesus loves you, but everybody else thinks you're a dork.
+off-miscellaneous	faith	insult	general	0	Jesus may love you, but I think you're garbage wrapped in skin.
+off-miscellaneous	life	insult	general	0	May a deranged midget on a pogo stick take refuge in your sister's hoop skirt.
+off-miscellaneous	life	insult	general	0	May a diseased yak take a liking to your sister.
+off-miscellaneous	life	dark	general	0	My father was a creole, his father a Negro, and his father a monkey; my family, it seems, begins where yours left off.
+off-miscellaneous	life	dark	general	0	No one born with a mouth and a need is "innocent".
+off-miscellaneous	society	quip	general	0	Objectivity is to a newspaper what virtue is to a woman.
+off-miscellaneous	life	insult	general	0	A stunning blonde, but probably all bean dip above the eyebrows.
+off-miscellaneous	life	quip	general	0	SEX-CHANGE NUN BECOMES TV WRESTLER!!! details at 11!
+off-miscellaneous	life	dark	general	0	Smoking a woman is like kissing a fish.
+off-miscellaneous	life	quip	general	0	So... if you could choose any nose in the whole wide world, which one would you pick?
+off-miscellaneous	faith	quip	general	0	Sorry 'bout that sweat, honey. That's just holy water.
+off-miscellaneous	arts	dark	nsfw	1	Television is a whore. Any man who wants her full favors can have them in five minutes with a pistol.
+off-miscellaneous	arts	quip	general	0	The moving finger having writ... gestures.
+off-miscellaneous	love	quip	general	0	The only difference between your girlfriend and a barracuda is the nailpolish.
+off-miscellaneous	life	pun	general	0	The Stealth Condom -- they'll never see you coming.
+off-miscellaneous	life	quip	general	0	Watch out for a cold wave this week. (Or maybe a warm WAC.)
+off-miscellaneous	life	joke	general	0	You can pick your friends, and you can pick your nose, but you can't pick your friend's nose.
+off-miscellaneous	life	dark	general	0	Diary of a Young Girl LITE(tm) -- by Anne Frank A young girl hides in an attic but is discovered.

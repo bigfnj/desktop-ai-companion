@@ -1,0 +1,13 @@
+hacker-questions	tech	aphorism	general	0	Access to computers should be unlimited and total. How does what I make facilitate or hinder access?
+hacker-questions	tech	wisdom	general	0	Access to computers should be unlimited and total. Who am I leaving out?
+hacker-questions	tech	quip	general	0	Access to computers should be unlimited and total. Who gets to use what I make?
+hacker-questions	tech	quip	general	0	All Information Should Be Free. What data am I using?
+hacker-questions	tech	quip	general	0	All Information Should Be Free. What do the data leave out?
+hacker-questions	tech	quip	general	0	All Information Should Be Free. Whose labor produced it and what biases and assumptions are built into it?
+hacker-questions	tech	quip	general	0	All Information Should Be Free. Why choose this particular phenomenon for digitization or transcription?
+hacker-questions	tech	wisdom	general	0	Hackers should be judged by their hacking, not bogus criteria such as degrees, age, race or position. How are my own personal values reflected in what I make?
+hacker-questions	tech	wisdom	general	0	Hackers should be judged by their hacking, not bogus criteria such as degrees, age, race or position. What community do I invite through what I make?
+hacker-questions	tech	wisdom	general	0	Hackers should be judged by their hacking, not bogus criteria such as degrees, age, race or position. What kind of community am I assuming?
+hacker-questions	society	aphorism	general	0	Mistrust Authority, Promote Decentralization. How does what I make support other people?
+hacker-questions	society	aphorism	general	0	Mistrust Authority, Promote Decentralization. What systems of authority am I enacting through what I make?
+hacker-questions	society	wisdom	general	0	Mistrust Authority, Promote Decentralization. What systems of support do I rely on?

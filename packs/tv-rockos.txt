@@ -1,0 +1,92 @@
+tv-rockos	life	tv-quote	general	0	"SPUNKY!!!"
+tv-rockos	life	quip	general	0	X day/night is a very dangerous day/night.
+tv-rockos	food	tv-quote	general	0	You know, Spunky, sometimes grocery day can be a very dangerous day, but at least we got food.
+tv-rockos	food	quip	general	0	"Excuse me, Earl... but garbage and dogs are not part of a balanced diet."
+tv-rockos	life	tv-quote	general	0	"Heh heh, oh my..."
+tv-rockos	life	tv-quote	general	0	"It's Heffer, on TV, playing with sausage!?"
+tv-rockos	life	tv-quote	general	0	"Come on Hef, let's go. I think I'm bleeding internally."
+tv-rockos	life	quip	general	0	"Good as new."
+tv-rockos	life	quip	general	0	"For the love of cake!!! hide me!!!"
+tv-rockos	life	quip	general	0	"What in the hel...lo."
+tv-rockos	love	quip	general	0	"If this marriage is going to break up our friendship, I'd rather be deported!"
+tv-rockos	life	quip	general	0	"I don't want to sleep! I don't need sleep! I am the walking living!"
+tv-rockos	life	tv-quote	general	0	"Why are you all dressed like wienies?"
+tv-rockos	life	quip	general	0	"SHUT UP!!!
+tv-rockos	life	quip	general	0	"Oh, a sad, crying clown in an iron lung, I've always wanted one."
+tv-rockos	life	quip	general	0	"Look, it's the Grim Recycler!"
+tv-rockos	life	quip	general	0	"That was a hoot!"
+tv-rockos	life	quip	general	0	"Look out everyone! He's visually impaired!"
+tv-rockos	tech	quip	general	0	"Through the use of sophisticated computer technology, and a box of crayons, we have constructed a likeness of Dingo today."
+tv-rockos	life	tv-quote	general	0	"Chuck? Leon? Is my sausage skin suit ready? Chuuuck? Leeooon!"
+tv-rockos	life	quip	general	0	"Naaakeeed."
+tv-rockos	life	quip	general	0	"Maybe We should try new Tropicial Plumber".
+tv-rockos	food	quip	general	0	"Chewey Chicken is people!"
+tv-rockos	food	pun	general	0	"I'm a glutton (pronounced as glue-ton)!"
+tv-rockos	life	tv-quote	general	0	"(imitating Crappie Jack's accent) "So there I was, delirious with scurvy. The only thing standing between me and me treasure was 100 of the ugliest pirates known to Neptune."
+tv-rockos	life	tv-quote	general	0	"I'll make ya walk the poop deck ya big. . poop!"
+tv-rockos	life	quip	general	0	"Man, it was great being old. Without my teeth, I could swallow food whole!"
+tv-rockos	life	quip	general	0	"I don't OWN any spandex!"
+tv-rockos	life	tv-quote	general	0	"If you were a true friend, you'd burn my butt. C'mon, brand me, brand me, brand me."
+tv-rockos	life	tv-quote	general	0	"Hey, Rocko. Which is funnier, bananas or cheese?"
+tv-rockos	life	tv-quote	general	0	"Hey, Rock, do that funny face you make when you're buying eggs."
+tv-rockos	life	quip	general	0	"Go to the petunia at once, corn cob!"
+tv-rockos	life	quip	general	0	"Makes a great meat substitute for undershorts!"
+tv-rockos	life	dark	general	0	"You know, I died once."
+tv-rockos	life	quip	general	0	"You'll have to excuse my friend here. He's never been old before."
+tv-rockos	life	tv-quote	general	0	"Go away. Go to your homes. I will be your freak no more." "I'm nauseous, I'm nauseous, I'm nauseous..."
+tv-rockos	life	quip	general	0	"You turn the page, wash your hands. Turn the page, wash your hands. Turn the page, wash your hands..."
+tv-rockos	life	quip	general	0	"Oh fishsticks."
+tv-rockos	life	quip	general	0	"Well this is your mom!"
+tv-rockos	work-money	aphorism	general	0	"If a job's worth doing, it's worth doing adequately."
+tv-rockos	life	quip	general	0	"Hey, pal! Get your buns out of my eyes!!
+tv-rockos	life	tv-quote	general	0	GET YOUR HANDS OFF ME HEFFER!!!
+tv-rockos	life	tv-quote	general	0	"Citizens of Conglom-O, repeat after me. 'Wee-wee!'"
+tv-rockos	life	quip	general	0	"Hey Hef, ask me what time it is."
+tv-rockos	life	tv-quote	general	0	(referring to Rocko getting a glass of milk naked) "And he ain't dressed for the occasion, if ya know what I mean!"
+tv-rockos	life	quip	general	0	Look behind you! A wild pig!
+tv-rockos	life	quip	general	0	High-five?
+tv-rockos	life	dark	general	0	Bad luck and extreme misfortune will infest your pathetic soul for all eternity. "You saw my wife in her BATHROBE?! ... Isn't it awful?"
+tv-rockos	life	dark	general	0	"I hate my life."
+tv-rockos	family	tv-quote	general	0	"I HAVE NO SON!"
+tv-rockos	life	tv-quote	general	0	"I'm calling the pound!"
+tv-rockos	life	quip	general	0	"Hey you! Get out of my salmon bushes!"
+tv-rockos	life	tv-quote	general	0	"Ed good, Rocko bad!"
+tv-rockos	life	tv-quote	general	0	"That sounded like a clown. I hate clowns..."
+tv-rockos	life	tv-quote	general	0	"GET OFF MY PROPERTY!" (Mr. & Mrs. Fathead on screen...) Mrs. Fathead: "Guess what I got??" Mr. Fathead: "A lobotomy!" Mrs. Fathead: "No silly, Watermelons!"
+tv-rockos	life	tv-quote	general	0	(Rocko and Filbert are fighting. They open the door.] Rocko/Filburt: "What in the hell - " (It's the deportation officer) Rocko/Filbert: " - lo..."
+tv-rockos	life	tv-quote	general	0	Heffer: "Where's the remote?" Peaches (this show's version of the devil): "Hahahaha, you poor pathetic fool. Still don't know where you are, do you? THERE IS NO REMOTE!" Heffer: AAAAUUUGGHH
+tv-rockos	life	tv-quote	general	0	Heffer: Wait a minute! Heck? Isn't it supposed to be - " Peaches: (putting hand over Heffer's mouth) "Censors."
+tv-rockos	life	tv-quote	general	0	Heffer: (riding off into the sunset) Which do you think is funnier Rocko, banana or cheese? Rocko: Cheese, Heffer, definitely cheese.
+tv-rockos	life	tv-quote	general	0	"[After Heffer accidentally reals in Rocko's underwear]" Heffer: "Filburt..." Filburt: "Yuck, get those away from me!"
+tv-rockos	life	tv-quote	general	0	Mr.Cheese:I am the cheese. I am the best character on this show. I am better than the salami and the bologna combined.
+tv-rockos	life	tv-quote	general	0	"[After Rocko, standing in his house naked, hears Heffer and Filburt spying on him. Heffer and Filburt turn and run.]" Heffer: HE SAW US!!! I THINK HE SAW US!!! Filburt: Oh boy, oh boy, oh boy!
+tv-rockos	life	tv-quote	general	0	Ed Bighead: Rocko,what're you doing? Rocko: [With a paddle in his hand] We're playing spank the monkey.
+tv-rockos	life	tv-quote	general	0	Heffer: You know, I died once. Filburt: Yeah?
+tv-rockos	life	tv-quote	general	0	[Ed is spying on Rocko's backyard, where a nudist party is being held] Ed Bighead: Bev! Oh, I can't believe it! Do you know what that *weirdo* next door is up to? Bev Bighead: Oh, shut up and mind your own business, Ed. Ed Bighead: But, Bev! They're, well... *Nude*!
+tv-rockos	life	tv-quote	general	0	[Excited, Bev grabs the binoculars from Ed] Bev Bighead:Oh, Ed! Oh, you're right! Yes! This is disgusting!
+tv-rockos	life	tv-quote	general	0	[in whisper] Bev Bighead: Quick, Ed, get the telescope out of the hall closet!
+tv-rockos	nature	tv-quote	general	0	Heffer: Wow, look at all the trees. (reading a sign) "Welcome to O-Town National Forest." Rocko: (reading another sign) "Enjoy Nature's Splendor." Rocko and Heffer: (seeing the Conglom-O Mall) Oooooooooooh, splendor.
+tv-rockos	life	tv-quote	general	0	Spunky: "Ruff, ruff!"
+tv-rockos	life	tv-quote	general	0	Father Lion: (while Mt. Frosty guy makes off with his family's skis) And remember, children, always keep an eye on your equipment. There's alot of people who'd just walk up and grab everything you leave standing. Just like that, gone. Then what are you gonna do?
+tv-rockos	life	dark	general	0	Fortune cookie: "Bad luck and (extreme) misfortune will infest your pathetic soul for all eternity."
+tv-rockos	life	tv-quote	general	0	Man on Subway: "WHOOOOO WEEEEEEEEE! Now i got sum swingin' room!"
+tv-rockos	life	tv-quote	general	0	Crappie Jack: "Arr, and then, I heard a scream so loud it could be heard down in Davy Jones' locker. Mickey Dolenz's locker too, and Peter Tork's locker. All the Monkees had lockers..."
+tv-rockos	life	tv-quote	general	0	Crappie Jack: "Wooden legs...Wooden arms... (pulls off eyepatches) WOODEN EYES, TOO!"
+tv-rockos	life	tv-quote	general	0	Mortimer Khan: "Feel the strength of my two-ply!" "Feel the itch of real wool!" "Anglo-Saxon Hun!"
+tv-rockos	society	tv-quote	general	0	O-Town Residents: "R-E-C-Y-C-L-E Recycle! C-O-N-S-E-R-V-E Conserve! Don't you P-O-L-L-U-T-E Pollute the river sky or sea or else you're gonna get what you deserve!"
+tv-rockos	life	tv-quote	general	0	O-Town Residents: "A great big rotting pile!"
+tv-rockos	nature	tv-quote	general	0	Captain Compost Heap: "So you see boys and girls, if you're not nice to mother nature, she'll kick our butts."
+tv-rockos	life	tv-quote	general	0	Salesman: "Spoon, from the people who brought you Fork." (trails off) "Coming soon, Knife"
+tv-rockos	life	tv-quote	general	0	Peaches: (playing with a paddleball) "662...663...664...665...!" (misses) "sigh... 1...2...3..."
+tv-rockos	life	tv-quote	general	0	Hippo Lady: "How dare you?!"
+tv-rockos	life	tv-quote	general	0	Grocery Store Customer: "My wife's a sea mammal!"
+tv-rockos	nature	tv-quote	general	0	Recurring Wild Pig*: "I'm a wild pig!"
+tv-rockos	food	quip	general	0	Random Person*: "Tamales make my bottom burble!"
+tv-rockos	faith	quip	general	0	Son to Father: Son: "My teacher told me that every time a gas cap is found an angel gets its wings." Father: "Son, your teacher's full of snot."
+tv-rockos	life	tv-quote	general	0	Leon Chameleon: Holy enchilada!
+tv-rockos	life	tv-quote	general	0	Couch chasing Wedgie Boy: Sit on me!
+tv-rockos	life	tv-quote	general	0	Mr. Ick: YOU'RE FIRED!! I mean, THE END!!
+tv-rockos	life	tv-quote	general	0	Movie-trailer announcer: "This time join the little Poots on a World War II war ship, in 'Das Poot!'"
+tv-rockos	food	tv-quote	general	0	Sausage Cult Leader: "We only eat... SAUSAGE! We love... SAUSAGE!"
+tv-rockos	life	tv-quote	general	0	Spunky: "You're asking me?"
+tv-rockos	life	tv-quote	general	0	Voice: "Buy this! Food-O-Matic 2000."

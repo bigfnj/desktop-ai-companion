@@ -1,0 +1,37 @@
+perl	tech	quip	general	0	Unix weanies are as bad at this as anyone.
+perl	tech	quip	general	0	Perl 5 introduced everything else, including the ability to introduce everything else.
+perl	tech	quip	general	0	: I used to think that this was just another demonstration of Larry's : enormous skill at pulling off what other people would fail or balk at. Well, everyone else knew it was impossible, so they didn't try. :-)
+perl	tech	quip	general	0	: The hierarchy is excessive. So is the anarchy. :-)
+perl	science	fact	general	0	The core is not frozen, but slushy.
+perl	tech	quip	general	0	Most places distinguish them merely by using the appropriate value. Hooray for context...
+perl	tech	observation	general	0	But then it's a bit odd to think that declaring something int could actually slow down the program, if it ended up forcing more conversions back to string.
+perl	life	quip	general	0	It's possible that I'm just an idiot, and don't recognize a sleepy slavemaster when I see one.
+perl	life	quip	general	0	But maybe we don't really need that...
+perl	life	quip	general	0	I don't think I'm gonna agree with that. Way too much visual confusion...
+perl	life	quip	general	0	There's certainly precedent for that already too. (Not claiming it's *good* precedent, mind you. :-)
+perl	tech	quip	general	0	For the run-time caching, I was going to suggest "cached" (doh!), but perhaps "once" is more meaningful to ordinary people.
+perl	tech	fact	general	0	One of the reasons Perl is faster than certain other unnamed interpreted languages is that it binds variable names to a particular package (or scope) at compile time rather than at run time.
+perl	tech	quip	general	0	I guess what I'm saying is that the croak in question is requiring agreement (in the linguistic sense) that isn't buying us anything.
+perl	life	quip	general	0	:-) your own self.
+perl	tech	quip	general	0	: The following (relative to AutoSplit 1.03) attempts to please everyone : and perhaps pleases no one: I think that's way cool.
+perl	tech	quip	general	0	Soitainly. I was assuming that came with the OO-ness of it.
+perl	tech	quip	general	0	Because the demand for it is low enough that it would be best handled as an XSUB, and the demand for it is low enough that nobody has bothered to write it as an XSUB.
+perl	life	quip	general	0	But that looks a little too much like a declaration for my tastes, when in fact it isn't one. So forget I mentioned it.
+perl	life	quip	general	0	I'm not sure whether that's actually useful...
+perl	tech	quip	general	0	By rule #1, 5.005 should always allow localization of lexical @_ . . .
+perl	tech	quip	general	0	I *know* it's weird, but strict vars already comes very, very close to partitioning the crowd into those who can deal with local lexicals and those who can't.
+perl	life	quip	general	0	That wouldn't be good enough.
+perl	faith	quip	general	0	The prayer of serenity applies here. To both of us. :-)
+perl	life	quip	general	0	Depends on how you define "always". :-)
+perl	tech	quip	general	0	But you'll notice Perl has a goto.
+perl	tech	quip	general	0	Suppose you're working on an optimizer to render \X unnecessary (or rather, redundant, which isn't the same thing in my book).
+perl	life	quip	general	0	No, that'd be silly.
+perl	life	quip	general	0	Either approach may give birth to various sorts of monstrosities.
+perl	tech	quip	general	0	Obviously your filters are throwing away mail from Randal. :-)
+perl	life	quip	general	0	Oh yeah. Forgot about those. Getting senile, I guess...
+perl	life	quip	general	0	'Course, I haven't weighed in yet. :-)
+perl	life	quip	general	0	: How would you disambiguate these situations? By shooting the person who did the latter.
+perl	life	quip	general	0	Maybe it's time to break that.
+perl	tech	quip	general	0	Perhaps they will have to outlaw sending random lists of words. fee fie foe foo [sic]
+perl	tech	quip	general	0	I think you're letting your knowledge of internals interfere with your linguistic judgement here.
+perl	tech	quip	general	0	Actually, it also looks like we should optimize (13,2,42,8,'hike') into a pp_padav copy as well.

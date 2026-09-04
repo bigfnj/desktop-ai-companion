@@ -1,0 +1,5 @@
+Schlesinger	society	aphorism	general	0	Anti-intellectualism has long been the anti-Semitism of the businessman.
+Schlesinger	life	wisdom	general	0	Expelled from individual consciousness by the rush of change, history finds its revenge by stamping the collective unconsciousness with habits and values.
+Schlesinger	society	aphorism	general	0	Righteousness is easy in retrospect.
+Schlesinger	science	wisdom	general	0	Science and technology revolutionize our lives, but memory, tradition and myth frame our response.
+Schlesinger	society	observation	general	0	Television has spread the habit of instant reaction and stimulated the hope of instant results.

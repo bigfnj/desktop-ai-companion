@@ -1,0 +1,16 @@
+haraway	society	wisdom	general	0	Anyone who has done historical research knows that the undocumented often have more to say about how the world is put together than do the well pedigreed. ~ Donna J. Haraway
+haraway	science	wisdom	general	0	By the late twentieth century, our time, a mythic time, we are all chimeras, theorized and fabricated hybrids of machine and organism; in short, we are cyborgs. ~ Donna J. Haraway
+haraway	society	wisdom	general	0	Consciousness of exclusion through naming is acute. Identities seem contradictory, partial, and strategic. ~ Donna J. Haraway
+haraway	science	wisdom	general	0	From this point of view, science - the real game in town - is rhetoric, a series of efforts to persuade relevant social actors that one's manufactured knowledge is a route to a desired form of very objective power. ~ Donna J. Haraway
+haraway	society	quip	general	0	Grammar is politics by other means. ~ Donna J. Haraway
+haraway	love	wisdom	general	0	He also suspected that he was not her idea of the loved one. The saga that followed was not about unconditional love, but about seeking to inhabit an inter-subjective world that is about meeting the other in all the fleshly detail of a mortal relationship. ~ Donna J. Haraway
+haraway	tech	wisdom	general	0	I am making an argument for the cyborg as a fiction mapping our social and bodily reality and as an imaginative resource suggesting some very fruitful couplings. Michael Foucault's biopolitics is a flaccid premonition of cyborg politics, a very open field. ~ Donna J. Haraway
+haraway	life	wisdom	general	0	Life is a window of vulnerability. ~ Donna J. Haraway
+haraway	society	aphorism	general	0	Make Kin Not Babies. ~ Donna J. Haraway
+haraway	science	wisdom	general	0	Our bodies, with the old genetic transmission, have not kept pace with the new language-produced cultural transmission of technology. So now, when social control breaks down, we must expect to see pathological destruction. ~ Donna J. Haraway
+haraway	nature	wisdom	general	0	Possesion - property - is about reciprocity and rights of access. If I have a dog, my dog has a human. ~ Donna J. Haraway
+haraway	tech	aphorism	general	0	Preferisco essere cyborg che dea. ~ Donna J. Haraway
+haraway	science	wisdom	general	0	The cyborg is a creature in a post-gender world; it has no truck with bisexuality, pre-oedipal symbiosis, unalienated labour, or other seductions to organic wholeness through a final appropriation of all the powers of the parts into a higher unity. ~ Donna J. Haraway
+haraway	life	wisdom	general	0	The cyborg is a kind of disassembled and reassembled, postmodern collective and personal self. This is the self feminists must code. ~ Donna J. Haraway
+haraway	love	wisdom	general	0	To be in love is to be worldly, to be in connection with significant otherness and signifying ohers, on many scales, in layers of locals and globals, in ramifying webs. ~ Donna J. Haraway
+haraway	science	wisdom	general	0	We are training each other in acts of communication we barely understand. We are, constitutively, companion species. ~ Donna J. Haraway

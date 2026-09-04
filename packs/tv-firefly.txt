@@ -1,0 +1,189 @@
+tv-firefly	life	tv-quote	general	0	Mal: We have done the impossible, and that makes us mighty.
+tv-firefly	life	tv-quote	general	0	Bendis: We're gonna die. Mal: We're not gonna die. We can't die, Bendis. You know why? Because we are so... very... pretty. We are just too pretty for God to let us die. Huh? Look at that chiseled jaw!
+tv-firefly	life	tv-quote	general	0	Wash: Kaylee! Go to blackout! We're being buzzed! Kaylee: Shi [Meaning affirmative]. Going dark. [She climbs on top of the engine and flicks a switch, causing everything to go dark] Kaylee: Okay, now I can't get down.
+tv-firefly	life	tv-quote	general	0	Book: He's not wildly interested in ingratiating himself with anyone, yet he's very protective of his crew. It's odd. Inara: Why are you so fascinated by him? Book: Because he's something of a mystery. Why are you? Inara: [looks taken aback, then smiles] Because so few men are.
+tv-firefly	life	tv-quote	general	0	Zoe: I know something ain't right. Wash: Sweetie, we're crooks. If everything were right, we'd be in jail.
+tv-firefly	life	tv-quote	general	0	Zoe: Sir, we don't want to deal with Patience again. Mal: Why not? Zoe: She shot you. Mal: Well, yeah, she did a bit.
+tv-firefly	life	tv-quote	general	0	Mal: Did you send word to Patience? Wash: Yeah, ain't heard back yet. Didn't she shoot you one time? Mal: Everyone's makin' a fuss!
+tv-firefly	life	tv-quote	general	0	Mal: I believe that woman's plannin' to shoot me again. Jayne: Here's a little concept I've been working on. Why don't we shoot her first? Wash: It is her turn.
+tv-firefly	life	tv-quote	general	0	[Dobson is tied up in his room] Mal: I got to know how close the Alliance is, exactly how much you told them 'fore Wash scrambled your call. So I've given Jayne here the job of finding out. Jayne: [draws a huge knife] He was non-specific as to how.
+tv-firefly	life	tv-quote	general	0	Mal: [to Jayne] Now, you've only got to scare him. Jayne: Pain is scary.
+tv-firefly	life	tv-quote	general	0	Jayne: [over radio] Testing. Testing, Cap'n, can you hear me? Mal: [Standing next to Jayne] I'm standing right here. Jayne: You're coming through good and loud. Mal: 'Cause I'm standing right here.
+tv-firefly	life	tv-quote	general	0	Zoe: Don't think it's a good spot sir. She still has the advantage over us. Mal: Everyone usually does. That's what makes us special.
+tv-firefly	love	tv-quote	general	0	[After Wash executes a brilliant escape from the Reavers using the "Crazy Ivan", Zoe turns to Mal.] Zoe: Sir? I'd like you to take the helm, please. I need this man to tear all my clothes off. [She grabs Wash by the jacket and drags him off.] Wash: Work, work, work...
+tv-firefly	society	tv-quote	general	0	Wash: [Over intercom to Lund and other Alliance supporters] Every man there go back inside, or we will blow a new crater in this little moon.
+tv-firefly	faith	tv-quote	general	0	Mal: [To Shepherd Book] Shouldn't you be off bringing religiosity to the fuzzy-wuzzies or some such? Book: Oh, I've got heathens aplenty right here.
+tv-firefly	love	tv-quote	general	0	Mal: I'm not sure you'd be safe. Inara: Mal, if you're being a gentleman, I may die of shock. Mal: Hm. [Bows and leaves, then reenters] Have you got time to do my hair? Inara: [Sternly] Out.
+tv-firefly	life	tv-quote	general	0	Zoe: Sir, I think you have a problem with your brain being missing.
+tv-firefly	life	tv-quote	general	0	[Mal is insisting on continuing the job, despite the train car full of Alliance soldiers] Mal: Hell, this job I would pull for free. Zoe: Then can I have your share? Mal: No! Zoe: If you die can I have your share? Mal: Yes.
+tv-firefly	life	tv-quote	general	0	[Jayne, still sprawled on the staircase, shoots Crow in the lower leg before he can stab Mal] Mal: Nice shot. Jayne: [Slurred] I was aimin' for his head.
+tv-firefly	life	tv-quote	general	0	[Jayne's attacker, a malnourished settler, has been apprehended] Simon: Oh yes, he's a real beast. [looks at Jayne] It's a wonder you're still alive. Jayne: Looked bigger when I couldn't see him.
+tv-firefly	life	tv-quote	general	0	Mal: Reavers ain't men - or they forgot how to be.
+tv-firefly	life	tv-quote	general	0	Jayne: You save his gorram life, he still takes the cargo. Hwoon dahn. Mal: He had to. Couldn't let us profit. Wouldn't be civilized.
+tv-firefly	life	tv-quote	general	0	Mal: We'll check it out, see if there are any survivors. And if not, well, then, no one's gonna mind if we take a look around, see if there's not something of value they might've left behind. Jayne: Yeah, no, uh, someone could be hurt!
+tv-firefly	life	tv-quote	general	0	[While Jayne plays virtual pool with a disreputable type, Mal chats quietly with Inara.] Inara: I like watching the game. As with other situations, the key seems to be giving Jayne a heavy stick and standing back.
+tv-firefly	life	tv-quote	general	0	Zoe: Planet's coming up a mite fast. Wash: That's just 'cause - I'm going down too quick. Likely crash and kill us all. [As the ship begins to shake, Mal calmly leaves.] Mal: Well, that happens, let me know.
+tv-firefly	life	tv-quote	general	0	Mal: It sounds like the finest party I can imagine getting paid to go to. Inara: I don't suppose you'd find it up to [the] standards of your outings. More conversation, and somewhat less... petty theft and getting hit with pool cues.
+tv-firefly	life	tv-quote	general	0	Badger: You think you're better than other people! Mal: Just the ones I'm better than.
+tv-firefly	life	tv-quote	general	0	[Mal talks to Sir Warrick Harrow about Badger's offer.] Sir Warrick: I know him. And I think he's a psychotic low-life. Mal: And I think calling him that is an insult to the psychotic low-life community.
+tv-firefly	food	tv-quote	general	0	Kaylee: Don't you just love this party? Everything's so fancy and they have some kind of hot cheese over there! Cabott: It's not as good as last year. Kaylee: Oh really? What's they have last year? Cabott: Standards.
+tv-firefly	life	tv-quote	general	0	Mal: And I never back down from a fight. Inara: Yes, you do! You do all the time! Mal: Well... yeah, but I'm not backing down from this one!
+tv-firefly	life	tv-quote	general	0	Inara: You're always breaking the rules, no matter which society you're in! You don't get along with ordinary criminals either, which is why you're constantly getting in trouble! Mal: You think following the rules will buy you a nice life, even if the rules make you a slave.
+tv-firefly	life	tv-quote	general	0	Mal: Don't take his offer. Inara: What? Mal: Don't do it. 'Cause in the case that it happens, that means he's a fella who killed me, and I don't like fellas who kill me, not in general. I said before I don't have call to stop you, and that's true. Anyways, don't.
+tv-firefly	life	tv-quote	general	0	[River glances at her brother's homework.] Young River: That's wrong. Young Simon: It's from the book, River. Young River: No, the book is wrong. This whole conclusion is fallacious.
+tv-firefly	family	tv-quote	general	0	[Simon and River whine about getting a dedicated "source box".] Gabriel Tam: I will not have it in my house. But, since your mother's already ordered you one, I guess I should give up the fantasy that this is my house!
+tv-firefly	life	tv-quote	general	0	[Simon steps in a cowpie as Jayne drives the cargo of cattle out of the ship.] Jayne: About time you broke in them fancy shoes. Hyah! Get along! Mal: You know, they walk just as easy if you lead 'em. Jayne: I like smackin' 'em.
+tv-firefly	life	tv-quote	general	0	Zoe: Next time we smuggle stock, let's make it something smaller. Wash: Yeah, we should start dealing in those black-market beagles.
+tv-firefly	life	tv-quote	general	0	River: They weren't cows inside. They were waiting to be, but they forgot. Now they see sky, and they remember what they are. Mal: Is it bad that what she said made perfect sense to me?
+tv-firefly	life	tv-quote	general	0	Simon: I'm very sorry if she tipped off anyone about your cunningly concealed herd of cows.
+tv-firefly	arts	tv-quote	general	0	Mal: This is the last time. Last time with cows. Hey, there was an idea regarding beagles? They have smallish droppings? Zoe: I believe so, sir. Also, your disreputable men are here. Mal: Better go take their money.
+tv-firefly	life	tv-quote	general	0	[Shepherd (preacher) Book has been shot.] Book: That's... that's quite a lot of blood, isn't it? Mal: Just means you ain't dead. Book: 'Fraid I might be needing a preacher. Mal: That's good. You just lie there and be ironical.
+tv-firefly	life	tv-quote	general	0	River: We're lost. Lost in the woods.
+tv-firefly	life	tv-quote	general	0	Zoe: Knew a man who had a hole clean through his whole shoulder, once. Used to keep a spare hankie in there.
+tv-firefly	life	tv-quote	general	0	[Jayne, in the process of ransacking Simon's belongings, pretends to read Simon's journal.] Jayne: "Dear Diary: Today I was pompous and my sister was crazy. [flips page] Today we were kidnapped by hill folk, never to be seen again. It was the best day ever."
+tv-firefly	life	tv-quote	general	0	Simon: Did you have a good time at the D'Arbanville's ball? Gabriel Tam: What are you-? Simon: River thought it was duller than last year. But since we don't know anyone named D'Arbanville, I'm having trouble judging.
+tv-firefly	life	tv-quote	general	0	Zoe: Cap'n'll come up with a plan. Kaylee: Well, that's good. Right? Zoe: Possible you're not recalling some of his previous plans.
+tv-firefly	life	tv-quote	general	0	Alliance Commander: Your official seal is out of date, Captain... Harbatken?
+tv-firefly	life	tv-quote	general	0	[Simon and River have been kidnapped by the hill folk.] Doralee: A place like this might be good for your sister. Quiet, safe... a place where folks take care of each other. Simon: Mmm, yes. Seems like a lovely little community of kidnappers.
+tv-firefly	life	tv-quote	general	0	Doralee: It's the way of life in my findings that journeys end when and where they want to; and that's where you make your home. Simon: This isn't our home. Doralee: If it isn't here, where is it?
+tv-firefly	life	tv-quote	general	0	[Mal, Zoe, and Jayne watch Book's operation just outside Magellan's surgery room.] Jayne: This place gives me an uncomfortableness.
+tv-firefly	life	tv-quote	general	0	River: We won't be here long. Daddy will come, and take us home. And I'll get better. I'll get better.
+tv-firefly	life	tv-quote	general	0	Simon: It's been a big day, what with the abduction, and all.
+tv-firefly	life	tv-quote	general	0	Gabriel Tam: Are you coming home?
+tv-firefly	faith	tv-quote	general	0	Mal: They let us come, and they let us go. What kind of ident card gets us that kind of reception and send-off? Book: I am a Shepherd. Folks like a man of God. Mal: No, they don't. Men of God make everyone feel guilty and judged.
+tv-firefly	life	tv-quote	general	0	Book: It's good to be home.
+tv-firefly	life	tv-quote	general	0	[Simon pleads with the hill folk, who have tied River to a stake, preparing to burn her.] Simon: She has done nothing to you! If she dies tonight, it won't be God's will that killed her! It'll be you! Your lunacy, your... ignorance!
+tv-firefly	life	tv-quote	general	0	Simon: So, finally a decent wound on this ship, and I miss out. I'm sorry. Mal: Well, you were busy trying to get yourself lit on fire. It happens.
+tv-firefly	life	tv-quote	general	0	Simon: Captain, why did you come back for us? Mal: You're on my crew. Simon: Yeah, but you don't even like me. Why'd you come back? Mal: You're on my crew. Why're we still talking about this?
+tv-firefly	life	tv-quote	general	0	[Simon and River enter the common room as Mal is telling a joke over dinner.] Mal: So then the Shepherd says to the Companion, "Well, a good goat'll do that."
+tv-firefly	life	tv-quote	general	0	Mal: [aside, to Jayne, upon hearing he is married] How drunk was I last night? Jayne: I 'unno, I passed out. Mal: Right.
+tv-firefly	life	tv-quote	general	0	[Mal's insensitive remarks and horror at being wed have reduced his new bride to tears.] Wash: You brute. Kaylee: Oh, sweetie, don't feel bad. He makes everybody cry. He's like a monster. Mal: I'm not a monster!
+tv-firefly	life	tv-quote	general	0	[Mal is alarmed about his new bride's expectations and attitudes.] Mal: Someone ever tries to kill you, you try to kill 'em right back! Wife or no, you are no one's property to be tossed aside. You got the right same as anyone to live and try to kill people.
+tv-firefly	faith	tv-quote	general	0	Book: If you take sexual advantage of her, you're going to burn in a very special level of Hell. A level they reserve for child molesters and people who talk at the theater. ... Book: [walking away, pauses and looks at Mal] ...the... special... hell.
+tv-firefly	life	tv-quote	general	0	Mal: I would appreciate it if one person on this boat would not assume I'm an evil, lecherous hump. Zoe: No one's saying that, sir. Wash: Yeah, we're pretty much just giving each other significant glances and laughing incessantly.
+tv-firefly	life	tv-quote	general	0	[Wash and Zoe discuss Saffron's oddities.] Wash: Every planet has its own weird customs. About a year before we met, I spent six weeks on a moon where the principal form of recreation was juggling geese. My hand to God. Baby geese. Goslings. They were juggled.
+tv-firefly	life	tv-quote	general	0	Mal: Jayne, go play with your rainstick.
+tv-firefly	life	tv-quote	general	0	Mal: [After kissing Saffron he begins rubbing his mouth] Son of a... [falls over unconscious]
+tv-firefly	love	tv-quote	general	0	Inara: [After kissing Mal when she discovers he is not dead. She begins rubbing her mouth in a similar way] Oh you stupid son of a... [she also falls over unconscious]
+tv-firefly	life	tv-quote	general	0	Saffron: Make this night what it should be. Please? Show me the stars. Wash: Wuh duh ma huh ta duh fung-kwong duh wai-shung doh... I wish I was somebody else right now. Somebody not... married, not... madly in love with a beautiful woman who... can... kill me with her pinkie!
+tv-firefly	life	tv-quote	general	0	Zoe: If she can fly this thing, why just take the shuttle? Wash: Maybe she likes shuttles. [Everyone stares at him.] Wash: Some people juggle geese!
+tv-firefly	life	tv-quote	general	0	Jayne: That's why I never kiss 'em on the mouth.
+tv-firefly	life	tv-quote	general	0	[Jayne takes aim at the Net with his favorite weapon.] Jayne: See, Vera? Dress yourself up, you get taken out somewhere fun.
+tv-firefly	love	tv-quote	general	0	(Mal has kissed Kaylee on the head) Wash: Captain, don't you know kissin' girls makes you sleepy? Mal: Sometimes, I just can't help myself.
+tv-firefly	life	tv-quote	general	0	[Kaylee has expressed her belief that Simon doesn't swear] Simon: I swear... when it's appropriate. Kaylee: Simon, the whole point of swearing is that it ain't appropriate.
+tv-firefly	life	tv-quote	general	0	[Companion Inara leaves for an appointment.] Kaylee: Bye now. Have good sex. [Simon looks aghast at Kaylee.] Kaylee: What?
+tv-firefly	life	tv-quote	general	0	Simon: Canton really... stinks. Mal: That's what makes it such a good drop point. No one comes through here that doesn't have to. Wash: I vote we do this job really really fast.
+tv-firefly	work-money	tv-quote	general	0	Foreman: We've over 2,000 workers, mostly indentured. We pay them next to nothing. That way, we can pass the savings directly on to you, the customer.
+tv-firefly	life	tv-quote	general	0	[Simon struggles to keep up with the foreman.] Simon: Yes. I... I-I've heard great, uh... um, uh... things about mud... [Wash turns to Kaylee.] Wash: What happened to Simon? Who is this diabolical master of disguise?
+tv-firefly	love	tv-quote	general	0	Wash: I think they captured him, though. Captured his essence. Kaylee: He looks sorta angry, don't he? Wash: That's kinda what I meant.
+tv-firefly	life	tv-quote	general	0	Inara: Magistrate Higgins, I may presume. Higgins: You may. But I only make the people I own use my title. Mister Higgins will do fine.
+tv-firefly	faith	tv-quote	general	0	Book: River, you don't... fix the Bible. River: It's broken. It doesn't make sense. Book: It's not about... making sense. It's about believing in something. And letting that belief be real enough to change your life. It's about faith. You don't fix faith, River. It fixes you.
+tv-firefly	life	tv-quote	general	0	Mudder: [singing] He robbed from the rich and he gave to the poor / Stood up to the man and he gave him what-for / Our love for him now ain't hard to explain / The Hero of Canton, the man they call Jayne!
+tv-firefly	life	tv-quote	general	0	[Sitting in a bar, listening to "The Ballad of Jayne Cobb" being sung] Mal: Uh, Jayne? Jayne: Yeah, Mal? Mal: You got any light you'd like to shed on this particular development? Jayne: No, Mal.
+tv-firefly	life	tv-quote	general	0	Simon: No. This must be what going mad feels like.
+tv-firefly	life	tv-quote	general	0	Wash: We gotta go to the crappy town where I'm a hero!
+tv-firefly	life	tv-quote	general	0	[A drunken Jayne stumbles down the stairs, entwined with a local girl.] Jayne: [singing] "The hero of Canton, the man they call 'me'." [speaking] Eggs! Living legend needs eggs!
+tv-firefly	life	tv-quote	general	0	Zoe: River, honey, he's putting the hair away now. [Book starts to tie his hair back.] River: Doesn't matter. It'll still be there. Waiting.
+tv-firefly	life	tv-quote	general	0	[Jayne learns what extent the mudders went to show their devotion to Jayne] Jayne: [overcome by emotion] You guys had a riot... on account of me? My very own riot?
+tv-firefly	life	tv-quote	general	0	Jayne: [Addressing the collected Mudders] Far as I see it, you people been given the shortest end of the stick ever been offered a human soul in this crap-heel 'Verse. But you took that end, and you... [pause] Well, you took it. And that's... Well, I guess that's somethin'.
+tv-firefly	life	tv-quote	general	0	[Jayne is horrified after a young Mudder's sacrifice to save him.] Jayne: All of you! You think there's someone just gonna drop money on ya?! Money they could use?! Well, there ain't people like that. There's just people like me.
+tv-firefly	life	tv-quote	general	0	[A tidied-up Book stops by to talk to River, who is still "fixing" the Bible.] River: Just keep walkin', preacher-man.
+tv-firefly	life	tv-quote	general	0	Mal: Try to see past what she is, and on to what she can be. Zoe: What's that, sir? Mal: Freedom, is what. Zoe: [pointing] I meant, what's that? Mal: Oh. Yeah, just step around that. I think somethin' must've been livin' in here.
+tv-firefly	life	tv-quote	general	0	[In near-present day, Wash comes in late to hear Book's dinner-table tales.] Wash: Monastic humor. I miss out on all the fun.
+tv-firefly	life	tv-quote	general	0	[Simon is unable to quickly convey a funny story about being a doctor] Jayne: [interrupting] Now, Inara - she's gotta have some funny whorin' stories, I'd wager. Inara: [laughing] Do I ever! Funny and sexy. [laughs] You have no idea... [suddenly serious] and you never will.
+tv-firefly	life	tv-quote	general	0	[The crew surprises Simon with a birthday cake.] Simon: How did... how'd you know? River, did you...? River: "Day" is a vestigial mode of time measurement based on solar cycles. It's not applicable. [pauses] I didn't get you anything.
+tv-firefly	life	tv-quote	general	0	[After the fire is contained, Kaylee reports on the accident.] Kaylee: Catalyzer on the port compression coil blew. It's where the trouble started. Mal: 'Kay, I need that in captain dummy-talk, Kaylee. Kaylee: We're dead in the water.
+tv-firefly	life	tv-quote	general	0	[Kaylee discusses the loss of life support, especially oxygen.] Mal: How long? Kaylee: Couple of hours, maybe. We'll start to feel it... then we won't feel nothin' at all.
+tv-firefly	life	tv-quote	general	0	Simon: Suffocation's not exactly the most dignified way to go. The human body will involuntarily- Inara: Please, I don't really require a clinical description right now. Simon: I'm sorry. I just, uh... It was my birthday.
+tv-firefly	life	tv-quote	general	0	Mal: I'm gettin' a little weary of this attitude, Wash. Wash: [chuckling] Are you? Well, I'm so very sorry, sir. I guess the news that we're all gonna be purple and bloated and fetal in a few hours has made me a little snippy.
+tv-firefly	life	tv-quote	general	0	Kaylee: Sometimes a thing gets broke, can't be fixed.
+tv-firefly	life	tv-quote	general	0	[Back in near-present day, Mal "prepares" Inara's shuttle.] Mal: I'm not leaving Serenity. Inara: Mal, you don't have to die alone. Mal: Everybody dies alone.
+tv-firefly	life	tv-quote	general	0	[Back in the near-present day, Mal gets the drop on the treacherous captain trying to take his ship after being shot.] Captain: You woulda done the same. Mal: We can already see I haven't. Now get the hell off my ship.
+tv-firefly	food	tv-quote	general	0	[The crew talks about their upcoming visit to core planet Ariel while they eat.] Simon: River you have to eat. It's good. It tastes like - [Takes bite of food.] Simon: It's good. Jayne: It smells like crotch. Kaylee: Jayne! Jayne: Well, it does.
+tv-firefly	life	tv-quote	general	0	Wash: [to Inara] Could you please tell my wife the fun she's missing out on? Inara: Ariel's quite a nice place, actually. There are some beautiful museums, not to mention some of the finest restaurants in the core. Wash: But... not boring, like she made it sound.
+tv-firefly	life	tv-quote	general	0	Wash: Big stop just to renew your license to Companion. Can I use "Companion" as a verb?
+tv-firefly	life	tv-quote	general	0	River: He looks better in red.
+tv-firefly	life	tv-quote	general	0	Simon: Which methods did you use? Zoe: We - we tried pulmonary stimulators, and - and cardiac... we... Simon: Infusers. Zoe: Infusers!
+tv-firefly	life	tv-quote	general	0	Simon: What about cortical electrodes? Jayne: Oh! [long pause] We forget 'em. Simon: Let's try that again.
+tv-firefly	life	tv-quote	general	0	Mal: Pupils were fixed and dilapitated - Simon: Dilated. Mal: Dilated. Dilated! Ching-wah TSAO duh liou mahng! Shiny.
+tv-firefly	life	tv-quote	general	0	Jayne: Unable to get a neural... Simon: Response. Jayne: Response! Hell, I don't know. If I wanted schooling, I'd-a gone to school.
+tv-firefly	life	tv-quote	general	0	[Mal worries about Jayne's commitment to the comatose Simon and River.] Mal: Look, you got a little stabbed the other day. That's bound to make anyone a mite ornery.
+tv-firefly	work-money	tv-quote	general	0	Jayne: The doc did good, comin' up with that job. Don't mean I like 'im any better. Nothing buys bygones quicker than cash. Maybe I'll give him a tattoo while he's out.
+tv-firefly	life	tv-quote	general	0	[A doctor is hassling "EMT" Mal for his insubordination.] Doctor: You must be new. Don't get comfortable. Your type doesn't last long here. When your supervisor hears about the rude and disresp - AGHHH! [He collapses. Behind him, Zoe lowers defibrillator paddles.] Zoe: Clear.
+tv-firefly	life	tv-quote	general	0	[As the two blue-gloved men slaughter the feds, nearby, River starts to panic and run.] River: Two by two, hands of blue... two by two, hands of blue...
+tv-firefly	tech	tv-quote	general	0	[Jayne fires a fed's stun rifle at a locked door, but it has no effect.] Jayne: Shee-niou high-tech Alliance crap!
+tv-firefly	life	tv-quote	general	0	[Mal has Jayne locked in the cargo bay airlock, with the door open to the dwindling atmosphere.] Mal: You know, I hear tell they used to keelhaul traitors back in the day. I don't have a keel to haul you on, so...
+tv-firefly	life	tv-quote	general	0	[River sees another syringe in her brother's hand.] Simon: I brought some medicine. Do you remember why we went to hospital? River: It's time to go to sleep again. Simon: No, mei-mei. [holds River's hand gently.] It's time to wake up.
+tv-firefly	life	tv-quote	general	0	Book: Yes, I'd forgotten - you're moon-lighting as a criminal mastermind now. Got your next heist planned? Simon: No. But, I'm thinking about growing a big black mustache. I'm a traditionalist.
+tv-firefly	life	tv-quote	general	0	[After landing at the drop location, Wash carries an apparently heavy crate. ] Wash: So now I'm learning about carrying.
+tv-firefly	life	tv-quote	general	0	(Niska's men have ambushed the drop, killing the buyers and holding Mal and Wash at gunpoint) Wash: Now I'm learning about scary.
+tv-firefly	life	tv-quote	general	0	[While Zoe and Wash are getting ready to assault Niska's Skyplex] Wash: Grenades? Zoe: Oh, yes. Thank you, dear. [Turning to Jayne] They won't be expecting it. Jayne: Right. 'Cause they ain't insane.
+tv-firefly	faith	tv-quote	general	0	[Book pulls out a rifle.] Book: This should do. Zoe: Preacher, don't the Bible have some pretty specific things to say about killin'? Book: Quite specific. It is, however, somewhat fuzzier on the subject of kneecaps.
+tv-firefly	life	tv-quote	general	0	[Everyone looks up at Jayne, who is suddenly on the balcony, fully armed.] Jayne: What? Zoe: Let's go get the cap'n. [cuts to image of Niska and henchman looking at Mal] Henchman:Yep, he's dead.
+tv-firefly	life	tv-quote	general	0	Zoe; Okay, people. If it moves, shoot it. Kaylee: Unless it's the captain! Zoe: Unless it's the captain.
+tv-firefly	life	tv-quote	general	0	[After River kills three men with single gunshots without looking, she turns to Kaylee, smiling.] River: No power in the 'verse can stop me.
+tv-firefly	life	tv-quote	general	0	[Mal, while fighting the torturer who once revived him when his body gave out.] Mal: Haven't you killed me enough for one day?
+tv-firefly	life	tv-quote	general	0	[Zoe, Wash, and Jayne come across Mal's struggle with his tormentor. Jayne raises his pistol, but Zoe stops him.] Zoe: Jayne. This somethin' the Captain has to do for himself. Mal: No! No, it's not! Zoe: [surprised] Oh. [They open fire, killing the torturer.]
+tv-firefly	life	tv-quote	general	0	Mal: So - I hear you all took up arms in that little piece of action back there. How you farin' with that, Doctor? Simon: I don't know. I, uh, I never - never shot anyone before. Book: I was there, son. I'm fair sure you haven't shot anyone... yet.
+tv-firefly	life	tv-quote	general	0	[As the show opens, Mal is shown sitting naked on a rock, in the middle of a desert.] Mal: Yep. That went well.
+tv-firefly	life	tv-quote	general	0	Monty: Mal, I want you to meet my Bridget. [Monty steps aside to reveal Saffron, aka Mrs. Malcolm Reynolds. She and Mal draw guns on each other.] Monty: So... you guys have met.
+tv-firefly	love	tv-quote	general	0	[Mal frisks Saffron.] Saffron: Mmm. You missed a spot. Mal: Can't miss a place you've never been.
+tv-firefly	life	tv-quote	general	0	Inara: Well, since I can't seem to find work as Companion, I might as well become a petty thief like you! [An uncomfortable silence descends for a moment.] Mal: Petty? Inara: I didn't mean petty. Mal: What did you mean? Inara: Suo-SHEE? Mal: ...That's Chinese for "petty".
+tv-firefly	life	tv-quote	general	0	Wash: We're in space! How'd she get here? Mal: She hitched. Wash: I don't recall pulling over!
+tv-firefly	life	tv-quote	general	0	Jayne: Okay. I got a question. If she's got the security codes, why don't she just walk in and grab it herself? Saffron: [sarcastically] Good point!
+tv-firefly	life	tv-quote	general	0	[Jayne has departed.] River: Afraid. Simon: We'll be okay. Why the captain is trusting that BOO hway-HUN duh PUO-foo is beyond - River: Not her. Jayne. Simon: Afraid? Since when? River: Since Ariel. Afraid we'll know.
+tv-firefly	life	tv-quote	general	0	[As Saffron holds her gun on Durran, Mal draws a gun on Saffron.] Mal: No one's killin' any folk today, on account o' we got a very tight schedule, Yo-Saff-Bridg.
+tv-firefly	life	tv-quote	general	0	[Saffron begins to cry quietly, apparently at the permanent loss of Durran.] Saffron: You must be loving this. [Mal sadly shakes his head no, then nods.] Mal: Little bit.
+tv-firefly	life	tv-quote	general	0	[River unsuccessfully tries to eat a spherical treat that bobs from a string.] River: My food is problematic. Jayne: Girl's a mind-readin' genius, can't even figure out how to eat an ice planet.
+tv-firefly	life	tv-quote	general	0	Jayne: I got post? Book: Might we all want to step a few paces back before he opens that? Jayne: Ha ha! It's from my mother. [Inara and Kaylee catch up to the post-office crowd.] Inara: So, do aliens live among us? Kaylee: Yeah. One of them's a doctor.
+tv-firefly	life	tv-quote	general	0	[Zoe and Mal open a coffin-sized box to find a body. Jayne peers in.] Jayne: What'd y'all order a dead guy for?
+tv-firefly	life	tv-quote	general	0	Mal: They don't like it when you shoot at 'em. I worked that out myself.
+tv-firefly	life	tv-quote	general	0	Mal: Tracey, ain't you dead yet? Tracey: Through no fault of my own, Sarge. Mal: Aw... I really wanted your beans.
+tv-firefly	life	tv-quote	general	0	Mal: Everybody dies, Tracey. Someone's carryin' a bullet for you right now, doesn't even know it. The trick is, die of old age before it finds you.
+tv-firefly	life	tv-quote	general	0	Jayne: We're taking him on board? Mal: We are. Jayne: Don't know if I see the percentage in that. Mal: Then don't strain your brain trying. You might break something.
+tv-firefly	life	tv-quote	general	0	[A menacing man scares information about Serenity out of postal clerk Amnon, then chuckles.] Womack: Relax! You've been great. And I was just bluffing with that stuff about arresting you. I mean, who needs that kind of paperwork? Skunk, light him on fire.
+tv-firefly	life	tv-quote	general	0	[As Simon starts an autopsy on Tracey's body, the man screams and starts thrashing about.] Jayne: Spry for a dead fella!
+tv-firefly	life	tv-quote	general	0	[Mal manages to pin Tracey to the floor, straddling him.] Tracey: Sarge? Mal: Yeah? Tracey: I think I'm naked.
+tv-firefly	life	tv-quote	general	0	Mal: You wanna explain to me exactly why you got yourself all corpsified and mailed to me?
+tv-firefly	life	tv-quote	general	0	Mal: So, your innards... ain't your innards?
+tv-firefly	life	tv-quote	general	0	[The crew walks onto the bridge followed by Tracey.] Wash: I think they're about done being stalled to - ahhhh... AHHHHHHH! Mal, your dead army buddy's on the bridge. Zoe: He ain't dead. Wash: ...Oh...
+tv-firefly	life	tv-quote	general	0	[Mal and Wash are attempting to stall Womack, who is pursuing them.] Womack: I'm a dangerous-minded man on a ship loaded with hurt. Now why you got me chattin' with your peons?
+tv-firefly	life	tv-quote	general	0	[Wash is flying through the canyon with debris falling onto the ship, Mal isn't flying comfortable.] Wash: Woo! This kind of flying really wakes up a guy! Mal: Awake helps.
+tv-firefly	life	tv-quote	general	0	[As Tracey lies dying, the ex-soldiers finally complete the old saying.] Tracey: When you can't run, you crawl. And when you can't crawl, when you can't do that... Zoe: ...you find someone to carry you.
+tv-firefly	life	tv-quote	general	0	[Inara departs. Mal melodramatically draws his gun.] Mal: Bwah.
+tv-firefly	life	tv-quote	general	0	[Inara answers Nandi's vid-transmitted appeal.] Inara: It sounds like something this crew can handle. I can't guarantee they'll handle it particularly well, but... Nandi: If they got guns and brains at all. Inara: They've got guns...
+tv-firefly	life	tv-quote	general	0	[After Inara signs off] Inara: I suppose you heard most of that? Mal: Only because I was eavesdropping.
+tv-firefly	life	tv-quote	general	0	Inara: I'll contact Nandi at once, but you will be paid. I feel it's important that we keep ours... strictly a business arrangement.
+tv-firefly	life	tv-quote	general	0	Inara: Nandi, this is Malcolm Reynolds. Nandi: I appreciate your coming. Mal: Well, any friend of Inara's is a strictly businesslike relationship of mine.
+tv-firefly	life	tv-quote	general	0	Mal: I'll introduce you to the rest later. They're good folk. Jayne: Can I start getting sexed already? Mal: Well, that one's kinda horrific.
+tv-firefly	love	tv-quote	general	0	Kaylee: Everyone's got somebody. Wash, tell me I'm pretty. Wash: Were I unwed, I would take you in a manly fashion. Kaylee: 'Cause I'm pretty? Wash: 'Cause you're pretty.
+tv-firefly	life	tv-quote	general	0	Mal: Inara, think you could stoop to being on my arm? Inara: Will you wash it first?
+tv-firefly	faith	tv-quote	general	0	Mal: Nothing worse than a monster who thinks he's right with God.
+tv-firefly	life	tv-quote	general	0	Nandi: Captain Reynolds, it took me years to cut this piece of territory out of other men's hands, to build this business up from nothing. Mal: Nandi... Nandi: It's who I am, and it's my home. I'm not going anywhere.
+tv-firefly	life	tv-quote	general	0	Mal: Well, lady, I must say - you're my kinda stupid.
+tv-firefly	life	tv-quote	general	0	Nandi: Truth is, I expected a whole lot more of you to be takin' payment in our trade. Mal: Well, we're an odd conglomeration. Got a preacher, a married fellah, and the doctor... well, he'd have to... relax for thirty seconds to get his play. That'd be more or less a miracle.
+tv-firefly	family	tv-quote	general	0	[Simon and Inara tend to Petaline during her contractions. River waits at her feet like a catcher.] Inara: How many babies have you actually delivered? Simon: As the primary? This would be the first. You? Inara: My first, too. River: Mine, too.
+tv-firefly	life	tv-quote	general	0	River: Who do you think is in there?
+tv-firefly	love	tv-quote	general	0	Mal: Miss Nandi, I have a confession to make. Nandi: Maybe I should get the Shepherd. Mal: Well, I ain't sinned yet. And I'd feel a little more'n awkward if he were here when I did.
+tv-firefly	love	tv-quote	general	0	Nandi: Malcolm, I been waiting for you to kiss me since I showed you my guns. [Mal kisses Nandi, then draws back for a moment.] Nandi: You okay with this? Mal: I'm just waiting to see if I pass out. Long story.
+tv-firefly	life	tv-quote	general	0	Inara: So you took to bed with Nandi. I'm glad. Mal: Glad? Inara: Yes! She's a dear friend, and probably in need of some comfort about now.
+tv-firefly	love	tv-quote	general	0	Mal: So, you're okay. Well, yeah. Why... why wouldn't you be? Inara: I wouldn't say I'm entirely okay. I'm a little appalled at her taste. [Cut later to a shot of Inara crying in her room]
+tv-firefly	life	tv-quote	general	0	Kaylee: Cap'n seem a little... funny to you at breakfast this morning? Wash: Come on, Kaylee. We all know I'm the funny one.
+tv-firefly	life	tv-quote	general	0	Book: Girls, nobody's going to die! [Cut to Jayne.] Jayne: There's people gonna die.
+tv-firefly	life	tv-quote	general	0	Jayne: [over radio] Whoa, now, girl, that is just plain dirty. Mal: Jayne, you aware your radio's transmittin'? Cause I ain't feelin' particular girlish or dirty at the moment.
+tv-firefly	life	tv-quote	general	0	Jayne: Mal! Looks like we got some imminent violence!
+tv-firefly	family	tv-quote	general	0	[Rance is on his knees before Petaline, who holds her infant son.] Petaline: Rance, this is Jonah. Jonah... say "hi" to your daddy. [She shoots Rance.] Petaline: Say "goodbye" to your daddy, Jonah.
+tv-firefly	life	tv-quote	general	0	[River bends down to look at a bent branch on the leaf-strewn cargo bay floor and picks it up] River: It's just an object. It doesn't mean what you think.
+tv-firefly	life	tv-quote	general	0	Mal: If I want a lot of medical jargon, I'll talk to a doctor. Simon: You are talking to a doctor.
+tv-firefly	life	tv-quote	general	0	Wash: Little River gets more colorful by the moment. What'll she do next? Zoe: Either blow us all up or rub soup in our hair. It's a toss-up. Wash: I hope she does the soup thing, it's always a hoot and we don't all die from it.
+tv-firefly	life	tv-quote	general	0	Wash: Psychic, though? That sounds like something out of science fiction. Zoe: We live in a spaceship, dear. Wash: So?
+tv-firefly	life	tv-quote	general	0	Simon: So you're a bounty hunter. Early: No, that ain't it at all. Simon: Then what are you? Early: I'm a bounty hunter.
+tv-firefly	life	tv-quote	general	0	Simon: You're outta your mind. Early: That's between me and my mind.
+tv-firefly	life	quip	general	0	Early: Man is stronger by far than woman, yet only woman can create a child - does that seem right to you?
+tv-firefly	life	tv-quote	general	0	Early: Where'd she go? Simon: I can't keep track of her when she's not incorporeally possessing a spaceship; don't look at me.
+tv-firefly	life	tv-quote	general	0	Early: You gonna be smart here, River? ...River? ...Serenity?
+tv-firefly	life	tv-quote	general	0	Early: [outside Serenity in a space suit] You made the right move, darlin'. Best for you to go with old Early. Mal: [appears behind him] You think so? Some of us feel differently.
+tv-firefly	life	tv-quote	general	0	River: Permission to come aboard? Mal: You know, you ain't quite right. River: [smiles] That's the popular theory. Mal: Go on, get in there. Give your brother a thrashin' for messin' up your plan. River: [tiredly] He takes so much looking after.
+tv-firefly	life	tv-quote	general	0	Wash: Can I mop your brow? I am at the ready with the fearsome brow mop.
+tv-firefly	life	tv-quote	general	0	Inara: Any chance that shiong-mung duh kwong-run might survive? Mal: Air he had left, I'd say his chance'd be about one in... a very large number.
+tv-firefly	life	tv-quote	general	0	[Early is floating in space.] Early: Well, here I am.

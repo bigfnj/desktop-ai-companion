@@ -1,0 +1,119 @@
+tv-curb	society	tv-quote	edgy	1	Larry David: One thing I admire about Hitler - he never took any shit from magicians. [...] [imitating Hitler] Where is the rabbit? Show me the rabbit!
+tv-curb	society	quip	general	0	Larry: Who do you think has more freedom: the married man in America or the single man in Communist China?
+tv-curb	life	tv-quote	general	0	Larry David: I know my sources. Sophia Loren was once a source.
+tv-curb	life	tv-quote	general	0	Larry: [regarding his "bunch-up"] Is it a bad thing? Maybe it's not such a bad thing. Cheryl: Oh, 'cause you want people to think you constantly have an erection?
+tv-curb	life	tv-quote	edgy	1	Richard:[regarding his girlfriend] She reads Wiesel and a lot of things. Larry: She reads Wiesel? Richard: That's right. Not everyone's a moron I go out with. Larry: You know what she should be reading? Emily fucking Post!
+tv-curb	life	tv-quote	general	0	[Larry, unaware he is on speakerphone, is asked if he wants to play golf] Larry: I dunno, I'll have to ask Hitler. (Cheryl)
+tv-curb	life	tv-quote	general	0	Richard: You better call me later on, by sundown. Larry: "By sundown"? What are you, Gary Cooper?
+tv-curb	society	tv-quote	general	0	Larry: It's always great to see a black entrepreneur, isn't it? Jeff's Mom: What? Jeff's Dad: What did he just say? What is that supposed to mean?
+tv-curb	life	tv-quote	general	0	Larry: Everything is "heaven" with [Ted]. The piece of gum he had; "Oh this is heaven!" Had a taste of a chocolate bar; "I'm in heaven." A parking space is "heaven." It's all "heaven."
+tv-curb	life	quip	nsfw	1	Salesperson: I am not a shoe whore!
+tv-curb	life	tv-quote	general	0	Salesperson: It's people like you that are the problem. Larry: No, I'm the solution! I'm the solution to the problem!
+tv-curb	life	tv-quote	general	0	Larry: I'd like to return this, please. Sales woman: What seems to be the problem? Larry: You know, it's kinda of half-jacket, half-shirt; half-man, half-beast.
+tv-curb	food	tv-quote	general	0	Larry: Maybe we can stop by the store and pick up some Tabasco.
+tv-curb	life	tv-quote	edgy	1	Brian: Should you be going to the party with your back or, er, can you bend over? Can you bend with your back? Larry: Yeah. Brian: Well then maybe you should just bend over and kiss my ass and maybe next time you'll remember to pick up my fucking golf ball.
+tv-curb	life	tv-quote	general	0	Richard: I can't believe you won't help out a blind man. Larry: I can't believe you said "blind man" in front of a blind man!
+tv-curb	life	tv-quote	general	0	Parking Attendant: "The bald guy with the glasses." That's you? Larry: Unfortunately, that's me. Parking Attendant: Hey, it's a good look.
+tv-curb	life	tv-quote	general	0	Jeff: If you're gonna be a maniac, pyro's not a good maniac.
+tv-curb	life	tv-quote	general	0	Larry: And who knows, you know what? Maybe I'll be able to need a lawyer someday. Cheryl: Anything could happen. Larry: A lot of people sue me.
+tv-curb	love	tv-quote	general	0	Cheryl: I guess Julia will have to come back over. You'll just have to arrange another meeting. Larry: Are you out of your mind now?
+tv-curb	life	tv-quote	general	0	Julie: [referring to Larry's movie "Sour Grapes"] I enjoyed it. It was interesting. It was such a perfect length. Larry: That's my specialty, length. Julie: Well, I thought it was a good length Larry: The width, what about the width? There's some good width in that movie.
+tv-curb	life	tv-quote	general	0	Hobo: Got any spare change? Jeff: Nah, I got nothing, man. Larry: [hands him some leftovers] Want this? Hobo: What is it? Larry: It's tuna. Hobo: I don't like tuna.
+tv-curb	life	tv-quote	general	0	Larry: What is this compulsion to have people over at your house and serve them food and talk to them?
+tv-curb	life	tv-quote	general	0	Larry: [after the dinner party] Hey, when's the next meeting of the Young Republicans club?
+tv-curb	work-money	tv-quote	general	0	Cheryl: [referring to the caterer who stole their food] You know, this is very unprofessional if you ask me. Larry: It's completely unprofessional. And I know because my whole career's been based on being unprofessional.
+tv-curb	food	tv-quote	general	0	Caterer: [regarding the leftovers] Uhm, I'm really not sure that everything survived the trip here, so.. Larry: "Survived the trip here"? Where did you come from? The Sudan?
+tv-curb	life	tv-quote	general	0	Cheryl's Dad: But we have to continue. Relative: We must go on. Larry: Must go on! Can't go on! Must go on!
+tv-curb	food	tv-quote	general	0	Larry: [stuffing fruit in his mouth] How many do you think I can get in my mouth at a time?
+tv-curb	life	tv-quote	general	0	Susie: [after reading the obituary, to Jeff] Do me a favor. When I die, let someone else handle the obit, OK?
+tv-curb	family	tv-quote	general	0	Jeff: You gotta go. Larry: What? Jeff: You gotta go. Larry: The hell are you talking about? Jeff: You copped a feel off my mom, you gotta go.
+tv-curb	life	tv-quote	edgy	1	Larry: Your mother thinks I touched her breast? That is so sick! Jeff: It's what she thinks. What can I say? Sweet dreams. Larry: "Sweet dreams". I'll dream about fucking your mother. "Sweet dreams."
+tv-curb	life	tv-quote	general	0	Richard: Dr. Grambs, this is my friend, Larry David. Larry: Hi, how you doing? Richard: He's my dermatologist. Larry: Really? Richard: Yeah, for what, fifteen years already? Larry: Even with the whole affirmative action thing?
+tv-curb	life	tv-quote	general	0	[Larry and Cheryl spot a window with the view of the beach in their new house] Cheryl: Oh my God, is that the ocean? Larry: Eh, you get used to that in two days.
+tv-curb	nature	tv-quote	general	0	Barbara: You know, this morning, you're gonna love this, I saw a whale breach. I've never seen that here before, it's very rare! Larry: Can you shoot the whales from the terrace? Barbara: What? Larry: Because I like to have blubber for breakfast.
+tv-curb	life	tv-quote	general	0	Customer: I heard that these SUVs, that they sometimes roll over rather easily. Larry: Roll over? Are you kidding? Look at this thing. Look at it. [starts rocking the SUV causing the alarm to go off] Customer: Jesus Christ.
+tv-curb	life	tv-quote	general	0	Dana: I notice this is a GT and the brochure says there's a model called the GTS. Now what is the difference between the GT and the GTS? Larry: OK, the GTS is "guaranteed tremendous safety." Dana: So, without the "S," it's just "guaranteed tremendous"?
+tv-curb	work-money	tv-quote	edgy	1	Larry: You just cost me a customer! Richard: I cost you a customer?! What are you, fucking Willy Loman?!
+tv-curb	life	tv-quote	general	0	Larry: [to Wanda Sykes] Hey, I'd know that tush anywhere!
+tv-curb	life	tv-quote	edgy	1	Larry: Anybody want to help a semi-retarded individual change a tire?
+tv-curb	life	tv-quote	nsfw	1	Wanda Sykes: Larry, you are an ass man! Larry: I am not an ass man! I don't have an ass fetish! I am not obssessed with asses.
+tv-curb	life	tv-quote	general	0	Larry: I'm sorry I was late. I just couldn't decide what to wear.
+tv-curb	life	tv-quote	general	0	Larry: It seems silly to me to put a napkin on an old pair of pants.
+tv-curb	life	tv-quote	general	0	Larry: You know, my grandfather's name was Harold Bingo, and he invented the game "Bingo."
+tv-curb	love	tv-quote	general	0	Larry: (to Shelley Cobb) You know we should have sex sometime.
+tv-curb	faith	tv-quote	nsfw	1	Walter: (to Larry) Are you Jewish? Larry: You wanna check my penis?
+tv-curb	life	tv-quote	general	0	Walter: (to Larry) You know what you are, you are a self-loathing Jew. Larry: Well I do hate myself, but it has nothing to do with being Jewish.
+tv-curb	life	tv-quote	general	0	Trick-or-Treaters: It's Halloween, can we get some candy? Larry: Yeah, it's Halloween but that doesn't mean you can go around to people's houses and bilk candy from them.
+tv-curb	food	tv-quote	general	0	[Larry checks the Chinese take out] Larry: This isn't our food. Cheryl: Did you check the order before you left? Larry: Yeah, I did, but I decided to take the wrong food home. Thank you for inquiring.
+tv-curb	life	tv-quote	nsfw	1	Larry: How could you not go in with an ace high? Oh, you cunt, what a cunt!
+tv-curb	life	tv-quote	general	0	Larry: So I'm really happy with my new sneakers. You know, 'cause they're gray. And, if you think about it's a good color, 'cause white is really too bright and black is like a pair of shoes. And gray is kind of like right in the middle. They look good.
+tv-curb	life	tv-quote	general	0	Larry: I'm feeling pretty good. Pret-ty, pret-ty, pret-ty, pret-ty good.
+tv-curb	family	tv-quote	general	0	Larry: Big family? John: Yeah. Five brothers and sisters, you know, Irish. Larry: You ever catch your parents having sex? John: No... Larry: Me either.
+tv-curb	life	tv-quote	nsfw	1	Larry: I'm just nice. You have nice/pussy confusion.
+tv-curb	life	tv-quote	edgy	1	Susie: Stop scratching your balls and tell me where it is! All right, just get me the fucking [doll] head, all right?! Get me the fucking head, all right!? Both of you, I've had it! You four-eyed fuck and you fat piece of shit! Get me the head!
+tv-curb	life	tv-quote	general	0	Tara: Mommy, Mommy, that bald man is in the bathroom and there's something hard in his pants!
+tv-curb	food	tv-quote	edgy	1	Larry: I'll have a vanilla...one of those vanilla bullshit things. You know, whatever you want, some vanilla bullshit latte cappa thing. Whatever you got.
+tv-curb	food	tv-quote	general	0	Larry: Grape works as a soda. Sort of as a gum. I wonder why it doesn't work as a pie. Grape pie? There's no grape pie.
+tv-curb	life	tv-quote	edgy	1	Man in Airport: What's the name on here? Is it yours? No, it's mine, Chris Darga. See, now if this were yours it would say "Fucking Douchebag"!
+tv-curb	work-money	quip	nsfw	1	Larry: I once invested in a whorehouse. I made a fortune on that place.
+tv-curb	food	tv-quote	general	0	Michael York: Why are you a kebab-aphobe?
+tv-curb	life	tv-quote	general	0	Larry: I'm a little afraid of the stick, frankly.
+tv-curb	life	tv-quote	general	0	Cheryl David: I thought you didn't like talking to people? Larry: I don't like talking to people I know, but strangers I have no problem with.
+tv-curb	life	tv-quote	general	0	Larry: You can't get sweet potatoes anywhere, have you noticed that? Cheryl: Everybody's noticed that.
+tv-curb	life	tv-quote	edgy	1	Larry: Fuck Huughhh! Huuuugghhh!
+tv-curb	life	tv-quote	edgy	1	Larry: Oh its this guy he spotted me. Oh he's gonna want to do a stop and chat, don't...don't go. Richard: (looks at watch) Oh my god I got to uh.. I got alot of shopping to do. Larry: Oh what a fuck. Richard: Have a blast.
+tv-curb	life	tv-quote	general	0	Larry: He's a bra-sniffing dog! He's a very good bra-sniffing dog!
+tv-curb	life	tv-quote	general	0	Larry: I love this dog, it's not very often you get the chance to be affectionate to something german.
+tv-curb	life	tv-quote	edgy	1	Krazee-Eyez Killa (rapping): So you think you gonna cross me, and mess with my shit? Opening your fucking trap, and flapping your lip. Don't fuck with me nigga, or you gonna get dropped. I'll snap off your neck with a crackle and pop.
+tv-curb	food	tv-quote	general	0	Larry: Whoa, I like that Rice Krispies thing! ... Crackle and pop!
+tv-curb	life	tv-quote	edgy	1	Larry: I like it... I got one tiny little comment. I would lose the "motherfucker" at the end - 'cause you already said "fuck" once. You don't need two fucks.
+tv-curb	life	tv-quote	general	0	Krazee-Eyez Killa [Knocks Loudly]: Cheryl: "Uh, Who is it?" Krazee-Eyez Killa Its Killa!
+tv-curb	life	tv-quote	general	0	Larry (to Krazee-Eyez Killa): Are you my Caucasian?
+tv-curb	life	tv-quote	general	0	Larry: I feel like an idiot holding this skewer.
+tv-curb	life	tv-quote	general	0	Cady Huffman: Larry David? Why don't you close the door?
+tv-curb	life	tv-quote	general	0	(Larry closes the door) Cady Huffman: We have some time before the show. I'd like to give you your 10th anniversary present.
+tv-curb	life	tv-quote	nsfw	1	Larry: Hey Pop, do me a favor? Nat: MMM? Larry: Next time you use the bathroom, make sure to keep the seat down. Nat: What are you pussy-whipped? Larry: It's not really about her, It's about me, I pee sitting down.
+tv-curb	life	tv-quote	nsfw	1	Larry: ...And how about that hygienist. It's like if you go to a prostitute, and the prostitute goes around and tells everybody that you got a small penis. Not that I've ever been to a prostitute... not that I have a small penis.
+tv-curb	love	tv-quote	general	0	[Speaking to Jeff later on] Larry: She calls me just out of the blue. Out the blue, it's all set up. It's all set up. For next thursday.
+tv-curb	life	tv-quote	nsfw	1	[Larry is heard screaming and is then seen running out of Jeff and Suzie's bathroom in his underwear] Larry: The dog bit my penis! [Cheryl, Jeff and Suzie are all speechless]
+tv-curb	life	tv-quote	general	0	[at a baby shower] Betty Dusenberry: This is from the Davids? Oh, it's a doll! Larry: It's a mulatto! [everyone is silent] No good? Betty Dusenberry: ..Bi-racial is what we call it usually. Larry: Bi-racial. Huh, what do you know about that?
+tv-curb	life	tv-quote	nsfw	1	Wandering Bear: Hello, Cheryl. Cheryl: Good morning, Wandering Bear. Wandering Bear: How is your vagina?
+tv-curb	life	tv-quote	edgy	1	Susie: Look, Wandering Elk or what ever the fuck your name is..
+tv-curb	life	tv-quote	general	0	Larry: [as Max Bialystock] Assume away!
+tv-curb	life	tv-quote	general	0	[Mel Brooks notices Larry, pretending to have O.C.D., arranging bottles and cups during a meeting] Mel Brooks: What the hell are you doing? Looks like you're making a sand castle on the table.
+tv-curb	life	tv-quote	general	0	[to Larry everytime he walks in to Hana Sushi] Chefs: Chicken Teriyaki Boy! Chicken Teriyaki Boy!
+tv-curb	life	tv-quote	nsfw	1	Larry: You got the huge vagina and you're blaming it on the small penis. You know, it's not really necessary.
+tv-curb	life	tv-quote	general	0	Larry: You know what? Nevermind, alright? I-I'll take my liver out! I'll walk around with a dialysis machine hanging out of me for the rest of my life, no problem!
+tv-curb	life	tv-quote	general	0	[Larry is wearing a huge sun hat] Jeff: What's with the hat? Larry: What? I'm married. I can wear whatever I want. Jeff: It does look ridiculous. You look like you should be pulling a rickshaw of some sort.
+tv-curb	life	tv-quote	general	0	Larry: I have a system..I..I have a..
+tv-curb	family	tv-quote	edgy	1	[at Marty's house] Jeff: We gotta get going. My daughter is waiting for a puppet show. Larry: My dad has a virus in bed with a fever with covers up to his head. Susie: Your dad always has a virus. Larry: Hey, fuck you, he doesn't always have a virus.
+tv-curb	life	tv-quote	edgy	1	Larry: What do you think you're doing?! You're stealing my thing! Richard: Stealing what thing? Larry: Showing-up-on-the-wrong-night thing! Richard: What, you have a fucking copyright on this?!
+tv-curb	society	tv-quote	general	0	Larry: So your last name is "Black"? Loretta Black: Yes. Larry: That's like if my last name was "Jew", like Larry Jew.
+tv-curb	food	tv-quote	nsfw	1	Larry: Funkhouser knowingly served us penis!
+tv-curb	life	tv-quote	nsfw	1	Cheryl: Where've you been? Larry: I was eating some penis.
+tv-curb	life	tv-quote	edgy	1	[after getting Larry his Joe Pepitone jersey back] Leon: Yeah, that's how I do it, baby, ha ha ha. Joe Pepitone up in this motherfucker.
+tv-curb	work-money	tv-quote	edgy	1	Larry: An employee is told that the customer's always right and, in fact, the customer is usually a moron and an asshole.
+tv-curb	life	tv-quote	general	0	Funkhouser: If you weren't my best friend, I'd pop your head off... Larry: He's not my best friend!
+tv-curb	life	tv-quote	general	0	Larry: You can put my colon up next to your colon; we'll see who has a cleaner, healthier colon. Richard Lewis: I will have a colon contest anytime you want.
+tv-curb	life	tv-quote	general	0	John McEnroe: [reading the freak book] Ah! What a freak!! Hahahaha.
+tv-curb	life	tv-quote	general	0	Jeff: [just snubbed due to his baldness] This blows. How do you deal with it? Larry: Well, you know, you just get used to it. I get support from my bald brothers. Jeff: There's, like, meetings?
+tv-curb	life	tv-quote	edgy	1	Loretta: [to Susie] Who the fuck you think you talkin' to?! Nobody be talkin' to my man like that! You betta get yo ass out of this house! Fucken Bitch!
+tv-curb	life	tv-quote	general	0	Larry: I'd rather have the thieves than the neighbors - the thieves don't impose. Thieves just want your things, neighbors want your time.
+tv-curb	life	tv-quote	general	0	Larry: You can't make an empty gesture to a Funkhouser. They take you up on it!
+tv-curb	food	observation	general	0	Larry: Can I tell you something about apricots? ... 1 in 30 is a good one. It's such a low percentage fruit.
+tv-curb	life	tv-quote	general	0	Larry: I'm going to dinner with Jeff and Susie and Richard Lewis and his new girlfriend, if you want to come along. Loretta: Any black people gonna be there? Larry: No. Loretta: Then why would I want to go? Larry: ...Might be some people with cancer?
+tv-curb	life	tv-quote	general	0	Larry: You're nothing without your health. Some people are nothing even with their health. I fall in that category, sometimes.
+tv-curb	life	tv-quote	general	0	Larry: We're fighting because you're a moron. That's why we're fighting.
+tv-curb	food	tv-quote	general	0	Larry: I'm not kidding, the food was awful. Terrible. Honestly, I can't believe you recommended that. Dr. Morrison: Well, I liked the ossobuco. Larry: Didn't taste like ossobuco to me. It was bad ossobuco.
+tv-curb	life	tv-quote	general	0	Larry: I'm Larry David. I happen to enjoy wearing women's panties.
+tv-curb	life	tv-quote	general	0	Jerry: You surprised me. I had no idea it would be that revolting.
+tv-curb	life	tv-quote	edgy	1	Larry: (to Cheryl's bald lawyer) I can call you bald. It's like black people calling each other nigger. Hey, baldie.
+tv-curb	arts	tv-quote	general	0	Richard: If it wasn't for burlesque we wouldn't have Chaplin, or The Marx Brothers... Marty:Oh, Chaplin was a hell of a pole dancer!
+tv-curb	society	tv-quote	edgy	1	Marty: [Marty is meeting Larry and Jeff at the Palestinian chicken restaurant] You know, I thought all last night, 'If Rabin can break bread with Arafat, I can have chicken at this antisemitic shithole.'
+tv-curb	life	tv-quote	general	0	Matt: I am the world's fastest prep as a director. You know that? Larry: I know that. Matt: I once did a Silver Spoons on 48 hours.
+tv-curb	arts	tv-quote	general	0	Jeff: Seriously, how much would it take for you to see Eat, Pray, Love? Larry: $3,000.
+tv-curb	life	tv-quote	general	0	Larry: So, how's your marriage? Hank: What the hell? Why would you ask me that? Larry: I'm trying to elevate small talk to medium talk.
+tv-curb	food	tv-quote	edgy	1	Leon: You god damn right I'm livin large! I just had a croissant filled with mutha fuckin' champagne!
+tv-curb	love	tv-quote	general	0	Rosie: You know how lesbians are. You know what a lesbian brings on a second date, right? A U-Haul.
+tv-curb	life	tv-quote	general	0	Jeff: Dementia has nothing to do with racism. Larry: My grandfather had dementia. He wasn't a racist. He thought I was his dead sister, but he wasn't a racist.
+tv-curb	love	tv-quote	general	0	Jeff: I don't like trainers - not into 'em. I don't like being told what to do. Larry: Yeah, right. That's why you married Susie?

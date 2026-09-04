@@ -1,0 +1,861 @@
+realfacts	life	fact	general	0	"Arachibutlphobia" is the fear of peanut butter sticking to the roof of your mouth.
+realfacts	science	fact	general	0	"Challenger Deep" is the deepest point on Earth and can hold 25 Empire State Buildings end to end.
+realfacts	arts	fact	general	0	"Disco" means "I learn" in Latin.
+realfacts	life	fact	general	0	"O" is the oldest letter of the alphabet, dating back to 3000 B.C.
+realfacts	science	fact	general	0	"Q" is the only letter in the alphabet not appearing in the name of any U.S. state.
+realfacts	life	fact	general	0	"Way" is the most frequently used noun in the English language.
+realfacts	life	fact	general	0	'K' was chosen to stand for a strikeout in baseball because 'S' was being used to denote a sacrifice.
+realfacts	science	fact	general	0	-40 degrees Fahrenheit is the same temperatures as -40 degrees Celsius.
+realfacts	science	fact	general	0	1/4 of the bones in your body are in your feet.
+realfacts	life	fact	general	0	100% recyclable, old newspapers are great for washing windows.
+realfacts	science	fact	general	0	111,111,111 x 111,111,111 = 12,345,678,987,654,321
+realfacts	food	fact	general	0	13 percent of the world's tea comes from Kenya.
+realfacts	life	fact	general	0	2nd Street is the most common street name in the United States; First Street is the 6th most common.
+realfacts	work-money	fact	general	0	454 U.S. dollar bills weigh exactly one pound.
+realfacts	life	fact	general	0	75% of people wash from top to bottom in the shower.
+realfacts	science	fact	general	0	99% of our solar system's mass is the sun.
+realfacts	nature	fact	general	0	A Pelican can hold more food in its beak than its belly.
+realfacts	nature	fact	general	0	A Venus flytrap can eat a whole cheeseburger.
+realfacts	life	quip	general	0	A baboon is a variety of lemon.
+realfacts	nature	fact	general	0	A baby caribou can outrun its mother at 3 days old.
+realfacts	science	fact	general	0	A ball of glass will bounce higher than a ball of rubber.
+realfacts	nature	fact	general	0	A banana is a giant herb.
+realfacts	nature	fact	general	0	A bee has five eyelids.
+realfacts	nature	fact	general	0	A bolt of lightning can reach temperatures hotter than 50,000 degrees Fahrenheit - five times hotter than the sun.
+realfacts	nature	fact	general	0	A camel can drink 25 gallons of water in less than three minutes.
+realfacts	nature	fact	general	0	A cat has 32 muscles in each ear.
+realfacts	nature	fact	general	0	A cat's lower jaw cannot move sideways.
+realfacts	nature	fact	general	0	A cat's nose is ridged with a unique pattern, just like a human fingerprint.
+realfacts	life	observation	general	0	A chalkboard eraser is one of the best ways to wipe a foggy windshield.
+realfacts	nature	fact	general	0	A chameleon shoots out its tongue to catch prey at speeds faster than a fighter jet.
+realfacts	science	fact	general	0	A compass needle does not point directly north.
+realfacts	nature	fact	general	0	A crocodile can't stick out its tongue.
+realfacts	nature	fact	general	0	A crocodile cannot move its tongue.
+realfacts	nature	fact	general	0	A cubic mile of fog is made up of less than a gallon of water.
+realfacts	food	fact	general	0	A cucumber consists of 96% water.
+realfacts	science	fact	general	0	A day on Venus lasts longer than a year on Venus.
+realfacts	nature	fact	general	0	A dimpled golf ball produces less drag and flies farther than a smooth golf ball.
+realfacts	nature	fact	general	0	A dog's average body temperature is 101 degrees Fahrenheit.
+realfacts	nature	fact	general	0	A duck can't walk without bobbing its head.
+realfacts	nature	fact	general	0	A duck has three eyelids.
+realfacts	nature	fact	general	0	A duck's quack doesn't echo.
+realfacts	nature	fact	general	0	A female kangaroo is called a flyer.
+realfacts	life	fact	general	0	A fifteen-year-old boy invented earmuffs in 1873.
+realfacts	nature	fact	general	0	A flea can jump 30,000 times without stopping.
+realfacts	science	fact	general	0	A full moon is nine times brighter than a half moon.
+realfacts	nature	fact	general	0	A full-grown tree produces enough oxygen to support a family of four.
+realfacts	science	fact	general	0	A gallon of water weighs 8.34 pounds.
+realfacts	nature	fact	general	0	A goldfish's attention span is 3 seconds.
+realfacts	nature	fact	general	0	A group of a dozen or more cows is called a 'flink.'
+realfacts	nature	fact	general	0	A group of cats is called a clowder.
+realfacts	nature	fact	general	0	A group of flamingos is called a flamboyance.
+realfacts	nature	fact	general	0	A group of geese on the ground is a gaggle, a group of geese in the air is a skein.
+realfacts	nature	fact	general	0	A group of goats is called a trip.
+realfacts	nature	fact	general	0	A group of jellyfish is called a smack.
+realfacts	nature	fact	general	0	A group of porcupines is called a prickle.
+realfacts	nature	fact	general	0	A group of twelve or more cows is called a flink.
+realfacts	nature	fact	general	0	A honey bee can fly at 15mph.
+realfacts	nature	fact	general	0	A housefly hums in the key of F.
+realfacts	science	fact	general	0	A human brain weighs about three pounds.
+realfacts	nature	fact	general	0	A hummingbird weighs less than a penny.
+realfacts	nature	fact	general	0	A hummingbird's heart beats 1,400 times a minute.
+realfacts	nature	fact	general	0	A jackrabbit can travel more than 12 feet in one hop.
+realfacts	science	fact	general	0	A jellyfish is approximately 95% water.
+realfacts	science	fact	general	0	A jiffy is an actual time measurement equaling 1/100th of a second.
+realfacts	nature	fact	general	0	A kangaroo can jump 30 feet.
+realfacts	food	fact	general	0	A lemon contains more sugar than a strawberry.
+realfacts	nature	fact	general	0	A male cricket's ear is located on the tibia of its leg.
+realfacts	nature	fact	general	0	A male firefly's light is twice as bright as a female's.
+realfacts	nature	fact	general	0	A male kangaroo is called a boomer.
+realfacts	science	fact	general	0	A manned rocket can reach the moon in less time than it took a stagecoach to travel the length of England.
+realfacts	science	fact	general	0	A mile on the ocean and a mile on land are not the same distance.
+realfacts	science	fact	general	0	A nautical mile is 800 feet longer than a land mile.
+realfacts	science	fact	general	0	A one-day weather forecast requires about 10 billion math calculations.
+realfacts	life	fact	general	0	A one-minute kiss burns about 26 calories.
+realfacts	science	fact	general	0	A pearl can be dissolved by vinegar.
+realfacts	nature	fact	general	0	A pigeon's feathers are heavier than its bones.
+realfacts	nature	fact	general	0	A pineapple is neither an apple or a pine. It is, in fact, a large berry.
+realfacts	nature	fact	general	0	A polar bear cannot be seen by an infrared camera, due to its transparent fur.
+realfacts	nature	fact	general	0	A queen bee can lay 800-1,500 eggs per day.
+realfacts	nature	fact	general	0	A rainbow can only be seen in the morning or late afternoon.
+realfacts	nature	fact	general	0	A rhinoceros horn is made of compacted hair.
+realfacts	nature	fact	general	0	A sea lemon is a mollusk that feeds on sponges.
+realfacts	food	fact	general	0	A single coffee tree produces only about a pound of coffee beans per year.
+realfacts	nature	fact	general	0	A snail breathes through its foot.
+realfacts	science	fact	general	0	A sneeze travels out of your mouth at over 100 miles an hour.
+realfacts	science	fact	general	0	A soup can full of neutron star material would have more mass than the Moon.
+realfacts	nature	fact	general	0	A spider's silk is stronger than steel.
+realfacts	life	fact	general	0	A stamp shaped like a banana was once issued in the country of Tonga.
+realfacts	nature	fact	general	0	A strand from the web of a golden spider is as strong as a steel wire of the same size.
+realfacts	science	fact	general	0	A strawberry is not an actual berry, but a banana is.
+realfacts	life	fact	general	0	A tankless water heater uses half the energy of a standard model.
+realfacts	science	fact	general	0	A teaspoon contains 120 drops of water.
+realfacts	life	fact	general	0	A ten gallon hat holds less than one gallon of liquid.
+realfacts	nature	fact	general	0	A tiger's night vision is six times better than a human's.
+realfacts	life	fact	general	0	A tune that gets stuck in your head is called an earworm.
+realfacts	nature	fact	general	0	A turkey can run at 20 mph.
+realfacts	nature	fact	general	0	A twit is the technical term for a pregnant goldfish.
+realfacts	food	fact	general	0	About 1.3 billion pounds of peanuts are produced in Georgia each year.
+realfacts	life	fact	general	0	About 11% of the people in the world are left-handed.
+realfacts	nature	fact	general	0	About 18 percent of animal owners share their bed with their pet.
+realfacts	society	fact	general	0	About 40% of America's population lives within a one day drive to Philadelphia.
+realfacts	life	fact	general	0	About 45% of leisure visitors to downtown New York City come from outside the United States.
+realfacts	society	fact	general	0	About 80 women go into labor on NYC subways every year.
+realfacts	science	fact	general	0	About 85% of the world's population is right-handed.
+realfacts	food	fact	general	0	About 90% of all garlic consumed in the U.S. comes from Gilroy, CA.
+realfacts	health-body	fact	general	0	About half of all Americans are on a diet on any given day.
+realfacts	life	fact	general	0	Abraham Lincoln was the tallest U.S. President at 6'4", while James Madison was the shortest at 5'4".
+realfacts	life	fact	general	0	Add up opposing sides of a dice cue and you'll always get seven.
+realfacts	life	fact	general	0	Adults laugh only about 15 to 100 times a day, while six-year-olds laugh an average of 300 times a day.
+realfacts	society	fact	general	0	Africa is divided into more countries than any other continent.
+realfacts	science	fact	general	0	After working out, it takes 5 hours for your body temperature to return to normal.
+realfacts	nature	fact	general	0	Alaska has more caribou than people.
+realfacts	society	fact	general	0	Alaska has the highest percentage of people who walk to work.
+realfacts	society	fact	general	0	Alaska is the most eastern and western state in the U.S.
+realfacts	society	fact	general	0	Alaska was bought from Russia for about 2 cents an acre.
+realfacts	nature	fact	general	0	All dog breeds except chow-chows have black lips to prevent them from getting sunburned.
+realfacts	society	fact	general	0	All gondolas in Venice, Italy must be painted black unless they are carrying an important person.
+realfacts	food	fact	general	0	All lemons are harvested by hand.
+realfacts	society	fact	general	0	All of the major candidates in the 1992, 1996, and 2008 U.S. presidential elections were left-handed.
+realfacts	nature	fact	general	0	All polar bears are left-handed.
+realfacts	nature	fact	general	0	All porcupines float in water.
+realfacts	nature	fact	general	0	All scorpions glow.
+realfacts	food	fact	general	0	Almonds are part of the peach family.
+realfacts	science	fact	general	0	America's 1st roller coaster was built in 1827 to carry coal from a mine to boats below.
+realfacts	life	fact	general	0	Americans spend more than $630 million a year on golf balls.
+realfacts	food	fact	general	0	Americans, on average, eat 18 acres of pizza a day.
+realfacts	nature	fact	general	0	Among North Atlantic lobsters, about 1 in 5,000 is born bright blue.
+realfacts	nature	fact	general	0	An alligator can go through 3,000 teeth in a lifetime.
+realfacts	science	fact	general	0	An ant can lift 50 times its own weight.
+realfacts	nature	fact	general	0	An ant's sense of smell is stronger than a dog's.
+realfacts	food	fact	general	0	An average of three billion cups of tea are consumed daily worldwide.
+realfacts	life	fact	general	0	An egg that is fresh will sink in water, but a stale one won't.
+realfacts	nature	fact	general	0	An electric eel can release a charge powerful enough to start 50 cars.
+realfacts	nature	fact	general	0	An octopus has three hearts.
+realfacts	nature	fact	general	0	An ostrich's brain is smaller than its eye.
+realfacts	society	fact	general	0	Ancient Chinese warriors would show off to their enemies before battle, by juggling.
+realfacts	love	fact	general	0	Ancient Egyptians believed the "vein of love" ran from the third finger on the left hand to the heart.
+realfacts	science	fact	general	0	Animals that lay eggs don't have belly buttons.
+realfacts	science	fact	general	0	Antarctica has as much ice as the Atlantic Ocean has water.
+realfacts	science	fact	general	0	Antarctica holds 90% of the world's fresh water.
+realfacts	nature	fact	general	0	Antarctica is the driest, coldest, windiest, and highest continent on earth.
+realfacts	nature	fact	general	0	Antarctica is the only continent with no owls.
+realfacts	nature	fact	general	0	Apples, peaches and raspberries are all members of the rose family.
+realfacts	life	fact	general	0	Approximately 16,500 people in the U.S. go by the last name Lemon.
+realfacts	nature	fact	general	0	Armadillos have four babies at a time and they are always all the same sex.
+realfacts	science	fact	general	0	Astronauts actually get taller when in space.
+realfacts	nature	fact	general	0	At 5 feet, the whooping crane is the tallest bird in North America.
+realfacts	science	fact	general	0	At birth a human has 350 bones, but only 206 bones when full grown.
+realfacts	nature	fact	general	0	At birth, a Dalmation is always pure white.
+realfacts	science	fact	general	0	At room temperature, the average air molecule travels at the speed of a rifle bullet.
+realfacts	science	fact	general	0	At the deepest point in the ocean, the water pressure is equivalent to having about 50 jumbo jets piled on top of you.
+realfacts	nature	fact	general	0	Atlantic salmon are capable of leaping 15 feet high.
+realfacts	science	fact	general	0	August has the highest percentage of births.
+realfacts	nature	fact	general	0	Australia is the only continent without an active volcano.
+realfacts	science	fact	general	0	Babies are born with about 300 separate bones, but adults have 206.
+realfacts	nature	fact	general	0	Baboons were once trained by Egyptians to wait on tables.
+realfacts	nature	fact	general	0	Baby bunnies are called kittens.
+realfacts	life	fact	general	0	Baking soda makes a great scouring cleanser, and it's naturally chemical-free.
+realfacts	nature	fact	general	0	Bald eagles can swim using a stroke similar to the butterfly stroke.
+realfacts	nature	fact	general	0	Bamboo (the world's tallest grass) can grow up to 90cm in a day.
+realfacts	nature	fact	general	0	Bamboo can grow over three feet per day.
+realfacts	nature	fact	general	0	Bamboo can grow three feet in one day.
+realfacts	nature	fact	general	0	Bamboo makes up 99 percent of a panda's diet.
+realfacts	food	fact	general	0	Bananas are the most widely-eaten fruit in America.
+realfacts	life	fact	general	0	Barbie's full name is Barbara Millicent Roberts.
+realfacts	nature	fact	general	0	Beavers can hold their breath for 45 minutes under water.
+realfacts	nature	fact	general	0	Beavers have orange teeth.
+realfacts	nature	fact	general	0	Beavers were once the size of bears.
+realfacts	nature	fact	general	0	Bees are born fully grown.
+realfacts	nature	fact	general	0	Bees' wings beat about 11,400 times per minute.
+realfacts	science	fact	general	0	Before 1687 clocks were made with only an hour hand.
+realfacts	society	fact	general	0	Before Thomas Jefferson took office people bowed to the president, rather than shaking his hand.
+realfacts	science	fact	general	0	Before mercury, brandy was used to fill thermometers.
+realfacts	life	fact	general	0	Benjamin Franklin invented flippers.
+realfacts	nature	fact	general	0	Besides humans, elephants are the only animals that can be taught to stand on their head.
+realfacts	science	fact	general	0	Between 1979 and 1999, the planet Neptune was farther from the Sun than Pluto. This won't happen again until 2227.
+realfacts	science	fact	general	0	Blackboard chalk contains no chalk.
+realfacts	nature	fact	general	0	Bloodhounds can track a man by smell for up to 100 miles.
+realfacts	life	fact	general	0	Borborygmi is the noise that your stomach makes when you are hungry.
+realfacts	science	fact	general	0	Bowling pins need to tip over a mere 7 1/2 degrees to fall down.
+realfacts	science	fact	general	0	Brain waves can be used to power an electric train.
+realfacts	science	fact	general	0	Brain waves can power an electric train.
+realfacts	tech	fact	general	0	Britain was the first country to register a patent on polyester.
+realfacts	society	fact	general	0	Broadway is one of the longest streets in the world. It is 150 miles long.
+realfacts	nature	fact	general	0	Broccoli is the only vegetable that is also a flower.
+realfacts	nature	fact	general	0	Butterflies can taste with their hind feet.
+realfacts	nature	fact	general	0	Butterflies were formerly known by the name Flutterby.
+realfacts	science	fact	general	0	Buzz Aldrin was one of the first men on the moon. His mother's maiden name was also Moon.
+realfacts	nature	fact	general	0	California and Arizona grow approximately 95% of the fresh lemons in the U.S.
+realfacts	society	fact	general	0	Caller ID is illegal in California.
+realfacts	nature	fact	general	0	Camel's milk does not curdle.
+realfacts	nature	fact	general	0	Camels have three eyelids.
+realfacts	nature	fact	general	0	Canada has the longest coastline of any country in the world.
+realfacts	life	fact	general	0	Candles will burn longer and drip less if they are placed in the freezer a few hours before using.
+realfacts	society	fact	general	0	Cape May is the oldest seashore resort in America.
+realfacts	nature	fact	general	0	Caterpillars have over 2,000 muscles.
+realfacts	nature	fact	general	0	Cats can hear ultrasound.
+realfacts	nature	fact	general	0	Cats have 2 sets of vocal cords: one for purring and one for meowing.
+realfacts	nature	fact	general	0	Cats have over 100 vocal chords.
+realfacts	nature	fact	general	0	Chameleons can move both their eyes in different directions at the same time.
+realfacts	arts	fact	general	0	Charlie Chaplin failed to make the finals of a Charlie Chaplin look-alike contest.
+realfacts	food	fact	general	0	Chewing gum was invented in New York City in 1870 by Thomas Adams.
+realfacts	life	fact	general	0	Chewing gum while peeling onions will prevent you from crying.
+realfacts	society	fact	general	0	Chicago is named after smelly garlic that once grew in the area.
+realfacts	nature	fact	general	0	Children grow faster during springtime.
+realfacts	science	fact	general	0	Children have more taste buds than adults.
+realfacts	science	fact	general	0	Children tend to grow faster in the spring.
+realfacts	society	fact	general	0	China only has one time zone.
+realfacts	society	fact	general	0	Chinese is the most spoken language in the world.
+realfacts	society	fact	general	0	Christopher Columbus brought the first lemon seeds to America.
+realfacts	nature	fact	general	0	Clearwater, Florida has the highest rate of lightning strikes per capita in the U.S.
+realfacts	society	fact	general	0	Cleveland, OH is home to the first electric traffic lights.
+realfacts	science	fact	general	0	Cold water weighs less than hot water.
+realfacts	life	fact	general	0	Colors like red, yellow and orange make you hungry.
+realfacts	society	fact	general	0	Connecticut was the first state to pass a Lemon Law in 1982.
+realfacts	science	fact	general	0	Cows do not have upper front teeth.
+realfacts	nature	fact	general	0	Cows give more milk when they listen to music.
+realfacts	food	fact	general	0	Cranberries are sorted for ripeness by bouncing them.
+realfacts	science	fact	general	0	Curly hair follicles are oval, while straight hair follicles are round.
+realfacts	society	fact	general	0	DFW Airport in Texas is larger than the island of Manhattan.
+realfacts	nature	fact	general	0	Dairy cows drink up to 50 gallons of water per day.
+realfacts	society	fact	general	0	David Rice Atchison was President of the United States for only one day.
+realfacts	nature	fact	general	0	Despite its hump, a camel has a straight spine.
+realfacts	life	fact	general	0	Detroit has the greatest number of registered bowlers in the U.S.
+realfacts	health-body	fact	general	0	Dieting by not eating will actually make your body start conserving calories as fat.
+realfacts	food	quip	general	0	Dim lights reduce your appetite.
+realfacts	nature	fact	general	0	Dogs can make about 10 sounds, while cats make about 100.
+realfacts	nature	fact	general	0	Dolphins are unable to smell.
+realfacts	nature	fact	general	0	Dolphins can jump up to 20 feet in the air.
+realfacts	nature	fact	general	0	Dolphins sleep with one eye open.
+realfacts	life	fact	general	0	Double Dutch jump rope is considered a cross-training sport.
+realfacts	nature	fact	general	0	Dragonflies have six legs but can't walk.
+realfacts	life	fact	general	0	Dueling is legal in Paraguay as long as both parties are registered blood donors.
+realfacts	society	fact	general	0	During the Boston Tea Party, 342 chests of tea were thrown into the harbor.
+realfacts	science	fact	general	0	Each year, the Moon moves away from Earth by about four centimeters.
+realfacts	food	fact	general	0	Each year, the average American eats about 15 pounds of apples.
+realfacts	life	fact	general	0	Each year, the average person walks the distance from NY to Miami.
+realfacts	life	fact	general	0	Early football fields were painted with both horizontal and vertical lines, creating a pattern that resembled a gridiron.
+realfacts	nature	fact	general	0	Elephants are capable of swimming 20 miles per day.
+realfacts	nature	fact	general	0	Elephants are the only mammals that can't jump.
+realfacts	nature	fact	general	0	Elephants only sleep 2 hours a day.
+realfacts	society	fact	general	0	Eleven of the 50 U.S. states are named after an actual person.
+realfacts	nature	fact	general	0	Emus and kangaroos cannot walk backward.
+realfacts	food	fact	general	0	Endocarp is the edible pulp inside a lemon.
+realfacts	science	fact	general	0	Even though it is nearly twice as far away from the Sun as Mercury, Venus is by far the hottest planet.
+realfacts	science	fact	general	0	Every hour more than one billion cells in the body must be replaced.
+realfacts	nature	fact	general	0	Every state except Maine, Alaska, and Hawaii is home to at least one species of venomous snake.
+realfacts	nature	fact	general	0	Every ton of recycled paper saves about 17 trees.
+realfacts	life	fact	general	0	Farmington, Maine celebrates Chester Greenwood Day to honor the inventor of earmuffs.
+realfacts	society	fact	general	0	Federal law once allowed the government to quarantine people who came in contact with aliens.
+realfacts	nature	fact	general	0	Ferret comes from the Latin word for little thief.
+realfacts	nature	fact	general	0	Fish can drown.
+realfacts	nature	fact	general	0	Fish cough.
+realfacts	nature	fact	general	0	Fish have eyelids.
+realfacts	nature	fact	general	0	Flamingos can only eat with their heads upside down.
+realfacts	nature	fact	general	0	Flamingos turn pink from eating shrimp.
+realfacts	nature	fact	general	0	Flying fish leap out of the water at 20 mph or more, and can glide for over 500 feet.
+realfacts	nature	fact	general	0	For every human being in the world there is approximately one chicken.
+realfacts	life	fact	general	0	Forty is the only number whose letters are in alphabetical order.
+realfacts	science	fact	general	0	Forty percent of twins invent their own language.
+realfacts	nature	fact	general	0	Four Corners, AZ, is the only place where a person can stand in 4 states at the same time.
+realfacts	society	fact	general	0	Franklin Roosevelt was related to 5 U.S. Presidents by blood and 6 by marriage.
+realfacts	arts	fact	general	0	French author Michel Thayer published a 233 page novel which has no verbs.
+realfacts	food	fact	general	0	Fresh apples float because 25 percent of their volume is air.
+realfacts	nature	fact	general	0	Fresh cranberries can be bounced like a rubber ball.
+realfacts	nature	fact	general	0	Frogs cannot swallow with their eyes open.
+realfacts	nature	fact	general	0	Frogs never drink.
+realfacts	science	fact	general	0	Frowning burns more calories than smiling.
+realfacts	nature	fact	general	0	Galapagos turtles can take up to three weeks to digest a meal.
+realfacts	nature	fact	general	0	Gentoo penguins propose to their life mates with a pebble.
+realfacts	society	fact	general	0	George Washington feared being buried alive.
+realfacts	society	fact	general	0	George Washington had false teeth made of gold, ivory, and lead - but never wood.
+realfacts	society	fact	general	0	George Washington took the oath of office in New York City in 1789.
+realfacts	society	fact	general	0	George Washington was the only unanimously elected President.
+realfacts	nature	fact	general	0	Giraffes can lick their own eyes.
+realfacts	nature	fact	general	0	Giraffes have no vocal chords.
+realfacts	nature	fact	general	0	Giraffes have the same number of vertebrae as humans: 7.
+realfacts	science	fact	general	0	Googol is a number (1 followed by 100 zeros).
+realfacts	food	fact	general	0	Grapes are the most popular fruit in the world.
+realfacts	nature	fact	general	0	Great Falls, Montana, is the windiest city in the U.S.
+realfacts	nature	fact	general	0	Greyhounds can reach speeds of 45 miles per hour.
+realfacts	nature	fact	general	0	Grizzly bears run as fast as the average horse.
+realfacts	life	fact	general	0	Harry S. Truman's middle name is S.
+realfacts	society	fact	general	0	Harry Truman was the last U.S. President to not have a college degree.
+realfacts	life	fact	general	0	Hawaii has its own time zone.
+realfacts	science	fact	general	0	Hawaii is further south than Florida.
+realfacts	science	fact	general	0	Hawaii is moving toward Japan at the rate of almost 4 inches per year.
+realfacts	life	fact	general	0	Hawaii is the only U.S. state never to report a temperature of zero degrees F or below.
+realfacts	nature	fact	general	0	Hawaii is the only U.S. state that grows coffee commercially.
+realfacts	nature	fact	general	0	Hawaii is the only U.S. state that grows coffee.
+realfacts	society	fact	general	0	Hawaii is the only state with one school district.
+realfacts	food	fact	general	0	Heat, not sunlight, ripens tomatoes.
+realfacts	nature	fact	general	0	Heavier, not bigger lemons, produce more juice.
+realfacts	nature	fact	general	0	Hippos can open their mouths 180 degrees.
+realfacts	society	fact	general	0	Holland is the only country with a national dog.
+realfacts	nature	fact	general	0	Honeybees are the only insects that create a form of food for humans.
+realfacts	nature	fact	general	0	Honeybees have hair on their eyes.
+realfacts	nature	fact	general	0	Honeybees navigate by using the sun as a compass.
+realfacts	nature	fact	general	0	Horseback riding can improve your posture.
+realfacts	nature	fact	general	0	Horses can't vomit.
+realfacts	science	fact	general	0	Human eyes have over two million working parts.
+realfacts	science	fact	general	0	Humans share 50% of their DNA with bananas.
+realfacts	nature	fact	general	0	Hybrid cars produce up to 75% less pollution than other vehicles.
+realfacts	nature	fact	general	0	If a sheep and a goat mate the offspring is called a geep.
+realfacts	life	fact	general	0	If done perfectly, any Rubick's Cube combination can be solved in 17 turns.
+realfacts	nature	fact	general	0	If there are two full moons in a month, the second one is called a blue moon.
+realfacts	science	fact	general	0	If two pieces of the same type of metal touch in outer space, they will bond together permanently.
+realfacts	science	fact	general	0	If you doubled one penny every day for 30 days, you would have $5,368,709.
+realfacts	science	fact	general	0	If you drive from Los Angeles to Reno, NV, you will be heading west.
+realfacts	work-money	fact	general	0	If you had 1 billion dollars and spent 1 thousand dollars a day, it would take you 2,749 years to spend it all.
+realfacts	nature	fact	general	0	If you keep a goldfish in a dark room it will eventually turn white.
+realfacts	society	fact	general	0	If you put all the streets in New York City in a straight line, they would stretch to Japan.
+realfacts	nature	fact	general	0	If you shake a can of mixed nuts, the larger nuts will rise to the top.
+realfacts	society	fact	general	0	In 1634, tulip bulbs were a form of currency in Holland.
+realfacts	nature	fact	general	0	In 1859, 24 rabbits were released in Australia. Within 6 years, the population grew to 2 million.
+realfacts	society	fact	general	0	In 1860, Abraham Lincoln grew a beard at the suggestion of an 11-year-old girl.
+realfacts	tech	fact	general	0	In 1878, the first telephone book ever issued contained only 50 names.
+realfacts	tech	fact	general	0	In 1900, 1/3 of all automobiles in New York City were powered by electricity.
+realfacts	food	fact	general	0	In 1908, the first lollipop-making machine started in New Haven, CT.
+realfacts	life	fact	general	0	In 1926, the first outdoor mini-golf courses were built on rooftops in NYC.
+realfacts	society	fact	general	0	In 1985, the fastest bicyclist was clocked at 154 mph.
+realfacts	society	fact	general	0	In 2003, a 6-year-old from Naples, FL was ticketed for not having a permit for her lemonade stand.
+realfacts	society	fact	general	0	In Albania, nodding your head means no and shaking your head means yes.
+realfacts	love	fact	general	0	In Ancient Greece, throwing an apple to a woman was considered a marriage proposal.
+realfacts	society	fact	general	0	In Athens, Greece, a driver's license can be taken away by law if the driver is deemed either unbathed or poorly dressed.
+realfacts	society	fact	general	0	In Germany, the shhh sound literally means hurry up.
+realfacts	society	fact	general	0	In South Korea, it is against the rules for a professional baseball player to wear cabbage leaves inside of his hat.
+realfacts	nature	fact	general	0	In Switzerland, it is illegal to own only one guinea pig because they are prone to loneliness.
+realfacts	society	fact	general	0	In Texas, it is illegal to graffiti someone's cow.
+realfacts	life	fact	general	0	In a year, the average person walks four miles making his or her bed.
+realfacts	society	fact	general	0	In ancient Rome, lemons were used as an antidote to all poisons.
+realfacts	nature	fact	general	0	In one day, a full-grown oak tree expels 7 tons of water through its leaves.
+realfacts	science	fact	general	0	In only 7.6 billion years, the sun will reach its maximum size and will shine 3,000 times brighter.
+realfacts	arts	fact	general	0	In some cultures' telling of Snow White, the dwarves are thieves.
+realfacts	food	fact	general	0	In the Middle Ages, chicken soup was considered an aphrodisiac.
+realfacts	nature	fact	general	0	In the U.S. a pig has to weigh more than 180 lbs to be called a hog.
+realfacts	society	fact	general	0	In the U.S., all interstate highways that run east to west are even-numbered.
+realfacts	life	fact	general	0	In the U.S., there are about 15,000 vacuum cleaner-related accidents each year.
+realfacts	science	fact	general	0	In the average lifetime, a person will walk the equivalent of 5 times around the equator.
+realfacts	life	fact	general	0	In the game Monopoly, the properties are named after streets in Atlantic City.
+realfacts	society	fact	general	0	In the state of Arizona, it is illegal for donkeys to sleep in bathtubs.
+realfacts	society	fact	general	0	India has a Bill of Rights for cows.
+realfacts	life	fact	general	0	India has more English speakers than the United States.
+realfacts	science	fact	general	0	Indonesia is made up of more than 17,000 islands.
+realfacts	life	fact	general	0	International tug of war rules state that the rope must be over 100-feet long.
+realfacts	society	fact	general	0	Interstate 90 is the longest U.S. Interstate Highway with over 3,000 miles from Seattle, WA to Boston, MA.
+realfacts	work-money	fact	general	0	It cost the United States Mint two cents to produce and distribute a penny in 2012.
+realfacts	work-money	fact	general	0	It costs the U.S. government 2.5 cents to produce a quarter.
+realfacts	society	fact	general	0	It is against the law to put pretzels in bags in Philadelphia.
+realfacts	society	fact	general	0	It is against the law to use "The Star Spangled Banner" as dance music in Massachusetts.
+realfacts	science	fact	general	0	It is estimated that the world's oceans contain 10 billion tons of gold.
+realfacts	society	fact	general	0	It is illegal for a portrait of a living person to appear on U.S. postage stamps.
+realfacts	life	fact	general	0	It is illegal in the United Kingdom to handle salmon in suspicious circumstances.
+realfacts	society	fact	general	0	It is illegal to play annoying games in the street in the United Kingdom.
+realfacts	society	fact	general	0	It is illegal to run out of gas in Youngstown, Ohio.
+realfacts	life	fact	general	0	It is illegal to sing off-key in North Carolina.
+realfacts	life	fact	general	0	It is impossible to sneeze with your eyes open.
+realfacts	science	fact	general	0	It is not possible to tickle yourself.
+realfacts	nature	fact	general	0	It is possible to lead a cow up stairs but not down.
+realfacts	science	fact	general	0	It takes an interaction of 72 muscles to produce human speech.
+realfacts	life	observation	general	0	It takes more water to fill a bathtub than it does to enjoy a nice, warm shower.
+realfacts	arts	fact	general	0	It took Leonardo da Vinci 12 years to paint the lips of Mona Lisa.
+realfacts	life	fact	general	0	It took the first man to walk around the world four years, three months and 16 days to complete his journey.
+realfacts	life	fact	general	0	Jack is the most common name in nursery rhymes.
+realfacts	life	fact	general	0	Jack-O-Lanterns were originally made out of turnips.
+realfacts	society	fact	general	0	John Adams was the only President to be defeated by his Vice President, Thomas Jefferson.
+realfacts	society	fact	general	0	John Wilkes Booth's brother saved the life of Abraham Lincoln's son.
+realfacts	society	fact	general	0	Jousting is the official sport in the state of Maryland.
+realfacts	society	fact	general	0	Jousting is the official sport of Maryland.
+realfacts	science	fact	general	0	Jupiter spins so fast that there is a new sunrise nearly every 10 hours.
+realfacts	science	fact	general	0	Just a sugar cube of neutron star matter would weigh about one hundred million tons on Earth.
+realfacts	nature	fact	general	0	Kangaroos can't walk backwards.
+realfacts	society	fact	general	0	Karate originated in India.
+realfacts	food	fact	general	0	Ketchup was once sold as a medicine.
+realfacts	life	fact	general	0	Knots come out easier if you sprinkle talcum powder on them.
+realfacts	nature	fact	general	0	Koala and humans are the only animals with unique fingerprints.
+realfacts	nature	fact	general	0	Koalas only drink water in extreme heat or drought.
+realfacts	science	fact	general	0	Lake Superior is the world's largest lake.
+realfacts	nature	fact	general	0	Lemon sharks can give birth to about 36 babies at one time.
+realfacts	nature	fact	general	0	Lemon wood is carved into chess pieces.
+realfacts	food	fact	general	0	Lemons are more acidic than vinegar.
+realfacts	nature	fact	general	0	Lemons ripen after you pick them, but oranges do not.
+realfacts	arts	fact	general	0	Leonardo da Vinci could draw with one hand while writing with the other.
+realfacts	science	fact	general	0	Leonardo da Vinci discovered that a tree's rings reveal its age.
+realfacts	science	fact	general	0	Less than 3% of the water on Earth is fresh.
+realfacts	life	fact	general	0	Licking a stamp burns 10 calories.
+realfacts	life	fact	general	0	Lifejackets used to be filled with sunflower seeds for flotation.
+realfacts	science	fact	general	0	Like fingerprints, everyone's tongue print is different.
+realfacts	nature	fact	general	0	Lizards communicate by doing push-ups.
+realfacts	nature	fact	general	0	Lobsters can live up to 50 years.
+realfacts	society	fact	general	0	Long Beach Island was once frequented by pirates.
+realfacts	nature	fact	general	0	Long Island is the largest island in the Continental U.S.
+realfacts	nature	fact	general	0	Louisiana is home to over 80% of the world's crayfish.
+realfacts	society	fact	general	0	Maine is the closest U.S. state to Africa.
+realfacts	society	fact	general	0	Maine is the only state with a one-syllable name.
+realfacts	society	fact	general	0	Maine produces more toothpicks than any other state in the U.S.
+realfacts	nature	fact	general	0	Male moose shed their antlers every winter and grow a new pair the next year.
+realfacts	nature	fact	general	0	Manatees' eyes close in a circular motion, much like the aperture of a camera.
+realfacts	food	fact	general	0	Mangoes are the most-consumed fruit in the world.
+realfacts	nature	fact	general	0	Manhattan Island was once home to as many different species as Yellowstone National Park.
+realfacts	life	fact	general	0	Manhattan is the only borough in New York City that doesn't have a Main Street.
+realfacts	society	fact	general	0	Manhattan was the first capital of the United States.
+realfacts	nature	fact	general	0	Manufacturing recycled goods uses up to 95% less energy than using raw materials.
+realfacts	nature	fact	general	0	Many butterflies and moths are able to taste with their feet.
+realfacts	life	fact	general	0	Men get hiccups more than women.
+realfacts	science	quip	general	0	Meteorologists claim they're right 85% of the time.
+realfacts	nature	fact	general	0	Mexican jumping beans jump to get out of sunlight.
+realfacts	society	fact	general	0	Miami installed the first ATM for inline skaters.
+realfacts	life	fact	general	0	Miami installed the first ATM for rollerbladers.
+realfacts	food	fact	general	0	Mongolians invented lemonade around 1299 A.D.
+realfacts	nature	fact	general	0	More Siberian tigers live in zoos than in the wild.
+realfacts	science	fact	general	0	More babies are born at night than during the day.
+realfacts	science	fact	general	0	More energy from the sun hits Earth every hour than the planet uses in a year.
+realfacts	nature	fact	general	0	More than 180 countries celebrate Earth Day together every April 22nd.
+realfacts	nature	fact	general	0	Mosquitoes are attracted to people who just ate bananas.
+realfacts	nature	fact	general	0	Mosquitoes have 47 teeth.
+realfacts	nature	fact	general	0	Most Koala bears can sleep up to 22 hours a day.
+realfacts	nature	observation	general	0	Most cats don't like lemonade.
+realfacts	science	fact	general	0	Most elephants weigh less than the tongue of a blue whale.
+realfacts	science	fact	general	0	Most lipstick contains fish scales.
+realfacts	tech	fact	general	0	Most rechargeable batteries can be recharged up to 1,000 times.
+realfacts	nature	fact	general	0	Mount Everest rises a few millimeters every year.
+realfacts	nature	fact	general	0	Mount Katahdin in Maine is the first place in the U.S. to get sunlight each morning.
+realfacts	nature	fact	general	0	Mount Whitney, the highest mountain in the continental United States, and Zabriskie Point, the lowest point in the United States, are less than eighty miles apart.
+realfacts	nature	fact	general	0	Mountain goats aren't actually goats. They are antelopes.
+realfacts	science	fact	general	0	Mt. Everest has grown one foot over the last 100 years.
+realfacts	society	fact	general	0	Napoleon Bonaparte was actually not short. At 5' 7", he was average height for his time.
+realfacts	nature	fact	general	0	Napoleon suffered from a fear of cats.
+realfacts	life	fact	general	0	Nearly 9,000 people injure themselves with a toothpick each year.
+realfacts	society	fact	general	0	Neckties were first worn in Croatia, which is why they were called cravats.
+realfacts	society	fact	general	0	New Jersey is home to the world's first drive-in movie theater.
+realfacts	life	fact	general	0	New York City has over 800 miles of subway track.
+realfacts	society	fact	general	0	New York City is made up of 50 islands.
+realfacts	society	fact	general	0	New York City's public school students represent about 188 different countries.
+realfacts	society	fact	general	0	New York taxi drivers collectively speak about 60 languages.
+realfacts	society	fact	general	0	New York was the first state to require cars to have license plates.
+realfacts	science	fact	general	0	Newborn babies cannot cry tears for at least three weeks.
+realfacts	society	fact	general	0	No only child has been a U.S. President.
+realfacts	science	fact	general	0	No piece of paper can be folded more than seven times.
+realfacts	science	fact	general	0	No two lip impressions are the same.
+realfacts	life	fact	general	0	No word in the English language rhymes with month.
+realfacts	society	fact	general	0	Norway once knighted a penguin.
+realfacts	society	fact	general	0	OMG was added to dictionaries in 2011, but it's first known use was in 1917.
+realfacts	nature	fact	general	0	Of all the trees in Australia, 75% are eucalyptus.
+realfacts	society	fact	general	0	Of the 92 counties in Indiana, only 5 observe daylight savings time.
+realfacts	society	fact	general	0	Ohio is the only U.S. state that does not have a rectangular flag.
+realfacts	love	fact	general	0	On Valentine's Day, there is no charge to get married in the Empire State Building's chapel.
+realfacts	love	fact	general	0	On average a human will spend up to 2 weeks kissing in his/her lifetime.
+realfacts	life	fact	general	0	On average a man spends about five months of his life shaving.
+realfacts	tech	fact	general	0	On average, a laptop uses half as much energy as a desktop computer.
+realfacts	life	fact	general	0	On average, you'll spend a year of your life looking for misplaced objects.
+realfacts	food	fact	general	0	One acre of peanuts will make about 30,000 peanut butter sandwiches.
+realfacts	health-body	fact	general	0	One brow wrinkle is the result of 200,000 frowns.
+realfacts	science	fact	general	0	One in six doctors in America was trained in Philadelphia.
+realfacts	science	fact	general	0	One is the only number with letters in reverse alphabetical order.
+realfacts	food	fact	general	0	One lemon tree will produce about 1,500 lemons a year.
+realfacts	food	fact	general	0	One lump of sugar is equivalent to three feet of sugar cane.
+realfacts	life	fact	general	0	One out of every eight residents in the U.S. lives in California.
+realfacts	nature	fact	general	0	Only female mosquitoes bite.
+realfacts	nature	fact	general	0	Only male fireflies can fly.
+realfacts	nature	fact	general	0	Only male turkeys gobble.
+realfacts	life	fact	general	0	Oregon has more ghost towns than any other US city.
+realfacts	science	fact	general	0	Our eyes are always the same size from birth, but our nose and ears never stop growing.
+realfacts	science	fact	general	0	Over 1 million Earths would fit inside the Sun.
+realfacts	science	fact	general	0	Over 50 percent of your body heat is lost through your head and neck.
+realfacts	nature	fact	general	0	Over half of the world's geysers are found in Yellowstone National Park.
+realfacts	nature	fact	general	0	Owls are one of the only birds who can see the color blue.
+realfacts	nature	fact	general	0	Oysters can change from one gender to another and back again.
+realfacts	science	fact	general	0	Panama is the only place in the world where you can see the sun rise on the Pacific and set on the Atlantic.
+realfacts	nature	fact	general	0	Panda bears eat up to 16 hours a day.
+realfacts	science	fact	general	0	Pearls dissolve in vinegar.
+realfacts	nature	fact	general	0	Penguins can jump 6 feet.
+realfacts	nature	fact	general	0	Penguins have an organ above their eyes that converts seawater to fresh water.
+realfacts	society	fact	general	0	Pennsylvania is misspelled on the Liberty Bell, because that is how they spelled it in the 18th century.
+realfacts	science	fact	general	0	People don't sneeze when they are asleep because the nerves involved in the sneeze reflex are also resting.
+realfacts	society	fact	general	0	Philadelphia was the first capital of the United States.
+realfacts	nature	fact	general	0	Pigeons have been trained by the U.S. Coast Guard to spot people lost at sea.
+realfacts	nature	fact	general	0	Pigs can get sunburn.
+realfacts	society	fact	general	0	Pigs were banished from Philadelphia's city streets in 1710.
+realfacts	life	fact	general	0	Pilates stretches your muscles, improving your posture and helping you appear taller.
+realfacts	nature	fact	general	0	Pistol shrimp can make a noise loud enough to break glass.
+realfacts	food	fact	general	0	Place a slice of bread in the storage container to keep cookies soft when storing.
+realfacts	food	fact	general	0	Place an apple in the bag with your potatoes to keep them from budding.
+realfacts	nature	fact	general	0	Plants, like humans, can run a fever if they are sick.
+realfacts	arts	fact	general	0	Playing in a marching band is considered moderate exercise.
+realfacts	science	fact	general	0	Pluto takes 248 years to orbit the sun once.
+realfacts	nature	fact	general	0	Poison Ivy is not Ivy and Poison Oak is not an Oak. They are both part of the Cashew family.
+realfacts	nature	fact	general	0	Polar bear fur is transparent, not white.
+realfacts	nature	fact	general	0	Polar bears can smell a seal from 20 miles away.
+realfacts	food	fact	general	0	Pomology is the study of fruit.
+realfacts	food	fact	general	0	Popcorn was invented by the American Indians.
+realfacts	nature	fact	general	0	Porcupines each have 30,000 quills.
+realfacts	science	fact	general	0	Potatoes have more chromosomes than humans.
+realfacts	food	fact	general	0	Pound cake got its name from the original recipe which called for a pound of butter.
+realfacts	science	fact	general	0	Powerful earthquakes can make the Earth spin faster.
+realfacts	society	fact	general	0	President Chester A. Arthur owned 80 pairs of pants, which he changed several times per day.
+realfacts	society	fact	general	0	President Warren G. Harding once lost white house china in a poker game.
+realfacts	society	fact	general	0	President William McKinley had a pet parrot that he named "Washington Post."
+realfacts	society	fact	general	0	President William Taft weighed over 300 lbs and once got stuck in the white house bathtub.
+realfacts	society	fact	general	0	Queen Cleopatra of Egypt was not actually Egyptian.
+realfacts	society	fact	general	0	Queen Isabella I of Spain, who funded Columbus' voyage across the ocean, claimed to have only bathed twice in her life.
+realfacts	nature	fact	general	0	Raindrops can fall as fast as 20 miles per hour.
+realfacts	nature	fact	general	0	Rats and mice are ticklish, and even laugh when tickled.
+realfacts	science	fact	general	0	Recycled paper is made using 40% less energy than normal paper.
+realfacts	food	fact	general	0	Refrigerating apples can help them last up to 10 times longer than those left at room temperature.
+realfacts	health-body	fact	general	0	Relative to size, the tongue is the strongest muscle in the human body.
+realfacts	science	fact	general	0	Remove all the space between its atoms and Earth would be the size of a baseball.
+realfacts	tech	fact	general	0	Replacing your car's air filter can improve gas mileage by 10 percent.
+realfacts	life	fact	general	0	Right handed people tend to chew food on the right side and lefties chew on the left.
+realfacts	food	fact	general	0	Rinsing bacon under cold water before frying can reduce the amount it shrinks by almost 50 percent.
+realfacts	life	fact	general	0	Rubber bands last longer when refrigerated.
+realfacts	life	fact	general	0	Sailors once thought wearing gold earrings improved eyesight.
+realfacts	nature	fact	general	0	Sea otters hold each other's paws while sleeping so they don't drift apart.
+realfacts	nature	fact	general	0	Seals sleep only one and a half minutes at a time.
+realfacts	arts	fact	general	0	Shakespeare invented the word assassination and bump.
+realfacts	nature	fact	general	0	Shrimp can only swim backward.
+realfacts	nature	fact	general	0	Slugs have four noses.
+realfacts	food	fact	general	0	Smelling apples and/or bananas can help you lose weight.
+realfacts	life	quip	general	0	Smile more - every two thousand frowns creates one wrinkle.
+realfacts	nature	fact	general	0	Snails can sleep for up to three years.
+realfacts	nature	fact	general	0	Snoopy is the most common dog name beginning with the letter S.
+realfacts	nature	fact	general	0	Some bears build nests in trees to sunbathe and rest.
+realfacts	science	fact	general	0	Some dinosaurs were as small as chickens.
+realfacts	arts	fact	general	0	Some violins contain 70 separate pieces of wood.
+realfacts	science	fact	general	0	Sound travels quicker in water than in air.
+realfacts	science	fact	general	0	Sound travels up to 15 times faster through steel than air, at speeds up to 19,000 feet per second.
+realfacts	food	fact	general	0	South Carolina is home to the first tea farm in the U.S.
+realfacts	nature	fact	general	0	Spiny lobsters migrate in groups of 50 or more, forming a conga line on the ocean floor.
+realfacts	nature	fact	general	0	Squids can have eyes the size of a volleyball.
+realfacts	nature	fact	general	0	Squirrels lose more than half of the nuts they hide.
+realfacts	science	fact	general	0	Steel is 100% recyclable.
+realfacts	life	uplifting	general	0	Stepping out for a walk every day can actually help you sleep better at night.
+realfacts	nature	fact	general	0	Storm clouds hold about 6 trillion raindrops.
+realfacts	food	fact	general	0	Strawberries are grown in every state in the U.S. and every province in Canada.
+realfacts	nature	fact	general	0	Strawberries are the only fruits whose seeds grow on the outside.
+realfacts	science	fact	general	0	Strawberries contain more vitamin C than oranges.
+realfacts	food	fact	general	0	Strawberries have an average of 200 seeds.
+realfacts	nature	fact	general	0	Swimming pools in the U.S. contain enough water to cover San Francisco.
+realfacts	food	fact	general	0	TV dinners originated in the Artic.
+realfacts	society	fact	general	0	Taft was the heaviest U.S. President at 329lbs; Madison was the smallest at 100lbs.
+realfacts	society	fact	general	0	Tennessee banned the use of a lasso to catch fish.
+realfacts	life	fact	general	0	Tennessee was previously named Franklin after Benjamin Franklin.
+realfacts	science	fact	general	0	Tennis was originally played with bare hands.
+realfacts	nature	fact	general	0	Termites eat through wood two times faster when listening to rock music!
+realfacts	society	fact	general	0	Texas is the only state that permits residents to cast absentee ballots from space.
+realfacts	society	fact	general	0	Thailand means "Land of the Free."
+realfacts	life	fact	general	0	The "high five" was introduced by a professional baseball player in 1977.
+realfacts	life	fact	general	0	The "lemon yellow" crayon was introduced in 1949 and retired in 1990.
+realfacts	nature	fact	general	0	The "silk" of a spider is stronger than steel threads of the same diameter.
+realfacts	tech	fact	general	0	The 1st public message to be transmitted via Morse code was "A patient waiter is no loser."
+realfacts	food	fact	general	0	The 4th Earl of Sandwich invented the sandwich so he could eat and gamble at the same time.
+realfacts	nature	fact	general	0	The Basenji is the only type of dog that does not bark.
+realfacts	society	fact	general	0	The Capitol building in Washington, D.C. has 365 steps to represent every day of the year.
+realfacts	science	fact	general	0	The Caspian Sea is actually a lake.
+realfacts	science	fact	general	0	The Chicago river flows backwards, the flow reversal project was completed in 1900.
+realfacts	nature	fact	general	0	The East Antarctic Ice Sheet is as thick as the Alps Mountains are high.
+realfacts	life	fact	general	0	The Empire State Building has 73 elevators.
+realfacts	life	fact	general	0	The Hawaiian alphabet only has 12 letters.
+realfacts	society	fact	general	0	The Inca built the largest and wealthiest empire in South America, but had no concept of money.
+realfacts	society	fact	general	0	The Japanese word "judo" means "the gentle way."
+realfacts	life	fact	general	0	The King of Hearts is the only king without a mustache.
+realfacts	nature	fact	general	0	The Lemon-Yellow Tree Frog is only active in the darkness of night.
+realfacts	society	fact	general	0	The Library of Congress has 600 miles of shelves.
+realfacts	life	fact	general	0	The Lollipop was named after one of the most famous Racehorses in the early 1900s, Lolly Pop.
+realfacts	society	fact	general	0	The Mayflower only held 102 People.
+realfacts	arts	fact	general	0	The Mona Lisa has no eyebrows.
+realfacts	nature	fact	general	0	The National Park Service manages over 350 parks on 80 million acres of public land.
+realfacts	society	fact	general	0	The Nickname of President Hayes's wife was "Lemonade Lucy."
+realfacts	nature	fact	general	0	The Pacific Ocean is eight inches higher than the Atlantic Ocean at the Panama Canal.
+realfacts	nature	fact	general	0	The Sahara Desert stretches farther than the distance from California to New York.
+realfacts	society	fact	general	0	The San Francisco cable cars are the only mobile national monument.
+realfacts	science	fact	general	0	The Saturn V moon rocket consumed 15 tons of fuel per second.
+realfacts	society	fact	general	0	The Statue of Liberty features 7 points in her crown- one for each of the continents.
+realfacts	life	fact	general	0	The Statue of Liberty wears a size 879 sandal.
+realfacts	society	fact	general	0	The Statue of Liberty's nose is four feet six inches long.
+realfacts	science	fact	general	0	The T-rex's closest living relative is the chicken.
+realfacts	society	fact	general	0	The U.S. is the largest country named after a real person (Amerigo Vespucci).
+realfacts	nature	fact	general	0	The Valley of Square Trees in Panama is the only known place in the world where trees have rectangular trunks.
+realfacts	society	fact	general	0	The White House was originally called the President's Palace. It became The White House in 1901.
+realfacts	life	fact	general	0	The Wildwood Boardwalk extends nearly two miles and has more than 70,000 wooden planks.
+realfacts	life	fact	general	0	The ZIP in the ZIP code stands for Zone Improvement Plan.
+realfacts	food	fact	general	0	The act of chewing an apple is a more efficient way to stay awake than caffeine.
+realfacts	science	fact	general	0	The amount of concrete used in the Hoover Dam could build a highway from New York to California.
+realfacts	nature	fact	general	0	The aphid insect is born pregnant.
+realfacts	nature	fact	general	0	The archer fish can spit water up to 7 feet to shoot down bugs from overhanging leaves.
+realfacts	life	fact	general	0	The area code in Cape Canaveral, Fl, is 321.
+realfacts	life	fact	general	0	The average American walks 18,000 steps a day.
+realfacts	food	fact	general	0	The average American will eat 35,000 cookies in his/her lifetime.
+realfacts	life	fact	general	0	The average bar of soap lasts twice as long as a bottle of body wash.
+realfacts	nature	fact	general	0	The average cat can jump 5 times as high as its tail is long.
+realfacts	nature	fact	general	0	The average housefly lives for one month.
+realfacts	science	fact	general	0	The average human dream lasts only 2 to 3 seconds.
+realfacts	life	fact	general	0	The average human eats 8 spiders in his/her lifetime while sleeping.
+realfacts	science	fact	general	0	The average human produces 10,000 gallons of saliva in a lifetime.
+realfacts	nature	fact	general	0	The average koala sleeps 22 hours each day.
+realfacts	life	fact	general	0	The average lead pencil can draw a line 35 miles long or write roughly 50,000 English words.
+realfacts	life	fact	general	0	The average person falls asleep in seven minutes.
+realfacts	life	fact	general	0	The average person makes 1,140 phone calls per year.
+realfacts	life	fact	general	0	The average person spends 2 weeks over his/her lifetime waiting for a traffic light to change.
+realfacts	life	fact	general	0	The average person spends about 2 years on the phone in a lifetime.
+realfacts	science	fact	general	0	The average person takes 23,000 breaths a day.
+realfacts	nature	fact	general	0	The average person uses 150 gallons of water per day for personal use.
+realfacts	nature	fact	general	0	The average raindrop falls at seven mph.
+realfacts	science	fact	general	0	The average smell weighs 760 nanograms.
+realfacts	nature	fact	general	0	The average speed of a housefly is 4.5 mph.
+realfacts	nature	fact	general	0	The average turtle can't reproduce until it's 25 years old.
+realfacts	life	fact	general	0	The average woman consumes six pounds of lipstick in her lifetime.
+realfacts	science	fact	general	0	The average woman is 5 inches shorter than the average man.
+realfacts	nature	fact	general	0	The beaver is the official animal of Canada.
+realfacts	nature	fact	general	0	The biggest pig in recorded history weighed almost one ton.
+realfacts	nature	fact	general	0	The blue whale's heart is the size of a small car.
+realfacts	science	fact	general	0	The brain operates on the same amount of power as a 10-watt light bulb.
+realfacts	nature	fact	general	0	The bullfrog is the only animal that never sleeps.
+realfacts	nature	fact	general	0	The bumblebee bat is one of the the smallest mammal on Earth. It weighs less than a penny.
+realfacts	life	fact	general	0	The can opener was invented 48 years after the can.
+realfacts	life	fact	general	0	The center of some golf balls contain honey.
+realfacts	nature	fact	general	0	The chicken is the closest living relative of Tyrannosaurus Rex.
+realfacts	society	fact	general	0	The city of Los Angeles has about 3x more automobiles than people.
+realfacts	life	fact	general	0	The coldest city in the U.S. is International Falls, Minnesota.
+realfacts	nature	fact	general	0	The common garden worm has five pairs of hearts.
+realfacts	science	fact	general	0	The deepest place in the ocean is about seven miles deep.
+realfacts	life	fact	general	0	The dot over the letter i is called a tittle.
+realfacts	life	fact	general	0	The dots on a domino are called pips.
+realfacts	nature	fact	general	0	The dragonfly can reach speeds of up to 36 mph.
+realfacts	science	fact	general	0	The eye makes movements 50 times every second.
+realfacts	nature	fact	general	0	The fastest recorded speed of a racehorse was over 43 mph.
+realfacts	life	fact	general	0	The fastest served ball in tennis was clocked at 154 mph in 1963.
+realfacts	food	fact	general	0	The fear of vegetables is called lachanophobia.
+realfacts	society	fact	general	0	The first American gold rush happened in North Carolina, not California.
+realfacts	arts	fact	general	0	The first MTV video was "Video Killed the Radio Star" by the Buggles.
+realfacts	arts	fact	general	0	The first TV network kids show in the U.S. was "Captain Kangaroo."
+realfacts	tech	fact	general	0	The first TV remote control, introduced in 1950, was called Lazy Bones.
+realfacts	arts	fact	general	0	The first TV show ever to be put into reruns was "The Lone Ranger."
+realfacts	arts	fact	general	0	The first TV soap opera debuted in 1946.
+realfacts	tech	fact	general	0	The first TV toy commercial aired in 1946 for Mr. Potato Head.
+realfacts	tech	fact	general	0	The first VCR was made in 1956 and was the size of a piano.
+realfacts	life	fact	general	0	The first ballpoint pens were sold in 1945 for $12.00.
+realfacts	life	fact	general	0	The first bike was called a hobbyhorse.
+realfacts	society	fact	general	0	The first country to use postcards was Austria.
+realfacts	food	fact	general	0	The first food eaten in space by a U.S. astronaut was applesauce.
+realfacts	science	fact	general	0	The first human-made object to break the sound barrier was a whip.
+realfacts	arts	fact	general	0	The first jukebox was located in San Francisco in 1899.
+realfacts	society	fact	general	0	The first lighthouse to use electricity was the Statue of Liberty in 1886.
+realfacts	food	fact	general	0	The first lollipop was invented in Connecticut.
+realfacts	society	fact	general	0	The first penny had the motto "Mind your own business."
+realfacts	life	fact	general	0	The first person crossed Niagara Falls by tightrope in 1859.
+realfacts	society	fact	general	0	The first person in the U.S. arrested for speeding was a NYC cab driver.
+realfacts	society	fact	general	0	The first sailing boats were built in Egypt.
+realfacts	tech	fact	general	0	The first spam message was transmitted over telegraph wires in 1864.
+realfacts	arts	fact	general	0	The first sport to be filmed was boxing in 1894.
+realfacts	society	fact	general	0	The first traffic light was in use in London in 1868, before the advent of cars.
+realfacts	arts	fact	general	0	The first typewriter was called the "literary piano."
+realfacts	tech	fact	general	0	The first vacuum was so large, it was brought to a house by horses.
+realfacts	life	fact	general	0	The game of basketball was first played using a soccer ball and two peach baskets.
+realfacts	nature	fact	general	0	The giant panda can eat up to 83 lbs of bamboo a day.
+realfacts	society	fact	general	0	The glue on Israeli postage stamps is certified kosher.
+realfacts	nature	fact	general	0	The great white shark can go up to three months between meals.
+realfacts	science	fact	general	0	The height of the Eiffel Tower varies by as much as 6 inches depending on the temperature.
+realfacts	work-money	fact	general	0	The highest denomination issued by the U.S. was the 100,000 dollar bill.
+realfacts	nature	fact	general	0	The hippopotamus has the capability to remain underwater for as long as five minutes.
+realfacts	science	fact	general	0	The human brain is about 80% water.
+realfacts	science	fact	general	0	The human brain takes up 2% of human body weight but uses 20% of its energy.
+realfacts	life	fact	general	0	The human jaw can generate a force up to 200 pounds on the molars.
+realfacts	nature	fact	general	0	The hummingbird is the only bird that can fly backwards.
+realfacts	science	fact	general	0	The indentation between the nose and the upper lip is called the philtrum.
+realfacts	science	fact	general	0	The infinity sign is called a lemniscate.
+realfacts	nature	fact	general	0	The jaguar, the largest cat in the Western Hemisphere, once lived all over the southern US.
+realfacts	life	fact	general	0	The largest ball of twine in the US weighs over 17,000.
+realfacts	food	fact	general	0	The largest cheesecake ever made weighed 57,508 lbs.
+realfacts	nature	fact	general	0	The largest dog litter was 23 puppies.
+realfacts	nature	fact	general	0	The largest fish is the whale shark - it can be over 50 feet long and weigh two tons.
+realfacts	nature	fact	general	0	The largest hailstone ever recorded in the U.S. was 17.5 inches around.
+realfacts	nature	fact	general	0	The largest pumpkin ever grown weighed 1,061 lbs.
+realfacts	life	fact	general	0	The last letter to be added to our alphabet was J.
+realfacts	nature	fact	general	0	The legs of bats are too weak to support their weight, so they hang upside down.
+realfacts	science	fact	general	0	The letter J is the only letter in the alphabet that does not appear anywhere on the periodic table of the elements.
+realfacts	science	fact	general	0	The lifespan of a taste bud is about ten days.
+realfacts	science	fact	general	0	The longest attack of hiccups ever lasted 68 years.
+realfacts	science	fact	general	0	The longest one syllable word is "screeched."
+realfacts	health-body	fact	general	0	The medical term for writer's cramp is graphospasm.
+realfacts	science	fact	general	0	The middle finger has the fastest growing nail.
+realfacts	nature	fact	general	0	The most common name for a pet goldfish is 'Jaws.'
+realfacts	food	fact	general	0	The most popular ice cream flavor is vanilla.
+realfacts	life	fact	general	0	The most popular pet name in the United States is 'Max.'
+realfacts	science	fact	general	0	The most sensitive parts of the body are the mouth and the fingertips.
+realfacts	science	fact	general	0	The most used letters in the English language are E, T, A, O, I and N.
+realfacts	society	fact	general	0	The mouth of the Statue of Liberty is 3 feet wide.
+realfacts	nature	fact	general	0	The muzzle of a lion is like a fingerprint - no two lions have the same pattern of whiskers.
+realfacts	life	fact	general	0	The name for the space between your eyebrows is "nasion."
+realfacts	society	fact	general	0	The name of the city of Portland, Oregon was decided by a coin toss. The name that lost was Boston.
+realfacts	society	fact	general	0	The name of the city we call Bangkok is 115 letters long in the Thai language.
+realfacts	science	fact	general	0	The nothingness of a black hole generates a sound in the key of B flat.
+realfacts	life	fact	general	0	The number 1 or the word One appears on the dollar bill 16 times.
+realfacts	nature	fact	general	0	The number of times a cricket chirps in 15 seconds, plus 37, will give you the current air temperature.
+realfacts	tech	fact	general	0	The number sign # is called an octothorpe.
+realfacts	science	fact	general	0	The official color of California's Golden Gate Bridge is International Orange.
+realfacts	nature	fact	general	0	The official state gem of Washington is petrified wood.
+realfacts	nature	fact	general	0	The official taxonomic classification for llamas is Llama glama.
+realfacts	health-body	fact	general	0	The oil in cashews helps prevent tooth decay.
+realfacts	nature	fact	general	0	The oldest known animal was a tortoise, which lived to be 152 years old.
+realfacts	nature	fact	general	0	The oldest living animal ever found was a 405 year-old clam, named Ming by researchers.
+realfacts	nature	fact	general	0	The only bird that can swim and not fly is a penguin.
+realfacts	nature	fact	general	0	The only bird who can see the color blue is the owl.
+realfacts	nature	fact	general	0	The only cactus plantation in the world is in Mississippi.
+realfacts	nature	fact	general	0	The only continent without reptiles or snakes is Antarctica.
+realfacts	food	fact	general	0	The only food that does not spoil is honey.
+realfacts	nature	fact	general	0	The only insect that can turn its head is a praying mantis.
+realfacts	science	fact	general	0	The only jointless bone in the body is in your throat.
+realfacts	nature	fact	general	0	The only lizard that has a voice is the Gecko.
+realfacts	society	fact	general	0	The only one-syllabled U.S. state is Maine.
+realfacts	nature	fact	general	0	The optimum depth of water in a birdbath is two and a half inches.
+realfacts	arts	fact	general	0	The original Cinderella was Egyptian and wore fur slippers.
+realfacts	society	fact	general	0	The original name of Nashville, Tennessee was Big Salt Lick.
+realfacts	food	fact	general	0	The original recipe for chocolate contained chili powder instead of sugar.
+realfacts	life	fact	general	0	The patent for the fire hydrant was destroyed in a fire.
+realfacts	science	fact	general	0	The peach was the first fruit to be eaten on the moon.
+realfacts	society	fact	general	0	The penny was the first U.S. coin to feature the likeness of an actual person.
+realfacts	food	fact	general	0	The pineapple is a very big berry.
+realfacts	science	fact	general	0	The planet Saturn's density is lower than water; in fact, it would float if placed in water.
+realfacts	life	fact	general	0	The plastic things on the end of shoelaces are called aglets.
+realfacts	food	fact	general	0	The pomegranate is one of the oldest fruits known to man.
+realfacts	life	fact	general	0	The popsicle was invented in 1905 by an 11-year-old boy.
+realfacts	tech	fact	general	0	The pound sign, or #, is called an octothorp.
+realfacts	nature	fact	general	0	The pupils in goats' eyes are rectangular.
+realfacts	tech	fact	general	0	The quartz crystal in your wristwatch vibrates 32,768 times a second.
+realfacts	life	fact	general	0	The raised bump reflectors on U.S. roads are named "Botts dots."
+realfacts	science	fact	general	0	The ridges on the sides of coins are called reeding or milling.
+realfacts	nature	fact	general	0	The roadrunner chases after its prey at a blurring speed of up to 25 mph.
+realfacts	nature	fact	general	0	The sail fish has been clocked at speeds of over 60 miles per hour.
+realfacts	science	fact	general	0	The scientific term for a sneezing is sternutation.
+realfacts	nature	fact	general	0	The shoreline at Wildwood grows almost 100 feet per year.
+realfacts	life	fact	general	0	The side of a hammer is called a cheek.
+realfacts	society	fact	general	0	The smallest county in America is New York County, better known as Manhattan.
+realfacts	nature	fact	general	0	The smallest mammal in the world is the bumblebee bat, which weighs less than a penny.
+realfacts	science	fact	general	0	The soil on Mars is rust color because it's full of rust.
+realfacts	society	fact	general	0	The speed limit in NYC was eight mph in 1895.
+realfacts	nature	fact	general	0	The spotted skunk does a handstand to warn off its enemies before it sprays its stench.
+realfacts	society	fact	general	0	The square dance is the official dance of the state of Washington.
+realfacts	tech	fact	general	0	The standard Chinese typewriter has 1,500 characters.
+realfacts	nature	fact	general	0	The starfish is the only animal that can turn its stomach inside out.
+realfacts	society	fact	general	0	The state of Alabama once financed the construction of a bridge by holding a rooster auction.
+realfacts	society	fact	general	0	The state of Florida is bigger than England.
+realfacts	nature	fact	general	0	The state of Maine has 62 lighthouses.
+realfacts	society	fact	general	0	The state of Tennessee was originally called Franklin.
+realfacts	life	fact	general	0	The strike note of The Liberty Bell is E flat.
+realfacts	science	fact	general	0	The sun evaporates about a trillion tons of water a day.
+realfacts	life	fact	general	0	The tallest man was 8 ft. 11 in.
+realfacts	science	fact	general	0	The temperature of the sun can reach up to 15 million degrees Fahrenheit.
+realfacts	life	fact	general	0	The term 007 was derived from 20007, the home zip code of many Washington, D.C. agents.
+realfacts	society	fact	general	0	The term rookies comes from a Civil War term, reckie, which was short for recruit.
+realfacts	science	fact	general	0	The tongue is the fastest healing part of the body.
+realfacts	society	fact	general	0	The top of the Empire State Building was originally built as a place to anchor blimps.
+realfacts	society	fact	general	0	The tradition of baseball managers wearing player uniforms started because the first managers were also players.
+realfacts	tech	fact	general	0	The typewriter was invented in Milwaukee, WI in 1867.
+realfacts	life	fact	general	0	The watermelon seed-spitting world record is about 70 feet.
+realfacts	nature	fact	general	0	The watersheds that supply water to New York City are roughly the size of Delaware.
+realfacts	science	fact	general	0	The weight of the moon is 81 billion tons.
+realfacts	nature	fact	general	0	The woodpecker can hammer wood up to 16 times per second.
+realfacts	life	fact	general	0	The word "facetious" features all the vowels in alphabetical order.
+realfacts	life	fact	general	0	The word "purple" does not rhyme with any other word in the English language.
+realfacts	society	fact	general	0	The world's biggest pyramid is not in Egypt, but in Mexico.
+realfacts	life	fact	general	0	The world's first escalator was built in Coney Island, NY, in 1896.
+realfacts	nature	fact	general	0	The world's largest silver nugget (1,840 lbs) was found in 1894 near Aspen, Colorado.
+realfacts	nature	fact	general	0	The world's termites outweigh the world's humans about 10 to 1.
+realfacts	life	observation	general	0	The year that read the same upside down was 1961. That won't happen again until 6009.
+realfacts	society	fact	general	0	The youngest U.S. president to be in office was Theodore Roosevelt at age 42.
+realfacts	nature	fact	general	0	Theodore Roosevelt had a pet bear while in office.
+realfacts	society	fact	general	0	Theodore Roosevelt was the only president who was blind in one eye.
+realfacts	life	fact	general	0	There are 118 ridges on the edge of a United States dime.
+realfacts	life	fact	general	0	There are 119 grooves on the edge of a quarter.
+realfacts	life	fact	general	0	There are 18 different animal shapes in the animal cracker zoo.
+realfacts	society	fact	general	0	There are 21 "secret" highways that are part of the Interstate Highway System. They are not identified as such by road signs.
+realfacts	science	fact	general	0	There are 293 ways to make change for a dollar.
+realfacts	life	fact	general	0	There are 336 dimples on a regulation American golf ball.
+realfacts	science	fact	general	0	There are 63,360 inches in a mile.
+realfacts	nature	fact	general	0	There are about 1 million ants for every person in the world.
+realfacts	nature	fact	general	0	There are approximately 7,000 feathers on an eagle.
+realfacts	science	fact	general	0	There are approximately 9,000 taste buds on your tongue.
+realfacts	food	fact	general	0	There are more French restaurants in New York City than in Paris.
+realfacts	nature	fact	general	0	There are more chickens than people in the world.
+realfacts	food	fact	general	0	There are more doughnut shops per capita in Canada than in any other country.
+realfacts	society	fact	general	0	There are more saunas than cars in Finland.
+realfacts	nature	fact	general	0	There are more species of fish in the Amazon river than in the Atlantic Ocean.
+realfacts	society	fact	general	0	There are more telephones than people in Washington, D.C.
+realfacts	food	fact	general	0	There are more than 30,000 diets on public record.
+realfacts	nature	fact	general	0	There are over 2,000 different species of cactuses.
+realfacts	food	fact	general	0	There are over 61,000 pizzerias in the U.S.
+realfacts	life	fact	general	0	There are seven letters that look the same upside down as right side up.
+realfacts	science	fact	general	0	There are ten times more microbial cells than human cells in our bodies.
+realfacts	life	fact	general	0	There are towns named Sandwich in Illinois and Massachusetts.
+realfacts	nature	fact	general	0	There is a museum of strawberries in Belgium.
+realfacts	nature	fact	general	0	There is a ranch in Texas that is bigger than the entire state of Rhode Island.
+realfacts	society	fact	general	0	There is a town called "Big Ugly" in West Virginia.
+realfacts	life	fact	general	0	There is a town called Jackpot in Nevada.
+realfacts	life	fact	general	0	There is a town called Jersey Shore in Pennsylvania.
+realfacts	life	fact	general	0	There is a town in Alaska called Chicken.
+realfacts	society	fact	general	0	There is a town in South Dakota named Tea.
+realfacts	nature	fact	general	0	There is an underground mushroom in Oregon that measures 3.5 miles across.
+realfacts	tech	fact	general	0	Thomas Edison coined the word "hello" and introduced it as a way to answer the phone.
+realfacts	society	fact	general	0	Thomas Jefferson invented the coat hanger.
+realfacts	society	fact	general	0	Three out of every six Americans live within fifty miles of where they were born.
+realfacts	nature	fact	general	0	Tigers have striped skin, not just striped fur.
+realfacts	life	fact	general	0	To clean paint off your hands, use olive oil - it softens the paint and makes it easy to remove.
+realfacts	life	observation	general	0	To fix a button about to fall off, dab a little clear nail polish over the threads holding it on.
+realfacts	food	fact	general	0	To keep an ice cream cone from dripping, stuff a miniature marshmallow into the bottom of the cone.
+realfacts	life	fact	general	0	To make a zipper slide up and down more smoothly, rub a bar of soap over the teeth.
+realfacts	nature	fact	general	0	To make one pound of honey, a honeybee must tap about two million flowers.
+realfacts	life	fact	general	0	To remove crayon marks from walls, use a hairdryer to heat the wax.
+realfacts	life	fact	general	0	To take lumps out of a bag of sugar, place it in the refrigerator for 24 hours.
+realfacts	life	fact	general	0	To temporarily revive your ballpoint pen, dip the tip into hot water for a few seconds.
+realfacts	society	fact	general	0	Today's "modern" wrestling moves have been seen in tomb drawings from ancient Egypt.
+realfacts	work-money	fact	general	0	Top-performing companies are called "blue chips" after the costliest chips in casinos.
+realfacts	life	quip	general	0	Tsiology is anything written about tea.
+realfacts	life	fact	general	0	Tug-of-war was an Olympic sport in the early 1900's.
+realfacts	nature	fact	general	0	Turning the faucet off while brushing your teeth can save up to 5 gallons of water.
+realfacts	arts	fact	general	0	Twinkle Twinkle Little Star was composed by Mozart when he was five years old.
+realfacts	science	fact	general	0	Twins have a very high occurrence of left handedness.
+realfacts	society	fact	general	0	Two national capitals are named after U.S. presidents: Washington, D.C., and Monrovia, the capital of Liberia.
+realfacts	nature	fact	general	0	Two trees can create enough oxygen for a family of four.
+realfacts	society	fact	general	0	U.S. President John Tyler had 15 children, the last of which was born when he was 70 years old.
+realfacts	society	fact	general	0	U.S. paper currency isn't made of paper - it's actually a blend of cotton and linen.
+realfacts	society	fact	general	0	Ulysses Simpson Grant was fined $20.00 for speeding on his horse.
+realfacts	life	fact	general	0	Underwater hockey is played with a 3-pound puck.
+realfacts	nature	fact	general	0	Unlike your housecat, the Siberian tiger actually loves to swim!
+realfacts	society	fact	general	0	Until its demolition in 2012, one percent of Greenland's total population lived in a single apartment building called Blok P.
+realfacts	society	fact	general	0	Until the 19th century, solid blocks of tea were used as money in Siberia.
+realfacts	food	fact	general	0	Until the nineteenth century, solid blocks of tea were used as money in Siberia.
+realfacts	food	fact	general	0	Vanilla is used to make chocolate.
+realfacts	society	fact	general	0	Vermont is the only New England state without a seacoast.
+realfacts	nature	fact	general	0	Vultures can fly for six hours without flapping their wings.
+realfacts	science	fact	general	0	When creating a mummy, Ancient Egyptians removed the brain by inserting a hook through the nostrils.
+realfacts	nature	fact	general	0	When grazing or resting, cows tend to align their bodies with the magnetic north and south poles.
+realfacts	science	fact	general	0	When the moon is directly overhead, you weigh slightly less.
+realfacts	food	fact	general	0	While chopping onions, hold a piece of bread between your lips to keep your eyes from watering.
+realfacts	nature	fact	general	0	Wild camels once roamed Arizona's deserts.
+realfacts	nature	fact	general	0	Wildlife Forever has helped plant more than 132,000 trees in America since its founding in 1987.
+realfacts	life	fact	general	0	William Shakespeare was born and died on the same day: April 23.
+realfacts	nature	fact	general	0	Wipe the leaves of your plants with the soft inside of a banana skin to bring up shine and remove dust.
+realfacts	science	fact	general	0	Wisconsin has points located farther east than parts of Florida.
+realfacts	science	fact	general	0	With an average life expectancy of 81.2 years, the people of Okinawa, Japan live the longest.
+realfacts	science	fact	general	0	Within five minutes of waking, 50 percent of a dream is forgotten. Within ten minutes, 90 percent of it is forgotten.
+realfacts	science	fact	general	0	Women blink nearly twice as much as men.
+realfacts	science	fact	general	0	Women's hearts typically beat faster than men's hearts.
+realfacts	life	fact	general	0	Wrapping rubber bands around the ends of hangers can prevent clothes from slipping off.
+realfacts	science	fact	general	0	You blink over 10,000,000 times a year.
+realfacts	nature	fact	general	0	You breathe in about 13 pints of air every minute.
+realfacts	life	fact	general	0	You burn about 20 calories per hour chewing gum.
+realfacts	life	fact	general	0	You burn more calories sleeping than watching TV.
+realfacts	science	fact	general	0	You burn more calories sleeping than you do watching television.
+realfacts	food	fact	general	0	You can tell which day a loaf of bread was baked by the color of its plastic twist tag.
+realfacts	society	observation	general	0	You don't have to be a lawyer to be a Supreme Court Justice.
+realfacts	science	fact	general	0	You exhale air at 15 m.p.h.
+realfacts	life	fact	general	0	You share your birthday with at least 9 million other people in the world.
+realfacts	science	fact	general	0	You transfer more germs shaking hands than kissing.
+realfacts	science	fact	general	0	You will burn about 7% more calories walking on hard dirt than on pavement.
+realfacts	science	fact	general	0	You would weigh less on the top of a mountain than at sea level.
+realfacts	science	fact	general	0	You'd have to play ping-pong for about 12 hours to lose one pound.
+realfacts	science	fact	general	0	Your big toe only has 2 bones and the rest have 3.
+realfacts	science	fact	general	0	Your breathing rate increases when you start to type.
+realfacts	science	fact	general	0	Your eye expands up to 45% when looking at something pleasing.
+realfacts	science	fact	general	0	Your skull is made up of 29 different bones.

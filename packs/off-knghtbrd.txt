@@ -1,0 +1,13 @@
+off-knghtbrd	tech	quip	edgy	1	<wc> red dye causes cancer, haven't you heard? (; <Knghtbrd> fucking everything causes cancer, haven't you heard? <Knghtbrd> => <archon> no, that causes aids
+off-knghtbrd	tech	tv-quote	edgy	1	<Knghtbrd> Europe Passes Pro-spam Law <Knghtbrd> I though only Americans were that fucking stupid => <Espy> apparently americans are quite naive :)
+off-knghtbrd	tech	quip	edgy	1	// Minor lesson: don't fuck about with something you don't fully understand -- the dosdoom source code
+off-knghtbrd	tech	quip	edgy	1	"I am ecstatic that some moron re-invented a 1995 windows fuckup."
+off-knghtbrd	tech	quip	edgy	1	<Deek> Exactly how much of a PITA is this in C? <Knghtbrd> It's written in C++. <Deek> Hence my question. <Knghtbrd> I could do something like it in C. Anyone who saw the results would think I was either a genius or out of my fucking mind. They'd be right on either count.
+off-knghtbrd	tech	quip	edgy	1	<knghtbrd> *sigh* My todo list is like the fucking energizer bunny <knghtbrd> It keeps growing and growing and growing and ...
+off-knghtbrd	tech	quip	edgy	1	<Knghtbrd> It is when the example source won't compile ... <``Erik> then you fucked something up <Knghtbrd> Nope, I followed their instructions <``Erik> that may've been your problem :}
+off-knghtbrd	tech	quip	edgy	1	<Crow-> these stupid head hunters want resumes in ms word format <Crow-> can you write shit in tex and convert it to word? <Overfiend> \converttoword{shit}
+off-knghtbrd	society	quip	edgy	1	<Crow-> who gives a shit about US law <jim> anyone living in the US.
+off-knghtbrd	tech	quip	edgy	1	<knghtbrd> this is college course in formal logic <devkev> knghtbrd: i hate that shit, much prefer fuzzy logic :) <knghtbrd> kev: fuzzy logic tickles. <taniwha> knghtbrd: lol <devkev> knghtbrd: fuzzy logic is so cool, it models the world really well
+off-knghtbrd	tech	quip	edgy	1	* knghtbrd ponders how to scare the living shit out of 87 people at once.. <knghtbrd> AHH! I can do it in 3 words!: <knghtbrd> Microsoft Visual COBOL.
+off-knghtbrd	tech	quip	edgy	1	<doogie_> linux takes shit and turns it into something useful. <doogie_> windows takes something useful and turns it into shit
+off-knghtbrd	tech	quip	edgy	1	<Diziet> Fuck, I can't compile the damn thing and I wrote it !

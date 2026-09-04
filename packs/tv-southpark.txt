@@ -1,0 +1,862 @@
+tv-southpark	life	tv-quote	edgy	1	Kyle?: Oh my God! Frosty killed Kenny! Stan?: Dude, I told you not to put that fuckin hat on Frosty's fuckin head, now, didn't I! Kyle?: Well I'm sorry, Mr. Rocket-fuckin-scientist! What are we supposed to do now?!
+tv-southpark	life	tv-quote	edgy	1	Kyle?: [after running from Frosty disguised as Santa Claus] Uh, you know something, I don't think that was the real Santa Claus. Stan?: Oh, no shit, Sherlock! You know, thanks to you, there's not going to be any Christmas, and there's no one left to help us!
+tv-southpark	society	tv-quote	edgy	1	Cartman: Yeah, Hanukkah sucks. Kyle: Don't you oppress me, fat boy! Cartman: Don't call me fat, buttfucker! Kyle: Then don't belittle my people, you fuckin fat ass! Cartman: Goddammit, don't call me fat, you buttfucking son of a bitch!
+tv-southpark	life	tv-quote	general	0	Kyle: We actually met, we actually spoke with, the Brian Boitano!
+tv-southpark	food	tv-quote	edgy	1	Chef: [gets out of his car] Hello there, children! Boys: Hey, Chef! Stan: What's gonna be for lunch today, Chef? Chef: Well, today, it's Salisbury steak with buttered noodles, and a choice of green-bean casserole or vegetable medley. Cartman: Kick ass.
+tv-southpark	life	tv-quote	edgy	1	Stan: Yeah, whatever, you fat bitch. Ms. Crabtree: WHAT DID YOU SAY?! Stan: I said, "I have a bad itch". Ms. Crabtree: Oh.
+tv-southpark	life	tv-quote	general	0	Kyle: Ready, Ike? Kick the baby! Ike: Don't kick the baby! Kyle: Kick the baby. [kicks Ike across the street, knocking over a row of mailboxes]
+tv-southpark	life	tv-quote	edgy	1	Kyle: Dude, I have to save Ike! I don't even know what to do! Stan: Well, we can't do anything now; that fat bitch won't let us! Ms. Crabtree: [shouts] WHAT DID YOU SAY?! Stan: I said, "Rabbits eat lettuce". Ms. Crabtree: Oh. Well, yes, they certainly do.
+tv-southpark	life	tv-quote	general	0	[after seeing a crop circle on the news that looks just like him] Cartman: Hey, that kind of looks like...Tom Selleck.
+tv-southpark	life	tv-quote	general	0	Cartman: Follow your dreams, you can reach your goals, I'm living proof. Beefcake! Beefcake!
+tv-southpark	nature	tv-quote	general	0	Cartman: If dolphins are so smart, why do they get caught in those fishing nets all the time?
+tv-southpark	life	quip	general	0	Tough Guy: Get some today, and say with me
+tv-southpark	life	tv-quote	general	0	Cartman: If dolphins are so smart, why do they live in igloos? Stan: Dolphins don't live in igloos! That's Eskimos! Cartman: Dolphins, Eskimos, who cares? It's all a bunch of tree-hugging hippie crap.
+tv-southpark	nature	tv-quote	general	0	Stan: Dude, dolphins are intelligent and friendly. Cartman: Intelligent and friendly on rye bread with some mayonnaise!
+tv-southpark	life	tv-quote	general	0	Stan: That's impossible! Cartman wouldn't know a rainforest from a Pop-Tart! Cartman: Yeah, I do! Pop-Tarts are frosted!
+tv-southpark	society	tv-quote	general	0	Stan: My uncle Jimbo says that after this he's gonna take me hunting in Africa. Kyle: Wow. That'd be cool. Cartman: My mom says there's a lot of black people in Africa.
+tv-southpark	nature	tv-quote	general	0	Stan: I don't want to shoot the bunny. Jimbo: No nephew of mine is gonna be a tree-hugger! Cartman: Yeah, hippie! Go back to Woodstock if you don't want to shoot anything!
+tv-southpark	arts	quip	general	0	Barbrady: Okay people, listen up. As we near the top of the mountain, the chances of our encountering some lava becomes great. Therefore, I have special ordered this training film to assist us in volcano safety. Mr Garrison, if you would, please?
+tv-southpark	life	tv-quote	edgy	1	[During football practice, with Stan as quarterback and Chef coaching] Stan: Hut, hut, hut, hut, hut, hut, hut, hut, hut, hut - Chef: HIKE THE DAMN BALL!!
+tv-southpark	life	tv-quote	edgy	1	Mrs. Crabtree: Wait! What's that thing?! [referring to the elephant] Kyle: Oh, this is the new retarded kid. Mrs. Crabtree: Oh. I'm sorry, little girl, but you still can't get on. You have to take the Special Ed bus.
+tv-southpark	life	tv-quote	edgy	1	Kyle: Stan, you can use family love as a weapon against Shelley. The next time she's gonna kick your ass, just tell her "Shelley, you're my sister and I love you." Kenny (muffled): And I want to see you handling your breasts. Stan: Sick, dude, she's my sister!
+tv-southpark	life	tv-quote	general	0	News broadcaster: It appears that the horrible, destructive creature is actually 8-year-old Stan Marsh of South Park. When asked why he was wreaking such havoc on his hometown, the little boy replied, "Me Stan, bachump, ba-chewy-chump, ba-chewy-chump." Back to you in the studio.
+tv-southpark	life	tv-quote	edgy	1	Randy: How does it feel to be 102, Paps? Grampa: Shoot me! Sharon: Make a wish, Grampa! Grampa: I wish I were dead! Randy (chuckles): That's our silly Grampa. Grampa: I'm not being silly: shoot me! I'd do it myself, but I'm too damn old!
+tv-southpark	life	tv-quote	general	0	Mrs. Cartman: Eric, I just got a call from your friend Kyle's mother. She said that this show is naughty and might make you a potty-mouth. Cartman: That's a load of crap. Kyle's mom is a dirty Jew!
+tv-southpark	faith	tv-quote	edgy	1	Stan: Jesus, is it okay to kill somebody if they ask you to? Because they're in a lot of pain, you know, like assisted suicide? [pause] Jesus: My son, I wouldn't touch that with a sixty-foot pole. Stan: [hangs up] God damn it! Jesus: I heard that!
+tv-southpark	life	tv-quote	general	0	Announcer: We interrupt this program to bring you loud static.
+tv-southpark	life	tv-quote	general	0	Enya-style music: Take a look, take a look, take a look above the sky! Come and fly, take a ride-- Stan: This music is terrible! It's cheesy but lame, and eerily soothing at the same time! Grampa: Now you know what's it's like to be old!
+tv-southpark	life	tv-quote	general	0	[Coroner #2 puts Worcestershire sauce on a hot dog] Coroner #1: Marty, do you have to put that stuff on everything? Coroner #2: I don't know, it just--it just makes everything taste so English.
+tv-southpark	society	tv-quote	general	0	Kyle: Cartman, what kind of costume is that? Cartman: It's an Adolf Hitler costume. Sieg heil! Sieg heil!
+tv-southpark	life	tv-quote	edgy	1	Cartman: What are you supposed to be, Stan, Howdy Doody? Stan: No, I'm Raggedy Andy, Mr. Cartman. Cartman: Oh, heh, wow, you you look pretty cool. [he laughs along with Kyle] Kyle: Sissy. Stan: I'll kick your ass, Kyle! Cartman: Oh, look out! Holly Hobbie's all pissed off!
+tv-southpark	life	tv-quote	general	0	Cartman: Kenny's family is so poor that yesterday they had to put their cardboard box up for a second mortgage!
+tv-southpark	life	tv-quote	nsfw	1	Cartman: I'm not the one walking around all day like Pippi Longstocking. Stan: Well, at least my mom isn't on the cover of Crack Whore magazine.
+tv-southpark	life	tv-quote	general	0	Officer Barbrady: You're probably wondering why we're standing here with a pile of money and no pants on. Chef: Actually-- Mayor: Well I can assure you that it has absolutely nothing to do with the Japanese Mafia. Officer Barbrady: Not a thingy-dingy.
+tv-southpark	life	tv-quote	general	0	Cartman: Go back to Endor, you stupid Wookiee! Kyle: Wookiees don't live on Endor.
+tv-southpark	society	tv-quote	general	0	Cartman: [daydreaming while watching a video, imagining himself to be Adolf Hitler] You gotta respect my authora-tah!
+tv-southpark	society	tv-quote	edgy	1	Chef: [talking to Cartman who's dressed like a KKKlansman] Remind me to whoop your ass good next time I see you.
+tv-southpark	life	tv-quote	general	0	Chef: [imitating Michael Jackson's Thriller video clip] I'm gonna make love, even when I'm dead. My body might get cold, but it's always hot in bed! Make love, don't you be afraid! Just because my heart ain't beating, doesn't mean you won't get laid!
+tv-southpark	life	tv-quote	general	0	Stan: If my mom could cook like Cartman's mom I'd be a big fatass too! Cartman: That's right! [Cartman realizes he's been insulted] Cartman: AY!
+tv-southpark	life	tv-quote	general	0	Mr. Garrison: And where are you from, Damien? Damien: The seventh layer of hell! Mr. Garrison: Oh, that's exciting, my mother was from Alabama.
+tv-southpark	life	tv-quote	general	0	Pip: Oh, good day, Damien. My name is Phillip, but everyone calls me Pip, because they hate me. Damien: Then I will call you Pip. Pip: Right-o.
+tv-southpark	life	tv-quote	general	0	Damien: Everybody hates me. Mr. Mackey: Well, uh, why do you suppose that is? Damien: Because I'm the son of the devil. Mr. Mackey: Uh-huh, that's a good start. Why else? Damien: Because I... burn and kill them?
+tv-southpark	life	tv-quote	general	0	[Cartman farts beside him.] Cartman: Oh! Excuse me, new kid. I didn't mean to fart on you, I didn't have a choice.
+tv-southpark	life	tv-quote	general	0	[Damien looks angry enough to burst a blood vessel, but he does nothing.] Stan: Phew! You stink, new kid. You smell like a fart. Kyle: Yeah, we're gonna call you fart-boy from now on.
+tv-southpark	life	tv-quote	general	0	[Damien walks away from them.] Stan: Bye bye, fart-boy! Kyle: See you! Pip: Good day, how are you, Damien? Damien: Those guys farted on me, and then called me... Pip: Fart-boy? Oh, good! Perhaps they won't call me that anymore.
+tv-southpark	life	tv-quote	general	0	[After Cartman yells and kicks everyone out.] Damien: Wow, that kid has some real emotional problems. Stan: Ah, he does this all the time.
+tv-southpark	faith	tv-quote	general	0	Damien: (Sadly) Well, goodbye guys. It was nice getting to know you. Stan: You're leaving already? Damien: I have to. My Dad's always on the move.
+tv-southpark	family	tv-quote	general	0	[He walks away sadly.] Stan: Wow, I feel kinda bad for that kid. Kyle: Yeah, just when he was being accepted he has to leave and start over. Stan: Parents can be so cruel. Don't they realise what a child needs more than anything is security?
+tv-southpark	society	tv-quote	general	0	Cartman: Mr. Garrison, why do poor people smell like sour milk? Mr. Garrison: I don't know, Eric, they just do. [Kyle sniffs Kenny in disgust]
+tv-southpark	life	tv-quote	general	0	Stan: You know, I think I've learned something today. It's really easy not to think of images on TV as real people, but they are. That's why it's easy to ignore those commercials but people on TV are as real as you or I. Kyle: That means that MacGyver is a real person, too!
+tv-southpark	life	tv-quote	general	0	Wikimedia Commons has media related to: Mr. Hankey, the Christmas Poo Mr. Hankey: How-dy-ho!
+tv-southpark	life	tv-quote	general	0	Mr. Garrison: I'm going to do what I've always wanted to do: hang out and screw hot chicks!
+tv-southpark	life	tv-quote	general	0	Wendy: Stan, we're still Valentines, right? Stan: Sure, Wendy, whatever.
+tv-southpark	life	tv-quote	edgy	1	Wendy: I told her, Don't.... Fuck... with.... Wendy... Testaburger!!!!!!
+tv-southpark	life	tv-quote	edgy	1	Barbra Streisand: You know who I am? Officer Barbrady: Well you ain't Fiona Apple, and if you ain't Fiona Apple I don't give a rat's ass! Barbra Streisand: [screams in anger] Officer Barbrady: Whoa, what a bitch!
+tv-southpark	arts	tv-quote	general	0	Stan: Wow, Robert Smith is the greatest person who ever lived! Jesus: Our savior!
+tv-southpark	life	tv-quote	general	0	Chief Running Water: I knew that she wanted me because she kept saying romantic things. Mrs. Cartman: "Oh Chief, I want your hot man-chowder." Chief Running Water: Whoah, Hell-o!
+tv-southpark	life	tv-quote	general	0	Cartman: More tea, Rumpertumskin? Rumpertumskin: Yes, please, Eric. You are tough and handsome. Cartman: Thank you, Rumpertumskin. And what do you think about me, Clyde Frog? Clyde Frog: I think you're a big fat piece of crap. Cartman: AY!
+tv-southpark	life	tv-quote	nsfw	1	Chief Running Water: I hate to break this to you, but your mother is what we Native Americans call "bear with wiiiide canyon." Cartman: Huh? Chief Running Water: She is "doe who cannot keep legs together." Cartman: What? Chief Running Water: Your mom's a slut. Cartman: Hey!
+tv-southpark	life	tv-quote	general	0	Cartman: I was just hanging out in the SPC, kicking it with some homies on the Westsa-eed-eh. Kyle: Cartman, you live on the east side!
+tv-southpark	life	tv-quote	general	0	Announcer: Since the last South Park, you've waited four long weeks to find out who the father of Eric Cartman is. Now, finally, the shocking truth about Cartman's lineage... will not be seen tonight, so that we can bring you the following special presentation.
+tv-southpark	life	tv-quote	general	0	[Terrance farts] Phillip: Terrance, you farted in court! Terrance: Yes Phillip, I'm making a case for our defense!
+tv-southpark	life	tv-quote	general	0	Terrance: Scott really hates us, Phillip. Phillip: Yes, perhaps he's homophobic. Terrance: But we're not gay, Phillip. Phillip: We're not?
+tv-southpark	life	tv-quote	general	0	Scott: I hate you both and I wish you had cancer! Phillip: Cancer? Scott: Yes, in the head. Terrance: Head cancer? Scott: This is not the end, Terrance and Phillip! You'll rue this day!
+tv-southpark	life	tv-quote	general	0	Scott: What are you idiots doing? Terrance: We're searching for treasure! Scott: Is that some kind of metaphor for a kind of search that can't be described? Phillip: No, we're searching for treasure.
+tv-southpark	life	tv-quote	general	0	[Kenny appears out of nowhere] Stan: [blankly, as though Kenny hadn't appeared out of thin air] Oh, hey Kenny.
+tv-southpark	life	tv-quote	edgy	1	Kenny: Oh my God! They killed Mephisto! Kyle: You bastards!
+tv-southpark	society	tv-quote	general	0	Mayor: Officer Barbrady, let's pretend for one second that we had a competent law enforcement officer in this town. What would he do?
+tv-southpark	life	tv-quote	general	0	Nurse: When was the fetus conceived? Mrs. Cartman: Eight years ago. Nurse: So that would make the fetus-- Mrs. Cartman: Eight years old. Nurse: That places you in what we call the fortieth trimester.
+tv-southpark	life	tv-quote	general	0	Doctor: Team A will consist of myself, Eric, Stan, Kyle and Nurse Goodly. Team B will consist of Kenny.
+tv-southpark	food	tv-quote	general	0	Uncle Jimbo: We'll give it until another hour, then... we might have to eat again. Film Producer: What?! Christ, are you people diabetic or something?
+tv-southpark	life	tv-quote	general	0	Cartman: Wait a minute! [points at his mom/dad] If she's my dad, who's my mom? Narrator: Who is Eric Cartman's mother? Is it Ms. Crabtree, Sheila Broflovski, the Mayor? Cartman: ARGH, FORGET IT!
+tv-southpark	life	tv-quote	general	0	[Officer Barbrady, who is at the time illiterate, finds a note saying "another chicken gets it tomorrow." He is then asked what it says] Officer Barbarady: Oh, it says... "Sorry I had sex with the chicken! I won't do it again, bye-bye!" Well, there you have it, case closed.
+tv-southpark	life	tv-quote	general	0	Man in Passing Car: Hey Mackey, now we see what you and Homer Simpson have in common: "D'oh-pe" [laughs]
+tv-southpark	society	tv-quote	edgy	1	Mr. Mackey: I'm tired of your right-wing authoritative bullshit!
+tv-southpark	life	tv-quote	general	0	Dr. Schwartz: We're not going to cut it off! We're just going to snip it to make it bigger!
+tv-southpark	life	tv-quote	general	0	Woman: [after seeing Ike] Oh look honey, someone threw away a perfectly good trash can.
+tv-southpark	life	tv-quote	general	0	Cartman: The fireman is very magical. If you rub his helmet he spits in your eye.
+tv-southpark	society	tv-quote	general	0	Cartman: My mom says there are lots of black people in China.
+tv-southpark	life	tv-quote	general	0	Cartman: I love you guys. [Stan and Kyle stare at him] Ah, screw you guys..!
+tv-southpark	life	tv-quote	general	0	Nurse Gollum: Well, this may sound odd coming from a woman with a fetus sticking out of her head, but you're all a bunch of freaks.
+tv-southpark	food	tv-quote	general	0	Gerald Broflovski: Could you please pass the dead fetus--I mean gravy?
+tv-southpark	society	tv-quote	general	0	Chinese Announcer: It's number...aw, who cares. Arr Americans rook arike.
+tv-southpark	life	tv-quote	general	0	Cartman: [finished his cake] All gone. Ms. Crabtree: SIT DOWN AND SHUT UP! [students groan in pain] I SAID QUIET, OR ELSE I'LL KILL THE BUNNY!! [students notice and are immediately quiet]
+tv-southpark	life	tv-quote	general	0	[The snake breaks down Jimbo and Ned's cell wall] Jimbo: Holy crap, what the hell is that? Ned: It looks like my ex-wife!
+tv-southpark	arts	tv-quote	general	0	Cartman: Independent films are those black-and-white hippie movies. They're always about gay cowboys eating pudding.
+tv-southpark	life	tv-quote	general	0	[from one of the independent films] Cowboy: Hey Tom, you got any pudding? Tom: You know I'm all out of pudding, silly. Cowboy: Well, what should we do now? Tom: Well, how about we explore our sexuality? [they start to make out]
+tv-southpark	work-money	tv-quote	edgy	1	Cartman: I've learned something too: selling out is sweet because when you sell out, you get to make a lot of money, and when you have money, you don't have to hang out with a bunch of poor ass losers like you guys. Screw you guys, I'm going home.
+tv-southpark	food	tv-quote	edgy	1	[Chef has just fed his concoction, Salty Chocolate Balls, to a severely ailing Mr. Hankey] Chef: My Salty Chocolate Balls must have rejuvenated him! Kyle: You've got the best balls in the whole world, Chef. Chef: You damn right.
+tv-southpark	life	tv-quote	general	0	Cartman: That's it, screw you guys, I'm going home. [pause] Kyle: Well? Cartman: I'm gonna, just give me a minute.
+tv-southpark	life	tv-quote	edgy	1	Cartman: Aw, Jesus, are you fucking kidding me? Stuart: Hey! We don't say fuck at the table, you little asshole! Cartman: [mumbling] Yeah, we apparently don't say side dishes either.
+tv-southpark	life	tv-quote	general	0	Cartman: Well, what a day this has been. I was on TV and I'm a hero. [Cartman's mother appears after picking his nose] Liane: Don't pick your nose, hon. Cartman: GODDAMMIT, MOM, I WASN'T PICKING IT! I HAD AN ITCH!!
+tv-southpark	life	tv-quote	edgy	1	Roy: Stan, you wanna help me cut some firewood? Stan: We cut firewood all day yesterday; we've got enough firewood for twelve years! Roy: [tormented] When will you let me in? When will you let me love you? [normal] Now get your ass down here and help me!
+tv-southpark	life	tv-quote	general	0	Stan: You suck, Cartman! If you want to play America vs. Bosnia anymore, you can just play with yourself! Cartman: That's fine! I like playing with myself! I'll play with myself all day long! [Kenny laughs] Cartman: What?
+tv-southpark	life	tv-quote	general	0	Chef: Two million dollars?! The only way I can raise that kind of money is by whorin' myself to every woman in town!
+tv-southpark	life	tv-quote	edgy	1	Kyle: Wow! Elton John's house is bigger than Cartman's ass! Cartman: No it isn't, you guys.
+tv-southpark	society	tv-quote	general	0	[repeated line] Record Exec: I am above the law!
+tv-southpark	life	tv-quote	general	0	Johnnie Cochran: Look at the monkey! Look at the silly monkey! [jury member's head explodes]
+tv-southpark	food	tv-quote	edgy	1	Kyle: Did you get the pumpkin, Kenny? Kenny: Uh-huh. [puts a squash on the table] Cartman: What the fuck is that? Kenny: It's all I could afford!
+tv-southpark	life	tv-quote	general	0	Evil Cartman: [singing] You guys are my best friends Through thick and thin, we've always been together Four of kind, having fun all day Pallin' around, and laughing away Just best friends, best friends are we! I love you, guys.
+tv-southpark	life	tv-quote	general	0	Cartman: [singing] You guys are hella-stupid, you guys are hella-lame, you guys are hella-dumb, hella, hella, hella! Kyle: Dammit!
+tv-southpark	life	tv-quote	edgy	1	George Bailey: You can't go around buying people off, Mr. Potter. Do you know what you are? You're a little bitch. That's right, you're a bitch and I bet you'd like to suck it, now wouldn't you?
+tv-southpark	life	tv-quote	general	0	Underpants Gnome: Phase one: collect underpants. Phase two: [silence] Phase three: profit!
+tv-southpark	food	tv-quote	general	0	Mr. Tweek: Mr. Postum, you have a lot to learn about making coffee. Mr. Postum: And you don't? Your coffee tastes like 3 day-old moldy diarrhea!
+tv-southpark	society	tv-quote	edgy	1	[Tweek is worried about his family becoming poor] Cartman: You can always go on welfare. Just look at Kenny's family, they're perfectly happy being poor and they're on welfare. Right, Kenny? Kenny: Fuck you! Cartman: Heh-heh, you suck, Kenny.
+tv-southpark	life	tv-quote	nsfw	1	Gnome: Not much longer now.... Cartman: Oh? You're taking us to your little pussy house? Gnome: No pussy! I'm taking you to my village! Cartman: Oh? Your pussy village? Stan: Cartman will you just shut up and let him show us?
+tv-southpark	life	tv-quote	edgy	1	Stan: Good job, Cartman, you killed Kyle! Kenny: [muffled] You bastard! Cartman: Well, he shouldn't have called me fat! Stan: Why the hell not? It's just like calling the sky blue!
+tv-southpark	life	tv-quote	general	0	Cartman: [lodged in a cow's anus] Aw, it smells like Kenny's house in here!
+tv-southpark	life	tv-quote	general	0	Kyle: [about the frozen man they found] His name is Steve! Stan: His name is Gorak! Frozen Man: My name is Larry.
+tv-southpark	life	tv-quote	general	0	Stan: Ah! A snake! Kyle: No, dude, that's a branch. Stan: Oh. Ah! It's a snake! Kyle: No, dude, that's the same branch again.
+tv-southpark	life	tv-quote	general	0	Kelly: Lenny, if we make it out of this, I wanna be your girlfriend, even if we live on either side of the country, I don't care. [moves over to cuddle Kenny. Kelly attempts pick her nose, which proves difficult because she is tied up]
+tv-southpark	life	tv-quote	general	0	Stan: Ms. Stevens, you have a bug on your back. Ms. Stevens: Oh, could you swat it off? [turns around to reveal giant fly on her back] Stan: No...
+tv-southpark	life	tv-quote	general	0	Cartman (Whacking a Three Toed Sloth with a stick) Bad! That's a bad three toed sloth!
+tv-southpark	life	tv-quote	general	0	Kyle: I just want a nurection so I can give it to my mom. Pedestrian: What?
+tv-southpark	life	tv-quote	general	0	Stan: That's the fifth store we've been kicked out of. Why is it so hard to get an erection?
+tv-southpark	faith	tv-quote	general	0	Kyle: So Jesus died and then three days later he had an erection.
+tv-southpark	faith	tv-quote	general	0	Cartman: [on the cross] You guys are in big trouble, now get me down from nyah!
+tv-southpark	family	tv-quote	general	0	Stan: What are you doing, Dad? Randy: Stanley, I think it's best you live with Kyle from now on. His dad is better than me. Stan: No, he's not. He can't even get an erection! Randy: Heh heh heh! Really?
+tv-southpark	society	tv-quote	general	0	Mayor: Marsh, I'm not asking you, I'm telling you! Find the cause of spontaneous combustion or else! Randy: Or else what? Mayor: Exactly!
+tv-southpark	faith	tv-quote	general	0	Priest Maxi: Now, let us pray. Lord, though we have lost Neil Smith to free agency and Steve Atwater to the Jets, still, we hope our beloved Broncos can bring home another Super Bowl championship, and once again bathe in the glory of your light. Amen.
+tv-southpark	faith	tv-quote	general	0	Priest Maxi: Good. Boys, how would you like to perform the Stations of the Cross this Friday night? Stan: The what? Priest Maxi: It's like a skit, where you re-enact the death and glorious resurrection of Jesus Christ. Kyle: Hey, res-erection! That's what my dad needs!
+tv-southpark	life	tv-quote	general	0	Stan: Well, we're gonna go work on getting Kyle's dad an erection. [the boys go up the stairs] Randy: [resumes] Yes, yes, of course. I've got work to do. [the door closes] What?
+tv-southpark	life	tv-quote	general	0	[Randy's dream] [The Most Popular Man In South Park. Hands move him over the crowd] Crowd: Randy! Randy! Randy! Randy! Man: We love you, Randy. Woman: Make love to me, Randy. Please!
+tv-southpark	faith	tv-quote	edgy	1	Chef: I got something to tell you. Cartman What? Chef: You're not gonna like it. Cartman: What? Chef: It's really gonna piss you off. Cartman: What? Chef: Okay. This is a dream. You still on that cross! Cartman: [wakes up] Goddammit!
+tv-southpark	faith	tv-quote	general	0	Priest Maxi: Blessed be the name of Jesus! Crowd: It's a great name, isn't it?
+tv-southpark	life	tv-quote	general	0	Cartman: [to Stan and Kyle] When I get down from here, I'm gonna kick you both right in the nuts!
+tv-southpark	life	tv-quote	general	0	[after Randy tells the crowd how to save themselves] Crowd: Randy! Randy! Randy! Randy! Man: We love you, Randy. Old Woman: [in a wheelchair] Make love to me, Randy. Please!
+tv-southpark	life	tv-quote	general	0	Cartman: Officer Barbrady! [Officer Barbrady looks at Cartman, who is crucified] Officer Barbrady: Ooh, a T... T..is for turtle. [walks away]
+tv-southpark	life	tv-quote	general	0	Mr. Derp: Aren't I a great character? My antics go right to the funny bone!
+tv-southpark	life	tv-quote	edgy	1	Mr. Garrison: And never let poontang come between you and your friend! Chef: Damn right, Garrison!
+tv-southpark	life	tv-quote	edgy	1	Stan: Excuse me, we're looking for Chef. Woman at front desk: Chef? Kyle: He's a big guy with a beard. Stan: And a chef's hat. Kenny: And a real huge dick. Woman at front desk: Oh, the black guy. Stan: huh?
+tv-southpark	love	tv-quote	general	0	Priest Maxi: Do you, Chef, take this woman as your lawful-wedded wife, to have and to- Chef: I do! Chef's Mother: Aaah, my baby's getting married! Priest Maxi: And do you, Veronica, take Chef to be your daddy?
+tv-southpark	life	tv-quote	general	0	Mr. Adler: Don't screw around in Shop Class!
+tv-southpark	life	tv-quote	general	0	[After writing a suicide note, Mr. Adler lies on a conveyor belt and it takes him feet-first to a buzz-saw, which he hopes will kill him] Mr. Adler: Jesus Christ! [sits up and repositions himself to go head-first] What was I thinking? That would've hurt like hell!
+tv-southpark	life	tv-quote	general	0	Mayor: You're supposed to lose, you idiot! Officer Barbrady: Where am I? [From this point on the male Jakovasaur is known as Jakov] Jakov: Whoo, Niners! Go, Niners! Randy Marsh: Uh we're rooting for the Broncos here, Jakov. Jakov: [pause] Whooooo, Niners!
+tv-southpark	life	tv-quote	nsfw	1	Mr. Garrison: Now, wait a minute. I wanna clear the air here. We all know that pigeon was a whore. Raise your hand if you didn't sleep with that pigeon? [everybody around him raises his or her hand] Oh, whatever!
+tv-southpark	life	tv-quote	general	0	Stan: Oh, no, there's nothing worse than Cartman with authoritah!
+tv-southpark	life	tv-quote	edgy	1	[The boys are camping by the pond] Cartman: Hey guys, check out this song I made up, it's called "I hate you guys." [singing] I hate you guys! You guys are assholes! Especially Kenny! I hate him the most!
+tv-southpark	life	tv-quote	general	0	Mr. Garrison: Now kids we're going to talk about sexual harassment
+tv-southpark	life	tv-quote	general	0	Cartman: Is sexual harassment when you're making out with a girl and a guy tickles your balls from behind?
+tv-southpark	life	tv-quote	general	0	Mr. Garrison: No cartman, That's not sexual harassment
+tv-southpark	life	tv-quote	general	0	Sexual Harrassment Panda: When one Panda puts his furry little willy in another Panda's ear, that makes me a saaaaaaaaad Panda.
+tv-southpark	life	tv-quote	general	0	Sexual Harrassment Panda: How would you like a big Panda punch in your puss?
+tv-southpark	life	quip	general	0	Another misfit mascot: Hello kids, I'm Hoppy the 'don't do stuff that might irritate your inner ear' badger.
+tv-southpark	nature	tv-quote	general	0	Shelley: They're having a cat orgy!
+tv-southpark	life	tv-quote	general	0	Cartman: They mostly come out at night...mostly.
+tv-southpark	life	tv-quote	general	0	Pip: Can I be Jaclyn Smith? Can I? Butters: No, uh, I get to be Jaclyn Smith. See, I thought of Charlie's Angels and I get to be Jaclyn Smith c-cause I thought of it.
+tv-southpark	life	tv-quote	general	0	Gerald: Just because we shared an intimate moment in the hot tub, I'm not going to let it-- Randy: We did not share an intimate moment, okay? That makes it sound gay!
+tv-southpark	life	tv-quote	edgy	1	Mr. Garrison: Great party, Mr. Mackey. Mr. Hat just grabbed Principal Victoria's ass.
+tv-southpark	faith	tv-quote	general	0	Butters: Oh dear God, they're gonna set us on fire. Oh great Jesus son of Mary, wife of Joseph! What are we gonna do, huh? Oh sweet Joseph, husband of Mary but not father of sweet Jesus.
+tv-southpark	life	tv-quote	general	0	Jimbo: We're all a little gay.
+tv-southpark	society	dark	general	0	ATF Agent: We're not gonna let them commit suicide, even if we have to kill them.
+tv-southpark	food	tv-quote	general	0	Moses: I desire...macaroni pictures.
+tv-southpark	life	tv-quote	general	0	Kyle: He [Kenny] doesn't get cake? Moses: No cake for the impurity!
+tv-southpark	faith	tv-quote	general	0	Moses: And let us glue paper plates together with beans inside so when you shake them they make rattling noises. Rabbi: Paper plate bean shakers, of course! Moses: And let us put patterns of glue on the outside and glitter so they look all nice and sparkly.
+tv-southpark	life	tv-quote	general	0	Stan: This is great! Cartman: Yeah, but where's that crappy song coming from? Could you turn that off? [Marvin turns off theme music] Stan: Yeah, that's better.
+tv-southpark	faith	tv-quote	general	0	Missionary: An alien race? Have they heard the word of Christ? Cartman: No, never! It's perfect!
+tv-southpark	life	tv-quote	general	0	Cartman: Isn't the name of your planet already Marklar? Chief-Marklar: We on Marklar call all things, people and places Marklar. Kyle: Isn't that totally confusing? Chief-Marklar: No, not at all. Hey! Marklar! A Marklar in the crowd: Yes? Chief-Marklar: See!
+tv-southpark	society	quip	general	0	Sign on seized spaceship: PROPERTY OF U.S. GOVT. THANK YOU
+tv-southpark	life	tv-quote	general	0	Radio Announcer: How do you feel about the KOZY-FM Halloween Haunt, little boy? Stan: This one time, like eight months ago, I saw two guys kissing in a park. And that was the gayest thing I'd ever seen, until I saw the KOZY-FM Halloween Haunt.
+tv-southpark	life	tv-quote	edgy	1	Cartman: We could shove a stick up her ass and use her like a puppet: "Rowr, rowr, I'm Scary Grandma!"
+tv-southpark	faith	tv-quote	general	0	Cartman: [singing] Here's a little dreidel that's small and made of clay. But I'm not gonna play with it 'cause dreidel's friggin' gay.
+tv-southpark	life	tv-quote	general	0	Reporter: Some even crapped themselves to death while others ruined a pair of good pants!
+tv-southpark	life	tv-quote	nsfw	1	Cartman: Hmm. Work for you, have my penis cut off. Work for you, have my penis cut off. Hmm, let's see.
+tv-southpark	life	tv-quote	general	0	Cartman: Do not wake up till morning, or I will kick you in the nuts. Oooh, in the nuts.
+tv-southpark	life	tv-quote	general	0	Kyle: All right, let's go. Timmy: Go! Timm-ay! [shoots off on his wheelchair, pulling Kenny's tooth (which isn't loose) hard] Kenny: [howls; he is pulled out of his parka] Aargh! Cartman: [laughs] Look, guys! I can see Kenny's little pingling!
+tv-southpark	society	tv-quote	edgy	1	Pip: Let's hear it for Cartman's big fat ass! [Cartman throws stone at Pip, who is struck and falls.] Cartman: Do British people count as an ethnicity for hate crimes? Others: Nah. Cartman: Sweet.
+tv-southpark	life	tv-quote	edgy	1	Stan: You know something, guys? I think we all took Cartman's ass for granted.
+tv-southpark	society	tv-quote	general	0	Mr. Garrison: Very good, Kyle. Now, who can tell me what famous person wrote the Declaration of Independence? Let's see. Oh, I know. How about the new student, Timmy? Timmy: Timmiihh! Mr. Garrison: No, it wasn't you, Timmy.
+tv-southpark	arts	quip	general	0	Kurt Loder: Phil Collins, by the way, divorced his wife via fax and then married a 27-year-old.
+tv-southpark	life	tv-quote	general	0	Stuart: Oh god I'm going to crap my pants!
+tv-southpark	life	tv-quote	general	0	Stuart: I'm not going to make it. I'm going to be sick. Oh my stomach!
+tv-southpark	life	tv-quote	general	0	Stan: Dude! I think these guys mean to have sexual encounters with us!
+tv-southpark	life	tv-quote	nsfw	1	Mr Garrison: I do not have sex with boys. I like men my own age. Ah! I mean I like women. Ah! What did I just say? I like titties!
+tv-southpark	faith	tv-quote	general	0	Stan and Kyle: Hello, Chef. Chef: My name isn't Chef anymore, children. I converted to Islam. Stan: Islam? Chef: From now on, my name is Abdul Mohammed Jabar Rauf Kareem Ali.
+tv-southpark	society	tv-quote	edgy	1	Mr. Garrison: Oh, I'm sorry, Chef, Mr. Hat is a racist son of a bitch. Mr. Hat: Don't apologize for me to that spearchucker!
+tv-southpark	life	tv-quote	general	0	Wendy: Bebe...I'm attracted to Cartman. Bebe: Aaaaaaahhh! Wendy: I know...
+tv-southpark	society	tv-quote	general	0	KKK: [chanting] White power! White power! Klan Leader: Well that's enough rallying for this afternoon, members! Let's take a hot shower. KKK: [chanting] Hot shower! Hot shower! Hot shower!
+tv-southpark	life	tv-quote	general	0	Jimbo: [whispering] All right, Ned, we gotta be careful. These are really evil men we're dealing with here... Ned: [loudly because of his voicebox] Okay... Jimbo: [whispering angrily] Dammit, Ned, doesn't that thing have a volume control? Ned: [loudly] No.
+tv-southpark	society	tv-quote	general	0	Klan Leader: Now, brothers, it is time for us all to come together and do our cake raffle! KKK: [conversing] Oooooh, Cake Raffle! Klan Leader: This week's winner is 2...9...7...4. Klan Member: I won! I won! I won the cake! Klan Leader: Good job, Brother.
+tv-southpark	life	tv-quote	general	0	Cartman: Thanks Wendy. Don't call us, we won't call you neither.
+tv-southpark	life	tv-quote	edgy	1	Cartman: You guys, I had a dream of how I can make ten million dollars. You ready? ...Boy band. Stan: Boy band? Cartman: Boy band. Kyle: I'm not joining any faggy boy band. Cartman: There's nothing faggy about ten million dollars, asshole!
+tv-southpark	faith	tv-quote	general	0	Stan: [after Kenny is hit by a bus] Oh my God! They killed Kenny! Butters: He had sins that he didn't confess! Stan: He's doomed.
+tv-southpark	life	tv-quote	general	0	Cartman: It's a man's obligation to stick his boneration in a woman's separation; this sort of penetration will increase the population of the younger generation.
+tv-southpark	life	tv-quote	general	0	Satan: No, it can't be! You're dead! I killed you! Saddam Hussein: Yeah, you killed me. So? Where was I gonna go, Detroit?
+tv-southpark	faith	tv-quote	edgy	1	[Cartman preaching behind the school] Cartman: Many of you knew Kenny McCormick. He was a playful school-going 8-year-old. And then yesterday, he was smacked down by the Lord-ah! God bitch-slapped him right down to the fiery depths of hell-ah!
+tv-southpark	life	tv-quote	general	0	[Kenny has arrived in Mexico] Kenny: [muffled by his parka] Where am I? Mexican: Qué? Kenny: [muffled] Where am I?! Mexican: Qué?
+tv-southpark	life	tv-quote	general	0	Chris: Satan! Satan: Chris! [they run to embrace each other] Satan: But I thought Saddam killed you? Chris: Well, yeah, where was I going to go, Detroit?
+tv-southpark	faith	tv-quote	edgy	1	God: [after hearing Satan's story] Jesus, what the hell happened to you? Satan: Huh? God: You got kicked out of here for being a headstrong rebel. And now you're a whiny little bitch.
+tv-southpark	life	tv-quote	general	0	Officer Barbrady: Now there's two of those things!
+tv-southpark	food	tv-quote	general	0	[Kyle has agreed to buy a turkey from a rancher] Kyle: How much? Rancher: Fifty bucks. Kyle: But you were just gonna take it out in the backyard and put a bullet in its head! Rancher: I know! Now I gotta find somethin' else to shoot.
+tv-southpark	life	tv-quote	edgy	1	Cartman: Speak to me, Helen. Let me be your voice. [nothing happens] Come on, you blind bitch! Channel your spirit through me!
+tv-southpark	life	tv-quote	general	0	[Cartman has agreed to be blindfolded and earmuffed to get an idea of Helen Keller's perspective; he sees various frightening images] Cartman: Oh, man! Maynard: What did you see? Cartman: Nothing, just the same old crap I always see when I close my eyes.
+tv-southpark	life	tv-quote	general	0	Mr. Mackey: Every year the fourth-graders do The Miracle Worker and every year I have to sit and watch it. Principal Victoria: Yeah, I swore that if I had to see it one more time I'd put a bullet in my head. But luckily I got really stoned before I came.
+tv-southpark	life	tv-quote	nsfw	1	Pip: Joe, do you know anything about women? Joe: Sure! They're those things with vaginas in 'em!
+tv-southpark	life	quip	general	0	Pocket: Oh, we'll have a gay old time! ...and by "gay", I mean "happy" not "penetration of the bum"!
+tv-southpark	food	tv-quote	general	0	Audience Member: Hey kid! I'll give you 20 bucks to eat a really old piece of bacon!
+tv-southpark	life	tv-quote	edgy	1	Counselor Rick: Hello, camper! My name is Rick. How are you doing? Cartman: Well, I'm pissed off, Rick! How are you?
+tv-southpark	life	tv-quote	edgy	1	Stan: [after the fake Kenny suffocates in Miss Crabtree's uterus] Oh my God! They killed Kenny! Sort of. Kyle: Yeah! They killed Kenny...'s look-alike. You bastards!
+tv-southpark	life	tv-quote	general	0	Cartman: Mom, tell them how everyone in your family was big-boned. Tell them how they were fat, but grew into their bodies when they got older. Liane Cartman: Oh, sweetie, those were all lies. You're just fat.
+tv-southpark	life	tv-quote	general	0	Kyle: Dude. I don't know if I'm going to like the new Eric Cartman. Stan: Did you like the old one? Kyle: Good point.
+tv-southpark	life	tv-quote	general	0	Kyle: What's "bad touch"? Cartman: Something 'bout a swimsuit, I don't remember, but you definitely answer "bad touch"!
+tv-southpark	life	tv-quote	general	0	Butters: Aww, I was just about to sacrifice myself to Mr. Elway.
+tv-southpark	life	tv-quote	nsfw	1	Cartman: Jeez, you're a little irritable, Kyle. What's the matter, you got some sand in your vagina?
+tv-southpark	arts	tv-quote	nsfw	1	Cartman: Don't worry, Kyle's just got a little sand in his vagina. Kyle: There's no sand in my vagina!
+tv-southpark	life	tv-quote	edgy	1	Mr. Garrison: Hey there, shitty-shitty fag-fag, shitty-shitty fag-fag, how do you do?
+tv-southpark	life	tv-quote	edgy	1	Cartman: I said "shit" on television.
+tv-southpark	life	tv-quote	edgy	1	Stan: But they're gonna say "shit" and you're gonna miss it. Kyle: I don't really give a fuck.
+tv-southpark	life	tv-quote	general	0	Cartman: Cripple fight!
+tv-southpark	life	tv-quote	general	0	Cartman: [over PA] Attention, shoppers, outside today we have Cripple Fight. Cripple Fight, outside.
+tv-southpark	life	tv-quote	general	0	Jimmy: Sometimes it's like, "Please Timmy, learn a new word," huh, huh. [imitates Timmy] "Timmy!" Timmy: [angry] Aahhh! Jimmy: [continues impression] I'm living a lie, I'm living a lie, Timmy!
+tv-southpark	family	tv-quote	general	0	Randy Marsh: Kenny's dad and I were in Scouts for years. Stan: Was your dad in Scouts, Cartman? Oh yeah, you don't have a dad. [everyone laughs] Cartman: That's not funny! Jesus Christ!
+tv-southpark	life	tv-quote	general	0	Timmy: Timmah! Jimmy: Not this year!
+tv-southpark	life	tv-quote	general	0	Jimmy: Timmy? Timmy, I told you to put on the hat! [punches him in the stomach]
+tv-southpark	life	tv-quote	edgy	1	Jimmy: You dirty motherfucker!
+tv-southpark	life	tv-quote	general	0	Cartman: [to Stan and Kyle] Ahhh, that's so sweet, you guys! Hey you wanna get a room so you can make out for a while? [laughs. Kyle kicks him in the balls] Ow! [Stan kicks him in the balls] Aargh! [boys take turns kicking him] Stop it! Aaargh!
+tv-southpark	life	tv-quote	general	0	Stan: Kyle, I'm starting to think that this is a really bad idea. Butters: I'm not Kyle, I'm Butters. I thought you were Kyle. Stan No, I'm Stan. Kyle: You're Stan? Where's Kenny? Stan: Who are you? Kyle: I'm Kyle. Cartman: He-he, guess who I am, guys?
+tv-southpark	life	tv-quote	general	0	Kyle: I'm not going anywhere. Stan: Goddammit, I'm not going with you! I wanna stay here! Kyle: Huh? I thought you wanted to leave. Stan: Oh wait, who am I again? Kyle: You're Stan.
+tv-southpark	life	tv-quote	edgy	1	Thom Yorke: [in response to why the band should fly to Colorado] Didn't you hear the letter? This poor kid has cancer! In his ass!
+tv-southpark	society	tv-quote	general	0	Phillip: Say, Terrance, I'm getting worried aboot all these Russians making missiles. Maybe we should stop this "cold war." Terrance: Here's a missile for ya! [farts]
+tv-southpark	life	tv-quote	general	0	Cartman: Look, if you don't come and do this show, I'll make you eat your parents! Phillip: Yeah, whatever, kid. Stan: He'll do it, dude!
+tv-southpark	life	tv-quote	nsfw	1	Stan: Look, you guys! That line isn't long! Kyle: Yeah, but we're not female groupies or random sluts! Cartman: Kenny's a random slut!
+tv-southpark	society	tv-quote	general	0	Kyle: [to God] Why? How could you do this? There are people starving in Alabama! And you give Cartman a million dollars?!
+tv-southpark	life	tv-quote	general	0	Cartman: If you see anyone on my propertah, especially Stan or Kyle, you are to shoot on sight!
+tv-southpark	life	tv-quote	edgy	1	Cartman: What about all the years I spent making Grandma like me? All the wet, spit-filled kisses I put up with? The constant smell of aspirin and pee? Don't tell me I didn't earn it, you son of a bitch.
+tv-southpark	faith	quip	general	0	Kyle: Then I was right. Job has all his children killed, and Michael Bay gets to keep making movies. There isn't a God.
+tv-southpark	life	tv-quote	general	0	Miss Choksondik: You think that sex is about fun and games and love? Wrong! Sex is about disease.
+tv-southpark	life	tv-quote	general	0	Chef: The right time to start having sex is 17. Sheila: So you mean 17 as long as you're in love? Chef: Nope, just 17. Gerald: But what if you're not ready at 17? Chef: 17, you're ready.
+tv-southpark	life	tv-quote	edgy	1	Ms. Choksondik: Are you wearing a condom? Mr. Mackey: Uh, no. Ms. Choksondik: Oh, well. Fuck it.
+tv-southpark	life	tv-quote	general	0	Mr. Mackey: Eric, what the hell are you doing? Cartman: I'm puttin' on a new condom. I filled the other one up. Mr. Mackey: Why are you wearing a condom? Cartman: So I don't get AIDS. Mr. Mackey: Eric, you can't get AIDS from just sitting around. You have to get it from sex.
+tv-southpark	life	tv-quote	general	0	Towelie: Don't forget to bring a towel... you wanna get high?
+tv-southpark	life	tv-quote	general	0	Cartman: Towelie, you are the worst character ever. Towelie: I know.
+tv-southpark	life	tv-quote	general	0	Towelie: If you go to a motel, be sure to bring your own towel.
+tv-southpark	life	tv-quote	general	0	Cartman: You just have no long-term memory because you get high all the time. Towelie: Don't preach to me, fatso! Cartman: I can preach to you all I want, 'cause you're stupid! Towelie: You're stupid! Cartman: Oh yeah, well you're a towel! Towelie: You're a towel!
+tv-southpark	life	tv-quote	general	0	Towelie: Oh man, I'm so high right now. I have no idea what's going on.
+tv-southpark	life	tv-quote	edgy	1	Towelie: That's my last J, asshole!
+tv-southpark	society	tv-quote	general	0	Stan: America may have some problems, but it's our home, our team. And if you don't wanna root for your team, then you should get the hell out of the stadium.
+tv-southpark	life	tv-quote	general	0	Cartman: I told you, jawas have no heart. Kyle: Jawas? Cartman: You know, sand people.
+tv-southpark	society	tv-quote	general	0	Stan's Afghan counterpart: [to the other counterparts] We're speaking in English; does that make sense?
+tv-southpark	society	tv-quote	general	0	CNN Newscaster: The world has backed down from its support of the U.S., saying they were only really just kidding.
+tv-southpark	family	tv-quote	general	0	Randy Marsh: Stanley, your mom's a little freaked out right now. Why don't you go outside and play with your big brown package from Afghanistan?
+tv-southpark	society	tv-quote	general	0	Randy Marsh: Sharon, don't you think maybe you should watch something else? You've been watching CNN for about [checks his watch] eight weeks now?
+tv-southpark	life	tv-quote	general	0	Photographer: Take off your hat, please? Kyle: But I never take off my hat. Photographer: Come on now, I bet your parents want a picture of you lookin' natural. Kyle: This is how I look natural.
+tv-southpark	life	tv-quote	general	0	Jimmy: Why did the...pigeon cross the road? Cartman: Okay, why? Jimmy: Because it was having sex with the chihi... Because it was having sex with the ch-hi-hi... Because it was having sex with the ch-ch-ch-ch-ch-ch-ch... eh, it was having sex with the ch-ch-hiicken.
+tv-southpark	life	tv-quote	general	0	[Kyle's cousin = Kyle. Kyle Broflovski = Kyle 2]
+tv-southpark	life	tv-quote	general	0	Kyle 2: But what about Cartman?! He rips on ME for being Jewish! He's gonna tear this kid apart!
+tv-southpark	life	tv-quote	general	0	Kyle 2: [after seeing commercial for IT] That looks pretty gay.
+tv-southpark	life	tv-quote	general	0	Will Smith Jr: ...and these are Puff Daddy's kids: P-Diddy Mini, P-Poofy Bite-Size, and Puffa-Diddy Diddy Puff Fun-Size.
+tv-southpark	life	tv-quote	edgy	1	Mr. Garrison: Well at least we got rid of those goddamn nig- [episode ends]
+tv-southpark	life	tv-quote	general	0	Cartman: [on the phone] Oh, please! Okay, you tell me where you can get aborted fetuses for 70 cents on the dollar. You tell me, Chuck... Yeah, I didn't think so. You know, I'm just like the fetuses, Chuck: I wasn't born yesterday either!
+tv-southpark	life	tv-quote	general	0	Cartman: I'm telling you, if you let this deal pass you by, you're making a fetal mistake. [laughs]
+tv-southpark	life	tv-quote	general	0	[Kenny has just died] Stan: Did he say anything before he went? Kyle: He just said, "Where's Stan?"
+tv-southpark	life	tv-quote	general	0	Butters: [on seeing his dad "wrestling"] Yep. He went in there and wrestled with all kinds o' guys. He wasn't too good, though. This one black guy had him pinned down for fifteen minutes straight!
+tv-southpark	life	tv-quote	general	0	Butters: Oh, you mean like the time you washed my mouth out with soap for sayin' "nutsack" in front of Grandma. Yeah, I need to behave myself. [slaps his right hand with his left]
+tv-southpark	life	tv-quote	edgy	1	Truck Driver: Yeah. Too bad you're not a broad, 'cause I need some goddamn poontang. Butters: Yeah. I could use some goddamn poontang myself right now.
+tv-southpark	life	tv-quote	general	0	Butters: You know, you can call a shovel an ice-cream machine, but it's still a shovel, Mom and Dad. Ah, and you can call a lie whatever you want, but it's still a no-good stinking lie!
+tv-southpark	society	dark	general	0	Gary Condit, O.J. Simpson, and the Ramseys: One of us, One of us, Gooble Gobble, Gooble Gobble, One of us!"
+tv-southpark	life	tv-quote	general	0	Butters: Oh well, when I get a chipotle bleu-cheese bacon burger at Bennigan's, I forget all about my dad being queer and my mom trying to kill me. I'm gonna be okay. Stan: Really? Butters: No, I'm lying.
+tv-southpark	life	tv-quote	general	0	Cartman: I can't lose weight, Butters, because I'm not fat, I'm big-boned. You can't slim down bones, stupid!
+tv-southpark	life	tv-quote	general	0	Mr. Garrison: There he is, beatin' that dead horse!
+tv-southpark	life	tv-quote	general	0	Butters: Guys, I can't eat no more. I just keep on pukin' it up. Cartman: Then eat your puke! Butters: No! Cartman: C'mon, Japanese girls do it!
+tv-southpark	life	tv-quote	general	0	Thumper: If you French fry when you should have Pizza'd, you're gonna have a bad time...
+tv-southpark	life	tv-quote	general	0	Tad: What's your name, hot shot? Stan: Stan. Marsh. Tad: Stan Marsh? [laughs] Stan Darsh is more like it.
+tv-southpark	life	tv-quote	edgy	1	Cartman: Hey you guys, Butters is asleep. Stan: He's such a douche-bag.
+tv-southpark	society	tv-quote	edgy	1	Kyle: This is terrible, dude. Maury Povich parades these poor people around on his show like carnival freaks and then gives them prizes at the end as if to justify it. What a dick!
+tv-southpark	life	tv-quote	general	0	Butters: I promise I'll never go on TV with balls on my chin again.
+tv-southpark	life	tv-quote	general	0	Cartman: Oh yeah? I run with 12 gangs, and we only commit hate crimes. Whatevah--I do what I want!
+tv-southpark	life	tv-quote	general	0	Man with Terrible Skin Condition: The first group will be lead by Incredibly Obese Black Man. Large-Sized African-American Freak: Excuse me, I'm not Incredibly Obese Black Man. I'm Incredibly Black Obese Man. Man with Terrible Skin Condition: Oh right, my bad.
+tv-southpark	life	tv-quote	nsfw	1	Butters: I've got to get back to my family. Man with Terrible Skin Condition: We're your family too, Napoleon. We're like you. When we look at you, we don't even see the testicles on your chin, we see the testicles in your heart.
+tv-southpark	life	tv-quote	general	0	Unlabeled Freak: Sure, everyone in this great country of ours is a freak, but true, physically deformed freaks must be recognized, for it's these real freaks that make you all feel better about yourselves for not being one.
+tv-southpark	life	tv-quote	edgy	1	Vanessa: [after being booed by the audience] Whateva! Whateva! You fucking cocksuckers don't know shit! Fuck you!
+tv-southpark	life	tv-quote	general	0	Cartman: I was once involved in a drive-by shooting! Whatevah, I do what I want!
+tv-southpark	life	tv-quote	general	0	Vanessa: You ain't bad, you ain't nuthin'! I ditch class to go shoot heroin in the school bathroom! Cartman: I'm so bad I ran for Congress and won! Then I had sex with an intern, killed her, then hid her body! Whatevah, I do what I want!
+tv-southpark	arts	tv-quote	general	0	Cartman: I'm so bad I digitally put Jabba the Hut back in the original Star Wars movie! Whatevah, I do what I want! Maury Povich: Wow! That is out of control!
+tv-southpark	life	tv-quote	general	0	Randy Marsh: We gave those kids everything and they turned into little John Walkers!
+tv-southpark	food	tv-quote	general	0	Cartman: [to a baby cow] Go ahead, that's more for us. You want some beef jerky, buddy? Yes, who's the buddy? Who's hungry? Who's the hungry man? Kyle: Dude, that's messed up!
+tv-southpark	life	tv-quote	general	0	FBI Leader: All right that's it. You are in fact the worst negotiator I've ever seen in action. Mike: All right, I'll give you that. But in exchange I want 3 staples. FBI Leader: Get the hell out of here!
+tv-southpark	life	tv-quote	edgy	1	Cartman: What are you waiting for? Go kill them, Worf! Michael Dorn: I'm not killing anybody! Cartman: Ugh! Some goddamned Klingon you are!
+tv-southpark	life	dark	nsfw	1	Doctor: You see these sores are all tiny vaginas. If he had stopped eating meat completely, he would've turned into one giant pussy.
+tv-southpark	life	tv-quote	nsfw	1	Barkeep: Look, this is a bar! We can't have children in here. People come here for debauchery and sin! Cartman: Butters will give handjobs in the corner for a dollar. Butters: Well sure! I'm good at all kinds of jobs.
+tv-southpark	life	dark	nsfw	1	Russell Crowe: Well, we found out that I couldn't actually fight cancer, but we did find a person with cancer. [brings out a sickly cancer patient and begins beating him severely] Come on, cancer, ya pussy! Is that all you got?!
+tv-southpark	arts	tv-quote	nsfw	1	Russell Crowe: My fightin's poetry! You don't edit Russell Crowe's poetry, ya testicle! [beats up the editor]
+tv-southpark	life	tv-quote	general	0	Chef: Hello, is this customer service? I'm having a problem with my new television: it's sprouted laser guns and started walking around shooting people.
+tv-southpark	life	tv-quote	general	0	Towelie: [high] Well, I really hope I win 'cause... Wait, what is this again? Oh man, I have no idea what's goin' on.
+tv-southpark	food	tv-quote	general	0	Pip: Can I have some tea, please? Cartman: You don't drink tea in a ballpark, you French piece of crap! Pip: Oh, very well. Just some crumpets, then.
+tv-southpark	life	tv-quote	general	0	General Disarray: Simpsons did it! Simpsons did it!
+tv-southpark	life	tv-quote	general	0	Tweek: But, what if when I'm trying to put on the nose, the snowman comes alive and tries to kill me? Stan: Tweek, when has that ever happened, except that one time?
+tv-southpark	life	tv-quote	edgy	1	Chef: Hello there, children. Stan: Chef, what would a priest want to do to my ass? Chef: Goodbye.
+tv-southpark	faith	tv-quote	general	0	Bishop: O Great Queen Spider, we wish to change one of the Vatican laws. Queen Spider: No, the Vatican laws cannot be changed, so sayeth the spider.
+tv-southpark	life	tv-quote	general	0	Kyle: Cartman, that's the dumbest thing you've ever said, this week.
+tv-southpark	faith	tv-quote	general	0	Priest: Father, uh, having sex with boys is part of the Catholic priest's way of life.
+tv-southpark	faith	tv-quote	general	0	Cardinal: Well, what do you suggest we change, Father Maxi? Father Maxi: Well, for one, no sex with boys. Congregation: Awwwwww! Rabble rabble rabble!
+tv-southpark	life	tv-quote	nsfw	1	Bebe's Mother: Part of being a woman is having a friend one day and calling her a slut the next.
+tv-southpark	life	tv-quote	general	0	Bebe: Mom, what's six times eight? Bebe's Mother: Oh sweetie, those are two completely different numbers.
+tv-southpark	life	tv-quote	edgy	1	Bebe: Having boobs sucks.
+tv-southpark	life	tv-quote	nsfw	1	Wendy: [fake coughing] Slut! Slut!
+tv-southpark	life	tv-quote	general	0	Butters: [feeling Wendy's enhanced breasts] Eew! They're all hard and oogy!
+tv-southpark	society	tv-quote	general	0	Mr. Mackey: Now, who can tell me when the first moon landing took place? Uh, how about you, Clyde? Clyde's Dad: Nineteen-sixty-- Mr. Mackey: No helping!
+tv-southpark	life	tv-quote	edgy	1	Tuong Lu Kim: Goddamn Mongorians! Stop tearing down my shitty wall!
+tv-southpark	food	tv-quote	general	0	Tuong Lu Kim: When those Mongorians come next time, I pour this sweet and sour pork on their heads. Ha ha, sweet and sour pork so hot and sticky, Mongorians stick ahright up to the wall! And scream "Uh-wo-o-o!" Oh I can't wait.
+tv-southpark	society	tv-quote	general	0	Parents: [in protest] Rabble, rabble, rabble, rabble!
+tv-southpark	life	tv-quote	general	0	Mr. Mackey: Mom, Dad, could you please leave me alone? Mr. Mackey's Dad: We just want to make sure no one hurts you, Junior, m'kay? Mr. Mackey: M'kay.
+tv-southpark	society	tv-quote	edgy	1	News Reporter: And so the residents of Manhattan are prepared to evacuate if Ms. Clinton's ass gets any bigger.
+tv-southpark	family	tv-quote	general	0	Stan: [after their parents send them to live outside of South Park] Dude, sometimes I think our parents are really stupid.
+tv-southpark	life	tv-quote	general	0	Stan: [muttering] Jesus Christ. They've done some stupid crap before, but Jesus Christ!
+tv-southpark	faith	tv-quote	edgy	1	Mr. Garrison: [nonchalantly] A ladder to heaven? That's fucking stupid.
+tv-southpark	life	dark	nsfw	1	Reporter: Do you believe in the ladder to heaven? Fat Man: If heaven is an 8-year-old boy and the ladder is my penis... [the cameraman steers away, but the fat man tries to get back on screen] And the pearly gates are the-- [static]
+tv-southpark	life	tv-quote	nsfw	1	Fat Man: If Saddam Hussein was an 8-year-old boy and my penis were the United States, then there wou-- [cameraman steers away] Hard nipples! [cut to anchor] Anchor: Goddammit. [holds up static screen and imitates static]
+tv-southpark	life	tv-quote	general	0	Kyle: Dude, what the hell's wrong with you? Cartman: I don't know! It's like my brain just keeps...jacking off. Kyle: Maybe you've got brain cancer. Cartman: You think?! Stan: Don't get cancer on the ladder, Cartman! You're gonna fall off and break it.
+tv-southpark	faith	tv-quote	general	0	Alan Jackson: Where were you when they built the ladder to heaven? Did it make you feel like cryin' Or did you think it was kinda gay? Well I, for one, believe in the ladder to heaven Oh yeah, yeah, yeah... 9/11 I said 9/11, 9/11, 9/11, Ni-hi, hi-hine... ...Eleven
+tv-southpark	arts	tv-quote	edgy	1	Alan Jackson: [in voice more high-pitched than his singing voice] You little bastards ruined my latest song! [smashes guitar]
+tv-southpark	faith	tv-quote	general	0	Cartman: Maybe, we're not seeing heaven because one of us is a J-O-O. Kyle: What does me being a Jew have to do with anything?
+tv-southpark	life	tv-quote	general	0	Cartman: I've never heard the words "only" and "candy" in the same sentence before.
+tv-southpark	life	tv-quote	general	0	Jimmy: [to advancing 6th-graders] YOU SHALL NOT PAAAHHH... YOU SHALL NOT PPPPAA...YOU SHALL NOT P... [gets run over] ...p...p...pass.
+tv-southpark	life	tv-quote	nsfw	1	Cartman: Go ahead and play Harry Butthole Pussy Potter!
+tv-southpark	life	tv-quote	general	0	Mr. Garrison: Eric, did you just throw a paper airplane? Cartman: No, it was Kenny! Mr. Garrison: Very funny, Eric. Kenny's dead!
+tv-southpark	life	tv-quote	general	0	Cartman: I'm not fat, I have a different life choice.
+tv-southpark	life	tv-quote	general	0	Cartman: I'll take three lunches today, please. Chef: You don't need three lunches, Eric! You're fat enough as it is! Cartman: It is my life choice, Chef, and if you don't tolerate it I'll report you to the SEC.
+tv-southpark	society	tv-quote	edgy	1	Cartman: Tolerance kicks ass! [everyone laughs] Randy Marsh: That's our Cartman.
+tv-southpark	life	tv-quote	general	0	Mr. Slave: [lisping] Oh Jesuth Chrith!
+tv-southpark	life	tv-quote	edgy	1	Tour Guide: Now, you boys have probably called this young man names like "tubby" or "lardbutt" or "fat tits"-- Kyle: Ooh, fat tits, that's a good one. Stan: Yeah, we'll have to remember that.
+tv-southpark	life	tv-quote	general	0	TV Announcer: Rob Schneider was an animal. Then he was a woman. And now Rob Schneider is a stapler! And he's about to find out that being a stapler is harder than it looks. Rob Schneider is "The Stapler". Rated PG-13.
+tv-southpark	life	tv-quote	general	0	TV Announcer: Rob Schneider is a Wall Street executive who has everything going for him. Only problem is, he's about to become a carrot! Rob Schneider: I'm a carrot! TV Announcer: It's 24-"carrot" comedy! Rob Schneider is "A Carrot"! Rated PG-13.
+tv-southpark	life	tv-quote	general	0	Chef's Dad: [in the middle of exorcising Kenny from Cartman] Goddammit! The spirit's out and it don't have nowhere to go! Chef's Mom: Lord, Thomas! Don't let it get on the curtains!
+tv-southpark	life	tv-quote	edgy	1	Cartman: Hey, guys! How's it goin'? Chef: Cartman? Stan: No, that's Kenny. Cartman: What the hell are you assholes doing here? Stan: That's Cartman.
+tv-southpark	food	tv-quote	general	0	Chef's Dad: Well, I guess the child's a pot roast now.
+tv-southpark	life	tv-quote	general	0	[After watching a Rob Schneider trailer] Stan and Kyle: Weak! Cartman: [laughing] That was Kenny laughing, not me.
+tv-southpark	faith	tv-quote	edgy	1	[leaving a John Edward show] Chef: Man, I can't believe I got fooled by that asshole! Stan: He seemed a lot better on TV? Chef: ...Yeah.
+tv-southpark	life	tv-quote	general	0	Cartman: Have you seen the poop swatches?
+tv-southpark	life	tv-quote	general	0	Butters: All he ever does is watch "Becker," and that show is so stupid.
+tv-southpark	life	tv-quote	general	0	Cartman: Isn't there anything I can do?! Kyle's cousin: If you cured cancer and AIDS next week, you would still owe two presents. Cartman: Jesus Christ!
+tv-southpark	faith	dark	general	0	[Jesus hands up, is talking to two Iraqis] Jesus: Yea, look upon me and know me. My children, you should know something. [a knife comes out of his sleeve] I'm packing! [Jesus stabs one Iraqi with the knife with one hand and kills the other with a silenced handgun]
+tv-southpark	society	tv-quote	edgy	1	Santa: [to an Iraqi] I'm gonna fucking kill you! Iraqi: You're not in the position to kill anyone. I just want you to tell me America's plan. Santa: Then we're in for a long night, 'cause I don't know shit!
+tv-southpark	life	tv-quote	general	0	Santa: I just couldn't do it. [camera flashes onto dead Iraqi] I just couldn't let him live. He shocked Santa's balls!
+tv-southpark	life	tv-quote	general	0	Randy:Stan! Sheila:Kyle!
+tv-southpark	life	tv-quote	general	0	[Kenny reappears after being dead for the whole sixth season] Kenny: Hey, guys what's going on? Stan: Oh, hey, Kenny. Kyle: Hey, dude, where have you been? Kenny: Over there. [points offscreen]
+tv-southpark	life	tv-quote	edgy	1	Jimmy: Look! My gang, which I can't talk about because it's super secret, is the most important thing to me now! And if you two don't like it, you can just pass the blunt to the nigga on your left.
+tv-southpark	life	tv-quote	general	0	TV reporter: ...if irony were made of strawberries, we'd all be drinking a lot of smoothies right now.
+tv-southpark	life	tv-quote	general	0	Guard: Josh, were you doing the silly voice for the policeman again? Josh: [in a normal, high-pitched voice] No sir.
+tv-southpark	life	tv-quote	edgy	1	Principal Victoria: Will you people stop barging into my office, please? Josh: What's the matter Principal Victoria? Was your mother abusive? Did she spank your thighs with cold cuts and stick umbrellas up your ass?
+tv-southpark	society	tv-quote	general	0	Najix: Well, you don't think the whole universe works the way Earth does, do you? No! One species, one planet! There's a planet of deer, a planet of Asians, and so on! We put them all together on Earth and the whole universe tunes in to watch the fun!
+tv-southpark	arts	tv-quote	general	0	Joozian 2: You've made it to a hundred episodes, you should be proud! Joozian 1: Yeah, a show should never go past a hundred episodes, or else it starts to get stale with ridiculously stupid plotlines and settings.
+tv-southpark	life	tv-quote	general	0	Stan: Dude, I have no idea what we're seeing right now, but I have a feeling it's really, really wrong.
+tv-southpark	life	tv-quote	general	0	Joozian 1: Oh man, I can't believe I sucked your jagon. Joozian 2: Oh God, we did suck each others jagons!
+tv-southpark	life	tv-quote	edgy	1	Chef: He's a doctor who specializes in your asshole, children. Stan: You mean, at one point in this guy's life, he decided he wanted to work up people's buttholes? Chef: That's right! Kyle: What a dick!
+tv-southpark	life	tv-quote	edgy	1	Jennifer Lopez: How the fuck did I end up working at a La Taco?! I had six platinum records and starred in five Hollywood movies! Mexican Guy: Yeah, me too.
+tv-southpark	life	tv-quote	general	0	Record Dude: She's from Mexico, just like you. Jennifer Lopez: I ain't from no Mexico! I'm Puerto Rican!
+tv-southpark	life	tv-quote	general	0	Cartman: Mom-m-m, Ben Affleck is naked in my bed!
+tv-southpark	life	tv-quote	general	0	Cartman: Repeat after me, Jennifer Lopez. Cartman (as Jennifer Lopez): Hennifer Lopez. Cartman: No no, Jeh. Cartman (as Jennifer Lopez): Heh.
+tv-southpark	life	tv-quote	general	0	Cartman (as Jennifer Lopez): You can suck my culo, chica!
+tv-southpark	life	tv-quote	general	0	Cartman (as Jennifer Lopez): Hola, bichola!
+tv-southpark	love	tv-quote	general	0	Cartman (as Jennifer Lopez): Ben! You bought me roses! Ben Affleck: Jenny, oh Jenny, I just can't stop thinking about you. Cartman (as Jennifer Lopez): I can't stop thinking about you either Ben! Ben Affleck: I've been meaning to write a song or a poem, but I have no talent.
+tv-southpark	life	tv-quote	general	0	Randy: Stanley, listen to me . I have SARS. There's only a 98% percent chance that I will live. Stan: No Dad, No! Randy: Listen Stan! SARS is destroying our people. The Native Americans put it in the blankets they gave us. Soon there will be only 98% of us left.
+tv-southpark	life	tv-quote	general	0	Randy: The spirit of middle-class white people is strong in you, son.
+tv-southpark	life	tv-quote	general	0	Randy: There's more to life than profits. Indian Chief: Really, Like what? Randy: You know, like Slurpees and stuff.
+tv-southpark	life	tv-quote	general	0	Randy: Ah women. God I hate them.
+tv-southpark	society	tv-quote	general	0	Cartman: Man, Indians have it good, huh? Randy: Now Eric, they're called Native Americans, remember? Show some respect.
+tv-southpark	life	tv-quote	edgy	1	Indian Chief: Sorry, there are no minors allowed on the casino floor. Cartman: I'm not a miner, dumbass, do you see a shovel in my hand?
+tv-southpark	life	tv-quote	general	0	Cartman: Oh please, Craig, we're 10 times gayer than you are!
+tv-southpark	life	tv-quote	general	0	Cartman: Look, guys. A lot of the kids in school are talking and they are spreading rumors that we're not metro-sexuals because we hang out with Kyle. Stan: Well what can we do about it? Cartman: We have no choice guys. We're just going to have to kill Kyle.
+tv-southpark	life	tv-quote	general	0	Mr. Garrison: Eric, you're not half bi. Cartman: I'm like a quarter bi. My grandpa was bi so that makes me a quarter bi. Mr. Garrison: What?!
+tv-southpark	life	tv-quote	general	0	All Crab People: Crab People! Crab People! Crab Person: Taste like crab, talk like people. All Crab People: Crab People! Crab People!
+tv-southpark	society	tv-quote	general	0	Cartman, Stan, Kenny: We're here! We're not queer! But we're close! Get used to it!
+tv-southpark	life	tv-quote	general	0	Randy: Stan, are you okay? Stan: Yeah dad, we're just rehearsing our band. Randy: Ohh. I thought a group of Vietnamese people were getting their intestines pulled out through their mouths. [closes door, Eric laughs sarcastically]
+tv-southpark	society	tv-quote	edgy	1	Cartman: Token, how many times do we have to go through this? You're black, you can play bass. Token: I'm gettin' sick of your stereotypes. Cartman: Be as sick as you want, just gimme a god damn bass line. Token: [playing a flawless funky bass melody] God damn it.
+tv-southpark	life	tv-quote	general	0	Gerald: The answer is no, Kyle. Kyle: Oh, come on, dad, stop being such a Jew! Sheila: Kyle! Don't belittle your own people.
+tv-southpark	faith	tv-quote	general	0	Butters: Oh, we're not really Chrsitain! We're just pretending we are!
+tv-southpark	life	tv-quote	general	0	[the elderly woman customer walks away shocked, Cartman glares at Butters] Cartman: Butters, remind me later to cut your balls off.
+tv-southpark	arts	tv-quote	general	0	Sergeant Yates: Man must learn to think of these horrible outcomes before he acts selfishly or else--I fear--recording artists will be forever doomed to a life of only semi-luxury.
+tv-southpark	faith	tv-quote	general	0	Cartman: [singing] Don't ever leave me, Jesus. I couldn't stand to see you go My heart would simply snap, my Lord, if you walked on out that door I promise I'll be good to you, and keep you warm at night Jesus, Jesus, Jesus, why don't we just shut off the lights
+tv-southpark	faith	tv-quote	general	0	Cartman: [singing] I wanna get down on my knees and start pleasing Jesus I wanna feel his salvation all over my face
+tv-southpark	society	tv-quote	general	0	TV Reporter: When asked if MOOP's strike will stop them from illegaly downloading music, 1% said "yes". 2% said "no". And, 97% said "Who the hell is MOOP?" Back to you, Tom.
+tv-southpark	arts	tv-quote	general	0	Kyle: We're not letting you back in our band Cartman! F*** off! Cartman: I don't want to be in your crappy band, guys.
+tv-southpark	faith	tv-quote	general	0	Stan: You don't know anything about Christianity, Cartman! Cartman: I know enough to exploit it.
+tv-southpark	arts	quip	general	0	James Hetfield (of Metallica): We're going to protest until music downloading stops.
+tv-southpark	society	tv-quote	general	0	Stan: I think old people should have rights, grandpa. I just don't want to die.
+tv-southpark	life	tv-quote	general	0	Cartman: The poor kid passes it to the Jew, the Jew shoots. Oh, and the shot is blocked again, proving once and for all that Jews cannot play hockey! Kyle: It's not fair! Cartman's fatter than the goal! Cartman: I'm not fat, I just have a sweet hockey body.
+tv-southpark	life	tv-quote	general	0	Randy: Son! Avenge me! Aveeeeenge... meeeh!
+tv-southpark	life	tv-quote	general	0	Kyle: You guys! I have awesome news! Cartman: You have AIDS?
+tv-southpark	life	tv-quote	general	0	Kyle: Yeah Casa Bonita this Saturday! Butters: Wow, that's going to be so great! Stan: Yeah. Just the four of us. Kenny: Yeah!
+tv-southpark	life	tv-quote	general	0	Butters: But Eric, how am I supposed to re-populate the Earth? Cartman: You know like, with your wiener. Butters: With my wiener?!
+tv-southpark	arts	tv-quote	edgy	1	Stan: Dude, it's Kyle's birthday, we should do whatever he wants to do. Cartman: What? Fuck Kyle! Ha! Ha! Just kidding. Birthday joke. Of course we do whatever Kyle wants. Happy birthday Kyle.
+tv-southpark	life	tv-quote	general	0	Police Officer: Well kid, you made an entire town panic, you lost all of your friends and now you're going to Juvenile Hall for a week. Was it all worth it? Cartman: ...Totally.
+tv-southpark	life	tv-quote	edgy	1	Mr. Garrison: Wow, it seems like I don't have a class full of retards anymore, doesn't it, children?
+tv-southpark	life	tv-quote	edgy	1	Cartman: You were supposed to kick his ass, not lick his butthole!
+tv-southpark	life	tv-quote	general	0	Gary's sister: And you must be Stan's sister! Oh, I think your brother's the greatest! Shelley: My brother is a stupid turd!
+tv-southpark	life	tv-quote	edgy	1	Randy: Let me handle this, Sharon. You gotta put these cult people in their place or else they never stop! I'm gonna go kick this Mr. Harrison's ass! [exits and slams the door shut, but quickly returns] Is Mr. Harrison...is a...is a white guy, right?
+tv-southpark	society	tv-quote	general	0	Cartman: He just goes around imposing his will on people, he's my idol.
+tv-southpark	life	tv-quote	general	0	Cartman: Handle it? For two billion dollars I'd handle my grandpa's balls, dude.
+tv-southpark	society	tv-quote	general	0	Cartman: Wow, it's like smoking brings a lot of people just a little bit of joy, and you get to take that away from them! You're awesome.
+tv-southpark	life	tv-quote	general	0	Factory Worker 1: [singing] I like to have a cigarette every now and then. It makes me feel calmer when the day is at an end. Factory Worker 2: [singing] And if it gives me cancer when I'm 80, I don't care. Who the hell wants to be 90 anyway?
+tv-southpark	life	tv-quote	general	0	Rob Reiner: I'm not Rita Poon, I'm Rob Reiner. And you've just been Reiner'd!
+tv-southpark	life	tv-quote	edgy	1	Cartman: I don't idolize you anymore, asshole!
+tv-southpark	love	tv-quote	general	0	Bebe: Wendy breaks up. Stan: What? Bebe: Wendy breaks up with you. Stan: Whoa, whoa, wait a minute! What did I do wrong? I haven't even talked to Wendy for weeks!
+tv-southpark	life	tv-quote	edgy	1	Bebe: Whatever! You guys are assholes! Butters: At least we have assholes you dumb girl!
+tv-southpark	life	tv-quote	nsfw	1	Jimmy: Stan told me to tell you he thinks you're a cont...cont...cont...you're a cont, cont, cont... [sounding like cunt] Wendy: Well tell Stan to fuck off! [leaves] Jimmy: Cont...continuing source of inspiration to him.
+tv-southpark	life	tv-quote	nsfw	1	Butters: Well, thanks for offering to let me in your clique, guys, but, to be honest, I'd rather be a crying little pussy than a faggy Goth kid.
+tv-southpark	life	tv-quote	general	0	Goth Kid: You can't be a nonconformist if you don't drink coffee.
+tv-southpark	society	tv-quote	general	0	Goth Kid: If you want to be one of the nonconformists, all you have to do is dress just like us and listen to the same music we do.
+tv-southpark	life	tv-quote	edgy	1	Stan: Hey, Wendy! You're a bitch. Token, [flips him off] right here, buddy. [Token and Wendy walk off angrily] Kyle: Oh, dude. It's good to have you back. Stan: Yeah, let's play ball.
+tv-southpark	society	tv-quote	general	0	Harry Gints: My name is Harry Gints and this is my wife Elise. We're from Canada. Gerald Broflovski: Yes, I can tell.
+tv-southpark	food	tv-quote	general	0	Harry Gints: It was a tough time for us. It was a tough time for all of Canada. The whole country was devastated by the cola wars...
+tv-southpark	life	tv-quote	general	0	Harry Gints: [referring to Ike] We're going to take good care of him. Kyle: [coldly] You'd better.
+tv-southpark	life	tv-quote	general	0	Cartman: Kyle, I just want you to know, if it were any other time of year, I still wouldn't help you.
+tv-southpark	society	tv-quote	general	0	Mr. Garrison: How 'bout we get rid of all the Mexicans. Mayor McDaniels: Mr. Garrison, every Christmas you suggest we get rid of all the Mexicans, and every Christmas we tell you, "No!" Mr. Garrison: Rats!
+tv-southpark	life	tv-quote	general	0	Kyle: All right! We're going to Canada! Cartman: Weak.
+tv-southpark	life	tv-quote	general	0	Kyle: God damnit, we need to get to the new Prime Minister, now! Steve the Newfoundlander: Oh yeah, the new Prime Minister, eh? He sure has screwed up things for Newfoundland. Life just hasn't been the same since he made sodomy illegal.
+tv-southpark	life	tv-quote	general	0	Rick, the Proud Canadian Mountie: It's okay, boys. The power is inside us to get to Ottawa! We can wish ourselves there! Mime: Ah yes! Lets wish ourselves there! [harps and angelic choir music is heard] Rick, the Proud Canadian Mountie: Is it working?
+tv-southpark	life	tv-quote	general	0	Steve the Newfoundlander: Of course, we could always take me boat, aye.
+tv-southpark	society	tv-quote	general	0	Saddam Hussein: [acting as the Prime Minister of Canada] Uh, don't mind that guy hiding in the spider hole, he's just my friend.
+tv-southpark	life	tv-quote	general	0	Saddam Hussein: Uh, don't shoot! I want to negotiate! Hey, relax!
+tv-southpark	life	tv-quote	general	0	Cartman: Parents? Parents?! [begins a fake sob] OH GOD! [sobs loudly and turns away]
+tv-southpark	society	tv-quote	general	0	Cartman: You see, guys? This is why Jews can't be ninjas. They've got no spine. Kyle: You don't know anything about Jews, fatass!
+tv-southpark	life	tv-quote	general	0	[After Stan's attempt to remove the ninja star] Kyle: Stop, dude! You're gonna scramble his brain! Cartman: Go ahead and scramble it, then he won't remember it was us.
+tv-southpark	life	tv-quote	general	0	Jimmy: Wha-what's the matter, fellas? Are you ninjas or p-p-p-p-p-pussies? Cartman: We're twice the ninjas you fags are!
+tv-southpark	life	tv-quote	general	0	Animal Shelter Worker: Here you go pup, I've got a sweet dose of murder for ya. [notices the open kennel] What the--? Blast it, he's escaped! [sighs, moves towards another dog] Oh well, let's murder one of these other dogs.
+tv-southpark	life	tv-quote	general	0	Chef: Well, you children should be careful with those weapons, you could put somebody's eye out. Kyle: Yeah, we know.
+tv-southpark	life	tv-quote	general	0	[Theme song while boys are fighting.]
+tv-southpark	life	quip	general	0	Hey hey let's go &#21927;&#22057;&#12377;&#12427; &#22823;&#20999;&#12394;&#29289; protect my balls! &#20693;&#12364;&#24746;&#12356; so let's fighting-- Let's fighting love! Let's fighting love!
+tv-southpark	life	observation	general	0	&#12371;&#12398;&#27468;&#12385;&#12423;&#12387;&#12392;&#39340;&#40575; &#12431;&#12369;&#12364;&#12431;&#12363;&#12425;&#12394;&#12356; &#33521;&#35486;&#12364;&#12417;&#12385;&#12419;&#12367;&#12385;&#12419; &#22823;&#19976;&#22827;&#65311; We do it all the time!
+tv-southpark	life	fact	general	0	[Transliteration]
+tv-southpark	life	verse	general	0	Subarashii chinchin mono Kintama no kami aru Sore no oto sarubobo Iie! Ninja ga imasuuuuuuuu
+tv-southpark	life	verse	general	0	Hey hey let's go kenka suru Taisetsu na mono protect my balls! Boku ga warui so let's fighting-- Let's fighting love! Let's fighting love!
+tv-southpark	life	tv-quote	general	0	Kono uta chotto baka Wake ga wakaranai Eigo ga mecha kucha Daijoubu, we do it all the time!
+tv-southpark	life	quip	general	0	[English translation]
+tv-southpark	life	dark	nsfw	1	I have a wonderful penis There is hair on my balls Is that the sound of a baby monkey * ? No! Ninjas are here!
+tv-southpark	arts	verse	general	0	Hey hey let's go! Getting in a fight! The important thing is to protect my balls! I am badass, so let's fighting-- Let's fighting love! Let's fighting love!
+tv-southpark	arts	quip	edgy	1	This song is a little stupid It doesn't make any sense English is all fucked up But that's okay, we do it all the time
+tv-southpark	life	quip	nsfw	1	actually, its slang, monkey-bushy hair, meaning monkey pussy
+tv-southpark	life	tv-quote	general	0	Kyle: Hey AWESOM-O, I'd also like some celery sticks chopped up two inches long, with peanut butter and raisins on top. Cartman: [as AWESOM-O] Suck my balls, Kyle.
+tv-southpark	society	tv-quote	general	0	Liane: [talking to Mrs. Stotch on the phone] Actually, Eric is still supposed to be grounded for trying to exterminate the Jews two weeks ago.
+tv-southpark	work-money	tv-quote	general	0	Military General: Mister Scientist! You are paid to think! National security is our job.
+tv-southpark	life	tv-quote	edgy	1	[Cartman's just revealed his plan to pretend he's retarded to win the Special Olympics] Stan: Thats really, really, terrible dude! Cartman: Terrible?! Whatever. You guys just don't have brains that can compute complex plans like mine!
+tv-southpark	family	tv-quote	nsfw	1	Jimmy's Father: I'll leave you two alone. And Jimmy, are you sure you weren't masturbating? Its okay if you were. Jimmy: Dad! Jesus Christ!
+tv-southpark	life	tv-quote	edgy	1	Cartman: [pretending he's retarded] Derrrr...derrrr...hey guys whats going on, derrrrrr? [long pause] Kyle: God damn you.
+tv-southpark	society	tv-quote	general	0	Cartman: This is why you can't bring Jews on away missions! They don't play along!
+tv-southpark	life	tv-quote	edgy	1	Stan: Well, with these bus tickets, it looks like we spent about $87 getting our money back from Mel Gibson, but I think it's the principle that matters. Kenny: Yeah, I agree. [Truck horn honking] Stan: Oh, you've got to be shitting me... Mel Gibson: Give me back my money!
+tv-southpark	life	tv-quote	general	0	Cartman: Töten Sie die Juden! Wir können nicht stillstehen bis sie alle tot sind! [Kill all the Jews! We cannot stand still 'till all are dead!] Okay, I'm ready. I'm ready to do thy bidding, Mel Gibson.
+tv-southpark	faith	tv-quote	general	0	Cartman: Okay, now when I say "Es ist Zeit für Rache!" you respond "Wir müssen die Juden ausrotten!" Woman: What does that mean? Man: Oh, I think it's Aramaic, just like in the movie!
+tv-southpark	society	tv-quote	general	0	Cartman: Es ist Zeit für Rache! [It's time for revenge!] Crowd: Wir müssen die Juden ausrotten! [We must exterminate the Jews!] Woman: Oh, this is fun!
+tv-southpark	society	tv-quote	general	0	Cartman: Aw, aw, no, come on, people, we're so close to completing my final solution!
+tv-southpark	faith	tv-quote	edgy	1	Kyle: I feel way better about being a Jew now that I know Mel Gibson is just a big wacko douche.
+tv-southpark	life	tv-quote	general	0	Sharon Marsh: Well, Randy, that was some great advice you gave our son yesterday. Randy Marsh: What? Sharon: Those kids showed up to serve Stan again, and he danced back. Randy: Well, what happened? Sharon: It's on.
+tv-southpark	life	verse	general	0	Hick: You do a line and I'll do a line honey. You do a line and I'll do a line babe. You do a line and I'll do a line, we'll fight and screw till the morning time.
+tv-southpark	life	tv-quote	general	0	Hick: You snort K and I'll snort K honey. You snort K and I'll snort K babe. You snort K and I'll snort K, we'll fight and screw all night and day.
+tv-southpark	life	tv-quote	general	0	Stan: Hey kid, you're pretty good. How would you like to join our dance troupe? Yao: You mean dancing without a machine telling you what to do? Stan: Yeah. Yao: That's stupid.
+tv-southpark	life	tv-quote	edgy	1	Lil' Kim: Wassup, niggas!
+tv-southpark	life	tv-quote	general	0	Cartman: Well, excuse my French, Mrs. Marsh, but you can suck my fat hairy balls!
+tv-southpark	life	tv-quote	general	0	[Mr. Jefferson grab Blanket and pretending to fly] Mr. Jefferson: Wee look, he can fly. Kyle: Jesus christ, dude!
+tv-southpark	life	tv-quote	edgy	1	[Mr. Jefferson carry Blanket with one leg while Blanket is screaming] Stan: [yelled] Stop you fucking lunatic! [While Kenny tight his hoodie jacket]
+tv-southpark	society	tv-quote	general	0	Redneck #1: They took our jobs! Redneck #2: Took-er jerbs! Redneck #3: Derka der!
+tv-southpark	life	tv-quote	general	0	Woman: How much are oranges? Gooback: Tree-fiddy. [$3.50]
+tv-southpark	society	tv-quote	general	0	Weathers: [reading from a letter] Dear Intolerant Rednecks, we sympathize with you losing your jobs, but we believe your solution of shooting everyone who crosses the border is inhuman.
+tv-southpark	life	tv-quote	edgy	1	Gooback: [with difficulty] Iggen arndrij? [points to the chicken sandwich sign] Stan: No, not a chicken sandwich! I want a god damn cheesburger and some god damn fries, you fucking goobacks! Randy: Stan Marsh! Stan: Aw--Aww!
+tv-southpark	society	tv-quote	edgy	1	Bill O'Reilly: On my right is pissed-off white-trash redneck conservative and on my left is aging hippie liberal douche.
+tv-southpark	work-money	tv-quote	general	0	Randy: Oh my God. Dey took ma jahb! Stan: Dey took yer jahb!
+tv-southpark	life	tv-quote	general	0	[Stan walks into his house to discover his dad lying on the floor, looking ill.] Stan: Jesus Christ...Dad?! Randy: Stan? Stan: Dad, oh my God! Randy: Stan. Stan: What, Dad, are you dying? Randy: No, I'm just really really tired. I was shopping at Wall-Mart all night.
+tv-southpark	life	tv-quote	general	0	Cartman: Whoa, pixie sticks, 29 cents! [slips into a trance] Wall-Mart? Are you speaking to me? ...My friends...trying to hurt you again? Yes Wall-Mart, I understand.
+tv-southpark	life	tv-quote	edgy	1	[The boys finally reach Arkansas in a bus] Stan: Goddamn, that took a long time. Kyle: It would have been faster if Cartman hadn't slashed the tires. Cartman: I did not. I wanna close Wall-Mart just as much as you guys do.
+tv-southpark	life	tv-quote	edgy	1	[when the boys are all in preschool] Stan: Dude, let's play firemen! Kyle: Totally dude, let's play fireman! Cartman: Jews can't be firemen! Kyle: Shut up, fat ass! Cartman: Don't call me fat you stupid jew!
+tv-southpark	life	tv-quote	general	0	Dr. Doctor: Boys, you have to let him rest. Some mean kid gave him a Texas Chili Bowl. Stan: What's that? Dr. Doctor: It involves Tabasco sauce, a telephone, and the anus.
+tv-southpark	life	tv-quote	general	0	[after the teacher gets injured] Officer: Miss Claridge, did Trent Boyett do this to you? [the teacher beeps twice, which is supposed to mean no] Officer: "Yes, Yes." Take him away!
+tv-southpark	life	tv-quote	general	0	Paris Hilton: Another dog killed itself!
+tv-southpark	life	tv-quote	general	0	Paris Hilton: [opening her new store] Have fun girls, and remember to party and be super-lame to everybody.
+tv-southpark	life	tv-quote	edgy	1	Cartman: [walks up to a group of girls and flips each one off in turn] Fuck you, Millie! Fuck you, Annie! Fuck you, Bebe! Fuck you, whatever-your-name-is! A-a-a-and fuck you, bitch!
+tv-southpark	life	tv-quote	nsfw	1	Mr. Garrison: [after Mr. Slave shoves Paris Hilton up his anus] Now that's a whore!
+tv-southpark	life	tv-quote	nsfw	1	Man in Crowd: Whore-off!
+tv-southpark	life	tv-quote	general	0	Randy Marsh: Oh, no, she didn't!
+tv-southpark	life	tv-quote	general	0	Narrator: The little critters cheered and Beavery said with a smile Beavery: How would you like to sing and dance with us for a while? Narrator: The boy in the red poofball hat smiled and said... Stan: (does not smile) Uh, no thanks, I'm gonna go home.
+tv-southpark	life	tv-quote	general	0	Squirrely the Squirrel: Blood orgy! Blood orgy!
+tv-southpark	faith	tv-quote	general	0	Singing critters: What special time! What special day! It's Woodland Critter Christmas! Squirrely the Squirrel: Hail Satan!
+tv-southpark	life	tv-quote	general	0	Stan: I am sorry that I killed your mom but the squirrel told me that she was evil. Mountain Lion Cub: You got tricked by a squirrel? Gee, you are not too smart, are you mister?
+tv-southpark	life	tv-quote	general	0	Beary the Bear: Gee whiz, Santa, you're not gonna kill me, are you? [Santa shoots him]
+tv-southpark	life	tv-quote	edgy	1	Kyle: Stan! What the hell is going on?! Stan: It's Critter Christmas, dude! It sucks ass!
+tv-southpark	life	tv-quote	edgy	1	Narrator: And they all lived happily ever after, except for Kyle, who died of AIDS two weeks later. Kyle: [voice over] Goddamn it Cartman!
+tv-southpark	life	tv-quote	nsfw	1	Mrs. Garrison: Hey, boys. It's me, your teacher, Mrs. Garrison. Cartman: [whispers] You guys, Mr. Garrison has titties!
+tv-southpark	life	tv-quote	general	0	Gerald: Look, Ike! Your daddy's a dolphin!
+tv-southpark	life	tv-quote	nsfw	1	Mr. Slave: I don't like vaginas.
+tv-southpark	life	tv-quote	nsfw	1	Mrs. Garrison: You men are all alike! Go ahead and find somebody who doesn't have a vagina, you fag!
+tv-southpark	society	tv-quote	general	0	Basketball coach: [to Kyle] No, you see, Jews can't play basketball. They're not tall or black enough.
+tv-southpark	society	tv-quote	general	0	Kyle: All my life I've wanted to be tall and black. Could you do it for me, Doctor? Doctor: [stares, speechless] Oh, I see! In that case, you want a Negroplasty. Kyle: A Negroplasty? Doctor: Yes, it's very simple, just the exact opposite of a Caucasioplasty.
+tv-southpark	life	tv-quote	general	0	Gerald: What kind of nutjob would agree to surgically alter my son into a tall African-American?!
+tv-southpark	society	tv-quote	nsfw	1	Mrs. Garrison: That means I'm not really a woman! I'm just a guy with a mutilated penis! Doctor: Basically, yes.
+tv-southpark	society	tv-quote	general	0	Cartman: They're not people! They're hippies!
+tv-southpark	life	tv-quote	edgy	1	Kyle: Those dirty liars! Kenny: Son of a bitch!
+tv-southpark	society	tv-quote	general	0	Cartman: And we'll need a black guy who can sacrifice himself in case something goes wrong. [camera moves back and forth passing Chef several times] Oh how about... Chef: [irritated] Yeah, I know!
+tv-southpark	life	tv-quote	general	0	Hippie: Wait until those little Eichmanns get a taste of this crunchy groove!
+tv-southpark	life	tv-quote	general	0	Cartman: Did you eat their brownies? Did you eat their brownies?!
+tv-southpark	life	tv-quote	general	0	Mrs. Garrison: Just between us gals, nothing gets my vag wetter than a black man singing! Principal Victoria: Mr. Garrison, for the love of God!
+tv-southpark	life	tv-quote	general	0	Kyle: Don't worry Kenny. You didn't die for nothing. We're gonna get Wing back as our client. And make a ton of money. I swear it to you.
+tv-southpark	faith	tv-quote	general	0	Michael: God intended Kenny to die! What are these people doing?
+tv-southpark	faith	tv-quote	general	0	Angel: The Keanu Reeves boy has been revived on Earth! His soul is no longer in Heaven! Satan: Then GOD is helpless!
+tv-southpark	life	tv-quote	edgy	1	Stan: Don't kill Kenny! Protesters: You bastards!
+tv-southpark	faith	tv-quote	general	0	Uriel: No! There is another. A Japanese boy did make it to level 59. Michael: Are you stupid, Uriel? Japanese people don't have souls! Angels: Yeah, Uriel! Uriel: Oh. Right, right. I'm sorry.
+tv-southpark	society	tv-quote	general	0	Kevin: Keep your army marching my Lord. I will get that feeding tube removed. Satan: How? Kevin: I will do what we always do. Use the Republicans.
+tv-southpark	faith	tv-quote	general	0	Angel 1: Jesus! Their army is massive! Angel 2: Heaven help us!
+tv-southpark	life	tv-quote	general	0	Michael: Basically, Kenny, you...are Keanu Reeves.
+tv-southpark	life	tv-quote	general	0	Random person: You bureaucrats have no right to play god and take that tube out. Angel: No, no. See, they were playing god when they put the feeding tube in.
+tv-southpark	life	tv-quote	general	0	Kyle: Maybe we should just let Kenny go in peace. Stan: You mean Cartman's side is right? Kyle: Cartman's side is right. For the wrong reasons. But we are wrong. For the right reasons.
+tv-southpark	life	tv-quote	general	0	Angel: Michael, michel. The humans finally did the right thing. Angel Michael: Oh my god. They killed Kenny.
+tv-southpark	family	tv-quote	general	0	[After the South Park team is disqualified due to Randy fighting with the another player's dad] Stan: Dad? Randy: Huh? Stan: You're the greatest. [Randy leaps into the air with joy]
+tv-southpark	life	tv-quote	general	0	Batdad: You better shut your mouth before I shut it for you!
+tv-southpark	life	tv-quote	general	0	Randy: What do you wanna do?
+tv-southpark	life	quip	general	0	Batdad: Now for the finishing move! You're about to be "Batdad-ed"!
+tv-southpark	life	tv-quote	general	0	Umpire: Stop! Stop or you're going to get your teams disqualified!
+tv-southpark	life	tv-quote	general	0	Stan: Disqualified? Fight! Keep fighting!
+tv-southpark	life	tv-quote	general	0	Umpire 2: Break it up! Break it up!
+tv-southpark	life	tv-quote	general	0	Randy: Hey, Batdad, I didn't hear no bell.
+tv-southpark	life	quip	general	0	Batdad: Batdad knows no fear! Batdad knows no pain!
+tv-southpark	society	tv-quote	general	0	Randy: For what? Arresting me for what? I'm not allowed to stand up for myself? I thought this was America! Huh? Isn't this America? I'm sorry, I thought this was America.
+tv-southpark	society	tv-quote	edgy	1	Randy: Denver sucks ass.
+tv-southpark	life	tv-quote	general	0	Butters: Son of a biscuit!
+tv-southpark	life	tv-quote	general	0	Pueblo Dad: Vamanos Pueblo! Vive el Pueblo! (Let's go Pueblo! Long live Pueblo!) Randy: [takes out Spanish-English Dictionary] Pueblo no bueno...Pueblo es muy mal. (Pueblo is not good. Pueblo is very bad.)
+tv-southpark	life	tv-quote	general	0	Baseball player: We're going down! We're going to get creamed!
+tv-southpark	life	tv-quote	general	0	Baseball player: You know what these guys look like? A bunch of winners!
+tv-southpark	life	tv-quote	general	0	Butters: I'm like the kid in that movie: I'm seein' dead people!
+tv-southpark	faith	tv-quote	general	0	Butters: Well you know, Preacher says before your soul can be at peace, sometimes you have to atone for something bad you did. Cartman: Atone? Butters: Did you ever do something really bad? Cartman: [Thinking] Not really.
+tv-southpark	life	tv-quote	general	0	Cartman My soul is finally at peace. It's time for me to leave. Good-bye Butters, thank you for all your help. Good-byeee.
+tv-southpark	life	tv-quote	general	0	Cartman: Goodbye, Butters, I must be going now. I'll be looking down on you from time to time. Have a long, fulfilling life Butters! Good-byeeeeeeeee...
+tv-southpark	life	tv-quote	general	0	Ike: [singing] I have a Yankee Doodle sweetheart, she's my Yankee Doodle girl. 'Ankee Doodle came to London, just to ride the ponies! I am da Yankee Doodle, I am da Yankee Doodle, I am da Yankee Doodle boy!
+tv-southpark	life	tv-quote	general	0	Butters: 'Ey, who's droppin' bombs in there?! How 'bout a courtesy flush?! Cartman: Up yours, Butters!
+tv-southpark	life	quip	nsfw	1	Jimmy: Shawna, I was wondering if I could put my penis in your vagina.
+tv-southpark	life	tv-quote	edgy	1	Gerald: Maybe we should strip these jackets off and warm our bodies next to each other. Randy: Don't be a fag!
+tv-southpark	life	tv-quote	general	0	Stan: Dude! Dude, did you see the news last night? Cartman: Yeah. Stan: You saw all those people trapped on their roofs? Cartman: Yeah, that was pretty funny.
+tv-southpark	arts	tv-quote	general	0	Cartman: Give me your Jew gold now! Kyle: Goddammit, you know I don't carry gold in a little bag around my neck, Cartman. What do you want from me? Cartman: I want your Jew gold.
+tv-southpark	life	tv-quote	general	0	Kyle: We must save these people! Stan: How? Cartman: Why?
+tv-southpark	life	tv-quote	general	0	[repeated line] Townsfolk: We didn't listen! [echoed] We didn't listen!
+tv-southpark	society	tv-quote	general	0	Angry Man: It's George Bush's fault! Another Man: Yeah! George Bush doesn't care about beavers!
+tv-southpark	faith	tv-quote	general	0	JESUS SAID "COME UNTO ME ALL YE WHO LABOR AND ARE HEAVY LADEN AND I WILL GIVE YOU REST" MATT 11:28 [Butters' epitaph]
+tv-southpark	life	dark	general	0	Doctor: [after the pig splatters everywhere and he checks the pulse] "He... Didn't make it".
+tv-southpark	life	tv-quote	general	0	Cartman: God only knows the horrors that go on at girls' slumber parties.
+tv-southpark	life	tv-quote	general	0	Red hair girl: Hey Marjorine you want to know your future?
+tv-southpark	life	tv-quote	general	0	Turner: What the hell?
+tv-southpark	life	tv-quote	general	0	Cartman: Hahahaha! We have the device now! The power belong to us! Hahahaha!
+tv-southpark	life	tv-quote	general	0	Turner: Anybody has a piece of notebook paper so I can make another one?
+tv-southpark	life	tv-quote	general	0	Steven Stotch: You're demon-spawn now, son.
+tv-southpark	life	tv-quote	general	0	Kevin: You mean like that movie, Juwanna Mann? Cartman: No, not like the movie Juwanna Mann! It's way cooler than that!
+tv-southpark	life	tv-quote	general	0	Cartman: [advising Butters] ...just roll with it if they start lezzing out.
+tv-southpark	food	tv-quote	general	0	Butters: [after his parents leave a dead body for him to eat] Can't I just have some Spaghetti-Os?
+tv-southpark	life	tv-quote	edgy	1	Cartman: [after Kenny blows up the future-telling device with a mushroom cloud so large it can be seen from space] Damn, Ken!
+tv-southpark	life	tv-quote	general	0	Mr. Garrison: We've completed our scientific non-biased study of fags having kids.
+tv-southpark	life	tv-quote	general	0	Mr. Garrison: Look at the freak egg! It has two daddies! [teasing] Two daddies, two daddies!
+tv-southpark	life	tv-quote	general	0	Kyle: Do you really think my hat is stupid? Stan: As a matter of fact, I think it is the nicest hat I have ever known.
+tv-southpark	society	tv-quote	edgy	1	Governor: ...while gays can still live together as "butt buddies" and straights can keep the title of marriage sacred. And everyone is happy. Lesbian in Crowd: What about lesbians? [small murmurs among the lesbians] Governor: Well like anyone cares about fucking dykes!
+tv-southpark	life	tv-quote	edgy	1	Cartman: [to Kyle] Shut your goddamned daywalker mouth!
+tv-southpark	society	tv-quote	general	0	Cartman: The only way to fight hate is with even more hate!
+tv-southpark	society	tv-quote	edgy	1	Cartman: I'm not gonna be part of a fucking minority!
+tv-southpark	faith	tv-quote	general	0	Brian: Yeah, I'm afraid that you are completely miserable and totally depressed. Stan: I am?! I didn't know that! Brian: Well there's certainly no question that you are a perfect candidate for Scientology
+tv-southpark	life	tv-quote	general	0	Cartman: Don't be such a Jew, Stan.
+tv-southpark	life	tv-quote	general	0	President: What's better than telling people a stupid story and having them believe you?! [Stan draws a blank] Having them PAY you for it, stupid!
+tv-southpark	society	tv-quote	general	0	Tom Cruise: [to Stan] I'll sue you in England!
+tv-southpark	life	tv-quote	general	0	Nicole Kidman: Tom? Don't you think this has gone on long enough? It's time for you to come out of the closet. Tom Cruise: But I'm...I'm not in the closet. Nicole Kidman: Yes, you are, Tom, and you need to just end this and come out.
+tv-southpark	life	tv-quote	general	0	Nicole Kidman: Tom, come out of the closet. You're not fooling anybody.
+tv-southpark	faith	tv-quote	edgy	1	Scientologist: You can't make fun of Scientology, kid! We are going to sue your ass and your balls!
+tv-southpark	family	tv-quote	general	0	Stan: Dad, aren't you kind of drunk? Randy: It's okay, Stan, I have some beer to keep my buzz going!
+tv-southpark	life	tv-quote	general	0	AA Member: Do you know anything about alcoholism? Stan: Yeah, and I know a thing or two about cults. I was the leader of one for a while.
+tv-southpark	life	tv-quote	general	0	Stan: No, cancer is a disease. My dad needs to drink less.
+tv-southpark	faith	tv-quote	general	0	Randy: It's not fair. Why did you give me this disease?
+tv-southpark	life	tv-quote	general	0	Stan: Dad, aren't you supposed to, like, not drink and drive? Randy: I'm not drinking and driving, I'm driving while I'm drinking, right, boys? Cartman: Sure, whatever, dude.
+tv-southpark	life	tv-quote	edgy	1	Randy: Stan!Stan!(appears bald) Staaaaaaaaan! Stan: Ah,Goddamnit!
+tv-southpark	family	tv-quote	general	0	Randy: How did I manage to raise such a smart kid? Stan: I have a great teacher. Randy: Thanks son. Stan: No not you, my karate teacher. He's really smart.
+tv-southpark	society	dark	nsfw	1	Field Reporter: And the Pope said, quote, "A chick bleeding out her vagina is no miracle. Chicks bleed out their vaginas all the time."
+tv-southpark	arts	tv-quote	general	0	Randy: Well how about 4? Stan: I think you're pushing it. Randy: How 'bout 20? Stan: That's not disciprine. Randy: Right, right. Does vodka count? Stan: Dad!
+tv-southpark	life	tv-quote	general	0	Randy: Let me handle this. What seems to be the officer, problem? Officer: ...Step out of the car, please.
+tv-southpark	society	quip	general	0	At the side of police vehicle: "To patronize and annoy"
+tv-southpark	life	tv-quote	general	0	Cartman: Uh, guys? Did Chef seem a little, uh, trippy to you?
+tv-southpark	life	tv-quote	edgy	1	Cartman: Hey you guys, you know what they call a Jewish woman's boobs? ...Joobs!
+tv-southpark	life	tv-quote	general	0	Clyde: You guys...something's wrong with Chef. He's saying some really weird stuff. Kyle: Like what? Clyde: I think... I think he wants to have sex with me.
+tv-southpark	life	tv-quote	edgy	1	Chef: [in sound clips of his voiced mixed together] I want to stick my balls inside your rectum, Kyle. I'm gonna make love to your asshole, children. Kenny, how would you like to sodomize my black ass?
+tv-southpark	life	tv-quote	nsfw	1	Butters: [after seeing a police detective perform a rim job on a doll] My Uncle Bud did that to me once!
+tv-southpark	life	tv-quote	general	0	Mr. Connolly: [about the Super Adventure Club's founder] And he lived for eternity, until he was hit by a train in 1892.
+tv-southpark	life	tv-quote	general	0	Mr. Connolly: If you choose not to leave, then we will have to...call security and make you leave. It will be super-embarrassing and everyone here will see!
+tv-southpark	life	tv-quote	general	0	Cartman: San Francisco is the breeding ground of hippies!
+tv-southpark	life	tv-quote	edgy	1	News Anchor: Cities like Denver and Salt Lake are heavily damaged, but still alright. However, San Francisco I'm afraid, has disappeared completely up its own asshole.
+tv-southpark	life	tv-quote	general	0	Gerald: Which cartoon is it? What cartoon'll be so insensitive as to have Muhammad as a character? Randy: Who do you think? The cartoon that's always pushing buttons with their careless toilet humor... Family Guy!
+tv-southpark	society	tv-quote	general	0	Cartman: That's different! I'm just a little boy! That's a cartoon! Millions of people watch it! How would you feel, Kyle, if there was a cartoon on television that made fun of Jews all the time?! Huh?!
+tv-southpark	arts	tv-quote	general	0	Cartman: [about Family Guy] It's wrong! It's wrooooong!
+tv-southpark	society	tv-quote	general	0	Closing voiceover: Will networks executives stand up for free speech? Or will Comedy Central puss out?
+tv-southpark	life	tv-quote	general	0	Ayman al-Zawahri: Seriously, Family Guy isn't even that well written. The jokes are all interchangeable and usually irrelevant to the plot. When this episode airs - our retaliation will be MASSIVE!
+tv-southpark	life	tv-quote	general	0	Cartman: Oh my god, is that Tim McGraw?
+tv-southpark	life	tv-quote	edgy	1	Bart Simpson: [after hitting Kyle over the head with a skateboard] Cowabunga, motherfucker.
+tv-southpark	life	tv-quote	general	0	Cartman: I did it! I...am...GOD!
+tv-southpark	life	tv-quote	general	0	Cartman: What's the worst thing you've ever done? Bart Simpson: I stole the head off a statue once. Cartman: Wow, that's pretty hardcore. Geez. That's like this one time when I didn't like a kid, so I ground his parents up into chili and fed it to him.
+tv-southpark	society	tv-quote	general	0	Cartman: I'll use this situation to get Family Guy cancelled. I use fear to manipulate people to do my bidding. Bart Simpson: Uh, isn't that like terrorism? Cartman: Dude, it's not like terrorism! It is terrorism!
+tv-southpark	life	tv-quote	edgy	1	Kyle: Cartman! You fucking fatass! Cartman: How the hell did you get out? Kyle: That kid and I had a long talk. I told him he was on a slippery slope to becoming a monster like you! Cartman: Oh goddamnit! You gave him one of your gay little speeches, didn't you?
+tv-southpark	life	tv-quote	general	0	Cartman: Well Kyle, I guess it was inevitable. [Cartman and Kyle take their gloves off, stare at each other, and engage in a slap fight] Cartman: Ow! Kyle stop it-no Kyle that's too hard!
+tv-southpark	faith	tv-quote	general	0	Terrence: Hello Muhammad, we've read all aboot you in the Qur'an. Mohammed: I'm here to investigate a murder.
+tv-southpark	life	tv-quote	general	0	Fox president:Take this noble child out to the family guy offices. If he can scare them like he has us, maybe we can pull the Muhammah episode after all.
+tv-southpark	life	tv-quote	general	0	Cartman: Good, Kyle! That's good anger you're showing there! That's emotional character development based on what's happening in the storyline! Not at all like Family Guy.
+tv-southpark	life	tv-quote	general	0	Cartman: Now, if you'll excuse me, I have some idea balls to pull from a manatee tank. Kyle: WHAT?!
+tv-southpark	life	tv-quote	general	0	Towelie: How spicy would you like your Chang sauce?
+tv-southpark	life	tv-quote	general	0	Towelie: Don't call me shoeless! YOU'RE shoeless! Customer: Yeah, well you're a towel. Towelie: You're a towel! Manager: Alright, that's it! Get out of here! You're fired! Towelie: [points at customer] Yeah! Manager: Not him, you! Towelie: Aw...
+tv-southpark	life	tv-quote	general	0	Book Publisher: Because they're people and you're a towel. Towelie: You're a towel! Book Publisher: No, I'm a big book publisher whos not the least bit interested in your stony memoirs, you're a towel.
+tv-southpark	life	tv-quote	general	0	Gary: Are we in Paris, Mingey?
+tv-southpark	life	tv-quote	general	0	Oprah Fan: Burn that which lies to Oprah!
+tv-southpark	life	tv-quote	general	0	Kyle: Did Cartman just crap treasure? Cartman: It's mine! I got it out of the cave! It belongs to me!
+tv-southpark	society	tv-quote	edgy	1	Mr. Mackey: Now today we have a special guest speaker, does anyone know who our last vice-president was? [brief silence] Kyle: Dick Cheney? Mr. Mackey: No, no, the last one. Butters: Bill Clinton? Mr. Mackey: No, Clinton's Vice President. [silence, no one knows who Al Gore is]
+tv-southpark	life	tv-quote	general	0	Al Gore: I've killed ManBearPig!
+tv-southpark	food	tv-quote	edgy	1	Cartman: If I miss dinner, I'm going to be so pissed off!
+tv-southpark	life	tv-quote	general	0	Al Gore: Everyone is super stoked on me, even if they don't know it.
+tv-southpark	life	tv-quote	general	0	Worker: What is that, a pigbearman? Al Gore: No, stupid, it's ManBearPig.
+tv-southpark	life	tv-quote	general	0	Al Gore: It's a half-man, half-bear, and half-pig.
+tv-southpark	life	tv-quote	general	0	Al Gore: This looks like ManBearPig central!
+tv-southpark	life	tv-quote	general	0	Kyle: It's half-man, and half-bearpig. Cartman: No! It's half-man, half-bear, and half-pig! Kyle: That doesn't make any sense. Stan: It could be half-bear and half man-pig.
+tv-southpark	nature	tv-quote	general	0	Tour Guide: And that whistling sound is why we call this the Cave of the Winds. Steven's Wife: Take a picture of the sound, Steven.
+tv-southpark	life	tv-quote	general	0	Al Gore: I can get you all excused from school. Cartman: You...have that kind of power?
+tv-southpark	life	tv-quote	general	0	Stan or Kyle: What do ManBearPig droppings look like? Al Gore: Kind of like pig droppings but more man-bear like.
+tv-southpark	life	tv-quote	general	0	Al Gore: Excelsior!
+tv-southpark	society	tv-quote	general	0	Al Gore: I'm super serial.
+tv-southpark	society	tv-quote	general	0	Al Gore: Why does nobody believe that I'm serial?
+tv-southpark	life	tv-quote	general	0	Cartman: I just... I really need the support of my best friend right now. Jimmy: Who's your best friend? Cartman: You are, Jimmy! We've always been best friends! We know everything about each other! Jimmy: What's my last name? Cartman: [pause] Goddammit.
+tv-southpark	family	tv-quote	general	0	Cartman: Goddammit, Mom! I'm your son and you will listen to me!
+tv-southpark	life	tv-quote	general	0	Cesar Millan: TSST!
+tv-southpark	life	tv-quote	edgy	1	Cartman: All right, I'll stay with Kenny. Let's go, man. Kenny: Fuck you.
+tv-southpark	life	tv-quote	general	0	Stella: I'm serious. Let's put down the video game and go to the kitchen. Cartman: [in British accent] No thanks, I'd rahther naught.
+tv-southpark	life	tv-quote	general	0	Stella: It's the time-out stool. You can't get down until the time is up. Cartman: [looks at her, then hops off the stool] Whoa, how did I do that?
+tv-southpark	life	tv-quote	edgy	1	Cartman: Suck my asshole, taco vendor!
+tv-southpark	life	tv-quote	general	0	Cartman: What the hell is this?! Skinless chicken, boiled vegetables and salad?! This is just like Auschwitz!
+tv-southpark	arts	tv-quote	general	0	Cartman: Yes! I've lost almost ten pounds now. You see what I mean?? I totally know how it felt to be a Jew in the Holocaust now!
+tv-southpark	life	tv-quote	edgy	1	Cartman: Stop trying to bogart my X-Box you fat bitch!
+tv-southpark	life	tv-quote	general	0	Liane: And then we'll go to Target, and...I'll buy you a Mega Ranger? Cartman: Could I have...two Mega Rangers? Liane: You can have anything you want, dear. [camera focuses on Cartman and Damien music plays]
+tv-southpark	life	tv-quote	edgy	1	[the Rogue player kills Kenny] Stan: Oh my god! He killed Kenny! Kyle: You...bastard!
+tv-southpark	life	tv-quote	general	0	Kyle: Wow, look at all these people playing right now! Cartman: Yeah, it's bull crap. I bet half of these people are Koreans!
+tv-southpark	tech	tv-quote	general	0	Jim: I've got to get home! My kids are playing World of Warcraft right now! Rob Pardo: Jim, your kid's characters are already dead. Jim: No! They only just started playing!
+tv-southpark	tech	tv-quote	general	0	Rob Pardo: Whoever this person is, he's played World of Warcraft nearly every hour of every day for the past two years. Gentlemen, we are dealing with someone here who has absolutely no life. Blizzard executive: How do you kill that which has no life?
+tv-southpark	life	tv-quote	general	0	Blizzard Executive: We can't give the Sword of a Thousand Truths to a newb!
+tv-southpark	tech	tv-quote	general	0	Cartman: Prepare to charge! Scroll over him with your mouse cursors and...right click!
+tv-southpark	tech	tv-quote	general	0	Rob Pardo: Gentlemen, this could very well be the end of the world...of Warcraft. Developer: No... NOOOOO!
+tv-southpark	tech	tv-quote	general	0	Rob: I don't have a World of Warcraft account, do you? Mike: No, I have a life!
+tv-southpark	life	tv-quote	general	0	Stan: [after defeating The Rogue Player] That was such uber-pwnage!
+tv-southpark	life	tv-quote	general	0	[having saved the World of Warcraft by playing the game non-stop for several months] Stan: I can't believe it's all over. What do we do now? Cartman: What do you mean? Now we can finally play the game. Kyle: Oh, yeah. Cartman: Okay Kenny, route Eye of the Beast to your Hotbar.
+tv-southpark	life	tv-quote	edgy	1	Kyle: [after the conspiracy is blown] So who caused 9/11? Stan: What do you mean? A bunch of pissed off Muslims. Hardly Boy: Yeah, what are you, retarded?
+tv-southpark	life	tv-quote	edgy	1	Police Chief: This is too big a mystery for me, I think we better call in the Hardly Boys! Mr. Mackey: Oh no, not the god damn-- mkay
+tv-southpark	life	tv-quote	general	0	[Hardly Boys Music hits and cut to the Hardly Boys intro video] Announcer: The Hardly Boys: two young whippersnappers with a taste for solving mysteries. The Hardly Boys in: The Case of the World Trade Center Conspiracy.
+tv-southpark	faith	tv-quote	general	0	Cartman As The Dawg: Go with Christ, bro'.
+tv-southpark	society	tv-quote	edgy	1	Reporter: Tom, an elementary school teacher is under arrest for allegedly having an affair - with one of her young students. The case is shocking, due mostly to the fact that the teacher is pretty hot, Tom. If the accusations are true, then, damn!
+tv-southpark	life	tv-quote	general	0	Cartman As The Dawg: [sings] The fear of darkness is all around you The criminal are on the run Now you better bring your hall pass I'll take you to the principal office cause I'm the Dawg I am the Dawg, the big bad Dawg The hallway monitor
+tv-southpark	life	tv-quote	edgy	1	[after Miss Stevenson has killed herself] Cartman As The Dawg: Well, once again, The Dawg has prevailed. I hope you've learned kids, that if you don't go with Christ, you could end up just like that splattered bitch down on the pavement.
+tv-southpark	life	tv-quote	general	0	Cartman As The Dawg: We can do this the easy way or we can do it Dawggie style.
+tv-southpark	life	tv-quote	general	0	Butters [singing to himself at the urinal]: Hey there Mr. Wiener, what do you know. Do you have to tinkle, tinkle? Yes, I do think so.
+tv-southpark	life	tv-quote	general	0	(after the teacher says she is an alcoholic) Cartman: I don't believe it. She is using the Mel Gibson defence. Sgt Murphy: Do we still press charges? Sgt Yates: Who are we gonna convict? Johny Walker? Stan's dad: Poor woman, she's a victim. A hot victim.
+tv-southpark	life	dark	general	0	Doctor: Was there ever history of sexual abuse in your family? Ms. Stevenson: No, but my uncle used to ask me and my twin sister to kiss, and he'd take pictures. Doctor: ...Nice.
+tv-southpark	life	tv-quote	general	0	Ms. Stevenson: Ike let's get out of here. They'll never let us be together. I think we should go to Milan, like we talked about. Ike: Yay, Mulan.
+tv-southpark	life	tv-quote	general	0	Sgt Yates: You're so full of crap, Foley! Officer Foley: What?! I did shoot him in the face. Twice!
+tv-southpark	life	tv-quote	general	0	Sgt Yates: Are you sure you are not lying, Foley? Officer Foley: No, really. I shot both of them. They weren't even doing nothing.
+tv-southpark	life	tv-quote	edgy	1	Sgt. Yates: Damn it! Where were all these sexed up teachers when I was a kid?!
+tv-southpark	life	tv-quote	general	0	Satan: [having been told his guests don't care about the Acura cake] It's not about them, it's about meeeeeeeeee! Satan's minion: Wow, what a jerk.
+tv-southpark	life	tv-quote	general	0	Satan: [to crowd] Everybody, I'm sorry. Halloween is for you. It's for all of you who make my life so special. If I don't realise that, then I'm no better than a rich American teenage girl.
+tv-southpark	life	tv-quote	edgy	1	Butters: But dad, Biggie Smalls is gonna bust a cap in my ass!
+tv-southpark	life	tv-quote	edgy	1	Sea Otter (Leader of Allied Atheist Alliance): Science damn you, Unified Atheist Alliance!
+tv-southpark	faith	tv-quote	general	0	Sea Otter (Leader of Allied Atheist Alliance): Know this, time child! I shall smash your skull like a clam on my tummy!
+tv-southpark	life	tv-quote	general	0	Sea Otter (Leader of Allied Atheist Alliance): I shall personally kill the time child, and eat his entrails on my tummy!
+tv-southpark	society	tv-quote	general	0	Ms. Garrison: I'm not a monkey! I'm a woman.
+tv-southpark	life	tv-quote	general	0	Kyle: [to Cartman] Yeah, I hate you, but I'm not going to help kill you! Cartman: I thought you were my friends! I guess I was wrong! After all we've been through together, you guys won't even help me freeze myself.
+tv-southpark	tech	tv-quote	general	0	EV Games Employee: [to Cartman] Look, kid, for the 40th time: pacing in front of the store isn't going to make the Wii come any faster.
+tv-southpark	life	quip	edgy	1	Repeated line: Science damn it!
+tv-southpark	life	tv-quote	edgy	1	[Richard Dawkins runs out of Mrs. Garrison's house after discovering she is a post-op transwoman] Ms. Garrison: Fine then! Go ahead and leave, you atheist faggot! Have fun mocking God in hell, you queer!
+tv-southpark	life	tv-quote	general	0	K-10: Bark-bark. Hello Eric, I have missed you. Cartman: Suck my balls K-10, I'm not in the mood.
+tv-southpark	faith	dark	general	0	The Wise One: Maybe some otters do need to believe in something. Who knows, maybe just believing in God...makes God exist. [thoughtful, solemn pause] Sea Otters: Kill the Wise One! KILL THE WISE ONE! [The Wise One is slaughtered by a mob of otters]
+tv-southpark	life	tv-quote	general	0	Sea Otter (Leader of Allied Atheist Alliance): Kill the table-eaters, IN THE NAME OF ALMIGHTY SCIENCE!
+tv-southpark	life	tv-quote	general	0	County official: Stan Marsh is a washed-up fourth grader. He's got no job, no bicycle And his only way out is to coach... [record scratch] ...a pee-wee hockey team! And now, he's about to find out that to coach, you've got to grow.
+tv-southpark	life	tv-quote	general	0	County official: Stan Marsh is always lived a carefree life. But in the blink of an eye what seemed important before can all be put in prospective. Stan Marsh is...bummin' on Cancer.
+tv-southpark	family	tv-quote	general	0	Number 6: Coach, please don't let us lose to Adams County. My daddy will beat me again.
+tv-southpark	life	tv-quote	general	0	Randy Marsh: Your mother's been worried sick! And I've been watching TV.
+tv-southpark	life	quip	general	0	Dr. Doctor: That kid's got as much hope as Steve Irwin in a tank full of stingrays.
+tv-southpark	family	tv-quote	general	0	Parent: Noo, i'm just his father. But you are his coach. You're like a father to him.
+tv-southpark	life	tv-quote	general	0	Randy Marsh: And Stan.. Don't forget.. Win or lose... That's the only choices you have. Win, or lose..
+tv-southpark	society	tv-quote	edgy	1	Randy: Oh, all right, I'd like to solve the puzzle: ...Niggers!
+tv-southpark	society	tv-quote	general	0	Stan: I get it now. After that little person talked the other day, I understand how you feel about somebody saying the N-word. Token: So black people are midgets? Stan: Goddammit!
+tv-southpark	society	tv-quote	general	0	Token: Jesse Jackson is not the emperor of black people! [Token walks away; long pause] Stan: He told my dad he was.
+tv-southpark	society	tv-quote	general	0	Mrs. Garrison: All right, students, let's take our seats. Apparently we have a little problem here at the school which we need to talk about. Cartman: Ah, yes. [points to Kyle] You mean the Jew problem. Good, good. I'm glad we're going to finally do something about it.
+tv-southpark	life	tv-quote	edgy	1	Cartman: We all know the only person who can spread the lice here is Kenny and the Jew. Kenny: What?! Fuck you!
+tv-southpark	life	tv-quote	general	0	[Clyde is in the waiting room awaiting treatment for his lice] Girl: I have an ear infection. What are you here for? Clyde: I have...I have AIDS.
+tv-southpark	life	tv-quote	general	0	Cartman: Do you know what this is? This is apple juice! It gives me super-bad farts!
+tv-southpark	life	tv-quote	general	0	Staff Assistant: Sir, these kids are right. We've just received intel that Russian terrorists are believed to be responsible for the threat. Staff Head: Where's the intel from? Staff Assistant: We just read it on Drudge Report.
+tv-southpark	life	tv-quote	general	0	Staff Head: We do this my way! I'm the one in charge! Kyle: [pauses] Not anymore you're not. Staff Head: Oh, snap. [walks off, depressed]
+tv-southpark	life	tv-quote	general	0	Mrs. Garrison: Scissor me timbers!
+tv-southpark	life	tv-quote	general	0	Mrs. Garrison: I saw the way you were looking at me. Scissoring me with your eyes.
+tv-southpark	life	tv-quote	general	0	Mrs. Garrison: I mean, really I don't even understand how two women can make love, unless they just kind of scissor or something.
+tv-southpark	life	tv-quote	general	0	Mrs. Garrison: Children, I have to tell you something that you might find shocking. [sighs] I'm gay. Stan: Again?
+tv-southpark	life	tv-quote	general	0	Mrs. Garrison: I know you're actually a woman. Xerxes: How...? How did you find that out? Mrs. Garrison: I hired Mexicans to spy on you! They saw you working out at Curves. Xerxes: You don't understand. Women can't be the boss in Persian culture. Nobody can know about this.
+tv-southpark	life	tv-quote	general	0	Cartman: [jumps off his skateboard] Yes! I did it! [tosses his helmet away] I jumped over the homeless! Yes! Kenny: Yeees! Stan: That was a sweet idea, Kyle. Kyle: Goddammit, that wasn't my idea!
+tv-southpark	life	tv-quote	general	0	Randy: Waghh! I don't have any more change! [makes his way through the crowd of bums] Nooo! I don't have any change! I don't have any chaaange! [disappears under the sea of homeless people]
+tv-southpark	life	tv-quote	general	0	Steve: Oh, God. One of them is a war veteran. [more knocking] We're gonna have to give him some change.
+tv-southpark	life	tv-quote	edgy	1	[Stan, Kyle, Kenny and Cartman fall in the sewer] Cartman: Aw, God, it really smells like Kenny's house down here. Kenny: Stop fucking talking about my house! Cartman: Whoa, Kenny, relax, dude. We need to work together.
+tv-southpark	life	tv-quote	edgy	1	Homeless Woman: Spare any change, sir? Cartman: No! Fuck off! [slams the door]
+tv-southpark	life	tv-quote	general	0	Bum 7: Spare some change? Randy: I just gave you change!
+tv-southpark	society	tv-quote	general	0	Stan: We're not having Cartman jump over more homeless people. Kyle: [angrily] That wasn't my idea!
+tv-southpark	life	tv-quote	general	0	Stan: [to Kyle after Cartman has jumped over three homeless people] Honestly, I don't know what you see in this, Kyle.
+tv-southpark	life	tv-quote	general	0	Cartman: [to Thomas] Isn't having Tourettes awesome? [Thomas raises an eyebrow suspiciously]
+tv-southpark	society	tv-quote	general	0	Cartman: This Saturday I will go on national television, live. I will say horrible things on the air. Despicable things! And people will call me brave.
+tv-southpark	life	tv-quote	edgy	1	Cartman: Finally, my wish of going public with my illness can come true. Goddamn Jews! Suck my ass-barf!
+tv-southpark	life	tv-quote	general	0	Cartman: Thank you, everybody. Suck my balls!
+tv-southpark	society	tv-quote	general	0	Cartman: This Saturday I will actually say anything I want on national television. I'm going to blast the Jews, Kyle. I'm going to call them every name in the book, and people will call it brilliant television. They'll probably give me an Emmy.
+tv-southpark	life	tv-quote	nsfw	1	Cartman: Titty sprinkles!
+tv-southpark	life	tv-quote	general	0	Pedophile 1: Oh, no! Chris Hansen?! [shoots himself in the head] Pedophile 2: "Dateline?!" [shoots himself in the head] Pedophile 3: There aren't really brownies?! [shoots himself in the head]
+tv-southpark	life	tv-quote	general	0	Herr Broloff: I'm sorry Mr. Marsh, but if you cannot crap out the crap, it is not really a crap.
+tv-southpark	life	tv-quote	general	0	Randy: I'm sorry, Sharon. Sorry that I let you down. I'm sorry I can't crap like Bono.
+tv-southpark	life	tv-quote	edgy	1	Butters: I'm supposed to be in school right now, but instead I have Snarf, Popeye, and Luke Skywalker all pissed off.
+tv-southpark	life	tv-quote	general	0	Kyle: Oh God... Superman: Yes, God's here too. He's gonna talk to you right after Captain Crunch.
+tv-southpark	life	tv-quote	general	0	Santa Claus: Okay, Kyle, that's enough ball-sucking.
+tv-southpark	life	tv-quote	edgy	1	Butters: Wait, I'm not grounded! Steven Stotch: Oh, yes you are! Butters: Oh, yeah? [tries to use his imagination powers to end the grounding] Steven Stotch: That only works in Imaginationland! You're grounded! Butters: Aw, shit!
+tv-southpark	life	tv-quote	general	0	Mr. Kincaid: Stan Marsh, this is Thad Jarvis. Thad: 'Sup. Mr. Kincaid: Thad here has backed up a lot of really great Guitar Hero players. Isn't that right, Thad? Thad: Yup. Mr. Kincaid: He doesn't even need a game system to play on. He can play Guitar Hero acoustically.
+tv-southpark	life	tv-quote	edgy	1	[Cartman, Kenny, Craig, Token, and Clyde are playing basketball; Craig fakes out Cartman and shoots] Cartman: Stop cheating, Craig! Craig: How was that cheating?! Cartman: 'Cause you tricked me, you black asshole!
+tv-southpark	life	tv-quote	general	0	Announcer: Congratulations! You played Guitar Hero enough to score one million points! You...ARE...FAGS! Stan: [after a long silence] ...That's it? Kyle: Goddammit. Goddammit. [they walk away]
+tv-southpark	society	tv-quote	general	0	Butters: Well, I guess we'll never get that list from the girls. Cartman: Screw that, dude. We're guys; we can out-think them.
+tv-southpark	life	tv-quote	general	0	Cartman: When she stops and turns to Craig in the hallway, Butters will run up and kick her in the balls! Butters: Okay!
+tv-southpark	life	tv-quote	edgy	1	[Millie is walking at the hall and she hear Craig with the horn and get kicked in the groin by Butters] Millie: Ow! What you did that for. [Butter kick her again] Millie: What your problem, asshole?
+tv-southpark	life	tv-quote	general	0	Cartman: Okay, our mission failed, but we've learned a lot, primarily that girls don't have balls. Butters: [in a sling with a black eye] They sure don't.
+tv-southpark	life	tv-quote	general	0	Butters: Mom! Dad! I'm not the ugliest kid in class! Kyle Broflovski is! Steven: Well, good for you, Butters! Linda: Way to go, champ! Butters: Whoopee! [runs off] Steven: Well, guess we won't have to ground him.
+tv-southpark	life	tv-quote	general	0	Stan: That didn't sparkle with her, did it?
+tv-southpark	life	tv-quote	general	0	Doctor: Well, there's no doubt about it. Those tonsils need to come out. Cartman: What?
+tv-southpark	life	tv-quote	edgy	1	Doctor: I think I owe you some ice cream. [a nurse serves Cartman two ice cream sundaes; Cartman shoves them away angrily] Cartman: Fuck your ice cream! You said I'd be fine! You all said I'd be fine! Mrs. Cartman: [wailing] Oh, my baby! Cartman: No! Noooo!
+tv-southpark	life	tv-quote	general	0	High School Student #2: [after Cartman introduces himself to the class as their new teacher] What the hell is this?!
+tv-southpark	life	tv-quote	general	0	Cartman: [passing out papers to the high school students] And pass it to the amigo behind you. High School Student #3: Hey, man, what the hell do you think you're doing? High School Student #4: Yeah. Cartman: Mr. Cartmanez is here to make sure you all get into college.
+tv-southpark	society	tv-quote	general	0	Cartman: [repeated in a Latino accent) How do I reach these kids?
+tv-southpark	family	tv-quote	general	0	Wendy's Mom: Wendy, have you been bullying kids at school? Wendy: What? No! Wendy's Mom: Well, do you want to explain why this little boy's mother had to come talk to us?
+tv-southpark	life	tv-quote	general	0	Cartman: Kenny, you're gonna let a girl put her mouth on your wiener? Do you know how disgusting that is? Girls' mouths are full of germs!
+tv-southpark	life	tv-quote	nsfw	1	Cartman: Just because you have condoms doesn't mean you're safe, Kenny! Statistically speaking, the most bacteria-ridden place on the planet is the mouth of an American woman! And you're gonna let that near your penis?! Kenny: Yep! Woohoo!
+tv-southpark	love	tv-quote	general	0	Butters: A ring that says you'd be together but not have sex. Isn't that called a wedding ring?
+tv-southpark	love	verse	general	0	Jonas Brothers Song: Tell me how I was to know/You would take your love and go?/Was it 'cuz I wanted to wait 'til we were married to put my arm around you?/The seasons change, baby, and the world goes round and round and round.
+tv-southpark	life	tv-quote	general	0	Cartman: Well, well, well, here he comes, it's B.J. McKay and his best friend Bear.
+tv-southpark	society	tv-quote	general	0	[The Jonas Brothers just finished spraying fire extinguishers into the concert audience] TV Host: That's great, boys. You like taking the Jonas Brothers' hot foam in your faces, girls?
+tv-southpark	love	tv-quote	general	0	Tammy: Let's take off these rings, Ken! Let's take them off and just be kids again! There will be plenty of time to wear rings and be boring and lame when we reach our mid-30s and will be boring and lame anyway!
+tv-southpark	life	tv-quote	general	0	Repeated Line: Who is Mysterion?
+tv-southpark	life	tv-quote	general	0	Cartman: Who is the Coon?
+tv-southpark	work-money	quip	general	0	CEO: Mmmm, no I can't do that yeah no.
+tv-southpark	work-money	tv-quote	general	0	Accountant: Okay, we put your money in the bank AND IT'S GONE! Stan: What?! Accountant: Sir, please, you're holding up the line.
+tv-southpark	life	tv-quote	general	0	Randy: We must stop pointing fingers! Finger pointing gets us nowhere-- [points to man] Steve!
+tv-southpark	work-money	tv-quote	general	0	Randy: The economy is our shepherd, we shall not want.
+tv-southpark	life	tv-quote	nsfw	1	Randy: It stopped being funny when air came out her vagina, Sharon!
+tv-southpark	life	tv-quote	general	0	Katie: I'm so excited and queefy!
+tv-southpark	life	tv-quote	general	0	Wendy: [hopefully] Hey, Stan. You wanna maybe study together after school? Stan: What? No way, dude! Today's the day!
+tv-southpark	life	tv-quote	nsfw	1	Jimmy: Say, Eric, do you like fishsticks? Cartman: Yeah? Jimmy: Do you like putting fish dicks in your mouth? Cartman: Yeah? Jimmy: Well, what are you, Eric? A gay fish? Cartman: [thinks for a second] Fish...dicks. Aww, dude, that is funny as shit!
+tv-southpark	arts	quip	edgy	1	Kanye West: I'm a motherfuckin' lyrical wordsmith motherfuckin' genius!
+tv-southpark	life	quip	general	0	Craig: Yeah, and if I had wheels I'd be a wagon.
+tv-southpark	life	tv-quote	general	0	[Kanye comes into the room with Cartman and Jimmy and his goons begin smashing everything] Cartman: Dude, it's Puff Daddy!
+tv-southpark	life	tv-quote	edgy	1	Randy: Oh shit, it's Baby Fark McGeezax!
+tv-southpark	life	tv-quote	edgy	1	Cartman: [repeated line] Da fuck?
+tv-southpark	life	tv-quote	general	0	Ike: Make Billy Mays go away, Kyle!
+tv-southpark	life	tv-quote	general	0	Ike: [whispering] I...see...dead celebrities...
+tv-southpark	food	tv-quote	general	0	Cartman: [on Stan's assertion that he doesn't get 'underwear blood' when eating Chipotle] Well, how nice for you, Stan. You may have a Golden Rectum of the Gods, but the rest of us need Chipotl-Away!
+tv-southpark	life	tv-quote	general	0	Butters: Do you know what I am saying?
+tv-southpark	life	tv-quote	nsfw	1	Skeeter: You'd better take your gay porn and walk right out of this bar.
+tv-southpark	life	tv-quote	general	0	Japanese People: [repeated line] Fakku you wharuu and fakku you dorufeen!
+tv-southpark	life	tv-quote	edgy	1	Cartman: Stan, me and Kenny don't give two shits about stupid ass whales!
+tv-southpark	life	tv-quote	general	0	[Cartman, Kyle and Kenny are playing Lady Gaga's "Poker Face" on Rock Band] Cartman: [to the tune of Poker Face] I wanna roll with him a hard pair we will be I don't give a crap about whales so go and hug a tree
+tv-southpark	society	tv-quote	edgy	1	Stan: Wait, we can't just lie to people. Paul Watson: Why not? Stan: 'Cause then we're just douchebags, dude. C'mon let's get hardcore! Paul Watson: You know what? He's right. It's time to bring out the big guns. You guys ready? Ready and throw the stinky butter at 'em!
+tv-southpark	life	tv-quote	general	0	Stan: Admit you just want to be on TV. Kenny: I just want to be on TV. Cartman: [whispers] Kenny! [aloud] I deserve to be on TV.
+tv-southpark	life	tv-quote	edgy	1	Cartman: Your show is fucking gay dude! Northwestern crewmember: Your show is fucking gay!
+tv-southpark	nature	tv-quote	general	0	Stan: Dolphins and whales were framed by the real bombers. A chicken and a cow. Emperor Akihito: [upon discovering "real" Hiroshima bombers] Chicken and Cow? CHICKEN AND COW?! Yukio Hatoyama: CHICKEN AND COW USED POOR DOLPHIN AND WHALE AS A SCAPEGOAT?! THIS IS OUTRAGE!
+tv-southpark	life	tv-quote	general	0	Stan: Wait for it...wait for it.. Now! [reveals Godzilla]
+tv-southpark	life	tv-quote	general	0	Japanese People: Fakku you Cow! Fakku you Chicken! Randy: [upon seeing the Japanese killing cows and chickens] Great job son. Now the Japanese are normal, like us.
+tv-southpark	life	tv-quote	edgy	1	Cartman: Excuse me. Excuse me! HEY ASSHOLES! Motorcycle Driver: What did you say?
+tv-southpark	life	tv-quote	general	0	Motorcycle Driver: Hey! We roll how we roll, and if people are annoyed or intimidated by it, that's too bad for them!
+tv-southpark	life	tv-quote	edgy	1	Cartman: The only people who need to dress up and be as loud and obnoxious as possible are you guys and 16-year-old girls. Just wanted to you let know, you're fucking fags.
+tv-southpark	society	tv-quote	general	0	Ike: [upon seeing the motorcycle gang] FAGS!
+tv-southpark	life	tv-quote	general	0	Randy: [upon seeing the motorcycle gang] FAGS!
+tv-southpark	life	tv-quote	general	0	Mayor: You four turdballs in my office NOW!
+tv-southpark	life	tv-quote	general	0	Recurring line: We have a turd in the punchbowl. I repeat, we have a turd in the punchbowl.
+tv-southpark	life	tv-quote	edgy	1	Elin Nordegren: [recurring line] You motherfucker! I never should've married you!
+tv-southpark	life	tv-quote	general	0	Cartman: You're telling us this book is filthy, inappropriate and made a guy shoot the King of Hippies?! Can we please read this, right now?!
+tv-southpark	faith	tv-quote	general	0	Billy: Do you want to do it? Cartman: Do i want to do it? Does the pope help pedophiles get away with their crimes? Billy: Excellent.
+tv-southpark	faith	tv-quote	general	0	Cartman: Is that something I'd want to do? Is the Pope Catholic, and making the world safe for pedophiles?
+tv-southpark	life	tv-quote	general	0	Cartman: I told your mom you got an F on that social studies test. Billy: You wouldnt do that. Cartman: Does a bear crap in the woods? And does the pope crap on the broken lives and dreams of 200 deaf boys?
+tv-southpark	life	tv-quote	general	0	Rob Reiner: [talking about Mecha-Streisand] Power her up! Release the Kiken!
+tv-southpark	life	tv-quote	general	0	Scott Tenorman: Revenge is a dish best served...chili!
+tv-southpark	life	tv-quote	general	0	Freddy Krueger: [Kills Woodsy Owl from behind] There's a real hoot for ya, Woodsy!
+tv-southpark	society	tv-quote	edgy	1	Newsreader: The boys state that there also used to be a member named the Coon actually in the group, but they let him go because he was being quote: "a dick".
+tv-southpark	life	tv-quote	edgy	1	Toolshed: Mysterion, if Cartman's gone why are we still calling ourselves "Coon and Friends"? Mysterion: Because it pisses Cartman off beyond belief and I find that [laughs] extremely funny.
+tv-southpark	faith	tv-quote	general	0	[When asking about the cult of Cthulhu meetings] Mysterion: What happened at those meetings? Stuart McCormick: Trust us, we don't remember. I know it sounds hard to believe but we were actually really drunk the entire time. Mysterion: I don't find that hard to believe at all.
+tv-southpark	society	tv-quote	edgy	1	Red Goth: I'm so freaking stoked that Cthulhu is gonna squash all the happy-go-lucky conformists. Goth Leader: Yeah. I just hope he puts an end to the fucking Disney Channel.
+tv-southpark	life	tv-quote	general	0	[Sometime later the boys are talking about their next move for a good deed] Mysterion: [annoyed] You guys have no memory of me shooting myself in the head, do you? Toolshed: [laughs] What?
+tv-southpark	life	tv-quote	general	0	Japanese man: NO! I WILL NOT EAT IF THEY ARE FORCED TO EAT MY POO!
+tv-southpark	life	tv-quote	general	0	Funnybot: Exterminate!
+tv-southpark	life	tv-quote	general	0	"What a great day for Canadians everywhere! The Winnipeg drummers, playing the "March of 1000 Farts"...as is traditional for the Canadian Royal Family."
+tv-southpark	life	tv-quote	general	0	"People in attendance, now gently tossing Cap'n Crunch as the prince passes by...as of course is tradition."
+tv-southpark	life	tv-quote	general	0	"Ah, here she comes! Yes, there she is! The aboot-to-be princess of Canada. Isn't she ravishing? So pure of heart, so strong in body, so hot in the face....She is indeed the living symbol of our greatly country. My God, she's beautiful."
+tv-southpark	life	tv-quote	general	0	Scott: (loud, booming voice) Fee-Fi-Fo-Fum I smell Kraft dinna.
+tv-southpark	life	tv-quote	edgy	1	Stan:[He snaps in Class] God shut up, Everyone shut the fuck up.
+tv-southpark	life	tv-quote	general	0	Craig:Exclusive: "Stan Marsh thinks Elize Thomson has a hot buttcrack." Stan:What?
+tv-southpark	tech	tv-quote	general	0	Stan: What's funny about having our private emails hacked into?! Wendy: Especially when they're writing about your boyfriend's addiction to crack!
+tv-southpark	society	tv-quote	general	0	Cartman: And then... and then Wendy... said they were the 99% and that I was the 1% and that made me not ceeuuwwl! Natalie Portman: "Hmmmm... no!"
+tv-southpark	life	tv-quote	general	0	Cartman: "Did you guys know that when you stop menstruating, it's called menopause?" Stan: "What?" Cartman: "Yeah, God takes your period away, and apparently it makes you really irritable. I was thinking that might be why Kyle's been so grouchy lately."
+tv-southpark	life	tv-quote	general	0	Repeated Line: I'm white trash and I'm in trouble!
+tv-southpark	life	tv-quote	general	0	Eric Cartman: Your momma's so poor she can't even pay attention!
+tv-southpark	life	tv-quote	general	0	Eric Cartman: My momma's so poor she walks down the street in one shoe, and if you ask her if she lost a shoe, she says 'No I found one!'
+tv-southpark	life	tv-quote	general	0	Mysterion: Karen McCormick is off limits!, do you understand? Make sure everybody in this school knows!
+tv-southpark	life	tv-quote	edgy	1	Carol McCormick: (yelling) Both of you are pieces of shit. Sit the fuck down!
+tv-southpark	life	tv-quote	general	0	Child Service Agent: (crying) ITS LIKE A PENN STATE HOMECOMING PARTY!!!
+tv-southpark	life	tv-quote	general	0	Eric Cartman: (singing) I'm not, I'm not, that's right. The poor kid at schoooooool.
+tv-southpark	life	tv-quote	general	0	Cartman: Come on, Stan. Let's make the bus stop. [a bus is sent driving through the town when Cartman jumps to the road] Stop the car! [a
+tv-southpark	life	tv-quote	general	0	Cartman: (To Kyle) You know all those times I called you a stupid jew? I didn't mean it. You're not a jew.
+tv-southpark	life	quip	general	0	"Well I'm gonna kick you in the nuts"
+tv-southpark	life	quip	edgy	1	"How about a courtesy lick before I get FUCKED!!!"
+tv-southpark	life	tv-quote	general	0	"God dammit, your family's poor, Kenny! I don't like Kenny any more you guys, he just doesn't communicate."("Pinkeye", Cartman is trying to upset zombie Kenny)
+tv-southpark	society	tv-quote	general	0	"Hippieeees.... Hippieees all around me, they say they wanna save the world but all they do is smoke pot and smell bad." ("Cherokee Hair Tampons" when talking in his sleep, having nightmares)
+tv-southpark	life	tv-quote	general	0	"If there's one thing I've learned, it's that the only way to fight hate....is with more hate!!!" ("Ginger Kids", ep.9-11)
+tv-southpark	life	tv-quote	general	0	"Drugs are bad because if you do drugs you're a hippie and hippies suck." ("Ike's Wee Wee", ep. 2-5)
+tv-southpark	life	tv-quote	general	0	"Yeah, whatever, you can suck my balls." (Appears in many episodes; in different forms)
+tv-southpark	life	quip	general	0	"SVINKTOR!"
+tv-southpark	life	tv-quote	general	0	"You will respect my Authori-tah!" When Cartman worked as a Cop ("ChickenLover", ep.2-4) When Cartman was Deputized by the Department of the Interior ("Jakovasaurs", ep.3-5) When Cartman was re-enacting General Lee ("The Red Badge of Gayness", ep.3-14)
+tv-southpark	life	tv-quote	general	0	I hate you, Kenny. (repeated in numerous episodes, usually just said at a completely random moment.) Screw you guys, I'm going home! I'm not following this hippie around any more. "But maaaaaaayyyyyyym!"
+tv-southpark	life	tv-quote	nsfw	1	" Now it may appear in the picture that I'm actually looking at the camera lens and smiling,with the penis in my mouth, and giving a thumbs up, but I assure you I was fast asleep. " ("Cartman Sucks")
+tv-southpark	life	tv-quote	edgy	1	"Son of a bitch ! What the fuck do you think you`re doing Butters !! Go do what you were sent to do dickface !! "
+tv-southpark	life	quip	general	0	Damnn Kennnn .. "
+tv-southpark	life	tv-quote	general	0	Whateva! I do what I want! " ("Freak Strike", "My Future Self n' Me")
+tv-southpark	life	tv-quote	general	0	BEEFCAKKEEE ! (Weight Gain 4000)
+tv-southpark	life	tv-quote	nsfw	1	(Discovering he can create electricity by swearing) FUCK, SHIT, COCK, ASS, TITTIES, BONER, BITCH, MUFF, PUSSY, COCK, BUTTHOLE, BARBRA STREISAND!!! (Shoots lightning bolts from his hands) (South Park: Bigger, Longer, & Uncut)
+tv-southpark	life	tv-quote	general	0	I'm not fat, I'm big boned. (Cartman Gets an Anal Probe)
+tv-southpark	life	tv-quote	general	0	Just to go to the dumb moon? (Free Willzyx)
+tv-southpark	life	tv-quote	general	0	Ow! That hurts you butt licker. (Cartman Gets an Anal Probe)
+tv-southpark	life	tv-quote	edgy	1	FAGGOT! (Le Petit Tourette)
+tv-southpark	life	tv-quote	general	0	[Walkie-talkie names by Cartman] Blacky; Fagot (Imaginationland)
+tv-southpark	life	tv-quote	edgy	1	Dude, you don't shoot a guy in the DICK! (The China Probrem)
+tv-southpark	life	tv-quote	general	0	I'm sorry, I'm sorry, what I said was: "how would you like to suck my balls, Mr. Garrison?" (South Park movie)
+tv-southpark	life	tv-quote	general	0	Screw you guys, home!!!!!!!!
+tv-southpark	faith	tv-quote	general	0	Priest: I haven't seen you in church lately. Kyle: Well, I'm Jewish. Priest: You're not too Jewish to worship Jesus, are you? Kyle: I guess not.(Spontaneous Combustion)
+tv-southpark	life	tv-quote	general	0	"I think the rabbit just crapped on my jacket .."(Fantastic Easter Special)
+tv-southpark	life	tv-quote	general	0	"Cartman that is the stupidest thing you've ever said, this week!"
+tv-southpark	life	tv-quote	edgy	1	Cartman: "But why would Scott Tenorman sell me his pubes for $10?" Kyle: "Because, retard, you're dumb enough to buy Scott Tenorman's pubes for $10!" (Scott Tenorman Must Die)
+tv-southpark	life	quip	general	0	"Jesus Christ!"
+tv-southpark	life	tv-quote	general	0	Stan: "Oh."(It Hits The Fan)
+tv-southpark	life	quip	edgy	1	"Goddamn it. Just...goddamn it."
+tv-southpark	life	tv-quote	general	0	Cartman: "Isn't it cool?" Kyle: "No, it's not cool!"
+tv-southpark	life	quip	general	0	"Screw you, Fatass!"
+tv-southpark	life	tv-quote	general	0	Cartman: "Kyle, you are so full of meecrob!" Kyle: "I am not full of meecrah-wha?"(It Hits The Fan)
+tv-southpark	life	quip	general	0	"OH, COME ON!!"
+tv-southpark	life	tv-quote	edgy	1	"You Bastards!"
+tv-southpark	life	tv-quote	general	0	"Come on, children. Let's go find ourselves a nice white woman to make love to." (It Hits The Fan)
+tv-southpark	love	quip	general	0	"I wanna make love to you woman, I wanna lay you down by the fire!"
+tv-southpark	life	quip	general	0	"There's a time and a place for everything, and it's called college. Do you understand?" (Ike's Wee Wee)
+tv-southpark	life	tv-quote	general	0	Chef: "Why hello there, children" The boys: "Hey Chef!" Chef: "How's it goin'?" The boys: "Bad." Chef: "Why bad?"
+tv-southpark	life	tv-quote	nsfw	1	"You go to hell! You go to hell and you DIE!!" (Cartman Gets An Anal Probe, Cartman's Mom is a Dirty Slut, Chef aid and Summer Sucks) "Hey, there, shitty shitty fag, shitty shitty fag, how do you do ?" (It Hits The Fan)
+tv-southpark	life	tv-quote	general	0	"No, that's wrong, Cartman. But don't worry. There are no stupid answers, just stupid people."
+tv-southpark	life	tv-quote	nsfw	1	"Now that's a whore!" (Stupid Spoiled Whore Video Playset)
+tv-southpark	life	tv-quote	nsfw	1	"I'm not gay; I'm a woman." (Mr. Garrison's Fancy New Vagina)
+tv-southpark	life	tv-quote	general	0	"That was not me, it was Mister Hat." (Cherokee Hair Tampons)
+tv-southpark	life	tv-quote	general	0	"Life isn't fair kiddo, get used to it!" (Big Gay Al's Big Gay Boat Ride)
+tv-southpark	life	tv-quote	general	0	"Awww scissor me timbers" (D-Yikes)
+tv-southpark	life	tv-quote	nsfw	1	"Myyyyy baaaallls!" (Mr. Garrison's Fancy New Vagina)
+tv-southpark	life	tv-quote	edgy	1	"Bzzt! Wrong! Try again, dumbass! [laughs]" (to Officer Barbready) (Chicken lover)
+tv-southpark	life	tv-quote	general	0	"Bzzt! Turd! Did you heard that Mister Hat? I sure did Mister Garrison!" (Chicken lover)
+tv-southpark	life	insult	edgy	1	"You fag!"
+tv-southpark	life	tv-quote	nsfw	1	"Get an AIDS test Thompson, cus' your wife's a dude, faggot!" (Eek! A penis!)
+tv-southpark	life	tv-quote	general	0	"Well, I'm afraid that your kid Kyle and his friends have to start kindergarten and 1st grade or they'll lose the town for a month and 4 days in a week and a half."
+tv-southpark	life	tv-quote	general	0	"Oh my God! They killed Kenny!" "Dad! Tom Cruise won't come out of the closet!" ("Trapped in the Closet")
+tv-southpark	life	tv-quote	general	0	Kyle: Stan? Do you really think my hat is stupid? Stan: As a matter of fact, I believe it is the nicest hat I have ever known. (Follow That Egg)
+tv-southpark	life	tv-quote	general	0	"Butters was missing?" (Butters' Very Own Episode)
+tv-southpark	life	tv-quote	edgy	1	Stan: "This is some pretty fucked up shit right here!"
+tv-southpark	life	tv-quote	general	0	"Cartman, what the hell are you doing with aborted fetuses?!" ("Kenny Dies")
+tv-southpark	life	tv-quote	edgy	1	Kenny: "Mrph, Mrph, Mrph, Mrph." Kenny: "Yes, you can." Kenny: "Fuck you" Kenny: "Shit"
+tv-southpark	life	quip	general	0	Unmuffled lines
+tv-southpark	life	tv-quote	general	0	Kenny: Goodbye, you guys.
+tv-southpark	life	tv-quote	general	0	Kenny: NOO! NO, NOT THE SOCKS!
+tv-southpark	life	tv-quote	general	0	Kenny: You guys owe me big time for this. Stan: Hey, at least you're finally doing something.
+tv-southpark	life	tv-quote	general	0	Kenny: Wait-wait-wait, I'm not Blanket! Aggh! AHH, STOP!
+tv-southpark	life	tv-quote	general	0	Butters: Oh, Hamburgers!
+tv-southpark	life	tv-quote	general	0	Butters: I don't want to do it if it hurts or if it makes you get all sticky.
+tv-southpark	arts	tv-quote	nsfw	1	Butters: [Butters is holding a Barbie doll on his right hand, while he holds his cut out of himself on his left hand.] "Hey there, Butters, wanna slap my titties around?" Uh, no thanks, ma'am. I might get grounded again.
+tv-southpark	life	tv-quote	general	0	Wendy: Hi, Stan. [gets puked by Stan] Eww!
+tv-southpark	life	tv-quote	edgy	1	Wendy: Don't fuck with Wendy Testaburger!
+tv-southpark	life	tv-quote	general	0	Wendy: He doesn't even know what he wrote about!

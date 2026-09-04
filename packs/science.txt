@@ -1,0 +1,505 @@
+science	science	quip	general	0	1 + 1 = 3, for large values of 1.
+science	life	joke	general	0	(1) A sheet of paper is an ink-lined plane. (2) An inclined plane is a slope up. (3) A slow pup is a lazy dog. QED: A sheet of paper is a lazy dog.
+science	arts	quip	general	0	(1) Never draw what you can copy. (2) Never copy what you can trace. (3) Never trace what you can cut out and paste down.
+science	science	quip	general	0	(1) X=Y ; Given (2) X^2=XY ; Multiply both sides by X (3) X^2-Y^2=XY-Y^2 ; Subtract Y^2 from both sides (4) (X+Y)(X-Y)=Y(X-Y) ; Factor (5) X+Y=Y ; Cancel out (X-Y) term (6) 2Y=Y ; Substitute X for Y, by equation 1 (7) 2=1 ; Divide both sides by Y -- "Omni", proof that 2 equals 1
+science	science	quip	general	0	1.79 x 10^12 furlongs per fortnight -- it's not just a good idea, it's the law!
+science	tech	fact	general	0	10.0 times 0.1 is hardly ever 1.0.
+science	science	quip	general	0	"355/113 -- Not the famous irrational number PI, but an incredible simulation!"
+science	life	quip	general	0	A conclusion is simply the place where someone got tired of thinking.
+science	work-money	quip	general	0	A conference is a gathering of important people who singly can do nothing but together can decide that nothing can be done.
+science	tech	quip	general	0	A fail-safe circuit will destroy others.
+science	tech	aphorism	general	0	A failure will not appear until a unit has passed final inspection.
+science	science	fact	general	0	"A fractal is by definition a set for which the Hausdorff Besicovitch dimension strictly exceeds the topological dimension."
+science	arts	quip	general	0	"A horrible little boy came up to me and said, `You know in your book The Martian Chronicles?' I said, `Yes?' He said, `You know where you talk about Deimos rising in the East?' I said, `Yes?' He said `No.' -- So I hit him." -- attributed to Ray Bradbury
+science	science	quip	general	0	A mathematician is a device for turning coffee into theorems.
+science	tech	wisdom	general	0	A method of solution is perfect if we can forsee from the start, and even prove, that following that method we shall attain our aim.
+science	science	observation	general	0	A physicist is an atom's way of knowing about atoms.
+science	science	wisdom	general	0	A scientific truth does not triumph by convincing its opponents and making them see the light, but rather because its opponents eventually die and a new generation grows up that is familiar with it.
+science	science	quip	general	0	A sine curve goes off to infinity, or at least the end of the blackboard.
+science	life	joke	general	0	A social scientist, studying the culture and traditions of a small North African tribe, found a woman still practicing the ancient art of matchmaking. Locally, she was known as the Moor, the marrier.
+science	life	joke	general	0	A statistician, who refused to fly after reading of the alarmingly high probability that there will be a bomb on any given plane, realized that the probability of there being two bombs on any given flight is very low. Now, whenever he flies, he carries a bomb with him.
+science	tech	observation	general	0	A transistor protected by a fast-acting fuse will protect the fuse by blowing first.
+science	life	quip	general	0	A triangle which has an angle of 135 degrees is called an obscene triangle.
+science	science	wisdom	general	0	According to convention there is a sweet and a bitter, a hot and a cold, and according to convention, there is an order. In truth, there are atoms and a void.
+science	science	quip	general	0	According to the latest official figures, 43% of all statistics are totally worthless.
+science	work-money	observation	general	0	After an instrument has been assembled, extra components will be found on the bench.
+science	life	quip	general	0	After the last of 16 mounting screws has been removed from an access cover, it will be discovered that the wrong access cover has been removed.
+science	life	pun	general	0	After years of research, scientists recently reported that there is, indeed, arroz in Spanish Harlem.
+science	life	pun	general	0	Against his wishes, a math teacher's classroom was remodeled. Ever since, he's been talking about the good old dais. His students planted a small orchard in his honor; the trees all have square roots.
+science	science	quip	general	0	Air is water with holes in it.
+science	nature	pun	general	0	Air pollution is really making us pay through the nose.
+science	tech	dark	general	0	Alexander Graham Bell is alive and well in New York, and still waiting for a dial tone.
+science	science	quip	general	0	Algebraic symbols are used when you do not know what you are talking about.
+science	tech	wisdom	general	0	All Finagle Laws may be bypassed by learning the simple art of doing without thinking.
+science	science	aphorism	general	0	All great discoveries are made by mistake.
+science	life	aphorism	general	0	All great ideas are controversial, or have been at one time.
+science	society	quip	general	0	All laws are simulations of reality.
+science	science	fact	general	0	All life evolves by the differential survival of replicating entities.
+science	society	pun	general	0	All power corrupts, but we need electricity.
+science	science	quip	general	0	All science is either physics or stamp collecting.
+science	science	wisdom	general	0	All seems condemned in the long run to approximate a state akin to Gaussian noise.
+science	life	quip	general	0	All syllogisms have three parts, therefore this is not a syllogism.
+science	science	quip	general	0	All the evidence concerning the universe has not yet been collected, so there's still hope.
+science	science	quip	general	0	All theoretical chemistry is really physics; and all theoretical chemists know it.
+science	science	fact	general	0	Although the moon is smaller than the earth, it is farther away.
+science	tech	quip	general	0	Always draw your curves, then plot your reading.
+science	life	aphorism	general	0	Always leave room to add an explanation if it doesn't work out.
+science	life	wisdom	general	0	Always think of something new; this helps you forget your last rotten idea.
+science	life	quip	general	0	Always try to do things in chronological order; it's less confusing that way.
+science	society	wisdom	general	0	An age is called Dark not because the light fails to shine, but because people refuse to see it.
+science	life	quip	general	0	An anthropologist at Tulane has just come back from a field trip to New Guinea with reports of a tribe so primitive that they have Tide but not new Tide with lemon-fresh Borax.
+science	life	quip	general	0	An authority is a person who can tell you more about something than you really care to know.
+science	work-money	quip	general	0	An economist is a man who would marry Farrah Fawcett-Majors for her money.
+science	society	quip	general	0	An egghead is one who stands firmly on both feet, in mid-air, on both sides of an issue.
+science	tech	observation	general	0	Any circuit design must contain at least one part which is obsolete, two parts which are unobtainable, and three parts which are still under development.
+science	tech	quip	general	0	Any sufficiently advanced technology is indistinguishable from a rigged demo.
+science	tech	aphorism	general	0	Any sufficiently advanced technology is indistinguishable from magic.
+science	science	quip	general	0	Anyone who cannot cope with mathematics is not fully human. At best he is a tolerable subhuman who has learned to wear shoes, bathe and not make messes in the house.
+science	nature	wisdom	general	0	Anyone who imagines that all fruits ripen at the same time as the strawberries, knows nothing about grapes.
+science	life	wisdom	general	0	"Anything created must necessarily be inferior to the essence of the creator."
+science	life	aphorism	general	0	Anything cut to length will be too short.
+science	life	quip	general	0	Arithmetic is being able to count up to twenty without taking off your shoes.
+science	tech	quip	general	0	Artificial intelligence has the same relation to intelligence as artificial flowers have to flowers.
+science	science	quip	general	0	"As an adolescent I aspired to lasting fame, I craved factual certainty, and I thirsted for a meaningful vision of human life -- so I became a scientist. This is like becoming an archbishop so you can meet girls."
+science	science	wisdom	general	0	As far as the laws of mathematics refer to reality, they are not certain, and as far as they are certain, they do not refer to reality.
+science	tech	quip	general	0	As you will see, I told them, in no uncertain terms, to see Figure one. -- Dave "First Strike" Pare
+science	work-money	quip	general	0	Ask five economists and you'll get five different explanations (six if one went to Harvard).
+science	science	wisdom	general	0	At any given moment, an arrow must be either where it is or where it is not. But obviously it cannot be where it is not. And if it is where it is, that is equivalent to saying that it is at rest. -- Zeno's paradox of the moving (still?) arrow
+science	tech	joke	general	0	Base 8 is just like base 10, if you are missing two fingers.
+science	tech	quip	general	0	Before Xerox, five carbons were the maximum extension of anybody's ego.
+science	science	quip	general	0	Between infinite and short there is a big difference.
+science	science	quip	general	0	Biology grows on you.
+science	science	pun	general	0	Biology is the only science in which multiplication means the same thing as division.
+science	science	quip	general	0	But it does move!
+science	life	wisdom	general	0	But you who live on dreams, you are better pleased with the sophistical reasoning and frauds of talkers about great and uncertain matters than those who speak of certain and natural matters, not of such lofty nature.
+science	science	wisdom	general	0	Celestial navigation is based on the premise that the Earth is the center of the universe. The premise is wrong, but the navigation works. An incorrect model can be a useful tool.
+science	science	pun	general	0	Chemist who falls in acid is absorbed in work.
+science	science	pun	general	0	Chemist who falls in acid will be tripping for weeks.
+science	science	quip	general	0	Chemistry is applied theology.
+science	science	pun	general	0	Chemistry professors never die, they just fail to react.
+science	science	quip	general	0	"Consider a spherical bear, in simple harmonic motion..." -- Professor in the UCB physics department
+science	arts	tv-quote	general	0	"Contrariwise," continued Tweedledee, "if it was so, it might be, and if it were so, it would be; but as it isn't, it ain't. That's logic!"
+science	faith	joke	general	0	Did you hear that there's a group of South American Indians that worship the number zero? Is nothing sacred?
+science	nature	joke	general	0	Did you hear that two rabbits escaped from the zoo and so far they have only recaptured 116 of them?
+science	work-money	joke	general	0	Did you know that if you took all the economists in the world and lined them up end to end, they'd still point in the wrong direction?
+science	science	quip	general	0	Dimensions will always be expressed in the least usable term, convertible only through the use of weird and unnatural conversion factors. Velocity, for example, will be expressed in furlongs per fortnight.
+science	nature	quip	general	0	Dinosaurs aren't extinct. They've just learned to hide in the trees.
+science	science	pun	general	0	Do molecular biologists wear designer genes?
+science	life	quip	general	0	Duct tape is like the force. It has a light side, and a dark side, and it holds the universe together ...
+science	science	quip	general	0	E = MC ** 2 +- 3db
+science	work-money	quip	general	0	Economics is extremely useful as a form of employment for economists.
+science	work-money	quip	general	0	Economists can certainly disappoint you. One said that the economy would turn up by the last quarter. Well, I'm down to mine and it hasn't.
+science	work-money	quip	general	0	Economists state their GNP growth projections to the nearest tenth of a percentage point to prove they have a sense of humor.
+science	life	quip	general	0	Elegance and truth are inversely related.
+science	science	quip	general	0	Elliptic paraboloids for sale.
+science	science	pun	general	0	Entropy isn't what it used to be.
+science	science	quip	general	0	Entropy requires no maintenance.
+science	science	quip	general	0	Enzymes are things invented by biologists that explain things which otherwise require harder thinking.
+science	tech	quip	general	0	Every little picofarad has a nanohenry all its own.
+science	science	quip	general	0	Every nonzero finite dimensional inner product space has an orthonormal basis. It makes sense, when you don't think about it.
+science	science	quip	general	0	Every paper published in a respectable journal should have a preface by the author stating why he is publishing the article, and what value he sees in it. I have no hope that this practice will ever be adopted.
+science	life	wisdom	general	0	Everything should be made as simple as possible, but not simpler.
+science	tech	quip	general	0	Everything that can be invented has been invented.
+science	life	wisdom	general	0	Experience varies directly with equipment ruined.
+science	tech	aphorism	general	0	Experiments must be reproducible; they should all fail in the same way.
+science	science	quip	general	0	Factorials were someone's attempt to make math LOOK exciting.
+science	society	quip	general	0	Facts are stubborn, but statistics are more pliable.
+science	science	quip	general	0	Federal grants are offered for... research into the recreation potential of interplanetary space travel for the culturally disadvantaged.
+science	science	quip	general	0	Five is a sufficiently close approximation to infinity.
+science	life	aphorism	general	0	For every complex problem, there is a solution that is simple, neat, and wrong.
+science	life	quip	general	0	For God's sake, stop researching for a while and begin to think!
+science	tech	quip	general	0	For large values of one, one equals two, for small values of two.
+science	nature	fact	general	0	FORTUNE'S FUN FACTS TO KNOW AND TELL: #44 Zebras are colored with dark stripes on a light background.
+science	life	pun	general	0	Friction is a drag.
+science	life	dark	general	0	Fundamentally, there may be no basis for anything.
+science	family	observation	general	0	Genetics explains why you look like your father, and if you don't, why you should.
+science	life	joke	general	0	(German philosopher) Georg Wilhelm Hegel, on his deathbed, complained, "Only one man ever understood me." He fell silent for a while and then added, "And he didn't understand me."
+science	faith	aphorism	general	0	God doesn't play dice.
+science	science	quip	general	0	God made the integers; all else is the work of Man.
+science	science	quip	general	0	God runs electromagnetics by wave theory on Monday, Wednesday, and Friday, and the Devil runs them by quantum theory on Tuesday, Thursday, and Saturday.
+science	science	observation	general	0	Going the speed of light is bad for your age.
+science	life	quip	general	0	Good morning. This is the telephone company. Due to repairs, we're giving you advance notice that your service will be cut off indefinitely at ten o'clock. That's two minutes from now.
+science	life	quip	general	0	Gosh that takes me back... or is it forward? That's the trouble with time travel, you never can tell."
+science	science	joke	general	0	Got Mole problems? Call Avogadro at 6.02 x 10^23.
+science	science	pun	general	0	Gravity brings me down.
+science	science	quip	general	0	Gravity is a myth, the Earth sucks.
+science	science	joke	general	0	GREAT MOMENTS IN HISTORY (#1): April 2, 1751 Isaac Newton becomes discouraged when he falls up a flight of stairs.
+science	life	aphorism	general	0	Great spirits have always encountered violent opposition from mediocre minds.
+science	science	pun	general	0	He keeps differentiating, flying off on a tangent.
+science	science	quip	general	0	He: Let's end it all, bequeathin' our brains to science. She: What?!? Science got enough trouble with their OWN brains.
+science	science	pun	general	0	Heard that the next Space Shuttle is supposed to carry several Guernsey cows? It's gonna be the herd shot 'round the world.
+science	science	observation	general	0	Heavier than air flying machines are impossible.
+science	science	quip	general	0	Heisenberg may have been here.
+science	science	quip	general	0	Heisenberg may have slept here...
+science	nature	quip	general	0	Help fight continental drift.
+science	science	fact	general	0	Houston, Tranquillity Base here. The Eagle has landed.
+science	tech	quip	general	0	How can you do 'New Math' problems with an 'Old Math' mind?
+science	science	joke	general	0	How many weeks are there in a light year?
+science	life	wisdom	general	0	How often I found where I should be going only by setting out for somewhere else.
+science	life	dark	general	0	Human beings were created by water to transport it uphill.
+science	work-money	quip	general	0	I am not an Economist. I am an honest man!
+science	faith	wisdom	general	0	I cannot believe that God plays dice with the cosmos.
+science	life	quip	general	0	"I don't think so," said Rene Descartes. Just then, he vanished.
+science	life	quip	general	0	I have a theory that it's impossible to prove anything, but I can't prove it.
+science	science	quip	general	0	I have hardly ever known a mathematician who was capable of reasoning.
+science	life	quip	general	0	I have yet to see any problem, however complicated, which, when you looked at it in the right way, did not become still more complicated.
+science	science	observation	general	0	I put up my thumb... and it blotted out the planet Earth.
+science	faith	quip	general	0	I tell them to turn to the study of mathematics, for it is only there that they might escape the lusts of the flesh.
+science	tech	quip	general	0	"I think it is true for all n. I was just playing it safe with n >= 3 because I couldn't remember the proof."
+science	life	quip	general	0	I THINK MAN INVENTED THE CAR by instinct.
+science	science	observation	general	0	I THINK THERE SHOULD BE SOMETHING in science called the "reindeer effect." I don't know what it would be, but I think it'd be good to hear someone say, "Gentlemen, what we have here is a terrifying example of the reindeer effect."
+science	life	quip	general	0	I THINK THEY SHOULD CONTINUE the policy of not giving a Nobel Prize for paneling.
+science	tech	quip	general	0	I use technology in order to hate it more properly.
+science	society	quip	general	0	If A = B and B = C, then A = C, except where void or prohibited by law.
+science	work-money	quip	general	0	If a camel is a horse designed by a committee, then a consensus forecast is a camel's behind.
+science	life	wisdom	general	0	If A equals success, then the formula is A = X + Y + Z. X is work. Y is play. Z is keep your mouth shut.
+science	life	quip	general	0	If all else fails, immortality can always be assured by spectacular error.
+science	work-money	quip	general	0	If all the world's economists were laid end to end, we wouldn't reach a conclusion.
+science	science	quip	general	0	If an experiment works, something has gone wrong.
+science	science	quip	general	0	If entropy is increasing, where is it coming from?
+science	faith	joke	general	0	If God is perfect, why did He create discontinuous functions?
+science	life	quip	general	0	If I had only known, I would have been a locksmith.
+science	life	quip	general	0	If I have not seen so far it is because I stood in giant's footsteps.
+science	work-money	quip	general	0	If I set here and stare at nothing long enough, people might think I'm an engineer working on something.
+science	tech	aphorism	general	0	If in any problem you find yourself doing an immense amount of work, the answer can be obtained by simple inspection.
+science	faith	wisdom	general	0	If it is a Miracle, any sort of evidence will answer, but if it is a Fact, proof is necessary.
+science	science	joke	general	0	If it smells it's chemistry, if it crawls it's biology, if it doesn't work it's physics.
+science	science	quip	general	0	If it wasn't for Newton, we wouldn't have to eat bruised apples.
+science	tech	quip	general	0	If mathematically you end up with the wrong answer, try multiplying by the page number.
+science	science	wisdom	general	0	If scientific reasoning were limited to the logical processes of arithmetic, we should not get very far in our understanding of the physical world. One might as well attempt to grasp the game of poker entirely by the use of the mathematics of probability.
+science	society	observation	general	0	If the aborigine drafted an IQ test, all of Western civilization would presumably flunk it.
+science	science	quip	general	0	If the facts don't fit the theory, change the facts.
+science	science	wisdom	general	0	If the human brain were so simple that we could understand it, we would be so simple we couldn't.
+science	life	uplifting	general	0	If they can make penicillin out of moldy bread, they can sure make something out of you.
+science	life	quip	general	0	"If value corrupts then absolute value corrupts absolutely."
+science	life	wisdom	general	0	If you analyse anything, you destroy it.
+science	work-money	observation	general	0	If you are smart enough to know that you're not smart enough to be an Engineer, then you're in Business.
+science	tech	quip	general	0	If you can't understand it, it is intuitively obvious.
+science	work-money	quip	general	0	If you haven't enjoyed the material in the last few lectures then a career in chartered accountancy beckons. -- Advice from the lecturer in the middle of the Stochastic Systems course.
+science	life	observation	general	0	If you push the "extra ice" button on the soft drink vending machine, you won't get any ice. If you push the "no ice" button, you'll get ice, but no cup.
+science	arts	quip	general	0	If you steal from one author it's plagiarism; if you steal from many it's research.
+science	science	pun	general	0	If you're not part of the solution, you're part of the precipitate.
+science	life	wisdom	general	0	Imagination is more important than knowledge.
+science	science	joke	general	0	In 1750 Isaac Newton became discouraged when he fell up a flight of stairs.
+science	food	fact	general	0	In 1869 the waffle iron was invented for people who had wrinkled waffles.
+science	life	observation	general	0	IN MY OPINION anyone interested in improving himself should not rule out becoming pure energy.
+science	nature	wisdom	general	0	In Nature there are neither rewards nor punishments, there are consequences.
+science	tech	quip	general	0	In order to dial out, it is necessary to broaden one's dimension.
+science	science	wisdom	general	0	"In order to make an apple pie from scratch, you must first create the universe."
+science	science	quip	general	0	"In short, N is Richardian if, and only if, N is not Richardian."
+science	tech	quip	general	0	In specifications, Murphy's Law supersedes Ohm's.
+science	life	joke	general	0	In the beginning there was nothing. And the Lord said "Let There Be Light!" And still there was nothing, but at least now you could see it.
+science	life	quip	general	0	In theory, there is no difference between theory and practice. In practice, there is.
+science	life	aphorism	general	0	In these matters the only certainty is that there is nothing certain.
+science	tech	fact	general	0	Information is the inverse of entropy.
+science	tech	quip	general	0	Interchangeable parts won't.
+science	science	quip	general	0	Invest in physics -- own a piece of Dirac!
+science	life	quip	general	0	"Irrationality is the square root of all evil"
+science	life	wisdom	general	0	Is knowledge knowable? If not, how do we know that?
+science	science	observation	general	0	Isn't it interesting that the same people who laugh at science fiction listen to weather forecasts and economists?
+science	work-money	quip	general	0	Isn't it strange that the same people that laugh at gypsy fortune tellers take economists seriously?
+science	science	quip	general	0	It has just been discovered that research causes cancer in rats.
+science	science	wisdom	general	0	It is contrary to reasoning to say that there is a vacuum or space in which there is absolutely nothing.
+science	science	quip	general	0	It is impossible to travel faster than light, and certainly not desirable, as one's hat keeps blowing off.
+science	work-money	quip	general	0	It is much easier to suggest solutions when you know nothing about the problem.
+science	life	wisdom	general	0	It is not every question that deserves an answer.
+science	faith	quip	general	0	It is not for me to attempt to fathom the inscrutable workings of Providence.
+science	science	observation	general	0	It is not that polar co-ordinates are complicated, it is simply that cartesian co-ordinates are simpler than they have a right to be.
+science	life	observation	general	0	It is true that if your paperboy throws your paper into the bushes for five straight days it can be explained by Newton's Law of Gravity. But it takes Murphy's law to explain why it is happening to you.
+science	life	quip	general	0	It seems intuitively obvious to me, which means that it might be wrong.
+science	science	quip	general	0	It seems that more and more mathematicians are using a new, high level language named "research student".
+science	life	observation	general	0	"It's easier said than done." ... and if you don't believe it, try proving that it's easier done than said, and you'll see that "it's easier said that `it's easier done than said' than it is done", which really proves that "it's easier said than done".
+science	life	insult	general	0	It's hard to think of you as the end result of millions of years of evolution.
+science	life	quip	general	0	It's later than you think, the joint Russian-American space mission has already begun.
+science	life	quip	general	0	It's not an optical illusion, it just looks like one.
+science	tech	quip	general	0	It's not hard to admit errors that are [only] cosmetically wrong.
+science	science	quip	general	0	Just because they are called 'forbidden' transitions does not mean that they are forbidden. They are less allowed than allowed transitions, if you see what I mean. -- From a Part 2 Quantum Mechanics lecture.
+science	tech	pun	general	0	Kleeneness is next to Gödelness.
+science	tech	quip	general	0	Klein bottle for rent -- inquire within.
+science	tech	quip	general	0	Last yeer I kudn't spel Engineer. Now I are won.
+science	tech	fact	general	0	Lawrence Radiation Laboratory keeps all its data in an old gray trunk.
+science	life	observation	general	0	Life is a biochemical reaction to the stimulus of the surrounding environment in a stable ecosphere, while a bowl of cherries is a round container filled with little red fruits on sticks.
+science	life	wisdom	general	0	Life is a whim of several billion cells to be you for a while.
+science	life	wisdom	general	0	Life is difficult because it is non-linear.
+science	life	quip	general	0	Logic is a little bird, sitting in a tree; that smells *awful*.
+science	life	quip	general	0	Logic is a pretty flower that smells bad.
+science	life	quip	general	0	Logic is a systematic method of coming to the wrong conclusion with confidence.
+science	life	quip	general	0	Logic is the chastity belt of the mind!
+science	love	quip	general	0	Love makes the world go 'round, with a little help from intrinsic angular momentum.
+science	life	quip	general	0	Ma Bell is a mean mother!
+science	life	observation	general	0	Machines have less problems. I'd like to be a machine.
+science	science	quip	general	0	Make it myself? But I'm a physical organic chemist!
+science	tech	wisdom	general	0	Make it right before you make it faster.
+science	science	quip	general	0	Man will never fly. Space travel is merely a dream. All aspirin is alike.
+science	science	pun	general	0	MATH AND ALCOHOL DON'T MIX! Please, don't drink and derive. Mathematicians Against Drunk Deriving
+science	life	quip	general	0	Math is like love -- a simple idea but it can get complicated.
+science	life	quip	general	0	Mathematicians are like Frenchmen: whatever you say to them they translate into their own language and forthwith it is something entirely different.
+science	science	quip	general	0	Mathematicians often resort to something called Hilbert space, which is described as being n-dimensional. Like modern sex, any number can play.
+science	science	quip	general	0	Mathematicians practice absolute freedom.
+science	science	wisdom	general	0	Mathematics deals exclusively with the relations of concepts to each other without consideration of their relation to experience.
+science	science	quip	general	0	Mathematics is the only science where one never knows what one is talking about nor whether what is said is true.
+science	science	joke	general	0	Matter cannot be created or destroyed, nor can it be returned without a receipt.
+science	life	aphorism	general	0	Matter will be damaged in direct proportion to its value.
+science	life	aphorism	general	0	Measure twice, cut once.
+science	work-money	aphorism	general	0	Measure with a micrometer. Mark with chalk. Cut with an axe.
+science	life	aphorism	general	0	Mediocrity finds safety in standardization.
+science	science	wisdom	general	0	Men love to wonder, and that is the seed of science.
+science	life	quip	general	0	Men occasionally stumble over the truth, but most of them pick themselves up and hurry off as if nothing had happened.
+science	life	dark	general	0	More than any time in history, mankind now faces a crossroads. One path leads to despair and utter hopelessness, the other to total extinction. Let us pray that we have the wisdom to choose correctly.
+science	tech	quip	general	0	Murphy's Law, that brash proletarian restatement of Godel's Theorem.
+science	life	pun	general	0	My geometry teacher was sometimes acute, and sometimes obtuse, but always, always, he was right. [That's an interesting angle. I wonder if there are any parallels?]
+science	life	wisdom	general	0	Mystics always hope that science will some day overtake them.
+science	science	aphorism	general	0	Natural laws have no pity.
+science	life	quip	general	0	Nature abhors a hero. For one thing, he violates the law of conservation of energy. For another, how can it be the survival of the fittest when the fittest keeps putting himself in situations where he is most likely to be creamed?
+science	life	quip	general	0	Nature always sides with the hidden flaw.
+science	nature	quip	general	0	Nature is by and large to be found out of doors, a location where, it cannot be argued, there are never enough comfortable chairs.
+science	nature	aphorism	general	0	Nature, to be commanded, must be obeyed.
+science	life	quip	general	0	Neil Armstrong tripped.
+science	science	pun	general	0	Neutrinos are into physicists.
+science	science	pun	general	0	Neutrinos have bad breadth.
+science	tech	aphorism	general	0	Never worry about theory as long as the machinery does what it's supposed to do.
+science	life	aphorism	general	0	No amount of careful planning will ever replace dumb luck.
+science	work-money	aphorism	general	0	No amount of genius can overcome a preoccupation with detail.
+science	tech	quip	general	0	Nondeterminism means never having to say you are wrong.
+science	science	quip	general	0	Nonsense. Space is blue and birds fly through it.
+science	life	joke	general	0	Nothing is faster than the speed of light ... To prove this to yourself, try opening the refrigerator door before the light comes on.
+science	nature	aphorism	general	0	Nothing is rich but the inexhaustible wealth of nature. She shows us only surfaces, but she is a million fathoms deep.
+science	tech	quip	general	0	Nuclear powered vacuum cleaners will probably be a reality within 10 years.
+science	tech	quip	general	0	Numeric stability is probably not all that important when you're guessing.
+science	science	quip	general	0	"Obviously, a major malfunction has occurred."
+science	science	quip	general	0	Of course you can't flap your arms and fly to the moon. After a while you'd run out of air to push against.
+science	science	quip	general	0	Often statistics are used as a drunken man uses lampposts -- for support rather than illumination.
+science	science	quip	general	0	On a paper submitted by a physicist colleague: "This isn't right. This isn't even wrong."
+science	tech	quip	general	0	One Bell System - it sometimes works.
+science	tech	quip	general	0	One Bell System - it used to work before they installed the Dimension!
+science	tech	quip	general	0	One Bell System - it works.
+science	faith	wisdom	general	0	One can search the brain with a microscope and not find the mind, and can search the stars with a telescope and not find God.
+science	tech	wisdom	general	0	One can't proceed from the informal to the formal by formal means.
+science	science	quip	general	0	One could not be a successful scientist without realizing that, in contrast to the popular conception supported by newspapers and mothers of scientists, a goodly number of scientists are not only narrow-minded and dull, but also just stupid.
+science	tech	quip	general	0	One has to look out for engineers -- they begin with sewing machines and end up with the atomic bomb.
+science	tech	wisdom	general	0	One man's "magic" is another man's engineering. "Supernatural" is a null word.
+science	tech	quip	general	0	One man's constant is another man's variable.
+science	tech	wisdom	general	0	One of the chief duties of the mathematician in acting as an advisor... is to discourage... from expecting too much from mathematics.
+science	life	pun	general	0	One small step for man, one giant stumble for mankind.
+science	science	quip	general	0	One thing they don't tell you about doing experimental physics is that sometimes you must work under adverse conditions... like a state of sheer terror.
+science	faith	quip	general	0	Only God can make random selections.
+science	science	quip	general	0	Ontogeny recapitulates phylogeny.
+science	tech	wisdom	general	0	Optimization hinders evolution.
+science	life	wisdom	general	0	Order and simplification are the first steps toward mastery of a subject -- the actual enemy is the unknown.
+science	science	quip	general	0	Organic chemistry is the chemistry of carbon compounds. Biochemistry is the study of carbon compounds that crawl.
+science	tech	quip	general	0	"Our vision is to speed up time, eventually eliminating it."
+science	science	observation	general	0	Parallel lines never meet, unless you bend one or both of them.
+science	life	aphorism	general	0	Parts that positively cannot be assembled in improper order will be.
+science	work-money	quip	general	0	People who go to conferences are the ones who shouldn't.
+science	life	quip	general	0	Philogyny recapitulates erogeny; erogeny recapitulates philogyny.
+science	science	quip	general	0	"Picture the sun as the origin of two intersecting 6-dimensional hyperplanes from which we can deduce a certain transformational sequence which gives us the terminal velocity of a rubber duck ..."
+science	food	quip	general	0	Pie are not square. Pie are round. Cornbread are square.
+science	science	pun	general	0	Polymer physicists are into chains.
+science	nature	fact	general	0	Pound for pound, the amoeba is the most vicious animal on earth.
+science	life	pun	general	0	Power corrupts. And atomic power corrupts atomically.
+science	science	quip	general	0	Progress means replacing a theory that is wrong with one more subtly wrong.
+science	tech	quip	general	0	Prototype designs always work.
+science	science	fact	general	0	"Protozoa are small, and bacteria are small, but viruses are smaller than the both put together."
+science	science	quip	general	0	Quantum Mechanics is a lovely introduction to Hilbert Spaces! -- Overheard at last year's Archimedeans' Garden Party
+science	science	quip	general	0	Quantum Mechanics is God's version of "Trust me."
+science	science	quip	general	0	Quark! Quark! Beware the quantum duck!
+science	science	pun	general	0	Radioactive cats have 18 half-lives.
+science	nature	wisdom	general	0	Reality must take precedence over public relations, for Mother Nature cannot be fooled.
+science	science	quip	general	0	Remember Darwin; building a better mousetrap merely results in smarter mice.
+science	work-money	quip	general	0	Research is the best place to be: you work your buns off, and if it works you're a hero; if it doesn't, well -- nobody else has done it yet either, so you're still a valiant nerd.
+science	science	wisdom	general	0	Research is to see what everybody else has seen, and think what nobody else has thought.
+science	life	quip	general	0	Research is what I'm doing when I don't know what I'm doing.
+science	science	quip	general	0	Round Numbers are always false.
+science	health-body	joke	general	0	Saliva causes cancer, but only if swallowed in small amounts over a long period of time.
+science	faith	observation	general	0	Science and religion are in full accord but science and faith are in complete discord.
+science	science	aphorism	general	0	Science is built up of facts, as a house is with stones. But a collection of facts is no more a science than a heap of stones is a house.
+science	science	aphorism	general	0	Science is what happens when preconception meets verification.
+science	faith	wisdom	general	0	Science may someday discover what faith has always known.
+science	science	quip	general	0	Scientists are people who build the Brooklyn Bridge and then buy it.
+science	science	pun	general	0	Sentient plasmoids are a gas.
+science	tech	wisdom	general	0	Simplicity does not precede complexity, but follows it.
+science	life	quip	general	0	Solutions are obvious if one only has the optical power to observe them over the horizon.
+science	science	wisdom	general	0	Space is big. You just won't believe how vastly, hugely, mind-bogglingly big it is. I mean, you may think it's a long way down the road to the drug store, but that's just peanuts to space.
+science	science	wisdom	general	0	Space is to place as eternity is to time.
+science	science	wisdom	general	0	Space tells matter how to move and matter tells space how to curve.
+science	life	aphorism	general	0	Statistics are no substitute for judgement.
+science	life	quip	general	0	Statistics means never having to say you're certain.
+science	life	quip	general	0	Stellar rays prove fibbing never pays. Embezzlement is another matter.
+science	life	wisdom	general	0	Stuckness shouldn't be avoided. It's the psychic predecessor of all real understanding. An egoless acceptance of stuckness is a key to an understanding of all Quality, in mechanical work as in other endeavors.
+science	science	quip	general	0	Supervisor: Do you think you understand the basic ideas of Quantum Mechanics? Supervisee: Ah! Well, what do we mean by "to understand" in the context of Quantum Mechanics? Supervisor: You mean "No", don't you? Supervisee: Yes. -- Overheard at a supervision.
+science	life	quip	general	0	Support bacteria -- it's the only culture some people have!
+science	science	pun	general	0	Take an astronaut to launch.
+science	tech	quip	general	0	Technological progress has merely provided us with more efficient means for going backwards.
+science	tech	wisdom	general	0	Technology is dominated by those who manage what they do not understand.
+science	life	quip	general	0	That's one small step for a man; one giant leap for mankind.
+science	arts	tv-quote	general	0	The White Rabbit put on his spectacles. "Where shall I begin, please your Majesty ?" he asked. "Begin at the beginning,", the King said, very gravely, "and go on till you come to the end: then stop."
+science	science	wisdom	general	0	The aim of science is to seek the simplest explanations of complex facts. Seek simplicity and distrust it.
+science	life	pun	general	0	The amount of time between slipping on the peel and landing on the pavement is precisely 1 bananosecond.
+science	faith	quip	general	0	The amount of weight an evangelist carries with the almighty is measured in billigrahams.
+science	life	quip	general	0	The best defense against logic is ignorance.
+science	science	quip	general	0	The bigger the theory the better.
+science	science	observation	general	0	The biggest difference between time and space is that you can't reuse time.
+science	life	dark	general	0	The bomb will never go off. I speak as an expert in explosives.
+science	faith	quip	general	0	The church saves sinners, but science seeks to stop their manufacture.
+science	society	aphorism	general	0	The clash of ideas is the sound of freedom.
+science	nature	wisdom	general	0	The clearest way into the Universe is through a forest wilderness.
+science	tech	quip	general	0	The devil finds work for idle circuits to do.
+science	life	dark	general	0	The devil finds work for idle glands.
+science	life	dark	general	0	The difference between reality and unreality is that reality has so little to recommend it.
+science	science	quip	general	0	The difference between science and the fuzzy subjects is that science requires reasoning while those other subjects merely require scholarship.
+science	science	quip	general	0	The earth is like a tiny grain of sand, only much, much heavier.
+science	work-money	quip	general	0	The economy depends about as much on economists as the weather does on weather forecasters.
+science	science	quip	general	0	The energy produced by the breaking down of the atom is a very poor kind of thing. Anyone who expects a source of power from the transformation of these atoms is talking moonshine.
+science	science	aphorism	general	0	The explanation requiring the fewest assumptions is the most likely to be correct.
+science	life	quip	general	0	The following statement is not true. The previous statement is true.
+science	arts	quip	general	0	The Force is what holds everything together. It has its dark side, and it has its light side. It's sort of like cosmic duct tape.
+science	science	quip	general	0	"The four building blocks of the universe are fire, water, gravel and vinyl."
+science	work-money	quip	general	0	The function of the expert is not to be more right than other people, but to be wrong for more sophisticated reasons.
+science	tech	quip	general	0	The generation of random numbers is too important to be left to chance.
+science	science	quip	general	0	The goal of science is to build better mousetraps. The goal of nature is to build better mice.
+science	work-money	quip	general	0	The herd instinct among economists makes sheep look like independent thinkers.
+science	society	wisdom	general	0	The ideas of economists and political philosophers, both when they are right and when they are wrong, are more powerful than is generally understood. Indeed, the world is ruled by little else.
+science	life	quip	general	0	"The identical is equal to itself, since it is different."
+science	science	wisdom	general	0	The instruments of science do not in themselves discover truth. And there are searchings that are not concluded by the coincidence of a pointer and a mark.
+science	science	observation	general	0	The key elements in human thinking are not numbers but labels of fuzzy sets.
+science	nature	aphorism	general	0	The light of a hundred stars does not equal the light of the moon.
+science	tech	quip	general	0	The marvels of today's modern technology include the development of a soda can, when discarded will last forever ... and a $7,000 car which when properly cared for will rust out in two or three years.
+science	faith	quip	general	0	The meek shall inherit the earth; the rest of us will go to the stars.
+science	life	quip	general	0	The meek shall inherit the earth; the rest of us, the Universe.
+science	science	quip	general	0	The moon is a planet just like the Earth, only it is even deader.
+science	life	joke	general	0	The moon is made of green cheese.
+science	science	observation	general	0	The moon may be smaller than Earth, but it's further away.
+science	life	aphorism	general	0	The more they over-think the plumbing the easier it is to stop up the drain.
+science	science	quip	general	0	The most exciting phrase to hear in science, the one that heralds new discoveries, is not "Eureka!" (I found it!) but "That's funny ..."
+science	science	quip	general	0	The nation that controls magnetism controls the universe.
+science	work-money	quip	general	0	The only function of economic forecasting is to make astrology look respectable.
+science	life	wisdom	general	0	The only justification for our concepts and systems of concepts is that they serve to represent the complex of our experiences; beyond this they have no legitimacy.
+science	life	aphorism	general	0	The only perfect science is hind-sight.
+science	work-money	quip	general	0	The only person who always got his work done by Friday was Robinson Crusoe.
+science	science	quip	general	0	The only possible interpretation of any research whatever in the `social sciences' is: some do, some don't.
+science	life	wisdom	general	0	The opposite of a correct statement is a false statement. But the opposite of a profound truth may well be another profound truth.
+science	nature	observation	general	0	The perversity of nature is nowhere better demonstrated by the fact that, when exposed to the same atmosphere, bread becomes hard while crackers become soft.
+science	science	quip	general	0	The purpose of Physics 7A is to make the engineers realize that they're not perfect, and to make the rest of the people realize that they're not engineers.
+science	life	pun	general	0	The rate at which a disease spreads through a corn field is a precise measurement of the speed of blight.
+science	science	quip	general	0	The reason that every major university maintains a department of mathematics is that it's cheaper than institutionalizing all those people.
+science	work-money	quip	general	0	The rule on staying alive as a forecaster is to give 'em a number or give 'em a date, but never give 'em both at once.
+science	tech	observation	general	0	The Shuttle is now going five times the sound of speed.
+science	society	wisdom	general	0	The society which scorns excellence in plumbing as a humble activity and tolerates shoddiness in philosophy because it is an exalted activity will have neither good plumbing nor good philosophy... neither its pipes nor its theories will hold water.
+science	life	wisdom	general	0	The solution of problems is the most characteristic and peculiar sort of voluntary thinking.
+science	tech	quip	general	0	The solution of this problem is trivial and is left as an exercise for the reader.
+science	life	wisdom	general	0	The solution to a problem changes the nature of the problem.
+science	life	wisdom	general	0	The speed of anything depends on the flow of everything.
+science	science	wisdom	general	0	The spirit of Plato dies hard. We have been unable to escape the philosophical tradition that what we can see and measure in the world is merely the superficial and imperfect representation of an underlying reality.
+science	science	quip	general	0	The study of non-linear physics is like the study of non-elephant biology.
+science	science	quip	general	0	"The subspace W inherits the other 8 properties of V. And there aren't even any property taxes."
+science	science	quip	general	0	The sum of the Universe is zero.
+science	tech	wisdom	general	0	The test of intelligent tinkering is to save all the parts.
+science	work-money	dark	general	0	The tree of research must from time to time be refreshed with the blood of bean counters.
+science	life	quip	general	0	The truth of a proposition has nothing to do with its credibility. And vice versa.
+science	science	quip	general	0	The two most common things in the Universe are hydrogen and stupidity.
+science	life	quip	general	0	The unfacts, did we have them, are too imprecisely few to warrant our certitude.
+science	science	wisdom	general	0	The universe does not have laws -- it has habits, and habits can be broken.
+science	science	quip	general	0	The universe is all a spin-off of the Big Bang.
+science	science	observation	general	0	The universe is an island, surrounded by whatever it is that surrounds universes.
+science	science	wisdom	general	0	The universe is like a safe to which there is a combination -- but the combination is locked up in the safe.
+science	science	wisdom	general	0	The Universe is populated by stable things.
+science	science	observation	general	0	The universe seems neither benign nor hostile, merely indifferent.
+science	life	quip	general	0	The universe, they said, depended for its operation on the balance of four forces which they identified as charm, persuasion, uncertainty and bloody-mindedness.
+science	science	quip	general	0	The University of California Statistics Department; where mean is normal, and deviation standard.
+science	life	wisdom	general	0	The world is moving so fast these days that the man who says it can't be done is generally interrupted by someone doing it.
+science	science	quip	general	0	The Wright Bothers weren't the first to fly. They were just the first not to crash.
+science	life	wisdom	general	0	Theory is gray, but the golden tree of life is green.
+science	life	pun	general	0	There *is* no such thing as a civil engineer.
+science	tech	quip	general	0	There are no data that cannot be plotted on a straight line if the axis are chosen correctly.
+science	work-money	quip	general	0	"There are three principal ways to lose money: wine, women, and engineers. While the first two are more pleasant, the third is by far the more certain."
+science	tech	quip	general	0	There are two kinds of solar-heat systems: "passive" systems collect the sunlight that hits your home, and "active" systems collect the sunlight that hits your neighbors' homes, too.
+science	science	aphorism	general	0	There can be no twisted thought without a twisted molecule.
+science	science	quip	general	0	There is no likelihood man can ever tap the power of the atom.
+science	life	quip	general	0	There is no opinion so absurd that some philosopher will not express it.
+science	science	aphorism	general	0	There is no royal road to geometry.
+science	nature	observation	general	0	There was a writer in 'Life' magazine ... who claimed that rabbits have no memory, which is one of their defensive mechanisms. If they recalled every close shave they had in the course of just an hour life would become insupportable.
+science	nature	observation	general	0	There's a whole WORLD in a mud puddle!
+science	life	pun	general	0	There's no future in time travel.
+science	life	quip	general	0	There's no sense in being precise when you don't even know what you're talking about.
+science	life	wisdom	general	0	They don't know how the world is shaped. And so they give it a shape, and try to make everything fit it. They separate the right from the left, the man from the woman, the plant from the animal, the sun from the moon. They only want to count to two.
+science	science	quip	general	0	Things equal to nothing else are equal to each other.
+science	science	quip	general	0	This is clearly another case of too many mad scientists, and not enough hunchbacks.
+science	society	wisdom	general	0	This is not the age of pamphleteers. It is the age of the engineers. The spark-gap is mightier than the pen. Democracy will not be salvaged by men who talk fluently, debate forcefully and quote aptly.
+science	life	quip	general	0	This is the theory that Jack built. This is the flaw that lay in the theory that Jack built. This is the palpable verbal haze that hid the flaw that lay in...
+science	science	quip	general	0	This isn't true in practice -- what we've missed out is Stradivarius's constant. And then the aside: "For those of you who don't know, that's been called by others the fiddle factor..." -- From a 1B Electrical Engineering lecture.
+science	life	quip	general	0	This place just isn't big enough for all of us. We've got to find a way off this planet.
+science	life	quip	general	0	This universe shipped by weight, not by volume. Some expansion of the contents may have occurred during shipment.
+science	life	quip	general	0	This was a Golden Age, a time of high adventure, rich living, and hard dying... but nobody thought so. This was a future of fortune and theft, pillage and rapine, culture and vice... but nobody admitted it.
+science	tech	quip	general	0	Those who can, do; those who can't, simulate.
+science	work-money	quip	general	0	Those who can, do; those who can't, write. Those who can't write work for the Bell Labs Record.
+science	life	quip	general	0	... though his invention worked superbly -- his theory was a crock of sewage from beginning to end.
+science	science	wisdom	general	0	Thus mathematics may be defined as the subject in which we never know what we are talking about, nor whether what we are saying is true.
+science	science	quip	general	0	Time is an illusion perpetrated by the manufacturers of space.
+science	science	observation	general	0	Time is nature's way of making sure that everything doesn't happen at once. Space is nature's way of making sure that everything doesn't happen to you.
+science	tech	wisdom	general	0	To converse at the distance of the Indes by means of sympathetic contrivances may be as natural to future times as to us is a literary correspondence.
+science	arts	wisdom	general	0	To invent, you need a good imagination and a pile of junk.
+science	science	quip	general	0	Today's scientific question is: What in the world is electricity? And where does it go after it leaves the toaster?
+science	tech	quip	general	0	Torque is cheap.
+science	tech	quip	general	0	Two is not equal to three, even for large values of two.
+science	life	quip	general	0	Two percent of zero is almost nothing.
+science	life	pun	general	0	Two wrights don't make a rong, they make an airplane. Or bicycles.
+science	life	quip	general	0	UFOs are for real: the Air Force doesn't exist.
+science	life	wisdom	general	0	Understanding is always the understanding of a smaller problem in relation to a bigger problem.
+science	tech	quip	general	0	Utility is when you have one telephone, luxury is when you have two, opulence is when you have three -- and paradise is when you have none.
+science	science	wisdom	general	0	We are all agreed that your theory is crazy. The question which divides us is whether it is crazy enough to have a chance of being correct. My own feeling is that it is not crazy enough.
+science	life	wisdom	general	0	We are each entitled to our own opinion, but no one is entitled to his own facts.
+science	life	quip	general	0	We are sorry. We cannot complete your call as dialed. Please check the number and dial again or ask your operator for assistance. This is a recording.
+science	life	quip	general	0	We can defeat gravity. The problem is the paperwork involved.
+science	life	quip	general	0	We can predict everything, except the future.
+science	nature	wisdom	general	0	We cannot command nature except by obeying her.
+science	tech	quip	general	0	"We don't care. We don't have to. We're the Phone Company."
+science	science	wisdom	general	0	We don't know one millionth of one percent about anything.
+science	science	quip	general	0	We don't know who it was that discovered water, but we're pretty sure that it wasn't a fish.
+science	society	quip	general	0	We gave you an atomic bomb, what do you want, mermaids?
+science	science	joke	general	0	We have a equal opportunity Calculus class -- it's fully integrated.
+science	life	uplifting	general	0	We must believe that it is the darkest before the dawn of a beautiful new world. We will see it when we believe it.
+science	science	quip	general	0	We warn the reader in advance that the proof presented here depends on a clever but highly unmotivated trick.
+science	nature	dark	general	0	We who revel in nature's diversity and feel instructed by every animal tend to brand Homo sapiens as the greatest catastrophe since the Cretaceous extinction.
+science	tech	quip	general	0	We will have solar energy as soon as the utility companies solve one technical problem -- how to run a sunbeam through a meter.
+science	science	quip	general	0	We've sent a man to the moon, and that's 29,000 miles away. The center of the Earth is only 4,000 miles away. You could drive that in a week, but for some reason nobody's ever done it.
+science	science	quip	general	0	Wernher von Braun settled for a V-2 when he coulda had a V-8.
+science	life	quip	general	0	"What I've done, of course, is total garbage."
+science	tech	quip	general	0	What is algebra, exactly? Is it one of those three-cornered things?
+science	science	pun	general	0	What is mind? No matter. What is matter? Never mind.
+science	life	wisdom	general	0	What is now proved was once only imagin'd.
+science	science	quip	general	0	What is research but a blind date with knowledge?
+science	life	wisdom	general	0	What is wanted is not the will to believe, but the will to find out, which is the exact opposite.
+science	science	quip	general	0	What the deuce is it to me? You say that we go around the sun. If we went around the moon it would not make a pennyworth of difference to me or my work.
+science	life	dark	general	0	What the scientists have in their briefcases is terrifying.
+science	life	quip	general	0	What the world *really* needs is a good Automatic Bicycle Sharpener.
+science	life	quip	general	0	When a man sits with a pretty girl for an hour, it seems like a minute. But let him sit on a hot stove for a minute -- and it's longer than any hour. That's relativity.
+science	tech	quip	general	0	When Alexander Graham Bell died in 1922, the telephone people interrupted service for one minute in his honor. They've been honoring him intermittently ever since, I believe.
+science	life	wisdom	general	0	When some people discover the truth, they just can't understand why everybody isn't eager to hear it.
+science	life	wisdom	general	0	When speculation has done its worst, two plus two still equals four.
+science	science	quip	general	0	"When the going gets tough, the tough get empirical."
+science	work-money	quip	general	0	When the weight of the paperwork equals the weight of the plane, the plane will fly.
+science	life	quip	general	0	When you are about to do an objective and scientific piece of investigation of a topic, it is well to gave the answer firmly in hand, so that you can proceed forthrightly, without being deflected or swayed, directly to the goal.
+science	science	quip	general	0	When you know absolutely nothing about the topic, make your forecast by asking a carefully selected probability sample of 300 others who don't know the answer either.
+science	work-money	quip	general	0	Where are the calculations that go with a calculated risk?
+science	science	verse	general	0	WHERE CAN THE MATTER BE Oh, dear, where can the matter be When it's converted to energy? There is a slight loss of parity. Johnny's so long at the fair.
+science	science	pun	general	0	White dwarf seeks red giant for binary relationship.
+science	science	observation	general	0	Why do mathematicians insist on using words that already have another meaning? "It is the complex case that is easier to deal with." "If it doesn't happen at a corner, but at an edge, it nonetheless happens at a corner."
+science	life	quip	general	0	Why don't you fix your little problem... and light this candle?
+science	science	observation	general	0	With all the fancy scientists in the world, why can't they just once build a nuclear balm?
+science	science	fact	general	0	With every passing hour our solar system comes forty-three thousand miles closer to globular cluster M13 in the constellation Hercules, and still there are some misfits who continue to insist that there is no such thing as progress.
+science	science	wisdom	general	0	Without life, Biology itself would be impossible.
+science	tech	quip	general	0	Xerox does it again and again and again and ...
+science	tech	quip	general	0	Xerox never comes up with anything original.
+science	science	pun	general	0	Ya'll hear about the geometer who went to the beach to catch some rays and became a tangent ?
+science	life	quip	general	0	"Yeah, but you're taking the universe out of context."
+science	life	joke	general	0	You are a taxi driver. Your cab is yellow and black, and has been in use for only seven years. One of its windshield wipers is broken, and the carburetor needs adjusting. The tank holds 20 gallons, but at the moment is only three-quarters full. How old is the taxi driver?"
+science	science	quip	general	0	You can take all the impact that science considerations have on funding decisions at NASA, put them in the navel of a flea, and have room left over for a caraway seed and Tony Calio's heart.
+science	work-money	quip	general	0	You can't cheat the phone company.
+science	science	wisdom	general	0	You cannot have a science without measurement.
+science	life	observation	general	0	You know you've landed gear-up when it takes full power to taxi.
+science	tech	quip	general	0	You mean you didn't *know* she was off making lots of little phone companies?
+science	science	wisdom	general	0	You should never bet against anything in science at odds of more than about 10^12 to 1.
+science	life	insult	general	0	You will never amount to much.
+science	science	wisdom	general	0	It is the theory which decides what can be observed.
+science	faith	wisdom	general	0	God is subtle, but he is not malicious.
+science	life	quip	general	0	Dopeler effect: the tendency of stupid ideas to seem smarter when they come at you rapidly.

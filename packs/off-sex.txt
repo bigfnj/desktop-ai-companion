@@ -1,0 +1,592 @@
+off-sex	tech	quip	general	0	6802 hackers make great use of the SEX instruction.
+off-sex	life	quip	general	0	69 + 69 = dinner for 4.
+off-sex	love	quip	general	0	A bisexual is a man who likes girls as well as the next fellow.
+off-sex	life	dark	general	0	A chiseler is a man who goes stag to a wife-swapping party.
+off-sex	love	wisdom	general	0	A fool is a man who worries about whether or not his lover has integrity. A wise man, on the other hand, busies himself with deeper attributes.
+off-sex	life	joke	general	0	A friend of mine received a note through the mail advising him, "If you don't stop making love to my wife, I'll kill you." The trouble is, the note wasn't signed.
+off-sex	life	pun	general	0	A hand in a bird is worth two on 'er bush.
+off-sex	life	pun	general	0	A hand in the bush is worth two on the bird.
+off-sex	life	quip	general	0	A hard man is good to find.
+off-sex	life	joke	edgy	1	A husky foreigner, looking for sex, accepted a prostitute's terms. When she undressed, he noticed that she had no pubic hair. The man shouted, "What, no wool? In my country all women have wool down there." The prostitute snapped back, "What do you want to do, knit or fuck?"
+off-sex	love	aphorism	general	0	A lover without indiscretion is no lover at all.
+off-sex	society	quip	general	0	A man can sleep around, no questions asked, but if a woman makes nineteen or twenty mistakes she's a tramp.
+off-sex	life	quip	general	0	A man is as old as the woman he feels.
+off-sex	love	quip	general	0	A man marries to have a home, but also because he doesn't want to be bothered with sex and all that sort of thing.
+off-sex	love	pun	general	0	A man needs a mistress, just to break the monogamy.
+off-sex	life	quip	general	0	A man never minds being in the doghouse as long as he can get his tail outside.
+off-sex	life	quip	general	0	A man who likes to lie in bed can usually find a girl willing to listen to him.
+off-sex	love	pun	general	0	A midget had a date with a very tall girl. It was a quiff-hanger.
+off-sex	life	quip	general	0	A nymph hits you and steals your virginity.
+off-sex	life	dark	general	0	A pederastic necrophiliac is a gentleman who is true to the very end of the end of a friend.
+off-sex	work-money	joke	general	0	A secretary entered her boss's office with the announcement: "I have some good news and some bad news." He muttered, "It's quarterly report day, Sally -- just the good news." She replied, "You're not sterile."
+off-sex	love	quip	general	0	A toast to the kisses you've snatched and vice-versa.
+off-sex	love	quip	general	0	A vasectomy means never having to say you're sorry.
+off-sex	life	quip	general	0	A virgin is chaste.
+off-sex	arts	fact	general	0	A virginal is a harpsichord that has never been plucked.
+off-sex	life	quip	general	0	A virtuous abstinence from the joys of pederasty comes most easily to those who have no taste for it.
+off-sex	love	quip	general	0	A widow is more sought after than an old maid of the same age.
+off-sex	love	quip	general	0	A witty writer, K. Kraus in the Vienna "Fackel", has as it were, expressed this truth paradoxically in the cynical saying: "Coitus is merely an unsatisfactory substitute for onanism!"
+off-sex	love	quip	general	0	"A woman is like a dresser ... some man always goin' through her drawers."
+off-sex	life	joke	nsfw	1	A young man asked his father to lend him $50 for a blowjob, whereupon his father solemnly replied, "When I was young we used to settle for a kiss." The son retorted, "OK, how about $50 for a long low kiss?"
+off-sex	tech	quip	general	0	A.I. hackers do it with robots.
+off-sex	arts	fact	general	0	AC/DC is a rock band.
+off-sex	love	quip	general	0	Admittedly, there are a lot of things that are better than sex, and a lot more that are worse; but there's nothing quite like it...
+off-sex	love	dark	general	0	After an evening at the theatre and several nightcaps at an intimate little bistro, the young man whispered to his date, "How do you feel about making love to men?" "That's MY business," she snapped. "Ah," he said. "A professional."
+off-sex	tech	quip	general	0	After I run your program, let's make love like crazed weasels, OK?
+off-sex	love	dark	general	0	After we made love he took a piece of chalk and made an outline of my body.
+off-sex	love	quip	general	0	Ah spring, when a fancy young man lightly turns his lover over.
+off-sex	life	quip	general	0	Alaska, where Moosehead isn't a beer, it's a misdemeanor. Q: You know how to figure out if your lover's been "invovlved"? A: Antler marks on their hips.
+off-sex	love	quip	general	0	Alcohol is like love: the first kiss is magic, the second is intimate, the third is routine. After that you just take the girl's clothes off.
+off-sex	tech	quip	nsfw	1	"Algorithms" is an anagram for "Hilt orgasm". Maybe this explains the popularity of this field of study in computer science.
+off-sex	tech	quip	general	0	All a hacker needs is a tight PUSHJ, a loose pair of UUOs, and a warm place to shift.
+off-sex	life	quip	general	0	"All I need is a little room to lay my hat and a few friends."
+off-sex	life	pun	general	0	All I really want in life is a piece and some quiet.
+off-sex	love	quip	general	0	Always talk to your wife while you're making love... if there's a phone handy.
+off-sex	society	quip	nsfw	1	America cannot be sold a can of beer without being offered a piece of pussy along with it.
+off-sex	society	dark	edgy	1	America's two greatest inventions are finger-fucking and carpet-bombing.
+off-sex	love	quip	general	0	An 11 is a 10 who doesn't have headaches.
+off-sex	life	quip	general	0	An acid is like a woman: a good one will eat through your pants.
+off-sex	food	dark	general	0	An egg has the shortest sex-life of all: if gets laid once; it gets eaten once. It also has to come in a box with 11 others, and the only person who will sit on its face is its mother.
+off-sex	faith	joke	general	0	Another nun joke!!! You see, three nuns were walking down the street, when suddenly this flasher jumped out in front of them and opened his trench coat, exposing his all to the sisters. Well, two of the nuns had strokes right there, but the third nun wouldn't touch it.
+off-sex	love	quip	general	0	Any girl who believes that the way to a man's heart is through his stomach is obviously setting her standards too high.
+off-sex	tech	quip	general	0	APL hackers take all they want.
+off-sex	tech	quip	general	0	Apple owners do it with mice!
+off-sex	life	quip	edgy	1	As long as your ass is pointed at the ground, don't fuck with me.
+off-sex	love	quip	general	0	As my dear auntie used to say, "Love makes the world go 'round, but sex makes the ride fun."
+off-sex	life	joke	general	0	As she lay there dozing next beside me, a voice inside my head kept saying "Relax... you're not the first doctor who's ever slept with one of his patients," but another voice kept reminding me, "Howard, you're a veterinarian."
+off-sex	life	dark	general	0	Asked by reporters about his upcoming marriage to a forty-two-year-old woman, director Roman Polanski told reporters, "The way I look at it, she's the equivalent of three fourteen-year-olds."
+off-sex	life	quip	edgy	1	Ass, grass or gas... nobody rides for free!
+off-sex	life	quip	general	0	Assassins do it from behind.
+off-sex	love	quip	general	0	Attractive bisexual young woman seeks same for high mellow times.
+off-sex	love	quip	general	0	B4 I4Q, RU/18 QT 3.1415926535?
+off-sex	work-money	pun	general	0	Bankers do it with interest (penalty for early withdrawal).
+off-sex	life	dark	edgy	1	BEAT ME, BITE ME, WHIP ME, FUCK ME!!!
+off-sex	life	quip	edgy	1	Beat me, bite me, whip me, fuck me, make me write bad checks!
+off-sex	love	joke	general	0	"Before we get married," said the young woman to her fiancee, "I want to confess some affairs that I've had in the past." "But you told me all about those a few weeks ago," her young man replied. "Yes, darling," she explained, "but that was a few weeks ago."
+off-sex	life	quip	general	0	Bend over and take it like a man!
+off-sex	life	quip	general	0	Between two evils, I always pick the one I never tried before.
+off-sex	love	quip	general	0	Bi now, gay later!
+off-sex	love	dark	nsfw	1	Bill and Jim were walking home from work. As they walked along, they discussed their wives' spending habits. "I don't understand how women can spend so much money," Bill exclaimed. "I mean, understand, she don't drink, and she's got her own pussy!"
+off-sex	love	quip	general	0	Bisexuality immediately doubles your chances for a date on Saturday night.
+off-sex	life	joke	general	0	Bookstores will soon be stocking a volume called "The Unsensuous Census Taker". It's about a guy who comes once every ten years.
+off-sex	life	quip	nsfw	1	Brain on vacation, penis on autopilot.
+off-sex	love	quip	general	0	"Breakfast sometime?" "Sure." "Shall I call you or just nudge you?"
+off-sex	science	quip	general	0	"But if it's 80% glucose, then why does it taste salty?" -- Anonymous med school student.
+off-sex	life	pun	general	0	But we've only fondled the surface of that subject.
+off-sex	arts	quip	general	0	Buy old masters. They fetch better prices than old mistresses.
+off-sex	life	dark	general	0	Call for Ms. Lingus, Ms. Connie Lingus...
+off-sex	life	tv-quote	nsfw	1	"Can you hammer a 6-inch spike into a wooden plank with your penis?" "Uh, not right now." "Tsk. A girl has to have some standards." -- "Real Genius"
+off-sex	life	pun	general	0	Chaste makes waste.
+off-sex	life	quip	general	0	Chastity is its own punishment.
+off-sex	life	dark	edgy	1	Claude believed that only smart attractive people had the right to fuck, and it sincerely hurt him when he discovered evidence to the contrary.
+off-sex	love	quip	general	0	Close the door, let me give you what you've been waiting for!!
+off-sex	food	quip	general	0	Coffee without caffeine. Beer without alcohol. Milk without fat. What's next? Bridal suites with bunk beds?
+off-sex	love	pun	general	0	Coito ergo sum.
+off-sex	love	dark	general	0	Coitus is punishment for the happiness of being together. Live as ascetically as possible... that is the only possible way for me to endure marriage. But she?
+off-sex	life	dark	general	0	College is like a woman -- you work so hard to get in, and nine months later you wish you'd never come.
+off-sex	life	quip	general	0	Come up and see me sometime. Come Wednesday, that's amateur night.
+off-sex	life	wisdom	general	0	Commit the oldest sins the newest kind of ways.
+off-sex	society	quip	general	0	Communists do it without class.
+off-sex	tech	quip	general	0	Computer scientists are programmed to do it by macro insertion.
+off-sex	love	quip	general	0	Condoms are like listening to a symphony with cotton in your ears. [Taking a shower in raincoat? Ed.]
+off-sex	life	quip	general	0	Condoms are the feminists' revenge on men for diaphrams.
+off-sex	love	joke	general	0	Confucious say: a smart man knows on which side his broad is better.
+off-sex	life	joke	general	0	Confucious say: boy who play with himself pulls boner.
+off-sex	life	joke	edgy	1	Confucious say: child conceived in back seat of car with automatic transmission turn out to be shiftless bastard.
+off-sex	life	joke	general	0	Confucious say: eplileptic woman who give blow-job may bite big one.
+off-sex	life	joke	general	0	Confucious say: fool man climb tree to get cherries; wise man spread limbs.
+off-sex	life	quip	general	0	Confucious say: Kotex not best thing on earth, but next to best.
+off-sex	life	dark	nsfw	1	Confucious say: man and mouse the same, both end up in pussy.
+off-sex	life	joke	general	0	Confucious say: man who arrives late to party will find himself beaten to the punch!
+off-sex	life	joke	general	0	Confucious say: man who beat off in car have hot rod.
+off-sex	love	aphorism	general	0	Confucious say: man who fights with wife all day, gets not peace at night.
+off-sex	life	joke	general	0	Confucious say: man who fishes in other man's well often catch crabs.
+off-sex	life	joke	general	0	Confucious say: man who go to bed with sex problem wake up with solution in hand.
+off-sex	love	joke	nsfw	1	Confucious say: man who kicked in testicles get left holding bag.
+off-sex	life	joke	general	0	Confucious say: man who kiss girl's behind, get crack in face.
+off-sex	life	joke	general	0	Confucious say: man who lay girl on hill, not on level.
+off-sex	life	joke	general	0	Confucious say: man who lie under car, get tired -- man who stand behind car, get exhausted.
+off-sex	life	quip	general	0	Confucious say: man who live in glass house should bathe in the basement.
+off-sex	love	insult	general	0	Confucious say: man who lose key to girlfriend's apartment get no new key.
+off-sex	love	quip	general	0	Confucious say: man who make love on ground have piece on Earth.
+off-sex	life	joke	general	0	Confucious say: man who make oral love to epileptic woman may get tongue-tied.
+off-sex	life	joke	general	0	Confucious say: man who marry girl with no bust has right to feel low down.
+off-sex	life	joke	general	0	Confucious say: man who pull out too fast leave rubber.
+off-sex	love	joke	edgy	1	Confucious say: man who screws near graveyard is fucking near dead.
+off-sex	life	dark	general	0	Confucious say: man who sleep in road wake up with run-down feeling.
+off-sex	love	joke	general	0	Confucious say: man who sleeps with old hen finds it's better than pullet.
+off-sex	work-money	joke	general	0	Confucious say: man who streak unsuited for work.
+off-sex	life	joke	nsfw	1	Confucious say: man who suck nipples make clean breast of things.
+off-sex	life	joke	general	0	Confucious say: man with athletic finger make broad jump
+off-sex	life	joke	edgy	1	Confucious say: man with head up ass have shitty outlook on life.
+off-sex	life	joke	general	0	Confucious say: man with hole in pocket feel cocky all day.
+off-sex	life	quip	general	0	Confucious say: modern house without toilet uncanny.
+off-sex	love	quip	general	0	Confucious say: passionate kiss like spider web, lead to undoing of fly.
+off-sex	love	joke	general	0	Confucious say: seven days on honeymoon make one hole weak.
+off-sex	life	joke	general	0	Confucious say: squirrel who run up woman's leg not find nuts.
+off-sex	love	joke	general	0	Confucious say: woman should not marry basketball players -- they dribble before they shoot.
+off-sex	life	joke	general	0	Confucious say: woman who bathe in vinegar have sour puss.
+off-sex	food	joke	general	0	Confucious say: woman who cooks carrots and pees in same pot very unsanitary.
+off-sex	life	joke	general	0	Confucious say: woman who fly upside down in airplane have big crack up.
+off-sex	love	joke	general	0	Confucious say: woman who goes to man's apartment for snack, may get tit bit.
+off-sex	love	joke	general	0	Confucious say: woman who put man in dog house find him in cat house.
+off-sex	life	insult	edgy	1	Confucious say: woman who ride bicycle peddle ass around town.
+off-sex	life	insult	general	0	Confucious say: woman who slide down bannister make monkey shine.
+off-sex	life	pun	general	0	Confucious say: woman who spring on inner-spring this spring, have off-spring next spring.
+off-sex	life	joke	edgy	1	Confucious say: woman's virginity like balloon, one prick and all gone.
+off-sex	love	quip	general	0	Conserve energy -- make love more slowly.
+off-sex	nature	wisdom	general	0	Consider the little mouse, how sagacious an animal it is which never entrusts its life to one hole only.
+off-sex	love	pun	general	0	Couples in motion have moments.
+off-sex	arts	aphorism	general	0	Critics are like eunuchs in a harem: they know how it's done, they've seen it done every day, but they're unable to do it themselves.
+off-sex	life	dark	general	0	Cunnilingus is next to cleanliness.
+off-sex	life	quip	general	0	Cunnilingus is next to godliness.
+off-sex	arts	quip	general	0	Dance is the vertical expression of a horizontal intention.
+off-sex	love	quip	general	0	"Darling," he breathed, "after making love I doubt if I'll be able to get over you -- so would you mind answering the phone?"
+off-sex	love	joke	general	0	"Darling," she whispered, "will you still love me after we are married?" He considered this for a moment and then replied, "I think so. I've always been especially fond of married women."
+off-sex	love	dark	edgy	1	Dear Abby: I just met the most terrific girl and we get along fabulously. I think she's the one for me. There's just one problem: I can't remember from our first date if she told me she had TB or VD. What should I do? --Confused Dear Confused: If she coughs, fuck her.
+off-sex	life	joke	general	0	Demonstrating once again the importance of the lowly comma, this telegram was sent from a wife to her husband: "NOT GETTING ANY, BETTER COME HOME AT ONCE."
+off-sex	life	quip	general	0	Dial 911. Make a cop come.
+off-sex	society	quip	general	0	Did Detroit invent the back seat to destroy the morals of America?
+off-sex	life	quip	general	0	Did you ever notice that everyone in favour of birth control has already been born?
+off-sex	tech	pun	general	0	Distributed Systems people do it loosely coupled.
+off-sex	life	quip	general	0	DIVE!!! DIVE!!! DIVE!!! UP PERISCOPE!!! (Ooops, sorry, wrong fantasy.)
+off-sex	life	quip	general	0	Do I like getting drunk? Depends on who's doing the drinking.
+off-sex	life	pun	general	0	Do infants have as much fun in infancy as adults do in adultery?
+off-sex	life	aphorism	general	0	Do not stoop to tie your laces in your neighbor's melon patch.
+off-sex	life	quip	edgy	1	Do something big -- fuck a giant.
+off-sex	love	joke	general	0	"Do you cheat on your wife?" asked the psychiatrist. "Who else?" answered the patient.
+off-sex	life	joke	general	0	"Do you smoke after sex?" "Why, do you know, I've never looked!"
+off-sex	life	quip	general	0	Doctors take two aspirin and do it in the morning.
+off-sex	tech	quip	general	0	Documentation is like sex: when it is good, it is very, very good; and when it is bad, it is better than nothing.
+off-sex	life	dark	general	0	Does anyone know how to get chocolate syrup and honey out of a white electric blanket? I'm afraid to wash it in the machine. Thanks, Kathy. (front desk, x17) p.s. Also, anyone ever used Noxema on friction burns? Or is Vaseline better?
+off-sex	life	quip	general	0	Doin' it in the dark, down in Rock Creek Park.
+off-sex	life	quip	nsfw	1	Don't knock masturbation, it's sex with someone I love.
+off-sex	life	aphorism	general	0	Don't let your mouth write no check that your tail can't cash.
+off-sex	life	quip	general	0	Don't look now -- your office mate is a pederast!!!
+off-sex	life	insult	general	0	Don't look now, but your mother is having sex with a horse.
+off-sex	life	quip	general	0	Drinking when we are not thirsty and making love at all seasons, madam: that is all there is to distinguish us from the other animals.
+off-sex	life	observation	edgy	1	Dry fucking: that's man on top of woman, the action is the same as fucking, but you're dressed. It's great for the girl... you're hitting and rubbing exactly the area that you ought to be... I still like that.
+off-sex	love	quip	general	0	During a session with a marriage counselor, the wife snapped at her husband: "That's not true, I do enjoy sex!" Then, turning to the counselor, she added: "But this fiend expects it three or four times a year!"
+off-sex	tech	quip	general	0	EE's do it without shorts.
+off-sex	tech	pun	general	0	Electrical Engineers do it with less resistance.
+off-sex	faith	dark	general	0	Evangelists do it with Him watching.
+off-sex	society	dark	edgy	1	Ever notice that the women who are against abortion are the ones you wouldn't want to fuck in the first place?
+off-sex	life	quip	general	0	Every dog has its day, but the nights belong to the pussycats.
+off-sex	life	aphorism	general	0	Every harlot was a virgin once.
+off-sex	life	joke	general	0	Father: Son, it's time we talked about sex. Son: Sure, Dad, what do you want to know?
+off-sex	society	quip	general	0	Fighting for peace is like screwing for virginity.
+off-sex	tech	quip	general	0	Floppy now, hard later.
+off-sex	life	quip	general	0	For a gay time, call 555-9483. Ask for Brucie.
+off-sex	life	quip	general	0	For a good time, call 555-9484. Ask for Cathy.
+off-sex	life	quip	general	0	For a good time, call 555-9485. Ask for Michael.
+off-sex	life	dark	general	0	For children, a woman. For pleasure, a boy. For sheer ecstasy, a melon.
+off-sex	life	quip	general	0	For flavor, instant sex will never supercede the stuff you have to peel and cook.
+off-sex	work-money	quip	general	0	For her first week's salary the gorgeous new secretary was given an exquisite nightgown of imported lace. The next week her salary was raised!
+off-sex	life	joke	general	0	Fortune personals: SDW/M, 35, offers French lessons for ladies. If you desire fluency in the French tongue, this cunning linguist can lick your problem. Fortune
+off-sex	love	joke	general	0	Fortune Personals: SWBiM, 29. Gr/Fr/Mild English. Have own moose, hoop. Sincere inquiries only. Discreet. Fortune P.O. Box 1910.
+off-sex	life	quip	general	0	Fortune understands that the vote on a bill to legalize bisexuality could go either way.
+off-sex	arts	quip	general	0	Fortune's Guide to Movies: G: No girl. PG: The hero gets the girl. R: The bad guy gets the girl, then the good guy gets the girl. X: The hero still gets the girl in the end, but he's never sure which end it will be. XXX: Everybody gets the girl.
+off-sex	life	joke	general	0	FROM THE DESK OF Snow White Dear Snow White: Thanks for last night. Sleepy, Doc, Grumpy, Sneezy, Happy, Dopey, Bashful
+off-sex	nature	pun	general	0	Gardeners do it in raised beds.
+off-sex	life	tv-quote	general	0	"Gee, Mudhead, everyone at More Science High has an extracurricular activity except you." "Well, gee, doesn't Louise count?" "Only to ten, Mudhead."
+off-sex	love	quip	general	0	Gentlemen prefer blondes, but who says blondes prefer gentlemen?
+off-sex	life	pun	general	0	Geometry teaches us to bisex angels.
+off-sex	love	joke	general	0	Girls are like pianos. When they're not upright, they're grand!
+off-sex	love	quip	general	0	Girls would never stay out late if guys didn't make them.
+off-sex	love	dark	general	0	Give a man a free hand and he'll run it all over you.
+off-sex	love	quip	general	0	Go out with girls Dutch treat -- pay for dinner, drinks, and the movie, and the rest of the evening is on her.
+off-sex	tech	quip	general	0	Hackers do it bottom-up.
+off-sex	tech	quip	general	0	Hackers do it with all sorts of characters.
+off-sex	tech	quip	general	0	Hackers do it with bugs.
+off-sex	tech	quip	general	0	Hackers do it with fewer instructions.
+off-sex	tech	pun	general	0	Hackers have kernel knowledge.
+off-sex	tech	pun	general	0	Hackers know all the right MOVs.
+off-sex	life	fact	general	0	Hang gliders go down very slowly.
+off-sex	life	quip	general	0	He does it with a better grace, but I do it more natural.
+off-sex	love	pun	general	0	He used to kiss her on her lips, but it's all over now.
+off-sex	life	pun	general	0	He was not only a great swordsman, but also a cunning linguist.
+off-sex	life	insult	general	0	He was so ugly hookers used to tell him, "Not on the first date."
+off-sex	life	quip	general	0	He who findeth sensuous pleasures in the bodies of lush, hot, pink damsels is not righteous, but he can have a lot more fun.
+off-sex	love	quip	general	0	He's gallantry personified, in fact, his brochures ought to read satisfaction guaranteed, or your virginity returned intact.
+off-sex	life	observation	general	0	He's learned about 50% of the rules of sex and conversation; he knows how to stick it in, but not how to stick it out.
+off-sex	love	joke	general	0	He: "If I made love to you, would you yell?" She: "What do you want me to yell?"
+off-sex	arts	joke	general	0	He: Do you like Kipling? She: Oh, you naughty boy, I don't know! I've never kippled!
+off-sex	science	quip	general	0	Heisenberg may have done it.
+off-sex	life	quip	general	0	Help! I'm a lesbian trapped in a gay man's body!
+off-sex	love	quip	general	0	Her kisses left something to be desired: the rest of her.
+off-sex	life	dark	edgy	1	Hey baby! How 'bout a brutal face fuck?
+off-sex	life	dark	general	0	HEY KIDS! ANN LANDERS SAYS: Remember, oral sex CAN cause pregnancy, unless you use an oral contraceptive. See your family planning clinic today!
+off-sex	life	quip	nsfw	1	HEY, KIDS! ANN LANDERS SAYS: Masturbation isn't as simple as it looks. Do it right! Send 50 cents for my illustrated booklet "Masturbation techniques for the teenager". Be sure to specify the male or female edition.
+off-sex	love	observation	nsfw	1	How come if you're horny it's lust, but if she's horny it's affection?
+off-sex	love	joke	general	0	How soon can you have sexual relations after your wife delivers? Well, depends on if she's in a ward or a private room.
+off-sex	life	dark	general	0	Hunters make the best lovers; they go deeper into the bush, shoot more often and *always* eat what they shoot.
+off-sex	life	quip	general	0	I believe in sex and death -- two experiences that come once in a lifetime.
+off-sex	life	joke	general	0	"I believe you have the wrong number," said the old gentleman into the phone. "You'll have to call the weather bureau for that information." "Who was that?" his young wife asked. "Some guy wanting to know if the coast was clear."
+off-sex	life	quip	general	0	I bet you have fun chasing the soap around the bathtub.
+off-sex	love	quip	general	0	I can understand companionship. I can understand bought sex in the afternoon. I cannot understand the love affair.
+off-sex	life	quip	general	0	I don't discriminate on the basis of sex. -- Bisexuality, 101 [An equal opportunity lover? Ed.]
+off-sex	love	quip	general	0	"I don't object to sex before marriage, but two minutes before?!?"
+off-sex	love	joke	general	0	"I don't really mind her being unfaithful," sighed the man to his marriage counselor, "but I just can't sleep three in a bed."
+off-sex	life	observation	general	0	I don't remember ever having had the itch, and yet scratching is one of nature's sweet pleasures, and so handy.
+off-sex	love	quip	general	0	"I finally found out what my ranch foreman husband really meant," sobbed the recent bride, "when he told me he'd love me 'til the cows came home."
+off-sex	life	quip	general	0	I had a virgin once. I had to go to Guatemala for her. She was blind in one eye, and she had a stuffed alligator that said, "Welcome to Miami Beach."
+off-sex	life	joke	general	0	"I have credit with this madam who runs a string of super callgirls," the executive reminisced at his club bar, "but when I got the bill for the great head session one of them pleasured me with, I must say that it was enough to make a blown man cry."
+off-sex	love	verse	general	0	I have perfumed my bed with myrrh, aloes, and cinnamon. Come, let us take our fill of love until the morning. -- Proverbs 7:17-18
+off-sex	life	joke	general	0	I heard there was a lot of sex on television these days, but when I tried it I kept falling off.
+off-sex	love	quip	general	0	I only date queers. -- Bisexuality, 101 [I'm not queer, but my boyfriend is! Ed.]
+off-sex	life	quip	general	0	"I own my own body, but I share"
+off-sex	arts	quip	general	0	I really had to act; 'cause I didn't have any lines.
+off-sex	love	quip	general	0	I think I'll snatch a kiss and flee.
+off-sex	love	joke	general	0	"I think my wife may be getting somewhat overweight. "Oh, how can you tell?" "Well, last night when she sat on my face, I couldn't hear the stereo."
+off-sex	arts	dark	general	0	I think pop music has done more for oral intercourse than anything else that has ever happened, and vice versa.
+off-sex	life	quip	general	0	"I think sex is better than logic, but I can't prove it."
+off-sex	life	quip	general	0	I thought Jackie O. was something you did in the bathroom.
+off-sex	love	quip	general	0	I want a girl that can swallow my pride.
+off-sex	life	quip	general	0	I want the same things all men do, Rice Krispies and some sucking.
+off-sex	life	joke	general	0	I went to a wild party last night. I tell ya, it was so wild, we played a new version of Russian roulette. We passed around six girls and one of them had V.D.
+off-sex	life	observation	general	0	I wonder what the leash and collar set does for excitement?
+off-sex	life	insult	edgy	1	I wouldn't fuck her with your prick.
+off-sex	life	quip	general	0	I'd like to meet the man who invented sex and see what he's working on now.
+off-sex	life	pun	general	0	I'd walk a mile for a Camel, two for a hump.
+off-sex	life	quip	general	0	I'm a bisexual; I get it maybe twice a year.
+off-sex	life	quip	general	0	I'm a gay man trapped in a lesbian's body!
+off-sex	love	quip	general	0	I'm against group sex because I wouldn't know where to put my elbows.
+off-sex	life	quip	general	0	I'm for bringing back the birch, but only for consenting adults.
+off-sex	society	quip	general	0	I'm for peace -- I've yet to see a man wake up in the morning and say "I've just had a good war."
+off-sex	life	dark	general	0	I'm going to Iowa for an award. Then I'm appearing at Carnegie Hall, it's sold out. Then I'm sailing to France to be honored by the French government -- I'd give it all up for one erection.
+off-sex	life	joke	general	0	"I'm looking for adventure, excitement, beautiful women," cried the young man to his father as he prepared to leave home. "Don't try to stop me. I'm on my way." "Who's trying to stop you?" shouted the father. "Take me along!"
+off-sex	love	quip	general	0	"I'm not against women. Not often enough, anyway."
+off-sex	love	quip	general	0	I've been told that it's far more sensous to have a woman leave something on rather than being totally nude. Myself, I've always felt that the lights were more than enough.
+off-sex	life	quip	general	0	I've tried several varieties of sex. The conventional position makes me claustrophobic, and the others either give me a stiff neck or lockjaw.
+off-sex	life	quip	general	0	If all these sweet young things were laid end-to-end, I wouldn't be a bit surprised.
+off-sex	life	quip	general	0	"If anyone wants to trade a couple of centrally located, well-cushioned showgirls for an eroded slope 90 minutes from Broadway, I'll be on this corner tomorrow at 11 with my tongue hanging out."
+off-sex	faith	wisdom	general	0	If ever you want to touch the hand and the heart of God Almighty, you can do it through the body of someone you love. Anytime. Anywhere. Without no middleman.
+off-sex	faith	dark	general	0	If God had meant for us to have group sex, he'd have given us more organs.
+off-sex	faith	joke	nsfw	1	If God had wanted people to give blow jobs, he wouldn't have given them teeth.
+off-sex	life	quip	edgy	1	If it flies, floats or fucks, rent it, don't buy it.
+off-sex	love	quip	general	0	If it weren't for pickpockets, I'd have no sex life at all.
+off-sex	life	quip	nsfw	1	If only is was as easy to banish hunger by rubbing the belly as it is to masturbate.
+off-sex	love	quip	edgy	1	If sex is a pain in the ass, you may be doing it wrong.
+off-sex	love	quip	general	0	If sex is such a natural phenomenon, how come there are so many books on how to?
+off-sex	life	quip	edgy	1	If they can't take a joke, then fuck 'em. If they can, then fuck 'em.
+off-sex	life	quip	edgy	1	If thine eye offends thee, pluck it out. If thy dick offends thee, whack it off.
+off-sex	tech	insult	general	0	If you could get an erection, you would have no need for Emacs.
+off-sex	love	quip	general	0	If you meet somebody who tells you that he loves you more than anybody in the whole wide world, don't trust him. It means he experiments.
+off-sex	life	quip	edgy	1	If you think sex is a pain in the ass, try a different position.
+off-sex	faith	joke	general	0	If you're Catholic you've only got two choices: periodic abstinence and complete continence. You know ... rhythm and blues.
+off-sex	love	quip	general	0	If you're gonna sleep with someone whose moral code may be written in Fortran for all you know, at least make sure there's an existing friendship of some sort to fall back on if things don't work out like one or the other of you planned.
+off-sex	life	quip	general	0	If your sexual fantasies were truly of interest to others, they would no longer be fantasies.
+off-sex	love	quip	general	0	In the stands here I see a young couple who must be in love -- they're kissing on every pitch. He's kissing her on the strikes, and she's kissing him on the balls.
+off-sex	life	quip	general	0	Is sex dirty? Only if it's done right.
+off-sex	life	quip	general	0	Is that a pistol in your pocket or are you just glad to see me?
+off-sex	life	wisdom	general	0	It is amusing that a virtue is made of the vice of chastity; and it's a pretty odd sort of chastity at that, which leads men straight into the sin of Onan, and girls to the waning of their color.
+off-sex	life	quip	general	0	It is better to be on penicillin, than never to have loved at all.
+off-sex	love	quip	general	0	It is better to have a positive Wasserman than never to have loved at all.
+off-sex	society	observation	general	0	It is considered normal to consecrate virginity in the general and lust for its destruction in the particular.
+off-sex	life	pun	general	0	It is far better to sleep with an old hen than pullet.
+off-sex	society	quip	general	0	It is impossible to obtain a conviction for sodomy from an English jury. Half of them don't believe that it can physically be done, and the other half are doing it.
+off-sex	life	quip	edgy	1	It is not true that life is one damn thing after another -- it is one damn thing over and over.
+off-sex	life	quip	general	0	It is not wise to make love more than once in the morning. You never know who you'll meet later in the day.
+off-sex	society	wisdom	general	0	It is one of the superstitions of the human mind to have imagined that virginity could be a virtue.
+off-sex	society	quip	general	0	It must be admitted that we English have sex on the brain, which is a very unfortunate place to have it.
+off-sex	food	quip	general	0	It's a question of Napleon brandy versus Ripple. I am mellow and amber and I go down real smooth.
+off-sex	love	quip	general	0	"It's always the same," the girl sighed to her roommate after returning in the wee, small hours. "Afterward, I feel so compromised, so cheap, so soiled... so absolutely wonderful from head to toe!"
+off-sex	love	dark	general	0	It's been so long since I made love I can't even remember who gets tied up.
+off-sex	life	quip	general	0	It's easy to make a friend. What's hard is to make a stranger.
+off-sex	life	quip	general	0	It's hard to keep a good girl down -- but lots of fun trying.
+off-sex	life	quip	general	0	It's not pretty being easy.
+off-sex	love	pun	general	0	It's not the ups and downs of love, it's the ins and outs.
+off-sex	love	pun	general	0	It's the sighs that count.
+off-sex	life	dark	general	0	Kamikazes do it once.
+off-sex	love	quip	general	0	Kissing, petting, and even intercourse are all right as long as they are sincere. I have never given a kiss in my life that wasn't sincere. As for intercourse, I'd say three times a day was about right.
+off-sex	life	pun	nsfw	1	Large cats can be dangerous, but a little pussy never hurt anyone.
+off-sex	work-money	quip	general	0	Lawyers do it to everyone.
+off-sex	tech	quip	general	0	Let a Field Service Engineer put it in.
+off-sex	life	dark	nsfw	1	Lick-a-dee-clit!
+off-sex	love	quip	general	0	Like I said, love wouldn't be so blind if the braille weren't so damned great!
+off-sex	tech	quip	nsfw	1	Lisp hackers ... do it in CARS. ... do it with tail recursion. ... first do it in the front, then do it in the back. ... have DEFUN while doing it. ... have to be bound to do it. ... have Moby dicks.
+off-sex	tech	quip	general	0	Lisp hackers have to be bound (to-do 'it) ...
+off-sex	tech	quip	general	0	Lisp programmers do it deeper and deeper and deeper.
+off-sex	life	joke	general	0	Little known facts: the dirtiest words used on television during the 1950's were uttered by June Cleaver. "Gee, Ward, weren't you a little hard on the Beaver last night?"
+off-sex	love	quip	general	0	Love ain't nothin' but sex misspelled.
+off-sex	love	quip	general	0	Love comes in spurts.
+off-sex	love	quip	general	0	Love does not make the world go around, just up and down a bit.
+off-sex	love	quip	general	0	Love is blind but desire doesn't give a good goddam.
+off-sex	love	quip	general	0	Love is eating her even when she's not having her period.
+off-sex	love	dark	general	0	Love is just for now ... herpes lasts forever.
+off-sex	love	quip	general	0	Love is not the dying moan of a distant violin -- it's the triumphant twang of a bedspring.
+off-sex	love	quip	general	0	Love is the answer; but while you are waiting for the answer, sex raises some pretty good questions.
+off-sex	love	dark	general	0	Love is the desire to prostitute oneself. There is, indeed, no exalted pleasure that cannot be related to prostitution.
+off-sex	love	quip	general	0	Love is two minutes and fifty-two seconds of squishy sounds.
+off-sex	tech	quip	general	0	Ma Bell runs a baudy house.
+off-sex	life	quip	general	0	Make war not sex. (It's safer.)
+off-sex	life	quip	general	0	Many nice things suck.
+off-sex	love	quip	general	0	Marriage has driven more than one man to sex.
+off-sex	love	joke	general	0	Marriage is like a bank account. You put it in, you take it out, you lose interest.
+off-sex	life	quip	nsfw	1	Masturbation is the thinking man's television.
+off-sex	life	quip	nsfw	1	Masturbation! The amazing availability of it!
+off-sex	science	quip	nsfw	1	Math is to physics like masturbation is to sex.
+off-sex	science	quip	general	0	Mathematicians ... do it in groups. ... do it in theory. ... take it to the limit.
+off-sex	science	joke	general	0	Mathematicians do it in theory.
+off-sex	science	pun	general	0	Mathematicians do it with a small, imaginary part.
+off-sex	science	quip	general	0	Mathematicians often resort to something called Hilbert space, which is described as being n-dimensional. Like modern sex, any number can play.
+off-sex	science	pun	general	0	Mathematicians take it to the limit.
+off-sex	life	quip	general	0	Meanwhile back at the oasis, the Ay-rabs wuz busy a-eatin' their dates!
+off-sex	life	joke	general	0	Meanwhile, back at the ranch, Granny was a-beating off the Indians, but they jus' kept on a-comin'. Back at the outhouse, things were a-pilin' up. And, as the U.S. Fourth Calvary mounted the hill, Tonto, cleverly disguised as a doorknob, came off in the Lone Ranger's hand.
+off-sex	work-money	quip	nsfw	1	Meetings are an addictive, highly self indulgent activity that corporations and other large organizations habitually engage in only because they cannot actually masturbate.
+off-sex	love	observation	general	0	Most plain girls are virtuous because of the scarcity of opportunity to be otherwise.
+off-sex	love	quip	general	0	Most women look for a man who is tall, dark and hung some.
+off-sex	life	quip	general	0	Moustache rides, 50 cents.
+off-sex	love	quip	general	0	My girlfriend's favorite erotic position is bending over my credit cards.
+off-sex	life	quip	general	0	"My husband commits an inconceivable act of perversion with a barnyard animal, and it's not central to my case?!" "Not in California."
+off-sex	life	quip	general	0	My idea of a wild party is where you throw the girls' panties at the wall and they stick.
+off-sex	love	joke	general	0	"My mother," said the sweet young steno, "says there are some things a girl should not do before twenty." "Your mother is right," said the executive, "I don't like a large audience, either."
+off-sex	love	dark	general	0	My mother-in-law broke up my marriage. One day my wife came home early from work and found us in bed together.
+off-sex	life	quip	nsfw	1	My reaction to porno films is as follows: After the first ten minutes, I want to go home and screw. After the first twenty minutes, I never want to screw again as long as I live.
+off-sex	life	quip	general	0	My schoolmates would make love to anything that moved, but I never saw any reason to limit myself.
+off-sex	life	quip	general	0	My sex life hasn't been so good; either fist or famine.
+off-sex	love	dark	general	0	My wife and I only smoke after sex. I've had the same pack since 1967. She's up to three packs a day.
+off-sex	life	pun	general	0	National Sex Week -- don't let your meat loaf.
+off-sex	life	aphorism	general	0	Necessity is the mother of strange bedfellows. Watch who you sleep with.
+off-sex	life	quip	general	0	Never try to keep up with the Joneses; they might be newlyweds.
+off-sex	work-money	dark	general	0	NEW ADDITION TO THE LIBRARY: "Sally", the department's new inflatable doll, is available on a short-term removal basis only -- please sign her out and return her promptly to avoid extended waits. (We are still awaiting shipment of our "Big John" doll.)
+off-sex	tech	quip	general	0	Nice computers don't go down.
+off-sex	life	dark	general	0	Nine out of ten men who preferred Camels have switched back to women.
+off-sex	love	quip	general	0	No matter how celebrated the beauty of a woman, I would never spend a night with her. The only celebrity with whom I would share a night is Max Planck. But he is dead. So I live like a monk, aside from a little self gratification in the afternoons.
+off-sex	life	observation	general	0	Not everyone has a one-track mind. -- From a Bisexuality 101 talk
+off-sex	life	joke	nsfw	1	Nothing is better than Sex. Masturbation is better than nothing. Therefore, Masturbation is better than Sex.
+off-sex	tech	quip	general	0	Nybble me... Byte me... Unsigned long int me...
+off-sex	life	joke	general	0	Of course, most people eventually give up bowling for sex. The balls are lighter and you don't have to change your shoes.
+off-sex	love	verse	general	0	Oh John, let's not park here. Oh John, let's not park. Oh John, let's not. Oh John, let's. Oh John. Oh.
+off-sex	life	quip	general	0	Oh what a tangled web we weave when first we practice to conceive.
+off-sex	life	quip	edgy	1	Oh, baby, put two fingers here and one finger there and call me bitch.
+off-sex	life	quip	general	0	Once upon a girl there was a time...
+off-sex	life	quip	general	0	Once you come out as a Pagan bisexual married leatherdyke, the rest of life is that much easier.
+off-sex	food	quip	general	0	One hundred and one uses for canned peaches. One hundred and two if you plan to eat them.
+off-sex	life	quip	general	0	One man's nightmare is another man's wet dream.
+off-sex	love	quip	general	0	One of the most expensive things in life is a girl who is free for the evening.
+off-sex	love	quip	general	0	One should be cherry of virgins.
+off-sex	life	quip	general	0	Ooooooh, nooooooo, not tonight!!
+off-sex	life	quip	general	0	Ooops. Gotta run. My dog wants sex. Later.
+off-sex	tech	quip	general	0	Operators mount anything!
+off-sex	life	quip	general	0	Oral sex is like being attacked by a giant snail.
+off-sex	love	quip	nsfw	1	Other people don't give you orgasms; you have them, and they help you cash them in.
+off-sex	life	quip	general	0	Ouch! That felt good!
+off-sex	arts	quip	general	0	Painters do it with even strokes.
+off-sex	love	quip	general	0	Passion is that funny feeling that drives a man to bite a woman's neck because she has beautiful legs.
+off-sex	life	tv-quote	general	0	Pee-wee Recommends: When Pee-wee Herman was arrested that evening in Sarasota, Florida, the bill at the XXX South Trail Cinema featured: + Nurse Nancy, starring Sandra Scream + Turn Up the Heat, starring Savannah + Tiger Shark, starring Raven
+off-sex	life	quip	general	0	People who live in glass houses should ball in the basement.
+off-sex	love	observation	general	0	Perhaps at fourteen every boy should be in love with some ideal woman to put on a pedestal and worship. As he grows up, of course, he will put her on a pedestal the better to view her legs.
+off-sex	love	wisdom	general	0	Persistence, like perspiration, is 99 percent of the fine art of love.
+off-sex	life	quip	nsfw	1	Philosophy is to the real world as masturbation is to sex.
+off-sex	tech	quip	general	0	Physicists do it with charm.
+off-sex	love	quip	general	0	Picking up a man in a bar is like a snowstorm, you never know when he's coming, how many inches you'll get or how long'll he'll stay.
+off-sex	society	quip	general	0	Politicians do it to everyone.
+off-sex	love	joke	nsfw	1	Postulate #1: Nothing is better than sex. Postulate #2: Masturbation is better than nothing. Conclusion: Masturbation is better than sex.
+off-sex	life	quip	general	0	Pregnancy -- the worst sexually transmitted disease of them all.
+off-sex	life	pun	general	0	Pregnancy begins with a single sell.
+off-sex	tech	quip	general	0	Printers do it without wrinkling the sheets.
+off-sex	nature	quip	nsfw	1	Probably the question asked most often is: Do one-celled animals have orgasms? The answer is yes, they have orgasms almost constantly, which is why they don't mind living in pools of warm slime.
+off-sex	life	aphorism	general	0	Procrastinators do it tomorrow.
+off-sex	tech	quip	general	0	Programmers do it until it goes down.
+off-sex	tech	pun	general	0	Programmers get overlaid.
+off-sex	work-money	quip	general	0	Prostitution is the only business where you can go into the hole and still come out ahead.
+off-sex	life	dark	general	0	Psychiatry is quite similar to prostitution, only less honest. They both promise to make people feel better, but the prostitute doesn't make pretensions that the feelings will last once the client walks out the door.
+off-sex	life	tv-quote	nsfw	1	Ralph: Lisa, you have no tits and a awful tight pussy. Lisa: Ralph... get off my back!!
+off-sex	life	insult	general	0	Rating women on the Budweiser scale; the number of Clydesdales it would take to pull you off her.
+off-sex	life	quip	edgy	1	Reach out and fuck someone.
+off-sex	food	quip	general	0	Remember, when preparing a dish for bedtime, champagne is the best tenderizer.
+off-sex	love	dark	general	0	Revenge is sleeping with your enemy's wife. Sweet revenge is the realization that she's a lousy lay.
+off-sex	life	quip	general	0	Rogue players do it with all sorts of different animals.
+off-sex	arts	pun	general	0	Roses on your piano isn't nearly as good as tulips on your organ.
+off-sex	life	quip	general	0	Runners do it alone.
+off-sex	nature	pun	general	0	Satyrs have more faun.
+off-sex	life	dark	general	0	Save a forest - eat a beaver!
+off-sex	life	quip	nsfw	1	Save a mouse, eat a pussy!
+off-sex	life	verse	nsfw	1	"Scott, baby," the sexually aggressive girl murmured as she guided her date's finger to her clitoris, "This bud's for you."
+off-sex	life	joke	nsfw	1	Seems there was this traveling salesman who wandered into a brothel and asked the madam for a woman who would give him the absolutely worst blow-job imaginable. Not horny, just homesick.
+off-sex	life	pun	general	0	Seems this guy showed up at a party, and all of his friends jumped for Joy. But she sidestepped, and they missed.
+off-sex	life	dark	general	0	Self-abuse is the most certain road to the grave.
+off-sex	tech	quip	general	0	Sex and drugs and UNIX.
+off-sex	life	quip	general	0	Sex and mathematics have one thing in common. You can do each while thinking about the other.
+off-sex	love	quip	general	0	Sex appeal is 50% what you've got and 50% what people think you've got.
+off-sex	love	dark	general	0	Sex discriminates against the shy and ugly.
+off-sex	love	dark	general	0	Sex hasn't been the same since women started enjoying it.
+off-sex	love	observation	general	0	Sex is a biological function; kissing is a commitment.
+off-sex	life	dark	general	0	Sex is a natural bodily process, like a stroke.
+off-sex	love	quip	general	0	Sex is about as important as a cheese sandwich. But a cheese sandwich, if you ain't got one to put in your belly, is extremely important.
+off-sex	life	quip	general	0	Sex is an emotion in motion.
+off-sex	life	quip	general	0	"Sex is as honest a product benefit for fragrance [perfume] as taste is for diet Coke."
+off-sex	love	quip	general	0	Sex is better than grass, if you have the right pusher.
+off-sex	life	quip	general	0	Sex is dirty, but only if you do it right.
+off-sex	food	quip	general	0	Sex is good, but not as good as fresh sweet corn.
+off-sex	life	quip	general	0	Sex is just one damp thing after another.
+off-sex	life	quip	general	0	Sex is like a bridge game -- If you have a good hand no partner is needed.
+off-sex	love	quip	general	0	Sex is like pizza -- when it's good, it's great; and when it's bad, it's still darn tasty!
+off-sex	love	quip	general	0	Sex is low in calories, and *oooh* that aftertaste!
+off-sex	love	dark	general	0	Sex is nobody's business but the three people involved.
+off-sex	life	quip	general	0	Sex is not the answer. Sex is the question. "Yes" is the answer.
+off-sex	life	quip	general	0	Sex is one of the nine reasons for reincarnation ... the other eight are unimportant.
+off-sex	life	quip	general	0	Sex is the mathematics urge sublimated.
+off-sex	love	quip	general	0	Sex is the poor man's opera.
+off-sex	life	quip	general	0	Sex is what women have and men want.
+off-sex	society	quip	general	0	Sex without class consciousness cannot give satisfaction, even if it is repeated until infinity.
+off-sex	love	quip	general	0	Sex without love is an empty experience, but, as empty experiences go, it's one of the best.
+off-sex	love	quip	general	0	Sex; it's always best when one partner is at least a little bit desperate.
+off-sex	life	dark	general	0	Sexual enlightenment is justified insofar as girls cannot learn too soon how children do not come into the world.
+off-sex	love	quip	general	0	She asked me if I loved her still. "Yes," I replied. "I've never had you any other way."
+off-sex	faith	quip	general	0	She called her parakeet Onan, because he spilled his seed.
+off-sex	life	quip	general	0	She was a farmer's daughter but she couldn't keep her calves together.
+off-sex	life	pun	general	0	She was only a mortician's daughter but anyone cadaver.
+off-sex	love	quip	general	0	She's fine, upstanding, and wonderful laying down.
+off-sex	love	quip	general	0	She's the kind of woman you could fall madly in bed with.
+off-sex	love	joke	nsfw	1	"Sir", said the beggar, "can you spare fifty dollars for a cup of coffee?" "Fifty dollars for a cup of coffee, one should be sufficient!", answered the gentleman, rather shortly. "I know", replied the beggar, "but coffee always makes me horny."
+off-sex	life	dark	general	0	Sixteen'll get you twenty.
+off-sex	love	quip	general	0	So, how's your love life? Still holding your own?
+off-sex	family	dark	general	0	So, your daughter was voted "Most Likely to Conceive", and you're still drinking ordinary scotch?
+off-sex	life	pun	edgy	1	Sodomy is a pain in the ass.
+off-sex	arts	quip	general	0	Some of the greatest love affairs I've known have involved one actor, unassisted.
+off-sex	life	quip	general	0	Some women achieve greatness, some have greatness thrust into them.
+off-sex	love	quip	general	0	Some women are like musical glasses. To keep them in tune they must be wet.
+off-sex	science	pun	general	0	Statisticians do it with 95% confidence.
+off-sex	work-money	quip	general	0	Statisticians probably do it.
+off-sex	life	quip	general	0	Sticks and stones may break my bones but whips and chains excite me!!!
+off-sex	food	joke	general	0	Sure eating yogurt will improve your sex life. People know that if you'll eat that stuff, you'll eat anything.
+off-sex	tech	quip	general	0	Systems people do it with a small, but clean, interface.
+off-sex	work-money	quip	general	0	Teaching undergraduates is like herding sheep. And, like the old Basque sheepherder explained, whenever the livestock starts looking good to you, it's time to spend a night in town.
+off-sex	society	pun	general	0	Teen-age prostitution: the problem is mounting!
+off-sex	life	quip	general	0	Test makers do it: A: sometimes B: always C: never D: none of the above.
+off-sex	life	quip	general	0	That girl could suck the chrome off a bumper.
+off-sex	life	joke	edgy	1	That reminds me of a friend of mine who went north to work on the Alaskan pipeline. Before he went up there, he was just a skinny little runt. When he got back, he was a husky fucker.
+off-sex	life	quip	general	0	That's the most fun I've had without laughing.
+off-sex	life	joke	general	0	The abbess of a nunnery was instructing a group of novices on the house rules of her particular order. The indoctrination period, which went on for hours, began with "No washing of undies in the founts," and ended with "Lights out at nine. Candles out at ten."
+off-sex	nature	pun	general	0	The best way to cut off a cat's tail is to repossess his Jaguar.
+off-sex	faith	observation	general	0	The Bible contains six admonishments to homosexuals and 362 admonishments to heterosexuals. That doesn't mean that God doesn't love heterosexuals. It's just that they need more supervision.
+off-sex	life	dark	general	0	The big difference between sex for money and sex for free is that sex for money usually costs a lot less.
+off-sex	tech	quip	general	0	The bottom-up approach always gets me buggered.
+off-sex	love	quip	general	0	The butcher, the baker, the candlestick make her, why can't I?
+off-sex	life	quip	general	0	The country girl who became a city madam has obviously gone from rags to rigids.
+off-sex	life	joke	general	0	The difference between a sorority girl and a bowling ball is that you can only get three fingers in a bowling ball.
+off-sex	life	insult	general	0	The difference between her and the Titanic is that only 1100 men went down on the Titanic.
+off-sex	love	quip	general	0	The difference between like and love is the same as the difference between a spit and a swallow.
+off-sex	life	dark	general	0	The difference between women and girls is as much as twenty years, in some states.
+off-sex	love	quip	general	0	The first time we slept together she drove a recreational vehicle into the bedroom.
+off-sex	love	quip	edgy	1	The fucking ain't worth the fighting.
+off-sex	arts	quip	general	0	The girls that go to see a man's etchings may not know art ... but they know what they like!
+off-sex	life	dark	general	0	The good news is that the horse is dead, but your mother's pregnant.
+off-sex	life	quip	nsfw	1	The good thing about masturbation is that you don't have to dress up for it.
+off-sex	life	quip	general	0	The harder they come, the more important it is to have an extra-firm mattress.
+off-sex	love	dark	general	0	The honeymoon is over when a quickie before dinner refers to a short drink.
+off-sex	life	joke	general	0	The Italian entry in the Eurovision Song Contest, "I Can't Get No Contraception", has been withdrawn after the Pope advised them to pull it out at the last minute.
+off-sex	life	dark	general	0	The man who said "A bird in the hand's worth two in the bush" has been putting his bird in the *WRONG* bushes.
+off-sex	life	dark	general	0	The most pressing issue facing women today is finding a contraceptive jelly that smells like a fresh fruit salad.
+off-sex	love	quip	general	0	The most romantic thing any woman ever said to me in bed was "Are you sure you're not a cop?"
+off-sex	life	dark	general	0	The most unfair thing about STDs (sexually transmitted diseases) is that the guys who bought vasectomies have to wear condoms anyway.
+off-sex	love	insult	general	0	The only difference between your current lover and a doorknob is that a doorknob warms up when you hold it.
+off-sex	love	quip	general	0	The only people who make love all the time are liars.
+off-sex	life	quip	nsfw	1	The only psychologically damaging thing about masturbation is that there's nobody else to blame later for persuading you to do it.
+off-sex	love	quip	general	0	The only way to behave to a woman is to make love to her if she is pretty and to someone else if she is plain.
+off-sex	love	joke	general	0	The other night I was having sex, but the girl hung up on me.
+off-sex	love	joke	general	0	The outraged husband discovered his wife in bed with another man. "What is the meaning of this?" he demanded. "Who is this fellow?" "That seems like a fair question," said the wife, rolling over. "What IS your name?"
+off-sex	love	joke	general	0	The passionate young thing was having a difficult time getting across what she wanted from her rather dense boyfriend. Finally she asked, "Would you like to see where I was operated on for appendicitis?" "Gosh, no!" he replied. "I hate hospitals."
+off-sex	life	pun	nsfw	1	The penis mightier than the sword.
+off-sex	love	quip	general	0	The pleasure is momentary, The position ridiculous, The expense damnable.
+off-sex	love	aphorism	general	0	The pleasure is transitory, the cost prohibitive, and the position ridiculous.
+off-sex	love	pun	general	0	The plural of spouse is spice.
+off-sex	love	quip	general	0	The problem with being best man at a wedding is that you never get a chance to prove it.
+off-sex	life	dark	edgy	1	The quality of a blow-job is determined by the length of sheet you have to pull out of your ass.
+off-sex	nature	dark	edgy	1	The real problem with fucking a sheep is that you have to walk around in front every time you want to kiss her.
+off-sex	work-money	quip	nsfw	1	The reason big companies have lots and lots of meetings is because they can't masturbate.
+off-sex	life	joke	general	0	The reason people sweat is so they won't catch fire when making love.
+off-sex	life	dark	general	0	The reason that sex is so popular is that it's centrally located.
+off-sex	love	quip	general	0	The requirements of romantic love are difficult to satisfy in the trunk of a Dodge Dart.
+off-sex	tech	joke	general	0	The REVERSE function works on the opposite SEXPR.
+off-sex	life	quip	edgy	1	The sergeant walked into the shower and caught me giving myself a dishonorable discharge. Without missing a beat, I said... "It's my dick and I can wash it as fast as I want!"
+off-sex	life	quip	general	0	The sex act is the funniest thing on the face of this earth.
+off-sex	life	dark	general	0	The struggling for knowledge has a pleasure in it like that of wrestling with a fine woman.
+off-sex	society	quip	general	0	The Supreme Court does it with all deliberate speed.
+off-sex	life	dark	general	0	The thing that takes up the least amount of time and causes the most amount of trouble is sex. [Obviously written by a man--if it's causing so much trouble, *take* *more* *time*!]
+off-sex	life	aphorism	general	0	The three faithful things in life are money, a dog and an old woman.
+off-sex	life	quip	general	0	The three most important parts of a stove: lifter, leg, and poker.
+off-sex	life	joke	general	0	The three sexual positions during preganancy. During the first four months: Missionary style During the second four months: Doggie style And during the last month: Coyote style Coyote style? You sit by the hole and howl.
+off-sex	love	dark	general	0	The trouble with incest is that it gets you involved with relatives.
+off-sex	love	dark	general	0	The two things that you should never lend out are your car or your woman. Someone's bound to throw a rod in either one.
+off-sex	food	quip	general	0	The way to a man's heart is through his wife's belly, and don't you forget it.
+off-sex	love	pun	general	0	Then there was the girl who was engaged to a gymnast -- 'til he broke it off.
+off-sex	love	quip	general	0	Then there was the guy that got badly messed up fighting for his girl's honor. It seems she wanted to keep it.
+off-sex	life	quip	general	0	There are a couple of things about her I greatly admire.
+off-sex	love	quip	edgy	1	There are many ways to say "I love you", but fucking is the fastest.
+off-sex	life	quip	edgy	1	There are so many people wanting a piece of my ass that some of them are having to take turns.
+off-sex	life	quip	general	0	There is a definite parallel between shots of tequila and a woman's breasts. One is not enough and three are too many.
+off-sex	life	quip	edgy	1	There is nothing as overrated as a bad lay, or as underrated as a great shit.
+off-sex	life	quip	general	0	There is nothing wrong with screwing everyone in sight. Boring your friends about it is the sin.
+off-sex	life	quip	general	0	There isn't room enough in this dress for both of us!
+off-sex	love	quip	general	0	There was something about her I liked, but I couldn't put my finger on it.
+off-sex	life	dark	general	0	There will be sex after death, we just won't be able to feel it.
+off-sex	love	quip	edgy	1	There's a handsome boy who tells me how I've changed his past. He buys me a brandy... Could it be he's really just after my ass?
+off-sex	life	dark	general	0	There's many a slurp t'wixt the tip and the zip.
+off-sex	life	quip	general	0	There's nothing better than good sex. But bad sex? A peanut butter and jelly sandwich is better than bad sex.
+off-sex	society	quip	general	0	There's nothing wrong with America that a good erection wouldn't cure.
+off-sex	life	dark	general	0	This is a test of the emergency cunnilingus system. If this had been an actual emergency, you would have known it!
+off-sex	tech	quip	nsfw	1	This system goes down more often than a two-dollar whore.
+off-sex	love	quip	general	0	This time it's for love; next time it's $100.00.
+off-sex	faith	dark	general	0	Thou shalt not omit adultery.
+off-sex	love	quip	general	0	Three minutes of serious sex and I need eight hours of sleep and a bowl of Wheaties.
+off-sex	life	dark	nsfw	1	To a Real Woman, every ejaculation is premature.
+off-sex	life	quip	general	0	To be the kind of girl designed to be kissed between the thighs.
+off-sex	love	quip	general	0	To win a woman in the first place one must please her, then undress her, and then somehow get her clothes back on her. Finally, so she will allow you to leave her, you've got to annoy her.
+off-sex	life	quip	general	0	Tri Delts; everyone else has.
+off-sex	life	joke	edgy	1	Two men were standing around talking while nearby a large German Shepherd lay licking his balls. One man says to the other, "Damn, I wish I could do that." The other man replies, "Well, it's okay by me, but I think you ought to get to know him a little first."
+off-sex	life	joke	edgy	1	Two women were walking down the street, when one nudges the other and says, "There's my husband coming out of the florist's with a dozen roses, damn it. That means I'll have to keep my legs up in the air for three days." Replies her friend, "Well, why don't you buy a vase?"
+off-sex	tech	pun	general	0	Unix programmers do it with pipes.
+off-sex	society	joke	general	0	Vandalism On The Upswing! Last night, windows were broken and graffiti was sprayed over the front of the local sex shop, Le Sex Boutique, causing several hundred dollars in damage. In a later anonymous phone call, the provisional wing of the Salvation Army claimed responsibility.
+off-sex	life	dark	general	0	Vegetarians for oral sex -- "The only meat that's fit to eat"
+off-sex	life	quip	general	0	Vidi, vici, veni. (I saw, I conquered, I came.)
+off-sex	life	observation	nsfw	1	We have reason to believe that man first walked upright to free his hands for masturbation.
+off-sex	life	quip	general	0	We may eventually come to realize that chastity is no more a virtue than malnutrition.
+off-sex	life	tv-quote	general	0	"We've got things well in hand."
+off-sex	love	quip	general	0	Well, didja wake up grouchy or did you let her sleep?
+off-sex	love	quip	edgy	1	Well, see, I was out with this chick last night, and we were in bed, and she groaned to me, "Give me nine inches, and make it hurt!" So, I fucked her twice and slapped her.
+off-sex	life	quip	general	0	Well, see, Joyce, there we were, trapped in the elevator. Now, I had my tennis racquet and the goldfish; she was holding the Crisco. Surely you can imagine how one thing naturally led to another!
+off-sex	love	quip	general	0	Were it not for imagination, sir, a man would be as happy in the arms of a chambermaid as a duchess.
+off-sex	life	joke	general	0	What creatures of habit we are. This morning, without thinking, half asleep, I put $100 on my pillow. That's not so bad, no one would worry about it, but my wife, half asleep, without thinking, gave me $20 change.
+off-sex	love	quip	general	0	What is a promiscuous person -- it's usually someone who is getting more sex than you are.
+off-sex	work-money	quip	general	0	What this department needs is a really good inflatable doll.
+off-sex	love	quip	general	0	Whatever else can be said about sex, it cannot be called a dignified performance.
+off-sex	life	dark	general	0	Whatever happened to the good old days when sex was dirty and the air was clean?
+off-sex	life	quip	nsfw	1	Whatever you say about pornography, sex is here to stay.
+off-sex	love	quip	general	0	When a girl admits she's had a checkered career, it's your move.
+off-sex	tech	quip	general	0	When better women are made, computer programmers will make them.
+off-sex	life	pun	general	0	When Boy Scouts do it, it's intense.
+off-sex	life	quip	general	0	When I said "we", officer, I was referring to myself, the four young ladies, and, of course, the goat.
+off-sex	love	quip	general	0	When Snow White turns on with the dwarfs she probably winds up feeling Dopey.
+off-sex	life	quip	edgy	1	When the prick stands up, the brains get buried in the ground.
+off-sex	life	quip	edgy	1	Whenever someone tells you to "take it like a man" it usually means up your ass.
+off-sex	life	joke	general	0	"Where'd she get those crow's feet?" "You really want to know?" "Yeah." "From squinting and screaming, 'Suck what!?'"
+off-sex	life	joke	nsfw	1	Which of the following doesn't belong? a. meat b. eggs c. drum d. blowjob. Answer: d: A blowjob, because you can beat your meat, your eggs, or your drum, but you just can't beat a blowjob.
+off-sex	life	quip	general	0	While farmers generally allow one rooster for ten hens, ten men are scarcely sufficient to service one woman.
+off-sex	life	quip	general	0	While not actually a sailor, I certainly enjoy getting blown ashore.
+off-sex	love	quip	general	0	Whoever named it "necking" was a poor judge of anatomy.
+off-sex	love	quip	general	0	Why marry a virgin? If she wasn't good enough for the rest of them then she isn't good enough for you.
+off-sex	life	quip	general	0	Why, Good Morning! I'm the bluebird of fellatio!
+off-sex	food	quip	general	0	With a bushel of apples, you can have a hell of a time with the doctor's wife.
+off-sex	life	observation	general	0	Women think of being a man as a gift. It is a duty. Even making love can be a duty. A man has always got to get it up, and love isn't always enough.
+off-sex	love	quip	general	0	Women Unite! Make *him* sleep in the wet spot tonight!
+off-sex	work-money	quip	general	0	Working here is like a pregnancy. After nine months you wish you hadn't come.
+off-sex	arts	quip	general	0	Writers do it between periods.
+off-sex	life	dark	general	0	"Yeah, I used to be into necrophelia, bestiality and sadism, but then I realized I was just flogging a dead horse."
+off-sex	life	quip	nsfw	1	"Yes, sir, the bowling ball nipple rings in black. Will there be anything else?"
+off-sex	work-money	insult	general	0	You are a tower of strength in the office, but only so-so in bed.
+off-sex	life	dark	general	0	You are loved by the multitudes. Have you been to the clinic lately?
+off-sex	life	quip	general	0	You better believe that marijuana can cause castration. Just suppose your girlfriend gets the munchies!
+off-sex	food	quip	general	0	"You can beat my meat, but you can't lick my sauce!"
+off-sex	life	observation	general	0	You can get used to living at a nudist camp. The first three days are the hardest.
+off-sex	life	quip	general	0	You come out of a woman and you spend the rest of your life trying to get back inside.
+off-sex	life	quip	general	0	You might get caught holding the bag. Say she's your sister.
+off-sex	life	insult	general	0	You pedophiliac sodomizer of ducklings!!
+off-sex	love	dark	general	0	Your first husband was the one you married while firmly believing that there are more important things in life than great sex.
+off-sex	life	quip	general	0	Yuck Foo.
+off-sex	life	joke	general	0	Humor in the Court: Q. How did you happen to go to Dr. Cherney? A. Well, a gal down the road had had several of her children by Dr. Cherney, and said he was really good.
+off-sex	tech	quip	nsfw	1	Q: Why are Unix emulators like your right hand? A: They're just pussy substitutes!
+off-sex	life	dark	general	0	Cryo-necro-bestial-sodomy? You can do that at the grocery store.
+off-sex	love	dark	general	0	The duration of passion is proportionate with the original resistance of the woman.

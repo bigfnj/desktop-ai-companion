@@ -1,0 +1,91 @@
+tv-snl	life	joke	general	0	English teacher: I would like to feed your fingertips. Foreigner: I vould like to feed your fingerteeps. English teacher: To the wolverines. Foreigner: To the volver-eenes.
+tv-snl	life	tv-quote	general	0	George Carlin: The term Jumbo Shrimp has always amazed me. What is a Jumbo Shrimp? I mean, it's like Military Intelligence- the words don't go together, man.
+tv-snl	society	tv-quote	general	0	Chevy Chase: Our top story tonight: dedication ceremonies for the new Teamsters Union Headquarters building took place today in Detroit, where Union President Fitzsimmons was reported to have said that former President Jimmy Hoffa will always be a cornerstone in the organization.
+tv-snl	society	tv-quote	general	0	Chevy Chase: (President) Ford was on the campaign trail, announcing in Detroit that he had written his own campaign slogan. The slogan: "If He's So Dumb, How Come He's President?"
+tv-snl	arts	tv-quote	general	0	Paul Simon: [to Marv Albert before his match with Connie Hawkins] I've gotta stay with my strengths, basically... singing and songwriting.
+tv-snl	life	tv-quote	general	0	Chevy Chase: Good evening, I'm Chevy Chase and you're not.
+tv-snl	life	tv-quote	general	0	(Door knock) Gilda: Who is it? Voice: Mrs. Bragalaaaa....? Gilda: Who is it?? Voice: ...Plumber. Gilda: Plumber? I didn't ask for a plumber. Who is it? Voice: ...Telegram. Gilda: Oh. Telegram. Just a moment...
+tv-snl	society	tv-quote	general	0	Chevy Chase: Secretary of State Henry Kissinger has been cited for contempt of Congress! Kissinger commented, "So what? Congress has at least as much contempt for me as I do for him. Besides, Nixon lied, didn't he? And he gets to sunbathe while I get terminal jet lag."
+tv-snl	society	tv-quote	general	0	Chevy Chase: The United States... hold it... The United Nations General Assembly passed a resolution equating Zionism with racism. Black entertainer Sammy Davis, Jr., a convert to Judaism, was quoted as saying: "What a breakthrough! Now, finally, I can hate myself!"
+tv-snl	society	tv-quote	general	0	Chevy Chase: The FCC announced today that for every Ford commercial run on television, a minute of an old Ronald Reagan film must be shown. As a result of this action, a spokesman for George Wallace responded by demanding equal time by showing one minute of "Ironsides."
+tv-snl	society	tv-quote	general	0	Chevy Chase: Later, Mr. Ford pierced his left hand with a salad fork at a luncheon celebrating Tuna Salad Day at the White House. Alert Secret Service agents seized the fork and wrestled it to the ground.
+tv-snl	life	tv-quote	general	0	Lily Tomlin: Being a New Yorker means never having to say you're sorry.
+tv-snl	society	tv-quote	general	0	Chevy Chase: UNICEF fell under attack this week when Syria formally protested the charitable organization's new Christmas card, which says, in ten different languages, "Let's kill the Arabs and take their oil!"
+tv-snl	life	tv-quote	general	0	Don Pardo: [voiceover] This is Don Pardo saying, oh oh oh! Whoops! I'm reading upside down!
+tv-snl	life	tv-quote	general	0	Vito Corleone: The ASPCA is out to get me because of this horse thing.
+tv-snl	society	tv-quote	general	0	Chevy Chase: Another note on the Super Bowl: President Ford expressed regret that he won't join Mr. Kissinger in Miami tomorrow, saying he's flying to Boston for the first game of the World Series.
+tv-snl	society	tv-quote	general	0	Chevy Chase: This week, the FDA banned Red Dye #2, saying the red coloring agent was suspected of having cancer-causing qualities. Coincidentally, it was reported this week that Ronald Reagan has revealed that he underwent treatment for cancer of the hair.
+tv-snl	life	tv-quote	general	0	Chevy Chase: Well, the popular TV personality known as Professor Backwards was slain in Atlanta yesterday by three masked gunmen. According to reports, neighbors ignored the Professor's cries of 'Pleh, pleh!'
+tv-snl	life	tv-quote	general	0	Domintrix: RING AROUND THE COLLAR!
+tv-snl	society	tv-quote	general	0	Chevy Chase: Good evening, I'm Chevy Chase, and you're not! [cut to film segment of real-life President Ford] Gerald Ford: I'm Gerald Ford, and you're not.
+tv-snl	society	dark	general	0	Richard Nixon: [after watching Henry Kissinger leave the Oval Office] Jewboy! Jewboy! Jewboy!
+tv-snl	life	tv-quote	general	0	Chevy Chase: Weekend Update recognizes its obligation to present responsible opposing viewpoints to out editorials. Here with an editorial reply is Miss Emily Litella. Emily Litella: What's all this fuss I keep hearing about violins on television?
+tv-snl	life	tv-quote	general	0	Chevy Chase: Good evening, I'm Chevy Chase, and, that's the news, good night and have a pleasant tomorrow. Just kidding! And you're not.
+tv-snl	life	tv-quote	general	0	[Dell Stator's Toad Ranch jingle] When you're at home or on the road And you've got to stop to crave that toad Dell Stator's, Dell Stator's Dell Stator's Family Toad Ranch!
+tv-snl	life	tv-quote	general	0	President Ford: It was my understanding that there would be no math during the debates.
+tv-snl	life	tv-quote	general	0	Chevy Chase: Good evening, I'm God! Let's take a look at tonight's top stories, shall we?
+tv-snl	society	tv-quote	general	0	Chevy Chase: Ugandan dictator Idi Amin has decided to go under species change surgery. If the surgery was successful, he will take a career on American television. However, if the surgery is unsuccessful, he will eat American television.
+tv-snl	life	tv-quote	general	0	Chevy Chase: (on the phone) Don't worry. I'll do Jiminy Cricket. (makes a Jiminy Cricket face, then sings)
+tv-snl	life	tv-quote	general	0	When you wish upon a star, your.. (realized he's on the air and hangs up) Chevy Chase: Good evening, I'm Chevy Chase, and I don't like you.
+tv-snl	life	tv-quote	general	0	Catherine the Great: Oh well, I guess I am queen. And a queen is a queen. But I am also a woman. And a woman is a woman. Snowball: And a horse is a horse. Catherine the Great: Of course, of course.
+tv-snl	society	tv-quote	general	0	Chevy Chase: Well, the results of the election are in. Gerald Ford: 0. Jimmy Carter: 0. More on this as it develops.
+tv-snl	arts	tv-quote	general	0	Gags Beasley: Remember this: There is a thin line between comedy and humor.
+tv-snl	life	tv-quote	general	0	Emily Litella: [her phone messenge] Hello, this is Emily Litella. I'm not home right now. But I will call you back as soon as possible. Just leave your name, number, and what time you called, after you hear the sound of the jeep. [beep]
+tv-snl	life	tv-quote	general	0	Yortuk Festrunk: [Czech accent] We are... two wild and crazy guys!
+tv-snl	arts	tv-quote	general	0	[Beginning of Weekend Update] Don Pardo: [voiceover] And now, Weekend Update with Chevy Chase! Jane Curtin and Dan Aykroyd: [shocked] What?! Don Pardo: [voiceover] [apologetic] Sorry, old script.
+tv-snl	life	tv-quote	general	0	[fake NBC title card of "The Little House on The Praire Burns To The Ground"] Don Pardo: [voiceover] The Little House on The Praire Burns To The Ground will not be seen tonight, so that NBC will air the following special program.
+tv-snl	life	tv-quote	general	0	[On Weekend Update, while Emily Litella is telling Chevy Chase that she missed him, Jane Curtin is not happy] Jane Curtin: [angrily] Emily?! What are you doing here?! SCRAM! Emily Litella: Oh, go to hell, Miss Clayton.
+tv-snl	life	tv-quote	general	0	Dan Aykroyd: This just in, Garrett Morris is dead. A group of 8 youths has fatally shot the late Update correspondant at the kids' playground. Another paraquat-related death. Jane Curtin: Hoping your news is good news. Good night and have a pleasant tomorrow.
+tv-snl	life	tv-quote	general	0	Chico Escuela: Beil Murray is berry, berry, good to me and Hane Curtin is a sarcastic bisch.
+tv-snl	life	tv-quote	general	0	Fred Garvin: Call me... Fred Garvin, Male Prostitute. [Shows title card while 20's music played over it]
+tv-snl	nature	tv-quote	general	0	Bill Murray: So if you're a Rhesus Monkey and you want to donate your body to science, please hop in the box and send yourself to "Rhesus Roundup, San Simian, California."
+tv-snl	arts	tv-quote	general	0	Milton Berle: [in response to a sudden noise from the band stand] NBC just dropped another show.
+tv-snl	life	tv-quote	general	0	Irwin Mainway: Look, Miss Face, is this just another one of your personal attacks?
+tv-snl	life	tv-quote	general	0	Jane Curtin: Miss Lillian Carter removes her makeup. This and other stories coming up on Weekend Update next.
+tv-snl	life	tv-quote	general	0	Jane Curtin: This just in: Paul McCartney was freed, but the crisis continued in Tokyo.
+tv-snl	life	tv-quote	general	0	Father Guido Sarducci: I had a bunch of Quaaludes in my sock.
+tv-snl	life	tv-quote	general	0	Father Guido Sarducci: Live from New York and the wonderful empire of Japan, it's Saturday Night.
+tv-snl	life	tv-quote	general	0	Mr. Potato Head: [sings] I am Mr. Potato Head The pride of Ireland green.
+tv-snl	arts	tv-quote	general	0	Lady Pinth Garnell: Tune in next week on Bad Playhouse, where we present an awful Japanese version of Chaucer's Canterbury Tales. So until then, good night.
+tv-snl	society	tv-quote	general	0	Al Franken: The top ten shows for the 1979-1980 television season included some A's, some B's, some C's, and some S's. Did you see any N's? No. Not one N. Why? Because Silverman is a lame-o! And I heard he has a nice limousine service. I like to call it "A Limo for a Lame-o."
+tv-snl	life	tv-quote	general	0	[During the goodnights] Buck Henry: Thank you for coming. Good night... and goodbye.
+tv-snl	life	tv-quote	general	0	Charles Rocket: {to Cuban couple} Tourists, are you? Cuban Man: {speaks Cuban and translates} It means, "how do you do?" Charles Rocket: Okay, well, sounds like you've got a couple of drinks this afternoon, huh?
+tv-snl	life	tv-quote	general	0	NBC Executive: There's just one thing. You are a virgin, aren't you? Cheerleader: I'm sure... [realized she is not] I- [NBC executive walks away] Wait!
+tv-snl	life	observation	general	0	Eddie Murphy: Now I know what you're saying, "This kid is young. Will he ever burn out?", I don't think so.
+tv-snl	life	tv-quote	general	0	(reveals that he is wearing sunglasses, along with a mirror on his hand) Mr. Robinson: Did your mamma slap you? Then you said it right!
+tv-snl	work-money	tv-quote	general	0	Charles Rocket: Listen here Ronnie baby! If you wanna make some money, why won't you have Nancy shop at Sears?!
+tv-snl	life	quip	general	0	Pooped 'em Eddie Murphy: Live, from New York, it's the Eddie Murphy show!
+tv-snl	life	tv-quote	general	0	Lily Tomlin: Live, from New York, it's the Lily Tomlin show!
+tv-snl	life	tv-quote	general	0	Derek Stevens: (singing "The Lady I Know") There's a lady I know If I didn't know her She'd be the lady I didn't know.
+tv-snl	food	verse	general	0	And my lady, she went downtown She bought some broccoli She brought it home. She's choppin' broccoli Choppin' broccoli Choppin' broccoli Choppin' broccoli She's choppin' broccoli She's choppin' broccoli She's chop.. ooh! She's choppin' broccola-ah-ie!
+tv-snl	society	tv-quote	general	0	Dennis Miller: And the New York Mets defeated the Boston Red Sox in Game 6 of the World Series tonight, prompting New York Yankees owner, George Steinbrenner to fire his manager Lou Piniella.
+tv-snl	life	tv-quote	general	0	Matt Foley sketch: Chris Farley:First off, I am 35 years old, I am divorced, and I live in a van down by the river.
+tv-snl	life	tv-quote	general	0	Chris Farley:You're gonna end up eating a steady diet of government cheese, and livin' in a van down by the river!
+tv-snl	life	tv-quote	general	0	Chris Farley:From what I here you're using that paper for doobie rollin'. Well there's gonna be plenty of time for rollin' doobies, when you're LIVIN' IN A VAN DOWN BY THE RIVER!
+tv-snl	life	tv-quote	general	0	Chris Farley:Young lady, what do you want to do with your life? Christina Applegate:(Sarcastically)I wanna live in a van down by the river. Chris Farley:Well you'll have plenty of time for livin' in a van down by the river when...YOU'RE LIVIN' IN A VAN DOWN BY THE RIVER!
+tv-snl	society	tv-quote	general	0	Norm MacDonald: Well, it's official: murder is now legal in the state of California.
+tv-snl	life	tv-quote	general	0	Norm MacDonald: [on George Burns's 100th birthday] I don't know the secret to his longevity, but I think I speak for all of us when I say I hope Pauly Shore doesn't know it either.
+tv-snl	arts	tv-quote	general	0	Will Ferrell: They say Gene Roddenberry got the idea for Star Trek from Brasky talkin' in his sleep!
+tv-snl	society	tv-quote	general	0	Alec Baldwin: He hated Mexicans! Will Ferrell: And he was half Mexican! Mark McKinney: And he hated irony!
+tv-snl	life	tv-quote	general	0	Saddam Hussein: Live-time from the New York, it's the Saturday fun hour!
+tv-snl	life	tv-quote	general	0	Alex Trebek: Let's see what you put: "2". The number 2! Jeff Goldblum: Aha! Aha! The letter 2, my friend! Alex Trebek: No, 2 is a number. Jeff Goldblum: I can't read or write.
+tv-snl	life	tv-quote	general	0	Bill Clinton: Live, from New York, it's Gloatin' Time!
+tv-snl	life	tv-quote	general	0	Alex Trebek: Let's see what Mr. Cage put... and your podium is missing. Nicolas Cage: I don't know where it went. I'm confused.
+tv-snl	life	tv-quote	general	0	Alex Trebek: Let's see what Calista Flockhart put for an answer. Nothing. And your wager? Nothing! Calista Flockhart: The pen was too heavy.
+tv-snl	life	tv-quote	general	0	Alex Trebek: Let's see your answer. Oh, I'm sorry, that must be your wager: a buck. And your answer is..."Futter". Buck Futter. I don't get it. Sean Connery: Oh...I think you do, Trebek. Think you do, indeed. Alex Trebek: Well, thanks for joining us. Sean Connery: Buck Futter!
+tv-snl	life	tv-quote	general	0	Burt Reynolds: I know some French! You're an asswipe. Pardon my French. French Stewart: My name is French! Burt Reynolds: Yeah, who gives a crap?
+tv-snl	life	tv-quote	general	0	Alex Trebek: Mr. Reynolds has apparently changed his name to 'Turd Ferguson'. Burt Reynolds: It's a funny name. Alex Trebek: No, it isn't.
+tv-snl	life	tv-quote	general	0	Bruce Dickinson: I gotta have more cowbell!
+tv-snl	life	tv-quote	general	0	Bruce Dickinson: Gentlemen, I put my pants on like you: one leg at a time. Except, once my pants are on I make gold records.
+tv-snl	arts	tv-quote	general	0	Bruce Dickinson: I got a fever! And the only prescription is more cowbell!
+tv-snl	life	tv-quote	general	0	Keanu Reeves: I know kung fu! Alex Trebek: For the last time, no you don't.
+tv-snl	arts	tv-quote	general	0	Alex Trebek: Let's just go with Foreign Flicks for $800. Sean Connery: [buzzing in] Ursula Andress. Alex Trebek: What? Sean Connery: Ursula Andress, Catherine Deneuve, and Charo, twice. Alex Trebek: That's Foreign Flicks, Mr. Connery.
+tv-snl	life	tv-quote	general	0	Tracy Morgan: Live from New York, it's Jennifer Lopez's booty!
+tv-snl	life	joke	general	0	Centaur Doctor: Are we going to ask any questions about my medical background? Interviewing Doctor: The rest of the interview will be centaur questions.
+tv-snl	life	tv-quote	general	0	Lorne Michaels: Can we be funny? Mayor Rudy Giuliani: Why start now?
+tv-snl	society	tv-quote	general	0	George W. Bush: (in a message to Osama bin Ladin) If you really wanted to win against me at something, you should have challenged me to a game of Scrabble. Or perhaps a beard-off, for you see, I don't have a beard. And when I do, it comes in all patchy.
+tv-snl	society	quip	general	0	George W. Bush: Don't mess with Texas.
+tv-snl	society	tv-quote	general	0	Borat Sagdiyev: Alive from New York - home of the Jew - it's Saturday night!
+tv-snl	society	tv-quote	general	0	Dakota Fanning: When I hear the word 'hotel', it invokes images of Hotel Rwanda about the Rwandan Genocide. Dylan Sprouse: Dakota, you're scaring us!
+tv-snl	society	quip	general	0	Sarah Palin: Are You Smarter than a Half-Term Governor?
+tv-snl	life	tv-quote	general	0	Miley: There's a photo of me being kissed by a dude And Annie Leibovitz tried to get me nude For those of you who think that's very crude I'm sorry that I'm not perfect!

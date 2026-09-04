@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0-windows7.0": {
+      "desktopaicompanion.contracts": {
+        "type": "Project"
+      },
+      "desktopaicompanion.modulekit": {
+        "type": "Project",
+        "dependencies": {
+          "DesktopAICompanion.Contracts": "[1.0.0, )"
+        }
+      }
+    }
+  }
+}

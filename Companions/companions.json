@@ -1,0 +1,331 @@
+{
+  "pets": [
+    {
+      "folder": "ssj-goku",
+      "author": "RedSparr0w",
+      "lastupdate": "2019-03-04"
+    },
+    {
+      "folder": "esheep64",
+      "author": "Adriano",
+      "lastupdate": "2019-02-21"
+    },
+    {
+      "folder": "bbunny",
+      "author": "Adriano",
+      "lastupdate": "2019-02-25"
+    },
+    {
+      "folder": "neko",
+      "author": "Adriano",
+      "lastupdate": "2019-06-28"
+    },
+    {
+      "folder": "pingus",
+      "author": "Adriano",
+      "lastupdate": "2019-07-08"
+    },
+    {
+      "folder": "negima",
+      "author": "Adriano",
+      "lastupdate": "2019-10-16"
+    },
+    {
+      "folder": "red_sheep",
+      "author": "Oliver B.",
+      "lastupdate": "2021-05-02"
+    },
+    {
+      "folder": "orange_sheep",
+      "author": "Oliver B.",
+      "lastupdate": "2021-05-02"
+    },
+    {
+      "folder": "yellow_sheep",
+      "author": "Oliver B.",
+      "lastupdate": "2021-05-02"
+    },
+    {
+      "folder": "green_sheep",
+      "author": "Oliver B.",
+      "lastupdate": "2021-05-02"
+    },
+    {
+      "folder": "blue_sheep",
+      "author": "Oliver B.",
+      "lastupdate": "2021-05-02"
+    },
+    {
+      "folder": "purple_sheep",
+      "author": "Oliver B.",
+      "lastupdate": "2021-05-02"
+    },
+    {
+      "folder": "pink_sheep",
+      "author": "Oliver B.",
+      "lastupdate": "2021-05-02"
+    },
+    {
+      "folder": "fox",
+      "author": "Michelle!",
+      "lastupdate": "2022-08-03"
+    },
+    {
+      "folder": "blue_ham_ham",
+      "author": "Michelle!",
+      "lastupdate": "2025-12-08"
+    },
+    {
+      "folder": "mareep",
+      "author": "Michelle!",
+      "lastupdate": "2025-12-08"
+    },
+    {
+      "folder": "pikachu",
+      "author": "Michelle!",
+      "lastupdate": "2025-12-08"
+    },
+    {
+      "folder": "pink_fox",
+      "author": "Michelle!",
+      "lastupdate": "2025-12-08"
+    },
+    {
+      "folder": "pink_neko",
+      "author": "Michelle!",
+      "lastupdate": "2025-12-08"
+    },
+    {
+      "folder": "yellow_neko",
+      "author": "Michelle!",
+      "lastupdate": "2025-12-08"
+    },
+    {
+      "folder": "shiny_sylveon",
+      "author": "Michelle!",
+      "lastupdate": "2025-12-08"
+    },
+    {
+      "folder": "mimiko",
+      "author": "Madnuttah",
+      "lastupdate": "2022-08-25"
+    },
+    {
+      "folder": "shimeji-36po5aw2",
+      "name": "Bugcat Capoo",
+      "author": "shimeji.org",
+      "source": "https://shimeji.org/u/36po5aw2",
+      "lastupdate": "2026-08-25"
+    },
+    {
+      "folder": "shimeji-76xviks0",
+      "name": "ADAM",
+      "author": "shimeji.org",
+      "source": "https://shimeji.org/u/76xviks0",
+      "lastupdate": "2026-08-25"
+    },
+    {
+      "folder": "shimeji-8u2lojrb",
+      "name": "Skitty",
+      "author": "shimeji.org",
+      "source": "https://shimeji.org/u/8u2lojrb",
+      "lastupdate": "2026-08-25"
+    },
+    {
+      "folder": "shimeji-55atqs1b",
+      "name": "Hikari",
+      "author": "shimeji.org",
+      "source": "https://shimeji.org/u/55atqs1b",
+      "lastupdate": "2026-08-25"
+    },
+    {
+      "folder": "shimeji-brq51bkr",
+      "name": "Jesus Our Lord",
+      "author": "shimeji.org",
+      "source": "https://shimeji.org/u/brq51bkr",
+      "lastupdate": "2026-08-25"
+    },
+    {
+      "folder": "shimeji-9imr7z1s",
+      "name": "wooper",
+      "author": "shimeji.org",
+      "source": "https://shimeji.org/u/9imr7z1s",
+      "lastupdate": "2026-08-25"
+    },
+    {
+      "folder": "shimeji-3g8t9v4e",
+      "name": "Коро",
+      "author": "shimeji.org",
+      "source": "https://shimeji.org/u/3g8t9v4e",
+      "lastupdate": "2026-08-25"
+    },
+    {
+      "folder": "shimeji-8vqm59ot",
+      "name": "shiny wooper",
+      "author": "shimeji.org",
+      "source": "https://shimeji.org/u/8vqm59ot",
+      "lastupdate": "2026-08-25"
+    },
+    {
+      "folder": "shimeji-dqjd9s2d",
+      "name": "SpongeBob",
+      "author": "shimeji.org",
+      "source": "https://shimeji.org/u/dqjd9s2d",
+      "lastupdate": "2026-08-25"
+    },
+    {
+      "folder": "shimeji-7gb3ediv",
+      "name": "Nezuko Kamado",
+      "author": "shimeji.org",
+      "source": "https://shimeji.org/u/7gb3ediv",
+      "lastupdate": "2026-08-25"
+    },
+    {
+      "folder": "shimeji-3x56f4pl",
+      "name": "Monkey D. Luffy",
+      "author": "shimeji.org",
+      "source": "https://shimeji.org/u/3x56f4pl",
+      "lastupdate": "2026-08-25"
+    },
+    {
+      "folder": "shimeji-08dkbwmb",
+      "name": "Cammy White",
+      "author": "shimeji.org",
+      "source": "https://shimeji.org/u/08dkbwmb",
+      "lastupdate": "2026-08-25"
+    },
+    {
+      "folder": "shimeji-1l2yvz73",
+      "name": "Frieza",
+      "author": "shimeji.org",
+      "source": "https://shimeji.org/u/1l2yvz73",
+      "lastupdate": "2026-08-25"
+    },
+    {
+      "folder": "shimeji-88f9sqb5",
+      "name": "skeleton Halloween",
+      "author": "shimeji.org",
+      "source": "https://shimeji.org/u/88f9sqb5",
+      "lastupdate": "2026-08-25"
+    },
+    {
+      "folder": "shimeji-5xs0ld2m",
+      "name": "Nightmare Sans",
+      "author": "shimeji.org",
+      "source": "https://shimeji.org/u/5xs0ld2m",
+      "lastupdate": "2026-08-25"
+    },
+    {
+      "folder": "shimeji-06n2wuu6",
+      "name": "Kuromi",
+      "author": "shimeji.org",
+      "source": "https://shimeji.org/u/06n2wuu6",
+      "lastupdate": "2026-08-25"
+    },
+    {
+      "folder": "shimeji-9qc0h184",
+      "name": "Vlad",
+      "author": "shimeji.org",
+      "source": "https://shimeji.org/u/9qc0h184",
+      "lastupdate": "2026-08-25"
+    },
+    {
+      "folder": "shimeji-8opqq9of",
+      "name": "lute",
+      "author": "shimeji.org",
+      "source": "https://shimeji.org/u/8opqq9of",
+      "lastupdate": "2026-08-25"
+    },
+    {
+      "folder": "shimeji-south-park-cartman",
+      "name": "Cartman",
+      "author": "Phinbella-Flynn",
+      "source": "https://shimejis.xyz/directory/shimeji/south-park-cartman",
+      "lastupdate": "2026-08-25"
+    },
+    {
+      "folder": "shimeji-rick-and-morty-rick-by-starrii-chan",
+      "name": "Rick",
+      "author": "StarriiChan",
+      "source": "https://shimejis.xyz/directory/shimeji/rick-and-morty-rick-by-starrii-chan",
+      "lastupdate": "2026-08-25"
+    },
+    {
+      "folder": "shimeji-vocaloid-gakupo",
+      "name": "Gakupo",
+      "author": "rikka-nyan",
+      "source": "https://shimejis.xyz/directory/shimeji/vocaloid-gakupo",
+      "lastupdate": "2026-08-25"
+    },
+    {
+      "folder": "shimeji-hornet-9b9d1d",
+      "name": "Hornet",
+      "author": "shimejis.xyz",
+      "source": "https://shimejis.xyz/directory/shimeji/hornet-9b9d1d",
+      "lastupdate": "2026-08-25"
+    },
+    {
+      "folder": "shimeji-uzi-doorman-ef5c7d",
+      "name": "Uzi Doorman",
+      "author": "Kilkakon and Polar Summit",
+      "source": "https://shimejis.xyz/directory/shimeji/uzi-doorman-ef5c7d",
+      "lastupdate": "2026-08-25"
+    },
+    {
+      "folder": "shimeji-kinitopet",
+      "name": "KinitoPET",
+      "author": "shimejis.xyz",
+      "source": "https://shimejis.xyz/directory/shimeji/kinitopet-shimeji-2aba5b",
+      "lastupdate": "2026-08-28"
+    },
+    {
+      "folder": "shimeji-ralsei",
+      "name": "Ralsei",
+      "author": "shimejis.xyz",
+      "source": "https://shimejis.xyz/directory/shimeji/ralsei-606071",
+      "lastupdate": "2026-08-28"
+    },
+    {
+      "folder": "shimeji-cyn",
+      "name": "Cyn",
+      "author": "shimejis.xyz",
+      "source": "https://shimejis.xyz/directory/shimeji/cyn-476771",
+      "lastupdate": "2026-08-28"
+    },
+    {
+      "folder": "shimeji-capybara-albino",
+      "name": "Capybara",
+      "author": "shimeji.org",
+      "source": "https://shimeji.org/u/e0w1utr1",
+      "lastupdate": "2026-08-28"
+    },
+    {
+      "folder": "shimeji-serial-designation-j",
+      "name": "Serial Designation J",
+      "author": "shimejis.xyz",
+      "source": "https://shimejis.xyz/directory/shimeji/serial-designation-j-324a57",
+      "lastupdate": "2026-08-27"
+    },
+    {
+      "folder": "shimeji-gengar",
+      "name": "Gengar",
+      "author": "Local import",
+      "source": "Local import",
+      "lastupdate": "2026-08-25"
+    },
+    {
+      "folder": "shimeji-alipheese-fateburn-xvi",
+      "name": "Alipheese Fateburn XVI",
+      "author": "Local import",
+      "source": "Local import",
+      "lastupdate": "2026-08-25"
+    },
+    {
+      "folder": "shimeji-loona-hellhound",
+      "name": "Loona the Hellhound",
+      "author": "Local import",
+      "source": "Local import",
+      "lastupdate": "2026-08-25"
+    }
+  ]
+}

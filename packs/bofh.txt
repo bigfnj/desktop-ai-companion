@@ -1,0 +1,489 @@
+bofh	tech	quip	general	0	BOFH excuse #1: Clock speed.
+bofh	tech	quip	general	0	BOFH excuse #2: Solar flares.
+bofh	tech	fact	general	0	BOFH excuse #3: Electromagnetic radiation from satellite debris.
+bofh	tech	joke	general	0	BOFH excuse #4: Static from nylon underwear.
+bofh	tech	quip	general	0	BOFH excuse #5: Static from plastic slide rules.
+bofh	tech	quip	general	0	BOFH excuse #6: Global warming.
+bofh	tech	quip	general	0	BOFH excuse #7: Poor power conditioning.
+bofh	tech	quip	general	0	BOFH excuse #8: Static buildup.
+bofh	tech	quip	general	0	BOFH excuse #9: Doppler effect.
+bofh	tech	quip	general	0	BOFH excuse #10: Hardware stress fractures.
+bofh	tech	fact	general	0	BOFH excuse #11: Magnetic interference from money/credit cards.
+bofh	tech	quip	general	0	BOFH excuse #12: Dry joints on cable plug.
+bofh	tech	quip	general	0	BOFH excuse #13: We're waiting for [the phone company] to fix that line.
+bofh	tech	quip	general	0	BOFH excuse #14: Sounds like a Windows problem, try calling Microsoft support.
+bofh	tech	quip	general	0	BOFH excuse #15: Temporary routing anomaly.
+bofh	tech	quip	general	0	BOFH excuse #16: Somebody was calculating pi on the server.
+bofh	tech	quip	general	0	BOFH excuse #17: Fat electrons in the lines.
+bofh	tech	quip	general	0	BOFH excuse #18: Excess surge protection.
+bofh	tech	quip	general	0	BOFH excuse #19: Floating point processor overflow.
+bofh	tech	quip	general	0	BOFH excuse #20: Divide-by-zero error.
+bofh	work-money	quip	general	0	BOFH excuse #21: POSIX compliance problem.
+bofh	tech	quip	general	0	BOFH excuse #22: Monitor resolution too high.
+bofh	tech	quip	general	0	BOFH excuse #23: Improperly oriented keyboard.
+bofh	tech	quip	general	0	BOFH excuse #24: Network packets travelling uphill (use a carrier pigeon).
+bofh	tech	quip	general	0	BOFH excuse #25: Decreasing electron flux.
+bofh	tech	quip	general	0	BOFH excuse #26: First Saturday after first full moon in Winter.
+bofh	tech	quip	general	0	BOFH excuse #27: Radiosity depletion.
+bofh	tech	quip	general	0	BOFH excuse #28: CPU radiator broken.
+bofh	tech	quip	general	0	BOFH excuse #29: It works the way the Wang did, what's the problem.
+bofh	tech	quip	general	0	BOFH excuse #30: Positron router malfunction.
+bofh	tech	quip	general	0	BOFH excuse #31: Cellular telephone interference.
+bofh	tech	quip	general	0	BOFH excuse #32: Techtonic stress.
+bofh	tech	quip	general	0	BOFH excuse #33: Piezo-electric interference.
+bofh	tech	quip	general	0	BOFH excuse #34: (l)user error.
+bofh	tech	quip	general	0	BOFH excuse #35: Working as designed.
+bofh	tech	quip	general	0	BOFH excuse #36: Dynamic software linking table corrupted.
+bofh	tech	joke	general	0	BOFH excuse #37: Heavy gravity fluctuation, move computer to floor rapidly.
+bofh	work-money	quip	general	0	BOFH excuse #38: Secretary plugged hairdryer into UPS.
+bofh	tech	fact	general	0	BOFH excuse #39: Terrorist activities.
+bofh	tech	quip	general	0	BOFH excuse #40: Not enough memory, go get system upgrade.
+bofh	tech	quip	general	0	BOFH excuse #41: Interrupt configuration error.
+bofh	tech	quip	general	0	BOFH excuse #42: Spaghetti cable cause packet failure.
+bofh	tech	joke	general	0	BOFH excuse #43: Boss forgot system password.
+bofh	tech	quip	general	0	BOFH excuse #44: Bank holiday - system operating credits not recharged.
+bofh	tech	quip	general	0	BOFH excuse #45: Virus attack, luser responsible.
+bofh	tech	quip	general	0	BOFH excuse #46: Waste water tank overflowed onto computer.
+bofh	tech	fact	general	0	BOFH excuse #47: Complete Transient Lockout.
+bofh	tech	quip	general	0	BOFH excuse #48: Bad ether in the cables.
+bofh	tech	joke	general	0	BOFH excuse #49: Bogon emissions.
+bofh	tech	joke	general	0	BOFH excuse #50: Change in Earth's rotational speed.
+bofh	tech	joke	general	0	BOFH excuse #51: Cosmic ray particles crashed through the hard disk platter.
+bofh	tech	tv-quote	general	0	BOFH excuse #52: Smell from unhygienic janitorial staff wrecked the tape heads.
+bofh	work-money	quip	general	0	BOFH excuse #53: Little hamster in running wheel had coronary; waiting for replacement to be Fedexed from Wyoming.
+bofh	tech	quip	general	0	BOFH excuse #54: Evil dogs hypnotised the night shift.
+bofh	tech	joke	general	0	BOFH excuse #55: Plumber mistook routing panel for decorative wall fixture.
+bofh	tech	tv-quote	general	0	BOFH excuse #56: Electricians made popcorn in the power supply.
+bofh	tech	quip	general	0	BOFH excuse #57: Groundskeepers stole the root password.
+bofh	tech	quip	general	0	BOFH excuse #58: High pressure system failure.
+bofh	tech	quip	general	0	BOFH excuse #59: Failed trials, system needs redesigned.
+bofh	tech	quip	general	0	BOFH excuse #60: System has been recalled.
+bofh	tech	fact	general	0	BOFH excuse #61: Not approved by the FCC.
+bofh	tech	quip	general	0	BOFH excuse #62: Need to wrap system in aluminum foil to fix problem.
+bofh	tech	quip	general	0	BOFH excuse #63: Not properly grounded, please bury computer.
+bofh	tech	joke	general	0	BOFH excuse #64: CPU needs recalibration.
+bofh	tech	fact	general	0	BOFH excuse #65: System needs to be rebooted.
+bofh	tech	quip	general	0	BOFH excuse #66: Bit bucket overflow.
+bofh	tech	quip	general	0	BOFH excuse #67: Descramble code needed from software company.
+bofh	tech	quip	general	0	BOFH excuse #68: Only available on a need to know basis.
+bofh	tech	quip	general	0	BOFH excuse #69: Knot in cables caused data stream to become twisted and kinked.
+bofh	tech	quip	general	0	BOFH excuse #70: Nesting roaches shorted out the ether cable.
+bofh	tech	quip	general	0	BOFH excuse #71: The file system is full of it.
+bofh	tech	quip	general	0	BOFH excuse #72: Satan did it.
+bofh	tech	quip	general	0	BOFH excuse #73: Daemons did it.
+bofh	tech	quip	general	0	BOFH excuse #74: You're out of memory.
+bofh	tech	fact	general	0	BOFH excuse #75: There isn't any problem.
+bofh	tech	quip	general	0	BOFH excuse #76: Unoptimized hard drive.
+bofh	tech	quip	general	0	BOFH excuse #77: Typo in the code.
+bofh	tech	quip	general	0	BOFH excuse #78: Yes, yes, its called a design limitation.
+bofh	tech	quip	general	0	BOFH excuse #79: Look, buddy: Windows 3.1 IS A General Protection Fault.
+bofh	tech	quip	general	0	BOFH excuse #80: That's a great computer you have there; have you considered how it would work as a BSD machine?.
+bofh	tech	quip	general	0	BOFH excuse #81: Please excuse me, I have to circuit an AC line through my head to get this database working.
+bofh	tech	insult	general	0	BOFH excuse #82: Yeah, yo mama dresses you funny and you need a mouse to delete files.
+bofh	tech	quip	general	0	BOFH excuse #83: Support staff hung over, send aspirin and come back LATER.
+bofh	tech	quip	general	0	BOFH excuse #84: Someone is standing on the ethernet cable, causing a kink in the cable.
+bofh	tech	quip	general	0	BOFH excuse #85: Windows 95 undocumented "feature".
+bofh	tech	quip	general	0	BOFH excuse #86: Runt packets.
+bofh	tech	quip	general	0	BOFH excuse #87: Password is too complex to decrypt.
+bofh	tech	quip	edgy	1	BOFH excuse #88: Boss' kid fucked up the machine.
+bofh	tech	quip	general	0	BOFH excuse #89: Electromagnetic energy loss.
+bofh	work-money	quip	general	0	BOFH excuse #90: Budget cuts.
+bofh	tech	fact	general	0	BOFH excuse #91: Mouse chewed through power cable.
+bofh	tech	quip	general	0	BOFH excuse #92: Stale file handle (next time use Tupperware(tm)!).
+bofh	tech	joke	general	0	BOFH excuse #93: Feature not yet implemented.
+bofh	tech	quip	general	0	BOFH excuse #94: Internet outage.
+bofh	tech	quip	general	0	BOFH excuse #95: Pentium FDIV bug.
+bofh	tech	quip	general	0	BOFH excuse #96: Vendor no longer supports the product.
+bofh	tech	quip	general	0	BOFH excuse #97: Small animal kamikaze attack on power supplies.
+bofh	tech	quip	general	0	BOFH excuse #98: The vendor put the bug there.
+bofh	tech	quip	general	0	BOFH excuse #99: SIMM crosstalk.
+bofh	tech	quip	general	0	BOFH excuse #100: IRQ dropout.
+bofh	tech	quip	general	0	BOFH excuse #101: Collapsed Backbone.
+bofh	tech	quip	general	0	BOFH excuse #102: Power company testing new voltage spike (creation) equipment.
+bofh	tech	fact	general	0	BOFH excuse #103: Operators on strike due to broken coffee machine.
+bofh	tech	quip	general	0	BOFH excuse #104: Backup tape overwritten with copy of system manager's favourite CD.
+bofh	tech	quip	general	0	BOFH excuse #105: UPS interrupted the server's power.
+bofh	tech	quip	general	0	BOFH excuse #106: The electrician didn't know what the yellow cable was so he yanked the ethernet out.
+bofh	tech	fact	general	0	BOFH excuse #107: The keyboard isn't plugged in.
+bofh	tech	quip	general	0	BOFH excuse #108: The air conditioning water supply pipe ruptured over the machine room.
+bofh	tech	quip	general	0	BOFH excuse #109: The electricity substation in the car park blew up.
+bofh	tech	fact	general	0	BOFH excuse #110: The rolling stones concert down the road caused a brown out.
+bofh	tech	quip	general	0	BOFH excuse #111: The salesman drove over the CPU board.
+bofh	tech	fact	general	0	BOFH excuse #112: The monitor is plugged into the serial port.
+bofh	tech	quip	general	0	BOFH excuse #113: Root nameservers are out of sync.
+bofh	tech	quip	general	0	BOFH excuse #114: Electro-magnetic pulses from French above ground nuke testing.
+bofh	tech	fact	general	0	BOFH excuse #115: Your keyboard's space bar is generating spurious keycodes.
+bofh	tech	quip	general	0	BOFH excuse #116: The real ttys became pseudo ttys and vice-versa.
+bofh	tech	quip	general	0	BOFH excuse #117: The printer thinks its a router.
+bofh	tech	quip	general	0	BOFH excuse #118: The router thinks its a printer.
+bofh	tech	quip	general	0	BOFH excuse #119: Evil hackers from Serbia.
+bofh	tech	quip	general	0	BOFH excuse #120: We just switched to FDDI.
+bofh	tech	quip	general	0	BOFH excuse #121: Halon system went off and killed the operators.
+bofh	tech	joke	general	0	BOFH excuse #122: Because Bill Gates is a Jehovah's witness and so nothing can work on St. Swithin's day.
+bofh	tech	quip	general	0	BOFH excuse #123: User to computer ratio too high.
+bofh	tech	quip	general	0	BOFH excuse #124: User to computer ration too low.
+bofh	tech	quip	general	0	BOFH excuse #125: We just switched to Sprint.
+bofh	tech	quip	general	0	BOFH excuse #126: It has Intel Inside.
+bofh	tech	fact	general	0	BOFH excuse #127: Sticky bits on disk.
+bofh	tech	quip	general	0	BOFH excuse #128: Power Company having EMP problems with their reactor.
+bofh	tech	quip	general	0	BOFH excuse #129: The ring needs another token.
+bofh	work-money	joke	general	0	BOFH excuse #130: New management.
+bofh	tech	quip	general	0	BOFH excuse #131: Telnet: Unable to connect to remote host: Connection refused.
+bofh	tech	quip	general	0	BOFH excuse #132: SCSI Chain overterminated.
+bofh	tech	quip	general	0	BOFH excuse #133: It's not plugged in.
+bofh	tech	quip	general	0	BOFH excuse #134: Because of network lag due to too many people playing deathmatch.
+bofh	tech	quip	general	0	BOFH excuse #135: You put the disk in upside down.
+bofh	tech	quip	general	0	BOFH excuse #136: Daemons loose in system.
+bofh	tech	quip	nsfw	1	BOFH excuse #137: User was distributing pornography on server; system seized by FBI.
+bofh	tech	quip	general	0	BOFH excuse #138: BNC (brain not connected).
+bofh	tech	quip	general	0	BOFH excuse #139: UBNC (user brain not connected).
+bofh	tech	tv-quote	general	0	BOFH excuse #140: LBNC (luser brain not connected).
+bofh	tech	quip	general	0	BOFH excuse #141: Disks spinning backwards - toggle the hemisphere jumper.
+bofh	tech	joke	general	0	BOFH excuse #142: New guy cross-connected phone lines with ac power bus.
+bofh	tech	joke	general	0	BOFH excuse #143: Had to use hammer to free stuck disk drive heads.
+bofh	tech	joke	general	0	BOFH excuse #144: Too few computrons available.
+bofh	tech	quip	general	0	BOFH excuse #145: Flat tire on station wagon with tapes. ("Never underestimate the bandwidth of a station wagon full of tapes hurling down the highway" Andrew S. Tannenbaum).
+bofh	tech	quip	general	0	BOFH excuse #146: Communications satellite used by the military for star wars.
+bofh	tech	quip	general	0	BOFH excuse #147: Party-bug in the Aloha protocol.
+bofh	work-money	quip	general	0	BOFH excuse #148: Insert coin for new game.
+bofh	tech	quip	general	0	BOFH excuse #149: Dew on the telephone lines.
+bofh	tech	quip	general	0	BOFH excuse #150: Arcserve crashed the server again.
+bofh	tech	quip	general	0	BOFH excuse #151: Some one needed the powerstrip, so they pulled the switch plug.
+bofh	tech	quip	general	0	BOFH excuse #152: My pony-tail hit the on/off switch on the power strip.
+bofh	tech	quip	general	0	BOFH excuse #153: Big to little endian conversion error.
+bofh	tech	pun	general	0	BOFH excuse #154: You can tune a file system, but you can't tune a fish (from most tunefs man pages).
+bofh	tech	quip	general	0	BOFH excuse #155: Dumb terminal.
+bofh	tech	quip	general	0	BOFH excuse #156: Zombie processes haunting the computer.
+bofh	tech	quip	general	0	BOFH excuse #157: Incorrect time synchronization.
+bofh	tech	quip	general	0	BOFH excuse #158: Defunct processes.
+bofh	tech	fact	general	0	BOFH excuse #159: Stubborn processes.
+bofh	tech	fact	general	0	BOFH excuse #160: Non-redundant fan failure.
+bofh	tech	fact	general	0	BOFH excuse #161: Monitor VLF leakage.
+bofh	tech	quip	general	0	BOFH excuse #162: Bugs in the RAID.
+bofh	tech	quip	general	0	BOFH excuse #163: No "any" key on keyboard.
+bofh	tech	fact	general	0	BOFH excuse #164: Root rot.
+bofh	work-money	quip	general	0	BOFH excuse #165: Backbone Scoliosis.
+bofh	tech	quip	general	0	BOFH excuse #166: /pub/lunch.
+bofh	work-money	quip	general	0	BOFH excuse #167: Excessive collisions & not enough packet ambulances.
+bofh	tech	joke	general	0	BOFH excuse #168: Le0: no carrier: transceiver cable problem?.
+bofh	tech	fact	general	0	BOFH excuse #169: Broadcast packets on wrong frequency.
+bofh	tech	quip	general	0	BOFH excuse #170: Popper unable to process jumbo kernel.
+bofh	tech	quip	general	0	BOFH excuse #171: NOTICE: alloc: /dev/null: filesystem full.
+bofh	tech	quip	general	0	BOFH excuse #172: Pseudo-user on a pseudo-terminal.
+bofh	tech	quip	general	0	BOFH excuse #173: Recursive traversal of loopback mount points.
+bofh	tech	quip	general	0	BOFH excuse #174: Backbone adjustment.
+bofh	tech	quip	general	0	BOFH excuse #175: OS swapped to disk.
+bofh	tech	quip	general	0	BOFH excuse #176: Vapors from evaporating sticky-note adhesives.
+bofh	tech	quip	general	0	BOFH excuse #177: Sticktion.
+bofh	tech	quip	general	0	BOFH excuse #178: Short leg on process table.
+bofh	tech	quip	general	0	BOFH excuse #179: Multicasts on broken packets.
+bofh	tech	quip	general	0	BOFH excuse #180: Ether leak.
+bofh	tech	quip	general	0	BOFH excuse #181: Atilla the Hub.
+bofh	tech	quip	general	0	BOFH excuse #182: Endothermal recalibration.
+bofh	tech	quip	general	0	BOFH excuse #183: Filesystem not big enough for Jumbo Kernel Patch.
+bofh	tech	quip	general	0	BOFH excuse #184: Loop found in loop in redundant loopback.
+bofh	tech	quip	general	0	BOFH excuse #185: System consumed all the paper for paging.
+bofh	tech	quip	general	0	BOFH excuse #186: Permission denied.
+bofh	tech	quip	general	0	BOFH excuse #187: Reformatting Page. Wait.
+bofh	tech	quip	general	0	BOFH excuse #188: ..disk or the processor is on fire.
+bofh	tech	quip	general	0	BOFH excuse #189: SCSI's too wide.
+bofh	tech	quip	general	0	BOFH excuse #190: Proprietary Information.
+bofh	tech	fact	general	0	BOFH excuse #191: Just type 'mv * /dev/null'.
+bofh	tech	joke	general	0	BOFH excuse #192: Runaway cat on system.
+bofh	tech	quip	general	0	BOFH excuse #193: Did you pay the new Support Fee?.
+bofh	tech	quip	general	0	BOFH excuse #194: We only support a 1200 bps connection.
+bofh	tech	quip	general	0	BOFH excuse #195: We only support a 28000 bps connection.
+bofh	tech	fact	general	0	BOFH excuse #196: Me no internet, only janitor, me just wax floors.
+bofh	tech	quip	general	0	BOFH excuse #197: I'm sorry a pentium won't do, you need an SGI to connect with us.
+bofh	tech	quip	general	0	BOFH excuse #198: Post-it Note Sludge leaked into the monitor.
+bofh	tech	fact	general	0	BOFH excuse #199: The curls in your keyboard cord are losing electricity.
+bofh	tech	quip	general	0	BOFH excuse #200: The monitor needs another box of pixels.
+bofh	tech	quip	general	0	BOFH excuse #201: RPC_PMAP_FAILURE.
+bofh	tech	quip	general	0	BOFH excuse #202: Kernel panic: write-only-memory (/dev/wom0) capacity exceeded.
+bofh	tech	joke	general	0	BOFH excuse #203: Write-only-memory subsystem too slow for this machine. Contact your local dealer.
+bofh	tech	tv-quote	general	0	BOFH excuse #204: Just pick up the phone and give modem connect sounds. "Well you said we should get more lines so we don't have voice lines.".
+bofh	tech	quip	general	0	BOFH excuse #205: Quantum dynamics are affecting the transistors.
+bofh	tech	quip	general	0	BOFH excuse #206: Police are examining all internet packets in the search for a narco-net-trafficker.
+bofh	tech	fact	general	0	BOFH excuse #207: We are currently trying a new concept of using a live mouse. Unfortunately, one has yet to survive being hooked up to the computer.....please bear with us.
+bofh	tech	quip	general	0	BOFH excuse #208: Your mail is being routed through Germany ... and they're censoring us.
+bofh	tech	quip	general	0	BOFH excuse #209: Only people with names beginning with 'A' are getting mail this week (a la Microsoft).
+bofh	tech	quip	general	0	BOFH excuse #210: We didn't pay the Internet bill and it's been cut off.
+bofh	tech	quip	general	0	BOFH excuse #211: Lightning strikes.
+bofh	tech	quip	general	0	BOFH excuse #212: Of course it doesn't work. We've performed a software upgrade.
+bofh	tech	quip	general	0	BOFH excuse #213: Change your language to Finnish.
+bofh	tech	quip	general	0	BOFH excuse #214: Fluorescent lights are generating negative ions. If turning them off doesn't work, take them out and put tin foil on the ends.
+bofh	tech	quip	general	0	BOFH excuse #215: High nuclear activity in your area.
+bofh	tech	dark	general	0	BOFH excuse #216: What office are you in? Oh, that one. Did you know that your building was built over the universities first nuclear research site? And wow, aren't you the lucky one, your office is right over where the core is buried!.
+bofh	tech	quip	general	0	BOFH excuse #217: The MGs ran out of gas.
+bofh	tech	quip	general	0	BOFH excuse #218: The UPS doesn't have a battery backup.
+bofh	tech	joke	general	0	BOFH excuse #219: Recursivity. Call back if it happens again.
+bofh	tech	quip	general	0	BOFH excuse #220: Someone thought The Big Red Button was a light switch.
+bofh	tech	fact	general	0	BOFH excuse #221: The mainframe needs to rest. It's getting old, you know.
+bofh	tech	quip	general	0	BOFH excuse #222: I'm not sure. Try calling the Internet's head office -- it's in the book.
+bofh	tech	quip	general	0	BOFH excuse #223: The lines are all busy (busied out, that is -- why let them in to begin with?).
+bofh	tech	quip	general	0	BOFH excuse #224: Jan 9 16:41:27 huber su: 'su root' succeeded for .... on /dev/pts/1.
+bofh	tech	quip	general	0	BOFH excuse #225: It's those computer people in X {city of world}. They keep stuffing things up.
+bofh	tech	joke	general	0	BOFH excuse #226: A star wars satellite accidently blew up the WAN.
+bofh	tech	quip	general	0	BOFH excuse #227: Fatal error right in front of screen.
+bofh	tech	quip	general	0	BOFH excuse #228: That function is not currently supported, but Bill Gates assures us it will be featured in the next upgrade.
+bofh	tech	quip	general	0	BOFH excuse #229: Wrong polarity of neutron flow.
+bofh	tech	quip	general	0	BOFH excuse #230: Lusers learning curve appears to be fractal.
+bofh	tech	quip	general	0	BOFH excuse #231: We had to turn off that service to comply with the CDA Bill.
+bofh	tech	quip	general	0	BOFH excuse #232: Ionization from the air-conditioning.
+bofh	tech	quip	general	0	BOFH excuse #233: TCP/IP UDP alarm threshold is set too low.
+bofh	tech	quip	general	0	BOFH excuse #234: Someone is broadcasting pygmy packets and the router doesn't know how to deal with them.
+bofh	tech	quip	general	0	BOFH excuse #235: The new frame relay network hasn't bedded down the software loop transmitter yet.
+bofh	tech	quip	general	0	BOFH excuse #236: Fanout dropping voltage too much, try cutting some of those little traces.
+bofh	tech	quip	general	0	BOFH excuse #237: Plate voltage too low on demodulator tube.
+bofh	tech	quip	general	0	BOFH excuse #238: You did wha... oh _dear_.
+bofh	tech	fact	general	0	BOFH excuse #239: CPU needs bearings repacked.
+bofh	tech	quip	general	0	BOFH excuse #240: Too many little pins on CPU confusing it, bend back and forth until 10-20% are neatly removed. Do _not_ leave metal bits visible!.
+bofh	tech	fact	general	0	BOFH excuse #241: _Rosin_ core solder? But.
+bofh	tech	quip	general	0	BOFH excuse #242: Software uses US measurements, but the OS is in metric.
+bofh	tech	quip	general	0	BOFH excuse #243: The computer fleetly, mouse and all.
+bofh	tech	quip	general	0	BOFH excuse #244: Your cat tried to eat the mouse.
+bofh	tech	tv-quote	general	0	BOFH excuse #245: The Borg tried to assimilate your system. Resistance is futile.
+bofh	tech	quip	general	0	BOFH excuse #246: It must have been the lightning storm we had (yesterday) (last week) (last month).
+bofh	tech	quip	general	0	BOFH excuse #247: Due to Federal Budget problems we have been forced to cut back on the number of users able to access the system at one time. (namely none allowed....).
+bofh	tech	quip	general	0	BOFH excuse #248: Too much radiation coming from the soil.
+bofh	tech	quip	general	0	BOFH excuse #249: Unfortunately we have run out of bits/bytes/whatever. Don't worry, the next supply will be coming next week.
+bofh	tech	joke	general	0	BOFH excuse #250: Program load too heavy for processor to lift.
+bofh	tech	quip	general	0	BOFH excuse #251: Processes running slowly due to weak power supply.
+bofh	tech	quip	general	0	BOFH excuse #252: Our ISP is having {switching,routing,SMDS,frame relay} problems.
+bofh	tech	quip	general	0	BOFH excuse #253: We've run out of licenses.
+bofh	tech	quip	general	0	BOFH excuse #254: Interference from lunar radiation.
+bofh	tech	fact	general	0	BOFH excuse #255: Standing room only on the bus.
+bofh	tech	quip	general	0	BOFH excuse #256: You need to install an RTFM interface.
+bofh	tech	joke	general	0	BOFH excuse #257: That would be because the software doesn't work.
+bofh	tech	quip	general	0	BOFH excuse #258: That's easy to fix, but I can't be bothered.
+bofh	work-money	quip	general	0	BOFH excuse #259: Someone's tie is caught in the printer, and if anything else gets printed, he'll be in it too.
+bofh	tech	joke	general	0	BOFH excuse #260: We're upgrading /dev/null.
+bofh	tech	quip	general	0	BOFH excuse #261: The Usenet news is out of date.
+bofh	tech	quip	general	0	BOFH excuse #262: Our POP server was kidnapped by a weasel.
+bofh	tech	quip	general	0	BOFH excuse #263: It's stuck in the Web.
+bofh	tech	quip	general	0	BOFH excuse #264: Your modem doesn't speak English.
+bofh	tech	fact	general	0	BOFH excuse #265: The mouse escaped.
+bofh	tech	fact	general	0	BOFH excuse #266: All of the packets are empty.
+bofh	work-money	quip	general	0	BOFH excuse #267: The UPS is on strike.
+bofh	tech	quip	general	0	BOFH excuse #268: Neutrino overload on the nameserver.
+bofh	tech	quip	general	0	BOFH excuse #269: Melting hard drives.
+bofh	tech	joke	general	0	BOFH excuse #270: Someone has messed up the kernel pointers.
+bofh	tech	quip	general	0	BOFH excuse #271: The kernel license has expired.
+bofh	tech	quip	general	0	BOFH excuse #272: Netscape has crashed.
+bofh	tech	quip	general	0	BOFH excuse #273: The cord jumped over and hit the power switch.
+bofh	tech	quip	general	0	BOFH excuse #274: It was OK before you touched it.
+bofh	tech	fact	general	0	BOFH excuse #275: Bit rot.
+bofh	tech	quip	general	0	BOFH excuse #276: U.S. Postal Service.
+bofh	tech	quip	general	0	BOFH excuse #277: Your Flux Capacitor has gone bad.
+bofh	tech	fact	general	0	BOFH excuse #278: The Dilithium Crystals need to be rotated.
+bofh	tech	joke	general	0	BOFH excuse #279: The static electricity routing is acting up.
+bofh	tech	quip	general	0	BOFH excuse #280: Traceroute says that there is a routing problem in the backbone. It's not our problem.
+bofh	tech	quip	general	0	BOFH excuse #281: The co-locator cannot verify the frame-relay gateway to the ISDN server.
+bofh	tech	joke	general	0	BOFH excuse #282: High altitude condensation from U.S.A.F prototype aircraft has contaminated the primary subnet mask. Turn off your computer for 9 days to avoid damaging it.
+bofh	tech	quip	general	0	BOFH excuse #283: Lawn mower blade in your fan need sharpening.
+bofh	tech	quip	general	0	BOFH excuse #284: Electrons on a bender.
+bofh	tech	quip	general	0	BOFH excuse #285: Telecommunications is upgrading.
+bofh	tech	quip	general	0	BOFH excuse #286: Telecommunications is downgrading.
+bofh	tech	quip	general	0	BOFH excuse #287: Telecommunications is downshifting.
+bofh	tech	quip	general	0	BOFH excuse #288: Hard drive sleeping. Let it wake up on it's own.
+bofh	tech	joke	general	0	BOFH excuse #289: Interference between the keyboard and the chair.
+bofh	tech	quip	general	0	BOFH excuse #290: The CPU has shifted, and become decentralized.
+bofh	tech	quip	general	0	BOFH excuse #291: Due to the CDA, we no longer have a root account.
+bofh	tech	quip	general	0	BOFH excuse #292: We ran out of dial tone and we're and waiting for the phone company to deliver another bottle.
+bofh	tech	quip	general	0	BOFH excuse #293: You must've hit the wrong any key.
+bofh	tech	quip	general	0	BOFH excuse #294: PCMCIA slave driver.
+bofh	tech	joke	general	0	BOFH excuse #295: The Token fell out of the ring. Call us when you find it.
+bofh	tech	quip	general	0	BOFH excuse #296: The hardware bus needs a new token.
+bofh	tech	quip	general	0	BOFH excuse #297: Too many interrupts.
+bofh	tech	quip	general	0	BOFH excuse #298: Not enough interrupts.
+bofh	tech	quip	general	0	BOFH excuse #299: The data on your hard drive is out of balance.
+bofh	tech	quip	general	0	BOFH excuse #300: Digital Manipulator exceeding velocity parameters.
+bofh	tech	quip	general	0	BOFH excuse #301: Appears to be a Slow/Narrow SCSI-0 Interface problem.
+bofh	tech	quip	general	0	BOFH excuse #302: Microelectronic Riemannian curved-space fault in write-only file system.
+bofh	tech	joke	general	0	BOFH excuse #303: Fractal radiation jamming the backbone.
+bofh	tech	fact	general	0	BOFH excuse #304: Routing problems on the neural net.
+bofh	tech	quip	general	0	BOFH excuse #305: IRQ-problems with the Un-Interruptible-Power-Supply.
+bofh	work-money	quip	general	0	BOFH excuse #306: CPU-angle has to be adjusted because of vibrations coming from the nearby road.
+bofh	tech	quip	general	0	BOFH excuse #307: Emissions from GSM-phones.
+bofh	tech	joke	general	0	BOFH excuse #308: CD-ROM server needs recalibration.
+bofh	tech	quip	general	0	BOFH excuse #309: Firewall needs cooling.
+bofh	tech	quip	general	0	BOFH excuse #310: Asynchronous inode failure.
+bofh	tech	quip	general	0	BOFH excuse #311: Transient bus protocol violation.
+bofh	tech	fact	general	0	BOFH excuse #312: Incompatible bit-registration operators.
+bofh	tech	quip	general	0	BOFH excuse #313: Your process is not ISO 9000 compliant.
+bofh	tech	quip	general	0	BOFH excuse #314: You need to upgrade your VESA local bus to a MasterCard local bus.
+bofh	tech	quip	general	0	BOFH excuse #315: The recent proliferation of Nuclear Testing.
+bofh	tech	fact	general	0	BOFH excuse #316: Elves on strike. (Why do they call EMAG Elf Magic).
+bofh	tech	quip	general	0	BOFH excuse #317: Internet exceeded Luser level, please wait until a luser logs off before attempting to log back on.
+bofh	tech	quip	general	0	BOFH excuse #318: Your EMAIL is now being delivered by the USPS.
+bofh	tech	fact	general	0	BOFH excuse #319: Your computer hasn't been returning all the bits it gets from the Internet.
+bofh	tech	quip	general	0	BOFH excuse #320: You've been infected by the Telescoping Hubble virus.
+bofh	tech	quip	general	0	BOFH excuse #321: Scheduled global CPU outage.
+bofh	tech	quip	general	0	BOFH excuse #322: Your Pentium has a heating problem - try cooling it with ice cold water.(Do not turn off your computer, you do not want to cool down the Pentium Chip while he isn't working, do you?).
+bofh	tech	fact	general	0	BOFH excuse #323: Your processor has processed too many instructions. Turn it off immediately, do not type any commands!!.
+bofh	tech	quip	general	0	BOFH excuse #324: Your packets were eaten by the terminator.
+bofh	tech	quip	general	0	BOFH excuse #325: Your processor does not develop enough heat.
+bofh	tech	quip	general	0	BOFH excuse #326: We need a licensed electrician to replace the light bulbs in the computer room.
+bofh	tech	joke	general	0	BOFH excuse #327: The POP server is out of Coke.
+bofh	tech	quip	general	0	BOFH excuse #328: Fiber optics caused gas main leak.
+bofh	tech	quip	general	0	BOFH excuse #329: Server depressed, needs Prozac.
+bofh	tech	quip	general	0	BOFH excuse #330: Quantum decoherence.
+bofh	tech	quip	edgy	1	BOFH excuse #331: Those damn raccoons!.
+bofh	tech	quip	general	0	BOFH excuse #332: Suboptimal routing experience.
+bofh	tech	fact	general	0	BOFH excuse #333: A plumber is needed, the network drain is clogged.
+bofh	tech	quip	general	0	BOFH excuse #334: 50% of the manual is in .pdf readme files.
+bofh	tech	quip	general	0	BOFH excuse #335: The AA battery in the wallclock sends magnetic interference.
+bofh	tech	quip	general	0	BOFH excuse #336: The xy axis in the trackball is coordinated with the summer solstice.
+bofh	tech	quip	general	0	BOFH excuse #337: The butane lighter causes the pincushioning.
+bofh	tech	joke	general	0	BOFH excuse #338: Old inkjet cartridges emanate barium-based fumes.
+bofh	tech	quip	general	0	BOFH excuse #339: Manager in the cable duct.
+bofh	tech	quip	general	0	BOFH excuse #340: We'll fix that in the next (upgrade, update, patch release, service pack).
+bofh	tech	quip	general	0	BOFH excuse #341: HTTPD Error 666 : BOFH was here.
+bofh	tech	quip	general	0	BOFH excuse #342: HTTPD Error 4004 : very old Intel cpu - insufficient processing power.
+bofh	tech	quip	general	0	BOFH excuse #343: The ATM board has run out of 10 pound notes. We are having a whip round to refill it, care to contribute ?.
+bofh	tech	quip	general	0	BOFH excuse #344: Network failure - call NBC.
+bofh	tech	joke	general	0	BOFH excuse #345: Having to manually track the satellite.
+bofh	tech	quip	general	0	BOFH excuse #346: Your/our computer(s) had suffered a memory leak, and we are waiting for them to be topped up.
+bofh	tech	quip	general	0	BOFH excuse #347: The rubber band broke.
+bofh	work-money	quip	general	0	BOFH excuse #348: We're on Token Ring, and it looks like the token got loose.
+bofh	tech	quip	general	0	BOFH excuse #349: Stray Alpha Particles from memory packaging caused Hard Memory Error on Server.
+bofh	tech	quip	general	0	BOFH excuse #350: Paradigm shift...without a clutch.
+bofh	tech	joke	general	0	BOFH excuse #351: PEBKAC (Problem Exists Between Keyboard And Chair).
+bofh	tech	joke	general	0	BOFH excuse #352: The cables are not the same length.
+bofh	tech	quip	general	0	BOFH excuse #353: Second-system effect.
+bofh	tech	quip	general	0	BOFH excuse #354: Chewing gum on /dev/sd3c.
+bofh	tech	quip	general	0	BOFH excuse #355: Boredom in the Kernel.
+bofh	tech	quip	general	0	BOFH excuse #356: The daemons! the daemons! the terrible daemons!.
+bofh	tech	fact	general	0	BOFH excuse #357: I'd love to help you -- it's just that the Boss won't let me near the computer.
+bofh	tech	quip	general	0	BOFH excuse #358: Struck by the Good Times virus.
+bofh	tech	quip	general	0	BOFH excuse #359: YOU HAVE AN I/O ERROR -> Incompetent Operator error.
+bofh	tech	quip	general	0	BOFH excuse #360: Your parity check is overdrawn and you're out of cache.
+bofh	tech	quip	general	0	BOFH excuse #361: Communist revolutionaries taking over the server room and demanding all the computers in the building or they shoot the sysadmin. Poor misguided fools.
+bofh	tech	quip	general	0	BOFH excuse #362: Plasma conduit breach.
+bofh	tech	quip	general	0	BOFH excuse #363: Out of cards on drive D:.
+bofh	tech	quip	general	0	BOFH excuse #364: Sand fleas eating the Internet cables.
+bofh	tech	quip	general	0	BOFH excuse #365: Parallel processors running perpendicular today.
+bofh	tech	joke	general	0	BOFH excuse #366: ATM cell has no roaming feature turned on, notebooks can't connect.
+bofh	tech	quip	general	0	BOFH excuse #367: Webmasters kidnapped by evil cult.
+bofh	work-money	quip	general	0	BOFH excuse #368: Failure to adjust for daylight savings time.
+bofh	tech	quip	general	0	BOFH excuse #369: Virus transmitted from computer to sysadmins.
+bofh	tech	joke	general	0	BOFH excuse #370: Virus due to computers having unsafe sex.
+bofh	tech	quip	general	0	BOFH excuse #371: Incorrectly configured static routes on the corerouters.
+bofh	tech	quip	general	0	BOFH excuse #372: Forced to support NT servers; sysadmins quit.
+bofh	tech	quip	general	0	BOFH excuse #373: Suspicious pointer corrupted virtual machine.
+bofh	tech	quip	general	0	BOFH excuse #374: It's the InterNIC's fault.
+bofh	tech	quip	general	0	BOFH excuse #375: Root name servers corrupted.
+bofh	tech	quip	general	0	BOFH excuse #376: Budget cuts forced us to sell all the power cords for the servers.
+bofh	tech	fact	general	0	BOFH excuse #377: Someone hooked the twisted pair wires into the answering machine.
+bofh	tech	quip	general	0	BOFH excuse #378: Operators killed by year 2000 bug bite.
+bofh	tech	joke	general	0	BOFH excuse #379: We've picked COBOL as the language of choice.
+bofh	work-money	quip	general	0	BOFH excuse #380: Operators killed when huge stack of backup tapes fell over.
+bofh	tech	quip	general	0	BOFH excuse #381: Robotic tape changer mistook operator's tie for a backup tape.
+bofh	tech	quip	general	0	BOFH excuse #382: Someone was smoking in the computer room and set off the halon systems.
+bofh	tech	quip	general	0	BOFH excuse #383: Your processor has taken a ride to Heaven's Gate on the UFO behind Hale-Bopp's comet.
+bofh	tech	quip	general	0	BOFH excuse #384: It's an ID-10-T error.
+bofh	tech	quip	general	0	BOFH excuse #385: Dyslexics retyping hosts file on servers.
+bofh	tech	fact	general	0	BOFH excuse #386: The Internet is being scanned for viruses.
+bofh	tech	quip	general	0	BOFH excuse #387: Your computer's union contract is set to expire at midnight.
+bofh	tech	quip	general	0	BOFH excuse #388: Bad user karma.
+bofh	tech	joke	general	0	BOFH excuse #389: /dev/clue was linked to /dev/null.
+bofh	tech	fact	general	0	BOFH excuse #390: Increased sunspot activity.
+bofh	tech	fact	general	0	BOFH excuse #391: We already sent around a notice about that.
+bofh	tech	quip	general	0	BOFH excuse #392: It's union rules. There's nothing we can do about it. Sorry.
+bofh	tech	quip	general	0	BOFH excuse #393: Interference from the Van Allen Belt.
+bofh	tech	quip	general	0	BOFH excuse #394: Jupiter is aligned with Mars.
+bofh	tech	quip	general	0	BOFH excuse #395: Redundant ACLs.
+bofh	tech	quip	general	0	BOFH excuse #396: Mail server hit by UniSpammer.
+bofh	tech	quip	nsfw	1	BOFH excuse #397: T-1's congested due to porn traffic to the news server.
+bofh	tech	fact	general	0	BOFH excuse #398: Data for intranet got routed through the extranet and landed on the internet.
+bofh	tech	joke	general	0	BOFH excuse #399: We are a 100% Microsoft Shop.
+bofh	tech	quip	general	0	BOFH excuse #400: We are Microsoft. What you are experiencing is not a problem; it is an undocumented feature.
+bofh	work-money	quip	general	0	BOFH excuse #401: Sales staff sold a product we don't offer.
+bofh	tech	quip	general	0	BOFH excuse #402: Secretary sent chain letter to all 5000 employees.
+bofh	tech	quip	general	0	BOFH excuse #403: Sysadmin didn't hear pager go off due to loud music from bar-room speakers.
+bofh	tech	quip	general	0	BOFH excuse #404: Sysadmin accidentally destroyed pager with a large hammer.
+bofh	tech	quip	general	0	BOFH excuse #405: Sysadmins unavailable because they are in a meeting talking about why they are unavailable so much.
+bofh	tech	fact	general	0	BOFH excuse #406: Bad cafeteria food landed all the sysadmins in the hospital.
+bofh	tech	quip	general	0	BOFH excuse #407: Route flapping at the NAP.
+bofh	tech	quip	general	0	BOFH excuse #408: Computers under water due to SYN flooding.
+bofh	tech	quip	general	0	BOFH excuse #409: The vulcan-death-grip ping has been applied.
+bofh	tech	quip	general	0	BOFH excuse #410: Electrical conduits in machine room are melting.
+bofh	tech	quip	general	0	BOFH excuse #411: Traffic jam on the Information Superhighway.
+bofh	tech	quip	general	0	BOFH excuse #412: Radial Telemetry Infiltration.
+bofh	tech	quip	general	0	BOFH excuse #413: Cow-tippers tipped a cow onto the server.
+bofh	tech	quip	general	0	BOFH excuse #414: Tachyon emissions overloading the system.
+bofh	tech	quip	general	0	BOFH excuse #415: Maintenance window broken.
+bofh	tech	quip	general	0	BOFH excuse #416: We're out of slots on the server.
+bofh	tech	quip	general	0	BOFH excuse #417: Computer room being moved. Our systems are down for the weekend.
+bofh	tech	quip	general	0	BOFH excuse #418: Sysadmins busy fighting SPAM.
+bofh	tech	quip	general	0	BOFH excuse #419: Repeated reboots of the system failed to solve problem.
+bofh	tech	quip	general	0	BOFH excuse #420: Feature was not beta tested.
+bofh	tech	quip	general	0	BOFH excuse #421: Domain controller not responding.
+bofh	tech	quip	general	0	BOFH excuse #422: Someone else stole your IP address, call the Internet detectives!.
+bofh	tech	quip	general	0	BOFH excuse #423: It's not RFC-822 compliant.
+bofh	tech	joke	general	0	BOFH excuse #424: Operation failed because: there is no message for this error (#1014).
+bofh	tech	quip	general	0	BOFH excuse #425: Stop bit received.
+bofh	tech	quip	general	0	BOFH excuse #426: Internet is needed to catch the etherbunny.
+bofh	tech	quip	general	0	BOFH excuse #427: Network down, IP packets delivered via UPS.
+bofh	tech	quip	general	0	BOFH excuse #428: Firmware update in the coffee machine.
+bofh	tech	quip	general	0	BOFH excuse #429: Temporal anomaly.
+bofh	tech	joke	general	0	BOFH excuse #430: Mouse has out-of-cheese-error.
+bofh	tech	joke	general	0	BOFH excuse #431: Borg implants are failing.
+bofh	tech	quip	general	0	BOFH excuse #432: Borg nanites have infested the server.
+bofh	tech	quip	general	0	BOFH excuse #433: Error: one bad user found in front of screen.
+bofh	tech	fact	general	0	BOFH excuse #434: Please state the nature of the technical emergency.
+bofh	tech	quip	general	0	BOFH excuse #435: Internet shut down due to maintenance.
+bofh	tech	fact	general	0	BOFH excuse #436: Daemon escaped from pentagram.
+bofh	tech	joke	general	0	BOFH excuse #437: Crop circles in the corn shell.
+bofh	tech	quip	general	0	BOFH excuse #438: Sticky bit has come loose.
+bofh	tech	quip	general	0	BOFH excuse #439: Hot Java has gone cold.
+bofh	tech	quip	general	0	BOFH excuse #440: Cache miss - please take better aim next time.
+bofh	tech	quip	general	0	BOFH excuse #441: Hash table has woodworm.
+bofh	tech	quip	general	0	BOFH excuse #442: Trojan horse ran out of hay.
+bofh	tech	quip	general	0	BOFH excuse #443: Zombie processes detected, machine is haunted.
+bofh	tech	quip	general	0	BOFH excuse #444: Overflow error in /dev/null.
+bofh	tech	fact	general	0	BOFH excuse #445: Browser's cookie is corrupted -- someone's been nibbling on it.
+bofh	tech	quip	general	0	BOFH excuse #446: Mailer-daemon is busy burning your message in hell.
+bofh	tech	joke	general	0	BOFH excuse #447: According to Microsoft, it's by design.
+bofh	tech	quip	general	0	BOFH excuse #448: Vi needs to be upgraded to vii.
+bofh	tech	joke	general	0	BOFH excuse #449: Greenpeace free'd the mallocs.
+bofh	tech	fact	general	0	BOFH excuse #450: Terrorists crashed an airplane into the server room, have to remove /bin/laden. (rm -rf /bin/laden).
+bofh	tech	fact	general	0	BOFH excuse #451: Astropneumatic oscillations in the water-cooling.
+bofh	tech	fact	general	0	BOFH excuse #452: Somebody ran the operating system through a spelling checker.
+bofh	tech	fact	general	0	BOFH excuse #453: Rhythmic variations in the voltage reaching the power supply.
+bofh	tech	quip	general	0	BOFH excuse #454: Keyboard Actuator Failure. Order and Replace.
+bofh	tech	quip	general	0	BOFH excuse #455: Packet held up at customs.
+bofh	tech	quip	general	0	BOFH excuse #456: Propagation delay.
+bofh	tech	quip	general	0	BOFH excuse #457: High line impedance.
+bofh	tech	quip	general	0	BOFH excuse #458: Someone set us up the bomb.
+bofh	tech	quip	general	0	BOFH excuse #459: Power surges on the Underground.
+bofh	tech	quip	general	0	BOFH excuse #460: Don't worry; it's been deprecated. The new one is worse.
+bofh	tech	quip	general	0	BOFH excuse #461: Excess condensation in cloud network.
+bofh	tech	quip	general	0	BOFH excuse #462: It is a layer 8 problem.
+bofh	work-money	quip	general	0	BOFH excuse #463: The math co-processor had an overflow error that leaked out and shorted the RAM.
+bofh	tech	quip	general	0	BOFH excuse #464: Leap second overloaded RHEL6 servers.
+bofh	tech	fact	general	0	BOFH excuse #465: DNS server drank too much and had a hiccup.
+bofh	tech	quip	general	0	BOFH excuse #466: Your machine had the fuses in backwards.
+bofh	tech	quip	general	0	BOFH excuse #467: Sounds like a Windows problem try calling Microsoft support.
+bofh	tech	quip	general	0	BOFH excuse #468: It works the way the Wang did what's the problem.
+bofh	tech	quip	general	0	BOFH excuse #469: Heavy gravity fluctuation move computer to floor rapidly.
+bofh	tech	quip	general	0	BOFH excuse #470: Not enough memory go get system upgrade.
+bofh	tech	fact	general	0	BOFH excuse #471: Virus attack luser responsible.
+bofh	tech	quip	general	0	BOFH excuse #472: Failed trials system needs redesigned.
+bofh	tech	quip	general	0	BOFH excuse #473: Not properly grounded please bury computer.
+bofh	tech	quip	general	0	BOFH excuse #474: Yes yes its called a design limitation.
+bofh	tech	quip	general	0	BOFH excuse #475: Look buddy: Windows 3.1 IS A General Protection Fault.
+bofh	tech	quip	general	0	BOFH excuse #476: Please excuse me I have to circuit an AC line through my head to get this database working.
+bofh	tech	quip	general	0	BOFH excuse #477: Yeah yo mama dresses you funny and you need a mouse to delete files.
+bofh	tech	quip	general	0	BOFH excuse #478: Support staff hung over send aspirin and come back LATER.
+bofh	tech	fact	general	0	BOFH excuse #479: Someone is standing on the ethernet cable causing a kink in the cable.
+bofh	tech	quip	general	0	BOFH excuse #480: Windows 95 undocumented 'feature'.
+bofh	tech	quip	general	0	BOFH excuse #481: Flat tire on station wagon with tapes. ('Never underestimate the bandwidth of a station wagon full of tapes hurling down the highway' Andrew S. Tannenbaum).
+bofh	tech	quip	general	0	BOFH excuse #482: Some one needed the powerstrip so they pulled the switch plug.
+bofh	tech	joke	general	0	BOFH excuse #483: You can tune a file system but you can't tune a fish (from most tunefs man pages).
+bofh	tech	quip	general	0	BOFH excuse #484: No 'any' key on keyboard.
+bofh	tech	quip	general	0	BOFH excuse #485: Me no internet only janitor me just wax floors.
+bofh	tech	joke	general	0	BOFH excuse #486: I'm sorry a pentium won't do you need an SGI to connect with us.
+bofh	tech	joke	general	0	BOFH excuse #487: Just pick up the phone and give modem connect sounds. 'Well you said we should get more lines so we don't have voice lines.'.
+bofh	tech	quip	general	0	BOFH excuse #488: We are currently trying a new concept of using a live mouse. Unfortunately one has yet to survive being hooked up to the computer.....please bear with us.
+bofh	tech	quip	general	0	BOFH excuse #489: Fluorescent lights are generating negative ions. If turning them off doesn't work take them out and put tin foil on the ends.

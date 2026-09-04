@@ -1,0 +1,126 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Pet Studio: validate a pet's animations.xml, see what will never play, and preview it running on the
+       real desktop before installing it. Replaces the retired Tools\PetTester, which was a separate net48
+       WinForms app that CI never built and which finally broke silently when a file it link-compiled moved
+       into another module.
+
+       Two things make this a module rather than a tool. It reaches the pet engine through the plugin ABI
+       (ICompanionManager.SpawnPreview puts a transient pet on the user's actual desktop), and it SOURCE-LINKS the
+       host's own validator instead of carrying a copy. Source-linking across a boundary is normally how you
+       get skew; here it is safe precisely because the host is frozen (those files stop moving), and it
+       means this tool's verdict cannot drift from what the host will actually run. If the host ever does
+       ship again and touches one of the linked files, republish this module to match.
+
+       Unlike every other module so far, this one owns a WINDOW. Modules have been data + delegates with the
+       host rendering everything, which is right for settings panes; an authoring canvas is not expressible
+       as a schema, and nothing structural prevents it (a module is an ordinary assembly in-process). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <!-- WPF for the studio window; WinForms because the linked engine sources use System.Drawing and
+         System.Windows.Forms.Screen. Both are in-box on net10-windows. -->
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>DesktopAICompanion.PetStudioModule</RootNamespace>
+    <AssemblyName>PetStudio</AssemblyName>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <Deterministic>true</Deterministic>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateDependencyFile>true</GenerateDependencyFile>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <OutputPath>..\..\build\DesktopAICompanionPortable\bin\$(Configuration)\x64\modules\petstudio\</OutputPath>
+    <!-- CS0649 on Animations.SoundSink / Animations.PetTypeId. Both are assigned by the HOST (the sound sink
+         by StartUp, the type id when a pet type is staged) and only read by the linked engine, so in this
+         module's compilation they are legitimately write-free. Scoped to this project, not the shared file. -->
+    <NoWarn>$(NoWarn);CS0649</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DesktopAICompanion.Contracts\DesktopAICompanion.Contracts.csproj" Private="false" />
+    <!-- ModuleKit is the opposite: NOT Private="false". The contract must be the host's single shared copy,
+         but the support library ships inside this module's folder so each collectible load context carries
+         its own — that is what lets modules move to a new ModuleKit independently. -->
+    <ProjectReference Include="..\..\src\DesktopAICompanion.ModuleKit\DesktopAICompanion.ModuleKit.csproj" />
+  </ItemGroup>
+
+  <!-- The host's own pet parser/validator, compiled into this module rather than duplicated. This is the
+       same set Tools\PetTester link-compiled, minus the file that moved away: the XML model, the validator,
+       the runtime staging pair (Xml + Animations, which the reachability walk needs for its entry points),
+       the safe-expression evaluator, RuntimeGeometry (UnicodeTextProgress), and the reachability analyzer
+       that was salvaged out of PetTester into the host. -->
+  <ItemGroup>
+    <Compile Include="..\..\src\LocalData\AnimationXML.cs" Link="Engine\AnimationXML.cs" />
+    <Compile Include="..\..\src\dotNet\Animations.cs" Link="Engine\Animations.cs" />
+    <Compile Include="..\..\src\dotNet\Xml.cs" Link="Engine\Xml.cs" />
+    <Compile Include="..\..\src\dotNet\CompanionXmlValidator.cs" Link="Engine\CompanionXmlValidator.cs" />
+    <Compile Include="..\..\src\dotNet\SafeExpression.cs" Link="Engine\SafeExpression.cs" />
+    <!-- Still source-linked even though ModuleKit now offers UnicodeTextProgress: the linked Xml.cs also
+         needs DesktopGeometry from this same file, which is pet-engine geometry rather than a general
+         helper and so does not belong in ModuleKit. The two UnicodeTextProgress copies do not collide —
+         one is DesktopAICompanion.UnicodeTextProgress, the other DesktopAICompanion.ModuleKit.UnicodeTextProgress. -->
+    <Compile Include="..\..\src\dotNet\RuntimeGeometry.cs" Link="Engine\RuntimeGeometry.cs" />
+    <Compile Include="..\..\src\dotNet\AnimationReachability.cs" Link="Engine\AnimationReachability.cs" />
+  </ItemGroup>
+
+  <!-- The Shimeji conversion engine, SOURCE-LINKED (not ProjectReferenced): ShimejiConvert.Engine recompiles
+       AnimationXML/CompanionXmlValidator/SafeExpression too, so referencing its DLL would double-define XmlData.
+       These conversion-only files compile against the validator/runtime files already linked above. Skipped on
+       purpose: ValidatorResources.cs (its Properties.Resources + SpriteFrameStore shims are already provided by
+       EngineShim.cs and the linked Xml.cs) and the engine's self-test files (the CLI runs those). Import lives
+       in Pet Studio; the standalone catalog module was retired, and the shimeji ship as ordinary catalog pets. -->
+  <ItemGroup>
+    <Compile Include="..\..\tools\ShimejiConvert.Engine\Engine.cs" Link="Import\Engine.cs" />
+    <Compile Include="..\..\tools\ShimejiConvert.Engine\PetGraph.cs" Link="Import\PetGraph.cs" />
+    <Compile Include="..\..\tools\ShimejiConvert.Engine\Shimeji\ShimejiModel.cs" Link="Import\ShimejiModel.cs" />
+    <Compile Include="..\..\tools\ShimejiConvert.Engine\Shimeji\ShimejiParser.cs" Link="Import\ShimejiParser.cs" />
+    <Compile Include="..\..\tools\ShimejiConvert.Engine\Shimeji\ActionClassifier.cs" Link="Import\ActionClassifier.cs" />
+    <Compile Include="..\..\tools\ShimejiConvert.Engine\Shimeji\SkinLayout.cs" Link="Import\SkinLayout.cs" />
+    <Compile Include="..\..\tools\ShimejiConvert.Engine\Shimeji\SpriteSheetBuilder.cs" Link="Import\SpriteSheetBuilder.cs" />
+    <Compile Include="..\..\tools\ShimejiConvert.Engine\Emit\IconBuilder.cs" Link="Import\IconBuilder.cs" />
+    <Compile Include="..\..\tools\ShimejiConvert.Engine\Emit\ResidueReport.cs" Link="Import\ResidueReport.cs" />
+    <Compile Include="..\..\tools\ShimejiConvert.Engine\Emit\PetEmitter.cs" Link="Import\PetEmitter.cs" />
+    <!-- Android JSON+WebP bundle path: BundleParser/BundleConverter map manifest.json + animation.json into the
+         same ShimejiConfig the desktop parser produces, and WebPLoader decodes the .webp sprites (through the
+         bundled dwebp below). This is what lets Pet Studio import Android-format shimeji, not just desktop skins. -->
+    <Compile Include="..\..\tools\ShimejiConvert.Engine\Shimeji\WebPLoader.cs" Link="Import\WebPLoader.cs" />
+    <Compile Include="..\..\tools\ShimejiConvert.Engine\Shimeji\BundleParser.cs" Link="Import\BundleParser.cs" />
+    <Compile Include="..\..\tools\ShimejiConvert.Engine\Shimeji\BundleConverter.cs" Link="Import\BundleConverter.cs" />
+  </ItemGroup>
+
+  <!-- The bundled Shimeji-EE base behaviour conf (BSD; see the engine's base-conf/NOTICE.txt), embedded with
+       the exact logical names ShimejiParser.LoadEmbeddedXml requests, so a sprites-only skin converts here too. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\tools\ShimejiConvert.Engine\base-conf\actions.xml">
+      <LogicalName>base-actions.xml</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\..\tools\ShimejiConvert.Engine\base-conf\behaviors.xml">
+      <LogicalName>base-behaviors.xml</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <!-- The validator loads the schema by this exact manifest name (Properties.Resources.animations1 in the
+       host); the shim resolves it from here. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\src\Resources\animations.xsd" Link="animations.xsd">
+      <LogicalName>DesktopAICompanion.PetStudio.animations.xsd</LogicalName>
+    </EmbeddedResource>
+    <!-- Tray-item icon (TrayItem.IconPng), read at Init the same way AiBrain reads its tray PNGs. -->
+    <EmbeddedResource Include="Resources\petstudio.png" />
+  </ItemGroup>
+
+  <!-- The bundled WebP decoder (libwebp dwebp.exe, BSD; see the engine's native\NOTICE-libwebp.txt). Because
+       this module SOURCE-LINKS the engine rather than referencing it, the engine's copy-to-output of dwebp does
+       not propagate here, so bundle it into the module's own native\ folder: WebPLoader shells out to it to
+       decode an Android bundle's .webp sprites with alpha. -->
+  <ItemGroup>
+    <None Include="..\..\tools\ShimejiConvert.Engine\native\dwebp.exe" Link="native\dwebp.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\tools\ShimejiConvert.Engine\native\NOTICE-libwebp.txt" Link="native\NOTICE-libwebp.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

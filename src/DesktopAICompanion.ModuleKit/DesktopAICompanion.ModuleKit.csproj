@@ -1,0 +1,59 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The module author's support library: the helpers every module was copying by hand.
+
+       This is NOT part of the ABI. DesktopAICompanion.Contracts is the contract between the host and a module and
+       must stay tiny and frozen; ModuleKit is ordinary convenience code that a module CHOOSES to reference,
+       and it ships INSIDE the module's own folder. Each module loads in its own collectible
+       AssemblyLoadContext, so every module gets its own copy of this DLL and two modules can safely use
+       different ModuleKit versions — which is exactly why the helpers belong here rather than in the
+       contract, where a change would be permanent and global.
+
+       The reference to DesktopAICompanion.Contracts is Private="false" for the same reason a module's is: the host
+       owns the single shared copy, and the loader resolves that assembly from the default context so the
+       IHost/IModule types unify across the host and every module.
+
+       Lives under src/ so it inherits Directory.Build.props (LangVersion 7.3, deterministic,
+       warnings-as-errors). Keep it dependency-free: System.Text.Json and the DPAPI/ACL types are in-box on
+       net10-windows, and adding an out-of-band PackageReference for one would trip NU1510 as an error. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>DesktopAICompanion.ModuleKit</RootNamespace>
+    <AssemblyName>DesktopAICompanion.ModuleKit</AssemblyName>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <!-- Unlike the contract's frozen 1.0.0.0 binding identity, ModuleKit is a normal library: it is copied
+         per module rather than shared, so its version can move without invalidating anything already built. -->
+    <Version>$(DesktopAICompanionVersion)</Version>
+    <FileVersion>$(DesktopAICompanionAssemblyVersion)</FileVersion>
+    <Company>bigfnj</Company>
+    <Product>Desktop AI Companion</Product>
+  </PropertyGroup>
+
+  <!-- Published to NuGet alongside the contract, so an out-of-repo author gets the same helpers the
+       first-party modules use. Unlike the contract this is optional: a module can ignore it entirely. -->
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>DesktopAICompanion.ModuleKit</PackageId>
+    <Title>DesktopAICompanion module support library</Title>
+    <Description>Helpers for writing a DesktopAICompanion module: durable file writes, cross-session locking, embedded-resource loading, per-module paths, a JSON settings store, and a Testing namespace with a headless RecordingHost so a module can be self-tested with no app running. Optional; DesktopAICompanion.Contracts is the only required reference.</Description>
+    <Authors>bigfnj</Authors>
+    <PackageTags>desktoppet;plugin;module;desktop-pet</PackageTags>
+    <PackageProjectUrl>$(DesktopAICompanionRepositoryUrl)</PackageProjectUrl>
+    <RepositoryUrl>$(DesktopAICompanionRepositoryUrl)</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DesktopAICompanion.Contracts\DesktopAICompanion.Contracts.csproj" Private="false" />
+  </ItemGroup>
+
+</Project>

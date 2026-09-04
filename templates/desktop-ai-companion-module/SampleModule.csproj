@@ -1,0 +1,75 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A DesktopAICompanion plugin module. Four properties below are load-bearing; the rest is ordinary C#.
+
+       1. OutputPath must end in modules\<id>\ — the host scans <app>\modules and loads <id>\<id>.dll.
+       2. The DesktopAICompanion.Contracts reference is Private="false" so the module binds the HOST's single
+          shared copy. Without it the module ships its own, the types no longer unify, and every cast to
+          IModule fails at load.
+       3. ModuleKit is referenced normally (it ships inside this folder) — it is a convenience library, not
+          the contract.
+       4. AppendTargetFrameworkToOutputPath=false keeps the output flat, so the dll lands where the loader
+          looks rather than in a net10.0-windows subfolder. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>DesktopAICompanion.SampleModule</RootNamespace>
+    <AssemblyName>SampleModule</AssemblyName>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <Deterministic>true</Deterministic>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+<!--#if (standalone) -->
+    <!-- Standalone: build wherever you like, then copy the output folder to
+         %LOCALAPPDATA%\Programs\Desktop AI Companion\modules\samplemodule\ and restart the app. -->
+<!--#else -->
+    <OutputPath>..\..\build\DesktopAICompanionPortable\bin\$(Configuration)\x64\modules\samplemodule\</OutputPath>
+<!--#endif -->
+    <!-- Needed because this module references ModuleKit: without them a library project does not copy its
+         dependencies to the output folder, and the module's load context cannot resolve them. -->
+    <GenerateDependencyFile>true</GenerateDependencyFile>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+<!--#if (standalone) -->
+  <!-- ExcludeAssets="runtime" is the package equivalent of Private="false": compile against the contract,
+       but do NOT copy it into your output. The host ships the one true copy, and shipping a second one stops
+       the IModule types unifying, so your module fails to load with a confusing error. -->
+  <ItemGroup>
+    <PackageReference Include="DesktopAICompanion.Contracts" Version="SAMPLE_PKG_VERSION" ExcludeAssets="runtime" />
+    <PackageReference Include="DesktopAICompanion.ModuleKit" Version="SAMPLE_PKG_VERSION" />
+  </ItemGroup>
+<!--#else -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DesktopAICompanion.Contracts\DesktopAICompanion.Contracts.csproj" Private="false" />
+    <ProjectReference Include="..\..\src\DesktopAICompanion.ModuleKit\DesktopAICompanion.ModuleKit.csproj" />
+  </ItemGroup>
+<!--#endif -->
+
+  <!-- Files your module reads at runtime (a tray icon, seed data). Read them with
+       EmbeddedResources.LoadBytes/LoadText/LoadJson, which match on the trailing file name.
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\icon.png" />
+  </ItemGroup>
+  -->
+
+  <!-- ==== Optional flavours: uncomment only what you actually need ====
+
+       A WINDOW of your own (like Pet Studio). Modules are normally data + delegates with the host
+       rendering the UI; an authoring canvas is the exception. WinForms is included because the host's
+       engine types use System.Drawing.
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+
+       A NATIVE NuGet dependency (like Fortunes' onnxruntime). Pin the RID so native assets flatten into
+       the output root; the loader probes the module's own folder for them.
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+
+       WinRT APIs (like AiBrain's Windows.Media.Ocr). Note this pins the module's load context so it never
+       unloads — harmless here only because uninstalling a module already forces a restart.
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+  -->
+
+</Project>

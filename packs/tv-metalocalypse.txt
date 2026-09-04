@@ -1,0 +1,164 @@
+tv-metalocalypse	life	tv-quote	general	0	Skwisgaar: Yeah, all of our chefs, he has died a horrible death. What of thats do you think? Jean-Pierre: I would rather have my brain scooped out with a melon-baller than to miss the opportunity to deliver the various cheese snacks to my beloved Dethklok.
+tv-metalocalypse	nature	tv-quote	general	0	[A flock of birds collide with the helicopter.] Helicopter Pilot: Sorry, m'lords. Uh, we're chewing through a few thousand doves up here. Don't worry; these rotors'll grind 'em into paste in no time.
+tv-metalocalypse	arts	tv-quote	general	0	Nathan: We are here to make coffee metal. We will make everything metal. Blacker than the blackest black times infinity.
+tv-metalocalypse	life	tv-quote	general	0	One-eyed Fan: My eye got torn out, and force-fed to me in a show. DETHKLOK RULES!
+tv-metalocalypse	life	tv-quote	general	0	Two-fingered Fan: In London, some dude chopped off my fingers and threw them up on stage. MURDERFACE ROLLED THEM UP AND SMOKED THEM! [yells into reporter's microphone] MURDERFACE!!!
+tv-metalocalypse	food	tv-quote	edgy	1	Toki: [awed gasp] What's this place called? Skwisgaar: This is, I believes, called food libraries. [Skwisgaar and Toki practice saying the phrase "Food Library".] Pickles: It's called a grocery store, ya douchebags! I'm sorry about douchebags. I got... got low blood sugar.
+tv-metalocalypse	life	tv-quote	edgy	1	Murderface: [reads his shopping list] Hey grandma, is there olives in it? Old Lady: In what? Murderface: Lemon tart, Wrinkle-tits! Jeezees! Old Lady: [shocked gasp] Murderface: Good, then it's pee-pee time! [starts urinating on the olives]
+tv-metalocalypse	food	tv-quote	general	0	Pickles: Hey chief, this stuff good for soup? [gestures at shopping cart full of booze] Worker: ... No - Pickles: - Aaaah! That's a yes.
+tv-metalocalypse	life	tv-quote	general	0	Nathan: Price check! Cleanup aisle six! Rotted Body Landslide! And don't forget our special sale on Every Bone Broken Chicken! Hurry! [laughing] Enjoy our tasty Hammer Smashed Face! Aisle three.
+tv-metalocalypse	love	tv-quote	general	0	Skiwsgaar: [romantically] Hi. Old woman: Hi. Skwisgaar: Guess what, you are a GMILF. That is a grandmother that I would like to - [Cut to next scene]
+tv-metalocalypse	food	tv-quote	general	0	Pickles: See! What'd I tell you guys? We don't need no chef. Nathan: Put in the ingredients into that thing there. Toki: Oh no, we leaves all the food at the food place! Nathan: WHAAAAAAAAAAAAT?! [Zoom into his mouth and down his throat]
+tv-metalocalypse	life	tv-quote	edgy	1	Murderface: [prodding the remains of the mutilated chef with a stick] Jean-Pierre! Jean-Pierre! Wake up, cook something! Come on! Don't be a dick, be a dude!
+tv-metalocalypse	life	tv-quote	general	0	Pickles: By the power of all that is evil, I command you to awaken and make me a sandwich! [wails]
+tv-metalocalypse	life	tv-quote	general	0	Skiwsgaar: Dudes, we would, like, have to sew him back together to get him to cook for us. Toki: Yeah, but we such screw-ups that he would be sewn back together wrong. Nathan: Whoa! That's a good song title.
+tv-metalocalypse	life	tv-quote	general	0	Nathan: Your guitar's picking up strange sounds! Toki: What, dude? I didn't know these pickups were that strong. It picks up the whales saying hello.
+tv-metalocalypse	life	tv-quote	general	0	Murderface: Hey guys... nuclear submarine power's out.
+tv-metalocalypse	life	tv-quote	edgy	1	Dick "Magic Ears" Knubbler: [submarine door opens] Hi guys. Sooo uh... let's hear this new album. [ He faints, colliding with the floor, his head beginning to bleed.] Murderface: Hey, I have those same shoes.
+tv-metalocalypse	life	tv-quote	general	0	Toki: [emerges from the water gasping and gurgling] Not safe! Not safe! [vomits a pink liquid] There's monsters!
+tv-metalocalypse	life	tv-quote	general	0	Fan: [looking at Murderface's cake, which is coated with a silver frosting] Dude, is that metal frosting? That's amazing! Jean-Pierre: Please do not sample the frosting, it is made of... MERCURY! You will die!
+tv-metalocalypse	love	tv-quote	general	0	Skwisgaar: Women have a quality attraction to me. Mmm, you got to deal with it. Toki: Oh, I'm dealing with it. Believe me, I'm holding back gallons of throw-up as we speak! Skwisgaar: Don't do me any favors, throw up on yourself.
+tv-metalocalypse	life	tv-quote	general	0	Senator Stampingston: Gentlemen, it's clear that we're in a universally precarious situation. Dethklok has summoned a troll. General Crozier: That's impossible, there's no such thing as trolls. Senator Stampingston: Then how do you explain the dead unicorns?
+tv-metalocalypse	arts	tv-quote	general	0	Nathan: [into handheld voice recorder] Idea for our last song, ever: "Killed by a Troll."
+tv-metalocalypse	arts	tv-quote	general	0	Skwisgaar: Well, maybe we should takes a break, you know? Being bleak and dark for a living sometimes makes you lose your objectivity for, you know, being bleak and dark.
+tv-metalocalypse	life	tv-quote	general	0	Auctioneer: And now we will auction the skull from the famous comedian, Buddy Hackett. We'll start this bid at fifty thousand dollars. Skwisgaar: Oh, I gots to have that. Auctioneer: Fifty thousand. Do I hear sixty thousand? Nathan: Yeah. Skwisgaar: This going to be a long night.
+tv-metalocalypse	life	tv-quote	general	0	Announcer: Ladies and gentlemen, please be gentle, it's their first time on stage, The Brothers... of DECEPTION!
+tv-metalocalypse	life	tv-quote	general	0	Nathan: What if your guts was a bowling ball? Well, I bet it would look something like this - [he holds up a bunch of organs in the shape of a sphere] Nathan: Yeah, I'm real sick of my brother, yeah we're twins. Anybody got twins out there? Anybody got one like this? Meet Kuato.
+tv-metalocalypse	life	tv-quote	general	0	Nathan: Cut Kuato? I'll cut Bodybag before I cut Kuato. Kuato stays. Kuato's gold!
+tv-metalocalypse	life	tv-quote	nsfw	1	Skwisgaar: They laugh at the dildo who is onstage before us. Toki: That guy was amazing! Are you kidding me? Skwisgaar: He is horribles, Toki. He just made the reference. "Remember this? Remember that?" He is dildo. Toki: But you laugh. Skwisgaar: I did?
+tv-metalocalypse	life	tv-quote	general	0	Pickles: Well, I really hate myself. Toki: Pickle, you back! We think you gone for good!
+tv-metalocalypse	life	tv-quote	general	0	Pickles: So, anysways, I just got back from vacation. I went to the beach...for vacation...and...you know what I got at the beach? Crowd: [no response] Pickles: SAND!!! [throws sand to the crowd]
+tv-metalocalypse	life	tv-quote	general	0	Lorkey: [watching Pickles perform] Eh, can't teach 'em no more. [pulls a pistol from his jacket and shoots himself in the head]
+tv-metalocalypse	life	tv-quote	general	0	Pickles: [while performing; shooting a rifle in random directions] Oops, I thought this was the NRA!
+tv-metalocalypse	life	tv-quote	nsfw	1	Pickles: [while performing] Any of you dildos wanna fight? What about you grandma? Wanna fight? Wanna awwww... I'm just messing with you!
+tv-metalocalypse	family	tv-quote	general	0	[William Murderface begins choking his grandmother for chewing loudly, and Nathan and Pickles pull him off.] William: Sorry! Sorry! I just... It's my fault! I can't stand to see her chew, I just locked in on it! My fault! Sorry!
+tv-metalocalypse	life	tv-quote	general	0	Skwisgaar Skwigelf: [contemplatively] It appears the yard wolves has grown up. Are we finally finished with thes colds dead winters?
+tv-metalocalypse	life	tv-quote	general	0	Skwisgaar: You slapped at my face. Dr. Twinkletits: No, I didn't!
+tv-metalocalypse	life	tv-quote	nsfw	1	Skwisgaar: This idea is dildos.
+tv-metalocalypse	life	tv-quote	general	0	Charles Ofdensen: Snakes 'N' Barrels' record sales have gone through the roof since the documentary began airing, and there's interest of a reunion tour - Pickles: Okay.
+tv-metalocalypse	life	tv-quote	general	0	Murderface: Uhhh, I need a backrub. [dejectedly] I miss Pickles.
+tv-metalocalypse	life	tv-quote	general	0	Pickles: Okay, I know you're all sober now, and I can totally respect that, so I'm going to resist the urge to do drugs and drink around you. I will still do them, but I will excuse myself and go to a different room.
+tv-metalocalypse	life	tv-quote	general	0	Pickles: Hey Bullets, what's this thing you're wearing, what is this? Snizzy "Snazz" Bullets: It's an invention of mine. It's a strapless guitar that also functions as a girdle. Its called a gu-girdle-itar.
+tv-metalocalypse	life	tv-quote	general	0	Dr. Romumilif Chesterfield: You guys want to try some Totally Awesome Sweet Alabama Liquid Snake? You're gonna get so high your minds will blow chunks into the Milky Way. And what better way to celebrate the reunion than with a good old fashioned Milky Way chunk blow, hmmm?
+tv-metalocalypse	life	tv-quote	edgy	1	Pickles: Okay, let's uh... kick ass tonight! Sammy: Oh wait, I almost forgot, we got some Totally Awesome Sweet Alabama Liquid Snake from a dude. Pickles: Oh, come on guys, I don't wanna encourage any kinda dr- okay, I'll do it!
+tv-metalocalypse	life	tv-quote	general	0	TV Newsreader: An official statement from Dethklok calls this "A psychotic day of insane celebration for regular jack-offs.".
+tv-metalocalypse	life	tv-quote	general	0	Facebones: Remember, our snipers have 50 caliber sniper rifles that can kill you from almost 3 miles away. [shows sniper taking person down from long distance] Yikes!
+tv-metalocalypse	arts	tv-quote	general	0	Taped Tour Message: Prepare to see one of the greatest sights you've ever seen, the fastest guitarist alive, in his natural habitat.
+tv-metalocalypse	life	tv-quote	general	0	Facebones: Hey guys, it's me, Facebones. Now's the time you've all been waiting for. Your very own exclusive super duper exclusive fan song and one time only song videooooo [holds the last syllable for 16 seconds] ...roll it.
+tv-metalocalypse	life	tv-quote	general	0	Murderface: If they only knew how much we hated them, I mean they just keep crawling back like groveling putrid stupid zombies that just want to eat our brains that is our art.
+tv-metalocalypse	life	tv-quote	general	0	[The guard brings in the Jomfru brothers.] Pickles: Hey, what are you doing? Guard: He's in a wheelchair my lords, I did not know what to do.
+tv-metalocalypse	life	tv-quote	general	0	[Nathan walks over and towers over the Jomfru brothers menacingly.] Nathan: Take a walk, before I kill you.
+tv-metalocalypse	tech	tv-quote	general	0	Pickles: Oh come on, screw that Internet crap, I mean come on, what is the Internet, you know? Seriously... what is the Internet?
+tv-metalocalypse	life	tv-quote	general	0	Ofdensen: Your money's waaaay down there. Behind that door, 'ya see it? Hey, 'ya better hurry up, closing time's in two minutes. I'd serpentine if I were you.
+tv-metalocalypse	life	tv-quote	general	0	Pickles: Dudes, what the hell is wrong with this guy? He can't stand still. Toki: Maybe he gots to go outside and gos to the... B-A-S-T-H-R-O-H-M-N-S-E.
+tv-metalocalypse	life	tv-quote	general	0	[after Fatty Ding-Dong has been neutered] Nathan: Hey goofball, look who's all neutered! You are! Yeah you're neutered, huh goofball, yeah! Who's a neutered guy?
+tv-metalocalypse	life	tv-quote	general	0	Nathan: I think I know what you are all trying to say. I... uh... um... I think we have to build a space helicopter. Pickles: Ah, well, that's impossible, but I think I may have a better idea.
+tv-metalocalypse	life	tv-quote	general	0	[After abandoning Fatty Ding-Dong on Krangor Island, now the Dethklok Home for Wayward Kitties.] Nathan: Oh he'll be fine, he's fat.
+tv-metalocalypse	life	tv-quote	edgy	1	Toki: I thinks I has diabetes. I'm gonna take a fucking nap.
+tv-metalocalypse	work-money	tv-quote	general	0	Skwisgaar: Oh lighten up Mr. Dooms N' Glooms, embezzle is metal. Pickles: Who's the guy embezzling from, you know, anyway? Charles Ofdensen: Well, he is embezzling... from you. Nathan: NOOOOOOOOOOOOO!
+tv-metalocalypse	work-money	tv-quote	general	0	Nathan: We are really, really good bosses. Skwisgaar: Yeah, I know. We cares about all of dems. It's like a plantations, but de slaves is our friends.
+tv-metalocalypse	life	tv-quote	general	0	Skwisgaar: [points at dead body of a Klokateer that Agent 216 has killed] Look at this one! Asleeps in some bloods! We gots to gets tougher on these guys maybe huh?
+tv-metalocalypse	life	tv-quote	general	0	[At a Tribunal meeting.] Senator Stampingston: Nathan Explosion is furthering his education. This could have devastating repercussions!
+tv-metalocalypse	health-body	tv-quote	general	0	Nathan: I'm ready. I had that uh, "I'm late for class and I'm in my underwear" dream, but - my palms are sweaty and I can't concentrate, I CAN'T CONCENTRATE! Murderface: That's anxiety! A-N-X-I-E-T.
+tv-metalocalypse	life	tv-quote	general	0	[Nathan walks into the testing room and sits down.] Nathan: I'm here, uh, to take the GBD.
+tv-metalocalypse	life	tv-quote	general	0	Murderface: The only reason I have a high school degree is 'cause of a very special principal, who let me just play bass and drink beer and smoke dope because I told him I'd cut his eyes out if he didn't let me graduate.
+tv-metalocalypse	life	tv-quote	general	0	Nathan: [reading the speech] Harvard... solutions... solutions to you. Ofdensen: [whispers to him] Salutations!
+tv-metalocalypse	life	tv-quote	general	0	[All Dethklok members exit the bar, extremely drunk. Nathan holds up key to the Murdercycle, swaying.] Skwisgaar Skwigelf: [haltingly] Ares - yous - alrights - to drive? Pickles the Drummer: Nyeah he's fine...
+tv-metalocalypse	faith	tv-quote	general	0	"Murderface: "Hey, is there a bar around here? Man, it's all the same! All religion's the same!"
+tv-metalocalypse	life	tv-quote	general	0	Ofdensen: That little sick girl is here to see you. Toki: [harsh voice] Tell her to go die! Ofdensen: Well she is dying. Toki: Gooooood!
+tv-metalocalypse	life	tv-quote	general	0	General Crozier: His name is Dr. Rockso, he's the rock and roll clown. He does cocaine. I'm afraid that's all we know.
+tv-metalocalypse	life	tv-quote	general	0	[Ofdensen stops the Klokateers about to pursue Dr. Rockso.] Ofdensen: Wait... See where he goes.
+tv-metalocalypse	life	tv-quote	general	0	Pickles the Drummer: She's probably keeping watch, like a hawk. William Murderface: Yeah, it's another judgemental bird-face band-wrecker. Nathan: What? Murderface: What? Nothing, god you're paranoid. Oh, there's my drink, over there, gotta go!
+tv-metalocalypse	life	tv-quote	nsfw	1	[At the United States Pornography Awards.] Skwisgaar: And the awards for the best use of a dildo... Pickles: On "Golden Dildo"... Murderface: Dildo-dildo-a-rooney-roo! Toki: "Kissing Lips, the kissing dildo"... Nathan: And the award goes to "Dildo Team Task Force Z".
+tv-metalocalypse	life	tv-quote	general	0	General Crozier: Kill 'em all.
+tv-metalocalypse	life	tv-quote	general	0	The President: It pains me that I do not have the ability to bring Dethklok back to the public. Therefore, I give you this. [pulls out a shotgun and shoots himself in the mouth, and begins gurgling.]
+tv-metalocalypse	life	tv-quote	general	0	Nathan: Don't you take away my ability to have tantrums! Alright? That you cannot have! Alright?! YOU ROBOT!
+tv-metalocalypse	life	tv-quote	general	0	Ofdensen: Oh, and remember, start thinking about that new record. Murderface: ROBOT!
+tv-metalocalypse	life	tv-quote	general	0	Senator Stampingston: Gentlemen, it appears that Dethklok...IS BACK.
+tv-metalocalypse	life	tv-quote	general	0	Murderface: [enters Skwisgaar's room] Hey, uh Skwisgaar? That whole 'Toki getting good ting?' Just kidding, all a lie. See ya'. [leaves fast]
+tv-metalocalypse	tech	tv-quote	general	0	Boy: [on his computer] Aww, cool! Dethklok mp3s! [a message appears on his computer] "You are downloading this album ILLEGALLY! The consequences are GRAVE!" HA HA HA! Yeah right! CLICK! Aww, this is gonna take a while, what should I do in the mean time? Eh, I guess I'll jack off.
+tv-metalocalypse	life	tv-quote	edgy	1	Nathan: A bunch of caged rats....that's what we are! A bunch of caged rats that are also death metal musicians! Murderface:We're the rats and look what's on the other side of the cage.Douchbag. Skwisgaar/Toki/Murderface/Pickles: Douchebag
+tv-metalocalypse	life	tv-quote	general	0	Murderface: We've got no friends... Nathan: I know, it's just us. We're not friends, are we? Skwisgaar: (firmly) No. Murderface: (disgusted) Oh God, no.
+tv-metalocalypse	life	tv-quote	general	0	Nathan: Hey, where'd my me go?
+tv-metalocalypse	life	tv-quote	general	0	Murderface: Even though we are venturing into the world of fashion, I am here to assure all of you...I am not gay.
+tv-metalocalypse	life	tv-quote	general	0	Nathan: [seeing the "special leather" room] OH WHAT A HORRIBLE--Oh, you're fired, by the way. [Resumes screaming]
+tv-metalocalypse	life	tv-quote	general	0	Doctor: Your metabolism has slowed down. Popsicles are just pure sugar. Skwisgaar: YEAH?! THEYS PURE GREAT!
+tv-metalocalypse	life	tv-quote	general	0	Dr. Rockso: [crying] I do cocaine.
+tv-metalocalypse	life	tv-quote	edgy	1	Nathan: Rockso. Fuckin' clown. Boy, I really hate that guy. Skwissgar: Yeah, I should fucking horse-whip hims. Pickles: Yeah, he is a menace. A home-grown menace. Toki: Oh, he just misunderstoods.
+tv-metalocalypse	life	tv-quote	general	0	Dr. Rockso: (shown getting out of a car) Hey, man I said $20 for an HJ, not a measly ten! (Pickles looks shocked and disgusted, Toki only looks slightly surprised)
+tv-metalocalypse	life	tv-quote	general	0	Dr. Rockso: Let's go get some hookers and ice k-k-k-k...reeeaaam!
+tv-metalocalypse	life	tv-quote	general	0	Nathan: (reading his intervention letter to Dr. Rockso) "Dr. Rockso; I hate you, and I think you should die, you are an idiot and I hate your voice, there's no room on this paper to properly describe how much I hate you, go die." There, is that good?
+tv-metalocalypse	life	tv-quote	general	0	Toki: (Dr. Rockso gives him a large version of his own head made of balloons) Oh, wowie, looks just like me! Nathan, look! Nathan: (unenthusiastically) Yeah, that's great. Dr. Rockso: I can make you one. Nathan: Uh, yeah...go. To jail, now.
+tv-metalocalypse	life	tv-quote	general	0	News Reporter: Dr. Rockso, are you guilty? Dr. Rockso: All I know is this, my name is Dr. Rockso, the Rock N' Roll clown...and I used to do cocaine! I'm k-k-k-k-k clean! [Dethklok members cheer for him; Rockso gets a bloody nose] Uh-oh. [nose falls off]
+tv-metalocalypse	arts	tv-quote	nsfw	1	(Murderface's song) Murderface: A million miles from nowhere, Dragon Lance burns hot. By the fire of a horse's ghost, a minnow would be lost... Cha-cha-cha-changes... mmmm, Tits... A fish... A fish with tits. Titty fish.
+tv-metalocalypse	life	tv-quote	general	0	General Crozier: Dethklok should be kept as far away from the institution of marriage as possible. Marriage has suffered enough.
+tv-metalocalypse	life	tv-quote	general	0	Mr. Salacia: We mustn't intervene, General. We will allow Dethklok to experience...the blackness!
+tv-metalocalypse	family	tv-quote	edgy	1	Nathan: Don't take this the wrong way, Pickles, but...your brother's kind of, hm...kind of a weird, greedy dick, y'know? [Pickles, looking very stressed out, blinks unresponsively]
+tv-metalocalypse	life	tv-quote	general	0	Nathan: [watching an engaged Seth get a lap-dance from a stripper] Boy, there's nothing like love, is there? Toki: No, it's great! Murderface: He's really gonna be a good husband.
+tv-metalocalypse	life	tv-quote	general	0	[Drunkenly talking to an elderly woman] Toki: Mes gonna do solo albums. All Toki. It's gonna be called Toki... IS THE KING!!! Oh, hold on. Mmm- [gags] Oh I got to throws up- [gags] throws up and takes a nap. [throws up on his suit] GOOD NIGHTS! [passes out]
+tv-metalocalypse	life	tv-quote	general	0	Toki: Oh, Pickle don't look good. Pickle looks scared! Liz Bane: He's fine. This is outstanding exposure. Nathan: Who the hell is this lady? Toki: Oh, that's Pickle new P.R. lady. Nathan: She's not a groupie? Toki: No. Nathan: Never mind then.
+tv-metalocalypse	life	tv-quote	general	0	Pickles: [drunk] AND THE WINNER IS "CINNAMON BUNS!!!" STARRING PICKLES THE DRUMMER, DIRECTED BY VODKA AND BEER!!!!!!!!!!!!!!!!! AAWWWWWWWWWWEEEEEEEEEEEEEEEEE!!!!!!!!!!!! [collapses]
+tv-metalocalypse	life	tv-quote	general	0	Liz Bane: You've been behind that drum kit for way too long, Pickles. This is your time. It's time... for Pickles.
+tv-metalocalypse	life	tv-quote	general	0	Skwisgaar & Toki: [at the same time in constant rhythm, sometimes getting faster] Stops copys me! Stops copys me! Stops copys me! [repeats]
+tv-metalocalypse	life	tv-quote	general	0	Murderface: [whispering] Hey, whatcha readin' there? Nathan: [whispering] Nothin', just...hey man, why don't you brush your teeth? Murderface [whispering] You can't brush your teeth in a library, that's ridiculous.
+tv-metalocalypse	life	tv-quote	general	0	Pickles: [excitedly] They're getting yopo!! If we're gonna die, we're gonna die high!!
+tv-metalocalypse	life	tv-quote	general	0	[after Nathan reads that his grandmother ate his grandfather in a cannibal soup] Murderface: Ate her husband in soup... Pickles: That is so totally Cannibal Corpse.
+tv-metalocalypse	life	tv-quote	nsfw	1	Murderface: [talking about being governor] We don't fill out paper work, and fill out government forms, and wear suits and ties like...grr, dildos! [realizes; to Ofdensen] No offense! Ofdensen: None taken.
+tv-metalocalypse	society	tv-quote	edgy	1	Old Man: [staring at Nathan Explosion's statue] Best fucking governor Florida ever had! [gets shot]
+tv-metalocalypse	life	tv-quote	edgy	1	Nathan: [holding a press conference] What am I supposed to be saying? What am I supposed to be saying? Hey, what am I supposed to be...oh right right right. That governor guy, he said I shouldn't have a holiday or something? Fuck him, right? Fuck that guy.
+tv-metalocalypse	life	tv-quote	edgy	1	Nathan: I swear to govern the fuck out of this piece of shit state! Now lemme hear your guns!
+tv-metalocalypse	life	tv-quote	edgy	1	[Toki goes mad with power and abuses his aide.] Toki: Jumps out the window! Finds me a paper clip! You dos what I say or I haves you all killed! Now shits your pants! Nathan: Toki, your boner is showing.
+tv-metalocalypse	life	tv-quote	general	0	Press Person: Wait, I don't understnad, this is supposed to be what...a Nascar-type Theatrical Hybrid Event?
+tv-metalocalypse	life	tv-quote	general	0	Nathan: Hey...our show's gonna be bad..because I have a cold...so does Skwisgaar, Murderface, Pickles and....[spotlight shines on Toki] uhhh......ummmmm.....we'll just play one song.
+tv-metalocalypse	love	tv-quote	edgy	1	Nathan: Hey guys. You know I'm gonna start dating again, and I just thought...welll I'd like you to try your best not to fuck that up for me. There. I feel better having said that. [leaves]
+tv-metalocalypse	love	tv-quote	general	0	Ofdensen: Hey uh...Nathan. I uh...understand you're experiencing a little bit of uh...girl trouble. [Nathan gives no response] Just wanted to lend you a shoulder to uh...you know to uh...you...you seem like you're okay. For the record I tried. [leaves]
+tv-metalocalypse	life	tv-quote	general	0	Woman: [to Murderface] Why don't you make like a bass guitar and be inaudible?
+tv-metalocalypse	life	tv-quote	edgy	1	[Murderface just jumped in the way of the oin extractor preventing it from impacting Nathan's crotch.] Nathan: Wow...I never actually knew that a cock-block could save your life...thank you Murderface. Murderface: That's okay man, I'm a hero. I'M A REAL HERO!
+tv-metalocalypse	life	tv-quote	general	0	Charles: I've grown quite accustomed to working with Dethklok, and, uh, you'd probably have to kill me to get them away from me. This is good brandy. Really good brandy.
+tv-metalocalypse	life	tv-quote	general	0	Skwisgaar: So's. Your dads gots the Bigs K: Cancers.
+tv-metalocalypse	life	tv-quote	general	0	[after the band states they can't go with Toki because they needed to record the album] Ofdensen: Okay. Off to the recording room. Chop chop. Let's go. To the studio. Let's go. Get up. We gotta record...
+tv-metalocalypse	arts	tv-quote	general	0	Murderface: :[a firecracker just exploded in his hand] That's my bass playing hand! Pickles: [sarcastic] Uh-oh! There goes the band!
+tv-metalocalypse	life	tv-quote	general	0	[Toki's father has just fallen into a river] Toki: Oh, he sinks into the darkness!
+tv-metalocalypse	life	tv-quote	edgy	1	Murderface: TOKI, I'LL KILL YOU MOTHERFUCKER!!!
+tv-metalocalypse	life	tv-quote	general	0	William Murderface: Hey mama...Follow me if you want to live.
+tv-metalocalypse	life	tv-quote	edgy	1	Nathan: Such a shame, she's so hot, but so fucking crazy. Toki: Yous just figures that out? All the hots ones is crazy! Nathan: Huh. Guess you're right. Toki: And deh ugly ones too.
+tv-metalocalypse	arts	tv-quote	general	0	Damian: Look at this long haired monkey! [referring to Nathan Explosion] What kind of music do you play? Nathan Explosion: Death Metal! [punches Damian]
+tv-metalocalypse	life	tv-quote	general	0	Nathan Explosion (young): [after punching Damian during a meeting] Sorry....uh...again. Charles Ofdensen: Mm-hmm. What do I tell you guys before every meeting? Nathan Explosion: Try not to punch people. Charles Ofdensen: Try not to punch people. That's correct.
+tv-metalocalypse	life	tv-quote	edgy	1	Nathan Explosion: Shut up with the fucking construction, man! CAN'T YOU SEE THAT HUNG OVER PEOPLE ARE TRYING TO SLEEP?! [gets up] How can people grow up listening to all that racket? [turns on some Black Metal; he looks somewhat annoyed] There that's better.
+tv-metalocalypse	life	tv-quote	general	0	Fan: My friends are never gonna believe me! [that he met Nathan Explosion and snuck into Mordhaus] See you guys later! [opens the door with three other girls and they all fall to their death]
+tv-metalocalypse	life	tv-quote	general	0	Nathan: Welcome to Dethklok's Dorito Land! [two people get electrocuted trying to enter] And I'd like to remind you all that Dorito Land is not open to the public....it's just for us. Sorry.
+tv-metalocalypse	life	tv-quote	general	0	[The power shuts off at Mordhaus] Skwisgaar: Uh, Williams, did yous pay the electrics bill? Murderface: Oh, what am I gonna pay it with, my farts?
+tv-metalocalypse	work-money	tv-quote	edgy	1	Nathan: Guys I've been crunching numbers and financially... I don't know how to say this but we're fucked. Thanks to Murderface's sandscape, we're in the red. Good one Murderface. Murderface: [stares and says nothing]
+tv-metalocalypse	work-money	tv-quote	general	0	Murderface: The uh- the construction has stopped. Toki: That's because they don't gets paid, stupid!
+tv-metalocalypse	life	tv-quote	edgy	1	Nathan: Wow, what a shit-hole. Look at that stage, it's fucking tiny! Pickles: Oh wait, no dude, it's just an optical illusion. It just looks small because it's really far away. Check it out, I'll walk all the way over to it. [walks right into the stage] Holy shit! That's tiny!!
+tv-metalocalypse	life	tv-quote	general	0	Jimmy Palomino: It's my pleasure to welcome to the stage Norman Blowup, Pockles the Drummer, Toolkie Wolfpaint, Billy Butterface, and Skwisgaar Skwigelf! Skwisgaar: Didn'ts even change my names?!
+tv-metalocalypse	life	tv-quote	general	0	Murderface Guys, I gotta direct this all back to me for a second, Okay?. Look... A doctor jacked me off in his face, and the more I think about it, the less okay I am with it. You know what i'm saying?
+tv-metalocalypse	life	tv-quote	general	0	[Nathan and his dentist are hunting] Nathan Explosion: Hey man I gotta tell ya. One of the coolest hunting trips I've ever been on. Dentist: I'm really glad we've become pals, Mr. Explosion. Check this out. [sticks his rifle in his mouth and kills himself]
+tv-metalocalypse	life	tv-quote	edgy	1	Toki: [enters meeting room] Whats I miss? Murderface: TOKI! Why do you smell like piss and cocaine? Toki: Oh that's not me. Dr. Rockso: Oh k-k-k-k-k-k-k-Hanukkah! A-k-k-k-k-hello!
+tv-metalocalypse	arts	tv-quote	general	0	Nathan: A rap-rock band with a DJ? Somebody tell this band what year it is.
+tv-metalocalypse	life	tv-quote	edgy	1	Nathan: Look -- there's nothing I hate more than that fucking clown, but there isn't anything I won't do to hang out with MICKEY MOUSE!
+tv-metalocalypse	life	tv-quote	general	0	Dethkone Tagline: Dethkones. Icy and brutal!
+tv-metalocalypse	life	tv-quote	general	0	Ofdensen's Assistant: Pardon me sir, but did you just order 70 million units of- Ofdensen: Yeah.
+tv-metalocalypse	life	tv-quote	general	0	Ofdensen: Did you...book a gig...in Syria...without telling me?! Pickles: Eh... Murderface: Why are you yelling at us?
+tv-metalocalypse	life	tv-quote	general	0	Nathan: There's something bigger to think about. Our manager finally hates us...
+tv-metalocalypse	society	tv-quote	edgy	1	Ofdensen: Now, if for some reason, I can't convince one of these two countries to reschedule, we could be the cause of World War III...which will hurt record sales. And that's our bread and butter they're fucking with.
+tv-metalocalypse	life	tv-quote	general	0	[Nathan shocks Skwisgaar with the defibrillator. Skwisgaar loses consciousness and control of his bladder.] Nathan: Skwisgaar! It appears as if someone has peed your pants!
+tv-metalocalypse	life	tv-quote	edgy	1	Nathan: Pickles, wake up, we gotta go get Toki! Pickles: Okay, Nathan, do you think you're over parenting Toki, just a little bit? Nathan: Uhhhh...[seeing Murderface and Skwisgaar in the bed] What the fuck are you guys doing in his bed? Pickles: I'd rather not talk about it.
+tv-metalocalypse	life	tv-quote	general	0	Nathan: [cornering Toki's bully, holding Toki's broken snow globe] Tell me. Which hand do you fret with?
+tv-metalocalypse	life	tv-quote	general	0	Monks (Group):DoomSTAR! DoomSTAR!
+tv-metalocalypse	life	tv-quote	general	0	Klokkateers: Bow before the Doomstar, Klok keeps ticking further!
+tv-metalocalypse	life	tv-quote	general	0	Charle: Life on Earth will be eclipsed, The looming Metalocalypse! One of you must die! One of you must die!
+tv-metalocalypse	life	tv-quote	general	0	Priest:*Standing in the middle of The Church* Dethklok, they must be rejoined! Evil, it must be destroyed! No more apathetic, stoic... They can learn to be heroic. Write the song that will be our salvation...
+tv-metalocalypse	life	quip	general	0	Nine interviews viewable as extras on the Season 1 boxset. All but 'Future' and 'Food' are available online at Adult Swim
+tv-metalocalypse	life	quip	general	0	Education helps you, uh... learn.
+tv-metalocalypse	life	tv-quote	general	0	Nathan: Yeah, edu- what I learned was without education you can't get drunk...you can't crash cars...you can't pee into someone's face... Murderface: Yeah, education. Nathan: Yeah...Yeah, that's the smartests thing you've ever said. Murderface: Except that one thing.
+tv-metalocalypse	life	tv-quote	general	0	Murderface: Oh, it's a meta, meta-joke...meta...
+tv-metalocalypse	family	tv-quote	general	0	Skwisgaar: I don't have anything to say about family! So I will, uh.... be shuttings down now.
+tv-metalocalypse	life	tv-quote	general	0	Toki: I often thinks of the days in Norway when...family.... Pants&#65279; down... Spank...
+tv-metalocalypse	life	tv-quote	general	0	Murderface: I resemble my grandmother, and that makes me want to burn up from the inside to the out... side, and- (belches)
+tv-metalocalypse	life	tv-quote	general	0	Skwisgaar: One time, I was standing, uh, line at the bank, uh, trying to cash in a paycheck when I work, you know, as a teenager, and uh, actually, it took so long in line I had a natural disaster. In my pants.
+tv-metalocalypse	life	dark	general	0	"I never realized how white our eyes were until this darkness."
+tv-metalocalypse	life	tv-quote	general	0	"We only know when we're moving when we occasionally blink." -Nathan Explosion
+tv-metalocalypse	faith	tv-quote	general	0	Murderface: Well, their souls were created in hell. Nathan: That is true. Women's souls were created because women ate, what? The forbidden fru- Murderface: The forbidden rib!
+tv-metalocalypse	faith	tv-quote	nsfw	1	Toki: Yeah, I thinks the serpents supposed to be...the penis, with the apple supposed to be one ball, like Hitler!
+tv-metalocalypse	life	tv-quote	general	0	Murderface: Ah, women. .... Well.... they smell nice, but they are soul-murderers.

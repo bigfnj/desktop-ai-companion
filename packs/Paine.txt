@@ -1,0 +1,317 @@
+Paine	society	aphorism	general	0	(Always remembering, that our strength is continental, not provincial:)
+Paine	life	quip	general	0	-- Thomas Paine
+Paine	society	aphorism	general	0	...for though the flame of liberty may sometimes cease to shine, the coal can never expire.
+Paine	society	dark	general	0	...taxes are not raised to carry on wars, but that wars are raised to carry on taxes
+Paine	society	wisdom	general	0	...the so much boasted constitution of England...is imperfect, subject to convulsions, and incapable of producing what it seems to promise...
+Paine	society	aphorism	general	0	A body of men holding themselves accountable to nobody ought not to be trusted by anybody.
+Paine	life	wisdom	general	0	A good opinion of ourselves is exceedingly necessary in private life, but absolutely necessary in public life, and of the utmost importance in supporting national character.
+Paine	society	wisdom	general	0	A government or an administration, who means and acts honestly, has nothing to fear, and consequently has nothing to conceal
+Paine	society	aphorism	general	0	A government which cannot preserve the peace is no government at all...
+Paine	society	quip	general	0	A hereditary monarch is as absurd a position as a hereditary doctor or mathematician.
+Paine	society	wisdom	general	0	A long habit of not thinking a thing wrong, gives it a superficial appearance of being right, and raises at first a formidable outcry in defense of custom. But the tumult soon subsides. Time makes more converts than reason.
+Paine	faith	aphorism	general	0	A multiplication of beliefs acts as a division of belief; and in proportion as anything is divided, it is weakened.
+Paine	life	aphorism	general	0	A thing moderately good is not so good as it ought to be.
+Paine	faith	aphorism	general	0	All national institutions of churches, whether Jewish, Christian or Turkish, appear to me no other than human inventions, set up to terrify and enslave mankind, and monopolize power and profit."
+Paine	faith	quip	general	0	All the tales of miracles, with which the Old and New Testament are filled, are fit only for impostors to preach and fools to believe.
+Paine	society	wisdom	general	0	All their wishes centred in one, which was, that the country would turn out and help them to drive the enemy back.
+Paine	faith	quip	general	0	All this is nothing better than the jargon of a conjuror, who picks up phrases he does not understand to confound the credulous people who come to have their fortune told. Priests and conjurors are of the same trade.
+Paine	society	wisdom	general	0	An army of principles can penetrate where an army of soldiers cannot.
+Paine	society	wisdom	general	0	An army of principles will penetrate where an army of soldiers cannot. Neither the Channel nor the Rhine will arrest its progress. It will march on the horizon of the world and it will conquer.
+Paine	society	aphorism	general	0	And a government which cannot preserve the peace is no government at all, and in that case we pay our money for nothing
+Paine	society	aphorism	general	0	And as a man, who is attached to a prostitute, is unfitted to choose or judge of a wife, so any prepossession in favour of a rotten constitution of government will disable us from discerning a good one.
+Paine	faith	wisdom	general	0	Any system of religion that has anything in it that shocks the mind of a child,cannot be true.
+Paine	life	aphorism	general	0	Arguing with one who will not accept facts is like administering medicine to the dead.
+Paine	society	aphorism	general	0	Arms discourage and keep the invader and plunderer in awe, and preserve order in the world as well as property... Horrid mischief would ensue were the law-abiding deprived of the use of them.
+Paine	faith	wisdom	general	0	As mystery and miracles took charge of the past and present, prophesy took charge of the future and rounded the tenses of faith.
+Paine	society	wisdom	general	0	As parents, we can have no joy, knowing that this government is not sufficiently lasting to ensure any thing which we may bequeath to posterity: And by a plain method of argument, as we are running the next generation into debt
+Paine	society	wisdom	general	0	As politicians we ought not so much to ground our hopes on the reasonableness of the thing we ask, as on the reasonableness of the person whom we ask it: who would expect discretion from a fool, candor from a tyrant, or justice from a villain?
+Paine	society	wisdom	general	0	As to religion, I hold it to be the indispensible duty of all government, to protect all conscientious professors thereof, and I know of no other business which government hath to do therewith.
+Paine	life	aphorism	general	0	Better fare hard with good men than feast it with bad.
+Paine	life	wisdom	general	0	But it is necessary to the happiness of man, that he be mentally faithful to himself. Infidelity does not consist in believing, or in disbelieving; it consists in professing to believe what he does not believe.
+Paine	life	wisdom	general	0	But it is not incumbent on man to reward a bad action with a good one, or to return good for evil; and whenever it is done, it is a voluntary act, and not a duty. It
+Paine	life	wisdom	general	0	But such is the irresistible nature of truth, that all it asks, and all it wants, is the liberty of appearing.
+Paine	society	aphorism	general	0	But the fraud being once established, could not afterward be explained, for it is with a pious fraud as with a bad action, it begets a calamitous necessity of going on.
+Paine	society	wisdom	general	0	But where, says some, is the King of America? I'll tell you. Friend, he reigns above, and doth not make havoc of mankind like the Royal Brute of Britain.
+Paine	life	wisdom	general	0	But, as, when any of the prouder passions are hurt, it is much better philosophy to let a man slip into a good temper than to attack him in a bad one
+Paine	life	wisdom	general	0	Character is much easier kept than recovered, and that man, if any such there be, who, from sinister views, or littleness of soul, lends unseen his hand to injure it, contrives a wound it will never be in his power to heal.
+Paine	life	aphorism	general	0	Character is much easier kept than recovered.
+Paine	faith	quip	general	0	Christian theory is little else than the idolatry of ancient mythologists, accomodated to the purposes of power and revenue; and yet it remains to reason and philosophy to abolish the amphibious fraud.
+Paine	society	wisdom	general	0	Civilization, therefore, or that which is so-called, has operated two ways: to make one part of society more affluent, and the other more wretched,than would have been the lot of either in a natural state.
+Paine	society	wisdom	general	0	Common sense will tell us, that the power which hath endeavoured to subdue us, is of all others, the most improper to defend us.
+Paine	life	wisdom	general	0	Could the straggling thoughts of individuals be collected, they would frequently form materials for wise and able men to improve into useful matter.
+Paine	faith	wisdom	general	0	Creation speaketh an universal language, independently of human speech or human language
+Paine	life	wisdom	general	0	Credulity is not a crime, but it becomes criminal by resisting conviction. It is strangling in the womb of the conscience the efforts it makes to ascertain the truth. We should never force belief upon ourselves in anything.
+Paine	life	quip	general	0	Dukhoborcheskaya
+Paine	society	aphorism	general	0	Europe, and not England, is the parent country of America. This new World hath been the asylum for the persecuted lovers of civil and religious liberty from every part of Europe.
+Paine	society	wisdom	general	0	Every age and generation must be as free to act for itself in all cases as the age and generations which preceded it. The vanity and presumption of governing beyond the grave is the most ridiculous and insolent of all tyrannies.
+Paine	faith	wisdom	general	0	Every child born in the world must be considered as deriving its existence from God. The world is this new to him as it was to the first that existed, and his natural right in it is of the same kind.
+Paine	faith	wisdom	general	0	Every child born into the world must be considered as deriving its existence from God. The world is as new to him as it was to the first man that existed, and his natural right in it is of the same kind.
+Paine	life	wisdom	general	0	Every man who knows anything of languages, knows that it is impossible to translate from one language into another, not only without losing a great part of the original, but frequently of mistaking the sense.
+Paine	society	wisdom	general	0	Everything that is right or reasonable pleads for separation. The blood of the slain, the weeping voice of nature cries, 'tis time to part.
+Paine	life	wisdom	general	0	Fakat mutluluk iin insann zihinsel olarak kendine sadakat gstermesi gereklidir. manszlk sadece inan veya inanszlktan ibaret deildir; inanmad eye inanm gibi grnmeyi de kapsar.
+Paine	society	wisdom	general	0	For as in absolute governments the King is law, so in free countries the law ought to be King; and there ought to be no other.
+Paine	faith	wisdom	general	0	For myself, I fully and conscientiously believe, that it is the will of the Almighty, that there should be diversity of religious opinions among us: It affords a larger field for our Christian kindness.
+Paine	society	wisdom	general	0	For trade being the consequence of population, men become too much absorbed thereby to attend to anything else. Commerce diminishes the spirit, both of patriotism and military defence.
+Paine	faith	dark	general	0	For what is the amount of all his prayers, but an attempt to make the Almighty change his mind, and act otherwise than he does? It is as if he were to say thou knowest not so well as I.
+Paine	society	wisdom	general	0	Freedom had been hunted round the globe; reason was considered as rebellion; and the slavery of fear had made men afraid to think. But such is the irresistible nature of truth, that all it asks, and all it wants, is the liberty of appearing.
+Paine	society	wisdom	general	0	From the errors of other nations, let us learn wisdom
+Paine	faith	wisdom	general	0	Gerek din bilimsel bilgimizin kaynadr; bu bilgiden de tm sanatlar tremitir.
+Paine	society	wisdom	general	0	Give me liberty, or give me death. Thomas Payne, Common Sense
+Paine	society	quip	general	0	Government by Monks, who knew nothing of the world beyond the walls of a Convent, is as consistent as government by Kings.
+Paine	society	wisdom	general	0	Government, even in its best state, is but a necessary evil; in its worst state, an intolerable one.
+Paine	society	wisdom	general	0	Government, like dress, is the badge of lost innocence; the palaces of kings are built on the ruins of the bowers of paradise.
+Paine	society	wisdom	general	0	Governments, so far from being always the cause or means of order, are often the destruction of it.
+Paine	life	fact	general	0	He next made arrangements to patent his bridge, and to construct at Rotherham the large model of it exhibited on Paddington Green, London.
+Paine	society	wisdom	general	0	He that is the author of war lets loose the whole contagion of hell and opens a vein that bleeds a nation to death.
+Paine	society	wisdom	general	0	He that would make his own liberty secure must guard even his enemy from oppression; for if he violates this duty he establishes a precedent that will reach to himself.
+Paine	life	wisdom	general	0	He who dares not offend cannot be honest.
+Paine	society	wisdom	general	0	He who denies to another this right, makes a slave of himself to his present opinion, because he precludes himself the right of changing it. The most formidable weapon against errors of every kind is Reason.
+Paine	life	wisdom	general	0	Her trl yanla kar en amansz silah Akl'dr.
+Paine	society	wisdom	general	0	Here then is the origin and rise of government; namely, a mode rendered necessary by the inability of moral virtue to govern the world; here too is the design and end of government, viz. freedom and security.
+Paine	society	wisdom	general	0	Hij die zijn eigen vrijheid veilig wil stellen, moet zelfs zijn vijand tegen onderdrukking beschermen, want als hij die plicht schendt, schept hij een precedent dat op hemzelf terug zal slaan.
+Paine	society	aphorism	general	0	How impious is the title of sacred majesty applied to a worm, who in the midst of his splendor is crumbling into dust!
+Paine	faith	fact	general	0	Hristiyan inancnn destekileri ya da taraftarlar inanmasa ya da kabul etmese de cehalet dnemi Hristiyanlk sistemiyle balamtr
+Paine	faith	quip	general	0	Hristiyan kilisesi ad verilen kuramn pagan mitolojisinin kuyruuna taklp yeerdiini gzlemlemek ilgi ekicidir.
+Paine	faith	wisdom	general	0	I believe in one God, and no more; and I hope for happiness beyond this life. I believe in the equality of humans; and I believe that religious duties consist in doing justice, loving mercy, and endeavoring to make our fellow creatures happy.
+Paine	faith	aphorism	general	0	I believe in the equality of man, and I believe that religious duties consist of doing justice, loving mercy, and endeavoring to make our fellow-creatures happy.
+Paine	faith	wisdom	general	0	I believe in the equality of man; and I believe that religious duties consist in doing justice, loving mercy, and endeavoring to make our fellow-creatures happy.
+Paine	faith	wisdom	general	0	I believe in the same manner at this moment; and I moreover believe, that any system of religion that has anything in it that shocks the mind of a child, cannot be a true system.
+Paine	life	verse	general	0	I choose my life to this free. I choose my life to be this way
+Paine	faith	quip	general	0	I do not believe in the creed professed by the Jewish church, by the Roman church, by the Greek church, by the Turkish church, by the Protestant church, nor by any church that I know of. My own mind is my own church.
+Paine	faith	observation	general	0	I do not believe in the creed professed by the Jewish church, by the Roman church, by the Greek church, by the Turkish church, by the Protestant church, nor by any church that I know of. My own mind is my own church. All
+Paine	society	wisdom	general	0	I draw my idea of the form of government from a principle in nature, which no art can overturn, viz. that the more simple any thing is, the less liable it is to be disordered, and the easier repaired when disordered
+Paine	life	uplifting	general	0	I love the man that smiles at trouble: that can gather strength from distress, and grow brave by reflection.
+Paine	life	aphorism	general	0	I offer nothing more than simple facts, plain arguments, and common sense.
+Paine	society	wisdom	general	0	I prefer peace, but if trouble must come, let it be in my time that my children may know peace. Thomas Payne
+Paine	faith	dark	general	0	I would give worlds, if I had them, that the Age of Reason had never been published. Oh, god, save me; for I am at the edge of hell alone.
+Paine	faith	quip	general	0	If I do not believe as you believe, it proves that you do not believe as I believe, and that is all that it proves.
+Paine	society	quip	general	0	If nobody will be so kind as to become my foe, I shall need no more fleets nor armies, and shall be forced to reduce my taxes.
+Paine	society	wisdom	general	0	If the present generation, or any other, are disposed to be slaves, it does not lessen the right of the succeeding generation to be free.
+Paine	family	wisdom	general	0	If there must be trouble, let it be in my day, that my child may have peace.
+Paine	family	wisdom	general	0	If there must be trouble, let it be in my day, that my child may have peace; and this single reflection, well applied, is sufficient to awaken every man to duty.
+Paine	society	wisdom	general	0	If those to whom power is delegated do well, they will be respected: if not, they will be despised; and with regard to those to whom no power is delegated, but who assume it, the rational world can know nothing of them.
+Paine	society	wisdom	general	0	Ignorance is of a peculiar nature: once dispelled, it is impossible to re-establish it. It is not originally a thing of itself, but is only the absence of knowledge; and though man may be kept ignorant, he cannot be made ignorant.
+Paine	society	wisdom	general	0	Immediate necessity makes many things convenient, which if continued would grow into oppressions.
+Paine	society	wisdom	general	0	Immediate necessity makes many things convenient, which if continued would grow into oppressions. Expedience and right are different things.
+Paine	society	wisdom	general	0	Immediate necessity makes many things convenient, which if continued would grow into oppressions. Expedience and right are different things. When
+Paine	society	wisdom	general	0	In despotic governments wars are the effect of pride; but in those governments in which they become the means of taxation, they acquire thereby a more permanent promptitude.
+Paine	life	aphorism	general	0	In mourning the plumage, he forgot the dying bird thomas paine
+Paine	society	observation	general	0	In reviewing the history of the English government, its wars and its taxes, a bystander, not blinded by prejudice nor warped by interest, would declare that taxes were not raised to carry on wars, but that wars were raised to carry on taxes.
+Paine	society	wisdom	general	0	In the early ages of the world, according to the scripture chronology, there were no kings; the consequence of which was there were no wars; it is the pride of kings which throws mankind into confusion.
+Paine	society	wisdom	general	0	Independence is my happiness, and I view things as they are, without regard to place or person; my country is the world, and my religion is to do good.
+Paine	society	aphorism	general	0	Independence is my happiness, and I view things as they are, without regard to place or person; my country is the world, and my religion is to do good. thomas paine, Rights of Man
+Paine	faith	wisdom	general	0	Infidelity does not consist in believing, or in disbelieving; it consists in professing to believe what he does not believe.
+Paine	faith	quip	general	0	Infidelity does not consist in believing, or in disbelieving; it consists in professing to believe what he does not believe. It
+Paine	society	quip	general	0	Is the power who is jealous of our prosperity, a proper power to govern us?
+Paine	faith	quip	general	0	It is a duty incumbent on every true deist, that he vindicates the moral justice of God against the calumnies of the Bible.
+Paine	life	wisdom	general	0	It is by tracing things to their origin, that we learn to understand them; and it is by keeping that line and that origin always in view, that we never forget them.
+Paine	society	wisdom	general	0	It is easy to see that when Republican virtues fail, slavery ensues.
+Paine	life	wisdom	general	0	It is error only, and not truth, that shrinks from inquiry.
+Paine	faith	observation	general	0	It is from the Bible that man has learned cruelty, rapine, and murder; for the belief of a cruel God makes a cruel man.
+Paine	society	wisdom	general	0	It is important that we should never lose sight of this distinction. We must not confuse the peoples with their governments...
+Paine	society	wisdom	general	0	It is impossible to find any equivalent counterpoise for the right of suffrage, because it is alone worthy to be its own basis, and cannot thrive as a graft, or an appendage. -Agrarian Justice
+Paine	life	wisdom	general	0	It is necessary to the happiness of man that he be mentally faithful to himself. Infidelity does not consist in believing, or in disbelieving, it consists in professing to believe what he does not believe.
+Paine	life	wisdom	general	0	It is not because right principles have been violated, that they are to be abandoned.
+Paine	life	wisdom	general	0	It is not because the right principles have been violated, that they are to be abandoned.
+Paine	society	aphorism	general	0	It is not in numbers, but in unity, that our great strength lies.
+Paine	society	wisdom	general	0	It is not in numbers, but in unity, that our great strength lies; yet our present numbers are sufficient to repel the force of all the world
+Paine	society	wisdom	general	0	It is not in numbers, but in unity, that our great strength lies; yet our present numbers are sufficient to repel the force of all the world. The Continent hath, at this time, the largest body of armed and disciplined men of any power under Heaven
+Paine	society	wisdom	general	0	It is not in the power of Britain or of Europe to conquer America, if she do not conquer herself by DELAY and TIMIDITY.
+Paine	society	wisdom	general	0	It is not the antiquity of a tale that is an evidence of its truth; on the contrary, it is a symptom of its being fabulous; for the more ancient any history pretends to be, the more it has the resemblance of a fable. thomas paine, The Age of Reason
+Paine	society	wisdom	general	0	It is the duty of every man, as far as his ability extends, to detect and expose delusion and error.
+Paine	society	wisdom	general	0	It is the pride of kings that throws man kind into confusion.
+Paine	society	wisdom	general	0	It may be considered as an honour to the animal faculties of man to obtain redress by courage and danger, but it is far greater honour to the rational faculties to accomplish the same object by reason, accommodation, and general consent.
+Paine	life	wisdom	general	0	It was needless, after this, to say that all was vanity and vexation of spirit; for it is impossible to derive happiness from the company of those whom we deprive of happiness.
+Paine	faith	fact	general	0	Jesus Christ wrote no account of himself, of his birth, parentage, or anything else. Not a line of what is called the New Testament is of his writing.
+Paine	society	quip	general	0	Kill the king but spare the man.
+Paine	life	aphorism	general	0	Lead, follow, or get out of the way.
+Paine	society	wisdom	general	0	Let a crown be placed thereon, by which the world may know, that so far as we approve of monarcy, that in America the law is King. For as in absolute governments the King is law, so in free countries the law ought to be King; and there ought to be no other.
+Paine	society	wisdom	general	0	Let it then be heard, and let man learn to feel that the true greatness of a nation is founded on principles of humanity, and not on conquest.
+Paine	society	wisdom	general	0	Let the names of Whig and Tory be extinct; and let none other be heard among us, than those of A GOOD CITIZEN, AN OPEN AND RESOLUTE FRIEND, AND A VIRTUOUS SUPPORTER OF THE RIGHTS OF MANKIND AND OF THE FREE AND INDEPENDANT STATES OF AMERICA.
+Paine	society	wisdom	general	0	Make government what it ought to be, and it will support itself.
+Paine	life	wisdom	general	0	Man cannot make principles, he can only discover them.
+Paine	society	wisdom	general	0	Man did not enter into society to become worse than he was before, nor to have fewer rights than he had before, but to have those rights better secured.
+Paine	society	wisdom	general	0	Man did not enter into society to become worse than he was before, nor to have fewer rights than he had before, but to have those rights better secured. His natural rights are the foundation of all his civil rights.
+Paine	society	wisdom	general	0	Man did not enter society to be worse off, or to have fewer rights, but rather to have those rights better secured
+Paine	society	wisdom	general	0	Man is not the enemy of man, but through the medium of a false system of Government.
+Paine	society	aphorism	general	0	Man, were he not corrupted by governments, is naturally the friend of man, and . . . human nature is not of itself vicious.
+Paine	life	wisdom	general	0	Men do not change from enemies to friends by the alteration of a name
+Paine	faith	wisdom	general	0	Mind thine own concerns. If he believes not as thou believest, it is a proof that thou believest not as he believes, and there is no earthly power can determine between you.
+Paine	society	aphorism	general	0	Mingling religion with politics may be disavowed and reprobated by every inhabitant of America.
+Paine	life	wisdom	general	0	Misfortune and experience are lost upon mankind, when they produce neither reflection nor reformation. Evils, like poisons, have their uses, and there are diseases which no other remedy can reach.
+Paine	life	aphorism	general	0	Moderation in temper is always a virtue; but moderation in principle is always a vice.
+Paine	society	wisdom	general	0	Monarchy and succession have laid (not this or that kingdom only) but the world in blood and ashes. 'Tis a form of government which the word of God bears testimony against, and blood will attend it.
+Paine	society	dark	general	0	Monarchy and succession have laid (not this or that kingdom only) but the world in blood and ashes.
+Paine	society	wisdom	general	0	Most wise men, in their private sentiments, have ever treated hereditary right with contempt; yet
+Paine	life	wisdom	general	0	Mutluluktan mahrum ettiimiz bir topluluktan mutluluk beklemek imkanszdr.
+Paine	life	wisdom	general	0	My country is the world, and my religion is to do good.
+Paine	faith	quip	general	0	My own mind is my own church.
+Paine	society	wisdom	general	0	Nations, like individuals, who have long been enemies, without knowing each other, or knowing why, become better friends when they discover the errors and impositions under which they had acted.
+Paine	faith	wisdom	general	0	Necredinta nu consta in a crede sau in a nu crede, ci in faptul de a marturisi credinta in ceea ce nu crezi.
+Paine	life	dark	general	0	Nothing, they say is more certain than death, and nothing more uncertain than the time of dying
+Paine	faith	wisdom	general	0	O mundo meu pas, os humanos so meus irmos e fazer o bem minha religio.
+Paine	life	wisdom	general	0	Of all the innocent passions which actuate the human mind there is none more universally prevalent than curiosity. It reaches all mankind, and in matters which concern us, or concern us not, it alike provokes in us a desire to know them.
+Paine	faith	wisdom	general	0	Of all the tyrannies that affect mankind, tyranny in religion is the worst; every other species of tyranny is limited to the world we live in; but this attempts to stride beyond the grave, and seeks to pursue us into eternity.
+Paine	society	wisdom	general	0	Of more worth is one honest man to society and in the sight of God, than all the crowned ruffians that ever lived.
+Paine	society	wisdom	general	0	On this question of war, three things are to be considered. First, the rights of declaring it: secondly, the expense of supporting it: thirdly, the mode of conducting it after it is declared.
+Paine	faith	quip	general	0	One good schoolmaster is of more use than a hundred priests.
+Paine	society	wisdom	general	0	Oppression is often the consequence, but seldom or never the means of riches; and though avarice will preserve a man from being necessitously poor, it generally makes him too timorous to be wealthy.
+Paine	society	wisdom	general	0	Our present condition, is, Legislation without law; wisdom without a plan; constitution without a name; and, what is strangely astonishing, perfect Independance contending for dependance.
+Paine	faith	wisdom	general	0	Persecution is not an original feature in any religion; but it is always the strongly marked feature of all religions established by law.
+Paine	faith	quip	general	0	Peygamberlik profesyonel bir yalanclktr. Neredeyse dier tm vakalarda basit bir varsaymn bile insanlarn safl sayesinde bir yalana dntn ve bu yalann da sonunda gerek olarak anlatldn grmek zor deildir.
+Paine	faith	aphorism	general	0	Propria mea minte este biserica mea.
+Paine	society	wisdom	general	0	Prosecution is not an original feature in any religion; but it is always the strongly-marked feature of all law-religious, or religions established by law. Take away the law-establishment, and every religion re-assumes its original benignity.
+Paine	society	wisdom	general	0	Put us, say some, on the footing we were on in sixty-three: To which I answer, the
+Paine	faith	wisdom	general	0	Reader, whoever thou art, put thy trust in thy Creator, make use of the reason he endowed thee with, and cast from thee all such fables.
+Paine	life	wisdom	general	0	Reason obeys itself; and ignorance submits to whatever is dictated to it.
+Paine	society	aphorism	general	0	Reason obeys itselt; and ignorance submits to whatever is dictated to it.
+Paine	faith	aphorism	general	0	Reputation is what men and women think of us; character is what God and angels know of us.
+Paine	life	wisdom	general	0	Resolution is our inherent character, and courage hath never yet forsaken us. Wherefore, what is it that we want? Why is it that we hesitate?
+Paine	faith	observation	general	0	S-ar putea spune ca, daca va avea loc o astfel de revolutie a sistemului religios, fiecare predicator va trebui sa fie un filosof : cu certitudine iar fiecare casa de rugaciune va trebuie sa fie o scoala de stiinte.
+Paine	society	wisdom	general	0	Small islands, not capable of protecting themselves, are the proper objects for kingdoms to take under their care; but there is something absurd, in supposing a continent to be perpetually governed by an island.
+Paine	society	wisdom	general	0	Society in every state is a blessing, but a government even in its best state is but a necessary evil; in its worst state an intolerable one
+Paine	society	wisdom	general	0	Society in every state is a blessing, but government even in its best state is but a necessary evil
+Paine	society	wisdom	general	0	Society in every state is a blessing, but government even in its best state is but a necessary evil; in its worst state an intolerable one
+Paine	society	wisdom	general	0	Society in every state is a blessing, but government, even in its best state, is a necessary evil; in its worst state, an intolerable one.
+Paine	society	wisdom	general	0	Society is produced by our wants, and government by our wickedness. Society promotes our happiness positively by uniting our affections, government negatively by restraining our vices. Society encourages intercourse. Government creates distinctions.
+Paine	society	wisdom	general	0	Society is produced by our wants, and government by our wickedness; the former promotes our happiness POSITIVELY by uniting our affections, the latter NEGATIVELY by restraining our vices.
+Paine	society	wisdom	general	0	Society is produced by our wants, and government by wickedness; the former promotes our happiness positively by uniting our affections, the latter negatively by restraining our vices.
+Paine	society	wisdom	general	0	Suspicion is the companion of mean souls, and the bane of all good society.
+Paine	faith	quip	general	0	THE WORD OF GOD IS THE CREATION WE BEHOLD
+Paine	faith	wisdom	general	0	THUS much for the Bible; I now go on to the book called the New Testament. The new Testament! that is, the new Will, as if there could be two wills of the Creator.
+Paine	faith	wisdom	general	0	Tanr'nn ne olduunu bilmek istiyor muyuz? Bunu herhangi bir insann yazabilecei yazl kitaplarda arama, ama Yaratl'n imzasnda ara.
+Paine	society	aphorism	general	0	Teach governments humanity. It is their sanguinary punishments which corrupt mankind.
+Paine	faith	wisdom	general	0	Tek Tanr'ya inanrm, baka bir eye deil; bu yaamdan sonra da mutluluk olmasn umut ederim.
+Paine	society	aphorism	general	0	That government is best which governs least.
+Paine	society	wisdom	general	0	That in which every man is interested, is every man's duty to support. And any burden which falls equally on all men, and from which every man is to receive an equal benefit, is consistent with the most perfect ideas of liberty.
+Paine	society	dark	general	0	That there are men in all countries who get their living by war, and by keeping up the quarrels of Nations is as shocking as it is true...
+Paine	life	wisdom	general	0	That which is now called learning, was not learning originally. Learning does not consist, as the schools now make it consist, in the knowledge of languages, but in the knowledge of things to which language gives names.
+Paine	life	aphorism	general	0	That which we obtain too easily we esteem too lightly.
+Paine	life	wisdom	general	0	That which we obtain too easily, we esteem lightly.
+Paine	faith	quip	general	0	The Christian mythologists tell us that Christ died for the sins of the world, and that he came on Purpose to die. Would it not then have been the same if he had died of a fever or of the small pox, of old age, or of anything else?
+Paine	faith	observation	general	0	The Christian religion is a parody on the worship of the sun, in which they put a man called Christ in the place of the sun, and pay him the adoration originally payed to the sun.
+Paine	faith	wisdom	general	0	The Christian theory is little else than the idolatry of the ancient mythologists, accommodated to the purposes of power and revenue; and it yet remains to reason and philosophy to abolish the amphibious fraud.
+Paine	society	wisdom	general	0	The House of Commons did not originate as a matter of right in the people to delegate or elect, but as a grant or boon.
+Paine	society	wisdom	general	0	The World is my country, all mankind are my brethren, and to do good is my religion.
+Paine	society	aphorism	general	0	The cause of America is in a great measure the cause of all mankind.
+Paine	society	wisdom	general	0	The cause of America is in a great measure the cause of all mankind. Many circumstances have, and will arise, which are not local, but universal
+Paine	society	wisdom	general	0	The cause of America is in great measure the cause of all mankind.
+Paine	faith	quip	general	0	The christian religion is a parody on the worship of the Sun, in which they put a man whom they call Christ, in the place of the Sun, and pay him the same adoration which was originally paid to the Sun.
+Paine	faith	wisdom	general	0	The christian religion is a parody on the worship of the Sun, in which they put a man whom they call Christ, in the place of the Sun, and pay him the same adoration which was originally paid to the Sun. [An Essay on the Origin of Free-Masonry]
+Paine	society	wisdom	general	0	The circumstances of the world are continually changing, and the opinions of men change also; and as government is for the living, and not for the dead, it is the living only that has any right in it.
+Paine	society	wisdom	general	0	The connection between vice and meanness is a fit subject for satire, but when the satire is a fact, it cuts with the irresistible power of a diamond.
+Paine	society	wisdom	general	0	The defects of every government and constitution both as to principle and form, must, on a parity of reasoning, be as open to discussion as the defects of a law, and it is a duty which every man owes to society to point them out.
+Paine	society	aphorism	general	0	The difference between a republican and a courtier with respect to monarchy, is that the one opposes monarchy, believing it to be something; and the other laughs at it, knowing it to be nothing.
+Paine	society	quip	general	0	The duty of a true Patriot is to protect his country from its government.
+Paine	life	wisdom	general	0	The eye accustomed to darkness can hardly bear at first the broad daylight. It is by usage the eye learns to see, and it is the same in passing from any situation to its opposite.
+Paine	life	aphorism	general	0	The greatest remedy for anger is delay.
+Paine	society	wisdom	general	0	The guilt of a government is the crime of a whole country
+Paine	life	aphorism	general	0	The harder the conflict the more glorious the triumph.
+Paine	life	wisdom	general	0	The harder the conflict, the more glorious the triumph. What we obtain too cheap, we esteem too lightly; it is dearness only that gives everything its value. I love the man that can smile in trouble, that can gather strength from distress and grow.
+Paine	love	wisdom	general	0	The intimacy which is contracted in infancy, and the friendship which is formed in misfortune, are, of all others, the most lasting and unalterable.
+Paine	society	wisdom	general	0	The laws of every country must be analogous to some common principle.
+Paine	life	wisdom	general	0	The least fracture now will be like a name engraved with the point of a pin on the tender rind of a young oak; the wound will enlarge with the tree, and posterity read it in full grown characters.
+Paine	life	wisdom	general	0	The mind once enlightened cannot again become dark.
+Paine	life	wisdom	general	0	The more men have to lose, the less willing are they to venture.
+Paine	society	wisdom	general	0	The more men have to lose, the less willing are they to venture. The rich are in general slaves to fear, and submit to courtly power with the trembling duplicity of a Spaniel.
+Paine	society	aphorism	general	0	The most effectual process is that of improving the condition of man by means of his interest.
+Paine	life	wisdom	general	0	The most formidable weapon against errors of every kind is Reason.
+Paine	life	wisdom	general	0	The most formidable weapon against errors of every kind is reason. I have never used any other, and I trust I never shall.
+Paine	society	aphorism	general	0	The poor, in all countries, are naturally both peaceable and grateful in all reforms in which their interest and happiness is included. It is only by neglecting and rejecting them that they become tumultuous.
+Paine	society	wisdom	general	0	The prejudice of Englishmen, in favour of their own government by king, lords and commons, arises as much or more from national pride than reason.
+Paine	life	wisdom	general	0	The real man smiles in trouble, gathers strength from distress, and grows brave by reflection.
+Paine	society	aphorism	general	0	The right of war and peace is in the nation. where else should it reside but in those who are to pay the expense?
+Paine	society	wisdom	general	0	The state of a king shuts him from the world, yet the business of a king requires him to know it thoroughly
+Paine	life	wisdom	general	0	The strength of one man is so unequal to his wants, and his mind so unfitted for perpetual solitude, that he is soon obliged to seek assistance and relief of another, who in his turn requires the same
+Paine	society	wisdom	general	0	The sun never shined on a cause of greater worth Thomas paine
+Paine	faith	quip	general	0	The whole religious complexion of the modern world is due to the absence from Jerusalem of a lunatic asylum.
+Paine	life	wisdom	general	0	The wise, and the worthy, need not the triumph of a pamphlet
+Paine	life	aphorism	general	0	The world is my country, mankind are my friends, to do good is my religion.
+Paine	life	wisdom	general	0	There are injuries which nature cannot forgive; she would cease to be nature if she did.
+Paine	life	wisdom	general	0	There exists in man a mass of sense lying in a dormant state, and which, unless something excites it to action, will descend with him, in that condition,to the grave.
+Paine	society	wisdom	general	0	There is something in a war carried on by invasion which makes it differ in circumstances from any other mode of war, because he who conducts it cannot tell whether the ground he gains be for him, or against him, when her first obtains it.
+Paine	life	wisdom	general	0	There is something in meanness which excites a species of resentment that never subsides, and something in cruelty which stirs up the heart to the highest agony of human hatred.
+Paine	life	wisdom	general	0	There never yet was any truth or principle so irresistibly obvious, that all men believed it at once.
+Paine	society	wisdom	general	0	These are the times that try men's souls.
+Paine	faith	dark	general	0	This sort of absurd subterfuge, and this manner of speaking of the Almighty, as one would speak of a man, is consistent with nothing but the stupidity of the Bible.
+Paine	society	aphorism	general	0	Those who expect to reap the blessings of freedom, must, like men, undergo the fatigues of supporting it.
+Paine	society	wisdom	general	0	Those who live always in houses can find many ways to keep themselves warm, but it is a shame and a sin to suffer a soldier in the field to want a blanket while there is one in the country.
+Paine	society	wisdom	general	0	Though age will naturally exempt a person from personal service, it cannot exempt him from his share of the charge, because the men are raised for the defence of property and liberty jointly.
+Paine	life	aphorism	general	0	Time makes more converts than reason.
+Paine	life	wisdom	general	0	Tis the business of little minds to shrink; but he whose heart is firm, and whose conscience approves his conduct, will pursue his principles unto death.
+Paine	life	wisdom	general	0	Tm kinat dzenleyen ve yneten ilkeler gibi her bilimin de sabit ve deitirilemez ilkeleri vardr. nsan bu ilkeleri yapamaz ancak onlar kefedebilir.
+Paine	society	wisdom	general	0	To argue with a man who has renounced the use and authority of reason, and whose philosophy consists in holding humanity in contempt, is like administering medicine to the dead, or endeavoring to convert an atheist by scripture.
+Paine	life	aphorism	general	0	To argue with a man who has renounced the use of reason is like administering medicine to the dead.
+Paine	society	wisdom	general	0	To argue with a person who has renounced the use of reason is like administering medicine to the dead.
+Paine	faith	quip	general	0	To believe that God created a plurality of worlds, at least as numerous as what we call stars, renders the Christian faith at once little and ridiculous; and scatters it in the mind like feathers in the air.
+Paine	society	wisdom	general	0	To reason with goverments, as they have existed for ages, is to argue with brutes. It is only from the nations themselves that reforms can be expected
+Paine	society	wisdom	general	0	To reason with governments, as they have existed for ages, is to argue with brutes. It is only from the nations themselves that reforms can be expected.
+Paine	society	wisdom	general	0	To unite the sinews of commerce and defence is sound policy; for when our strength and our riches, play into each other's hand, we need fear no external enemy.
+Paine	life	wisdom	general	0	Toho, co snadno zskme, si pli nevme. Pouze to, o co musme usilovat, m skutenou hodnotu.
+Paine	society	wisdom	general	0	Tyranny, like hell, is not easily conquered; yet we have this consolation with us, that the harder the conflict, the more glorious the triumph payne thomas
+Paine	society	wisdom	general	0	Tyranny, like hell, is not easily conquered; yet we have this consolation with us, that the harder the conflict, the more glorious the triumph.
+Paine	faith	wisdom	general	0	Uydurma olmayan ve iinde zgn ilahiliin tm kantlarn barndran tek din saf ve basit deizmdir
+Paine	life	aphorism	general	0	Virtue is not hereditary.
+Paine	society	wisdom	general	0	WHEREFORE, security being the true design and end of government, it unanswerably follows that whatever FORM thereof appears most likely to ensure it to us, with the least expence and greatest benefit, is preferable to all others.
+Paine	work-money	wisdom	general	0	Wat wij te goedkoop verwerven, schatten we te laag in. Het is duurte die alles zijn waarde geeft.
+Paine	society	uplifting	general	0	We have it in our power to begin the world all over again
+Paine	society	wisdom	general	0	We have it in our power to begin the world over again.
+Paine	faith	quip	general	0	We must be compelled to hold this doctrine to be false, and the old and new law called the Old and new Testament, to be impositions, fables and forgeries
+Paine	society	wisdom	general	0	Wer seine eigene Freiheit sichern will, muss selbst seinen Feind vor Unterdrckung schtzen.
+Paine	society	wisdom	general	0	What Athens was in miniature America will be in magnitude. The one was the wonder of the ancient world; the other is becoming the admiration of the present.
+Paine	faith	dark	general	0	What is it the Bible teaches us? repine, cruelty, and murder. What is it the Testament teaches us? to believe that the Almighty committed debauchery with a woman engaged to be married; and the belief of this debauchery is called faith.
+Paine	life	aphorism	general	0	What we obtain too cheap we esteem too lightly.
+Paine	society	wisdom	general	0	What we obtain too cheap, we esteem too lightly: it is dearness only that gives every thing value. Heaven knows how to put a proper price upon it's goods; and it would be strange indeed if so celestial an article as freedom should not be highly rated
+Paine	work-money	wisdom	general	0	What we obtain too cheaply, we esteem too lightly; it's dearness only that gives everthing its value. Thomas Payne
+Paine	society	wisdom	general	0	Whatever is my right as a man is also the right of another; and it becomes my duty to guarantee as well as to possess. thomas paine, Rights of Man
+Paine	society	aphorism	general	0	Whatever the form or constitution of government may be, it ought to have no other object than the general happiness.
+Paine	society	wisdom	general	0	When men yield up the privilege of thinking, the last shadow of liberty quits the horizon. thomas paine
+Paine	society	wisdom	general	0	When my country, into which I had just set my foot, was set on fire about my ears, it was time to stir. It was time for every man to stir.
+Paine	life	wisdom	general	0	When the tongue or the pen is let loose in a frenzy of passion, it is the man, and not the subject, that becomes exhausted.
+Paine	society	aphorism	general	0	When we are planning for posterity, we ought to remember that virtue is not hereditary.
+Paine	society	aphorism	general	0	Where there are no distinctions there can be no superiority, perfect equality affords no temptation.
+Paine	science	wisdom	general	0	Whether we sleep or wake, the vast machinery of the universe still goes on.
+Paine	faith	wisdom	general	0	Why may we not suppose, that the great Father of al is pleased with variety of devotion; and that the greatest offence we can act, is that by which we seek to torment and render each other miserable?
+Paine	society	wisdom	general	0	With how much more glory, and advantage to itself, does a nation act, when it exerts its powers to rescue the world from bondage, and to create itself friends, than when it employs those powers to increase ruin, desolation, and misery.
+Paine	life	aphorism	general	0	Yalan sylemek kolaydr ama devam ettirmek zordur.
+Paine	society	wisdom	general	0	Yet it is folly to argue against determined hardness; eloquence may strike the ear, and the language of sorrow draw forth the tear of compassion, but nothing can reach the heart that is steeled with prejudice.
+Paine	life	wisdom	general	0	Yet panics, in some cases, have their uses; they produce as much good as hurt. Their duration is always short; the mind soon grows through them, and acquires a firmer habit than before.
+Paine	love	aphorism	general	0	You were not contented while you had her, and to weep for her now is childish.
+Paine	society	wisdom	general	0	a government which cannot preserve the peace, is no government at all, and in that case we pay our money for nothing
+Paine	life	aphorism	general	0	a long Habit of not thinking a Thingwrong,gives it a superficial appearance of beingright,and
+Paine	society	quip	general	0	a long habit of not thinking a thing WRONG, gives it a superficial appearance of being RIGHT, and raises at first a formidable outcry in defence of custom.
+Paine	society	wisdom	general	0	a long habit of not thinking a thing WRONG, gives it a superficial appearance of being RIGHT, and raises at first a formidable outcry in defense of custom.
+Paine	life	quip	general	0	absurdity
+Paine	life	dark	general	0	as a man predicts ill, he becomes inclined to wish it. The pride of having his judgment right hardens his heart, till at last he beholds with satisfaction, or sees with disappointment, the accomplishment or failure of his predictions.
+Paine	society	aphorism	general	0	as in absolute governments the King is law, so in free countries the law OUGHT to be King; and there ought to be no other. But
+Paine	society	wisdom	general	0	but from the errors of other nations let us learn wisdom, and lay hold of the present opportunityto begin government at the right end.
+Paine	faith	wisdom	general	0	do we want to know what God is? Search not the book called the scripture, which any human hand might make, but the scripture called the Creation.
+Paine	society	wisdom	general	0	enforce obedience thereto. The object, on either side, doth not justify the means; for the lives of men are too
+Paine	love	wisdom	general	0	for no man expects to be loved himself for his crime or for his enmity.
+Paine	faith	wisdom	general	0	for so unlimited a power can belong only to God.
+Paine	society	wisdom	general	0	for that which is a disgrace to human nature, throws something of a shade over all the human character, and each individual feels his share of the wound that is given to the whole.
+Paine	society	wisdom	general	0	for this continent would never suffer itself to be drained of inhabitants, to support the British arms in either Asia, Africa, or Europe.
+Paine	faith	wisdom	general	0	if all with doubts about the factual basis of their religion will but commit to their resolution through direct and unfettered inquiry, our country - and with it the world - will see a rebirth of Liberty
+Paine	society	aphorism	general	0	if they cannot conquer us, they cannot govern us.
+Paine	faith	aphorism	general	0	in one point, all nations of the earth and all religions agree. All believe in a God, The things in which they disgrace are the redundancies annexed to that belief
+Paine	society	wisdom	general	0	is at hand, and a race of men, perhaps as numerous as all Europe contains, are to receive their portion of freedom from the event of a few months.
+Paine	life	aphorism	general	0	long habit of not thinking a thing WRONG, gives it a superficial appearance of being RIGHT
+Paine	life	wisdom	general	0	love the man that can smile in trouble, that can gather strength from distress, and grow brave by reflection.
+Paine	society	aphorism	general	0	monarchy in every instance is the Popery of government.
+Paine	life	verse	general	0	never can true reconcilement grow where wounds of deadly hate have pierced so deep.
+Paine	society	wisdom	general	0	nothing flatters vanity, or confirms obstinacy in Kings more than repeated petitioning
+Paine	faith	wisdom	general	0	nsan, Tanr'y akl yrtme yoluyla kefedebilir.
+Paine	life	quip	general	0	pamphleteer
+Paine	society	aphorism	general	0	peace WITH trade, is preferable to war WITHOUT it.
+Paine	society	wisdom	general	0	security being the true design and end of government, it unanswerably follows that whatever form thereof appears most likely to ensure it to us, with the least expence and greatest benefit, is preferable to all others.
+Paine	society	wisdom	general	0	that a thirst for absolute power is the natural disease of monarchy.
+Paine	society	aphorism	general	0	that which is right will become popular, and that which is wrong, though by mistake it may obtain the cry or fashion of the day, will soon lose the power of delusion, and sink into disesteem.
+Paine	faith	quip	general	0	the Jewish nation, immediately on the death of Solomon, split into two parties, who chose separate kings, and who carried on most rancorous wars against each other.
+Paine	faith	wisdom	general	0	the church has set up a system of religion very contradictory to the character of the person whose name it bears. It has set up a religion of pomp and of revenue in pretended imitation of a person whose life was humility and poverty.
+Paine	society	wisdom	general	0	the greatest forces that can be brought into the field of revolutions, are reason and common interest. Where these can have the opportunity of acting, opposition dies with fear, or crumbles away by conviction.
+Paine	life	wisdom	general	0	the more simple any thing is, the less liable it is to be disordered, and the easier repaired when disordered
+Paine	faith	observation	general	0	they carry the ideas they form of the benevolence of the Almighty to the book which they have been taught to believe was written by his authority. Good heavens! it is quite another thing, it is a book of lies, wickedness, and blasphemy
+Paine	life	aphorism	general	0	though he may be cruel, never can be brave. But
+Paine	life	wisdom	general	0	virtue, as I have already remarked, is not hereditary, neither is it perpetual.
+Paine	life	wisdom	general	0	we are never in a proper condition of doing justice to others, while we continue under the influence of some leading partiality, so neither are we capable of doing it to ourselves while we remain fettered by any obstinate prejudice. And
+Paine	faith	observation	general	0	why do men continue to practice in themselves, the absurdities they despise in others?

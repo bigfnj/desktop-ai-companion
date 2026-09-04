@@ -1,0 +1,56 @@
+off-drugs	work-money	aphorism	general	0	(1) Never give anything away for nothing. (2) Never give more than you have to (always catch the buyer hungry and always make him wait). (3) Always take back everything if you possibly can.
+off-drugs	life	pun	general	0	A friend with weed is a friend indeed.
+off-drugs	life	quip	general	0	A joint is just tea for two.
+off-drugs	life	quip	general	0	A life spent in search of the perfect hash brownie is a life well spent.
+off-drugs	life	quip	general	0	Acid -- better living through chemistry.
+off-drugs	life	quip	general	0	Acid absorbs 47 times its own weight in excess Reality.
+off-drugs	faith	aphorism	general	0	"All flesh is grass"
+off-drugs	life	quip	general	0	Being stoned on marijuana isn't very different from being stoned on gin.
+off-drugs	life	quip	general	0	Beware of a tall dark man with a spoon up his nose.
+off-drugs	life	dark	general	0	But these pills can't be habit forming; I've been taking them for years.
+off-drugs	life	quip	general	0	Cocaine is nature's way of telling you you have too much money.
+off-drugs	life	quip	general	0	Cocaine isn't habit forming. I should know -- I've been using it for years.
+off-drugs	life	quip	general	0	Cocaine's a joke! (Who's got the next line?)
+off-drugs	work-money	quip	general	0	Cocaine: using tomorrow's energy today.
+off-drugs	life	quip	general	0	Don't drop acid -- take it pass/fail. -- Seen in a Ladies' Room at Harvard
+off-drugs	life	aphorism	general	0	Dope will get you through times of no money better that money will get you through times of no dope.
+off-drugs	life	quip	general	0	Drugs may be the road to nowhere, but at least they're the scenic route!
+off-drugs	love	quip	general	0	Falling in love makes smoking pot all day look like the ultimate in restraint.
+off-drugs	life	dark	general	0	Give me libertines or give me meth.
+off-drugs	life	dark	general	0	Give me Librium or give me Meth.
+off-drugs	food	quip	general	0	Have a coke and a smile!
+off-drugs	life	quip	general	0	Honest, officer, had I known my health was in jeopardy, why, I'd never have lit one!
+off-drugs	science	quip	general	0	I believe that if people would learn to use LSD's vision-inducing capability more wisely, under suitable conditions, in medical practice and in conjunction with meditation, then in the future this problem child could become a wonder child.
+off-drugs	life	dark	general	0	I may kid around about drugs, but really, I take them seriously.
+off-drugs	family	dark	general	0	I shall come to you in the night and we shall see who is stronger -- a little girl who won't eat her dinner or a great big man with cocaine in his veins.
+off-drugs	life	dark	general	0	I would like to suggest that you not use speed, and here's why: it is going to mess up your heart, mess up your liver, your kidneys, rot out your mind. In general this drug will make you just like your mother and father.
+off-drugs	life	quip	general	0	I wouldn't recommend sex, drugs or insanity for everyone, but they've always worked for me.
+off-drugs	society	quip	general	0	I've never had a problem with drugs; I've had problems with the police.
+off-drugs	life	pun	general	0	If coke is a joke, I'm waiting around for the next line.
+off-drugs	life	quip	general	0	If you remember the 60's, you weren't there.
+off-drugs	arts	observation	general	0	In the Top 40, half the songs are secret messages to the teen world to drop out, turn on, and groove with the chemicals and light shows at discotheques.
+off-drugs	life	quip	general	0	LSD melts in your mind, not in your hand.
+off-drugs	life	observation	edgy	1	Marijuana is like Coors beer. If you could buy the damn stuff at a Georgia filling station, you'd decide you wouldn't want it.
+off-drugs	nature	quip	general	0	Marijuana is nature's way of saying, "Hi!".
+off-drugs	life	fact	general	0	NO OPIUM-SMOKING IN THE ELEVATORS -- sign in the Rand Hotel, New York, 1907
+off-drugs	life	dark	general	0	Not that we needed all that stuff, but when you get locked into a serious drug collection the tendency is to push it as far as you can.
+off-drugs	faith	quip	general	0	Opiates are the religion of the upper-middle classes.
+off-drugs	life	dark	general	0	Opium is very cheap considering you don't feel like eating for the next six days.
+off-drugs	society	quip	general	0	Pilots should avoid using illegal drugs.
+off-drugs	life	quip	general	0	Reality is a cop-out for people who can't handle drugs.
+off-drugs	life	dark	general	0	Reality is an obstacle to hallucination.
+off-drugs	life	quip	general	0	Reality is for people who can't deal with drugs.
+off-drugs	life	quip	general	0	Smuggling... It's not just a job, it's an adventure! -- paid for by your local Colombian recruiting office
+off-drugs	life	quip	general	0	Spend extra time on hobby. Get plenty of rolling papers.
+off-drugs	life	quip	general	0	Taking drugs in the 60's, I tried to reach Nirvana, but all I ever got were re-runs of The Mickey Mouse Club.
+off-drugs	life	dark	general	0	The weed of crime bears bitter fruit... but the leaves are good to smoke!
+off-drugs	life	observation	general	0	Then there was LSD, which was supposed to make you think you could fly. I remember it made you think you couldn't stand up, and mostly it was right.
+off-drugs	life	quip	general	0	There's been no top authority saying what marijuana does to you. I really don't know that much about it. I tried it once but it didn't do anything to me.
+off-drugs	life	quip	general	0	There's no room in the drug world for amateurs.
+off-drugs	life	wisdom	general	0	Turn on, tune in, and take over.
+off-drugs	life	quip	general	0	Whatever became of Strange de Jim? Well, he found a substitute for cocaine: "You cover Q-tips with sandpaper and ram them up your nostrils as far as they will go. Then you sniff talcum powder while shredding hundred dollar bills."
+off-drugs	arts	quip	general	0	When I was young we didn't have MTV; we had to take drugs and go to concerts.
+off-drugs	life	observation	general	0	When one wants to get rid of an unsupportable pressure, one needs hashish.
+off-drugs	life	quip	general	0	When your conscious becomes unconscious, you are drunk. When your unconscious becomes conscious, you are stoned.
+off-drugs	science	quip	general	0	Without chemicals, life itself would be impossible. -- late night industrial commercial much favored by druggies
+off-drugs	life	quip	general	0	Would you please have another look at my nose and put in that cocaine stuff....

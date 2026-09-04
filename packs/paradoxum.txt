@@ -1,0 +1,68 @@
+paradoxum	life	pun	general	0	A little pain never hurt anyone.
+paradoxum	society	quip	general	0	"A unified, neutral Germany? Given that nation's heritage, such a phrase may prove to be the oxymoron of the decade." -Kevin M. Matarese, Fulda, West Germany; as seen in "Letters", Time magazine, p. 5, March 5, 1990.
+paradoxum	life	quip	general	0	A verbal contract isn't worth the paper it's written on. Include me out. -Samuel Goldwyn
+paradoxum	faith	fact	general	0	Christ was born in 4 B.C.
+paradoxum	life	aphorism	general	0	Cum tacent, clamant. When they are silent, they shout. -Cicero
+paradoxum	life	quip	general	0	Gentlemen, I want you to know that I am not always right, but I am never wrong. -Samuel Goldwyn
+paradoxum	life	aphorism	general	0	Goes (Went) over like a lead balloon.
+paradoxum	life	quip	general	0	Honk if you are against noise pollution!
+paradoxum	life	quip	general	0	I'll give you a definite maybe. -Samuel Goldwyn
+paradoxum	life	quip	general	0	I'm not going to say, "I told you so."
+paradoxum	arts	quip	general	0	I am a deeply superficial person. -Andy Warhol
+paradoxum	life	quip	general	0	I'm proud of my humility.
+paradoxum	life	quip	general	0	I can resist everything except temptation. -Oscar Wilde
+paradoxum	life	quip	general	0	If Roosevelt were alive, he'd turn over in his grave. -Samuel Goldwyn
+paradoxum	life	quip	general	0	If you fall and break your legs, don't come running to me. -Samuel Goldwyn
+paradoxum	life	quip	general	0	I never put on a pair of shoes until I've worn them five years.
+paradoxum	life	quip	general	0	It isn't an optical illusion. It just looks like one.
+paradoxum	arts	quip	general	0	It's more than magnificent-it's mediocre. -Samuel Goldwyn
+paradoxum	life	quip	general	0	May I ask a question?
+paradoxum	life	quip	general	0	No one goes to that restaurant anymore-it's always too crowded. (attributed to Yogi Berra)
+paradoxum	arts	quip	general	0	Our comedies are not to be laughed at. -Samuel Goldwyn
+paradoxum	life	aphorism	general	0	Parting is such sweet sorrow. -William Shakespeare
+paradoxum	life	quip	general	0	Procrastination means never having to say you're sorry.
+paradoxum	work-money	quip	general	0	"Professional certification for car people may sound like an oxymoron." -The Wall Street Journal, page B1, Tuesday, July 17, 1990.
+paradoxum	life	quip	general	0	Referring to a book: I read part of it all the way through.
+paradoxum	life	quip	general	0	Smoking is the leading cause of statistics.
+paradoxum	love	quip	general	0	Some bachelors want a meaningful overnight relationship.
+paradoxum	arts	quip	general	0	Talking about a piece of movie dialogue: Let's have some new cliches. -Samuel Goldwyn
+paradoxum	arts	quip	general	0	The scene is dull. Tell him to put more life into his dying.
+paradoxum	faith	quip	general	0	Thank God I'm an atheist.
+paradoxum	work-money	quip	general	0	This report is filled with omissions.
+paradoxum	life	quip	general	0	We are not anticipating any emergencies.
+paradoxum	work-money	quip	general	0	We're overpaying him, but he's worth it. -Samuel Goldwyn
+paradoxum	life	wisdom	general	0	His honour rooted in dishonour stood, And faith unfaithful kept him falsely true.
+paradoxum	arts	wisdom	general	0	The good oxymoron, to define it by a self-illustration, must be a planned inadvertency. -Wilson Follett
+paradoxum	society	quip	general	0	An Irishman is never at peace except when he's fighting.
+paradoxum	life	wisdom	general	0	I marvel at the strength of human weakness.
+paradoxum	life	quip	general	0	Always be sincere, even when you don't mean it. -Irene Peter
+paradoxum	work-money	quip	general	0	Live within your income, even if you have to borrow to do so.
+paradoxum	life	quip	general	0	Of course I can keep secrets. It's the people I tell them to that can't keep them. -Anthony Haden-Guest
+paradoxum	health-body	quip	general	0	The best cure for insomnia is to get a lot of sleep. -W. C. Fields
+paradoxum	life	quip	general	0	I distinctly remember forgetting that. -Clara Barton
+paradoxum	life	wisdom	general	0	We must believe in free will. We have no choice. -Isaac B. Singer
+paradoxum	faith	quip	general	0	Monotheism is a gift from the gods.
+paradoxum	society	dark	general	0	After they got rid of capital punishment, they had to hang twice as many people as before.
+paradoxum	love	quip	general	0	I never liked you, and I always will. -Samuel Goldwyn
+paradoxum	life	quip	general	0	Why don't you pair `em up in threes? -Yogi Berra
+paradoxum	life	quip	general	0	Our similarities are different. -Dale Berra, son of Yogi
+paradoxum	society	quip	general	0	After Donald Trump's stretch limousine was stolen and found undamaged a few blocks away; he said, "Nothing was stolen. I had an honest thief."-International Herald Tribune, page 3, March 2, 1992
+paradoxum	nature	observation	general	0	Some bird populations soaring down -Headline of an article in Science News, page 126, February 20, 1993.
+paradoxum	society	quip	general	0	"Triumph without Victory, The Unreported History of the Persian Gulf War", -Headline published in the U.S. News & World Report, 1992.
+paradoxum	life	insult	general	0	An empty cab drove up and Sarah Bernhardt got out. -Arthur Baer, American comic and columnist
+paradoxum	food	quip	general	0	She used to diet on any kind of food she could lay her hands on.
+paradoxum	life	wisdom	general	0	The first condition of immortality is death. -Stanislaw Lec
+paradoxum	life	quip	general	0	As famous as the unknown soldier.
+paradoxum	society	quip	general	0	I must follow the people. Am I not their leader? -Benjamin Disraeli
+paradoxum	society	wisdom	general	0	Hegel was right when he said that we learn from history that man can never learn anything from history. -George Bernard Shaw
+paradoxum	society	observation	general	0	Everyone writes on the walls except me. -Said to be graffiti seen in Pompeii
+paradoxum	life	quip	general	0	I tripped over a hole that was sticking up out of the ground.
+paradoxum	arts	quip	general	0	I don't think anyone should write their autobiography until after they're dead. -Samuel Goldwyn
+paradoxum	life	quip	general	0	This page intentionally left blank.
+paradoxum	life	quip	general	0	Evil isn't all bad.
+paradoxum	life	quip	general	0	I disagree with unanimity.
+paradoxum	society	quip	general	0	"It's a step forward although there was no progress." President Hosni Murbarak of Egypt attempting to put the best face on a disappointing summit meeting between President Clinton and the Syrian dictator Hafez Assad.
+paradoxum	life	quip	general	0	"I always avoid prophesying beforehand because it is much better to prophesy after the event has already taken place. "
+paradoxum	life	quip	general	0	All truths are true to an extend, including this one. -XA
+paradoxum	life	aphorism	general	0	Assume a virtue, if you have it not. -William Shakespeare
+paradoxum	life	quip	general	0	All generalisations are dangerous, including this one.

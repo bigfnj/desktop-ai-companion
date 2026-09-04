@@ -1,0 +1,80 @@
+tv-batman-tas	life	tv-quote	general	0	Batman: Red Claw? A woman??? Red Claw: Do you have a problem with that, Batman? Batman: Not at all. I'm an equal opportunity crime fighter!
+tv-batman-tas	life	tv-quote	general	0	Red Claw: You've finally met your match, Batman! Not surprising it's a woman!
+tv-batman-tas	life	tv-quote	general	0	Thomas Wayne: (Hallucination) You are a disgrace!! Batman: No. You are not my father. I am not a disgrace! I am vengeance. I am the night! I - am - BATMAN!!
+tv-batman-tas	life	tv-quote	general	0	Bruce Wayne: Roland Daggett's up to something, Alfred. Alfred: That almost goes without saying, doesn't it, sir?
+tv-batman-tas	life	tv-quote	general	0	Mayor Hill: Oh! Good morning, um... Fugate: Fugate. Temple Fugate. I should think you remember the name by now, councillor. We've only been taking the same train every day for one year, seven months and thirteen days. Hill: Oh, right! The efficiency expert.
+tv-batman-tas	life	tv-quote	general	0	Batman: Justice will be served, Joker. Joker: Service with a smile? [He tosses a razor card at Batman. Batman dodges it just in time.] Batman: Clean up your act, Joker. Joker: Oh, that's a joke, right? Batman finally told a joke!
+tv-batman-tas	life	tv-quote	general	0	Rupert Thorne: All men have something to hide. The brighter the picture, the darker the negative.
+tv-batman-tas	life	tv-quote	general	0	Batman: I still believe that somewhere inside that monster is my old friend. Alfred: That may make him even more dangerous.
+tv-batman-tas	life	tv-quote	general	0	Sherman's Mom: You're not trying to make gunpowder again, are you? Sherman: No, Mom! Honest! Roberta: We just saved Batman's life, Mrs. Grant, and now we're hiding him from some bad criminals. Mom: That's good, just don't make a mess.
+tv-batman-tas	life	tv-quote	general	0	Killer Croc: Terrific. Just what i need now. The freak job in the cape. Batman: You're no prize yourself.
+tv-batman-tas	work-money	tv-quote	general	0	Nostromos: I predict... you and I are about to become rich as pigs!
+tv-batman-tas	life	tv-quote	general	0	Bruce: What is this? Smith: If it's moving, it's a rat. If it isn't, it's a cooked rat.
+tv-batman-tas	life	tv-quote	general	0	Mad Hatter: I'll cut that cowl off your neck before you take her! I've waited my whole lonely life for her! Batman: Then all you've waited for is a puppet. A soulless little doll. Mad Hatter: It didn't have to be this way! You made me do this to her!
+tv-batman-tas	life	tv-quote	general	0	Commissioner Gordon: Look up "slippery" in the dictionary and you get Josiah Wormwood.
+tv-batman-tas	life	tv-quote	general	0	Batman: (About the Bat-Signal) Got a new toy, I see. Gordon: I figured it might come in handy.
+tv-batman-tas	life	tv-quote	general	0	Mad Hatter: Are you the dreamer, or merely part of somebody else's dream? That's just the question Tweedle-Dee put to Alice in Through the Looking- Bruce: This isn't some silly storybook!
+tv-batman-tas	life	tv-quote	general	0	Batman: WHY? Why did you do it?! Mad Hatter: You, of all people, have the gall to ask me that? You ruined my life! I was willing to give you whatever life you wanted, JUST TO KEEP YOU OUT OF MINE!
+tv-batman-tas	life	tv-quote	general	0	Batman: I don't pass sentence. That's for the courts to decide. But this time -- this time -- I am sorely tempted to do the job myself!
+tv-batman-tas	life	tv-quote	general	0	The Sewer King: Lesson number one is......NOOOOO TAAAALKING!!!!
+tv-batman-tas	life	tv-quote	general	0	Kyodai Ken: [Throwing Bruce] Don't be depressed, Wayne-san. You're not bad for a rich man's pampered son. Sensei: [Leaps across room and throws Kyodai] There's always someone better, Kyodai.
+tv-batman-tas	life	tv-quote	general	0	Batman: His name is Kyodai Ken. He was good. Robin: Yeah? How good? Batman: (Quickly) Good. Robin: I see.
+tv-batman-tas	life	tv-quote	general	0	Strange: We will continue tomorrow, yes? Bruce: I'll... have to think about it. Good day, doc. (Leaves) Strange: (Quietly) And good day to you... Batman.
+tv-batman-tas	life	tv-quote	general	0	Strange: Joker, please! I was set up! Bruce Wayne is Batman! Two-Face: That's absurd! I know Bruce Wayne. If he's Batman, I'm the King of England! Joker: And people say I'M CRAZY!
+tv-batman-tas	life	tv-quote	general	0	Garth: The doctor doesn't take kindly to uninvited guests. (Grabs Batman) Dorian: Garth! Bring him down here! (Batman drags Garth through the skylight) Well, that's one way to do it.
+tv-batman-tas	life	tv-quote	general	0	Scarecrow: An entire city, screaming in fear... I wonder if we'll be able to hear it...
+tv-batman-tas	life	tv-quote	general	0	[At the launch of the Gray Ghost videos] Bruce: As a kid, I used to watch you with my father. The Gray Ghost was my hero. Gray Ghost: Really... Bruce: And he still is.
+tv-batman-tas	life	tv-quote	general	0	Selina Kyle: Don't tell me you're my very own private probation officer. How often would you like me to check in?
+tv-batman-tas	life	tv-quote	general	0	Batman: Sometimes, old friend, I wonder if I'm really doing any good out there. Alfred: How can you doubt it? The lives you've saved, the criminals you've brought to justice- Batman: I've put out a few fires, yes. But the war goes on, Alfred. On and on...
+tv-batman-tas	arts	tv-quote	general	0	Anthony Romulus (After a wolf howls, Anthony starts transforming) Ohhh, you fool! There's no telling what the werewolf might do. Professor Milo Hey! Ask me if I care.
+tv-batman-tas	arts	tv-quote	general	0	Batman: Reports of a huge bat creature the size of a man. Remind you of anybody? Alfred: Present company excluded?
+tv-batman-tas	life	tv-quote	general	0	Alfred: [After learning about the AI project] Sounds as if the human race could become quite expendable, except for butlers, of course. Batman: Of course.
+tv-batman-tas	life	tv-quote	general	0	Randa: You have immobilized the maker. HARDAC: His human imperfection endangers the plan. He must be improved upon.
+tv-batman-tas	tech	tv-quote	general	0	HARDAC: The maker's concept was sound, but he did not go far enough - which is why I have taken over.
+tv-batman-tas	work-money	tv-quote	general	0	Edward Nygma: (Being cheated out of the sales of his game) You are a fool, Mockridge, to think you can get away with this! Your amoral greed is no match for an intellect like mine! Mockridge: Oh, yeah? Then tell me something, Eddie: if you're so smart, why aren't you rich?
+tv-batman-tas	life	tv-quote	general	0	Talia: My contact lenses! I lost them when we fell! They counter the distortion effect. Without them, I'm as helpless as you. Batman: I don't do helpless.
+tv-batman-tas	life	tv-quote	general	0	Ra's al Ghul: So even in defeat, the detective manages to achieve some small measure of victory. As you said, detective: this is not over.
+tv-batman-tas	life	tv-quote	general	0	Alfred: (Seeing Batman with a Joker Fish) Dining in tonight, sir? Batman: (Sighs) The dissection tray, please, Alfred...
+tv-batman-tas	society	tv-quote	general	0	Poison Ivy: No man can take us prisoner! (Her tire suddenly blows out, forcing their car off the road) Renee Montoya: (Holding a shotgun) Alright, ladies. Raise 'em.
+tv-batman-tas	life	tv-quote	general	0	Robin : What's Bugging You? Batman: He Seemed upset somthing is just not right
+tv-batman-tas	life	tv-quote	general	0	[Penguin's limo Passed By] Robin : it's the penguin! Batman: Hang on! Shieldrake: here they come Joker: Without Batman, crime has no punchline.
+tv-batman-tas	life	tv-quote	general	0	Zatanna: What do you care about some leggy dame in nylons- or have I just answered my own question?
+tv-batman-tas	life	tv-quote	general	0	Zatanna (About Batman's mask) What happened that made you put this on? Batman: A painful memory, and a promise.
+tv-batman-tas	life	tv-quote	general	0	Batman: [At the top of a building] All right, scumbucket. It's you, me and thirty stories. You're gonna tell me exactly what I want to know.
+tv-batman-tas	life	tv-quote	general	0	Batman: If you protect him, Stromwell, I'll be very...grumpy. You don't want to see me when I'm grumpy.
+tv-batman-tas	arts	tv-quote	general	0	Tony Zucco: I'm not back in town five minutes - five minutes - and he's on my tail. You don't know the Bat. He don't let up! He's the dark angel of death, man, and he wants me! Mick: ... Why you, boss? Tony Zucco: HOW SHOULD I KNOW?!
+tv-batman-tas	life	tv-quote	general	0	Batman: Wherever you go, I'll be right behind you. Penguin: Precisely where you belong.
+tv-batman-tas	life	tv-quote	general	0	Batman: He wasn't with them? Penguin: That's right, you vulgar vigilante! In my day, I associated with a much higher class of riff-raff!
+tv-batman-tas	life	quip	general	0	Penguin: Your aim appears to be a little off today, Batman. I don't think you could hit the broad side of a barn, let alone the broad side of this bird! You're blind as a bat. Sightless and helpless. Batman: You've got one right.
+tv-batman-tas	life	tv-quote	general	0	[Batman swoops away after rescuing his Sensei's student, Kairi] Kairi: [In Japanese] Spirit of the bat...
+tv-batman-tas	life	tv-quote	general	0	Lloyd Ventrix: See you 'round, Batman! Too bad you can't say the same!
+tv-batman-tas	life	tv-quote	general	0	Batman: Ventrix, the suit! It's poison! Ventrix: So what if it is?! I don't care! As long as I have it, I can take my daughter back whenever I want! Her mother won't stop me, AND NEITHER WILL YOU!
+tv-batman-tas	society	tv-quote	general	0	Ra's al Ghul: As Napoleon told me, "A strong will can fuel a frail physique."
+tv-batman-tas	life	tv-quote	general	0	Batman: And if I tell? Scarface: Maybe you just get run over by a truck.
+tv-batman-tas	life	tv-quote	general	0	Barbara Gordon: So Batman can't help me? Fine. Let's see what Batgirl can do!
+tv-batman-tas	life	tv-quote	general	0	Two-Face: Don't get wise with me, Mason. Remember who got you set up as Gordon's assistant? Gil Mason: Right, Harvey, right. Two-Face: [grabs him] Don't call me that! It's Two-Face to you, pretty boy!!
+tv-batman-tas	life	tv-quote	general	0	Clayface: [After civilians flee in terror upon seeing his true form] That's right, run! Run for your measly lives! Run from Clayface!
+tv-batman-tas	life	tv-quote	general	0	Clayface: You've upstaged me for the last time, Batman. Time to bring down the curtain!
+tv-batman-tas	life	tv-quote	general	0	Veronica: If ever someone led a worry-free life, it's you, Bruce Wayne.
+tv-batman-tas	life	tv-quote	general	0	Mad Hatter: (preparing a guillotine) As the great Lewis Carroll said: "One, two, one, two, and through and through the vorpal blade went snicker-snack! He left it dead, and with its head, he went galumphing back!"
+tv-batman-tas	life	tv-quote	general	0	Thorne: You think you iced the Batman, huh? Heh heh heh... Not on your best day, Jake! I'd cover my back if I were you.
+tv-batman-tas	life	tv-quote	general	0	Batman: She's done nothing more incriminating than return an overdue video - even paid the late fee. Alfred: Could it be Ivy truly has reformed? Batman: I want to believe it. Why can't I?
+tv-batman-tas	family	tv-quote	general	0	Poison Ivy: I really did want a family Batman, I just wanted one on my terms.
+tv-batman-tas	life	tv-quote	general	0	Billy: Why Croc? Why'd you turn on us like that? We couldv'e helped you. We could've done something. Killer Croc: You said you could be yourself out here remember? Well, I guess that's what I was doing. Being myself.
+tv-batman-tas	life	tv-quote	general	0	Bruce: You've got a serious priority problem, Ra's. What can be in that tomb that's more valuable than the love of your daughter? Ra's Al Ghul: Power, detective.
+tv-batman-tas	life	tv-quote	general	0	Two-Face: Basic fifty-fifty option. You get him off, you both go free. He goes down, you take the fall with him. Hatter: Amusing idea, what? Kidnapping you to be Batman's attorney? Two-Face: Personally, I suggested a quick slug between the eyes... but I lost the coin toss.
+tv-batman-tas	society	tv-quote	general	0	Scarface: Our prosecutor is ready, likewise our fair and impartial jury. Hatter: Hang him! Harley: Shoot him! Killer Croc: Hit him with a rock! Scarface: And now, all rise for the most honorable, most benevolent, most merciful Judge Joker! Joker: GUILTY!
+tv-batman-tas	life	tv-quote	general	0	Thorne: You almost didn't get paid. You're lucky these diamonds didn't get nabbed in the smuggling bust. Bane: No, Mr. Thorne. You are the lucky one. (He punches the punching bag across the room)
+tv-batman-tas	life	tv-quote	general	0	Bane: Toys. You try to fight me with pathetic little toys. You've got nothing! Beg for mercy! SCREAM MY NAME! Batman: Never. Bane: You are beaten! Now I will break you!
+tv-batman-tas	life	tv-quote	general	0	Batman: You're your own worst enemy, Harvey. Two-Face: No - I'm your worst enemy.
+tv-batman-tas	arts	tv-quote	general	0	Robin: [Watching episodes of Baby Doll's old TV show] You remember when Poison Ivy had us tangled up in those vines? The ones with the REALLY big thorns? Batman: Yes. Robin:[Gestures at TV] This is worse.
+tv-batman-tas	life	tv-quote	general	0	Gangster: Any last words? Harley: Just one.. BABIES! (Bud and Lou rushed to save their mistress) Play nice with your new chew toy.
+tv-batman-tas	life	tv-quote	general	0	Dispatcher: Disturbance reported at the top of the Crown restaurant. Suspect is a male costumed extremist armed with what appears to be a... ketchup gun. Batman: It's going to be one of those nights.
+tv-batman-tas	nature	tv-quote	general	0	Catwoman: Bats are just mice with wings, little girl.
+tv-batman-tas	life	tv-quote	general	0	Batman: Men like Walker are obsessed with getting their own way. And they don't let little things like the law stop them.
+tv-batman-tas	life	tv-quote	general	0	Warren: Is this all you do for kicks, Bruce? Charity work? Bruce: Well, I do have a night life.
+tv-batman-tas	life	tv-quote	general	0	Batman: Scoundrels like these are worse than the Joker. At least he's got madness as an excuse!
+tv-batman-tas	life	tv-quote	general	0	Catwoman: What a pleasant surprise. Though I should warn you - breaking and entering is against the law. Batman: You should know.
+tv-batman-tas	life	tv-quote	general	0	Scarface: I thawt I thaw a putty tat!
+tv-batman-tas	life	tv-quote	general	0	Alfred: We are speaking of the same person, are we not? Harvey Bullock? The detective who looks like an unmade bed?
+tv-batman-tas	life	tv-quote	general	0	Montoya: Bullock? You okay? You don't look so good. I mean, you never look good, but today you look worse.

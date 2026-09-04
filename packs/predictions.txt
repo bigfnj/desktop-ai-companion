@@ -1,0 +1,16 @@
+predictions	tech	quip	general	0	"640K ought to be enough for anybody."
+predictions	society	dark	general	0	"Airplanes are interesting toys but of no military value." --Marechal Ferdinand Foch, Professor of Strategy, Ecole Superieure de Guerre.
+predictions	tech	quip	general	0	"But what... is it good for?" --Engineer at the Advanced Computing Systems Division of IBM, 1968, commenting on the microchip.
+predictions	tech	fact	general	0	"Computers in the future may weigh no more than 1.5 tons." --Popular Mechanics, forecasting the relentless march of science, 1949
+predictions	tech	quip	general	0	"Drill for oil? You mean drill into the ground to try and find oil? You're crazy." --Drillers who Edwin L. Drake tried to enlist to his project to drill for oil in 1859.
+predictions	tech	quip	general	0	"Everything that can be invented has been invented." --Charles H. Duell, Commissioner, U.S. Office of Patents, 1899.
+predictions	science	observation	general	0	"Heavier-than-air flying machines are impossible." --Lord Kelvin, president, Royal Society, 1895.
+predictions	tech	quip	general	0	"I have traveled the length and breadth of this country and talked with the best people, and I can assure you that data processing is a fad that won't last out the year." --The editor in charge of business books for Prentice Hall, 1957
+predictions	tech	quip	general	0	"I think there is a world market for maybe five computers." --Thomas Watson, chairman of IBM, 1943
+predictions	arts	quip	general	0	"I'm just glad it'll be Clark Gable who's falling on his face and not Gary Cooper." --Gary Cooper on his decision not to take the leading role in "Gone With The Wind."
+predictions	science	fact	general	0	"Louis Pasteur's theory of germs is ridiculous fiction". --Pierre Pachet, Professor of Physiology at Toulouse, 1872
+predictions	tech	quip	general	0	"The wireless music box has no imaginable commercial value. Who would pay for a message sent to nobody in particular?" --David Sarnoff's associates in response to his urgings for investment in the radio in the 1920s.
+predictions	tech	fact	general	0	"There is no reason anyone would want a computer in their home." --Ken Olson, president, chairman and founder of Digital Equipment Corp., 1977
+predictions	tech	fact	general	0	"This 'telephone' has too many shortcomings to be seriously considered as a means of communication. The device is inherently of no value to us." --Western Union internal memo, 1876.
+predictions	arts	quip	general	0	"We don't like their sound, and guitar music is on the way out." --Decca Recording Co. rejecting the Beatles, 1962.
+predictions	arts	quip	general	0	"Who the hell wants to hear actors talk?" --H.M. Warner, Warner Brothers, 1927.

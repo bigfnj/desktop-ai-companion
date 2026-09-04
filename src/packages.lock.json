@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0-windows7.0": {
+      "NAudio.Core": {
+        "type": "Direct",
+        "requested": "[3.0.0-preview.6, )",
+        "resolved": "3.0.0-preview.6",
+        "contentHash": "ezDOnhMMI1Qy51anzsu3vq9Lk/0r/rONZDZOOp9niO2aTQQ/UVbV9reiUxUpdwciVrdpDRvtWXALTSRb29YWNw==",
+        "dependencies": {
+          "System.Numerics.Tensors": "9.0.0"
+        }
+      },
+      "NAudio.Dmo": {
+        "type": "Direct",
+        "requested": "[3.0.0-preview.6, )",
+        "resolved": "3.0.0-preview.6",
+        "contentHash": "UoHqGxVWgDenC3bBERPO78z7Kn86VSBtj3kjQQCfpbGq3R82CBagCYt4TKs8SWUmP3UzW0HQITM6Uxpg96l1Kw==",
+        "dependencies": {
+          "NAudio.Core": "3.0.0-preview.6"
+        }
+      },
+      "NAudio.WinMM": {
+        "type": "Direct",
+        "requested": "[3.0.0-preview.6, )",
+        "resolved": "3.0.0-preview.6",
+        "contentHash": "W77YuGawS5zBCyt5Tt/+w1AW5P7bzXwbM4vTC7L2IZSEnh5tbWdkEvKgV7iIC1gEgnwH5lZvSLJ35TFqUcXmoA==",
+        "dependencies": {
+          "NAudio.Core": "3.0.0-preview.6",
+          "NAudio.Midi": "3.0.0-preview.6"
+        }
+      },
+      "NAudio.Midi": {
+        "type": "Transitive",
+        "resolved": "3.0.0-preview.6",
+        "contentHash": "h4VswU5wkYXBucoCne2cK31VYvtiGWFBqRgYZTjqF9mo3zxyvCiClG3aicwvvPock56wgAq2NoRrbjRILI1K0Q==",
+        "dependencies": {
+          "NAudio.Core": "3.0.0-preview.6"
+        }
+      },
+      "System.Numerics.Tensors": {
+        "type": "Transitive",
+        "resolved": "9.0.0",
+        "contentHash": "hyJB4UlpAi19Xr9AXzu2NuagKC4lPfHObNMEAA0HmqFz2rX7wKgzeYzO/jM/eBHDhnUGFFEjk5cOoJaxqg5J4A=="
+      },
+      "desktopaicompanion.contracts": {
+        "type": "Project"
+      }
+    },
+    "net10.0-windows7.0/win-x64": {}
+  }
+}

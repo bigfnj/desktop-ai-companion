@@ -1,0 +1,101 @@
+sports	life	observation	general	0	A gambler's biggest thrill is winning a bet. His next biggest thrill is losing a bet.
+sports	work-money	quip	general	0	A nickel ain't worth a dime anymore.
+sports	life	quip	general	0	A putt that stops close enough to the cup to inspire such comments as "you could blow it in" may be blown in. This rule does not apply if the ball is more than three inches from the hole, because no one wants to make a travesty of the game.
+sports	life	quip	general	0	"Ain't that something what happened today. One of us got traded to Kansas City."
+sports	life	quip	general	0	All bridge hands are equally likely, but some are more equally likely than others.
+sports	life	quip	general	0	Although golf was originally restricted to wealthy, overweight Protestants, today it's open to anybody who owns hideous clothing.
+sports	life	quip	general	0	[Babe] Ruth made a big mistake when he gave up pitching.
+sports	life	quip	general	0	Bill Dickey is learning me his experience.
+sports	life	tv-quote	general	0	Check me if I'm wrong, Sandy, but if I kill all the golfers... they're gonna lock me up and throw away the key!
+sports	life	aphorism	general	0	Don't let go of what you've got hold of, until you have hold of something else.
+sports	life	quip	general	0	Ever feel like life was a game and you had the wrong instruction book?
+sports	life	quip	general	0	Ever feel like you're the head pin on life's bowling alley, and everyone's rolling strikes?
+sports	life	quip	general	0	Every creature has within him the wild, uncontrollable, urge to punt.
+sports	life	observation	general	0	Flying is the second greatest feeling you can have. The greatest feeling? Landing... Landing is the greatest feeling you can have.
+sports	life	observation	general	0	Football builds self-discipline. What else would induce a spectator to sit out in the open in subfreezing weather?
+sports	society	quip	general	0	Football combines the two worst features of American life. It is violence punctuated by committee meetings.
+sports	society	observation	general	0	Football is a game designed to keep coalminers off the streets.
+sports	life	joke	general	0	Fortune finishes the great quotations, #15 "Give me your tired, your poor, your huddled masses." And while you're at it, throw in a couple of those Dallas Cowboy cheerleaders.
+sports	life	fact	general	0	FORTUNE'S FUN FACTS TO KNOW AND TELL: #14 The Baby Ruth candy bar was not named after George Herman "The Babe" Ruth, but after the oldest daughter of President Grover Cleveland.
+sports	life	quip	general	0	From 0 to "what seems to be the problem officer" in 8.3 seconds. -- Ad for the new VW Corrado
+sports	life	joke	general	0	Give a man a fish, and you feed him for a day. Teach a man to fish, and he'll invite himself over for dinner.
+sports	life	aphorism	general	0	Give me a fish and I will eat today. Teach me to fish and I will eat forever.
+sports	society	quip	general	0	Go directly to jail. Do not pass Go, do not collect $200.
+sports	nature	quip	general	0	Horse sense is the thing a horse has which keeps it from betting on people.
+sports	life	quip	general	0	How can you think and hit at the same time?
+sports	society	quip	general	0	I always turn to the sports pages first, which record people's accomplishments. The front page has nothing but man's failures.
+sports	life	quip	general	0	I believe that professional wrestling is clean and everything else in the world is fixed.
+sports	life	dark	general	0	I can't decide whether to commit suicide or go bowling.
+sports	life	quip	general	0	I guess I've been so wrapped up in playing the game that I never took time enough to figure out where the goal line was -- what it meant to win -- or even how you won.
+sports	life	quip	general	0	I guess the Little League is even littler than we thought.
+sports	work-money	quip	general	0	I just know I'm a better manager when I have Joe DiMaggio in center field.
+sports	life	quip	general	0	I like your game but we have to change the rules.
+sports	life	quip	general	0	I never met a man I didn't want to fight.
+sports	life	joke	general	0	I went to the race track once and bet on a horse that was so good that it took seven others to beat him!
+sports	life	quip	general	0	I would be batting the big feller if they wasn't ready with the other one, but a left-hander would be the thing if they wouldn't have knowed it already because there is more things involved than could come up on the road, even after we've been home a long while.
+sports	nature	observation	general	0	I would rather say that a desire to drive fast sports cars is what sets man apart from the animals.
+sports	life	quip	general	0	I'd rather push my Harley than ride a rice burner.
+sports	life	quip	general	0	I'm a lucky guy, and I'm happy to be with the Yankees. And I want to thank everyone for making this night necessary.
+sports	life	quip	general	0	I'm glad we don't have to play in the shade.
+sports	life	quip	general	0	I've only got 12 cards.
+sports	life	quip	general	0	If a putt passes over the hole without dropping, it is deemed to have dropped. The law of gravity holds that any object attempting to maintain a position in the atmosphere without something to support it must drop. The law of gravity supercedes the law of golf.
+sports	life	observation	general	0	If people concentrated on the really important things in life, there'd be a shortage of fishing poles.
+sports	nature	joke	general	0	If swimming is so good for your figure, how come whales look the way they do?
+sports	life	wisdom	general	0	If you do your best the rest of the way, that takes care of everything. When we get to October 2, we'll add up the wins, and then we'll either all go into the playoffs, or we'll all go home and play golf. Both those things sound pretty good to me.
+sports	life	aphorism	general	0	If you don't know what game you're playing, don't ask what the score is.
+sports	life	aphorism	general	0	If you sit down at a poker game and don't see a sucker, get up. You're the sucker.
+sports	life	aphorism	general	0	If you want to see card tricks, you have to expect to take cards.
+sports	life	quip	general	0	If you're carrying a torch, put it down. The Olympics are over.
+sports	society	observation	general	0	In Africa some of the native tribes have a custom of beating the ground with clubs and uttering spine chilling cries. Anthropologists call this a form of primitive self-expression. In America we call it golf.
+sports	life	quip	general	0	In Brooklyn, we had such great pennant races, it made the World Series just something that came later.
+sports	life	quip	general	0	It gets late early out there.
+sports	life	quip	general	0	It has long been known that one horse can run faster than another -- but which one? Differences are crucial.
+sports	life	quip	general	0	It's like deja vu all over again.
+sports	life	aphorism	general	0	It's not whether you win or lose but how you played the game.
+sports	life	quip	general	0	It's not whether you win or lose, it's how you look playing the game.
+sports	life	quip	general	0	Keep grandma off the streets -- legalize bingo.
+sports	life	dark	general	0	Life is a gamble at terrible odds, if it was a bet you wouldn't take it.
+sports	life	quip	general	0	Life is a game of bridge -- and you've just been finessed.
+sports	life	aphorism	general	0	Life is a yo-yo, and mankind ties knots in the string.
+sports	society	quip	general	0	Look, we play the Star Spangled Banner before every game. You want us to pay income taxes, too?
+sports	love	pun	general	0	Love means nothing to a tennis player.
+sports	life	tv-quote	general	0	MARTA SAYS THE INTERESTING thing about fly-fishing is that it's two lives connected by a thin strand. Come on, Marta, grow up.
+sports	life	tv-quote	general	0	MARTA WAS WATCHING THE FOOTBALL GAME with me when she said, "You know most of these sports are based on the idea of one group protecting its territory from invasion by another group." "Yeah," I said, trying not to laugh. Girls are funny.
+sports	life	pun	general	0	Max told his friend that he'd just as soon not go hiking in the hills. Said he, "I'm an anti-climb Max." [So is that punchline.]
+sports	life	observation	general	0	Most people's favorite way to end a game is by winning.
+sports	life	wisdom	general	0	My way of joking is to tell the truth. That's the funniest joke in the world.
+sports	life	quip	general	0	Nadia Comaneci, simple perfection. -- '76 Olympics
+sports	life	aphorism	general	0	Never play pool with anyone named "Fats".
+sports	society	quip	general	0	NEWS FLASH!! Today the East German pole-vault champion became the West German pole-vault champion.
+sports	life	quip	general	0	Nothing increases your golf score like witnesses.
+sports	life	quip	general	0	Now there's three things you can do in a baseball game: you can win or you can lose or it can rain.
+sports	food	quip	general	0	On Thanksgiving Day all over America, families sit down to dinner at the same moment -- halftime.
+sports	life	aphorism	general	0	One thought driven home is better than three left on base.
+sports	life	joke	general	0	One way to stop a runaway horse is to bet on him.
+sports	life	quip	general	0	Repel them. Repel them. Induce them to relinquish the spheroid.
+sports	society	quip	general	0	Reporter: "What would you do if you found a million dollars?" Yogi Berra: "If the guy was poor, I would give it back."
+sports	society	tv-quote	general	0	Rick: "How can you close me up? On what grounds?" Renault: "I'm shocked! Shocked! To find that gambling is going on here." Croupier (handing money to Renault): "Your winnings, sir." Renault:"Oh. Thank you very much."
+sports	life	tv-quote	general	0	Rube Walker: "Hey, Yogi, what time is it?" Yogi Berra: "You mean now?"
+sports	life	observation	general	0	Ruth made a great mistake when he gave up pitching. Working once a week, he might have lasted a long time and become a great star.
+sports	life	pun	general	0	Sailing is fun, but scrubbing the decks is aardvark. -- Heard on Noahs' ark
+sports	life	quip	general	0	Show me a good loser in professional sports and I'll show you an idiot. Show me a good sportsman and I'll show you a player I'm looking to trade.
+sports	life	quip	general	0	So I'm ugly. So what? I never saw anyone hit with his face.
+sports	life	quip	general	0	Support Bingo, keep Grandma off the streets.
+sports	work-money	quip	general	0	Teamwork is essential -- it allows you to blame someone else.
+sports	nature	wisdom	general	0	That's the true harbinger of spring, not crocuses or swallows returning to Capistrano, but the sound of a bat on a ball.
+sports	faith	quip	general	0	The most serious doubt that has been thrown on the authenticity of the biblical miracles is the fact that most of the witnesses in regard to them were fishermen.
+sports	life	joke	general	0	THE OLD POOL SHOOTER had won many a game in his life. But now it was time to hang up the cue. When he did, all the other cues came crashing to the floor. "Sorry," he said with a smile.
+sports	life	quip	general	0	The one sure way to make a lazy man look respectable is to put a fishing rod in his hand.
+sports	nature	dark	general	0	The real problem with hunting elephants is carrying the decoys.
+sports	life	aphorism	general	0	The surest way to remain a winner is to win once, and then not play any more.
+sports	life	joke	general	0	The University of California Bears announced the signing of Reggie Philbin to a letter of intent to attend Cal next Fall. Philbin is said to make up for no talent by cheating well. Says Philbin of his decision to attend Cal, "I'm in it for the free ride."
+sports	life	dark	general	0	The urge to gamble is so universal and its practice so pleasurable that I assume it must be evil.
+sports	life	wisdom	general	0	The whole of life is futile unless you consider it as a sporting proposition.
+sports	life	quip	general	0	They also surf who only stand on waves.
+sports	life	quip	general	0	To be sure of hitting the target, shoot first and, whatever you hit, call it the target.
+sports	life	aphorism	general	0	Trust everybody, but cut the cards.
+sports	life	pun	general	0	Two brothers, Mort and Bill, like to sail. While Bill has a great deal of experience, he certainly isn't the rigger Mort is.
+sports	life	aphorism	general	0	When in doubt, lead trump.
+sports	life	aphorism	general	0	Winning isn't everything, but losing isn't anything.
+sports	life	aphorism	general	0	Winning isn't everything. It's the only thing.
+sports	life	quip	general	0	Woman: "Is Yoo-Hoo hyphenated?" Yogi Berra: "No, ma'am, its not even carbonated."

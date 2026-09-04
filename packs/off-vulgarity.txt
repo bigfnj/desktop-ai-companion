@@ -1,0 +1,140 @@
+off-vulgarity	life	quip	edgy	1	A bar patron returned from the men's room grumbling to himself. "What's the trouble, buddy?" the bartender inquired. "You got John Wayne toilet paper in there!" "What do you mean?" the barkeeper asked. "It's rough, it's tough, and it doesn't take shit from nobody."
+off-vulgarity	nature	joke	edgy	1	A bear and a rabbit are taking a crap in the woods. The bear looks over at the rabbit and asks, "Say, does shit ever stick to your fur?" "No." So the bear wiped his ass with the rabbit.
+off-vulgarity	life	quip	edgy	1	As near as I can tell, you're not any crazier than the average asshole on the street.
+off-vulgarity	life	quip	edgy	1	As they say about Dungeons and Dragons, "Life's a die, and then you bitch."
+off-vulgarity	work-money	quip	general	0	Ask your boss to reconsider -- It's so difficult to take "Go to hell" for an answer.
+off-vulgarity	life	quip	general	0	Been through hell? What did you bring back for me?
+off-vulgarity	life	dark	nsfw	1	Better a sister in a whorehouse than a brother on a Honda.
+off-vulgarity	life	insult	edgy	1	Blow it out your ass!
+off-vulgarity	life	quip	edgy	1	Confucius say too damn much!
+off-vulgarity	life	quip	general	0	"Dammit, man, that's unprofessional! A good bartender laughs anyway!"
+off-vulgarity	life	quip	edgy	1	Damn braces.
+off-vulgarity	life	tv-quote	edgy	1	DAMN IT, I GOTTA GET OUTTA HERE!
+off-vulgarity	food	quip	edgy	1	Damn, I need a Coke!
+off-vulgarity	food	quip	general	0	Don't just eat a hamburger; eat the HELL out of it.
+off-vulgarity	life	quip	edgy	1	DROP THE DAMN BEAR!!!
+off-vulgarity	life	quip	general	0	Early to bed and early to rise makes a man a helluva big nuisance.
+off-vulgarity	life	insult	edgy	1	Eat shit and die a virgin!
+off-vulgarity	life	quip	general	0	Egotism is the anesthetic given by a kindly nature to relieve the pain of being a damned fool.
+off-vulgarity	life	insult	general	0	Fie for shame, you lascivious, lewd, lecherous, libidinous, lustful, licentious, dirty bum!!
+off-vulgarity	food	quip	general	0	Fig Newton.
+off-vulgarity	arts	quip	edgy	1	Fuck art; let's dance!
+off-vulgarity	life	insult	edgy	1	Fuck off and die!
+off-vulgarity	life	insult	edgy	1	Fuck you and anybody who looks like you.
+off-vulgarity	life	quip	edgy	1	Fuck'em if they can't take a joke!
+off-vulgarity	tech	quip	edgy	1	GET OFF THE FUCKING SYSTEM THIS INSTANT, YOU ASSHOLE!!!!
+off-vulgarity	tech	quip	general	0	Get your bytes from our backend!
+off-vulgarity	society	dark	edgy	1	Getting an education at the University of California is like having $50.00 shoved up your ass, a nickel at a time.
+off-vulgarity	life	quip	general	0	Give me the Luxuries, and the Hell with the Necessities!
+off-vulgarity	life	aphorism	edgy	1	Grain grows best in shit.
+off-vulgarity	science	quip	edgy	1	Gravity is an unforgiving motherfucker.
+off-vulgarity	life	aphorism	general	0	He who hesitates is a damned fool.
+off-vulgarity	life	quip	edgy	1	He who trains his tongue to quote the learned sages, will be known far and wide as a smart ass.
+off-vulgarity	life	quip	general	0	Hell's broken loose.
+off-vulgarity	family	quip	general	0	Hell, if you don't try to remake someone, how are they supposed to know you care?
+off-vulgarity	work-money	quip	general	0	Horsecrap, little brother. There's always something more to be done. Another palm to be greased. Another back to be scratched. Another weak sister to be shored up.
+off-vulgarity	life	insult	edgy	1	Howard Cosell's biggest protrusion is his asshole.
+off-vulgarity	arts	quip	edgy	1	I am fairly unrepentant about her poetry. I really think that three quarters of it is gibberish. However, I must crush down these thoughts otherwise the dove of peace will shit on me.
+off-vulgarity	life	quip	edgy	1	I came; I saw; I fucked up.
+off-vulgarity	life	insult	edgy	1	I can't quite put my finger on it, but something about you pisses me off.
+off-vulgarity	love	dark	nsfw	1	I don't know why women get so upset, they have half the money and all the pussy.
+off-vulgarity	love	quip	edgy	1	I don't love you, asshole, I love your daughter.
+off-vulgarity	life	observation	edgy	1	"I had to censor everything my sons watched ... even on the Mary Tyler Moore show I heard the word 'damn'!"
+off-vulgarity	life	quip	edgy	1	I love this fucking University, and this University loves fucking me.
+off-vulgarity	arts	quip	edgy	1	I played over the music of that scoundrel Brahms. What a giftless bastard! It annoys me that this self-inflated mediocrity is hailed as a genius. Why, in comparison with him, Riff is a genius.
+off-vulgarity	life	dark	edgy	1	I wouldn't mind dying -- it's that business of having to stay dead that scares the shit out of me.
+off-vulgarity	life	quip	general	0	I'd rather be led to hell than managed to heavan.
+off-vulgarity	love	quip	edgy	1	I'm sorry I'm late folks, I just got out of jail. I tried to change my girlfriend's name. Yeah, I went down to the hall of records. I said, "I'd like to change it... I'd like to change it to... LYING LITTLE BITCH!"
+off-vulgarity	life	quip	edgy	1	If at first you don't succeed, try, try again. Then quit. No use being a damn fool about it.
+off-vulgarity	family	pun	general	0	If it's not one thing, it's a mother.
+off-vulgarity	life	quip	edgy	1	If life's a piece of shit, Calculus III is the spoon.
+off-vulgarity	life	observation	general	0	If today is the first day of the rest of your life, what the hell was yesterday?
+off-vulgarity	faith	pun	general	0	If you don't ride a camel to work, you ain't Sheeite.
+off-vulgarity	life	quip	edgy	1	In spite of all evidence to the contrary, the entire universe is composed of only two basic substances: magic and bullshit.
+off-vulgarity	life	observation	edgy	1	It is a sad commentary on today's society that this fortune has to be classified as "offensive" simply because it contains the word "fuck".
+off-vulgarity	life	quip	general	0	It may not be funny, but it's damned amusing!
+off-vulgarity	society	quip	edgy	1	It used to be a man's world, and the woman's place was in the home. They can kiss that shit goodbye.
+off-vulgarity	nature	quip	edgy	1	It's a bit hard to bullshit the ocean. It's not listening, you know what I mean.
+off-vulgarity	life	quip	edgy	1	It's a bitch being butch.
+off-vulgarity	life	quip	edgy	1	It's a damn poor mind that can only think of one way to spell a word.
+off-vulgarity	life	quip	edgy	1	It's better to be pissed off than pissed on.
+off-vulgarity	life	uplifting	edgy	1	It's so fuckin' great to be alive!
+off-vulgarity	life	quip	edgy	1	Life is a bitch, but the puppies can be cute.
+off-vulgarity	life	dark	edgy	1	Life is a shit sandwich, and every day you get to take another bite. It's just that some days are TWO BITE days ...
+off-vulgarity	love	quip	general	0	Life is having a mother-in-law that sucks and a wife that don't.
+off-vulgarity	life	dark	edgy	1	Life is like a cucumber -- one moment it's in your hand, the next it's up your ass.
+off-vulgarity	life	aphorism	edgy	1	Life is like a shit sandwich. The more bread you have, the less shit you have to eat.
+off-vulgarity	life	quip	edgy	1	Life is not a cabaret. It's a fucking circus.
+off-vulgarity	life	dark	edgy	1	Life isn't a bitch. Life is a virgin. A bitch is easy.
+off-vulgarity	life	dark	general	0	Look out for yourself -- or they'll pee on your grave.
+off-vulgarity	love	aphorism	general	0	Love is a slippery eel that bites like hell.
+off-vulgarity	life	dark	edgy	1	Many a man has decided to stay alive not because of the will to live, but because of the determination not to give assorted surviving bastards the satisfaction of his death.
+off-vulgarity	work-money	quip	edgy	1	Me, I love the rich. *Somebody* has to love them. Sure, a lot of rich people are assholes, but believe me, a lot of poor people are assholes too. And an asshole with money can at least pay for his own drinks.
+off-vulgarity	life	tv-quote	edgy	1	Megaton Man: "LOOK at them! Helpless, tender creatures, relying on ME, waiting for ME to make my move!" (from below): "Move your ASS, Fat-head!" Megaton Man: "It is a MANDATE, and I am DUTY BOUND to OBEY!"
+off-vulgarity	love	quip	edgy	1	Moody bitch in search of... kind, considerate, loving man. Objective, love-hate relationship.
+off-vulgarity	love	quip	edgy	1	Moody bitch with attitude, seeks nice, good-looking guy to dump on.
+off-vulgarity	arts	quip	edgy	1	Most people wouldn't know music if it came up and bit them on the ass.
+off-vulgarity	family	quip	edgy	1	My brother-in-law has found a way to make ends meet. He goes around with his head stuck up his ass.
+off-vulgarity	life	quip	edgy	1	Never fly under a seagull - they'll shit on your airplane.
+off-vulgarity	life	tv-quote	edgy	1	"Never send a MAN to do a WOMAN'S work! Why do you think I CAME here?" "Not for the good of my ego, that was for damn sure."
+off-vulgarity	tech	quip	edgy	1	No matter how clever the hardware boys are, the software boys piss it away.
+off-vulgarity	life	aphorism	edgy	1	Non Illegitimus Carborundum. [Don't let the bastards wear you down.]
+off-vulgarity	society	dark	edgy	1	Obscene? Obscene is young men being trained to drop fire on people, but their commanders not allowing them to write "fuck" on their airplanes because it's obscene.
+off-vulgarity	life	quip	edgy	1	Obscenity is the crutch of inarticulate motherfuckers.
+off-vulgarity	life	dark	general	0	Old mercenaries never die. They go to hell and regroup.
+off-vulgarity	life	wisdom	general	0	Ours is a world where people don't know what they want and are willing to go through hell to get it.
+off-vulgarity	life	quip	edgy	1	Pardon me, sir, but you've obviously mistaken me for someone who gives a shit.
+off-vulgarity	life	quip	edgy	1	People will swim through shit if you put a few bob in it.
+off-vulgarity	health-body	quip	edgy	1	Psychotherapy is the theory that the patient will probably get well anyhow and is certainly a damn fool.
+off-vulgarity	life	quip	edgy	1	Shit happens.
+off-vulgarity	society	wisdom	general	0	Silence can be the biggest lie of all. We have a responsibility to speak up; and whenever the occasion calls for it, we have a responsibility to raise bloody hell.
+off-vulgarity	life	quip	edgy	1	So you fucked up... you trusted us!
+off-vulgarity	work-money	quip	edgy	1	Some companies idea of playing ball is, you play ball with us, and we'll stick the fucking bat up your ass.
+off-vulgarity	work-money	insult	edgy	1	Some of the management around here are the final proof that the Indians fucked the buffalo.
+off-vulgarity	life	quip	edgy	1	Sometimes, you just gotta say "What the fuck."
+off-vulgarity	arts	wisdom	edgy	1	Substitute 'damn' every time you're inclined to write 'very'; your editor will delete it and the writing will be just as it should be.
+off-vulgarity	life	aphorism	edgy	1	Success has many fathers, but failure is a bastard.
+off-vulgarity	food	quip	edgy	1	The best number for a dinner party is two--myself and a damn good head waiter.
+off-vulgarity	life	quip	edgy	1	The difference between graffiti and philosophy is the word "fuck".
+off-vulgarity	life	quip	edgy	1	The higher you climb, the more you show your ass.
+off-vulgarity	life	aphorism	general	0	The more crap you put up with, the more crap you're going to get.
+off-vulgarity	society	quip	general	0	... the most exquisitely squalid hells known to middle-class man: freshman English at a Midwestern university.
+off-vulgarity	life	observation	edgy	1	The only thing faster than the speed of light is shit flowing downhill.
+off-vulgarity	life	dark	general	0	The only way you'll ever hear from me is if you're living in the same hell.
+off-vulgarity	life	quip	general	0	The road to hell is paved with good intentions. And littered with sloppy analysis!
+off-vulgarity	life	quip	edgy	1	The time has come for kicking ass and taking names.
+off-vulgarity	life	dark	edgy	1	The world is an 8000 mile in diameter spherical pile of shit.
+off-vulgarity	science	aphorism	general	0	There are three kinds of lies: lies, damned lies and statistics.
+off-vulgarity	love	quip	edgy	1	There are two sides to every divorce: yours and the shithead's.
+off-vulgarity	life	quip	general	0	There is always more hell that needs raising.
+off-vulgarity	food	quip	general	0	They ought to make butt-flavored cat food.
+off-vulgarity	life	quip	edgy	1	This is National Smokers-Are-Shits Week.
+off-vulgarity	life	quip	general	0	Today is gonna be one helluva week!
+off-vulgarity	life	quip	edgy	1	Tomorrow never comes! It's all the same fuckin' day, man!
+off-vulgarity	life	quip	general	0	VYARZERZOMANIMORORSEZASSEZANSERAREORSES?
+off-vulgarity	life	quip	edgy	1	"Water? Never touch the stuff! Fish fuck in it."
+off-vulgarity	life	quip	edgy	1	We aren't what we eat. We are what we don't shit.
+off-vulgarity	life	joke	general	0	We call our dog Egypt, because in every room he leaves a pyramid.
+off-vulgarity	life	quip	edgy	1	We came, we saw, we kicked its ass!
+off-vulgarity	society	quip	edgy	1	We must remember the First Amendment which protects any shrill jackass no matter how self-seeking.
+off-vulgarity	tech	quip	general	0	Well, now that SUN's in bed with AT&T, I sure hope she sleeps with her back to the wall.
+off-vulgarity	life	quip	edgy	1	What the fuck, over?
+off-vulgarity	life	quip	general	0	What the hell, go ahead and put all your eggs in one basket.
+off-vulgarity	life	quip	edgy	1	When the shit hits the fan, keep your mouth shut!
+off-vulgarity	life	quip	general	0	Where the hell is Wall Drug?
+off-vulgarity	arts	quip	general	0	Who the hell wants to hear actors talk?
+off-vulgarity	life	quip	general	0	Who took the MMMMMM out of MURINE?
+off-vulgarity	life	quip	general	0	Why doesn't everybody leave everybody else the hell alone?
+off-vulgarity	life	aphorism	general	0	Winning isn't everything, but losing really sucks.
+off-vulgarity	nature	dark	general	0	Winter is nature's way of saying, "Up yours."
+off-vulgarity	work-money	aphorism	general	0	Work like hell, tell everyone everything you know, close a deal with a handshake, and have fun. -- Harold "Doc" Edgerton, summing up his life's philosophy, shortly before dying at the age of 86.
+off-vulgarity	life	quip	general	0	Would you mind terribly much if I asked you to take your silly-assed problem down the hall?
+off-vulgarity	life	quip	edgy	1	Yesterday is a memory, Tomorrow is a vision, Today is a bitch!
+off-vulgarity	life	insult	edgy	1	You are without a doubt a rogue, a rascal, a villain, a thief, a scoundrel, and a mean, dirty, stinking, sniveling, sneaking, pimping, pocketpicking, thrice double-damned, no-good son-of-a-bitch.
+off-vulgarity	life	dark	edgy	1	You can find sympathy, in the dictionary, right near shit and suicide.
+off-vulgarity	life	quip	nsfw	1	You can lead a whore to Vasser, but you can't make her think.
+off-vulgarity	life	quip	edgy	1	You have been bitchy since Tuesday and you'll probably get fired today.
+off-vulgarity	arts	quip	edgy	1	You have to be a bastard to make it, and that's a fact. And the Beatles are the biggest bastards on earth.
+off-vulgarity	life	quip	edgy	1	"You have to regard everything I say with suspicion -- I may be trying to bullshit you, or I may just be bullshitting you inadvertently."
+off-vulgarity	life	quip	general	0	You may not be able to judge a book by its cover, but you sure as hell can tell how much it's going to cost.
+off-vulgarity	life	quip	edgy	1	You see that fucking fish? If he'd kept his mouth shut, he wouldn'ta got caught.

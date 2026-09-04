@@ -1,0 +1,182 @@
+tv-seinfeld	love	tv-quote	general	0	George: She calls me up at my office. She says, "We have to talk." Jerry: Ugh. The four worst words in the English language. George: That or "Whose bra is this?" Jerry: That's worse.
+tv-seinfeld	love	tv-quote	general	0	George: You know, I've been thinking. I cannot envision any circumstance in which I'll ever have the opportunity to have sex again. How's it gonna happen? I just don't see how it could occur.
+tv-seinfeld	life	tv-quote	general	0	Jerry: Explain to me how this baby shower thing works. Elaine: What do you wanna know? Jerry: Well, I mean, does it ever erupt into a drunken orgy of violence? Elaine: Rarely.
+tv-seinfeld	life	tv-quote	general	0	George: Every woman on the face of the Earth has complete control of my life and yet, I want them all. Is that irony?
+tv-seinfeld	work-money	tv-quote	general	0	Jerry: What did you tell her? George: I told her that she was pretentious. Jerry: Pretentious? The woman has my tax papers. You told her she was pretentious? The IRS - they're like the Mafia. They can take anything they want.
+tv-seinfeld	life	tv-quote	general	0	Photographer: Say "astronaut." [Elaine, laughing, walks right up to the lens of the camera] Elaine: Heh-heh. Say what? Ha-ha-heh! Say what? Jerry: [pulls her back] You took too many of those pills.
+tv-seinfeld	life	tv-quote	general	0	Stella: This better be good. I'm missing Golden Girls for this. Helen Seinfeld: Heh-heh! [Stella walks away] I hate her like poison.
+tv-seinfeld	life	tv-quote	general	0	Elaine: [on Kramer's ex-girlfriend] If this woman's personality could be seen, it would be like one of those Elephant Man exhibits where they pull back the curtain and everyone gasps.
+tv-seinfeld	life	tv-quote	general	0	Elaine: Why do you keep watching? Jerry: I don't know. I'm obsessed with it. It's like a spider in the toilet struggling for survival. And even if you know it's not going to make it, you kind of root for it for a second. Elaine: And then you flush. Jerry: Well, it's a spider.
+tv-seinfeld	society	tv-quote	general	0	George: What do the Chinese have to gain by faking a cure for baldness? Jerry: If it was real, they would never let it out of the country. No baldness, it'd be like a nation of Supermen.
+tv-seinfeld	love	tv-quote	general	0	Elaine: [jokingly] Jerry, I want to slide my tongue around you like a snake... Ooooooooooha, oooooohaaaa...
+tv-seinfeld	life	tv-quote	general	0	Elaine: George, this is one of the nicest things anyone has ever given me! George: Well, good, good. Take it off. You're going to wear it out already. It's for special occasions this thing. Kramer: What's that red dot on your sweater?
+tv-seinfeld	life	tv-quote	general	0	Jerry: Remember, don't whistle on the elevator. George: Why not? Jerry: That's what Willy Loman told Biff before his interview in Death of a Salesman. George: What, you are comparing me to Biff Loman? Very encouraging: the biggest loser in history of American literature.
+tv-seinfeld	love	tv-quote	general	0	Noel:I am breaking up with you! George: But you can't break up with me! I've got hand! Noel: And you're gonna need it.
+tv-seinfeld	food	tv-quote	general	0	Elaine: But here it was, mountains of duck. And not fatty duck, either, but juicy, tender breasts of duck. Jerry: Wow, she is really hungry!
+tv-seinfeld	life	tv-quote	general	0	George: Are there terrorists on the plane? A hotel fire - is that it? Typhus? Malaria? Yellow fever? Lupus? Is it lupus?!
+tv-seinfeld	life	tv-quote	general	0	George: Is there a pinkish hue? Jerry: A pinkish hue? George: Yeah, a rosy glow. Jerry: There's a hue. She's got great eyebrows; women kill to have her eyebrows. George: Who cares about eyebrows?
+tv-seinfeld	life	tv-quote	general	0	Keith Hernandez: [thinking] Come on, I won the MVP in '79. I can do whatever I want to.
+tv-seinfeld	life	tv-quote	general	0	Elaine: [Kissing Keith, thinking] Who does this guy think he is? Keith Hernandez: [Thinking] I'm Keith Hernandez.
+tv-seinfeld	life	tv-quote	general	0	George: Did you see the way she was looking at me? Jerry: She's a Nazi, George, a Nazi! George: Kind of a cute Nazi, though.
+tv-seinfeld	society	tv-quote	general	0	Eva: What was that you said about the myth of the Holocaust? George: Oh, I said so many things. I- [a loud blast is heard] They're shooting! They're shooting!
+tv-seinfeld	life	tv-quote	general	0	George: No, no, I don't think I'm special. My mother always said I'm not special.
+tv-seinfeld	life	tv-quote	general	0	George: I'm speechless! I have no speech!
+tv-seinfeld	life	tv-quote	general	0	(Jerry sneezes) George: Ah shut up Art patron: [describing his view of "The Kramer" portrait] He is a loathsome, offensive brute. Yet I can't look away.
+tv-seinfeld	arts	tv-quote	general	0	George: I don't get art. Jerry: There's nothing to get. George: No, it always has to be explained to me, and then I have to have someone explain the explanation.
+tv-seinfeld	love	tv-quote	general	0	George: All bald people look good in hats. Elaine: You should have lived in the twenties and thirties. You know, men wore hats all the time then. George: What a bald paradise that must have been. Nobody knew.
+tv-seinfeld	life	tv-quote	general	0	Kramer: Do you ever yearn? George: Yearn? Do I yearn? Kramer: I yearn. George: You yearn? Kramer: Oh, yes. Yes, I yearn. Often I sit... and yearn. Have you yearned? George: Well, not recently. I've craved. Constant craving. But I haven't yearned.
+tv-seinfeld	life	tv-quote	general	0	George: You're not really going to California, are you? Kramer [pointing to his head]: Up here, I'm already gone!
+tv-seinfeld	life	tv-quote	general	0	Voice: Murphy Brown. Kramer: Uh, yeah, uh, Candace Bergen please. Voice: Who's calling please? Kramer: Well, just tell her that it's Kramer. [dial tone]
+tv-seinfeld	life	tv-quote	general	0	George: I dress by mood. Jerry: And what mood is this? George: This is Morning Mist.
+tv-seinfeld	life	tv-quote	general	0	George: I hate asking for change. They always make a face. Like I'm asking them to donate a kidney.
+tv-seinfeld	life	tv-quote	general	0	Jerry: Hello 911? How are you?
+tv-seinfeld	life	tv-quote	general	0	Kramer: No. We had a deal. There are no guarantees in life. Newman: No, but there's karma, Kramer. Jerry: "Karma Kramer"?
+tv-seinfeld	life	tv-quote	general	0	Newman: So I sped home to save my friend's life and I was stopped for speeding. Yes, I admit I was speeding but it was to save a man's life! A close friend. An innocent person who wanted nothing more out of life than to love, to be loved and to be a banker.
+tv-seinfeld	food	tv-quote	general	0	Jerry: You know a muffin can be very filling.
+tv-seinfeld	life	tv-quote	general	0	Morty: They stole my wallet. The bum stole my wallet. MY WALLET'S GONE! MY WALLET'S GONE! I had my wallet in my back pocket. It's gone. Nurse: Are you sure? Morty: Yes, I'm sure. I went in to get my x-ray. Somebody takes my wallet. Is that the operation here?
+tv-seinfeld	love	tv-quote	general	0	Helen: If you don't think she's beautiful, there's something wrong with you. Jerry: She's pretty. She's not beautiful. Helen: I should drop dead if she's not beautiful. Jerry: I think that's a little extreme. Leo: She's alright..
+tv-seinfeld	life	tv-quote	general	0	Jerry: He's a bubble boy! George: A bubble boy?! Jerry: Yes! A bubble boy! Susan: What's a bubble boy? Jerry: He lives in a bubble! George: Boy.
+tv-seinfeld	family	tv-quote	general	0	Elaine: Maybe I'll go visit my mother. She just bought me some new panties and they're all "laid out for me".
+tv-seinfeld	life	tv-quote	general	0	Jerry: Why don't you just get lost? Man: Why don't you get lost?! Jerry: Because I was standing here, that's why! Man: Oh yeah?! Jerry: Yeah! (The man walks away) Jerry: I kinda like this opera crowd. I feel tough. Anybody else got a problem?
+tv-seinfeld	love	tv-quote	general	0	Jerry: She's a virgin. I just found out. Elaine: Well, I didn't know! Jerry: Well, it's not like spotting a toupee.
+tv-seinfeld	love	tv-quote	general	0	George: Hey, what are you doing tonight? Jerry: Dating Marla. George: Oh, the virgin? Jerry: Yeah. George: Any, uh.. progress, there? What's the latest? Jerry: Well, I got my troops amassed along the border - I'm just waiting for someone to give me the go-ahead.
+tv-seinfeld	life	tv-quote	general	0	Kramer: Listen to the bell, Grossbard. It tolls for thee.
+tv-seinfeld	life	tv-quote	general	0	Jerry: If we pick, do we not bleed?
+tv-seinfeld	life	tv-quote	general	0	Jerry: I am not an animal!
+tv-seinfeld	arts	tv-quote	general	0	Elaine: I don't wanna go to a miniplex multi-theater! George: It's the same movie! What's the difference? Elaine: It's not a theater, it's like a room where they bring in P.O.W.s to show them propaganda films.
+tv-seinfeld	life	tv-quote	general	0	George: I'm disturbed, I'm depressed, I'm inadequate, I've got it all!
+tv-seinfeld	life	tv-quote	general	0	Jerry: Looking at a cleavage is like looking at the sun. You don't stare at it. It's too risky. You get a sense of it and then you look away.
+tv-seinfeld	life	tv-quote	general	0	Jerry: Men are obsessed with cleavage. It doesn't matter how many times we've seen these things. Every time these objects are presented to us, we have to look. We cannot not look. To men, cleavage is like the nearest thing to a nearby UFO landing. That's what it is.
+tv-seinfeld	love	tv-quote	general	0	Jerry: I've been outed. I wasn't even in!
+tv-seinfeld	life	tv-quote	general	0	Jerry: Everyone thinks we're gay!... Not that there's anything wrong with that.
+tv-seinfeld	life	tv-quote	general	0	Sidra: And one more thing; they're real, and they're spectacular.
+tv-seinfeld	life	tv-quote	general	0	Elaine: You know, sometimes when I think you're the shallowest man I've ever met, you somehow manage to drain a little more out of the pool.
+tv-seinfeld	food	tv-quote	general	0	Kramer: Who's gonna turn down a Junior Mint? It's chocolate, it's peppermint; it's delicious! Jerry: That's true. Kramer: It's very refreshing!
+tv-seinfeld	life	tv-quote	general	0	George: I guess it can't hurt him... People eat pounds of those things. Jerry: They eat them, they don't put them next to vital organs in their abdominal cavity!
+tv-seinfeld	life	tv-quote	general	0	George: This is beyond B.O. This is B.B.O.
+tv-seinfeld	life	tv-quote	general	0	Jerry: Usually the O stays with the B. Once the B is gone the O leaves with it.
+tv-seinfeld	life	tv-quote	general	0	Salesman: This is our best model: The Cougar 9000. It's the Rolls Royce of wheelchairs. This is like...you're almost glad to be handicapped.
+tv-seinfeld	life	tv-quote	general	0	Jerry: Again with the sweat pants? George: What? I'm comfortable. Jerry: You know the message you're sending out to the world with these sweat pants? You're telling the world: "I give up. I can't compete in normal society. I'm miserable, so I might as well be comfortable."
+tv-seinfeld	love	tv-quote	general	0	Sandi: You're breaking up with me, aren't you? Jerry: Do you want me to break up with you? Sandi: If that's what you want. Jerry: I don't even know what you're talking about. Sandi: Fine. Break up with me. Jerry: All right. We're broken up. Sandi: Can we still be friends?
+tv-seinfeld	love	tv-quote	general	0	George: You faked? Elaine: On occasion. Jerry: And the guy never knows? Elaine: No. Jerry: How can he not know that? Elaine: Because I was gooood. Jerry: I guess after that many beers he'd be pretty groggy anyway. Elaine: [chuckles] You didn't know.
+tv-seinfeld	love	tv-quote	general	0	Elaine: Jerry, we have to have sex to save the friendship. Jerry: Sex to save the friendship. [starts to take off his shirt] Well if we have to we have to.
+tv-seinfeld	life	tv-quote	general	0	Kramer: This isnt going to be a new look for the '90s. You're gonna be the first pirate! Jerry: But I don't want to be a pirate!
+tv-seinfeld	life	tv-quote	general	0	Elaine: So I'm all right? I don't need a shot? Doctor: Not shot. Dog bite. Elaine: Yes, I know I wasn't shot. Do I need a shot? Doctor: Not shot. Dog bite. Woof-woof. Not bang-bang.
+tv-seinfeld	society	tv-quote	general	0	Elaine: So because of a few bad apples, you're going to impugn an entire continent? Jerry: Yes, I'm impugning a continent.
+tv-seinfeld	life	tv-quote	general	0	George: [showing off his perfect parking spot to Elaine and Jerry] Maybe the baby would like to see the spot.
+tv-seinfeld	life	tv-quote	general	0	Boy: (to Jerry) Thanks for ruining my daddy's business, you fat f*ck.
+tv-seinfeld	love	tv-quote	general	0	George: Jerry...this woman hates me so much...I'm starting to like her.
+tv-seinfeld	love	tv-quote	general	0	George: A woman that hates me this much comes along once in a lifetime. Jerry: You're a lucky guy.
+tv-seinfeld	arts	tv-quote	general	0	Kramer: I'm doing a coffee-table book on coffee tables.
+tv-seinfeld	work-money	tv-quote	general	0	Estelle Costanza: George doesn't work. He's a bum.
+tv-seinfeld	faith	tv-quote	general	0	Father/Priest: Is there one aspect of the faith that you find particularly attractive? George: I like the hats.
+tv-seinfeld	life	tv-quote	general	0	George: By Christmas Day, I will be Brother Costanza. Jerry: And what does Brother Costanza plan on telling Mother Costanza? George: Brother Costanza will be taking the vow of silence.
+tv-seinfeld	life	tv-quote	general	0	Jerry: You're crazy. Kramer: Am I? Or am I so sane that you just blew your mind? Jerry: It's impossible. Kramer: Is it? Or is it so possible that your head is spinning like a top? Jerry: It can't be. Kramer: Can't it? Or is your entire world crashing down all around you?
+tv-seinfeld	life	tv-quote	general	0	Jerry: He's a male bimbo... He's a mimbo!
+tv-seinfeld	life	tv-quote	general	0	Jerry: Uh, I don't feel so good. Elaine: What's wrong? Jerry: My stomach, I , I think it was that cookie. Elaine: The black and white? Jerry: Yeah. Elaine: Not getting along?
+tv-seinfeld	life	tv-quote	general	0	Man:[Bumps into George and angrily says] Big Coat! George: Yes, Its a big coat! Kramer: Be careful with that coat, you'll start a war!
+tv-seinfeld	life	tv-quote	general	0	[using the ATM at the same time as the person next to him] Jerry: "Cash advance"? Yes... no. "Balance inquiry"? No. "Receipt"? No. Processing... processing... processing. [to the person next to him] I win!
+tv-seinfeld	nature	tv-quote	general	0	George: The sea was angry that day, my friends, like an old man trying to send back soup at a deli!
+tv-seinfeld	life	tv-quote	general	0	Ricky's supervisor: Ricky, we've been getting a tremendous response to your TR-6 mannequin. Ricky: TR-6? I prefer to think of her as... Elaine.
+tv-seinfeld	food	tv-quote	general	0	Jerry: A chef who doesn't wash his hands is like a cop who steals. It's a cry for help.
+tv-seinfeld	life	tv-quote	general	0	Jerry: How do you stop a kid from growing? Kramer: I told you, you should offer him some cigarettes. Mickey: I offered him cigarettes, but his stupid mother is hanging around. She won't let him have any.
+tv-seinfeld	life	tv-quote	general	0	George: Why don't they just hire another midget? Mickey: It's "little people"...You got that?!
+tv-seinfeld	love	tv-quote	general	0	Kramer: Hey Elaine, what do you say, if neither of us is married in 10 years, we get hitched? Elaine: Make it 50. Kramer: We're engaged!
+tv-seinfeld	love	tv-quote	general	0	George: A guy leaves a puddle of sweat, that's a signal? Elaine: Yeah, it's a social thing. George: What if he left you a used Kleenex? What's that, a valentine?
+tv-seinfeld	life	tv-quote	general	0	Jerry: She lives with her parents. George: Really? Maybe this will become like a cool thing, living with your parents. Jerry: Yeah, then maybe baldness will catch on.
+tv-seinfeld	life	tv-quote	general	0	Kramer: Hey Jerry, you ever wear silk underwear? Jerry: No. Kramer: Put that on the top of your list. Jerry: No, not for me. A little too delightful.
+tv-seinfeld	love	tv-quote	general	0	Elaine: Oh, isn't that weird that George and Jane haven't had sex yet, but they're spending a weekend together? Jerry: I know, George is pretty pleased about it. It's like she signed a letter of intent.
+tv-seinfeld	life	tv-quote	general	0	Jerry: The New York Yankees? George: The New York [turns Yankees hat around] Yankees! Jerry: Ruth, Gehrig, DiMaggio, Mantle ... Costanza!?
+tv-seinfeld	love	tv-quote	general	0	Ms. Rhode Island: I'm watching my weight. Jerry: I'm watching my height. My doctor doesn't want me to get any taller.
+tv-seinfeld	life	tv-quote	general	0	Kramer: Look, if you think I'm just going to step aside and do nothing while you defile this woman, you're crazy.
+tv-seinfeld	love	tv-quote	general	0	Jerry: People on dates shouldn't even be allowed out in public.
+tv-seinfeld	love	tv-quote	general	0	Jerry: He doesn't even care if a man answers. Elaine: Or you.
+tv-seinfeld	life	tv-quote	general	0	Leo: She can't do that, she's on a very fixed income! Stop the show!!
+tv-seinfeld	life	tv-quote	general	0	Kramer: I need the secure packaging of Jockeys. My boys need a house!
+tv-seinfeld	family	tv-quote	general	0	Jerry: [referring to George] It's a shame his parents didn't get divorced thirty years ago. He could've been normal.
+tv-seinfeld	life	tv-quote	general	0	Jerry: Is it? C-could it? Could he have? It is! Poppy peed on my sofa!
+tv-seinfeld	life	tv-quote	general	0	Kramer: Jerry, you stand on the threshold to the magical world of sensual delights that most men dare not dream of.
+tv-seinfeld	life	tv-quote	general	0	Jerry: You're in the kitchen. You see an éclair in the receptacle. So you think to yourself, "What the hell, I'll just eat some trash."
+tv-seinfeld	life	tv-quote	general	0	Jerry: We should get you to a hospital. Kramer: I ain't going to no Bellevue.
+tv-seinfeld	life	tv-quote	general	0	George: [singing] Everybody's talkin' at me... can't hear a word they're sayin'... just drivin' around in Jon Voight's car...
+tv-seinfeld	food	tv-quote	general	0	Jerry: I'll have the turkey club without the bacon. George: And I'll have the bacon club without the turkey.
+tv-seinfeld	work-money	tv-quote	general	0	Secretary: As you can see, my references are impeccable and I think I'd be a real asset here. My only concern is: I take care of my mother. Will there be many late nights? George: I can't imagine any.
+tv-seinfeld	life	tv-quote	general	0	Jerry: You got no waist in that thing. George: And your arms look like something in a kosher deli.
+tv-seinfeld	life	tv-quote	general	0	George: Do you ever just get down on your knees and thank God that you know me and have access to my dementia?
+tv-seinfeld	life	tv-quote	general	0	Lois: Would you be able to come all the way downtown during rush hour again? Jerry: Well, I'd have to be Superman to do that, Lois.
+tv-seinfeld	life	tv-quote	general	0	Lois: So, you were the fastest kid in school. Jerry: Faster than a speeding bullet, Lois.
+tv-seinfeld	life	tv-quote	general	0	Jerry: "I CHOSE NOT TO RUN!"
+tv-seinfeld	life	tv-quote	general	0	Elaine: He recycled this gift. He's a regifter.
+tv-seinfeld	life	tv-quote	general	0	Jerry: Oh, it's "Risk." It's a game of world domination being played by two guys who can barely run their own lives.
+tv-seinfeld	life	tv-quote	general	0	Jerry: Who is he not to talk to you about his life-threatening illness?
+tv-seinfeld	life	tv-quote	general	0	George: You think I tell Jerry everything? It's not like he's my wife.
+tv-seinfeld	life	tv-quote	general	0	George: Jerry, just remember, it's not a lie if you believe it.
+tv-seinfeld	life	tv-quote	general	0	[Talking about George's toupee] Kramer: Its a perfect match. Jerry: Are you kidding? I can spot that bird's nest two blocks away.
+tv-seinfeld	work-money	tv-quote	general	0	George: I love these people. You can't ask 'em questions. They're so mentally gifted that we mustn't disturb the delicate genius unless it's in the confines of an office. When huge sums of money are involved, then the delicate genius can be disturbed!
+tv-seinfeld	society	tv-quote	general	0	Jerry: How 'bout those Knicks? Doorman: Oh, I see. On the sports page... Jerry: Yeah. Doorman: What makes you think I wasn't reading the Wall Street page? Oh, I know, because I'm the uneducated doorman.
+tv-seinfeld	life	tv-quote	general	0	Jerry: You know what you're doing? You're turning into Jimmy. George: George is getting UPSET!
+tv-seinfeld	life	tv-quote	general	0	George: [referring to a doodle of himself] I look like a troll!
+tv-seinfeld	life	tv-quote	general	0	Elaine: What's this, a drawing of Mr. Magoo? Jerry: No, that's George.
+tv-seinfeld	life	tv-quote	general	0	Jerry: You know what a good mechanic is worth? You can't compare that to sex.
+tv-seinfeld	life	tv-quote	general	0	Mr. Morgan: I suppose we all look alike to you, right Costanza?
+tv-seinfeld	life	tv-quote	general	0	Katie: Jerry, I don't want you to freak out. Jerry: I'm freakin' out! I am freakin' out!
+tv-seinfeld	arts	tv-quote	general	0	George: I watched "Beaches" on cable last night... give me a break. Bette: Get some talent. Then you can mouth off.
+tv-seinfeld	love	tv-quote	general	0	Susan: I just want you to know that I love your son very much. Estelle: You do? Susan: Yes. Estelle: Really? Susan: Yes. Estelle: May I ask why?
+tv-seinfeld	life	tv-quote	general	0	Kramer: Look at this, Jerry. That's littering. Jerry: Maybe you better call the cops and turn me in. Kramer: Maybe I will.
+tv-seinfeld	life	tv-quote	general	0	Jerry: New shirt? George: Yeah. You like it? Jerry: No, not particularly. George: Why, the color? Jerry: Yeah. George: Too flashy? Jerry: Yeah, it's burning my retina.
+tv-seinfeld	life	tv-quote	general	0	Kramer: Oh, by the way, tomorrow night Paul O'Neill has to catch a fly ball in his hat.
+tv-seinfeld	life	tv-quote	general	0	Kramer: Well, you know the important thing is that you learned something. Jerry: No, I didn't.
+tv-seinfeld	life	tv-quote	general	0	George: (to Elaine) You're killing independent George!
+tv-seinfeld	love	tv-quote	general	0	Jerry: She's too good. George: Too good? Jerry: I mean, she's giving and caring and genuinely concerned about the welfare of others. I can't be with someone like that. George: I see what you mean. Jerry: I admire the hell out of her. You can't have sex with someone you admire.
+tv-seinfeld	love	tv-quote	general	0	Elaine: I just couldn't decide if he was really sponge worthy.
+tv-seinfeld	life	tv-quote	general	0	[Message on Jerry's answering machine after being informed of George's death] Frank Costanza: Jerry, it's Frank Costanza. Steinbrenner's here. George is dead. Call me back.
+tv-seinfeld	life	tv-quote	general	0	Jerry: Boy, I miss the days they made toys that could kill a kid.
+tv-seinfeld	life	tv-quote	general	0	George: Susan has this doll collection, and one of the dolls looks exactly like my mother. She likes to sleep with it. Jerry: Wow. You were in bed with your mother last night? George: Felt like it. I tell you, this doll is pretty spooky. It's freakin' me out, man.
+tv-seinfeld	life	tv-quote	general	0	Jerry: Excuse me. Excuse me. Are you asking him out? Jessie: Yeah... I guess you could say that.. Jerry: Right in front of me! How do you know we're not together? Two guys sitting, laughing, drinking "Champagne Coolies."
+tv-seinfeld	life	tv-quote	general	0	Jerry: I'm telling you right now, Elaine, this guy's gonna dangle that dress in front of you like a dirt farmer dangles a carrot in front of a mule.
+tv-seinfeld	food	tv-quote	general	0	Steinbrenner: [after smelling the calzones] Constanza is in the building! And he's not in his office! Constanza! He's got the calzone! I've got you! [runs out of his office]
+tv-seinfeld	life	tv-quote	general	0	Farmer's daughter: No, Daddy, don't hurt him! I love him! Goodbye, Norman! Goodbye!
+tv-seinfeld	love	tv-quote	general	0	Jerry: It was unprecedented. I mean, it was the first truly mutual breakup in relationship history. No rejection, no guilt, no remorse. Elaine: You've never felt remorse. Jerry: I know. I feel bad about that.
+tv-seinfeld	life	tv-quote	general	0	Kramer: What's wrong? Elaine: Oh, Peterman ran off to Burma and now he wants me to run the catalog. Kramer: Where? Jerry: Myanmar. Kramer: What's that? The discount pharmacy?
+tv-seinfeld	love	verse	general	0	Newman: Her bouquet cleaved his hardened shell, And fondled his muscled heart. He imbibed her glistening spell, Just before the other shoe fell.
+tv-seinfeld	life	tv-quote	general	0	[Jerry, George, and Kramer meet their "doubles" for the first time] Elaine: Jerry, George, Kramer. This is Kevin, Gene, and Feldman. Jerry: This is really weird..
+tv-seinfeld	life	tv-quote	general	0	George: Have you ever seen Elaine dance? Jerry: Elaine danced?! George: It's more like a full-body dry heave set to music.
+tv-seinfeld	life	tv-quote	general	0	Bania: Why do they call it Ovaltine? The mug is round. The jar is round. They should call it Roundtine. That's gold, Jerry! Gold!
+tv-seinfeld	life	tv-quote	general	0	Kramer: You know Frank, you could take a break. Frank: No breaks. I feel reborn. I'm like a Phoenix rising from Arizona.
+tv-seinfeld	life	tv-quote	general	0	Jerry: [pointing toward the guy] See that salesman, twirling that umbrella. Elaine: Uh huh. Jerry: I invented that.
+tv-seinfeld	life	tv-quote	general	0	Mrs. Wilky: We feel that Mr. Kramer projects a rugged masculinity. Jackie Chiles: Rugged? The man's a goblin. He's only been exposed to smoke for four days! By the time this case gets to trial, he'll be nothin' more than a shrunken head.
+tv-seinfeld	life	tv-quote	general	0	Jerry: Little Jerry's a lean mean peckin' machine!
+tv-seinfeld	life	tv-quote	general	0	Kramer: The whole fight lasted two seconds! Jerry: How long do they usually la - Kramer: About five seconds.
+tv-seinfeld	life	tv-quote	general	0	Kramer: [in slow motion, trying to save Little Jerry] LITTLE JERRYYYYYYYY! Jerry: KRAMMMMMERRRRRRRRR! Elaine: Stop the fight!! George: Tamales!
+tv-seinfeld	life	tv-quote	general	0	Jerry: I had a dream last night that a hamburger was eating ME!
+tv-seinfeld	life	tv-quote	general	0	George: [on an answering machine, sung to the tune of Greatest American Hero] Believe it or not, George isn't at home. Please leave a message at the beep. I must be out, or I'd pick up the phone, Where could I be? Believe it or not, I'm not home.
+tv-seinfeld	life	tv-quote	general	0	Newman [While driving his car that is dragging Elaine's sewing machine on the road over the two lane highway after Kramer accidentally spills flammable paint thinner]: You're once, twice, three times a- [Truck goes on fire] AAAAAH!!!! Oh the humanity!
+tv-seinfeld	arts	tv-quote	general	0	Lisa: How could you not love that movie? Elaine: How about, it sucked?
+tv-seinfeld	life	tv-quote	general	0	[The phone rings.] Jerry: Hello? Telemarketer: Would you be interested in a subscription to The New York Times? Jerry: Yes. [hangs up]
+tv-seinfeld	society	tv-quote	general	0	George: Attention, Steinbrenner and front office morons: your triumphs mean nothing. You all stink. You can sit on it and rotate!
+tv-seinfeld	arts	tv-quote	general	0	George: When do you start to worry about ear hair? Jerry: When you hear like a soft rustling.
+tv-seinfeld	love	tv-quote	general	0	Jerry: So you're pretending to be a tourist? George: It's beautiful. She makes all the plans. I'm not from around here, so it's okay if I'm stupid. And she knows I'm only in town visiting, so there's no messy breakups.
+tv-seinfeld	life	tv-quote	general	0	George: I hereby declare this summer the summer of George!
+tv-seinfeld	work-money	tv-quote	general	0	George: Severance package...The Yankees are giving me three months full pay for doing nothing. Jerry: They did it for three years. What's another few months?
+tv-seinfeld	society	tv-quote	general	0	George: What is Holland? Jerry: What do you mean, "What is it?" It's a country right next to Belgium. George: No, that's the Netherlands. Jerry: Holland is the Netherlands. George: Then who are the Dutch?
+tv-seinfeld	life	tv-quote	general	0	[Elaine and Puddy going to Europe for a month.] Kramer: A month in Europe with Elaine? That guy's coming home in a body bag.
+tv-seinfeld	life	tv-quote	general	0	Frank: Serenity now! Serenity now! George: What is that? Frank: Doctor gave me a relaxation cassette. When my blood pressure gets too high, the man on the tape tells me to say "Serenity now!" George: Are you supposed to yell it? Frank: The man on the tape wasn't specific.
+tv-seinfeld	life	tv-quote	general	0	Kramer: Anyway, you're lucky I was there. You lost a lot of blood. Jerry: (nervous) ...What? Kramer: Yeah. You got three pints of Kramer in ya, buddy! (Jerry screams. Trying to calm him down, Kramer starts screaming too)
+tv-seinfeld	life	tv-quote	general	0	Woman: [indicating Kramer's dummy] Why is the mailman wearing a bucket? Kramer: Because we are blind to their tyranny. Woman: Then shouldn't you be wearing the bucket?
+tv-seinfeld	life	tv-quote	general	0	Kramer: Hey, Jerry! Come in here a sec! Hey! Jerry: Oh, my God! Kramer: It's the Merv Griffin set! Jerry: How did you get this in here? Kramer: Oh, you just bring it in sideways and hook it. Jerry: So where are you gonna sleep? Kramer: Yeah... backstage.
+tv-seinfeld	food	tv-quote	general	0	Kramer: I've sliced meat so thin, you couldn't see it. Elaine: How did you know? Kramer: I guess I just assumed.
+tv-seinfeld	life	tv-quote	general	0	George: You can stuff your sorries in a sack, mister!
+tv-seinfeld	life	tv-quote	general	0	Elaine: He schnapped me!
+tv-seinfeld	science	tv-quote	general	0	Jerry: They're cloning sheep now. Kramer: No, they're not cloning sheep. It's the same sheep! I saw Harry Blackstone do that trick with two goats and a handkerchief on the old Dean Martin show!
+tv-seinfeld	life	tv-quote	general	0	Frank: It's Christmas for some, a Festivus for the rest of us!!
+tv-seinfeld	life	tv-quote	general	0	Jerry: Hey George, I'm buyin' this car! George: Shh. What is wrong with you? You never tell them you like the car! You're not sure what you want. You don't even know why you're here!
+tv-seinfeld	love	tv-quote	general	0	Jerry: You've been hiding her from us. you must really like her? George: Ah! the minute I saw this girl, we just clicked. She's got such a nice face... hmm, her eyes, her mouth, nose... Elaine: We know what a face consists of.
+tv-seinfeld	arts	tv-quote	general	0	Jerry: [reading the latest Ziggy comic] "The New Yorker's stealing my jokes". Ha, now that's funny... because it's true.
+tv-seinfeld	life	tv-quote	general	0	Glenn: You are the bear claw in the garbage bag of my life.
+tv-seinfeld	work-money	tv-quote	general	0	Jerry: House in the Hamptons? George: Well, you know, I've been lying about my income for a few years; I figured I could afford a fake house in the Hamptons.
+tv-seinfeld	life	tv-quote	general	0	Jerry: That guy: swarm, swarm!
+tv-seinfeld	life	tv-quote	general	0	George: Kramer, listen to me. I'm never gonna have a child. If I lose this "Frogger" high score, that's it for me.
+tv-seinfeld	life	tv-quote	general	0	Kramer: [on the phone] Hey, I'm on First and... First. How can the same street intersect with itself? I must be at the nexus of the universe.
+tv-seinfeld	life	tv-quote	general	0	George: Jerry, I've been thinking. I've gone as far as I can with "George Costanza". Jerry: Is this the suicide talk or the nickname talk?
+tv-seinfeld	society	tv-quote	general	0	Man: Hey! There's a guy burning the Puerto Rican flag! Bob: Who! Who is burning the flag?! Kramer: Oh, no. Bob: Him? Cedric: That's not very nice.
+tv-seinfeld	life	tv-quote	general	0	Hoyt: State your name. Soup Nazi: Yev Kassem. Hoyt: Could you spell that? Soup Nazi: No! Next question.

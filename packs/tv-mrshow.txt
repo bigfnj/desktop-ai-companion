@@ -1,0 +1,208 @@
+tv-mrshow	life	tv-quote	general	0	Ronnie Dobbs (David): Y'all wear condoms on both your ears, I think it's funny. [Cough and groan]
+tv-mrshow	society	tv-quote	general	0	Bob: David attended public schools, so he confuses Hitler with Anne Frank.
+tv-mrshow	life	tv-quote	general	0	David: Bob missed his first day of school, and he never really caught up, so he thinks there are only 5 states...and that one of them is named Chim-Cham.
+tv-mrshow	life	tv-quote	edgy	1	Gary, the asshole party-crasher (David): You fuckers are gonna believe it now.
+tv-mrshow	life	tv-quote	general	0	Woman leaving convenience store (Jill Talley): Take a picture, it'll last longer, jag-off!
+tv-mrshow	life	tv-quote	edgy	1	Father Mike (Bob): I was born... out of Satan's ass.
+tv-mrshow	arts	tv-quote	nsfw	1	Senator Howell Tankerbell (Bob): Gentlemen, I propose that this arts funding is like a milking machine and unless we shut it down, it's gonna rip our dicks right off!
+tv-mrshow	life	tv-quote	nsfw	1	Senator Howell Tankerbell (Bob): I've got a naked puppet doin' a lewd, lascivious Fandango on the lap of a full-grown man! I got a fella over here, he's churnin' butter. A lady over here dippin' candles...it's like a pioneer porn shop in here! Close 'em down, boys!
+tv-mrshow	arts	tv-quote	general	0	Senator Howell Tankerbell (Bob): I wish I could be everywhere that people are doin' art, so that I could keep the public from gettin' aroused...or titillated...or otherwise confused by the counterculture.
+tv-mrshow	faith	quip	general	0	Marshall, the 13th apostle (David): God, lemme ask you something: are you happy settling for omnipotence?
+tv-mrshow	life	tv-quote	edgy	1	Guy in Tech Corp commercial during Pit-Pat sketch (Jay Johnston): Fuckity fuck-fuck!!!
+tv-mrshow	life	tv-quote	general	0	Voiceover king (Bob): Mr. Pickle's funtime abortion clinics: we'll bring out the kid in ya!
+tv-mrshow	society	tv-quote	general	0	Globo-Chem executive (John Ennis): My great great great grandfather started this company with one single rickety leaky hand-crafted slave ship, and a simple motto: "People Selling People to People".
+tv-mrshow	love	tv-quote	general	0	Pit-Pat (Bob): Take it from me, I love you.
+tv-mrshow	life	tv-quote	general	0	Guy in Ding Dong Burgers commercial during Pit-Pat sketch (David): This cocksucker dragged me down here, I dunno.
+tv-mrshow	life	tv-quote	edgy	1	Guy in Ding Dong Burgers commercial during Pit-Pat sketch (David): Fuck, this little motherfucker's tasty!!
+tv-mrshow	life	tv-quote	edgy	1	Pit-Pat ad agency representative (Bob): Look lady, I don't come down to where you work and slap the dick out of your mouth.
+tv-mrshow	life	tv-quote	edgy	1	Kindly farmer in "The Joke: The Musical" (Jack Black): Don't stick your dick in these holes.
+tv-mrshow	life	tv-quote	general	0	David: Dear Globochem, someone is trying to kill me!!! Please send me as many free products as possible. Love, David Cross.
+tv-mrshow	life	tv-quote	edgy	1	Jerry, the honeymoon crasher (David): Ooh. I gotta take a shit. Hey Todd, hand me that Hustler.
+tv-mrshow	love	tv-quote	general	0	Jerry, the honeymoon crasher (David): Legend, oh legend, the third wheel legend. Always in the way.
+tv-mrshow	life	tv-quote	general	0	Honeymooner (Bob): Tri-cycles would be bi-cycles. Who's ever heard of a bi-cycle?
+tv-mrshow	life	tv-quote	general	0	Larry Black, the forgetful soul singer (Bob): I need a reminder to look at my reminder!
+tv-mrshow	life	tv-quote	general	0	Supermodel Calling Service commercial voice (Bob): Thousands of hot models are waiting to talk to you around the clock!
+tv-mrshow	life	tv-quote	general	0	Commercial "viewer" (David): Thousands? Clock?
+tv-mrshow	life	tv-quote	general	0	Deranged indie film director (David): Look, its right here in the program: stage protest right before fancy pants.
+tv-mrshow	life	tv-quote	general	0	Abraham Lincoln (Tom Kenny): Lunacy! How will we ever get it down?
+tv-mrshow	society	tv-quote	edgy	1	Thomas Jefferson (Bob): What a collection of assholes.
+tv-mrshow	life	tv-quote	edgy	1	Benjamin Franklin (David): Gentlemen, who would shit on a flag made out of shit? It would be an empty gesture.
+tv-mrshow	life	tv-quote	general	0	Droopy (Bob): No, you can't bring a class of school children here. This is a museum, not a babysitting place.
+tv-mrshow	life	tv-quote	general	0	Brinks Peterson (David): Trying to get you the news without making a big production out of it.
+tv-mrshow	life	tv-quote	general	0	Ernie (Bob): The super pan is not magical. It will burn you.
+tv-mrshow	life	tv-quote	general	0	Ernie (Bob): She didn't believe me when I said the pan was super.
+tv-mrshow	life	tv-quote	general	0	Ernie (Bob): Oh, Nancy. You cannot fly. Only British people can fly! You shouldn't try to fly, and you shouldn't listen to British people!
+tv-mrshow	life	tv-quote	general	0	Marijuana smuggler #1 (David): You can't shampoo a shampooer!
+tv-mrshow	life	tv-quote	edgy	1	Marijuana smuggler #2 (John Ennis): Then I took a balloon up my ass to Spain.
+tv-mrshow	life	tv-quote	general	0	F.F. Woodycooks (Bob): The guard knew he needed to conserve energy...and had had a large dinner.
+tv-mrshow	life	tv-quote	general	0	F.F. Woodycooks (Bob): You said it crime-stick! Those two were a couple of ding-a-lings! ... Now, who wants ice cream? If you want to learn more about how to take back the streets, and how sweet ice cream is, visit any one of my three ice cream-precinct locations.
+tv-mrshow	life	tv-quote	general	0	David: Perhaps I might have picked something up when I was in London a few whiffens past.
+tv-mrshow	life	tv-quote	general	0	Jill Talley: There's no such thing as a talking junkie!
+tv-mrshow	life	tv-quote	edgy	1	David: Bob's in there fuckin' shit up old-school, and I got kicked OUTTA school!
+tv-mrshow	life	tv-quote	nsfw	1	Mr. Applesway (Bob): Next time you'll get more than a dildo in the head!
+tv-mrshow	life	tv-quote	general	0	Great great great grandfather Applesway (Paul F. Tompkins): Look! LOOK!!! An entire wall of nothing but hardcore gay anal sex. If that doesn't bring a tear to your eye, then you're the one who's inhuman!
+tv-mrshow	life	tv-quote	general	0	Ty McGinty/Mr. Tink/Great great great grandfather Applesway (David/Tom Kenny/Paul F. Tompkins): Could I get some quarters?
+tv-mrshow	life	tv-quote	nsfw	1	Mr. Applesway (Bob): Keep it down! There's people trying to masturbate down here!
+tv-mrshow	life	tv-quote	general	0	Pootie T (David): I ain't got no flyin' shoes.
+tv-mrshow	arts	tv-quote	general	0	Gold tooth in "Rap The Musical" (Bob): Well, I'm an old gold tooth, and I'll tell you the truth. I live in the mouth of my homie.
+tv-mrshow	life	tv-quote	edgy	1	Bob: Third motherfuckin' time...
+tv-mrshow	arts	tv-quote	edgy	1	Bob: I liked Bananarama...you liked that Bangles shit.
+tv-mrshow	society	tv-quote	general	0	Dr. Ken Schwartz of "No Adults Allowed" (Bob): I tell ya, this generation is worse than the hippies, the flappers, and the Nazis combined...at least the hippies gave us those fat watchbands, and the flappers could dance, and the Nazis had that song "Eight Days a Week".
+tv-mrshow	life	quip	general	0	Cafe Sidewalk Sign: Dirty Slackers Stay Out!
+tv-mrshow	life	tv-quote	general	0	Nathan, the exotic animal lover (David): Just like I killed Bilbo...and the cockatiel...with a book!
+tv-mrshow	life	tv-quote	general	0	Craig/Jeepers Creepers (David/Jack Black): I was on the eighteenth hole!!!
+tv-mrshow	life	tv-quote	general	0	"Grass Valley" Greg Sniper (David): Where ideas can hang out - and do whatever!
+tv-mrshow	life	tv-quote	general	0	Van Hammersly (Bob): And that's when Lincoln said, "Don't diss my homies".
+tv-mrshow	family	tv-quote	edgy	1	Dad of "gay" son (John Ennis): You gay bastard!!! No gay son of mine isn't not-gay, you better get gay or I'll make you gay!!!
+tv-mrshow	life	tv-quote	general	0	"Grass Valley" Greg Sniper (David): Work Is Play! Tofutti Break Today!
+tv-mrshow	life	tv-quote	general	0	"Grass Valley" Greg Sniper (David): Nuh uh, I'm not talking rain clouds on a sunny day.
+tv-mrshow	food	tv-quote	general	0	"Grass Valley" Greg Sniper (David): Tofutti break!!
+tv-mrshow	food	tv-quote	general	0	"Grass Valley" Greg Sniper (David): Tofutti...awaits...the greats...that make...mistaaaakes...To-FUTTI time!
+tv-mrshow	work-money	quip	general	0	Posted Sign: Arbeit ist Spiel! (German for "work is play")
+tv-mrshow	life	tv-quote	edgy	1	"Grass Valley" Greg Sniper (David): All these goats are retarded.
+tv-mrshow	nature	tv-quote	general	0	"Grass Valley" Greg Sniper (David): Goats are the only animals with an innate sense of democracy. That's why they're called "Nature's President".
+tv-mrshow	life	tv-quote	general	0	Greg Sniper's accountant (Bob): He spent a hundred million dollars on a campaign to legalize tomatoes, which I assume worked, because I had a tomato yesterday, and I'm not in jail, am I?
+tv-mrshow	nature	quip	general	0	Greg Sniper's accountant (Bob): Goats are stupid, mean, and hardheaded animals. That's why they're called "Nature's President".
+tv-mrshow	life	tv-quote	general	0	Globo-Chem Theme Parks Division chairman (Bob): When you see the new San Francisco, you'll say "San Fran-tastic!"
+tv-mrshow	society	tv-quote	general	0	Globo-Chem Theme Parks Division chairman (Bob): We are sensitive to the needs of those suffering from homophobia. So in our new San Francisco, we got rid of the dirt, but kept the pansies by creating "Bachelorland".
+tv-mrshow	life	tv-quote	edgy	1	Older Superstar (Jill Talley): Dick lickers!
+tv-mrshow	life	dark	general	0	Sir Isaac Newton (Paul F. Tompkins): My father touched my butthole. This made me thirst for knowledge.
+tv-mrshow	life	tv-quote	general	0	Ty Keenan, basketball recruiter (Bob): I'm thinking about of running away from my grandma's house.
+tv-mrshow	society	tv-quote	general	0	Bob: Charity is when you do something for people while other people are watching.
+tv-mrshow	life	tv-quote	edgy	1	Gary, the blind guy Bob "helps" (David): Bob? BOB?! I don't spend my day fucking around on a television show. I have a company to run.
+tv-mrshow	life	tv-quote	general	0	Droopy (Bob): Keep the shaaaaaahnge.
+tv-mrshow	life	tv-quote	edgy	1	Movie exec with cat eyes (David): Where's your golden public now? I'll tell you where. They're all laughing. Laughing at you. They're laughing at the big fat asshole.
+tv-mrshow	work-money	tv-quote	general	0	Movie exec boss (John Ennis): We'll sue the pants off of 'em!!! Movie exec (Bob): And then we'll sell them pants!
+tv-mrshow	life	tv-quote	general	0	Judge in "Coupon: The Movie" trial (Bob): May I remind you that I am not on trial here ... until next week.
+tv-mrshow	life	tv-quote	general	0	"Coupon: The Movie" trial witness (Paul F. Tompkins): It was a baaaaabyyyyyyy!!!
+tv-mrshow	life	tv-quote	edgy	1	"Coupon: The Movie" viewer (David): I saw the shit out of it!
+tv-mrshow	life	tv-quote	general	0	David: Terra-da-loo, The Bob. Mr. Show is the true way.
+tv-mrshow	life	tv-quote	general	0	The Bob: It's time to eat the poison s'mores...get them while they're poison-ey; that's when they're best.
+tv-mrshow	life	tv-quote	general	0	Chuck (Bob): Can't I just make you some sperm? It's really good.
+tv-mrshow	life	tv-quote	nsfw	1	Chuck (Bob): Look, I like to masturbate in a closed room while people are waiting for pie to cool.
+tv-mrshow	arts	tv-quote	general	0	John Oakfellow of the Red Cross (John Ennis): It's been a real soul-shattering experience.
+tv-mrshow	arts	tv-quote	general	0	Elderly resident of community affected by Devastator (unknown): I ain't afraid of no rolley coaster!
+tv-mrshow	life	quip	general	0	"The Limits of Science" educational film narrator (Bob): All facts start as dreams dreamt by a wizard.
+tv-mrshow	life	tv-quote	general	0	Commercial voice (unknown): Sponsored by Smithy's Barrows. Makers of barrows for over 200 harvests. Now with wheels.
+tv-mrshow	life	tv-quote	general	0	Kevin, the slothful child (David): I ... also ... want people to perform ... beastialities for me.
+tv-mrshow	life	tv-quote	general	0	David: I, David Cross ... me, not the character ... am bald. Jill: I accept you David, but I don't accept the choice you've made. David: It's not a choice, Jill, God made me this way. Jill: Then I reject God.
+tv-mrshow	life	tv-quote	edgy	1	The cock ring mascot (Bob)/Engaged guy's buddy (John Ennis): Any cock'll do!
+tv-mrshow	life	tv-quote	general	0	Terry Twillstein/Ronnie Dobbs (Bob/David): I am a camera, a camera am I!
+tv-mrshow	life	tv-quote	general	0	Ronnie Dobbs (David): Well let's go have us a champagne jam!
+tv-mrshow	arts	tv-quote	general	0	Ronnie Dobbs (David): It needs some reverb or pedal or sumthin.
+tv-mrshow	life	tv-quote	general	0	Bob Lamonta's father (Bob): My shoes hurt!
+tv-mrshow	life	tv-quote	general	0	Bob Lamonta (David): I did grow a moustache, but I thought it made me look gay, so whoosh! [indicating its swift removal]
+tv-mrshow	life	tv-quote	general	0	Bob Lamonta's father (Bob): I'm strong like the Hulk.
+tv-mrshow	life	tv-quote	general	0	Bob: Hey, who wants a banana?
+tv-mrshow	life	tv-quote	general	0	Dingle, the ventriloquism dummy (David): Why don't you suck my eight inches of redwood?
+tv-mrshow	life	tv-quote	edgy	1	Killer B. Killed (Jonathan Fowler Jr.): I don't know, man. These guys got their fuckin' talkin' dolls in here 'n' shit.
+tv-mrshow	life	tv-quote	general	0	Jerry, the hanged guy (David): Say, by any chance, are you a murderer? Wife of Mark, the lyncher (Jill Talley): NO! Jerry, the hanged guy (David): Oh, good. Then your children will only be half murderer.
+tv-mrshow	family	tv-quote	general	0	Delongpre Dannon's talkshow guest (David): Fake girl, you oughta be able to have your imaginary baby, because the most wonderful thing in the world is to be an imaginary mother.
+tv-mrshow	life	tv-quote	general	0	Prospective Shoe Court Shoe Store employee (Bob): It was great. It's crack. It gets ya real high.
+tv-mrshow	life	tv-quote	general	0	Shoe Court Shoe Store interviewer (Paul F. Tompkins): I am a control-freak because I was molested by my parents... Oh, God! What a breakthrough!
+tv-mrshow	life	tv-quote	nsfw	1	Shoe Court Shoe Store employee (Jay Johnston): Have you ever taken a train and eaten it piece by piece... after you just derailed it with your penis? Prospective Shoe Court Shoe Store employee (Bob): Yes...It was for charity!
+tv-mrshow	food	tv-quote	general	0	Criminy Craffft (David): Eatin' an orange? That was like takin' a trip through a citrus mountain.
+tv-mrshow	life	tv-quote	general	0	Hallucino-Jenny (Laura Milligan): I can taste colors!
+tv-mrshow	life	tv-quote	general	0	Helpful guy in Druggachussetts (John Ennis): And remember, only take what you can handle, and always know your dealer!
+tv-mrshow	life	tv-quote	general	0	Mayor O.D. McCrack (Paul F. Tompkins): As mayor of the altered state of Druggachusettes, I declare this pizza to be...awesome!
+tv-mrshow	life	tv-quote	general	0	David: Hey, fancy pants, you weren't in this one.
+tv-mrshow	life	tv-quote	general	0	Bob: Later, we'll be having a beauty contest, and the winner will be crowned "Queen Pretty"!!!
+tv-mrshow	life	tv-quote	general	0	Mother of missing companion (Brett Paesel): We're praying for our boy. He's a wonderful son. And I'm sure a great companion. We also pray for the two young people. Father of missing companion (Jay Johnston): And, of course, the other companion.
+tv-mrshow	life	tv-quote	edgy	1	Alexis Jung, designer, and constant chum of Nostradamus (David): Buckle the fuck up!
+tv-mrshow	life	tv-quote	general	0	Nostradamus (Bob): No fatties.
+tv-mrshow	life	tv-quote	general	0	Fran, member of "Indomitable Spirit" (Sarah Silverman): I'm Fran, and I'm a woman.
+tv-mrshow	work-money	quip	general	0	Text on Poster: Being poor sucks!
+tv-mrshow	life	tv-quote	general	0	Victor, the dumped landlord (Bob): Is Victor now to fix the sun? I cannot get up there.
+tv-mrshow	life	tv-quote	edgy	1	Shamul/Anwar (David/Paul F. Tompkins): I spit on your spit. I piss on your spit. I shit on your piss. I fart on your shit. I laugh at your fart. We are friends again! Hey!
+tv-mrshow	arts	tv-quote	general	0	Dylan, the pretentious hipster (David): Jupiter's Thunder!!! Rock & Roll is the most criminal of garbages...it is a crutch...it is a crutch! It will never sully my ears!!!
+tv-mrshow	food	tv-quote	general	0	Panzic Poojaran (David): If I die ... if I die ... tell my people ... to bury me ... in mashed potatoes!
+tv-mrshow	life	tv-quote	general	0	Paul Peters, spokesperson for Dr. X's telethon (unknown): Please don't kill me!
+tv-mrshow	life	tv-quote	general	0	Dr. X (Bob): I have blown up Chicago.
+tv-mrshow	life	tv-quote	general	0	David: False teeth speak false truths, Bob!
+tv-mrshow	life	quip	general	0	Bob/David: [chanting] Youth ... is truth! I wish "old" rhymed with "lies"!
+tv-mrshow	life	tv-quote	general	0	Grandpa Timmy (unknown): And testicular electrocution would be administered to all those who get into monkeyshines!
+tv-mrshow	science	tv-quote	general	0	NASA spokesman (David): We have the technology. The time is now. Science can wait no longer. Children are our future. America can, should, must, and will blow up the moon.
+tv-mrshow	life	tv-quote	general	0	San Francisco protester (Sarah Silverman): We're spending all this money, millions of dollars, to blow up the moon, when there are so many things here on Earth to blow up ... Mount Everest, the North Pole, et cetera. We're earthlings, let's blow up Earth things!
+tv-mrshow	life	tv-quote	general	0	C.S. Lewis, Jr. (Bob): Don't mess around ... with God's America.
+tv-mrshow	work-money	tv-quote	edgy	1	Fired employee (David): This is BULLSHIT!!!
+tv-mrshow	life	tv-quote	general	0	Father of streaker Jimmy Montello (John Ennis): I slave 12 hours a day making pepper, to put clothes on your back, so you can go taking them off?!
+tv-mrshow	work-money	tv-quote	general	0	Video Image Text: Worthington's Law: More Money = Better Than
+tv-mrshow	arts	tv-quote	general	0	Carl Espick, editor of Value magazine (David): Did you know that according to Worthington's Law, the opera singer who called himself the "Great" Caruso was nowhere near as great as Sammy Hagar, the Red Rocker? So, shut up, Caruso!
+tv-mrshow	life	tv-quote	edgy	1	Successful siamese twin (Bob): No! I worked. You sat on my ass and did nothing!
+tv-mrshow	science	tv-quote	general	0	Science program host (Bob): Scientists have ascertained that there may be as many as... 24 stars in the cosmos.
+tv-mrshow	society	tv-quote	general	0	Nazi official (David): To say we killed 24 Jews would be an exaggeration.
+tv-mrshow	life	tv-quote	general	0	Salini (David): What's wrong, Philouza? A few too many of Mr. Graham's crackers?
+tv-mrshow	life	tv-quote	general	0	Kedzie Matthews (Tom Kenny): Watch as Mrs. Vila gets half of This Old House in "This Old Divorce"!
+tv-mrshow	life	tv-quote	general	0	Jack Weber (Bob): Here's a simple test to see if your child is really a costumed dwarf: hit him in the head with a hammer.
+tv-mrshow	family	tv-quote	general	0	Jack Weber (Bob): Just because a child is defiant doesn't mean they want to overthrow the government. Maybe they just want a cookie, a game, some attention...attention that a drunken father cannot provide...I'm sorry, Tim.
+tv-mrshow	love	tv-quote	edgy	1	Marriage Con & Boat Show seminar host (Jill Talley): Men 'R' Stupid...ta da! Women 'R' Stupider. We need to get married! I did it! Get in line! Get in line, you dumb bitch!
+tv-mrshow	life	tv-quote	general	0	Benjamin Gerard, ice cream purveyor (David): "Rock & Roll Double Chunk". It has chocolate in it, and we figure if people like Rock & Roll music, they'll like this, cause it says "Rock & Roll" on it.
+tv-mrshow	life	tv-quote	edgy	1	"Last Indian" piece narrator (Tom Kenny): I fuckin' saw God, Jack. And I laughed in his fuckin' face!
+tv-mrshow	life	tv-quote	edgy	1	"Hell in a Handbasket" soldier (David): You are a dying asshole.
+tv-mrshow	society	tv-quote	general	0	Jon Stewart (as himself): I felt it was time for another Vietnam message.
+tv-mrshow	life	tv-quote	edgy	1	"All American Salute to the Last Indian" co-host (Paul F. Tompkins): The rap group, The Fuck-ups.
+tv-mrshow	life	tv-quote	general	0	Moe Phelps (Bob): All acting is is jumping up and down and yelling and screaming a lot.
+tv-mrshow	society	tv-quote	general	0	Local World News network anchor (Bob): Later tonight, we'll have an update from the war-torn Gaza Strip, where Betty McPhee will tell us all about Tripper, the counting dog.
+tv-mrshow	life	tv-quote	general	0	Ken Doral, host of the "Pre-taped Call-in Show" (David): If you wanted to talk about pet care, you should have called last week, when our show on racism was airing, but we were taping the pet care show, which is airing now.
+tv-mrshow	life	tv-quote	edgy	1	Moe Phelps (Bob): Pack your bags, gang. We're going up my mom's ass!
+tv-mrshow	life	tv-quote	general	0	Gerald Hennessey Imposter (Bob Odenkirk): This is not a playground so leave your lunchboxes at home, as well as your games, and um, jokes, and balls, and riddles.
+tv-mrshow	society	tv-quote	general	0	Gerald Hennessey Imposter (Bob Odenkirk): You come in here with heads filled with soup, when you are done with law school, your brain will be like a steel trap with the bloody foot of law inside it, crying out for its mommy!
+tv-mrshow	life	tv-quote	general	0	Gerald Hennessey Imposter (Bob Odenkirk): By the time this class is over, two of you will be murdered. One of you will commit suicide. One of you will get injured...in the leg. Two of you will quit law school because it's so hard...and you'll go off to run an apple butter farm.
+tv-mrshow	life	tv-quote	general	0	Pharmacy "customer" (Brian Posehn): I know what you mean...my doctor says I need marijuana to get high.
+tv-mrshow	life	tv-quote	general	0	Hitler (David): Get used to it, Hitler.
+tv-mrshow	faith	tv-quote	general	0	Talk show audience member (Jerry Minor): You need to respect the baby, 'cause life is precious... and God... and the Bible.
+tv-mrshow	life	tv-quote	edgy	1	Talk show host, Todd Linder Flohman (Bob): You stupid, petty, Prince-looking, no-island-remembering motherfucker!
+tv-mrshow	life	tv-quote	edgy	1	Derlin Whittier, talk show guest (David): Before I die, I'm gonna fuck me a fish.
+tv-mrshow	life	tv-quote	general	0	Yale Hadderity, investigative reporter (David): Oh, my scammy flammy mammy!
+tv-mrshow	life	tv-quote	general	0	Bob: ... the Itty Bitty Tittie Committee. David: Let's hear it for the IBTC. They work hard!
+tv-mrshow	life	tv-quote	general	0	Incompetent kidnapper (Bob): One...thousand dollars if you ever want to see my toe again.
+tv-mrshow	life	tv-quote	edgy	1	College friend watching underground video (Brian Posehn): No shit!
+tv-mrshow	society	tv-quote	general	0	Byron T. Lebockwith, Racist in the Year 3000 (David): You can't trust a man what's made of gas! Not you, Zaxon, you're one of the good ones. There's white people made of gas, you know what I mean.
+tv-mrshow	life	tv-quote	general	0	Byron T. Lebockwith, Racist in the Year 3000 (David): My relatives didn't move here to be put out of work by some shifty-eyed, lazy, yellow-metal, China-bots!
+tv-mrshow	society	tv-quote	general	0	Byron T. Lebockwith, Racist in the Year 3000 (David): Keep 'em comin', Gleep Glop...
+tv-mrshow	life	tv-quote	general	0	Bob at 4 years old (unknown): Mommy, What's a Gagortion?
+tv-mrshow	life	tv-quote	general	0	David: Hey, Bob? Um, I was wondering...um, so...do you still like to party?
+tv-mrshow	life	tv-quote	nsfw	1	Glenn Petersen, phone sex guru (Bob): Horny Slut Hot-line. This is Peppermint.
+tv-mrshow	life	tv-quote	general	0	Glenn Petersen, phone sex guru (Bob): You're just jealous because I'm more of a woman than you'll ever be!
+tv-mrshow	life	tv-quote	general	0	Denny Whitkin, performing "The Audition" (David): Can I use this chair?
+tv-mrshow	life	tv-quote	general	0	Del Crow (Bob): Already our little one's got a scholarship to Miss Lily's Finishing School. Interviewer: What's that? Del Crow (Bob): It's a - a school where they teach ya - how to finish.
+tv-mrshow	food	tv-quote	edgy	1	Burgundy Loafe customer (David): You want me to shit in a box while I'm eating dinner?
+tv-mrshow	life	tv-quote	nsfw	1	Larry Kleist, rapist (Bob): Hello, Larry is my name. Insurance is my game. Raping was another game of mine...
+tv-mrshow	life	tv-quote	general	0	Member of press (David): Tom Boudinir, Cabington News, pedophile. I..sodomized my nephew. Juuuust what is going on over there at that zoning board??
+tv-mrshow	life	tv-quote	general	0	Anthony "One Time" Branca (David): The both of youze can grab onto my books, mother-father, Chinese dentist.
+tv-mrshow	life	tv-quote	general	0	Father of Thomas, the adventurer (Bob): Nooooo! Let Thomas do it himself. Climbed Mt. Everest!?!?
+tv-mrshow	arts	quip	general	0	Lane Wellesby, actor trainer and handler (John Ennis): There's a reason for the phrase, "as dumb as an actor".
+tv-mrshow	life	tv-quote	general	0	Jonathan, blind girl's friend (Bob): Well, then if you're blind, how do you know I'm a ... homosexual?
+tv-mrshow	life	tv-quote	general	0	Dougie Bendel, Dalai Lama (Bob): William van Landingham?! William van Landingham III (Jerry Messing): The Third, my dear boy!
+tv-mrshow	life	tv-quote	edgy	1	Dougie Bendel, Dalai Lama (Bob): A rap, rap, a rap rap rap. A rap, rap, a rap tap tap. Get rappin' with it. Heyyyyy. Get rappin' with it. Hohhhh! Professor Murder (Sam Sarpong): Damn, his science is too tight!
+tv-mrshow	family	tv-quote	general	0	"Go-to" guy (Jay Johnston): Hey mom, could you pass the gravy? "Go-to" guy's mom (unknown): That wasn't part of the deal!
+tv-mrshow	life	tv-quote	general	0	David (as "himself"): You know, Jill's ingested so much soil, her stomach oughta be listed in the "Worm Apartment Guide"!
+tv-mrshow	life	tv-quote	general	0	Reverend Ralee Kolunda/Kolunda's sidekick (Jerry Minor/David): Be kind, Rewind.
+tv-mrshow	life	tv-quote	general	0	Garry Flank documentary voiceover (Bob): That's when tragedy struck. Captain Tragedy.
+tv-mrshow	life	tv-quote	general	0	Max Packer: I've got a five inch taint
+tv-mrshow	love	tv-quote	edgy	1	Larry Branson (Bob): 'Til death do us part, asshole!
+tv-mrshow	life	tv-quote	edgy	1	Larry Branson (Bob): Maybe he wasn't such a chicken-shit after all ... Bartender? ... My life!
+tv-mrshow	arts	tv-quote	general	0	Hypnotherapist (Becky Thyre): What are you doing in the cemetery, Charles? Charles ______ (David): I just wanna dig up a corpse and have sexual relations with it!
+tv-mrshow	life	tv-quote	general	0	Civil War Reenactment piece narrator (Jeff Goldblum): He dreamed of one day finding a box of money.
+tv-mrshow	life	tv-quote	nsfw	1	Edmond Premington (Bob): You feel it first in your scrotum.
+tv-mrshow	life	tv-quote	general	0	Member of Edmond Premington's audience (David): You don't know what words mean, do you?
+tv-mrshow	life	tv-quote	general	0	Edmond Premington (Bob): When the African lion attacks....
+tv-mrshow	life	tv-quote	nsfw	1	Member of Edmond Premington's audience (Jay Johnston): Nipples on your ass...?
+tv-mrshow	life	tv-quote	general	0	Reporter (David): And I understand you met Napoleon? 2000 lb. Old Man (Bob): Met him?...I et him!
+tv-mrshow	life	tv-quote	edgy	1	Telethon caller (Bob): Hey I got a fake asshole...y'all got fake poo?
+tv-mrshow	arts	quip	general	0	Lucian, He Who Watches All of Television (unknown): The irony's as bittersweet as...tears on Turkish Delight!
+tv-mrshow	life	tv-quote	general	0	Lucian, He Who Watches All of Television (unknown): Oh, happenstance!
+tv-mrshow	life	tv-quote	nsfw	1	Dr. ______ (Bob): So if you want to talk to gamblers...and masturbators...
+tv-mrshow	life	tv-quote	general	0	Cyrus ______ (David): Frame it, bury it, walk 20 paces away, dig it up in 15 years and teach the world to sing!
+tv-mrshow	life	tv-quote	general	0	Cyrus ______ (David): Who dares question Ryan Dorn?!
+tv-mrshow	life	tv-quote	general	0	Jill Talley: Sad songs are nature's onions.
+tv-mrshow	life	tv-quote	general	0	Becky Thyre: Sorrow is the key that gets our tears out of eye jail.
+tv-mrshow	life	tv-quote	general	0	Willips Brighton (Bob): And my heart feels like a mouth full of sores. A mouth full of sores ain't no fun.
+tv-mrshow	life	tv-quote	general	0	Willips Brighton (Bob): Take it from me, a guy who has mouth sores, I know the value of a mouth without sores.
+tv-mrshow	life	tv-quote	general	0	Horace Loeb (David): I'll miss you... me.
+tv-mrshow	life	tv-quote	general	0	Bob: With our help, you'll laugh your sales right through the... roof!
+tv-mrshow	life	tv-quote	general	0	Young Josh Fenderman (unknown): IT'S PUMPKININNNNNNY!!!
+tv-mrshow	life	tv-quote	nsfw	1	Girlfriend (Jill): ...you GAVE people blowjobs? Boyfriend (Bob): The most people!
+tv-mrshow	arts	tv-quote	general	0	Member of "2001: A New Wave Godyssey" (Scott Aukerman): Heavens to Betsy, I've invented a praying machine!
+tv-mrshow	life	tv-quote	general	0	Larry Turnauer, a.k.a. Marilyn Monster (David): And don't forget to break some rules. But... Don't break any rules.
+tv-mrshow	life	tv-quote	general	0	Mary Lynn Rajskub/Guests: Hey everybody, it's Bob and David!

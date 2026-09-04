@@ -1,0 +1,265 @@
+{
+    "version":  1,
+    "collections":  [
+                        {
+                            "id":  "dadjokes",
+                            "name":  "Dad Jokes",
+                            "desc":  "Groan-worthy puns from r/DadJokes (top-voted).",
+                            "vibe":  "clean",
+                            "license":  "LicenseRef-DesktopPet-Community",
+                            "sources":  [
+                                            "dadjokes"
+                                        ]
+                        },
+                        {
+                            "id":  "bofh",
+                            "name":  "BOFH Excuses",
+                            "desc":  "The Bastard Operator From Hell excuse server.",
+                            "vibe":  "clean",
+                            "license":  "LicenseRef-DesktopPet-Community",
+                            "sources":  [
+                                            "bofh"
+                                        ]
+                        },
+                        {
+                            "id":  "tech",
+                            "name":  "Tech \u0026 Hackers",
+                            "desc":  "Programming epigrams, hacker wisdom, RFC 1925, Larry Wall.",
+                            "vibe":  "clean",
+                            "license":  "LicenseRef-DesktopPet-Community",
+                            "sources":  [
+                                            "ComputerDictionary",
+                                            "computers",
+                                            "enkiv2s-glossary-of-tech-industry-terms",
+                                            "epigrams_in_programming",
+                                            "hacker-questions",
+                                            "hackers",
+                                            "linux",
+                                            "lwall-quotes",
+                                            "perl",
+                                            "rfc1925"
+                                        ]
+                        },
+                        {
+                            "id":  "philosophy",
+                            "name":  "Philosophy \u0026 Wisdom",
+                            "desc":  "Classic \u0026 modern philosophy, Tao, aphorisms.",
+                            "vibe":  "clean",
+                            "license":  "LicenseRef-DesktopPet-Community",
+                            "sources":  [
+                                            "Bakunin",
+                                            "brecht_dances-events-puzzles",
+                                            "bruno-latour",
+                                            "classic_philosophy",
+                                            "education",
+                                            "friedman_12-structures",
+                                            "goedel",
+                                            "Gurdjieff",
+                                            "haraway",
+                                            "HeraclitusFragments",
+                                            "immortal_consciousness",
+                                            "invisiblestates",
+                                            "jung",
+                                            "korzybski",
+                                            "mencken",
+                                            "modern_philosophy",
+                                            "montaigne",
+                                            "Paine",
+                                            "paradoxum",
+                                            "platitudes",
+                                            "predictions",
+                                            "Rousseau",
+                                            "Schlesinger",
+                                            "SimoneWeil",
+                                            "tao",
+                                            "Twenty_Lessons_On_Tyranny",
+                                            "wisdom"
+                                        ]
+                        },
+                        {
+                            "id":  "literary",
+                            "name":  "Literary \u0026 Creative",
+                            "desc":  "Authors, artists, poets, Oblique Strategies.",
+                            "vibe":  "clean",
+                            "license":  "LicenseRef-DesktopPet-Community",
+                            "sources":  [
+                                            "anathem-glossary",
+                                            "art",
+                                            "artists",
+                                            "authors",
+                                            "critics",
+                                            "EnglishAsSheIsSpoke",
+                                            "Jenny_Holzer",
+                                            "Kerouac-Modern-Prose",
+                                            "literature",
+                                            "ObliqueStrategies",
+                                            "ObscureSorrows",
+                                            "ogden_nash",
+                                            "pratchett",
+                                            "racter",
+                                            "rhetorical-devices",
+                                            "songs-poems",
+                                            "stevenson",
+                                            "wblake"
+                                        ]
+                        },
+                        {
+                            "id":  "comedy",
+                            "name":  "Comedy \u0026 One-liners",
+                            "desc":  "Groucho, Jack Handey, Red Green, entertainers.",
+                            "vibe":  "clean",
+                            "license":  "LicenseRef-DesktopPet-Community",
+                            "sources":  [
+                                            "entertainers",
+                                            "groucho",
+                                            "handey",
+                                            "humorists",
+                                            "MrRogers",
+                                            "pirate",
+                                            "redgreen",
+                                            "SeventyMaximsOfMaximallyEffectiveMercenaries"
+                                        ]
+                        },
+                        {
+                            "id":  "facts",
+                            "name":  "Facts \u0026 Trivia",
+                            "desc":  "Real facts, Chuck Norris facts, fortune cookies.",
+                            "vibe":  "clean",
+                            "license":  "LicenseRef-DesktopPet-Community",
+                            "sources":  [
+                                            "actualcookies",
+                                            "chuckfacts",
+                                            "FerengiRulesOfAcquisition",
+                                            "food",
+                                            "medicine",
+                                            "news",
+                                            "people",
+                                            "pets",
+                                            "realfacts",
+                                            "science",
+                                            "sports"
+                                        ]
+                        },
+                        {
+                            "id":  "tv-clean",
+                            "name":  "Pop-Culture TV (clean)",
+                            "desc":  "Simpsons, Futurama, MST3K, Star Trek, Firefly...",
+                            "vibe":  "pg13",
+                            "license":  "LicenseRef-DesktopPet-Community",
+                            "sources":  [
+                                            "startrek",
+                                            "tv-30rock",
+                                            "tv-arrested",
+                                            "tv-a-team",
+                                            "tv-batman",
+                                            "tv-batman-tas",
+                                            "tv-bobsburgers",
+                                            "tv-dilbert",
+                                            "tv-firefly",
+                                            "tv-futurama",
+                                            "tv-harveybirdman",
+                                            "tv-homemovies",
+                                            "tv-koth",
+                                            "tv-lookaroundyou",
+                                            "tv-madmen",
+                                            "tv-malcolm",
+                                            "tv-montypython",
+                                            "tv-moralorel",
+                                            "tv-mst3k",
+                                            "tv-newsradio",
+                                            "tv-office-us",
+                                            "tv-parksrec",
+                                            "tv-qi",
+                                            "tv-rockos",
+                                            "tv-scrubs",
+                                            "tv-seinfeld",
+                                            "tv-simpsons",
+                                            "tv-snl",
+                                            "tv-twilightzone",
+                                            "tv-x-files"
+                                        ]
+                        },
+                        {
+                            "id":  "tv-mature",
+                            "name":  "Pop-Culture TV (mature)",
+                            "desc":  "South Park, Sopranos, The Wire, Always Sunny... strong language.",
+                            "vibe":  "mature",
+                            "license":  "LicenseRef-DesktopPet-Community",
+                            "sources":  [
+                                            "tv-3rdrock",
+                                            "tv-alwayssunny",
+                                            "tv-archer",
+                                            "tv-beavisbutthead",
+                                            "tv-boondocks",
+                                            "tv-curb",
+                                            "tv-drawntogether",
+                                            "tv-friskydingo",
+                                            "tv-genkill",
+                                            "tv-lucydevil",
+                                            "tv-metalocalypse",
+                                            "tv-mrshow",
+                                            "tv-peepshow",
+                                            "tv-robotchicken",
+                                            "tv-sealab2021",
+                                            "tv-sopranos",
+                                            "tv-southpark",
+                                            "tv-squidbillies",
+                                            "tv-thewire",
+                                            "tv-tpb",
+                                            "tv-venturebros",
+                                            "tv-youngones"
+                                        ]
+                        },
+                        {
+                            "id":  "showerthoughts",
+                            "name":  "Reddit Showerthoughts",
+                            "desc":  "~10k shower-thought observations.",
+                            "vibe":  "mixed",
+                            "license":  "LicenseRef-DesktopPet-Community",
+                            "sources":  [
+                                            "showerthoughts"
+                                        ]
+                        },
+                        {
+                            "id":  "spicy",
+                            "name":  "Spicy",
+                            "desc":  "Yo-mama jokes, George Carlin, SubGenius, RAW.",
+                            "vibe":  "edgy",
+                            "license":  "LicenseRef-DesktopPet-Community",
+                            "sources":  [
+                                            "carlin",
+                                            "RAW",
+                                            "subgenius",
+                                            "yo-mama"
+                                        ]
+                        },
+                        {
+                            "id":  "nsfw",
+                            "name":  "NSFW (fortune -o)",
+                            "desc":  "The classic offensive fortune set, hate files removed. Adults only.",
+                            "vibe":  "nsfw",
+                            "license":  "LicenseRef-DesktopPet-Community",
+                            "sources":  [
+                                            "off-art",
+                                            "off-astrology",
+                                            "off-atheism",
+                                            "off-black-humor",
+                                            "off-debian",
+                                            "off-definitions",
+                                            "off-drugs",
+                                            "off-knghtbrd",
+                                            "off-limerick",
+                                            "off-linux",
+                                            "off-miscellaneous",
+                                            "off-politics",
+                                            "off-privates",
+                                            "off-religion",
+                                            "off-riddles",
+                                            "off-sex",
+                                            "off-songs-poems",
+                                            "off-vulgarity",
+                                            "off-zippy"
+                                        ]
+                        }
+                    ]
+}

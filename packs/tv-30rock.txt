@@ -1,0 +1,214 @@
+tv-30rock	life	tv-quote	general	0	Jack: [to Liz] I like you. You have the boldness of a much younger woman.
+tv-30rock	life	tv-quote	general	0	Tracy: So, how you doing over there, Theo Huxtable? Toofer: I'm doing good. Tracy: Nah-uh. Superman does good; you're doing well. You need to study your grammar, son. [Tracy leaves the room.] Frank: [to Toofer] Wow, that was embarrassing for you.
+tv-30rock	life	tv-quote	general	0	Tracy: Dress every day like you're going to get murdered in those clothes.
+tv-30rock	life	tv-quote	general	0	Pete: So, first you thought he was illiterate and now you think he's lazy? Liz, you are racist. Liz: No, Tracy took advantage of my white guilt, which is supposed to be used only for good, like over-tipping and supporting Barack Obama.
+tv-30rock	life	tv-quote	general	0	Jack: Whenever I have a problem, I tackle it head on. A year ago I was an inch and a half shorter. Sheer willpower.
+tv-30rock	life	tv-quote	general	0	Tracy: I need to protect my reputation. You take away my street cred, and I am Wayne Brady. Liz: Nuh-uh. Wayne Brady has three Emmys. You have a People's Choice Award that you stole from Wayne Brady.
+tv-30rock	work-money	tv-quote	general	0	Liz: Why are you wearing a tux? Jack: It's after six. What am I, a farmer?
+tv-30rock	work-money	tv-quote	general	0	Liz: What's going on, business got ya down? Jack: Business doesn't get me down, business gets me off.
+tv-30rock	life	tv-quote	general	0	Tracy: This is untoward! This is not toward!
+tv-30rock	arts	tv-quote	general	0	Tracy: I'm gonna make you a mix tape. You like Phil Collins? Jack: I've got two ears and a heart, don't I?
+tv-30rock	life	tv-quote	general	0	Liz: You've already made up your mind about this, haven't you? Jenna: Oh, you're right, Liz! I should go for it! Liz: You're not even listening, are you? Poop. Monkey butt. Jenna: No, you're a good friend and thank you.
+tv-30rock	love	tv-quote	general	0	Jack: Lemon, I want to thank you. For showing me that I could have a pleasant evening with a woman my age. Liz: I'm 12 years younger than you. Jack: A woman your age then.
+tv-30rock	food	tv-quote	general	0	Jack: I had lunch with Martha Stewart and "dinner" with her daughter Alexis. Liz: Gross.
+tv-30rock	life	tv-quote	general	0	Josh: Cerie said she would do it with you. Kenneth: Well that just makes me perspire.
+tv-30rock	work-money	tv-quote	general	0	Floyd: I work up in Legal, and - Liz: [interrupting] You're a lawyer? Floyd: I prefer... Law Stylist
+tv-30rock	life	tv-quote	general	0	Jack: I've asked Tracy to join me at G.E. Golf tournament in Connecticut. Liz: Was Courtney Love not available?
+tv-30rock	life	tv-quote	general	0	[looking at a basket of kittens] Liz: Oh...Look at theeese guuuys Cat Wrangler: They like you. They're very good as sensing debilitating loneliness in a person. Do you wanna adopt one? Liz: I can't, I'm allergic to anything warm and adorable.
+tv-30rock	arts	tv-quote	general	0	[attempting to explain the word used to insult her] Liz: It rhymes with your favorite Todd Rundgren album. Frank: It rhymes with Hermit of Mink Hollow?
+tv-30rock	life	tv-quote	general	0	Dot Com: Yo, Kenneth, we need to talk now. Kenneth: Oh, I've had this conversation before. You're marrying my mom, aren't you?
+tv-30rock	society	tv-quote	general	0	Jenna: Second of all, if the president is so serious about the war on terror, why doesn't he hunt down and capture Barack Obama before he strikes again? It's time for a change, America. That's why I'm voting for Osama in 2008.
+tv-30rock	family	tv-quote	general	0	Tracy: If you get rich off this stuff, just take care of my family. I don't want my kids to have to go to college.
+tv-30rock	food	tv-quote	general	0	Jack: That's where Donaghy Estates comes in. Now as you may have read in Robert Parker's Wine Newsletter, "Donaghy Estates tastes like the urine of Satan after a hefty portion of asparagus."
+tv-30rock	life	tv-quote	general	0	Tracy: Wow. The manatee becomes the Mento.
+tv-30rock	faith	tv-quote	general	0	Tracy: So what's your religion, Liz Lemon? Liz: I pretty much just do whatever Oprah tells me to.
+tv-30rock	life	tv-quote	general	0	Tracy: I believe that the moon does not exist. I believe that vampires are the world's greatest golfers but their curse is they never get a chance to prove it. I believe that there are 31 letters in the white alphabet. Wait... what was the question?
+tv-30rock	life	tv-quote	general	0	[Liz enters a room and stands behind Jack] Jack: You've been avoiding me, Lemon. Liz: How do you do that without turning around? Jack: To be perfectly honest, the first couple of people I did that to were not you, but... here we are.
+tv-30rock	life	tv-quote	general	0	Jack: I'm not a creative type like you, with your work sneakers and left-handedness.
+tv-30rock	love	tv-quote	general	0	Phoebe: You know how John Lennon was better than all the rest of the Beatles but he never realized it until he met Yoko? Well I'm gonna be Jack's Yoko! Liz: You want to be Yoko?!
+tv-30rock	life	tv-quote	general	0	Floyd: If the whole world moved to their favorite vacation spots, then the whole world would live in Hawaii and Italy and Cleveland.
+tv-30rock	life	tv-quote	general	0	Colleen: [referring to Phoebe] All right, scout's honor, what do you think of her? [Jack gives Liz a look] Liz: She's very well-read... and she's very stylish, don't you think? And you know the most important thing is she makes Jack very happy. She's like a... white geisha.
+tv-30rock	family	tv-quote	general	0	Colleen: Tell him his mother's here! ...And she loves him! ...But not in a queer way!
+tv-30rock	life	tv-quote	general	0	Jack: You've got to get back to work and come up with something with or without Tracy, or we are gonna be screwed. Liz: Okay. Jack: Maybe this is the drugs talking, but I think I got Nixon to agree to come on the show and say "Sock It To Me."
+tv-30rock	love	tv-quote	general	0	Liz: I'm telling you, this is my year. I feel like the show's going to be great and I'm very positive that I'm going to meet someone else. Jack: Women your age are more likely to be mauled at the zoo than get married.
+tv-30rock	life	tv-quote	general	0	Kenneth: I like your top. I'm a real good sex person. I do it all the different ways. Angie: Uh-huh. Well, I don't have a husband any more, so... you can come over anytime. Kenneth: Oh, I will! I'll come over at night.
+tv-30rock	life	tv-quote	general	0	Tracy: I'm whipped! Angie got me up at 7:30 today. Did you know that in the morning, they have food, TV, almost everything. It's pretty good.
+tv-30rock	work-money	tv-quote	general	0	Jack: Lemon, I'm impressed. You're beginning to think like a businessman. Liz: A businesswoman. Jack: I don't think that's a word.
+tv-30rock	work-money	tv-quote	general	0	Jack: So what are you gonna do with your money? Put it into a 401(k)? Liz: Yeah, I gotta get one of those. Jack: What?! Where do you invest your money, Lemon? Liz: I've got like twelve grand in checking. Jack: Are you an immigrant?
+tv-30rock	life	tv-quote	general	0	Jack: Never go with a hippie to a second location.
+tv-30rock	life	tv-quote	general	0	Jack: Look how Greenzo's testing! They love him in every demographic: colored people, broads, fairies, commies. Gosh, we gotta update these forms.
+tv-30rock	society	tv-quote	general	0	Jack: What are you doing in Harlem? C.C.: Oh I'm working out of the Clinton offices for a few weeks. I'm helping Hillary retool her universal healthcare platform. Jack: God, I want to kiss you on the mouth to stop you from saying such ridiculous things.
+tv-30rock	life	tv-quote	general	0	Liz: I'm 37, please don't make me go to Brooklyn. Jaime: I'm 20. Liz: Oh, boy. This just went from a senior dating a freshman to Mary Kay Letourneau and Vili Fualaau. Jaime: Are those friends of yours, or ...?
+tv-30rock	life	tv-quote	general	0	Jack: Lemon, what happened? Did you take an Ambien with your Franzia and sleepwalk here?
+tv-30rock	life	tv-quote	general	0	Jack: So how did you two meet...Amber Alert?
+tv-30rock	life	tv-quote	general	0	Tracy: I do not want to disappoint our Japanese public, especially Godzilla. Hahaha! I'm just kidding; I know he doesn't care what humans do.
+tv-30rock	life	tv-quote	general	0	Tracy: And finally, I'd like to thank you, Pacific Rimmers, for all that you've given us: karaoke, karate, and most of all... WANIZAME ATAKKU! SHARK ATTACK!
+tv-30rock	life	tv-quote	general	0	James Carville: Cajun style.
+tv-30rock	life	tv-quote	general	0	Tracy: [regarding his ankle bracelet alcohol monitoring device] Maybe I'll just compromise: go to the party, cut off my foot and drink all I want!
+tv-30rock	family	tv-quote	general	0	Jack: Mother, there are terrorist cells that are more nurturing than you are.
+tv-30rock	food	tv-quote	general	0	Kenneth: [about coffee] I love how it makes me feel. It's like my heart is trying to hug my brain!
+tv-30rock	life	tv-quote	general	0	German: The machine is mankind's madness and disfigurement. Industry castrates art. The only honesty is in suicide. Jack: I can't watch any more of these German sitcoms!
+tv-30rock	work-money	tv-quote	general	0	Jack: And Deborah is testing off the charts in the most profitable demographics: Soccer moms, NASCAR dads, white collar pervs and the obese.
+tv-30rock	love	tv-quote	general	0	Liz: No, we don't have a crazy..thing Dennis: Yeah we do! We're like Ross and Rachel, but just not gay...
+tv-30rock	society	tv-quote	general	0	Kenneth: Oh no sir, I don't vote Republican or Democrat. Choosing is a sin, so I always just write in the Lord's name. Jack: That's Republican. We count those.
+tv-30rock	society	tv-quote	general	0	Tracy: Black people, don't vote! Did you know that in the amount of time it takes to vote you could play three games of pool? Three! Now that's fresh.
+tv-30rock	life	tv-quote	general	0	Liz: Hey, nerds! Who's got two thumbs, speaks limited French, and hasn't cried once today? [pointing both thumbs at herself] This moi.
+tv-30rock	life	tv-quote	general	0	Jack: I just need him awake for a few minutes, can't you... inject something directly into his heart? Dr. Spaceman: Oh, I'd like nothing better. Unfortunately, we have no way of knowing where the heart is. See, every human is different.
+tv-30rock	food	tv-quote	general	0	Liz: WHERE'S MY MAC AND CHEESE!?
+tv-30rock	life	tv-quote	general	0	Jack: I even stopped to catch a snowflake with my tongue, but apparently that's some signal in Chelsea.
+tv-30rock	life	tv-quote	general	0	Jenna: A drinking contest?!? What am I, 12 and at my boyfriend's frat party?!
+tv-30rock	food	tv-quote	general	0	Kenneth: Alcohol? This smells like Hill-people milk. I've been drinking this since I was a baby!
+tv-30rock	life	tv-quote	general	0	Liz: (looking at her calendar) Ugh... why don't I cross out the days like people in the movies?
+tv-30rock	life	tv-quote	general	0	Jack: [as water pours from the ceiling] The ceiling appears to be leaking. Cooter: No, it's not. We looked into it and it's not.
+tv-30rock	society	tv-quote	general	0	Random Congressman at meeting: I can't support that. Dam is a swear word. I'd support it if instead of dam we called it a "god finger".
+tv-30rock	work-money	tv-quote	general	0	Jack: What I'm saying is: don't dress for the job you have, dress for the job you want to have. So now, Manny? Manny: Tomorrow I show up for work, dressed as a Mexican Wrestler.
+tv-30rock	work-money	tv-quote	general	0	Jack: This is G.E.! Devon Banks: It's just G now, Jack, I sold the E. To Samsung. They're Samesung now.
+tv-30rock	arts	tv-quote	general	0	Liz: I got rid of all my Colin Firth movies in case they consider them Erotica. Jack: That man can wear a sweater.
+tv-30rock	family	tv-quote	general	0	Bev: What was your reason for wanting to adopt? Liz: Thank you, for that question, Bev. The world is a troubled place, and so many children in need of adoption worldwide... Bev: Infertility? or Other. Liz: Other.
+tv-30rock	society	tv-quote	general	0	Jack: Be a white man. Take credit.
+tv-30rock	arts	tv-quote	general	0	Liz: No, listen to me. She's not fun, she's just crazy. Like, grab-a-cop's-gun crazy. Jack: Lemon, having known Claire for a very enjoyable 20 minutes and you for what feels like infinity, I'm going to go with Claire on this one.
+tv-30rock	life	tv-quote	general	0	Liz: What is wrong with you men? You're like junkies...why can't you just say no? Jack: Lemon, let me explain something to you that you could have no way of knowing: emotionally unstable women are fantastic in the sack and their self-loathing translates into... never mind.
+tv-30rock	life	tv-quote	general	0	Gavin Volure: He's gonna' do it! Gavin Volure's gonna' jump! Jack Donaghy: Don't Gavin! That's gotta be fifteen, sixteen feet!
+tv-30rock	life	tv-quote	general	0	Tracy: Jenna, we're the most important people here, right? Jenna: Well, of course, Tracy. We're actors. If we didn't exist how would people know who to vote for?
+tv-30rock	life	tv-quote	general	0	Liz: We need to get these guys! Don't you know the Postmaster General? Jack: I do, but we had a falling out over the Jerry Garcia stamp. If I wanted to lick a hippie, I'd return Joan Baez's phone calls.
+tv-30rock	life	tv-quote	general	0	Tracy: In the spirit of Christmas and Kwanzo - Liz: Kwanzaa. Tracy: And shalamzazam to you too, my sister.
+tv-30rock	arts	tv-quote	general	0	Tracy: They do that a lot in movies: An Affair to Remember, Sleepless in Seattle, and that remake of An Affair to Remember that I was in, A Blaffair to Rememblack.
+tv-30rock	work-money	tv-quote	general	0	Jack: Ongoing train wreck aside, I love this idea; it's great synergy. By putting a TV actress into the movie world we can promote both. It's like how we're including a Heroes DVD with every missile system we sell.
+tv-30rock	work-money	tv-quote	general	0	Jenna: [having an idea] I've got it! Tracy: Give it to me! It's mine!
+tv-30rock	life	tv-quote	general	0	Jack: Lemon, this is a part of our problem. I give you a simple managerial suggestion in a professional context and I get back the second half of a Judy Blume novel.
+tv-30rock	life	tv-quote	general	0	Dr. Spaceman: Tracy, I don't know how to say this... de-ay-bah-tees? Tracy: Diabetes? Dr. Spaceman: That's it! Well, now we know what we're dealing with.
+tv-30rock	faith	tv-quote	general	0	Elisa: How dare you say such things so close to the statue of Santa Lucia, patron saint of judgmental statues!
+tv-30rock	life	tv-quote	general	0	Tracy: What everyone needs to do is calm down, take a deep breath, and prepare their bodies for the Thunderdome. That is the new law.
+tv-30rock	life	tv-quote	general	0	Jack: Alright everyone, it's back to the drawing board. Legal rejected all of our ideas - every one of the names we came up with was offensive in some language, including English, Frank. Frank: They knew what a Hot Richard was?
+tv-30rock	life	tv-quote	general	0	Jack: You wake a sleepwalker, you risk getting urinated on. Liz: Or thanked! ...on.
+tv-30rock	life	tv-quote	general	0	Jack: What happens to us? Liz: We grow up. Jack: I had a good life, but I'll never be that happy again. I want THAT back.
+tv-30rock	life	tv-quote	general	0	Tracy: What is this, Horseville? Because I'm surrounded by naysayers. Wordplay! Liz: That is solid.
+tv-30rock	life	tv-quote	general	0	Jenna: [rapping] My name is Suri Cruise. Put your hands in the air! I came out of the womb With a full head of hair!
+tv-30rock	life	tv-quote	general	0	Kenneth: Mr. Donaghy, I know you said only interrupt you if was very important, but Tishonda from Time Warner Cable is on the phone, and she's offering three free months of Showtime, but we have to act now!
+tv-30rock	life	tv-quote	general	0	Jenna: Kenneth, you know how you told Tracy not to go into your bedroom? Well, naturally we assumed you were a serial killer, and as you can imagine, your bird is dead.
+tv-30rock	life	tv-quote	general	0	Tracy: Friendship and trust in the entourage is the most important thing. Like that HBO show, John Adams.
+tv-30rock	life	tv-quote	general	0	Jenna: Oh I can play dead; I watched my whole church group get eaten by a bear.
+tv-30rock	life	tv-quote	general	0	Tracy: Heavy is the head that eats the crayons.
+tv-30rock	life	tv-quote	general	0	Elisa: I have a terrible secret. Please don't ask me what it is. Liz: I don't want to know what it is! [Pause] Are you a man? Elisa: Really, Lemon? You want to see me naked? Liz: Kind of.
+tv-30rock	life	tv-quote	general	0	Kenneth: [about his pig] She went crazy! She bit off my nutsack... that I kept tied around my belt to feed the squirrels.
+tv-30rock	tech	tv-quote	general	0	Liz: If I have learned anything from my Sims family: When a child doesn't see his father enough he starts to jump up and down, then his mood level will drop until he pees himself.
+tv-30rock	love	tv-quote	general	0	Milton: One month I couldn't pay, so she said maybe there was something else I could give her. So I gave her my radio. Then a couple of weeks later, we got drunk and had sex.
+tv-30rock	faith	tv-quote	general	0	Kenneth: Science was my most favorite subject, especially the Old Testament.
+tv-30rock	society	tv-quote	general	0	Jack: Well, musicians have banded together before to solve all kinds of problems: world hunger, the collapse of the American farm, global warming. And, uh, you're 0 for 3, guys.
+tv-30rock	life	tv-quote	general	0	Mary J. Blige (playing herself): I am disappointed in us as a group!
+tv-30rock	life	tv-quote	general	0	Jack: We'll trick those racecar-loving wide-loads into watching your lefty homoerotic propaganda hour yet!
+tv-30rock	life	tv-quote	general	0	Jack: I like you, Kenneth, but you do not want to mess with me right now. I am in the middle of a RAGING PERIOD... of economic turmoil.
+tv-30rock	work-money	tv-quote	general	0	Jack: Every division of the company is reaching out to the middle of the country. Our new mammogram machine is called the "Git 'R Done 2000".
+tv-30rock	life	tv-quote	general	0	Liz: I did Big Sister in college. That little girl taught me how to use tampons.
+tv-30rock	arts	tv-quote	general	0	Tracy: A book hasn't caused me this much trouble since Where's Waldo went to that barber pole factory.
+tv-30rock	life	tv-quote	general	0	Tracy: Orange and black decorations? Is this Halloween, or Princeton Parents' weekend? I don't know whether to be scared or proud of my cousin... Kenneth: It's Halloween, sir. Tracy: Proud it is.
+tv-30rock	life	tv-quote	general	0	Frank: Tracy, did you hear? Fred Dawkins, the incredibly overweight guy Pac-man was based off of, died. Tracy: I will eat a bowl of cherries and some ghost meat in his honor.
+tv-30rock	life	tv-quote	general	0	Jack: Good God, Lemon, your breath! When did you find time to eat a diaper you found on the beach?
+tv-30rock	society	tv-quote	general	0	Jack: The television audience doesn't want your elitist, east coast, alternative, intellectual, left wing... Liz: Just say Jewish Jack, this is taking forever.
+tv-30rock	life	tv-quote	general	0	Jack: That's what I'm talking about, empathy. It's about as useless as the Winter Olympics... this February on NBC.
+tv-30rock	society	tv-quote	general	0	Jenna: It's going to be a disaster! Like Katrina! Do you remember Katrina, that crazy girl from hair and make-up?
+tv-30rock	life	tv-quote	general	0	Jenna: He's evil, Tracy! Tracy: He's evil Tracy? Oh, "He's evil" [comma], "Tracy."
+tv-30rock	life	tv-quote	general	0	Liz: Do I look okay? Cerie: That's exactly how you look.
+tv-30rock	family	tv-quote	general	0	Kenneth: Mr. Baker wants to do everything for himself. I feel about as useless as a mom's college degree.
+tv-30rock	life	tv-quote	general	0	Jenna: Drama is like gay-man Gatorade. It replenishes their electrolytes.
+tv-30rock	life	tv-quote	general	0	Tracy: What made you change your mind? Jack: Tracy Jr. made you an acrostic. Tracy: Well, I hope he made me an acrosse helmet so I don't get hurt playing acrosse! [seeing Jack's confused stare] Now come on, that's pretty solid for a guy who just came out of an hallucination.
+tv-30rock	life	tv-quote	general	0	Jack: What have children ever done for us? Kenneth: Well, they make our shoes and wallets.
+tv-30rock	life	tv-quote	general	0	Jack: Moron says what? Devon: What? [Jack snickers and closes the phone] Devon: Moron says what? Jack? ...Jack?
+tv-30rock	life	tv-quote	general	0	Jack: Weird... in a good way. Like going to the gym drunk.
+tv-30rock	faith	tv-quote	general	0	Tracy: Why don't Catholics eat meat on Fridays? I'll tell you why: it's because the Pope owns Long John Silver's.
+tv-30rock	society	tv-quote	general	0	Liz: No, Jack. You were just talking about how you miss office hookups. That is a double standard. Jack: Calm down. Liz: I won't calm down. Women are allowed to get angrier than men about double standards.
+tv-30rock	life	tv-quote	general	0	Danny: She has really thin lips, but she makes up for it with tongue girth.
+tv-30rock	life	tv-quote	general	0	Liz: Ugh, I hate January. It's dark and freezing and everyone's wearing bulky coats; you can do some serious subway flirting before you realize the guy is homeless.
+tv-30rock	love	tv-quote	general	0	Liz: So what's going on with you and Nancy, anyway? Jack: We're just friends. It's platonic. I have elaborate fantasies of her husband dying in a boat explosion.
+tv-30rock	work-money	tv-quote	general	0	Avery: Who is number one in your speed dial? Jack: BlackBerry, Warren Buffett. iPhone, Jimmy Buffet. Avery: Favorite movie? Jack: Tie
+tv-30rock	life	tv-quote	general	0	Liz: If I die, my ghost is gonna haunt you! Frank: Then your ghost is going to see some disgusting stuff.
+tv-30rock	arts	tv-quote	general	0	Jack: He built GE into the greatest company on Earth, and the Earth into one of the top three planets in the universe! Tracy: It's like a black barbie doll in Arizona - nobody's buying it!
+tv-30rock	love	tv-quote	general	0	Liz: Just embrace the fact that you are lucky enough to be a happily married man. I mean, I'm actually jealous of you. You've got stability, a great marriage, devoted kids. You know what I have? A Sims family that keeps getting murdered.
+tv-30rock	life	tv-quote	general	0	Jack: Lemon, the grown-up dating world is like your haircut. Sometimes, awkward triangles occur. Liz: I feel like you've been saving that one.
+tv-30rock	life	tv-quote	general	0	Jenna: Jerem! Look how drunk I am and how full of cheese my mouth is! Jerem: That's not that much cheese.
+tv-30rock	life	tv-quote	general	0	Jerem: I'm Jerem! I collect posters!
+tv-30rock	life	tv-quote	general	0	Liz: There ain't no party like a Liz Lemon party 'cause a Liz Lemon party is mandatory.
+tv-30rock	life	tv-quote	general	0	Tracy: This is bad, because I can't change. I'm like a chameleon, always a lizard!
+tv-30rock	life	tv-quote	general	0	Kenneth: Badger, it's another Badger, the third Badger has taken the bait. Liz Lemon: Why is everyone codenamed Badger? Kenneth: I thought you said you wanted to do it this way. Liz Lemon: No, I said I didn't care.
+tv-30rock	life	tv-quote	general	0	Buzz Aldrin: I'm sorry if I upset you. Would you like to yell at the moon with Buzz Aldrin? Liz Lemon: Yes, please. [Both turn to the moon] Buzz Aldrin: I own you! Liz Lemon: You dumb moon! Buzz Aldrin: I walked on your face! Liz Lemon: Don't you know it's day? Idiot!
+tv-30rock	life	tv-quote	general	0	Wesley: I don't want to go back to England. I can't suffer through the London Olympics - we're not prepared, Liz. Did you see the Beijing Opening Ceremonies? We don't have control over our people like that!
+tv-30rock	life	tv-quote	general	0	Jack: The world is made by those who control their own destiny. It isn't made by those who don't do, it's made by those who do do. Which is what made me the man I am, I do do. Liz: Yeah, you do. Jack: Grow up, Lemon.
+tv-30rock	life	tv-quote	general	0	Wesley: Fine, it's your loss. There's only one Wesley Snipes in the world. Liz: You know there isn't! Wesley: Ugh!
+tv-30rock	life	tv-quote	general	0	Liz: I am a grown woman! I have been doing things my way for a long time. I don't like my "life stuff" mixing with my "dude stuff." Jack: A middle-aged woman saying "dude stuff," is that on my sadness scavenger hunt? Why yes it is!
+tv-30rock	work-money	tv-quote	general	0	Jenna: Your health insurance will remain in effect until the end... of this sentence.
+tv-30rock	life	tv-quote	general	0	Jenna: Although I'm great at this, I'm really not necessary. Hmmm, the last time I said that I was in a three-way with two Backstreet Boys.
+tv-30rock	family	tv-quote	general	0	Tracy: I'm embarrassed to say I've missed the birth of both of my sons, for very legitimate reasons. Dotcom: "Cooking a French bread pizza" and "forgot".
+tv-30rock	life	tv-quote	general	0	Jack: [making lessons DVD] In the unlikely event that you encounter something that is not covered here, find a woman named Elizabeth Lemon, get her advice, and then do the opposite.
+tv-30rock	love	tv-quote	general	0	Jenna: I'm gonna to have to reinvent you. Break you down completely, and build you up from scratch. Just like Mickey Rourke did to me sexually.
+tv-30rock	society	tv-quote	general	0	Regina Bookman: The FUTURE. And AMERICA. Now I may have lost my train of thought SEVERAL minutes ago, but if I continue to TALK LIKE THIS, no one will NOTICE, and when I STOP, you will APPLAUD my ENERGY! Thank you!
+tv-30rock	society	tv-quote	general	0	Jack: Diversity is the engine that drives this country. We are an immigrant nation! The first generation works their fingers to the bone making things, the next generation goes to college and innovates new ideas, the third generation... snowboards and takes improv classes.
+tv-30rock	life	tv-quote	general	0	Jack: Does it seem weird to you? Everything looks like a Mexican soap opera. Good God, I can see every line and pore on your face. Liz: Yeah, well my face cream was recalled. Apparently it was killing the lab rats'...Ugh what was it?... brains!
+tv-30rock	life	tv-quote	general	0	Jack: Making through a full 24 hours without a single misstep is called Reaganing. The only other people who have ever done it: Lee Iacocca, Jack Welch, and - no judgment - Saddam Hussein.
+tv-30rock	life	tv-quote	general	0	Jack:You have more sexual hangups than an adult chat line run by Gilbert Gottfried? Liz:What? Jack:That was written by a computer program we're working on to replace you.
+tv-30rock	life	tv-quote	general	0	Jack: Certainly you can't be surprised that there's a lot of negative stuff about you out there. Don't you ever Google yourself? Tracy: Sure, I google myself all the time, like when Angie's not in the mood or I'm alone in a hotel.
+tv-30rock	society	tv-quote	general	0	Jack: She's courting the youth vote. That means she's desperate. Jonathan: My generation never votes. It interferes with talking about ourselves all the time.
+tv-30rock	arts	tv-quote	general	0	Liz: You don't know what you're talking about, these jeans are hand-made in USA. Jack: You're mispronouncing that, they're H&#257;nd made in Usa. The H&#257;nd are a Vietnamese slave race and Usa is their island prison. Want to know how they get the stitching so small? Orphans.
+tv-30rock	life	tv-quote	general	0	Liz: Well, you were right about Brooklyn Without Limits: crunchy on the outside, right wing nutjob on the inside. Jack: Like Ann Coulter's underwear.
+tv-30rock	life	tv-quote	general	0	Jack: Good God, Lemon, those jeans make you look like a Mexican sports reporter.
+tv-30rock	life	tv-quote	general	0	Liz: [My jeans] are from Brooklyn Without Limits, this very cool store with locations in Gaytown, White Harlem, and the Van Beardswick section of Brooklyn.
+tv-30rock	life	tv-quote	general	0	Liz: Usually everyone around here makes me feel like Hitler, but today I feel like... Hitler in Germany.
+tv-30rock	food	tv-quote	general	0	Jack: Pete and I are having a little college night. Liz: Oh yeah you want to see me shotgun this? [Liz begins shoving an entire pizza into her mouth] Jack: Oh God! She means the pizza! Pete: She's unhinging her jaw!
+tv-30rock	life	tv-quote	general	0	Liz: Come on, my card only has a 1 in 52 chance of getting picked anyway. Tracy: How did you know that? You're like Rain Man. Quick, how many toothpicks are on the ground? Liz: Zero. Tracy: We need to go to Vegas.
+tv-30rock	love	quip	general	0	Jenna: Relationships are like sharks, Liz. If you're not left with several bite marks after intercourse, then something's wrong.
+tv-30rock	life	tv-quote	general	0	Jack: Lemon, I want you to get better because, and I mean this, I'm tired of talking this much to a woman I'm not having sex with.
+tv-30rock	life	tv-quote	general	0	Jack: This isn't my first rodeo, Lemon. Liz: Well, I've been to a rodeo too. It was a cat rodeo, in a gay guy's apartment.
+tv-30rock	life	tv-quote	general	0	Liz: See, this is exactly the kind of thing that happens when there's no order, no planning. Hitler and Martha Stewart would've hated that wedding.
+tv-30rock	life	tv-quote	general	0	Liz: For instance, Jack taught me not to wear tan slacks with a tan turtleneck. I thought it looked nice, but he, rightly, pointed out that it made me look like a giant condom.
+tv-30rock	life	tv-quote	general	0	Frank: There was a cyclone in Brooklyn last year. It destroyed two vintage t-shirt stores and a banjo.
+tv-30rock	arts	tv-quote	general	0	Jack: Michael Kors is a friend - - we own a gay racehorse together - - and I convinced him to make wizard cloaks fashionable this winter.
+tv-30rock	work-money	tv-quote	general	0	Hank Hooper:: You have a reputation, Jack. As a shark. Kabletown, we're not sharks. We're more like... whatever the friendliest fish is. I'm not a science guy.
+tv-30rock	society	tv-quote	general	0	Liz: If I can't poop in the street, why should my tax dollars pay for someone else to?
+tv-30rock	life	tv-quote	general	0	Jenna: I've been taking these new Czechoslovakian organ slimming pills. They contain a little bit of meth, which is something my body needs anyway!
+tv-30rock	life	tv-quote	general	0	Liz: My fanny pack is in my office in my mini-fridge. I like my tampons to be cold.
+tv-30rock	life	tv-quote	general	0	Jack: New York gives us a tax break for employing sex offenders. It's a terrible program.
+tv-30rock	life	tv-quote	general	0	[when Jack arrives at Kaylee's school to confront her] Kaylee: Mr. Donaghy! What are you doing here? Jack: I could ask you the same thing! But it would make no sense.
+tv-30rock	life	tv-quote	general	0	Kaylee: The ocean is for tools. Jack: The ocean is awesome and for winners. You're for tools!
+tv-30rock	life	tv-quote	general	0	Jack: They'll say "Jack Donaghy was the greatest oceanographer who ever lived. And we walruses owe Him everything for giving us the gift of language."
+tv-30rock	life	tv-quote	general	0	Jenna: Am I trying to instigate fights by throwing wine at people just to get on camera, and maybe also promote my new lifestyle website, Jennas-Side.com? Of course not. I mean, is wine-throwing something that even gets you on a reality show?
+tv-30rock	life	tv-quote	general	0	Angie: D'Fwan, glue in the business weave.
+tv-30rock	life	tv-quote	general	0	Angie: As you know, my single, "My Single Is Dropping," is dropping.
+tv-30rock	life	tv-quote	general	0	Jack: I only pass gas once a year, for an hour, atop a mountain in Switzerland.
+tv-30rock	life	tv-quote	general	0	Jack: There is nothing gay about the Princeton fight song. "Oh, the men of Princeton are charging up the rear, holding all the balls..." Okay, I hear it now.
+tv-30rock	work-money	tv-quote	general	0	Pete: Last time I taught, I was like Robin Williams in Dead Poets Society - by which I mean I got fired.
+tv-30rock	life	tv-quote	general	0	Jenna: Listen up, Fives. A Ten is speaking.
+tv-30rock	life	tv-quote	general	0	Jack: Congratulations. According to the transitive property, you just defeated Muammar Qaddafi in arm wrestling.
+tv-30rock	life	tv-quote	general	0	Dotcom: This would have really bothered me in my 20's.
+tv-30rock	life	tv-quote	general	0	Jack: Just get him [Tracy] back in time for the show. I have a very full plate. Liz: Really? Is it from that pie place? Jack: And I'm tired of going to bat for you and your show. Liz: Oh. Ok. Fine. But just to be clear.... Jack: There is no pie!
+tv-30rock	life	tv-quote	general	0	Jack: When she's ready, Dr. Kevorkian says we have to put her down. He's a very good paediatrician but that is an unfortunate name.
+tv-30rock	life	tv-quote	general	0	Liz: I've just had a hard couple of months. Work has been crazy, and I went through a bad break up, and then there was this plastic bag that represented my death. Dr. Spaceman: Sounds like you can use a little R&R. Rum and Ritalin.
+tv-30rock	life	tv-quote	general	0	Paul: This is a conservative top, Jenna. And I hate to be the stereotypical man, but this is my home and I want to wear this blouse.
+tv-30rock	life	tv-quote	general	0	Jack: This thing's a real cash cow - unlike Cash Cow, the NBC spinoff of Cash Cab. You try riding a cow through midtown Manhattan, Lemon. The animal will panic.
+tv-30rock	life	tv-quote	general	0	Tracy: Remember when I offended stubborn people? That took forever to sort out.
+tv-30rock	arts	tv-quote	general	0	Denise Richards: Don't talk to me like I'm stupid! I played a nucular psychiatrist in a James Bonk movie!
+tv-30rock	food	tv-quote	general	0	Criss: You don't use the tab closers on cereal boxes! Liz: If you think those are doing anything to seal in freshness, you are living in a fantasy world, pal.
+tv-30rock	life	tv-quote	general	0	Kelsey Grammer: [performing as Abraham Lincoln] I know that future generations will forge a stronger country, and that, someday, America will be a place... where everybody knows your name.
+tv-30rock	life	tv-quote	general	0	Amy: Ugh, I hate it when they put the movie poster on the cover of the book that the movie is based on. Liz: Let me imagine what Peeta Mallark looks like, and how his arms smell of bread.
+tv-30rock	life	tv-quote	general	0	Accountant: My son Adam is a huge, huge fan! Tracy: Yes, many of our viewers are obese.
+tv-30rock	work-money	tv-quote	general	0	Jack: Whatever you do, don't speak first. Ninety percent of negotiations are lost by the person who speaks first. Because what is speaking a sign of? Audience member: ...weakness? Jack: You - out. Fired.
+tv-30rock	life	tv-quote	general	0	Jack: Oh, Diana, you're here, I thought you'd be at the house. Diana: Oh yes, I dropped my bags off and shook hands with the baby but I wanted to come talk to you about Avery's situation.
+tv-30rock	life	tv-quote	general	0	Jack: Extracting an American from North Korea is a, ah, is a lot more difficult than arranging a round robin paddle tennis tournament. Diana: What about arranging three round robin paddle tennis tournaments?
+tv-30rock	society	tv-quote	general	0	Jack: This is a sign. The lower classes are getting cranky about the rich earning all of their money away from them. Can't they see this is in their best interest? How could we pay their salaries without using their money? We're on the verge of a class war.
+tv-30rock	life	tv-quote	general	0	Kenneth: Miss Lemon, are you okay? Aw! You smell like when the Stone Mountain tire fire joined up with the corpse fire, and then swept through the downtown manure district. It was our fault for letting those high schoolers dance at their prom.
+tv-30rock	life	tv-quote	general	0	Thad: And you - you were the star of The Sound of Music. Liz: Thank you. Not everyone thinks of the young Nazi boy as the star of that show.
+tv-30rock	life	tv-quote	general	0	Liz: 'Cause living a lie will eat you up inside. Like that parasite I got from eating sushi on Amtrak.
+tv-30rock	society	tv-quote	general	0	Lynn: Ma'am, I am in a Mexican prison gang. You kill me, Los Tiburones will greenlight a 187 on you, and you don't want that kind of heat.
+tv-30rock	life	tv-quote	general	0	Tracy: I feel like Oscar the Grouch today. And not just 'cause I woke up in a garbage can this morning startling someone named Gordon.
+tv-30rock	society	tv-quote	general	0	Liz: In college, I once went on a hunger strike to protest apartheid... Tracy: Oh, you're the one who solved that? Thank you soooo much!
+tv-30rock	arts	tv-quote	general	0	Tracy: I finally understand the ending of The Sixth Sense. Those names are the people who worked on the movie!
+tv-30rock	life	tv-quote	general	0	Tracy: This is probably some Hollywood prank. Like on the set of Ocean's 12 when I put that snake in George Clooney's bed. I was not in the movie.
+tv-30rock	life	tv-quote	general	0	Hazel: I'm not about to screw this up, Kenneth. 'Cause I'd get kicked out of show business, and then how would I be famous? By starting a fire and then rescuing everyone from it, and then I'm a hero, and then I'm in Playboy?
+tv-30rock	society	tv-quote	general	0	Jack: The UN is useless, the State Department is full of Democrats, and as it turns out Amnesty International is nothing but a company that makes and sells candles... Liz: That explains all the vigils!
+tv-30rock	love	tv-quote	general	0	Hazel: When I confronted him about it he was so condescending! He laughed at me, then he undressed me with his eyes. Then he had his way with me... with his eyes. Liz: Ugh, the male gaze. Hazel: Yeah, they're all a bunch of gays.
+tv-30rock	life	tv-quote	general	0	Liz: Do not write another sketch with Krang from Teenage Mutant Ninja Turtles. No one knows who Krang is. It would be a waste of time to talk about Krang on television.
+tv-30rock	life	tv-quote	general	0	Jack: You really are an extraordinary young man, Kenneth. No matter what happens, you always keep your chin up. Kenneth: Medically it's a neck ridge.
+tv-30rock	health-body	tv-quote	general	0	Hazel: As the doctor said to me after my hepatitis test, "You got it, sweetheart!"
+tv-30rock	life	tv-quote	general	0	Stacy Keach: ...That's why I buy Bazooka Joe Gum. It's like chewing a mountain that someone shot a Freeze-Ray into.
+tv-30rock	life	tv-quote	general	0	Tracy: Jenna, I've been thinking... Jenna: But Tracy, you're a celebrity.
+tv-30rock	work-money	tv-quote	general	0	Angie: I've never been so disrespected in my life! And I've been to, and worked at, the post office.
+tv-30rock	tech	tv-quote	general	0	Jack: Not too much has changed. There's an iPod 3 and a Mitt Romney 4. They worked all the bugs out. He's not killing hobos at night anymore.
+tv-30rock	life	tv-quote	general	0	Jack: You don't need my advice. Liz: But I still want it.

@@ -1,0 +1,381 @@
+wisdom	faith	wisdom	general	0	A clash of doctrine is not a disaster -- it is an opportunity.
+wisdom	life	uplifting	general	0	A dream will always triumph over reality, once it is given the chance.
+wisdom	life	dark	general	0	A fake fortuneteller can be tolerated. But an authentic soothsayer should be shot on sight. Cassandra did not get half the kicking around she deserved.
+wisdom	life	wisdom	general	0	A halted retreat Is nerve-wracking and dangerous. To retain people as men -- and maidservants Brings good fortune.
+wisdom	life	wisdom	general	0	A lifetime isn't nearly long enough to figure out what it's all about.
+wisdom	life	quip	general	0	A lot of people I know believe in positive thinking, and so do I. I believe everything positively stinks.
+wisdom	life	dark	general	0	A man said to the Universe: "Sir, I exist!" "However," replied the Universe, "the fact has not created in me a sense of obligation."
+wisdom	life	wisdom	general	0	A man who cannot seduce men cannot save them either.
+wisdom	life	wisdom	general	0	A neighbor came to Nasrudin, asking to borrow his donkey. "It is out on loan," the teacher replied. At that moment, the donkey brayed loudly inside the stable. "But I can hear it bray, over there." "Whom do you believe," asked Nasrudin, "me or a donkey?"
+wisdom	life	quip	general	0	A priest advised Voltaire on his death bed to renounce the devil. Replied Voltaire, "This is no time to make new enemies."
+wisdom	science	dark	general	0	A sad spectacle. If they be inhabited, what a scope for misery and folly. If they be not inhabited, what a waste of space.
+wisdom	life	wisdom	general	0	A thing is not necessarily true because a man dies for it.
+wisdom	life	dark	general	0	All hope abandon, ye who enter here!
+wisdom	life	wisdom	general	0	All men know the utility of useful things; but they do not know the utility of futility.
+wisdom	life	quip	general	0	All of the true things I am about to tell you are shameless lies.
+wisdom	faith	wisdom	general	0	An idea is an eye given by God for the seeing of God. Some of these eyes we cannot bear to look out of, we blind them as quickly as possible.
+wisdom	life	wisdom	general	0	An idea is not responsible for the people who believe in it.
+wisdom	love	wisdom	general	0	And ever has it been known that love knows not its own depth until the hour of separation.
+wisdom	life	wisdom	general	0	Arrakis teaches the attitude of the knife - chopping off what's incomplete and saying: "Now it's complete because it's ended here."
+wisdom	life	wisdom	general	0	As failures go, attempting to recall the past is like trying to grasp the meaning of existence. Both make one feel like a baby clutching at a basketball: one's palms keep sliding off.
+wisdom	life	wisdom	general	0	At ebb tide I wrote a line upon the sand, and gave it all my heart and all my soul. At flood tide I returned to read what I had inscribed and found my ignorance upon the shore.
+wisdom	life	dark	general	0	At the end of your life there'll be a good rest, and no further activities are scheduled.
+wisdom	life	wisdom	general	0	At the foot of the mountain, thunder: The image of Providing Nourishment. Thus the superior man is careful of his words And temperate in eating and drinking.
+wisdom	faith	wisdom	general	0	Beauty is one of the rare things which does not lead to doubt of God.
+wisdom	life	wisdom	general	0	Before you ask more questions, think about whether you really want to know the answers.
+wisdom	life	wisdom	general	0	Brahma said: Well, after hearing ten thousand explanations, a fool is no wiser. But an intelligent man needs only two thousand five hundred.
+wisdom	life	dark	general	0	By protracting life, we do not deduct one jot from the duration of death.
+wisdom	life	wisdom	general	0	Certainly the game is rigged. Don't let that stop you; if you don't bet, you can't win.
+wisdom	faith	quip	general	0	Chance is perhaps the work of God when He did not want to sign.
+wisdom	life	quip	general	0	Chapter 1 The story so far: In the beginning the Universe was created. This has made a lot of people very angry and been widely regarded as a bad move.
+wisdom	life	wisdom	general	0	"Cheshire-Puss," she began, "would you tell me, please, which way I ought to go from here?" "That depends a good deal on where you want to get to," said the Cat. "I don't care much where--" said Alice. "Then it doesn't matter which way you go," said the Cat.
+wisdom	life	wisdom	general	0	Circumstances rule men; men do not rule circumstances.
+wisdom	life	quip	general	0	Coincidences are spiritual puns.
+wisdom	life	wisdom	general	0	Death is a spirit leaving a body, sort of like a shell leaving the nut behind.
+wisdom	faith	dark	general	0	Death is God's way of telling you not to be such a wise guy.
+wisdom	life	dark	general	0	Death is life's way of telling you you've been fired.
+wisdom	life	dark	general	0	Death is Nature's way of recycling human beings.
+wisdom	life	dark	general	0	Death is nature's way of saying `Howdy'.
+wisdom	life	dark	general	0	Death is nature's way of telling you to slow down.
+wisdom	life	dark	general	0	Death is only a state of mind. Only it doesn't leave you much time to think about anything else.
+wisdom	life	aphorism	general	0	Depart not from the path which fate has assigned you.
+wisdom	life	quip	general	0	Depend on the rabbit's foot if you will, but remember, it didn't help the rabbit.
+wisdom	life	wisdom	general	0	Destiny is a good thing to accept when it's going your way. When it isn't, don't call it destiny; call it injustice, treachery, or simple bad luck.
+wisdom	life	aphorism	general	0	Disease can be cured; fate is incurable. -- Chinese proverb
+wisdom	faith	aphorism	general	0	Ditat Deus. [God enriches]
+wisdom	faith	quip	general	0	Do not believe in miracles -- rely on them.
+wisdom	life	wisdom	general	0	Do not seek death; death will find you. But seek the road which makes death a fulfillment.
+wisdom	life	dark	general	0	Do not take life too seriously; you will never get out of it alive.
+wisdom	life	wisdom	general	0	Do what you can to prolong your life, in the hope that someday you'll learn what it's for.
+wisdom	faith	quip	general	0	"Do you think there's a God?" "Well, SOMEbody's out to get me!"
+wisdom	life	wisdom	general	0	Do your part to help preserve life on Earth -- by trying to preserve your own.
+wisdom	life	quip	general	0	Don't abandon hope. Your Captain Midnight decoder ring arrives tomorrow.
+wisdom	life	quip	general	0	Don't abandon hope: your Tom Mix decoder ring arrives tomorrow.
+wisdom	life	quip	general	0	Don't go to bed with no price on your head.
+wisdom	work-money	wisdom	general	0	Don't have good ideas if you aren't willing to be responsible for them.
+wisdom	life	quip	general	0	Don't kid yourself. Little is relevant, and nothing lasts forever.
+wisdom	life	quip	general	0	Don't let people drive you crazy when you know it's in walking distance.
+wisdom	life	wisdom	general	0	Don't make a big deal out of everything; just deal with everything.
+wisdom	life	aphorism	general	0	Don't stop to stomp ants when the elephants are stampeding.
+wisdom	life	dark	general	0	Don't take life seriously, you'll never get out alive.
+wisdom	faith	wisdom	general	0	Doubt isn't the opposite of faith; it is an element of faith.
+wisdom	life	quip	general	0	Down with categorical imperative!
+wisdom	life	quip	general	0	Due to circumstances beyond your control, you are master of your fate and captain of your soul.
+wisdom	life	wisdom	general	0	During the voyage of life, remember to keep an eye out for a fair wind; batten down during a storm; hail all passing ships; and fly your colors proudly.
+wisdom	life	dark	general	0	Dying is a very dull, dreary affair. My advice to you is to have nothing whatever to do with it.
+wisdom	life	dark	general	0	Dying is one of the few things that can be done as easily lying down.
+wisdom	life	wisdom	general	0	Each man is his own prisoner, in solitary confinement for life.
+wisdom	life	dark	general	0	Each of us bears his own Hell.
+wisdom	life	quip	general	0	Either I'm dead or my watch has stopped.
+wisdom	life	dark	general	0	Even the best of friends cannot attend each other's funeral.
+wisdom	life	observation	general	0	Even the most irrational people usually think they are logical thinkers. -- amigojapan ( https://thewml.github.io/amigojapan-site/Self_quotes.html )
+wisdom	life	wisdom	general	0	Every person, all the events in your life are there because you have drawn them there. What you choose to do with them is up to you.
+wisdom	life	dark	general	0	Everything ends badly. Otherwise it wouldn't end.
+wisdom	life	wisdom	general	0	Everything in this book may be wrong.
+wisdom	life	uplifting	general	0	Everything is possible. Pass the word.
+wisdom	life	wisdom	general	0	Execute every act of thy life as though it were thy last.
+wisdom	tech	aphorism	general	0	Expansion means complexity; and complexity decay.
+wisdom	life	wisdom	general	0	Facts are the enemy of truth.
+wisdom	life	verse	general	0	Fain would I climb, yet fear I to fall.
+wisdom	faith	aphorism	general	0	Faith goes out through the window when beauty comes in at the door.
+wisdom	life	aphorism	general	0	Fill what's empty, empty what's full, scratch where it itches.
+wisdom	life	wisdom	general	0	For fast-acting relief, try slowing down.
+wisdom	life	aphorism	general	0	For good, return good. For evil, return justice.
+wisdom	faith	wisdom	general	0	For if there is a sin against life, it consists perhaps not so much in despairing of life as in hoping for another life and in eluding the implacable grandeur of this life.
+wisdom	faith	quip	general	0	For your penance, say five Hail Marys and one loud BLAH!
+wisdom	life	aphorism	general	0	Force has no place where there is need of skill.
+wisdom	life	quip	general	0	FORTUNE'S RULES TO LIVE BY: #2 Never goose a wolverine.
+wisdom	life	quip	general	0	FORTUNE'S RULES TO LIVE BY: #23 Don't cut off a police car when making an illegal U-turn.
+wisdom	life	aphorism	general	0	From listening comes wisdom and from speaking repentance.
+wisdom	life	dark	general	0	From the cradle to the coffin underwear comes first.
+wisdom	life	wisdom	general	0	Generally speaking, the Way of the warrior is resolute acceptance of death.
+wisdom	life	aphorism	general	0	Getting into trouble is easy.
+wisdom	life	quip	general	0	Getting there is only half as far as getting there and back.
+wisdom	life	wisdom	general	0	Given a choice between grief and nothing, I'd choose grief.
+wisdom	life	wisdom	general	0	God grant us the serenity to accept the things we cannot change, courage to change the things we can, and wisdom to know the difference.
+wisdom	faith	wisdom	general	0	God instructs the heart, not by ideas, but by pains and contradictions.
+wisdom	faith	wisdom	general	0	God is the tangential point between zero and infinity.
+wisdom	faith	quip	general	0	God made everything out of nothing, but the nothingness shows through.
+wisdom	life	quip	general	0	Good-bye. I am leaving because I am bored.
+wisdom	life	quip	general	0	Goodbye, cool world.
+wisdom	life	joke	general	0	Got a dictionary? I want to know the meaning of life.
+wisdom	life	aphorism	general	0	Great acts are made up of small deeds.
+wisdom	life	aphorism	general	0	Happiness is having a scratch for every itch.
+wisdom	life	dark	general	0	Happiness is just an illusion, filled with sadness and confusion.
+wisdom	life	wisdom	general	0	Happiness isn't having what you want, it's wanting what you have.
+wisdom	life	wisdom	general	0	Happiness isn't something you experience; it's something you remember.
+wisdom	faith	wisdom	general	0	Having the fewest wants, I am nearest to the gods.
+wisdom	faith	wisdom	general	0	He has shown you, o man, what is good. And what does the Lord ask of you, but to do justice, and to love kindness, and to walk humbly before your God?
+wisdom	life	wisdom	general	0	He is truly wise who gains wisdom from another's mishap.
+wisdom	life	wisdom	general	0	He knows not how to know who knows not also how to unknow.
+wisdom	life	wisdom	general	0	He that composes himself is wiser than he that composes a book.
+wisdom	life	dark	general	0	He who despairs over an event is a coward, but he who holds hopes for the human condition is a fool.
+wisdom	life	wisdom	general	0	He who knows not and knows that he knows not is ignorant. Teach him. He who knows not and knows not that he knows not is a fool. Shun him. He who knows and knows not that he knows is asleep. Wake him.
+wisdom	life	wisdom	general	0	He who knows nothing, knows nothing. But he who knows he knows nothing knows something. And he who knows someone whose friend's wife's brother knows nothing, he knows something. Or something like that.
+wisdom	life	wisdom	general	0	He who knows others is wise. He who knows himself is enlightened.
+wisdom	life	wisdom	general	0	He who knows that enough is enough will always have enough.
+wisdom	life	wisdom	general	0	He who knows, does not speak. He who speaks, does not know.
+wisdom	life	wisdom	general	0	...He who laughs does not believe in what he laughs at, but neither does he hate it. Therefore, laughing at evil means not preparing oneself to combat it, and laughing at good means denying the power through which good is self-propagating.
+wisdom	life	wisdom	general	0	Here is a test to find whether your mission on earth is finished: if you're alive, it isn't.
+wisdom	life	wisdom	general	0	How can you prove whether at this moment we are sleeping, and all our thoughts are a dream; or whether we are awake, and talking to one another in the waking state?
+wisdom	life	uplifting	general	0	I am not afraid of tomorrow, for I have seen yesterday and I love today.
+wisdom	life	dark	general	0	I didn't believe in reincarnation in any of my other lives. I don't see why I should have to believe in it in this one.
+wisdom	life	quip	general	0	I do not know whether I was then a man dreaming I was a butterfly, or whether I am now a butterfly dreaming I am a man.
+wisdom	life	wisdom	general	0	I do not seek the ignorant; the ignorant seek me -- I will instruct them. I ask nothing but sincerity. If they come out of habit, they become tiresome.
+wisdom	faith	wisdom	general	0	"I gained nothing at all from Supreme Enlightenment, and for that very reason it is called Supreme Enlightenment."
+wisdom	life	dark	general	0	I hate dying.
+wisdom	life	wisdom	general	0	I have a simple philosophy: Fill what's empty. Empty what's full. Scratch where it itches.
+wisdom	life	aphorism	general	0	I have often regretted my speech, never my silence.
+wisdom	life	quip	general	0	I have seen the future and it is just like the present, only longer.
+wisdom	life	quip	general	0	I hope you're not pretending to be evil while secretly being good. That would be dishonest.
+wisdom	life	quip	general	0	I just forgot my whole philosophy of life!!!
+wisdom	life	wisdom	general	0	I know not how I came into this, shall I call it a dying life or a living death?
+wisdom	life	quip	general	0	If a guru falls in the forest with no one to hear him, was he really a guru at all?
+wisdom	faith	wisdom	general	0	If a man has a strong faith he can indulge in the luxury of skepticism.
+wisdom	life	wisdom	general	0	If a man loses his reverence for any part of life, he will lose his reverence for all of life.
+wisdom	life	quip	general	0	If little green men land in your back yard, hide any little green women you've got in the house.
+wisdom	tech	quip	general	0	If something has not yet gone wrong then it would ultimately have been beneficial for it to go wrong.
+wisdom	life	wisdom	general	0	If the master dies and the disciple grieves, the lives of both have been wasted.
+wisdom	life	wisdom	general	0	If the path be beautiful, let us not ask where it leads.
+wisdom	life	aphorism	general	0	If there is a possibility of several things going wrong, the one that will cause the most damage will be the one to go wrong. If you perceive that there are four possible ways in which a procedure can go wrong, and circumvent these, then a fifth way will promptly develop.
+wisdom	faith	wisdom	general	0	If there is a sin against life, it consists perhaps not so much in despairing of life as in hoping for another life and in eluding the implacable grandeur of this life.
+wisdom	life	aphorism	general	0	If we do not change our direction we are likely to end up where we are headed.
+wisdom	life	aphorism	general	0	If we don't survive, we don't do anything else.
+wisdom	life	wisdom	general	0	If you are not for yourself, who will be for you? If you are for yourself, then what are you? If not now, when?
+wisdom	life	quip	general	0	If you can survive death, you can probably survive anything.
+wisdom	life	wisdom	general	0	If you find a solution and become attached to it, the solution may become your next problem.
+wisdom	life	aphorism	general	0	If you fool around with something long enough, it will eventually break.
+wisdom	life	wisdom	general	0	If you have to hate, hate gently.
+wisdom	life	aphorism	general	0	If you have to think twice about it, you're wrong.
+wisdom	life	wisdom	general	0	If you keep anything long enough, you can throw it away.
+wisdom	life	wisdom	general	0	If you live long enough, you'll see that every victory turns into a defeat.
+wisdom	life	aphorism	general	0	If you only have a hammer, you tend to see every problem as a nail.
+wisdom	life	aphorism	general	0	If you put it off long enough, it might go away.
+wisdom	life	wisdom	general	0	If you refuse to accept anything but the best you very often get it.
+wisdom	life	aphorism	general	0	If you wait long enough, it will go away... after having done its damage. If it was bad, it will be back.
+wisdom	faith	dark	general	0	If you want divine justice, die.
+wisdom	life	aphorism	general	0	If your aim in life is nothing, you can't miss.
+wisdom	life	wisdom	general	0	If your happiness depends on what somebody else does, I guess you do have a problem.
+wisdom	life	aphorism	general	0	Illusion is the first of all pleasures.
+wisdom	life	dark	general	0	Immortality -- a fate worse than death.
+wisdom	life	wisdom	general	0	In dwelling, be close to the land. In meditation, delve deep into the heart. In dealing with others, be gentle and kind. In speech, be true. In work, be competent. In action, be careful of your timing.
+wisdom	life	wisdom	general	0	In order to discover who you are, first learn who everybody else is; you're what's left.
+wisdom	life	wisdom	general	0	In order to live free and happily, you must sacrifice boredom. It is not always an easy sacrifice.
+wisdom	life	uplifting	general	0	In spite of everything, I still believe that people are good at heart.
+wisdom	life	dark	general	0	In the long run we are all dead.
+wisdom	life	dark	general	0	In the next world, you're on your own.
+wisdom	faith	wisdom	general	0	Indeed, the first noble truth of Buddhism, usually translated as `all life is suffering,' is more accurately rendered `life is filled with a sense of pervasive unsatisfactoriness.'
+wisdom	life	quip	general	0	Instead of loving your enemies, treat your friends a little better.
+wisdom	life	wisdom	general	0	Intellect annuls Fate. So far as a man thinks, he is free.
+wisdom	life	wisdom	general	0	It does not do to leave a live dragon out of your calculations.
+wisdom	faith	quip	general	0	It is easier for a camel to pass through the eye of a needle if it is lightly greased.
+wisdom	life	aphorism	general	0	It is Fortune, not Wisdom, that rules man's life.
+wisdom	life	wisdom	general	0	It is not doing the thing we like to do, but liking the thing we have to do, that makes life blessed.
+wisdom	life	wisdom	general	0	It is only by risking our persons from one hour to another that we live at all. And often enough our faith beforehand in an uncertified result is the only thing that makes the result come true.
+wisdom	life	wisdom	general	0	It is only with the heart one can see clearly; what is essential is invisible to the eye.
+wisdom	life	wisdom	general	0	It is said that the lonely eagle flies to the mountain peaks while the lowly ant crawls the ground, but cannot the soul of the ant soar as high as the eagle?
+wisdom	faith	dark	general	0	It is so stupid of modern civilisation to have given up believing in the devil when he is the only explanation of it.
+wisdom	life	wisdom	general	0	It is through symbols that man consciously or unconsciously lives, works and has his being.
+wisdom	life	wisdom	general	0	It will be advantageous to cross the great stream ... the Dragon is on the wing in the Sky ... the Great Man rouses himself to his Work.
+wisdom	life	aphorism	general	0	It's easier to take it apart than to put it back together.
+wisdom	life	wisdom	general	0	It's hard to drive at the limit, but it's harder to know where the limits are.
+wisdom	life	wisdom	general	0	It's not reality that's important, but how you perceive things.
+wisdom	life	uplifting	general	0	"It's today!" said Piglet. "My favorite day," said Pooh.
+wisdom	life	dark	general	0	It's very inconvenient to be mortal -- you never know when everything may suddenly stop happening.
+wisdom	life	aphorism	general	0	Just remember, wherever you go, there you are.
+wisdom	life	wisdom	general	0	Kindness is the beginning of cruelty. -- Muad'dib [Frank Herbert, "Dune"]
+wisdom	life	wisdom	general	0	Let us not look back in anger or forward in fear, but around us in awareness.
+wisdom	life	dark	general	0	Life can be so tragic -- you're here today and here tomorrow.
+wisdom	life	dark	general	0	Life exists for no known purpose.
+wisdom	life	uplifting	general	0	Life is a grand adventure -- or it is nothing.
+wisdom	life	wisdom	general	0	Life is knowing how far to go without crossing the line.
+wisdom	life	aphorism	general	0	Life is like a 10 speed bicycle. Most of us have gears we never use.
+wisdom	life	aphorism	general	0	Life is like a sewer. What you get out of it depends on what you put into it.
+wisdom	life	wisdom	general	0	Life is the childhood of our immortality.
+wisdom	life	dark	general	0	Life is the living you do, Death is the living you don't do.
+wisdom	life	aphorism	general	0	Life is the urge to ecstasy.
+wisdom	life	dark	general	0	Life may have no meaning, or, even worse, it may have a meaning of which you disapprove.
+wisdom	life	wisdom	general	0	Life only demands from you the strength you possess. Only one feat is possible -- not to have run away.
+wisdom	life	dark	general	0	Life sucks, but death doesn't put out at all.
+wisdom	life	wisdom	general	0	Live never to be ashamed if anything you do or say is published around the world -- even if what is published is not true.
+wisdom	life	quip	general	0	Living in the complex world of the future is somewhat like having bees live in your head. But, there they are.
+wisdom	life	wisdom	general	0	Loneliness is a terrible price to pay for independence.
+wisdom	life	verse	general	0	Long were the days of pain I have spent within its walls, and long were the nights of aloneness; and who can depart from his pain and his aloneness without regret?
+wisdom	life	wisdom	general	0	Man's reach must exceed his grasp, for why else the heavens?
+wisdom	life	wisdom	general	0	[Maturity consists in the discovery that] there comes a critical moment where everything is reversed, after which the point becomes to understand more and more that there is something which cannot be understood.
+wisdom	life	wisdom	general	0	Mohandas K. Gandhi often changed his mind publicly. An aide once asked him how he could so freely contradict this week what he had said just last week. The great man replied that it was because this week he knew better.
+wisdom	life	aphorism	general	0	Murphy was an optimist.
+wisdom	life	wisdom	general	0	Murphy's Law is recursive. Washing your car to make it rain doesn't work.
+wisdom	arts	wisdom	general	0	Music in the soul can be heard by the universe.
+wisdom	faith	wisdom	general	0	My religion consists of a humble admiration of the illimitable superior spirit who reveals himself in the slight details we are able to perceive with our frail and feeble mind.
+wisdom	faith	quip	general	0	My theology, briefly, is that the universe was dictated but not signed.
+wisdom	life	quip	general	0	Nasrudin called at a large house to collect for charity. The servant said "My master is out." Nasrudin replied, "Tell your master that next time he goes out, he should not leave his face at the window. Someone might steal it."
+wisdom	life	wisdom	general	0	Nasrudin walked into a shop one day, and the owner came forward to serve him. Nasrudin said, "First things first. Did you see me walk into your shop?" "Of course." "Have you ever seen me before?" "Never." "Then how do you know it was me?"
+wisdom	life	wisdom	general	0	Nasrudin walked into a teahouse and declaimed, "The moon is more useful than the sun." "Why?", he was asked. "Because at night we need the light more."
+wisdom	life	aphorism	general	0	Ninety percent of everything is crap.
+wisdom	life	dark	general	0	Ninety percent of the time things turn out worse than you thought they would. The other ten percent of the time you had no right to expect that much.
+wisdom	life	quip	general	0	No matter where I go, the place is always called "here".
+wisdom	life	dark	general	0	No use getting too involved in life -- you're only here for a limited time.
+wisdom	life	wisdom	general	0	Nobody ever ruined their eyesight by looking at the bright side of something.
+wisdom	arts	wisdom	general	0	Nonsense and beauty have close connections.
+wisdom	society	quip	general	0	Normal times may possibly be over forever.
+wisdom	life	aphorism	general	0	Not every question deserves an answer.
+wisdom	life	wisdom	general	0	Nothing in life is to be feared. It is only to be understood.
+wisdom	life	wisdom	general	0	Nothing is as simple as it seems at first Or as hopeless as it seems in the middle Or as finished as it seems in the end.
+wisdom	life	quip	general	0	Nothing is but what is not.
+wisdom	life	quip	general	0	Nothing is ever a total loss; it can always serve as a bad example.
+wisdom	life	aphorism	general	0	Nothing matters very much, and few things matter at all.
+wisdom	life	wisdom	general	0	Of all men's miseries, the bitterest is this: to know so much and have control over nothing.
+wisdom	life	aphorism	general	0	Once the toothpaste is out of the tube, it's hard to get it back in.
+wisdom	society	quip	general	0	Once you've tried to change the world you find it's a whole bunch easier to change your mind.
+wisdom	life	wisdom	general	0	One learns to itch where one can scratch.
+wisdom	life	wisdom	general	0	One meets his destiny often on the road he takes to avoid it.
+wisdom	faith	wisdom	general	0	One monk said to the other, "The fish has flopped out of the net! How will it live?" The other said, "When you have gotten out of the net, I'll tell you."
+wisdom	life	wisdom	general	0	Only that in you which is me can hear what I'm saying.
+wisdom	life	wisdom	general	0	Only those who leisurely approach that which the masses are busy about can be busy about that which the masses take leisurely.
+wisdom	life	uplifting	general	0	Paradise is exactly like where you are right now ... only much, much better.
+wisdom	life	wisdom	general	0	Perfection is reached, not when there is no longer anything to add, but when there is no longer anything to take away.
+wisdom	life	wisdom	general	0	Perhaps the biggest disappointments were the ones you expected anyway.
+wisdom	life	wisdom	general	0	Philosophy will clip an angel's wings.
+wisdom	life	aphorism	general	0	Push where it gives and scratch where it itches.
+wisdom	life	observation	general	0	Reality always seems harsher in the early morning.
+wisdom	life	quip	general	0	Reality does not exist -- yet.
+wisdom	life	quip	general	0	Reality is bad enough, why should I tell the truth?
+wisdom	life	quip	general	0	Reality is for people who lack imagination.
+wisdom	life	observation	general	0	Reality is just a convenient measure of complexity.
+wisdom	life	quip	general	0	Reality is just a crutch for people who can't handle science fiction.
+wisdom	life	wisdom	general	0	Reality is nothing but a collective hunch.
+wisdom	life	wisdom	general	0	"Reality is that which, when you stop believing in it, doesn't go away".
+wisdom	life	wisdom	general	0	Remember, Grasshopper, falling down 1000 stairs begins by tripping over the first one.
+wisdom	life	aphorism	general	0	Rule of Life #1 -- Never get separated from your luggage.
+wisdom	life	quip	general	0	Seeing is believing. You wouldn't have seen it if you hadn't believed it.
+wisdom	life	wisdom	general	0	Since everything in life is but an experience perfect in being what it is, having nothing to do with good or bad, acceptance or rejection, one may well burst out in laughter.
+wisdom	life	quip	general	0	So little time, so little to do.
+wisdom	life	uplifting	general	0	Sometimes even to live is an act of courage.
+wisdom	life	quip	general	0	Sometimes you get an almost irresistible urge to go on living.
+wisdom	life	wisdom	general	0	Standards are different for all things, so the standard set by man is by no means the only 'certain' standard. If you mistake what is relative for something certain, you have strayed far from the ultimate truth.
+wisdom	faith	wisdom	general	0	Superstition, idolatry, and hypocrisy have ample wages, but truth goes a-begging.
+wisdom	life	wisdom	general	0	Take your dying with some seriousness, however. Laughing on the way to your execution is not generally understood by less advanced life forms, and they'll call you crazy. -- "Messiah's Handbook: Reminders for the Advanced Soul"
+wisdom	life	quip	general	0	That that is is that that is not is not.
+wisdom	life	quip	general	0	That, that is, is. That, that is not, is not. That, that is, is not that, that is not. That, that is not, is not that, that is.
+wisdom	life	wisdom	general	0	The absurd is the essential concept and the first truth.
+wisdom	life	quip	general	0	The best you get is an even break.
+wisdom	life	quip	general	0	The chief cause of problems is solutions.
+wisdom	life	wisdom	general	0	The chief danger in life is that you may take too many precautions.
+wisdom	life	dark	general	0	The days are all empty and the nights are unreal.
+wisdom	life	quip	general	0	The door is the key.
+wisdom	life	aphorism	general	0	The farther you go, the less you know.
+wisdom	life	wisdom	general	0	The final delusion is the belief that one has lost all delusions.
+wisdom	life	dark	general	0	The first requisite for immortality is death.
+wisdom	life	wisdom	general	0	The greatest griefs are those we cause ourselves.
+wisdom	life	aphorism	general	0	The longest part of the journey is said to be the passing of the gate.
+wisdom	life	dark	general	0	The major sin is the sin of being born.
+wisdom	life	wisdom	general	0	The mark of your ignorance is the depth of your belief in injustice and tragedy. What the caterpillar calls the end of the world, the master calls a butterfly.
+wisdom	society	wisdom	general	0	The more laws and order are made prominent, the more thieves and robbers there will be.
+wisdom	faith	quip	general	0	The more you complain, the longer God lets you live.
+wisdom	nature	aphorism	general	0	The moss on the tree does not fear the talons of the hawk.
+wisdom	life	dark	general	0	The only difference between a rut and a grave is their dimensions.
+wisdom	life	quip	general	0	The optimist thinks that this is the best of all possible worlds, and the pessimist knows it.
+wisdom	life	wisdom	general	0	Yet creeds mean very little, Coth answered the dark god, still speaking almost gently. The optimist proclaims that we live in the best of all possible worlds; and the pessimist fears this is true.
+wisdom	arts	quip	general	0	The Poems, all three hundred of them, may be summed up in one of their phrases: "Let our thoughts be correct".
+wisdom	life	quip	general	0	The price of success in philosophy is triviality.
+wisdom	life	wisdom	general	0	The questions remain the same. The answers are eternally variable.
+wisdom	life	aphorism	general	0	The race is not always to the swift, nor the battle to the strong, but that's the way to bet.
+wisdom	life	wisdom	general	0	The root of all superstition is that men observe when a thing hits, but not when it misses.
+wisdom	life	dark	general	0	The savior becomes the victim.
+wisdom	life	wisdom	general	0	The soul would have no rainbow had the eyes no tears.
+wisdom	life	wisdom	general	0	The state of innocence contains the germs of all future sin.
+wisdom	life	wisdom	general	0	The true way goes over a rope which is not stretched at any great height but just above the ground. It seems more designed to make people stumble than to be walked upon.
+wisdom	life	aphorism	general	0	The truth is rarely pure, and never simple.
+wisdom	life	wisdom	general	0	The truth is what is; what should be is a dirty lie.
+wisdom	life	wisdom	general	0	The truth of a thing is the feel of it, not the think of it.
+wisdom	life	wisdom	general	0	The truth you speak has no past and no future. It is, and that's all it needs to be.
+wisdom	life	wisdom	general	0	The world is your exercise-book, the pages on which you do your sums. It is not reality, although you can express reality there if you wish. You are also free to write nonsense, or lies, or to tear the pages.
+wisdom	life	wisdom	general	0	There are no accidents whatsoever in the universe.
+wisdom	life	dark	general	0	There are no winners in life, only survivors.
+wisdom	life	wisdom	general	0	There are ten or twenty basic truths, and life is the process of discovering them over and over and over.
+wisdom	life	wisdom	general	0	There is more to life than increasing its speed.
+wisdom	faith	wisdom	general	0	There is no comfort without pain; thus we define salvation through suffering.
+wisdom	life	wisdom	general	0	There is no cure for birth and death other than to enjoy the interval.
+wisdom	life	wisdom	general	0	There is no sin but ignorance.
+wisdom	life	observation	general	0	There's only one everything.
+wisdom	life	observation	general	0	To get something clean, one has to get something dirty. To get something dirty, one does not have to get anything clean.
+wisdom	life	wisdom	general	0	To give happiness is to deserve happiness.
+wisdom	life	wisdom	general	0	To give of yourself, you must first know yourself.
+wisdom	life	dark	general	0	To have died once is enough.
+wisdom	life	wisdom	general	0	To lead people, you must follow behind.
+wisdom	life	wisdom	general	0	Truth has no special time of its own. Its hour is now -- always.
+wisdom	life	wisdom	general	0	Truth is hard to find and harder to obscure.
+wisdom	life	aphorism	general	0	Waste not fresh tears over old griefs.
+wisdom	life	wisdom	general	0	We can embody the truth, but we cannot know it.
+wisdom	life	wisdom	general	0	We have no choice but to live our lives as if we had free will. -- amigojapan ( https://thewml.github.io/amigojapan-site/Self_quotes.html )
+wisdom	life	uplifting	general	0	We have nowhere else to go... this is all we have.
+wisdom	life	wisdom	general	0	We have only two things to worry about: That things will never get back to normal, and that they already have.
+wisdom	life	quip	general	0	We have reason to be afraid. This is a terrible place.
+wisdom	life	wisdom	general	0	We rarely find anyone who can say he has lived a happy life, and who, content with his life, can retire from the world like a satisfied guest.
+wisdom	life	quip	general	0	We're all in this alone.
+wisdom	life	uplifting	general	0	We're mortal -- which is to say, we're ignorant, stupid, and sinful -- but those are only handicaps. Our pride is that nevertheless, now and then, we do our best. A few times we succeed. What more dare we ask for?
+wisdom	life	observation	general	0	Well, you know, no matter where you go, there you are.
+wisdom	life	wisdom	general	0	"Well," Brahma said, "even after ten thousand explanations, a fool is no wiser, but an intelligent man requires only two thousand five hundred."
+wisdom	life	wisdom	general	0	What does not destroy me, makes me stronger.
+wisdom	science	observation	general	0	What makes the universe so hard to comprehend is that there's nothing to compare it with.
+wisdom	life	quip	general	0	What sane person could live in this world and not be crazy?
+wisdom	love	wisdom	general	0	Whatever occurs from love is always beyond good and evil.
+wisdom	life	wisdom	general	0	Whatever you do will be insignificant, but it is very important that you do it.
+wisdom	life	uplifting	general	0	When it's dark enough you can see the stars.
+wisdom	life	quip	general	0	When the speaker and he to whom he is speaks do not understand, that is metaphysics.
+wisdom	life	wisdom	general	0	When the wind is great, bow before it; when the wind is heavy, yield to it.
+wisdom	life	dark	general	0	When you die, you lose a very important part of your life.
+wisdom	life	wisdom	general	0	Who does not trust enough will not be trusted.
+wisdom	life	wisdom	general	0	Wisdom is knowing what to do with what you know.
+wisdom	life	quip	general	0	Wisdom is rarely found on the best-seller list.
+wisdom	faith	wisdom	general	0	[Wisdom] is a tree of life to those laying hold of her, making happy each one holding her fast. -- Proverbs 3:18, NSV
+wisdom	life	aphorism	general	0	With listening comes wisdom, with speaking repentance.
+wisdom	life	wisdom	general	0	Wonder is the feeling of a philosopher, and philosophy begins in wonder. -- Socrates, quoting Plato [Huh? That's like Johnson quoting Boswell]
+wisdom	work-money	quip	general	0	Work Hard. Rock Hard. Eat Hard. Sleep Hard. Grow Big. Wear Glasses If You Need 'Em.
+wisdom	life	quip	general	0	Yes, but which self do you want to be?
+wisdom	life	uplifting	general	0	You are never given a wish without also being given the power to make it true. You may have to work for it, however.
+wisdom	life	uplifting	general	0	You can always pick up your needle and move to another groove.
+wisdom	life	quip	general	0	You can get *anywhere* in ten minutes if you drive fast enough.
+wisdom	life	observation	general	0	You can never tell which way the train went by looking at the tracks.
+wisdom	society	aphorism	general	0	You can no more win a war than you can win an earthquake.
+wisdom	life	wisdom	general	0	You can observe a lot just by watching.
+wisdom	life	aphorism	general	0	You can only live once, but if you do it right, once is enough.
+wisdom	life	aphorism	general	0	You can't get there from here.
+wisdom	life	quip	general	0	You can't mend a wristwatch while falling from an airplane.
+wisdom	life	aphorism	general	0	You can't push on a string.
+wisdom	life	quip	general	0	You can't run away forever, But there's nothing wrong with getting a good head start.
+wisdom	life	quip	general	0	"You can't survive by sucking the juice from a wet mitten."
+wisdom	life	quip	general	0	You can't take it with you -- especially when crossing a state line.
+wisdom	life	wisdom	general	0	You climb to reach the summit, but once there, discover that all roads lead down.
+wisdom	life	dark	general	0	You have all eternity to be cautious in when you're dead.
+wisdom	life	wisdom	general	0	You have to run as fast as you can just to stay where you are. If you want to get anywhere, you'll have to run much faster.
+wisdom	life	wisdom	general	0	You will always find something in the last place you look.
+wisdom	life	aphorism	general	0	Your happiness is intertwined with your outlook on life.
+wisdom	life	wisdom	general	0	Your mind understands what you have been taught; your heart, what is true.
+wisdom	life	wisdom	general	0	Your picture of the world often changes just before you get it into focus.
+wisdom	life	quip	general	0	Your wig steers the gig.
+wisdom	life	wisdom	general	0	The universe is made of stories, not of atoms.
+wisdom	life	wisdom	general	0	Freedom is what you do with what's been done to you.
+wisdom	life	wisdom	general	0	There is a secret person undamaged within every individual.
+wisdom	society	wisdom	general	0	We are governed not by armies and police but by ideas.
+wisdom	life	aphorism	general	0	The first rule of all intelligent tinkering is to keep all the parts.
+wisdom	life	wisdom	general	0	You must be the change you wish to see in the world.
+wisdom	life	wisdom	general	0	No people are all bad, just as none are all good. Tecumseh, (Shawnee) to his nephew Spemica Lawba 1790
+wisdom	society	wisdom	general	0	My reason tells me that land cannot be sold - nothing can be sold but such things as can be carried away. Black Hawk, (Saulk)
+wisdom	nature	aphorism	general	0	Sell a country! Why not sell the air, the great sea, as well as the earth? Did not the Great Spirit make them all for the use of his children? Tecumseh, (Shawnee)
+wisdom	life	uplifting	general	0	Free yourself from negative influence. Negative thoughts are the old habits that gnaw at the roots of the soul. Moses Shongo, (Seneca)
+wisdom	nature	wisdom	general	0	...everything on this earth has a purpose, every disease an herb to cure it, and every person a mission. This is the Indian theory of existence. Mourning Dove, (Salish 1888-1936)
+wisdom	life	wisdom	general	0	"Der bestirnte Himmel über mir und das moralische Gesetz in mir" that is "The starry sky above me, and the Moral Law inside me." -- The epigraph on Kant's tombstone.
+wisdom	arts	aphorism	general	0	The words fly away, the writings remain.
+wisdom	life	aphorism	general	0	I am what you will be; I was what you are.
+wisdom	society	quip	general	0	The people rule.
+wisdom	life	wisdom	general	0	Perhaps the remembrance of these things will prove a source of future pleasure.
+wisdom	life	quip	general	0	Anyone who understands everything that comes out of fortune probably has a problem
+wisdom	life	aphorism	general	0	If a million people say a foolish thing, it is still a foolish thing.
+wisdom	society	quip	general	0	"Few sins are less forgivable in polite society than offering poor people products they actively seek."
+wisdom	life	uplifting	general	0	Your time is limited, so don't waste it living someone else's life
+wisdom	life	wisdom	general	0	Time can't be measured in days the way money is measured in pesos and centavos, because all pesos are equal, while every day, perhaps every hour, is different. -- https://en.wikiquote.org/wiki/Jorge_Luis_Borges
+wisdom	society	wisdom	general	0	If you honor the noble, you become their master; if you honor the lowly, they rebel.
+wisdom	life	aphorism	general	0	If you see the lion's teeth exposed, do not think the lion is smiling at you.
+wisdom	life	wisdom	general	0	A simulacrum of reason has beaten reason.

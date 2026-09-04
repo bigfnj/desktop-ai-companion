@@ -1,0 +1,192 @@
+tv-madmen	love	tv-quote	general	0	Don: By love you mean big lightning bolts to the heart, where you can't eat and you can't work, and you just run off and get married and make babies. The reason you haven't felt it is because it doesn't exist. What you call love was invented by guys like me...to sell nylons.
+tv-madmen	life	dark	general	0	Don: You're born alone and you die alone and this world just drops a bunch of rules on top of you to make you forget those facts, but I never forget... I'm living like there's no tomorrow, 'cause there isn't one.
+tv-madmen	work-money	tv-quote	general	0	Don: Advertising is based on one thing, happiness. And you know what happiness is? Happiness is the smell of a new car. It's freedom from fear. It's a billboard on the side of the road that screams reassurance that whatever you are doing is okay. You are okay.
+tv-madmen	love	tv-quote	general	0	Don: We should get married. Midge Daniels: You think I'd make a good ex-wife?
+tv-madmen	love	tv-quote	general	0	Don: Let me ask you something, what do women want? Roger: Who cares?
+tv-madmen	life	tv-quote	general	0	Roger: Psychiatry is just this year's candy pink stove.
+tv-madmen	life	tv-quote	general	0	Roger: You know what? I am very comfortable with my mind. Thoughts clean and unclean, loving and... the opposite of that. But I am not a woman. And I think it behooves any man to toss all female troubles into the hands of a stranger.
+tv-madmen	work-money	tv-quote	general	0	Paul Kinsey: Sterling Cooper is positively Cro-Magnon. I have a friend - I'm not even going to say what agency - but all they do is smoke Mary Jane and play darts. And honestly, I think they're the best store on the street.
+tv-madmen	work-money	tv-quote	general	0	Rachel Menken: It's hard to get caught in a lie. Don: It wasn't a lie, it was ineptitude with insufficient cover.
+tv-madmen	society	tv-quote	general	0	Roger: I bet there were people in the Bible walking around, complaining about "kids today." Don: Kids today, they have no one to look up to. 'Cause they're looking up to us.
+tv-madmen	arts	tv-quote	general	0	Pete: I have ideas. Don: I'm sure you do. Sterling Cooper has more failed artists and intellectuals than the Third Reich.
+tv-madmen	love	tv-quote	general	0	Betty: I liked your girl Peggy. She's fresh. Don: As the driven snow.
+tv-madmen	love	tv-quote	general	0	Midge Daniels: [to Don on the phone as Peggy listens] I want you to pull my hair and ravish me and leave me for dead.
+tv-madmen	love	tv-quote	general	0	Joan: Roger, if you had your way, I would be stranded in some paperweight with my legs stuck in the air.
+tv-madmen	life	tv-quote	general	0	Don: Mourning is just extended self-pity.
+tv-madmen	love	tv-quote	general	0	Ken Cosgrove: [after Joan bends over in front of the one-way mirror] I wanna stand and salute that.
+tv-madmen	love	tv-quote	general	0	Roger: [to Don, about making a pass at Betty] At some point, we've all parked in the wrong garage.
+tv-madmen	faith	tv-quote	general	0	Don: [speaking to a client] Listen, I'm not here to tell you about Jesus. You already know about Jesus, either he lives in your heart or he doesn't.
+tv-madmen	life	tv-quote	general	0	Joan: Peggy, this isn't China. There's no money in virginity.
+tv-madmen	life	tv-quote	general	0	Roger: What else is there? Don: I don't know. Life being lived? I'd like to stop talking about it and get back to it.
+tv-madmen	life	tv-quote	general	0	Roger: Remember, Don...when God closes a door, he opens a dress.
+tv-madmen	work-money	tv-quote	general	0	Roger: You know what my father used to say? "Being with a client is like being in a marriage. Sometimes you get into it for the wrong reasons, and eventually they hit you in the face."
+tv-madmen	work-money	tv-quote	general	0	Don: [to Pete Campbell] The day you sign a client is the day you start losing him. [a few minutes later] Roger: The day you sign a client is the day you start losing him. Don: You don't really believe that.
+tv-madmen	society	tv-quote	general	0	Pete: The president is a product. Don't forget that.
+tv-madmen	health-body	tv-quote	general	0	Roger: [after suffering a heart attack] All these years I thought it would be the ulcer. I did everything they told me, I drank the cream, ate the butter. Then I get hit with a coronary.
+tv-madmen	life	tv-quote	general	0	Bert Cooper: [to Pete] The Japanese have a saying: a man is whatever room he is in, and right now Donald Draper is in this room.
+tv-madmen	life	tv-quote	general	0	Pete: What are you doing? Where are you going? Don: I'm going to take care of this right now. Pete: Is this some sort of thing like in the movies where I have a gun and you don't think I'm going to shoot you? I will shoot you.
+tv-madmen	work-money	tv-quote	general	0	Pete: Why can't you give me what I want? I've earned this job. I deserve it. Don: Why? Because your parents are rich? Because you went to prep school and have a $5.00 haircut? You've been given everything. You've never worked for anything in your life.
+tv-madmen	work-money	tv-quote	general	0	Joan: [to Peggy about her new job] I said congratulations, didn't I? Although, sometimes when people get what they want they realize how limited their goals were.
+tv-madmen	life	tv-quote	general	0	Doctor: So, Mr. Draper, you haven't had a physical in quite some time. Don: Yeah. I eat a lot of apples.
+tv-madmen	life	tv-quote	general	0	Sarah Beth: [about Arthur] We talk about you, and how Gertie has a crush on you. Betty: She's a sadist. I'll see you Saturday? [Betty gets into the car in her dirty riding boots.] Sarah Beth: Don't you hate getting manure in that? Betty: Little children. What's the difference?
+tv-madmen	work-money	tv-quote	general	0	Don: [on being told to hire young people] So what am I supposed to do, dangle a Pepsi out the window and see if I can hook a stroller?
+tv-madmen	work-money	tv-quote	general	0	Don: I'm gonna ask you a question that was always asked of me when I was on job interviews. Smitty: That is divine, man. Don: Have you ever been fired?
+tv-madmen	life	tv-quote	general	0	Sally Draper: [sitting in front of Joan, coloring] You've got big ones. My mommy has big ones. When I grow up, I'm gonna have big ones too.
+tv-madmen	family	tv-quote	general	0	Don: [on why he won't punish his son with violence] He's a little kid. My father beat the hell out of me, and all it did was make me fantasize about the day I could murder him. And I wasn't half as good as Bobby.
+tv-madmen	work-money	tv-quote	general	0	Bobbie Barrett: [to Peggy] This is America; pick a job and become the person who does it.
+tv-madmen	work-money	tv-quote	general	0	Peggy: [to Don] You'll have to believe me that I'll forget this. I don't want you treating me badly because I remind you of it.
+tv-madmen	work-money	tv-quote	general	0	Bobbie Barrett: [to Peggy] You're never gonna get that corner office until you start treating Don as an equal. And no one will tell you this, but you can't be a man. Don't even try. Be a woman. Powerful business when done correctly. Do you understand what I'm saying, dear?
+tv-madmen	family	tv-quote	general	0	Pete: [to his wife, regarding their fertility issues] Either you make it through this thing or you keep it to yourself.
+tv-madmen	life	tv-quote	general	0	Joan: [to Peggy] You want to be taken seriously? Stop dressing like a little girl.
+tv-madmen	life	tv-quote	general	0	Jimmy Barrett: The drunker you are, the funnier I become. ABC did research.
+tv-madmen	love	tv-quote	general	0	Peggy: A Night to Remember is every girl's dream. It holds the wholesome promise of the kind of hand holding that eventually leads to marriage.
+tv-madmen	life	tv-quote	general	0	Joan: [to Roger] One day you'll lose someone who's important to you. You'll see. It's very painful.
+tv-madmen	life	tv-quote	general	0	[Seeing people in the pool causes Pete to want to go swimming] Pete: Come on. Don: You wanna be on vacation, Pete? 'Cause I can make that happen.
+tv-madmen	life	tv-quote	general	0	Don: I have been watching my life. It's right there. I keep scratching at it, trying to get into it. I can't.
+tv-madmen	life	wisdom	general	0	Betty: There's a difference between wanting and having.
+tv-madmen	life	tv-quote	general	0	Peggy: Pete, just tell the truth, don't worry about the outcome. People respect that.
+tv-madmen	life	tv-quote	general	0	Pete: This is ridiculous. If I'm going to die, I want to die in Manhattan.
+tv-madmen	life	tv-quote	general	0	Peggy: Well, one day you're there and then all of a sudden there's less of you. And you wonder where that part went, if it's living somewhere outside of you, and you keep thinking maybe you'll get it back. And then you realize, it's just gone.
+tv-madmen	work-money	tv-quote	general	0	Peter: I just wanted to let you both know how honored I am with this promotion. Roger: Help yourself... not the Stoli.
+tv-madmen	life	tv-quote	general	0	Pete: Why does it have to be like this? Why can't I get anything good all at once?
+tv-madmen	life	tv-quote	general	0	Don: I keep going to a lot of places and ending up somewhere I've already been.
+tv-madmen	arts	tv-quote	general	0	Peggy: Let's assume we can get a girl who can match Ann-Margret's ability to be 25 and act 14. Sal Romano: Is that what she's doing?
+tv-madmen	work-money	tv-quote	general	0	Bert Cooper: I don't want to have to walk down here every time we lose an account. This is an advertising agency. I'll wear out the carpet.
+tv-madmen	life	tv-quote	general	0	Don: And let's also say that change is neither good or bad, it simply is. It can be greeted with terror or joy. A tantrum that says 'I want it the way it was,' or a dance that says 'Look, something new.'
+tv-madmen	work-money	tv-quote	general	0	Don: You're not an artist, Peggy, you solve problems. Leave some tools in your toolbox.
+tv-madmen	work-money	tv-quote	general	0	Gene Hofstadt: You think money's the answer to every problem. Don: No, just to this particular problem.
+tv-madmen	life	tv-quote	general	0	Roger: It's a mistake to be conspicuously happy. Don: No one thinks you're happy. They think you're foolish.
+tv-madmen	work-money	tv-quote	general	0	Peggy: The thing is, I have a job. I have my own office, with my name on the door. And I have a secretary - that's you. And I am not scared of any of this.
+tv-madmen	life	tv-quote	general	0	Peggy: I'm Peggy Olson and I wanna smoke some marijuana.
+tv-madmen	life	tv-quote	general	0	Paul Kinsey: [after smoking marijuana] If you were feeling it, you'd be hungry. Peggy: I am hungry. It's just not worth moving.
+tv-madmen	love	tv-quote	general	0	Pete: Well, as they used to say at the freshman mixer, when you get a yes, you go home. Horace Cook, Jr.: Only, Humps, you never got one.
+tv-madmen	love	tv-quote	general	0	Harry Crane: It doesn't make any sense. It looks right, sounds right, smells right. But something's not right. What is it? Roger: She's not Ann-Margaret.
+tv-madmen	life	wisdom	general	0	Don: Our worst fears lie in anticipation.
+tv-madmen	life	tv-quote	general	0	Peggy: I look around and I think: I want what he had. You have everything and you have so much of it. Don: I suppose that's probably true.
+tv-madmen	life	tv-quote	general	0	John Hooker: Mr. Kinsey, you might want to shave your beard. Paul Kinsey: What? Who the hell are you people? John Hooker: That was a joke.
+tv-madmen	family	tv-quote	general	0	Don: This is your brother. We don't know who he is yet, or what he's gonna be. And that is a wonderful thing.
+tv-madmen	life	tv-quote	general	0	Joan: That's life. One minute, you're on top of the world. The next, some secretary is running over your foot with a lawn motor.
+tv-madmen	work-money	tv-quote	general	0	Paul Kinsey: He might lose his foot. Roger: Right when he got it in the door.
+tv-madmen	life	tv-quote	general	0	Peggy: [to Pete] Stop barging in here and infecting me with your anxiety.
+tv-madmen	work-money	tv-quote	general	0	Don: [to Peggy] Every time I turn around, you've got a hand in my pocket... there's not one thing that you've done here that I couldn't live without.
+tv-madmen	love	tv-quote	general	0	Peggy: What do you want from me? Duck Phillips: I want to take you in that bedroom, lock the door, take your clothes off with my teeth, throw you on the bed and give you a go-around like you've never had.
+tv-madmen	life	tv-quote	general	0	Roger: I watched the sunrise today. Couldn't sleep. Don: How was it? Roger: Average.
+tv-madmen	love	tv-quote	general	0	Betty: [to her daughter] You don't kiss boys. Boys kiss you.
+tv-madmen	life	tv-quote	general	0	Ken Cosgrove: New York in August? It's like a great big melting wax museum. Nothing but those fat girls with the hairy armpits putting their feet in a fountain.
+tv-madmen	love	tv-quote	general	0	Don: Connie, this is my wife Betty. Connie Hilton: By golly, you are an indecently lucky man.
+tv-madmen	life	tv-quote	general	0	Pete: Let me speak to the manager. Saleswoman: Of the entire store? Pete: Of the republic of dresses. Whoever can help me with this because you're falling short.
+tv-madmen	work-money	tv-quote	general	0	Ken Cosgrove: Still working Campbell? There's no reason to show off... Cooper's in Montana, Sterling's in Jane and Draper's on vacation.
+tv-madmen	life	tv-quote	general	0	Betty: 'I want what I want when I want it.' And you don't care what it does to the rest of us - like someone else I know.
+tv-madmen	life	tv-quote	general	0	Connie Hilton: [to Don] What do you want from me, love? Your work is good. But when I say I want the moon, I expect the moon.
+tv-madmen	life	tv-quote	general	0	Don: Give me more ideas to reject.
+tv-madmen	life	tv-quote	general	0	Don: Now that I can finally understand you, I am less impressed with what you have to say.
+tv-madmen	life	tv-quote	general	0	Harry Crane: My mother-in-law says I look like Perry Mason. Paul Kinsey: It's not a compliment. It means she thinks you're fat.
+tv-madmen	work-money	tv-quote	general	0	Lane: So we finally have an answer to the question 'What makes Don Draper smile?' Five thousand dollars seems to be the number.
+tv-madmen	life	tv-quote	general	0	Don: People may see things differently, but they don't really want to.
+tv-madmen	love	tv-quote	general	0	Anabelle: You're married, aren't you? Roger: I am. Anabelle: Still or again? Roger: You know it's again. And don't get cute. ... Anabelle: You were the one. Roger: You weren't.
+tv-madmen	life	tv-quote	general	0	Don: I can explain. Betty: I know you can. You're a gifted storyteller.
+tv-madmen	love	tv-quote	general	0	Don: People change their names, Bets. You did. Betty: I did. I took your name.
+tv-madmen	love	tv-quote	general	0	Betty: What would you do if you were me? Would you love you? Don: I was surprised you ever loved me.
+tv-madmen	work-money	tv-quote	general	0	Pete: I found out yesterday that Head of Accounts is going to Kenny and his haircut.
+tv-madmen	society	tv-quote	general	0	Trudy Campbell: Have you been drinking? Pete: The whole country is drinking!
+tv-madmen	work-money	tv-quote	general	0	Peggy: I have to go to the printer. Paul Kinsey: I know a nooner when I hear one. Peggy: You're disgusting.
+tv-madmen	work-money	tv-quote	general	0	Lane: Mr. Hooker! I've been sacked. Please have my office and things put in storage at this address. John Hooker: What's happened? Lane: You're a sharp boy, you'll figure it out.
+tv-madmen	work-money	tv-quote	general	0	Roger: [as they leave their old offices] How long do you think it'll take us to be in a place like this again? Don: I never saw myself working in a place like this.
+tv-madmen	work-money	tv-quote	general	0	Roger: Peggy, can you get me some coffee? Peggy: No.
+tv-madmen	life	tv-quote	general	0	Roger: A wooden leg. They're so cheap they can't even afford a whole reporter.
+tv-madmen	life	tv-quote	general	0	Roger: I love how they sit there like a couple of choirboys. You know one of them's leaving New York with VD.
+tv-madmen	work-money	tv-quote	general	0	Peggy: [to Don] You know something. We are all here because of you. All we want to do is please you.
+tv-madmen	life	tv-quote	general	0	Henry Francis: [about not yet selling the house] Don, it's temporary. Don: Believe me, Henry, everyone thinks this is temporary.
+tv-madmen	life	tv-quote	general	0	Roger: [about Bethany Van Nuys] You hit it off, come Turkey Day, maybe you can stuff her.
+tv-madmen	life	tv-quote	general	0	Allison: Good time? Bad time? Don: Yes.
+tv-madmen	work-money	tv-quote	general	0	Lane: What about our other clients? Roger: We have no other clients! If Lee Garner, Jr. wants three wise men flown in from Jerusalem, he gets it.
+tv-madmen	life	tv-quote	general	0	Don: I don't hate Christmas. I hate this Christmas.
+tv-madmen	life	tv-quote	general	0	Don: How can you stand going to the hospital every day? Phoebe: I love working at the hospital. People comin' into the world, people leavin' it. Everything happens there.
+tv-madmen	life	tv-quote	general	0	Faye Miller: In a nutshell, it all comes down to what I want versus what's expected of me.
+tv-madmen	life	tv-quote	general	0	Anna Draper: I started thinking of everything I was sure was true, and how flimsy it all might be. Don: You don't have to see a UFO to know that. But it's not a great way to think about things. Anna Draper: I know everything about you and I still love you.
+tv-madmen	love	tv-quote	general	0	Don: She is very important to me. I'm going to do what I have to. Patty: You have no say in the affairs of this family. You're just a man in a room with a checkbook. I'm sorry.
+tv-madmen	life	tv-quote	general	0	Don: [holding up a bottle] Why is this empty? Allison: Because you drank it all.
+tv-madmen	work-money	tv-quote	general	0	Freddy: [about a focus group] Can you imagine? Your financial future is in the hands of a room full of 22 year old girls. Don: Not mine.
+tv-madmen	life	tv-quote	general	0	Roger: Since when is forgiveness a better quality than loyalty?
+tv-madmen	work-money	tv-quote	general	0	Peggy: Have you been yelled at by Don yet? Stan Rizzo: I'm not scared of him. Peggy: So that's a no.
+tv-madmen	work-money	tv-quote	general	0	Roger: They don't seem to give awards for what I do. Joan: And what is that? Roger: [about Don] Find guys like him.
+tv-madmen	life	tv-quote	general	0	Stan Rizzo: [to Peggy, about Don] I know you're his favorite. I bet he takes you hunting and lets you carry the carcasses in your mouth.
+tv-madmen	work-money	tv-quote	general	0	Don: It's your job. I give you money, you give me ideas. Peggy: And you never say thank you. Don: That's what the money is for! You should be thanking me every morning when you wake up, along with Jesus, for giving you another day!
+tv-madmen	life	tv-quote	general	0	Don: My Uncle Mac said he had a suitcase that was always packed. He said a man has to be ready to go at any moment. Jesus, maybe it's a metaphor.
+tv-madmen	life	tv-quote	general	0	Peggy: I mean, I know what I'm supposed to want, but it just never feels right, or as important as anything in that office.
+tv-madmen	family	tv-quote	general	0	Don: [about her pregnancy] Do you ever think about it? Peggy: I try not to, but then it comes up out of nowhere. [She pauses] Playgrounds.
+tv-madmen	life	tv-quote	general	0	Peggy: What happened? Don: Somebody very important to me died. Peggy: Who? Don: The only person in the world who really knew me. Peggy: That's not true.
+tv-madmen	work-money	tv-quote	general	0	Don: [to Peggy] You want some respect? Go out there and get it for yourself.
+tv-madmen	love	tv-quote	general	0	Roger: [to Joan] Every time I think back, all the good stuff was with you.
+tv-madmen	life	tv-quote	general	0	Joan: Poor Ida. Roger: She died like she lived, surrounded by the people she answered phones for.
+tv-madmen	work-money	tv-quote	general	0	Don: That's not a strategy, that's two strategies connected by the word and. I can do "where the pros go" or I can do "everyone's welcome," not both.
+tv-madmen	society	tv-quote	general	0	Peggy: I have to say, most of the things Negroes can't do, I can't do either...and nobody seems to care.
+tv-madmen	life	tv-quote	general	0	Don: Let yourself out, lock the door behind you...as a courtesy. Faye Miller: You want to leave me here? You sure? Don: I'm taking everything interesting with me.
+tv-madmen	life	tv-quote	general	0	Lee Garner Jr.: I'm gettin' this. Roger: Why would you do that? Lee Garner Jr.: Sometimes a fella's gotta pick up the check.
+tv-madmen	life	tv-quote	general	0	Lane: Three whiskey sours ought to do. Robert Pryce: She's asking what you want, not how many you've had.
+tv-madmen	life	tv-quote	general	0	Pete: How is it that some people just walk through life dragging their lies with them, destroying everything they touch?
+tv-madmen	life	tv-quote	general	0	Robert Pryce: Put your home in order, either here or there. You will not live in between. Lane: Yes sir.
+tv-madmen	work-money	tv-quote	general	0	Bert Cooper: [to Roger] Lee Garner Jr. never took you seriously because you never took yourself seriously.
+tv-madmen	love	tv-quote	general	0	Faye Miller: [to Don] I would never use you like that because I know the difference between what we have and this stupid office.
+tv-madmen	work-money	tv-quote	general	0	Faye Miller: [to Don] You want a shoulder to cry on, fine. You want to throw me to the wolves to save your neck, forget it.
+tv-madmen	life	tv-quote	general	0	Joan: [to Roger] I'm not the solution to your problem; I'm another problem.
+tv-madmen	life	tv-quote	general	0	Sally Draper: When I think about forever I get upset. Like the Land of Lakes butter has that Indian girl, sitting holding a box, and it has a picture of her on it, holding a box, with a picture of her on it, holding a box. Have you ever noticed that?
+tv-madmen	work-money	tv-quote	general	0	Peggy: You always say, if you don't like what they're saying about you, change the conversation. Don: To what? What they're saying about us is true.
+tv-madmen	work-money	tv-quote	general	0	Pete: [to Don] You did what was best for you because you're impatient and childish. You had a tantrum on a full page in the New York Times.
+tv-madmen	work-money	tv-quote	general	0	Roger: Well I gotta go learn a bunch of people's names before I fire them.
+tv-madmen	family	tv-quote	general	0	Don: [about teenagers] The truth is, they're mourning for their childhood more than they're anticipating their future, because they don't know it yet, but they don't want to die.
+tv-madmen	love	tv-quote	general	0	Don: You don't know anything about me. Megan: But I do. I know that you have a good heart. I know that you're always trying to be better. Don: We all try, we don't always make it. I've done a lot of things. Megan: I know who you are now.
+tv-madmen	love	tv-quote	general	0	Faye Miller: [about Megan] I hope she knows you only like the beginnings of things.
+tv-madmen	life	tv-quote	general	0	Roger: Is it just me, or is the lobby full of Negros?
+tv-madmen	love	tv-quote	general	0	Don: [to Megan] I want you at work, because I want you.
+tv-madmen	work-money	tv-quote	general	0	Pete: [about his small office] Where am I supposed to conduct business? Roger: In the crapper for all I care.
+tv-madmen	life	tv-quote	general	0	Roger: [about Megan] Why don't you sing like that? Jane Sterling: [about Don] Why don't you look like him?
+tv-madmen	family	tv-quote	general	0	Don: So when you're 40, how old will I be? Bobby: You'll be dead.
+tv-madmen	society	tv-quote	general	0	Michael Ginsberg: That's what they said about Mein Kampf...kid really has a voice.
+tv-madmen	work-money	tv-quote	general	0	Greg: The army makes me feel like a good man. Joan: You're not a good man. You never were.
+tv-madmen	love	tv-quote	general	0	Don: [to Megan] I married you, and I'm gonna be with you until I die...which could be this afternoon.
+tv-madmen	life	tv-quote	general	0	Roger: [seeing Pete and Lane ready to fight] I know cooler heads should prevail but am I the only one who wants to see this?
+tv-madmen	life	tv-quote	general	0	Peggy: Lane beat the crap out of Pete. Ken Cosgrove: I can't believe he beat me to it.
+tv-madmen	love	tv-quote	general	0	Pete: [about Megan] Brave words from a man on his second time around. Don: Yeah, and if I had met her first I would've known not to throw it away.
+tv-madmen	life	tv-quote	general	0	Megan: You should slow down. Don: I'm timing this for when we arrive. I wanna hit the doorbell with my chin.
+tv-madmen	life	tv-quote	general	0	Lane: England won the World Cup. Roger: Cup of what?
+tv-madmen	work-money	tv-quote	general	0	Don: It's none of your business. Bert Cooper: This is my business.
+tv-madmen	work-money	tv-quote	general	0	Bert Cooper: [to Don] You've been on love leave. It's amazing things are going as well as they are with as little as you are doing.
+tv-madmen	love	tv-quote	general	0	Roger: So what was wrong again? Jane Sterling: You don't like me. Roger: I did. I really did.
+tv-madmen	faith	dark	general	0	Roger: Who knows why people in history did good things? For all we know Jesus was trying to get the loaves and fishes account.
+tv-madmen	love	tv-quote	general	0	Mona Sterling: [to Roger] I thought you married Jane because I had gotten old, and then I realized it was because you had.
+tv-madmen	love	tv-quote	general	0	Megan: Don, I love you. You're everything I hoped you'd be. Don: You too.
+tv-madmen	life	tv-quote	general	0	Peggy: [about Megan] I think she's good at everything. I think she's just one of those girls.
+tv-madmen	life	tv-quote	general	0	Michael Ginsberg: [about Megan] I'll tell you what takes guts, never having money for lunch. She's owes me like $15 at this point. What am I gonna do, ask Don? Call her? I think it's clear why she left.
+tv-madmen	work-money	tv-quote	general	0	Megan: I felt better failing in that audition than I did when I was succeeding at Heinz.
+tv-madmen	work-money	tv-quote	general	0	Michael Ginsberg: I feel bad for you. Don: I don't think about you at all.
+tv-madmen	life	tv-quote	general	0	Pete: You know what Howard? Why don't you spend Thanksgiving with her? And I'll go to your house and screw your wife.
+tv-madmen	life	tv-quote	general	0	Jane Sterling: [to Roger, about their LSD trip] Stop telling me things I said that night. Like I know I didn't promise to re-marry right away just to save you alimony.
+tv-madmen	work-money	tv-quote	general	0	Michael Ginsberg: You know Don; tall guy, short temper.
+tv-madmen	life	tv-quote	general	0	Pete: You know, if I had told you last December that we'd be in the running for a car, you would've kissed me on the mouth. Don: Maybe you and I should go as a couple.
+tv-madmen	love	tv-quote	general	0	Don: You know what this woman said to me once? I like being bad, and going home and being good. Joan: I bet that stuck to your ribs. Don: It was a disaster. Joan: And you enjoyed every minute.
+tv-madmen	work-money	tv-quote	general	0	Pete: [to Joan] It turns out he wanted something we weren't prepared to give. Something very unorthodox. ... Pete: What would it take to make you a Queen? Joan: I don't think you could afford it.
+tv-madmen	life	tv-quote	general	0	Pete: [to Don] The conversation doesn't end just because you leave the room.
+tv-madmen	life	tv-quote	general	0	Peggy: [To Don, who is gloomy while the rest celebrate the Jaguar account win] You really have no idea when things are good, do you?
+tv-madmen	work-money	tv-quote	general	0	Don: Well, let's pretend I'm not responsible for every single good thing that's ever happened to you. And you tell me the number. Or make one up. And I'll beat it. Peggy: There's no number.
+tv-madmen	life	tv-quote	general	0	Glen: [to Sally] Everything you think's gonna make you happy, just turns to crap.
+tv-madmen	life	tv-quote	general	0	Roger: [to Don] I'll buy you a drink if you wipe the blood off your mouth.
+tv-madmen	life	tv-quote	general	0	Don: Why do we do this? Roger: For the sex, but it's always disappointing.
+tv-madmen	life	tv-quote	general	0	Don: [to the partners] I already said no, or should I leave so you all can do whatever you want?
+tv-madmen	life	tv-quote	general	0	Marie Calvet: Not every little girl gets to do what they want. The world cannot support that many ballerinas.
+tv-madmen	work-money	tv-quote	general	0	Mrs. Pryce: [to Don, about Lane] You had no right to fill a man like that with ambition.
+tv-madmen	love	tv-quote	general	0	Don: [to Megan] You wanna be somebody's discovery, not somebody's wife.
+tv-madmen	love	tv-quote	general	0	Beth: [at a hotel] I knew you'd show. Pete: Because I'm pathetic?
+tv-madmen	life	tv-quote	general	0	Roger: [to his psychiatrist] I'm just acknowledging that life, unlike this analysis, will eventually end, and somebody else will get the bill.
+tv-madmen	work-money	tv-quote	general	0	Don: [to Pete] I wish you would handle clients as well as you're handling me.
+tv-madmen	arts	tv-quote	general	0	Don: The greatest thing you have working for you is not the photo you take or the picture you paint; it's the imagination of the consumer. They have no budget, they have no time limit, and if you can get into that space, your ad can run all day.
+tv-madmen	life	tv-quote	general	0	Peggy: Don't do anything stupid. Abe: It's too late. I'm going to Harlem in a tuxedo.
+tv-madmen	work-money	tv-quote	general	0	Joan: [to Don] Just once, I would like to hear you use the word "we". Because we're all rooting for you from the sidelines, hoping that you'll decide what's right for our lives!
+tv-madmen	life	tv-quote	general	0	Wendy: Don, ask a question. You can just think of it. You don't have to say it out loud... [Don says nothing] Perfect.
+tv-madmen	love	tv-quote	general	0	Wendy: Does someone love me? Don: What? Wendy: That's what your question was. Don: Why would you say that? Wendy: That's everyone's question.
+tv-madmen	love	tv-quote	general	0	[Don strokes Betty's face] Betty: What are you doing? Don: Waiting for you to tell me to stop. [They kiss] Betty: What did you think when you saw me? Don: That you are as beautiful as the day I met you.
+tv-madmen	love	tv-quote	general	0	Betty: That poor girl. She doesn't know that loving you is the worst way to get to you.
+tv-madmen	life	tv-quote	general	0	Roger: We're conquistadors. I'm Vasco de Gama, you're... some other Mexican. We're going to land, buy whatever they've got for the beads in our pockets. Our biggest challenge is to not get syphilis.
+tv-madmen	life	tv-quote	general	0	Private Dinkins: Dying doesn't make you whole. You should see what you look like.
+tv-madmen	life	tv-quote	general	0	Harry: I wouldn't bother you at home, but I've got good news! Don: You finally found a hooker who'll take traveler's checks?
+tv-madmen	life	tv-quote	general	0	Minister: [to Don] What's your occupation, young man? Don: Staying out of people's business.

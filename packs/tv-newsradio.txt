@@ -1,0 +1,79 @@
+tv-newsradio	life	tv-quote	general	0	Dave: I just had no idea that the Patch could have side effects. Bill: And I had no idea you're only supposed to wear one at a time. Dave: How many were you wearing? Bill: Fifteen, sixteen. I sort of stuck them all around my waist like a belt.
+tv-newsradio	life	tv-quote	general	0	Dave: Mr. James, I didn't see you come in. Mr. James: Yeah, that's the way I like it. Like, uh, that magician guy. What's his name?... Dave: David Copperfield? Mr. James: No. Dave: Siegfried? Mr. James: No. Dave: Roy? Mr. James: That's the one.
+tv-newsradio	work-money	tv-quote	general	0	Dave: Sir, it's about the budget. Mr. James: The budget? Don't I pay someone else to think about that? Dave: That would be me. Mr. James: Well, then, why am I thinking about it? You know, you're not giving me much bang for my buck here, Dave.
+tv-newsradio	life	tv-quote	general	0	Bill: Do you have a special lady in your life? Dave: No. Bill: I'm sorry, that was presumptuous of me. Do you have a special person in your life?
+tv-newsradio	life	tv-quote	general	0	Lisa: Have you ever taken naked pictures of yourself? [Long pause] Dave: [into speakerphone] Mom, I'm going to have to call you back...
+tv-newsradio	life	tv-quote	general	0	Mr. James: You know, back in the service we used to have a saying, "You can't expect the troops to salute you if you're sleeping with the sergeant." Dave: (confused) What... what branch of the service were you in sir?
+tv-newsradio	life	tv-quote	general	0	Bill: You're not in Wisconsin, Dave. The big story isn't about a cow wandering into the town square. Dave: Bill, I worked in Milwaukee, you know. It's a city with a population of a million people. Bill: So that must have been quite a hubbub when that cow got loose!
+tv-newsradio	life	tv-quote	general	0	Catherine: If you ever broadcast my age over the air again I will beat you to death with your own microphone! Bill: [laughing] You may be 36, but you still have all the spark and sass of a 35 year old!
+tv-newsradio	work-money	tv-quote	general	0	[Bill sets up a cubicle around his desk] Dave: Have you thought about how this will make you co-workers feel? Bill: Actually, one of the great things about the cubicle is not having to think about my co-workers at all.
+tv-newsradio	life	tv-quote	general	0	[Mr. James puts a heart shaped box in the paper shredder.] Mr. James: Ahh, shreddin' a heart. If that's not a metaphor for... something, I don't know what is.
+tv-newsradio	life	tv-quote	general	0	Bill: What's interesting about radio? Dave: Well I think it's a fascinating medium. Bill: You're from Wisconsin. Artificial light is fascinating to you!
+tv-newsradio	life	tv-quote	general	0	Lisa: I know you may find this hard to believe, but not everybody spends their whole day thinking about Bill McNeal. Bill: You're a true source of comfort, Lisa.
+tv-newsradio	work-money	tv-quote	general	0	(Beth just got Mr. James a lunch date with Melanie) Mr James: How much do I pay you? Beth: Not enough. Mr. James: That WILL be corrected. Beth: Uh-huh.
+tv-newsradio	life	tv-quote	general	0	Bill: I have a problem, can we talk in your office? Dave: Sure. Bill: Thanks, and for Pete's sake, take that off, it makes you look like a 12 year old...[takes hat off] Oh, I'm sorry, I thought it was the hat.
+tv-newsradio	life	tv-quote	general	0	Dave: Well, well, well. A kingdom of fat men in mini cars. You must be very proud.
+tv-newsradio	life	tv-quote	general	0	Dave: You're telling me you don't want to go to New Hampshire because... your cats will kill you? Matthew: It's called responsibility, David. Wake up and sniff it.
+tv-newsradio	life	tv-quote	general	0	Dave: By the way, you'll be happy to hear that you're going to New Hampshire after all. Lisa: How come Matthew's not going? Dave: Well, apparently if he's away from home for more than 30 minutes, his cats start plotting against him. Lisa: And people say you're whipped.
+tv-newsradio	work-money	tv-quote	general	0	Dave: So, Theo, you want to work in broadcasting? Theo: Anything would be better than what I'm doing now. Dave: What are you doing now? Theo: I give motivational speeches for corporate events.
+tv-newsradio	love	tv-quote	general	0	Beth: Theo makes me think he's doing one thing but he's really doing something else. He's just like every other guy I've dated except he uses props.
+tv-newsradio	life	tv-quote	general	0	Bill: (Repeated Line) Dave? [Coffee table falls over]
+tv-newsradio	life	tv-quote	general	0	Catherine: This is the most childish stunt you have ever pulled. Bill: Au contraire, my dear. Gluing your pencils together was the most childish stunt I ever pulled.
+tv-newsradio	tech	tv-quote	general	0	Catherine: Joe, get this off there. Get it off there, okay? Joe: You can't take something off the Internet. Catherine: What? Joe: It's like trying to take pee out of a swimming pool. It's in there, it's in there.
+tv-newsradio	science	tv-quote	general	0	Lisa: Cards aren't a game of luck. They're a game of strategy, statistics, probability, and money management.
+tv-newsradio	life	tv-quote	general	0	Joe: Can I talk to you for a minute? Dave: It better be good and it better be fast! Lisa: I was just about to say that.
+tv-newsradio	life	tv-quote	general	0	Mr. James: I am a cipher, a cipher wrapped in an enigma, smothered in secret sauce.
+tv-newsradio	work-money	tv-quote	general	0	Mr. James: Bill seems happy with 'adequate.' Catherine: Bill thinks having a bird crap on him is a compliment from the gods!
+tv-newsradio	work-money	tv-quote	general	0	Beth: That must be so demeaning, just getting coffee for people all day... Wait a minute...
+tv-newsradio	life	tv-quote	general	0	Mr. James: I'm sorry Dave, but a budget is a budget is a budget, to paraphrase... Dave: Gertrude Stein. Mr. James: What? Dave: Yeah, "A rose is a rose is a rose" Mr. James: That's really pretty Dave but can we get back to the budget!
+tv-newsradio	work-money	tv-quote	general	0	Mr. James: If I increased the budget every time morale was low, the guys in my asbestos factory would be driving around solid gold Cadillacs by now.
+tv-newsradio	life	tv-quote	general	0	Matthew: I took third place in the costume contest last year. Dave: Really? What was your costume? Matthew: Motorcycle enthusiast. Joe: Gay biker.
+tv-newsradio	life	tv-quote	general	0	Dave: Joe, why don't you just call in a specialist? Joe: I am a specialist. Dave: At what? Joe: At everything.
+tv-newsradio	life	tv-quote	general	0	Bill: Mr. Caan! James Caan: My father's Mr. Caan. Call me Jimmy. Bill: Likewise. James Caan: I'm sorry. I thought your name was Bill. Bill: It is. Easy mistake to make.
+tv-newsradio	life	tv-quote	general	0	Bill: you know, the forces of good and evil and constantly at war for my soul. James Caan: Yeah, well, that'll happen.
+tv-newsradio	life	tv-quote	general	0	Matthew: Oh, Dave, oh my, you would have loved it... a week in a foreign place, strange people, strange customs. Dave: I know exactly what you mean, I've been to Canada. Matthew: Trust me, Japan is even more exotic. Dave: Clearly you've never been to Winnipeg.
+tv-newsradio	life	tv-quote	general	0	Beth: Doesn't he wonder how the candy got there? Mr. James: Nah, I think in Matthew's world candy elves are a common occurrence.
+tv-newsradio	life	tv-quote	general	0	Dave: Well, you've got me, alright? Yes, yes, I'm Canadian. And I'm actually 46 years old, I'm secretly married and have two children living in New Jersey and at night I patrol the streets of Gotham City in my customized Davemobile.
+tv-newsradio	life	tv-quote	general	0	Dave: Yes, I am Canadian.
+tv-newsradio	arts	tv-quote	general	0	Bill: It's not garbage. It's rap music. And I love it. The pulsating rhythms, raw bass line. This stuff speaks to me in places I didn't even know I had ears.
+tv-newsradio	work-money	tv-quote	general	0	Jimmy: And free advertising, well that's something you just can't buy.
+tv-newsradio	family	tv-quote	general	0	Bill: Another time I was cut from the high school football team. And my mother said, "Central's lost a fullback, but the McNeals have gained a daughter".
+tv-newsradio	life	tv-quote	general	0	Bill: You wouldn't know tough love if it stripped you to your jockeys and made you stand all night in the rain.
+tv-newsradio	life	tv-quote	general	0	Bill: The eyes are the windows to the skull, my friend. Dave: Soul. Bill: For those who have one, yes.
+tv-newsradio	life	tv-quote	general	0	Dave: Joe, why is that kid duct-taped to your back? Joe: Because I needed both hands free to demonstrate the many other uses of duct tape!
+tv-newsradio	life	tv-quote	general	0	Dave: Have you ever heard the expression that you can catch more flies with honey than you can with vinegar? Bill: Have you ever heard the expression, "Only a hillbilly sits around figuring out the best way to catch flies?"
+tv-newsradio	life	tv-quote	general	0	Andrew: [in a high-pitched voice] Hey, everybody! It's me...Matthew! Joe: Dude, you're not Matthew. Andrew: Okay, obviously.
+tv-newsradio	life	tv-quote	general	0	Bill: I'll tell you what I'm high on...freedom! Catherine: Bill, you're locked up in a mental institution. Bill: And I've never felt freer.
+tv-newsradio	society	tv-quote	general	0	Dave: Bill, these people are insane. Bill: Oh, really? Then why did they elect me Prime Minister of Ward 15 this morning?
+tv-newsradio	life	tv-quote	general	0	Dave: Can't you ever just be sincere and normal? Bill: In real life? No. Dave: What do you mean, in real life? Bill: On the radio I open up completely, really bare my soul. Dave: You do news, traffic, and weather. Bill: But I mean it.
+tv-newsradio	life	tv-quote	general	0	Dave: According to these numbers, when Bill's show comes on people turn off their car radios, pull over to the side of the road, abandon their vehicles and walk home rather than risk hearing another second.
+tv-newsradio	love	tv-quote	general	0	Joe: There is a very specific way you deal with a woman like that. You get down on your hands and knees and beg her to have sex with you.
+tv-newsradio	life	observation	general	0	Brent: I like to try to categorize people by the animal they could be if they tried a little harder.
+tv-newsradio	life	tv-quote	general	0	Joe: Look, man, I don't care what you say about me, but making fun of alien technology is just stupid.
+tv-newsradio	tech	tv-quote	general	0	Joe: No matter how far technology advances it's still just a bunch of wires connected to other wires. Beth: So what's wrong with it? Joe: I can't seem to find any wires.
+tv-newsradio	life	tv-quote	general	0	Joe: I'm rewiring the phones for speed-dial, so like, if you have to call 911 you don't have to push a whole lot of buttons.
+tv-newsradio	life	joke	general	0	Bill: What exactly do scissors help you be prepared for? Mike: In case I get arrested, to cut the handcuffs. Bill: Handcuffs are made of steel. Mike: So are scissors!!
+tv-newsradio	work-money	tv-quote	general	0	[on making the station more productive] Mr. James: No, Plan A was a bust. I'd like you all to meet...Plan B. Andrea: Hi, everyone. Matthew: Planbee...what an interesting name... Andrea: Call me Andrea. Matthew: Nice to meet you, Andrea Planbee.
+tv-newsradio	life	tv-quote	general	0	Mr. James: Dave, please. You don't drop a piranha in a kiddie pool and then stick around to watch the bubbles.
+tv-newsradio	arts	tv-quote	general	0	Joe: Did you commit any crimes that weren't SAT related? Lisa: I broke into a library. Beth: To vandalize it? Lisa: No, I had a big history test and the only copy of the Federalist Papers I had at home was abridged.
+tv-newsradio	work-money	tv-quote	general	0	Matthew: Dave, when am I getting my job back? 'Cuz, I am going stir crazy. Dave: You have to have patience, Matthew. I'm doing everything I can. Matthew: Well, I'm doing my part. Dave: I know. Unfortunately, that is precisely why you were fired in the first place.
+tv-newsradio	life	quip	general	0	Reporter: What did you mean when you said, "Feel my scales donkey donkey donkey donkey donkey?"
+tv-newsradio	life	quip	general	0	Bill: Is it getting chilly in here, or are you wearing an anatomically correct bra?
+tv-newsradio	life	tv-quote	general	0	Mr. James: I've got so many lawyers lined up to see me, you'd think I had tobacco leaking outta my breast implants.
+tv-newsradio	life	tv-quote	general	0	Dave: Hear me well! As of today a new Dave is born. A Dave who for lack of better words is...pure evil.
+tv-newsradio	work-money	tv-quote	general	0	Joe: Sexual harassment is no joke, sweet-cans.
+tv-newsradio	family	tv-quote	general	0	Beth: My mother always told me I had a beautiful singing voice. Bill: Well, my mother made me wear a dress 'til I was nine. They make mistakes!
+tv-newsradio	life	tv-quote	general	0	Dave: Bill, who is that man, and what the hell is he doing? Bill: Oh, Cadbury's my new manservant. Isn't that right, Cadbury? Cadbury: The master is correct. Dave: You hired a butler? Bill: I prefer the term "gentleman's gentleman".
+tv-newsradio	life	tv-quote	general	0	Joe: Dude, you can't adopt a baby. Bill: Why not? Joe: Actually I don't know why not, but there's gotta be some reason.
+tv-newsradio	life	tv-quote	general	0	Bill: Dave, there comes a time in every friendship when you have to say "I never liked you. Get lost."
+tv-newsradio	family	dark	general	0	Bill: It's like my father used to say: "When I was a child, I thought as a child and spoke as a child. And when I became a man, I took that child out back and had him shot." Dave: Bill, was your father in the Khmer Rouge? Bill: Automotive sales.
+tv-newsradio	faith	tv-quote	general	0	Mr. James: Spare me. If I believed in fairy tales I wouldn't have dropped out of kindergarten.
+tv-newsradio	life	tv-quote	general	0	Dave: No, I am not paranoid, because I can say without a trace of irony...you're all out to get me.
+tv-newsradio	life	tv-quote	general	0	Dave: I agree. I think something needs to happen to relieve Matthew of this responsibility. Joe: You want me to kill him? Dave: No, I think that if something were to happen to the car the investigation might not be that aggressive.
+tv-newsradio	life	tv-quote	general	0	Beth: But, Mr. James, what if you're fatally injured, or even killed? Mr. James: Well, then let them say this about me, "He died with his balloon on."
+tv-newsradio	life	tv-quote	general	0	Mr. James: Dave, please, I don't think now's the best time to regale you with stories of my world famous root beer jacuzzi.
+tv-newsradio	arts	tv-quote	general	0	Matthew: [singing] Ted... He's dead... And the hobbits and the gnomes, they're dancing to and fro. They have to keep the plus 2 sword from the chaotic evil thief lord. Now we're rocking, now we're really rocking!
+tv-newsradio	life	tv-quote	general	0	Dave: Bill, is your life so boring that you have to fantasize about imaginary love triangles you're not even a part of? Bill: Yes.
+tv-newsradio	life	tv-quote	general	0	Kid: Why does a radio station have a sheriff?
+tv-newsradio	life	tv-quote	general	0	Lisa: Sorry I'm late. The chambermaid couldn't get my corset laced. Matthew: Yeah, I've been there. Lisa: You don't wear a corset, Matthew. Matthew: Not anymore, I'll tell you that much.
+tv-newsradio	love	tv-quote	general	0	Dave: There are things in this life worth living for. Lisa: Like love? Dave: I was talking about coffee. By the way, do you have any? Lisa: Love? Dave: No. Coffee. Lisa: No. Dave: Well, then what's the point? [drowns himself]

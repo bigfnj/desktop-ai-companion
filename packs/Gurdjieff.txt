@@ -1,0 +1,120 @@
+Gurdjieff	life	wisdom	general	0	"A man may be born, but in order to be born he must first die, and in order to die he must first awake."
+Gurdjieff	life	wisdom	general	0	"A man will renounce any pleasures you like but he will not give up his suffering."
+Gurdjieff	love	uplifting	general	0	"As long as our ideas are the same, we will never be apart."
+Gurdjieff	life	wisdom	general	0	"By teaching others you will learn yourself."
+Gurdjieff	faith	wisdom	general	0	"Conscious faith is freedom. Emotional faith is slavery. Mechanical faith is foolishness."
+Gurdjieff	life	wisdom	general	0	"Don't judge a man by the tales of others."
+Gurdjieff	faith	wisdom	general	0	"Every ceremony or rite has a value if it is performed without alteration. A ceremony is a book in which a great deal is written. Anyone who understands can read it. One rite often contains more than a hundred books."
+Gurdjieff	life	quip	general	0	"He seldom remains the same even for half an hour."
+Gurdjieff	life	quip	general	0	"Here there are neither Russians nor English, Jews nor Christians, but only those who pursue one aim - to be able to be."
+Gurdjieff	life	wisdom	general	0	"Here we can only direct and create conditions, but not help."
+Gurdjieff	life	wisdom	general	0	"I ask you to believe nothing that you cannot verify for yourself."
+Gurdjieff	faith	quip	general	0	"If you want to lose your faith, make friends with a priest."
+Gurdjieff	life	wisdom	general	0	"In properly organized groups no faith is required; what is required is simply a little trust and even that only for a little while, for the sooner a man begins to verify all he hears the better it is for him."
+Gurdjieff	science	wisdom	general	0	"In right knowledge the study of man must proceed on parallel lines with the study of the world, and the study of the world must run parallel with the study of man."
+Gurdjieff	life	wisdom	general	0	"In speaking of evolution it is necessary to understand from the outset that no mechanical evolution is possible. The evolution of man is the evolution of his consciousness."
+Gurdjieff	life	aphorism	general	0	"It is difficult to climb the hill but very easy to slide down it."
+Gurdjieff	life	wisdom	general	0	"It is impossible to recognize a wrong way without knowing the right way. This means that it is no use troubling oneself how to recognize a wrong way. One must think of how to find the right way."
+Gurdjieff	life	wisdom	general	0	"It is the greatest mistake to think that man is always one and the same. A man is never the same for long. He is continually changing."
+Gurdjieff	life	wisdom	general	0	"Knowledge and understanding are quite different. Only understanding can lead to being, whereas knowledge is but a passing presence in it."
+Gurdjieff	life	wisdom	general	0	"Man has no permanent and unchangeable I. Every thought, every mood, every desire, every sensation, says'I'."
+Gurdjieff	faith	wisdom	general	0	"Man has the possibility of existence after death. But possibility is one thing and the realization of the possibility is quite a different thing."
+Gurdjieff	life	aphorism	general	0	"Man must use what he has, not hope for what is not."
+Gurdjieff	life	wisdom	general	0	"One of man's important mistakes, one which must be remembered, is his illusion in regard to his I."
+Gurdjieff	life	wisdom	general	0	"One of the best means for arousing the wish to work on yourself is to realize that you may die at any moment. But first you must learn how to keep it in mind."
+Gurdjieff	life	aphorism	general	0	"Only help him who is not an idler."
+Gurdjieff	nature	wisdom	general	0	"Practice love on animals first; they react better and more sensitively."
+Gurdjieff	life	wisdom	general	0	"Remember you come here having already understood the necessity of struggling with yourself - only with yourself. Therefore thank everyone who gives you the opportunity."
+Gurdjieff	life	aphorism	general	0	"Remember yourself always and everywhere."
+Gurdjieff	life	quip	general	0	"Rest comes not from the quantity but from the quality of sleep."
+Gurdjieff	life	wisdom	general	0	"Sincerity is the key which will open the door through which you will see your separate parts, and you will see something quite new. You must go on trying to be sincere. Each day you put on a mask, and you must take it off little by little."
+Gurdjieff	faith	quip	general	0	"The greatest untold story is the evolution of God."
+Gurdjieff	work-money	wisdom	general	0	"The worse the conditions of life, the more productive the work, always provided you remember the work."
+Gurdjieff	life	aphorism	general	0	"There is a cosmic law which says that every satisfaction must be paid for with a dissatisfaction."
+Gurdjieff	life	wisdom	general	0	"To know means to know all. Not to know all means not to know. In order to know all, it is only necessary to know a little. But, in order to know this little, it is first necessary to know pretty much."
+Gurdjieff	life	wisdom	general	0	"Two things in life are infinite; the stupidity of man and the mercy of God."
+Gurdjieff	faith	quip	general	0	"Wish is the most powerful thing in the world. Higher than God."
+Gurdjieff	life	wisdom	general	0	"With thorns in the inner world there will always be roses in the outer world, in law-able compensation."
+Gurdjieff	life	wisdom	general	0	"Without self knowledge, without understanding the working and functions of his machine, man cannot be free, he cannot govern himself and he will always remain a slave."
+Gurdjieff	life	aphorism	general	0	"You must know how to take when it is not givem, to steal if necessary, but not wait for somebody to come and give it to you."
+Gurdjieff	life	wisdom	general	0	"You must understand that ordinary efforts do not count; only superefforts count."
+Gurdjieff	faith	wisdom	general	0	A 'sin' is something which is not necessary.
+Gurdjieff	life	wisdom	general	0	A good man loves his father and mother. Help him only who strives not to be an idler. Love not art with your feelings. Respect all religions. Judge no one according to the tales of others.
+Gurdjieff	work-money	wisdom	general	0	All energy spent on conscious work is an investment; that spent mechanically is lost forever.
+Gurdjieff	life	quip	general	0	All who have come to me must have enema each day.
+Gurdjieff	life	wisdom	general	0	Awakening begins when a man realizes that he is going nowhere and does not know where to go.
+Gurdjieff	faith	wisdom	general	0	Awakening is possible only for those who seek it and want it, for those who are ready to struggle with themselves and work on themselves for a very long time and very persistently in order to attain it.
+Gurdjieff	life	wisdom	general	0	Begin with the possible; begin with one step.
+Gurdjieff	life	quip	general	0	Believe nothing, not even yourself.
+Gurdjieff	life	aphorism	general	0	Better to die than live in sleep.
+Gurdjieff	faith	verse	general	0	Blessed is he who hath a soul, Blessed is he who hath none, Woe and sorrow to him who hath it in conception.
+Gurdjieff	life	wisdom	general	0	Consciousness is a state in which a man knows all at once everything that he in general knows and in which he can see how little he does know and how many contradictions there are in what he knows.
+Gurdjieff	life	wisdom	general	0	Consider what others think of you, not what they say. If you are not critical by nature, it is useless for you to remain here. He who has got rid of the disease 'Tomorrow' has the possibility to attain what he is here for.
+Gurdjieff	life	wisdom	general	0	Do not be affected by externals. In themselves they are harmless; it is we who allow ourselves to be hurt by them.
+Gurdjieff	life	wisdom	general	0	Everything in the universe has a place in a scale.
+Gurdjieff	society	aphorism	general	0	External morality is different everywhere.
+Gurdjieff	faith	observation	general	0	For some people religion is useful but for others it is only a policeman.
+Gurdjieff	life	wisdom	general	0	Free will is the function of the Master within us. Our 'will' is the supremacy of one desire over another.
+Gurdjieff	faith	wisdom	general	0	He who can love can be; he who can be can do; he who can do is.
+Gurdjieff	life	wisdom	general	0	He who has gotten rid of the disease of "tomorrow" has a chance of achieving what he is here for.
+Gurdjieff	faith	wisdom	general	0	Here there are neither English nor Russians, Jews nor Christians, but only those following one aim, to be able to be.
+Gurdjieff	life	wisdom	general	0	Hope of consciousness is strength Hope of feelings is slavery Hope of body is disease.
+Gurdjieff	life	observation	general	0	Humanity is the earth's nerve-endings through which planetary vibrations are received for transmission.
+Gurdjieff	life	wisdom	general	0	If we do what we like doing, we are immediately rewarded by the pleasure of doing it. If we do what we don't like doing the reward must come later. It is a mathematical law and all life is mathematics.
+Gurdjieff	life	wisdom	general	0	If you already know what is wrong and do it, you commit a sin that is difficult to redress. The chief means of happiness in this life is the ability to consider outwardly always, inwardly never.
+Gurdjieff	life	wisdom	general	0	If you can serve a cup of tea right, you can do anything.
+Gurdjieff	life	wisdom	general	0	If you help others, you will be helped, perhaps tomorrow, perhaps in one hundred years, but you will be helped. Nature must pay off the debt. It is a mathematical law and all life is mathematics.
+Gurdjieff	faith	quip	general	0	If you meditate and the Devil comes, make the Devil meditate.
+Gurdjieff	life	wisdom	general	0	In deep sleep all communication between centres is closed. Our sleep is bad because we do not cut off lines of communication.
+Gurdjieff	life	wisdom	general	0	In order to understand the interrelation of truth and falsehood in life, a man must understand falsehood in himself, the constant incessant lies he tells himself.
+Gurdjieff	life	wisdom	general	0	In the river of life suffering is not intentional. In conscious life suffering is intentional and of great value.
+Gurdjieff	life	wisdom	general	0	It is better to be temporarily selfish than never to be just. Only conscious suffering is of value. Man is given a limited quantity of experiences; being economical with them lengthens his life.
+Gurdjieff	faith	wisdom	general	0	It is only by grounding our awareness in the living sensation of our bodies that the 'I Am,' our real presence, can awaken.
+Gurdjieff	life	wisdom	general	0	It is the greatest mistake to think that man is always one and the same. A man is never the same for long. He is continually changing. He seldom remains the same even for half an hour.
+Gurdjieff	life	wisdom	general	0	It is very difficult also to sacrifice one's suffering. A man will renounce any pleasures you like but he will not give up his suffering.
+Gurdjieff	life	wisdom	general	0	Knowledge by itself does not give understanding. Nor is understanding increased by an increase of knowledge alone. Understanding depends upon the relation of knowledge to being...It appears only when a man feels and senses what is connected with it.
+Gurdjieff	life	wisdom	general	0	Life is real only then, when "I am".
+Gurdjieff	love	wisdom	general	0	Love of consciousness evokes the same in response Love of feeling evokes the opposite Love of body depends only on type and polarity.
+Gurdjieff	life	wisdom	general	0	Man is a symbol of the laws of creation; in him there is evolution, involution, struggle, progress and retrogression, struggle between positive and negative, active and passive, yes and no, good and evil.
+Gurdjieff	life	wisdom	general	0	Men have their minds and women their feelings more highly developed. Either alone can give nothing. Think what you feel and feel what you think. Fusion of the two produces another force.
+Gurdjieff	society	wisdom	general	0	Morality is a stick with two ends; it can be turned this way and that.
+Gurdjieff	faith	aphorism	general	0	Mr. Self-love and Madame Vanity are the two chief agents of the devil.
+Gurdjieff	life	aphorism	general	0	Never think of results, just do!
+Gurdjieff	science	wisdom	general	0	No energy is ever lost in the cosmic scheme.
+Gurdjieff	life	wisdom	general	0	Nothing can be attained without suffering but at the same time one must begin by sacrificing suffering.
+Gurdjieff	life	wisdom	general	0	One of the strongest motives for the wish to work on yourself is the realization that you may die at any moment - only you must first realize this. Man is refreshed not by the quantity but by the quality of sleep - sleep little without regret.
+Gurdjieff	life	wisdom	general	0	One twentieth of all our energy goes to emotional and instinctive centres. Self-remembering is a lamp which must be kept alight by energy from these two centres. Our thinking centre is not really a centre, but an apparatus for collecting impressions.
+Gurdjieff	life	wisdom	general	0	Only he can be impartial who is able to put himself into the position of others. We can only strive to be able to be Christians. I love him who loves work. Judge others according to yourself and you will seldom be mistaken.
+Gurdjieff	life	aphorism	general	0	Only super-efforts count.
+Gurdjieff	life	aphorism	general	0	Patience is the mother of will.
+Gurdjieff	life	wisdom	general	0	Personality in man is what is "not his own" . . . what come from outside, what he has learned, or reflects, all traces of exterior impressions left in the memory.
+Gurdjieff	nature	uplifting	general	0	Practice love first on animals, they are more sensitive.
+Gurdjieff	love	wisdom	general	0	Real love is a cosmic force which goes through us. If we crystallize it, it becomes the greatest power in the world.
+Gurdjieff	faith	wisdom	general	0	Religion is doing; a man does not merely think his religion or feel it, he 'lives' his religion as much as he is able, otherwise it is not religion but fantasy or philosophy.
+Gurdjieff	life	wisdom	general	0	Sincerity is the key to self-knowledge and to be sincere with oneself brings great suffering.
+Gurdjieff	life	aphorism	general	0	Sleep is very comfortable, but waking is very bitter.
+Gurdjieff	life	wisdom	general	0	Take the understanding of the East and the knowledge of the West and then seek. Only he who can take care of the property of others can have his own.
+Gurdjieff	society	wisdom	general	0	The crowd neither wants nor seeks knowledge, and the leaders of the crowd, in their own interests, try to strengthen its fear and dislike of everything new and unknown. The slavery in which mankind lives is based upon this fear.
+Gurdjieff	life	wisdom	general	0	The degree of consciousness corresponds to the degree of density or the speed of vibrations. The denser the matter, the less conscious it is.
+Gurdjieff	life	wisdom	general	0	The evolution of man is the evolution of his consciousness, and 'consciousness' cannot evolve unconsciously. The evolution of man is the evolution of his will, and 'will' cannot evolve involuntarily.
+Gurdjieff	society	wisdom	general	0	The first reason for people's slavery is our ignorance, and above all, our ignorance of ourselves.
+Gurdjieff	life	aphorism	general	0	The highest that a man can attain is to be able to do.
+Gurdjieff	love	quip	general	0	The only type of sexual relations possible are those with someone who is as advanced and capable as oneself.
+Gurdjieff	life	wisdom	general	0	There is only one kind of magic and this is 'doing.'
+Gurdjieff	life	dark	general	0	Time began when you were born. It will end when you die.
+Gurdjieff	life	wisdom	general	0	To be just at the moment of action is a hundred times more valuable than to be just afterwards.
+Gurdjieff	life	wisdom	general	0	To bear the manifestation of others is a big thing. The last thing for a man.
+Gurdjieff	life	wisdom	general	0	To gain anything real, long practice is necessary. Try to accomplish very small things first.
+Gurdjieff	life	wisdom	general	0	To know all, it is necessary to know very little; but to know that very little, one must first know pretty much.
+Gurdjieff	love	wisdom	general	0	To love one must first forget all about love. Make it your aim and look for direction. As we are we cannot possibly love.
+Gurdjieff	life	wisdom	general	0	Until a man uncovers himself he cannot see.
+Gurdjieff	society	wisdom	general	0	We are sheep kept to provide wool for our masters who feed us and keep us as slaves of illusion. But we have a chance of escape and our masters are anxious to help us, but we like being sheep. It is comfortable.
+Gurdjieff	life	wisdom	general	0	We attract forces according to our being.
+Gurdjieff	faith	wisdom	general	0	We have good and bad angels. The good angels work by way of our voluntary, active nature and the bad through our passive nature.
+Gurdjieff	tech	wisdom	general	0	We must destroy our buffers. Children have none; therefore we must become like little children.
+Gurdjieff	life	wisdom	general	0	We never reach the limits of our strength.
+Gurdjieff	society	aphorism	general	0	What is possible for individual man is impossible for the masses.
+Gurdjieff	life	aphorism	general	0	Without struggle, no progress and no result. Every breaking of habit produces a change in the machine.
+Gurdjieff	life	wisdom	general	0	You can never awaken using the same system that put you to sleep in the first place.
+Gurdjieff	life	wisdom	general	0	You should forget about morality. Conversations about morality are simply empty talk. Your aim is inner morality.
+Gurdjieff	life	wisdom	general	0	You should understand, and establish it as a firm rule, not to pay attention to other people's opinions. You must be free of people surrounding you, and when you are free inside you will be free of them.

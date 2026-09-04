@@ -1,0 +1,148 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ShimejiConvert conversion engine. Shared by the ShimejiConvert CLI (tools/ShimejiConvert) and Pet
+       Studio (modules/PetStudio, which source-links these files), so the conversion rules live in one place.
+
+       It recompiles three production sources (AnimationXML, CompanionXmlValidator, SafeExpression) instead of
+       referencing the app (the app is a WinExe and CompanionXmlValidator is internal). That is the same trick
+       tests\DesktopAICompanion.CoreTests uses, and it is load-bearing: the converter MUST be graded by the app's
+       real validator, not by a second copy of the rules that can drift. net10.0-windows + UseWindowsForms so
+       those shared sources compile in the same environment as the app (System.Drawing / SafeHandles in
+       CompanionXmlValidator). -->
+  <Import Project="$(MSBuildThisFileDirectory)..\..\ProductVersion.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- WPF is pulled in ONLY for its Windows Imaging Component wrapper (System.Windows.Media.Imaging.
+         BitmapDecoder in WebPLoader.cs): GDI+ cannot decode the Android-Shimeji bundle's WebP sprites, and
+         WIC can, in-process, with no native/NuGet dependency. No XAML is compiled. -->
+    <UseWPF>true</UseWPF>
+    <RootNamespace>DesktopAICompanion.Tools.ShimejiConvert</RootNamespace>
+    <AssemblyName>ShimejiConvert.Engine</AssemblyName>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <LangVersion>7.3</LangVersion>
+    <Deterministic>true</Deterministic>
+    <WarningLevel>4</WarningLevel>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <OutputPath>bin\Debug\</OutputPath>
+    <IntermediateOutputPath>obj\Debug\</IntermediateOutputPath>
+    <DefineConstants>TRACE;DEBUG</DefineConstants>
+    <DebugType>full</DebugType>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <OutputPath>bin\Release\</OutputPath>
+    <IntermediateOutputPath>obj\Release\</IntermediateOutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <Optimize>true</Optimize>
+    <DebugType>pdbonly</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="AssemblyInfo.cs" />
+    <Compile Include="Engine.cs" />
+    <Compile Include="PetGraph.cs" />
+    <Compile Include="ValidatorResources.cs" />
+    <Compile Include="Shimeji\ShimejiModel.cs" />
+    <Compile Include="Shimeji\ShimejiParser.cs" />
+    <Compile Include="Shimeji\ActionClassifier.cs" />
+    <Compile Include="Shimeji\SkinLayout.cs" />
+    <Compile Include="Shimeji\SpriteSheetBuilder.cs" />
+    <Compile Include="Shimeji\WebPLoader.cs" />
+    <Compile Include="Shimeji\BundleParser.cs" />
+    <Compile Include="Shimeji\BundleConverter.cs" />
+    <Compile Include="Emit\IconBuilder.cs" />
+    <Compile Include="Emit\ResidueReport.cs" />
+    <Compile Include="Emit\PetEmitter.cs" />
+    <Compile Include="Shimeji\ClassifierSelfTest.cs" />
+    <Compile Include="Shimeji\CompositorSelfTest.cs" />
+    <Compile Include="Shimeji\EmitterSelfTest.cs" />
+    <Compile Include="Shimeji\BundledConfSelfTest.cs" />
+    <Compile Include="Shimeji\BundleSelfTest.cs" />
+    <Compile Include="Shimeji\VocabSelfTest.cs" />
+    <Compile Include="Shimeji\HubWeightSelfTest.cs" />
+    <Compile Include="Shimeji\EngineSelfTest.cs" />
+  </ItemGroup>
+
+  <!-- Production sources, recompiled. Do not edit these to suit the engine; the point is that the engine is
+       graded by exactly what the app enforces. -->
+  <ItemGroup>
+    <Compile Include="..\..\src\LocalData\AnimationXML.cs">
+      <Link>Shared\AnimationXML.cs</Link>
+    </Compile>
+    <Compile Include="..\..\src\dotNet\CompanionXmlValidator.cs">
+      <Link>Shared\CompanionXmlValidator.cs</Link>
+    </Compile>
+    <Compile Include="..\..\src\dotNet\SafeExpression.cs">
+      <Link>Shared\SafeExpression.cs</Link>
+    </Compile>
+  </ItemGroup>
+
+  <!-- CompanionXmlValidator reads the schema from Properties.Resources.animations1, a generated ResX accessor
+       that exists only in the app. Embedding the same XSD file and shimming that one accessor
+       (ValidatorResources.cs) keeps the validator source byte-identical to the app's. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\src\Resources\animations.xsd">
+      <LogicalName>ShimejiConvert.animations.xsd</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <!-- The Shimeji-EE base behaviour config (BSD-licensed, see base-conf/NOTICE.txt), bundled so a
+       sprites-only skin with no conf of its own can still convert. Only these behaviour XMLs ship; never
+       sprite art. -->
+  <ItemGroup>
+    <EmbeddedResource Include="base-conf\actions.xml">
+      <LogicalName>base-actions.xml</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="base-conf\behaviors.xml">
+      <LogicalName>base-behaviors.xml</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <!-- Bundled WebP decoder (libwebp's dwebp.exe, BSD-3, see native\NOTICE-libwebp.txt). WebPLoader shells out
+       to this because WIC drops WebP alpha on some machines. Copied to output\native\ for the CLI (and any
+       consumer that ProjectReferences the engine); a source-linking consumer must copy it itself. -->
+  <ItemGroup>
+    <None Include="native\dwebp.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="native\NOTICE-libwebp.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <!-- Source-text invariant: the SpriteFrameStore.MaximumFrames shim in ValidatorResources.cs mirrors a
+       constant in src/dotNet/Xml.cs that this project deliberately does not compile, and PetGraph's
+       ReservedEntryPointNames mirror the loader's animation-name switch. Catch drift at build time rather
+       than shipping a converter that accepts more sprite tiles, or names the wrong entry points, than the
+       app will honour. -->
+  <Target Name="AssertSpriteFrameLimit" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <_XmlCsPath>$(MSBuildThisFileDirectory)..\..\src\dotNet\Xml.cs</_XmlCsPath>
+      <_XmlCsText>$([System.IO.File]::ReadAllText('$(_XmlCsPath)'))</_XmlCsText>
+    </PropertyGroup>
+    <Error Condition="!Exists('$(_XmlCsPath)')"
+           Text="Cannot verify the SpriteFrameStore shim: $(_XmlCsPath) is missing." />
+    <Error Condition="!$(_XmlCsText.Contains('case &quot;fall&quot;: animations.AnimationFall'))"
+           Text="src/dotNet/Xml.cs no longer binds the &apos;fall&apos; animation name as a runtime entry point. PetGraph.ReservedEntryPointNames must match the loader or reachability reports go wrong." />
+    <Error Condition="!$(_XmlCsText.Contains('case &quot;drag&quot;: animations.AnimationDrag'))"
+           Text="src/dotNet/Xml.cs no longer binds the &apos;drag&apos; animation name as a runtime entry point. PetGraph.ReservedEntryPointNames must match the loader or reachability reports go wrong." />
+    <Error Condition="!$(_XmlCsText.Contains('case &quot;kill&quot;: animations.AnimationKill'))"
+           Text="src/dotNet/Xml.cs no longer binds the &apos;kill&apos; animation name as a runtime entry point. PetGraph.ReservedEntryPointNames must match the loader or reachability reports go wrong." />
+    <Error Condition="!$(_XmlCsText.Contains('case &quot;sync&quot;: animations.AnimationSync'))"
+           Text="src/dotNet/Xml.cs no longer binds the &apos;sync&apos; animation name as a runtime entry point. PetGraph.ReservedEntryPointNames must match the loader or reachability reports go wrong." />
+    <Error Condition="!$(_XmlCsText.Contains('MaximumFrames = 1024'))"
+           Text="SpriteFrameStore.MaximumFrames no longer reads 1024 in src/dotNet/Xml.cs. Update the shim in tools/ShimejiConvert.Engine/ValidatorResources.cs to match, then re-run." />
+  </Target>
+
+</Project>

@@ -1,0 +1,118 @@
+pirate	work-money	aphorism	general	0	A captain is not defined by the size of his ship, but by the strength of his crew.
+pirate	life	aphorism	general	0	A captain's word is his bond on the high seas.
+pirate	life	aphorism	general	0	A good captain is a pirate, a bad captain is a tyrant.
+pirate	life	uplifting	general	0	A good pirate loves the adventure more than the gold.
+pirate	life	aphorism	general	0	A good pirate never reveals his treasure.
+pirate	life	uplifting	general	0	A great adventure awaits in every treacherous tide.
+pirate	society	observation	general	0	A pirate is a criminal who is simultaneously a hero and a villain.
+pirate	life	quip	general	0	A pirate is a man who goes about doing evil for the sake of doing evil.
+pirate	life	fact	general	0	A pirate is a person who engages in piracy. Someone who has undertaken risks.
+pirate	life	quip	general	0	A pirate looks at 40.
+pirate	life	quip	general	0	A pirate looks at forty.
+pirate	life	aphorism	general	0	A pirate smiles in trouble, gathers strength from distress, and grows brave by reflection.
+pirate	life	quip	general	0	A pirate's life is full of risk.
+pirate	life	aphorism	general	0	A ship in harbor is safe, but that is not what ships are built for.
+pirate	life	quip	general	0	A ship is not a ship without a pirate.
+pirate	life	wisdom	general	0	A smooth sea never made a skilled sailor.
+pirate	life	aphorism	general	0	A sword is useless in the hands of a coward.
+pirate	life	uplifting	general	0	A treasure hunt without a map is an adventure worth taking.
+pirate	life	quip	general	0	Adventure awaits, let us sail!
+pirate	life	aphorism	general	0	Adventure is worthwhile in itself.
+pirate	life	aphorism	general	0	Adventure is worthwhile.
+pirate	life	wisdom	general	0	Adventure may hurt you, but monotony will kill you.
+pirate	life	quip	general	0	Arr, matey! Life's too short to sail with an anchor.
+pirate	nature	verse	general	0	Born of the sea, bound to the wind.
+pirate	life	quip	general	0	By a roaring sea we reap our rewards.
+pirate	life	quip	general	0	By the time you read this, you will be a prisoner to my words.
+pirate	life	aphorism	general	0	Dead men tell no tales.
+pirate	life	aphorism	general	0	Every man dies, but not every man truly lives.
+pirate	life	wisdom	general	0	Every pirate dreams of finding the treasure that sparkles like the stars above.
+pirate	life	aphorism	general	0	Every pirate has a treasure, but not every treasure can be found.
+pirate	life	wisdom	general	0	Every pirate knows, the journey is the true treasure.
+pirate	life	wisdom	general	0	Every ship has its own story, we are just the authors.
+pirate	life	quip	general	0	Feeling like a pirate again! I'm coming for your treasures!
+pirate	arts	quip	general	0	For the highest books to pay a pirate's dues, they would always be worth the trouble.
+pirate	life	quip	general	0	Fortune favors the bold, especially the bold pirate!
+pirate	life	uplifting	general	0	Here's to a lifetime of adventure and plundering!
+pirate	life	quip	general	0	I am a pirate, a sailor of seas, and a joker of jokes.
+pirate	life	quip	general	0	I am a pirate, and I have my code.
+pirate	nature	quip	general	0	I have the sea in my veins, I am not afraid of storms.
+pirate	life	verse	general	0	I must be a mermaid, Rower, I stir the sea, like a body in the water.
+pirate	life	quip	general	0	I never wanted to be a pirate. It just happened.
+pirate	life	aphorism	general	0	If you don't dive in, you won't find the treasure.
+pirate	life	quip	general	0	If you don't like the sea, then you don't know how to sail!
+pirate	life	dark	general	0	In the end, we all die. But the brave die standing.
+pirate	life	quip	general	0	In the game of life, it's often the pirates who score the greatest treasures.
+pirate	life	quip	general	0	It is better to be a pirate than to join the navy.
+pirate	life	aphorism	general	0	It is not the ship so much as the skillful sailing that assures the prosperity of the voyage.
+pirate	life	quip	general	0	I'd rather be a pirate than join the navy.
+pirate	work-money	quip	general	0	I'm a pirate trapped in a corporate man's body!
+pirate	life	quip	general	0	I'm a pirate. I have been known to walk the plank and swing from ropes.
+pirate	life	quip	general	0	I'm a pirate. I've got a parrot, a peg leg, and a treasure chest. What more do you want?
+pirate	life	quip	general	0	I'm not a pirate; I'm an adventurer with a license to explore.
+pirate	life	aphorism	general	0	Laughter is the best treasure in a pirate's chest.
+pirate	life	uplifting	general	0	Life is either a daring adventure or nothing at all.
+pirate	life	wisdom	general	0	Life's a storm; you will bask in the sunlight one moment, be shattered on the rocks the next. What makes you a pirate is what you do when the storm hits.
+pirate	life	aphorism	general	0	Live the life of a pirate, but keep a heart of gold.
+pirate	life	aphorism	general	0	Not all treasure is silver and gold, mate.
+pirate	life	quip	general	0	One day we'll plunder and hoist the black flag!
+pirate	life	aphorism	general	0	Only dead fish go with the flow.
+pirate	society	observation	general	0	Piracy didn't always mean robbing ships; it also meant disobeying every rule and breaking every moral code.
+pirate	society	quip	general	0	Piracy is a crime of opportunity, like an open window or an unlocked car door.
+pirate	life	quip	general	0	Piracy is not a crime; it's a way of life!
+pirate	life	wisdom	general	0	Pirates are not afraid of death; they face it every day.
+pirate	life	quip	general	0	Plunder and pillage, that's just the way of the sea.
+pirate	life	quip	general	0	Plunder wisely, matey!
+pirate	life	quip	general	0	Real pirates are always in my drink.
+pirate	life	uplifting	general	0	Sail away from the safe harbor. Catch the trade winds in your sails.
+pirate	life	quip	general	0	Sail away with me, into the night.
+pirate	life	quip	general	0	Sailing is a way of life. The other ships are our brother-in-arms.
+pirate	nature	wisdom	general	0	Sailing the open sea can be a cure for anything.
+pirate	life	uplifting	general	0	Sailing the seas with freedom in our hearts.
+pirate	life	tv-quote	general	0	The code is more what you'd call 'guidelines' than actual rules.
+pirate	life	wisdom	general	0	The greatest danger before us is not folly but the complacency of our own dreams.
+pirate	life	wisdom	general	0	The greatest pleasures are only purchased at the price of trouble.
+pirate	life	uplifting	general	0	The greatest treasures are not always found in chests.
+pirate	life	wisdom	general	0	The greatest voyages are made in stormy seas.
+pirate	life	uplifting	general	0	The heart of a pirate beats for freedom and adventure.
+pirate	life	quip	general	0	The ocean calls to what is left of my heart.
+pirate	life	uplifting	general	0	The only limits to your pirate adventures are the horizons.
+pirate	life	aphorism	general	0	The pirate code is more of a guideline than an actual rule.
+pirate	arts	aphorism	general	0	The pirate is a poet, and the sea his canvas.
+pirate	life	quip	general	0	The pirate's heart beats to the rhythm of the waves.
+pirate	life	wisdom	general	0	The pirate's way is not the easy way, but it leads to the best treasures.
+pirate	nature	aphorism	general	0	The sea is a brutal mistress.
+pirate	nature	aphorism	general	0	The sea is a cruel mistress.
+pirate	nature	quip	general	0	The sea is my mistress, and the wind is my friend.
+pirate	nature	aphorism	general	0	The sea is the only place on earth where a man can be free.
+pirate	nature	wisdom	general	0	The sea, once it casts its spell, holds one in its net of wonder forever.
+pirate	life	wisdom	general	0	The tide turns for those who dare to sail.
+pirate	life	uplifting	general	0	The wind in our sails and the sun on our backs, we are free as the waves.
+pirate	life	wisdom	general	0	The winds and the waves are always on the side of the ablest navigators.
+pirate	life	quip	general	0	The world is filled with treasure, if you dare to plunder!
+pirate	life	quip	general	0	There are no rules; we're pirates! We just kill the bad guys and take their stuff!
+pirate	life	quip	general	0	There be monsters here.
+pirate	life	quip	general	0	There is a fine line between a pirate and a privateer.
+pirate	life	quip	general	0	There is nothing more alluring than a pirate's life - freedom, adventure, and romance!
+pirate	nature	quip	general	0	There's a fine line between fishing and just standing on the shore like an idiot.
+pirate	life	quip	general	0	To a good sailor, the sea is scary, but a pirate, he craves that thrill.
+pirate	life	uplifting	general	0	To be a pirate is to be free.
+pirate	life	quip	general	0	To be a pirate requires either a love for the sea or a thirst for adventure!
+pirate	life	pun	general	0	To err is human, to Arr is pirate.
+pirate	life	aphorism	general	0	To live like a pirate, you'd need to dream like a sailor.
+pirate	life	wisdom	general	0	Treasure is not always material; sometimes it is the adventure itself.
+pirate	life	wisdom	general	0	Treasure the moment, for it may be the last time you sail these waters.
+pirate	life	uplifting	general	0	We are all here on borrowed time, so let's make it legendary!
+pirate	life	aphorism	general	0	We are sailors, not soldiers.
+pirate	life	quip	general	0	We're not trying to say we're pirates, but we aren't trying to act like we don't have a pirate mentality.
+pirate	life	aphorism	general	0	What we hope ever to do with ease, we must first learn to do with diligence.
+pirate	life	joke	general	0	What's a pirate's favorite letter? You might think it's R, but it's the C.
+pirate	society	quip	general	0	When we say 'pirate', we mean 'freedom'.
+pirate	life	wisdom	general	0	Wherever ye go, bring a little treasure with ye.
+pirate	life	observation	general	0	Wherever you find a treasure map, you will find pirates.
+pirate	life	aphorism	general	0	Wind in our sails, gold in our pockets, and adventure in our hearts.
+pirate	life	quip	general	0	Yo ho ho and a bottle of rum!
+pirate	life	verse	general	0	Yo ho, yo ho, a pirate's life for me!
+pirate	life	quip	general	0	You can take the pirate out of the sea, but you can't take the sea out of the pirate.
+pirate	life	quip	general	0	You can take the pirate out of the ship, but you can't take the ship out of the pirate.
+pirate	life	tv-quote	general	0	You will never find a more wretched hive of scum and villainy.

@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Reminder module: the pet reads a calendar feed and announces each event a few minutes before it
+       starts. Calendar SOURCES are pluggable behind ICalendarSource so the scheduler never knows where an
+       event came from; this first slice ships the Local file (JSON) source (the "corporate" path, where an
+       external process writes a normalized feed hourly). References ONLY the plugin ABI (Private=false => the
+       host's single shared DesktopAICompanion.Contracts). WinForms only for System.Windows.Forms.Timer, whose Tick
+       fires on the UI thread the host loaded us on, so Say/SayAll are called on the right thread with no
+       cross-thread marshaling. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>DesktopAICompanion.ReminderModule</RootNamespace>
+    <AssemblyName>Reminder</AssemblyName>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <Deterministic>true</Deterministic>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateDependencyFile>true</GenerateDependencyFile>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <OutputPath>..\..\build\DesktopAICompanionPortable\bin\$(Configuration)\x64\modules\reminder\</OutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DesktopAICompanion.Contracts\DesktopAICompanion.Contracts.csproj" Private="false" />
+    <!-- ModuleKit ships inside the module folder (NOT Private=false) so each load context carries its own. -->
+    <ProjectReference Include="..\..\src\DesktopAICompanion.ModuleKit\DesktopAICompanion.ModuleKit.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Ical.Net" Version="5.2.3" />
+  </ItemGroup>
+
+  <!-- Tray icons, read at Init via EmbeddedResources.LoadBytes (matches on the trailing file name). Every
+       tray entry this module contributes has its own, which is a project convention. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\agenda.png" />
+    <EmbeddedResource Include="Resources\reminder.png" />
+    <EmbeddedResource Include="Resources\meeting.png" />
+  </ItemGroup>
+
+</Project>

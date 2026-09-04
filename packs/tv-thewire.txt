@@ -1,0 +1,179 @@
+tv-thewire	arts	tv-quote	edgy	1	McNulty: All I did was answer the guy's questions, he's a fucking judge. Landsman: And the Deputy's the fucking Deputy, and he, not the judge, has what's left of your be-shitted career in his hot little hands.
+tv-thewire	life	tv-quote	edgy	1	Bunk: [to McNulty] That will teach you to give a fuck when it ain't your turn to give a fuck.
+tv-thewire	society	tv-quote	edgy	1	Kima: Fighting the war on drugs... one brutality case at a time. Carver: Girl, you can't even think of calling this shit a war. Herc: Why not? Carver: Wars end.
+tv-thewire	life	tv-quote	edgy	1	Bunk: [to dead body] You moldering motherfucker don't even think about coming back a murder. Don't even think of that shit.
+tv-thewire	life	tv-quote	general	0	Marla Daniels: You cannot lose if you do not play.
+tv-thewire	life	tv-quote	edgy	1	McNulty: This is just us talking right? Just you, me, my partner and... what did you say your name was? Bodie: I didn't say shit. McNulty: Just you, me, my partner and Mr. Shit here.
+tv-thewire	life	tv-quote	edgy	1	Rawls: McNulty! Where in fuck is he? Landsman: I - uh... he's detailed, Major, to narcotics. Rawls: I fuckin' know where he's detailed. I fuckin' already know that.
+tv-thewire	life	tv-quote	edgy	1	McNulty: [after Sydnor comes out in disguise] Where's ya' mic? Sydnor: Down at my dick man. I figured they ain't gonna go down there anyway right? Carver: I don't know Sydnor, the way you twirlin' around, it might be the first place they look.
+tv-thewire	life	tv-quote	edgy	1	Pearlman: [after having sex] You're an asshole McNulty. McNulty: What the fuck did I do?
+tv-thewire	love	tv-quote	general	0	Pearlman: Let me understand. You're married and a date is a room at the Best Western with the blinds closed. Now you're single, and a date is you coming over unannounced to learn the legal requisites for a pager intercept. McNulty: Pretty much.
+tv-thewire	life	tv-quote	general	0	Freamon: I don't wanna go to no dance unless I can rub some tit.
+tv-thewire	society	tv-quote	edgy	1	Poot: How can he know where the stash at? The Narcos don't know, but he do, 'cause some nigga snitchin'! D'Angelo: Man, ain't nobody gotta be snitchin' for Omar, or one of his boys, to creep by and see where the stash at.
+tv-thewire	society	tv-quote	general	0	Wallace: [to Bodie] How you ain't courtside for bankin' a narco?
+tv-thewire	life	tv-quote	edgy	1	Bodie: Man, Boys Village ain't shit! I'm just too bad for that off-brand, lil' boy bullshit, man. It can't hold me.
+tv-thewire	life	tv-quote	general	0	McNulty: I'm late for soccer practice. Bubbles: Suck what?
+tv-thewire	life	tv-quote	general	0	Bubbles: [to Kima] How y'all do what y'all do every day and not wanna get high?
+tv-thewire	life	tv-quote	general	0	Kima: How complex a code can it be if these knuckleheads are usin' it? Then again, what does it say about us if we can't break it?
+tv-thewire	life	tv-quote	general	0	Omar: The cheese stands alone.
+tv-thewire	life	tv-quote	general	0	Kima: You saw the murder? Omar: Yeah. Kima: You can ID this man Bird as the shooter of William Gant? And you ain't afraid to go into court downtown and testify against one of Barksdale's people? Omar: Omar don't scare.
+tv-thewire	life	tv-quote	general	0	McNulty: On this case, we're never where we need to be.
+tv-thewire	life	tv-quote	general	0	[Omar sits in the back of a police car in front of the towers] Kima: You worried about being seen? Omar: Well if anybody got a problem with me spending time with y'all, I'd be much obliged to stick my gun straight in they mouth.
+tv-thewire	life	tv-quote	edgy	1	McNulty: [to Pearlman] They're gonna do me, Ronnie. I love this fucking job, and they're gonna do me.
+tv-thewire	society	tv-quote	general	0	Burrell: [to Daniels] You're not wrong, Lieutenant. In this state, there's a thin line between campaign posters and photo arrays.
+tv-thewire	society	tv-quote	general	0	Omar: Ayo, lesson here, Bey. You come at the king, you best not miss.
+tv-thewire	life	tv-quote	general	0	McNulty: Lester, are we still cops? Freamon: Technically, I suppose so. McNulty: OK, I was just checking.
+tv-thewire	life	tv-quote	edgy	1	Herc: What the fuck was that? Carver: That was my Korean counterman. Herc: Sounded Chinese. Carver: Like you can fucking tell the difference.
+tv-thewire	life	tv-quote	edgy	1	Avon: Ayo what's up playboy? How come you wearin' that suit, B? For real its 85 fuckin' degrees out here and you try'na be like fuckin' Pat Riley Proposition Joe : Look the part, be the part, motherfucker.
+tv-thewire	life	tv-quote	general	0	Judge Phelan: McNulty, I hold you in contempt. McNulty: Who doesn't?
+tv-thewire	society	tv-quote	edgy	1	D'Angelo: If anybody asks you if in you in this game, you tell 'em you in it for life, a'ight?. You play it hard, you play it tight, and you make sure niggas know you gonn' stand by your people. No loose talk, no second thoughts and no snitching. Play it like that.
+tv-thewire	life	tv-quote	edgy	1	Bodie: [on killing Wallace] Look, the man gave the word, so we either step up or we step the fuck off. That's the game, yo.
+tv-thewire	society	tv-quote	edgy	1	Carver: [observing Bodie beat a competing dealer with a bat] See, that's why we can't win. Herc: Why not? Carver:They fuck up, they get beat. We fuck up, they give us pensions.
+tv-thewire	life	tv-quote	general	0	Omar: All in the game yo... [laughs] All in the game.
+tv-thewire	life	tv-quote	general	0	Landsman: It's all about self-preservation, Jimmy. Something you never learned.
+tv-thewire	life	tv-quote	edgy	1	McNulty: Fuck it, they chew you up, they gotta spit you back out.
+tv-thewire	life	tv-quote	edgy	1	Lester: [to "Non-English" speaking crewman] You cannot travel halfway around the world and not speak any motherfuckin' English.
+tv-thewire	love	tv-quote	general	0	Omar: Look, Dante, what's it gonna take for you to be convinced, man? I don't bed no babies. [pauses] Huh? Dante: What you think? [Omar and Dante start making out] Dante: You gonna have to do better than that. Omar: Oh, indeed.
+tv-thewire	life	tv-quote	edgy	1	Rawls: Do you even know what this detail's about Lieutenant? Daniels: Some kinda beef that Valchek has. Rawls: Two fuckin' Polacks pissin' on each other's leg.
+tv-thewire	society	tv-quote	general	0	Prison Warden: Hell, if you can't win the war on drugs in a prison, where the hell you gonna win it?
+tv-thewire	life	tv-quote	edgy	1	Stringer: Yo', Rock. Shamrock: Huh? Stringer: Be subtle with it, man. You know what subtle means? Shamrock: Laid back and shit.
+tv-thewire	society	tv-quote	general	0	Daniels: Where are the detectives who were first assigned? Valchek: Dead. To me, anyway. I shipped them humps back to Burrell as fast as I could.
+tv-thewire	love	tv-quote	general	0	Kima: [to Daniels, about joining the new detail] I'll tell your wife if you tell mine.
+tv-thewire	life	tv-quote	edgy	1	McNulty: [about Omar] He play you hard? Bubbles: I go at him respectable. He put that goddamn shotgun in my face, man. I'm looking at two goddamn tubes of the Harbor Tunnel staring right at me. [McNulty laughs] Each one about yea-big. I damn near piss my pants.
+tv-thewire	work-money	tv-quote	edgy	1	Lester: Colonel, respectfully, did you just fuck me over without giving me half a chance to clear this case? Rawls: Let's be clear, Detective Freamon. When I fuck you over, you'll know it. You'll be so goddamn certain, you won't need to ask the question.
+tv-thewire	work-money	tv-quote	edgy	1	Kima: Cool Lester Smooth... hey, what's happenin'? Lester: Same fuck-ups in the same shit detail, workin' out of the same shithouse kind of office. You people lack for personal growth, you know that?
+tv-thewire	life	tv-quote	general	0	[after the Stevedores' Union members testified in front of the Grand Jury] Bunk: How'd we do, Charlie? Charlie: I almost got one to swear that the docks are actually near the water.
+tv-thewire	life	tv-quote	general	0	Sobotka: What do you say, Johnny? What do you say to any question? Johnny Fifty: I take the Fifth Commandment.
+tv-thewire	work-money	tv-quote	general	0	Prez: What if they're not sneaking anything off this time? What then? Lester: Ah then, tragically, you will have wasted yet another day in a life you've already misspent in the service of the City of Baltimore.
+tv-thewire	life	tv-quote	edgy	1	Carver: [about Herc, modeling sunglasses] His name is Head. Dick Head.
+tv-thewire	society	tv-quote	edgy	1	Daniels: [about McNulty] You ever see how a dog gets when he smells a bone buried in the yard? Rawls: Yeah, and I seen one take a shit on my carpet, too. And don't give me that he's-got-that-fire-in-the-belly garbage, either. The answer is no.
+tv-thewire	life	tv-quote	edgy	1	Rhonda: [reading an affadavit] You all cannot spell for shit. Bunk: Well, would we be police if we could?
+tv-thewire	life	tv-quote	nsfw	1	Horseface: [to Frank, while looking at a porn mag] Let me ask you something important. You like fake tits? I can't decide. Thus far, I'm undecided on fake tits.
+tv-thewire	society	tv-quote	general	0	Stringer: [to Bodie] This here game is more than the rep you carry, the corner you hold. You gotta be fierce, I know that, but more than that, you gotta show some flex, give and take on both sides.
+tv-thewire	life	tv-quote	edgy	1	Proposition Joe: [about Brother Mouzone] You don't think I'm gonna send any of my people up against Brother? Shit, That nigga got more bodies on him than a Chinese cemetery.
+tv-thewire	society	tv-quote	edgy	1	Valchek: Now the votes are in, and you're movin' your damn golf trophies upstairs to the Commissioner's office, now you're freezin' me out, huh? Fuckin' rat-fucker's, all of ya'. This is my case, mine! And now you're gonna tell me who the target is? Well not fuckin' likely.
+tv-thewire	life	tv-quote	edgy	1	[during extended surveillance detail, Herc takes a picture of Carver] Carver: Hey, don't waste film. Herc: We've been here so fucking long that you're startin' to look good to me.
+tv-thewire	life	tv-quote	general	0	McNulty [about the two hookers in the sting operation] There were two of them. I was outnumbered.
+tv-thewire	society	tv-quote	edgy	1	Stringer: You see these east-side motherfucker's over here? I want'chu to extend to these motherfucker's all the hospitality west Baltimore is famous for. Bodie: Yeah, you want us to fuck 'em up.
+tv-thewire	life	tv-quote	edgy	1	Cheese: You mean to tell me there's a west-side nigga that know how to sell shit without stickin' a pistol in a fiends face? Bodie: Yeah dog, and you better get used it, 'cause ya'll ain't sellin shit, until we bone-ass dry!
+tv-thewire	work-money	tv-quote	general	0	Ziggy: It pays to go with the union card every time.
+tv-thewire	love	tv-quote	general	0	Spiros: [about Nick Sobotka] You don't have to worry about Nicko... The Greek: You are fond of him Spiros. You should have had a son. Spiros: But then I would have had a wife.
+tv-thewire	work-money	tv-quote	edgy	1	Sobotka: You know what the trouble is, Brucey? We used to make shit in this country, build shit. Now we just put our hand in the next guy's pocket.
+tv-thewire	life	tv-quote	edgy	1	Bunk: Boy, them Greeks and those twisted-ass names. McNulty: Man, back off the Greeks. They invented civilization. Bunk: Yeah? Ass-fucking, too.
+tv-thewire	work-money	tv-quote	general	0	Nick: Seniority sucks. La La: If you ain't a senior.
+tv-thewire	life	tv-quote	general	0	Spiros: He knows my name, but my name is not my name. And you... to them you're only "The Greek." The Greek: And, of course, I'm not even Greek.
+tv-thewire	life	tv-quote	general	0	Beadie: World keeps turning.
+tv-thewire	work-money	tv-quote	general	0	Burrell: What makes you think they'll promote the wrong man? Daniels: We do it all the time.
+tv-thewire	life	tv-quote	edgy	1	Shamrock: Yo. Chair ain't recognized your ass.
+tv-thewire	work-money	tv-quote	general	0	Prez: If that idiot worked for us, he'd be a deputy commissioner by now.
+tv-thewire	life	tv-quote	general	0	Herc: [cuing up the theme from "Shaft"] Carv. He's a complicated man, and the only one that understands him is his woman. Carver: Seek therapy.
+tv-thewire	society	tv-quote	edgy	1	Burrell: If the Gods are fucking you, you find a way to fuck them back. It's Baltimore, gentlemen; the Gods will not save you.
+tv-thewire	life	tv-quote	edgy	1	Landsman: [to Bunk] Rawls and Foerster have crawled up my backside and they're gonna stay there until you find Dozerman's gun. Now, I would like it very much if I could unclench my ample ass cheeks, if you don't mind, and rid myself of that discomfort.
+tv-thewire	life	tv-quote	edgy	1	Bunk: [types in "Peanut" in database] 89? And that's just the ones with Westside addresses. Vernon: Man, you got to narrow that shit down. Find some way to work with all them "Peanuts." Bunk: Motherfucker, do I look like George Washington Carver?
+tv-thewire	work-money	tv-quote	general	0	Lester: From the looks of things, Stringer Bell's worse than a drug dealer. Prez: He's a developer.
+tv-thewire	life	tv-quote	general	0	Bubbles: This pay how much? Kima: Let's treat it like a real job. Say $5 an hour, $30 on a day, max. Bubbles: That's less than minimum wage. McNulty: But there's no withholding, Bubs. It's tax-free.
+tv-thewire	life	tv-quote	general	0	Cutty: Game done changed. Slim Charles: Game's the same, just got more fierce.
+tv-thewire	life	tv-quote	edgy	1	McNulty: [to Stringer] I had such fuckin' hopes for us.
+tv-thewire	life	tv-quote	edgy	1	Proposition Joe: For a cold-ass crew of gangstaz, y'all carried it like Republicans and shit.
+tv-thewire	work-money	tv-quote	edgy	1	Colvin: Middle management means that you got just enough responsibility to listen when people talk, but not so much you can't tell anybody to go fuck themselves.
+tv-thewire	life	tv-quote	general	0	Avon: [to Stringer] I ain't no suit-wearin' businessman like you. You know, I'm just a gangster, I suppose. And I want my corners.
+tv-thewire	life	tv-quote	general	0	Dealer: [while being thrown in the police truck] Hey, we in America! Officer Santangelo: Nuh-uh, West Baltimore.
+tv-thewire	life	tv-quote	general	0	Butchie: Conscience do cost.
+tv-thewire	life	tv-quote	edgy	1	Herc: It's like one of those nature shows. You mess with the environment, some species get fucked out of their habitat. Carver: Did you just use the word 'habitat' in a sentence? Herc: I did.
+tv-thewire	life	tv-quote	general	0	Daniels: Detective McNulty,... when the cuffs go on Stringer you need to find a new home. You're done in this unit.
+tv-thewire	life	tv-quote	general	0	Clay: [to Stringer] Crawl, walk, and then run.
+tv-thewire	life	tv-quote	general	0	Avon: You know the difference between me and you? I bleed red and you bleed green. I look at you these days, String, you know what I see? I see a man without a country. Not hard enough for this right here and maybe, just maybe, not smart enough for them out there.
+tv-thewire	life	tv-quote	edgy	1	Runner: Yo, I just rolled for peanut butter. You got anything else? Colicchio: The fuck I look like, Chef Boyardee? Runner: Who?
+tv-thewire	society	tv-quote	general	0	Rawls: Amazing. Crime is down and no one wants to take any credit. What is wrong with this picture?
+tv-thewire	life	tv-quote	edgy	1	Avon: [to Stringer] Sunday truce been there as long as the game itself ..... I mean, you can do some shit and be like what the fuck, but hey, never on no Sunday.
+tv-thewire	life	tv-quote	nsfw	1	McNulty: We're good at this Lester. In this town, we're as good as it gets. Lester: Natural police. McNulty: Fuck yes. Natural police. ... McNulty: You know something, Lester? I do believe there aren't five swinging dicks in the entire department who can do what we do.
+tv-thewire	life	tv-quote	general	0	Proposition Joe: [to Stringer] The feeling is it ain't right for you to be at the head of our table, when you can't call off your dog. Call it a crisis of leadership.
+tv-thewire	life	tv-quote	nsfw	1	Stringer: Make this quick, I got a meet. Fatface Rick: Oh, fuck your meet! You're harder to get at than my fat wife's cunt.
+tv-thewire	society	tv-quote	edgy	1	Stringer: You know, Avon, you gotta think about what we got in this game for, man. Huh? Was it the rep? Was it so our names could ring out on some fucking ghetto streetcorner, man? Naw, man. There's games beyond the fucking game.
+tv-thewire	life	tv-quote	general	0	Stringer: We ain't gotta dream no more, man.
+tv-thewire	life	tv-quote	edgy	1	Slim Charles: [when Stringer asks him to kill Clay Davis] Shit, murder ain't no thing, but this here is some assassination shit!
+tv-thewire	life	tv-quote	general	0	Brother Mouzone: [to Avon, leading Avon to give up Stringer] What got you here is your word and your reputation. With that alone, you've still got an open line to New York. Without it, you're done.
+tv-thewire	society	tv-quote	edgy	1	Slim Charles: Don't matter who did what to who at this point. Fact is, we went to war and now there ain't no goin' back. I mean, shit, it's what war is, you know? Once you in it, you in it. If it's a lie, then we fight on that lie. But we gotta fight.
+tv-thewire	society	tv-quote	general	0	Witness: I saw only the one of them. He was black, big I thought. With a large weapon. Bunk: BNBG. Vernon: [laughing] Big Negro, Big Gun.
+tv-thewire	life	tv-quote	edgy	1	McNulty: [standing over Stringer's body, talking to Bunk] I caught him, Bunk. On the wire. I caught him. He doesn't fuckin' know it.
+tv-thewire	life	tv-quote	edgy	1	Squeak: You've got to be the stupidest motherfucker I've ever dated. Bernard: [to crony] I can't wait to go to jail.
+tv-thewire	life	tv-quote	edgy	1	Carver: Okay, so let's try this again. I say, "Have a good evening, Mr. Broadus!" Bodie: And a good evening to you, Sgt. Carver. Carver: See. Bodie: And a VERY good evening to you, Officer Collichio! Colicchio: Fuck yourself with a 40, shit-breath.
+tv-thewire	society	tv-quote	edgy	1	Bodie: [to Namond] What you need school clothes for anyway? Yo ass stay suspended. If it wasn't for social promotion, yo ass would still be in Pre-k nigga...Prolly day care out this bitch.
+tv-thewire	society	tv-quote	general	0	Carcetti: I still wake up white in a city that ain't.
+tv-thewire	life	tv-quote	general	0	Bunk: Better to be lucky than to be good.
+tv-thewire	life	tv-quote	edgy	1	Clay: You think I have time to ask a man why he giving me money? Or where he gets his money from? I'll take any motherfucker's money if he givin' it away!
+tv-thewire	work-money	tv-quote	edgy	1	Namond: Shit, I'll take any motherfucker's money if he givin' it away!
+tv-thewire	life	tv-quote	edgy	1	Namond: I love the first day, man. Everybody all friendly an' shit.
+tv-thewire	life	tv-quote	general	0	Omar: How you expect to run with the wolves come night, when you spend all day sparring wit' the puppies?
+tv-thewire	life	tv-quote	general	0	Omar: It ain't what you takin', it's who you takin' it from.
+tv-thewire	life	tv-quote	general	0	Slim Charles: Yeah, now, well, the thing about the old days: they the old days.
+tv-thewire	life	tv-quote	general	0	Cutty: [to the Deacon] You hang around and you can see me preach on some young-uns. Solemn left and sanctified right.
+tv-thewire	faith	tv-quote	edgy	1	The Deacon: A good church man is always up in everybody's shit. It's how we do.
+tv-thewire	work-money	tv-quote	general	0	Proposition Joe: Business men, such as myself, does not believe in bad blood with a man such as yourself. Disturbs the sleep. Omar: Oh, I bet it do.
+tv-thewire	life	tv-quote	general	0	Marlo: That's my money. Omar: Man, money ain't got no owners. Only spenders. ... Omar: [to Marlo] I like that ring too. [pause] Boy, you got me confused with a man who repeat himself.
+tv-thewire	life	tv-quote	edgy	1	Norman: I'm a devious motherfucker once I get goin'.
+tv-thewire	society	tv-quote	general	0	Chris: [to Michael] Yo' we always in the market for a good soldier. We see one we like, we take care of his situation. Take him in, school him, make him family. And if you with us, you with us. Just like we be with you, All the way.
+tv-thewire	life	tv-quote	general	0	Dukie: There ain't no special dead. There's just dead.
+tv-thewire	life	tv-quote	general	0	Lester: Remember when I was a cadet, I was up here on a cadaver search. Instructor gets on the radio to say "We're looking for one body in particular. If you go grabbing every one you see, we'll be here all day."
+tv-thewire	society	tv-quote	general	0	Carcetti: Did you vote for me Norman? Norman: [laughing] The sanctity of the voting booth is a cornerstone of American democracy.
+tv-thewire	society	tv-quote	general	0	Norman: A vote's a vote, and I never throw one back.
+tv-thewire	life	tv-quote	general	0	Clay: Politics is a good thing, partner. Carcetti: That's a minority opinion.
+tv-thewire	society	tv-quote	general	0	Prez: Trick them into thinking they aren't learning, and they do.
+tv-thewire	society	tv-quote	edgy	1	Norris: You know what we use the polygraph for? Leverage. To get them in here and fuck with them. Kima: No wonder this shit's inadmissible.
+tv-thewire	society	tv-quote	general	0	Omar: I've got a bounty on my head man. Five figures! If I'd known I'd be sharing quarters with all these boys - I'd probably wouldn't have robbed so many of them. Bunk: Aww, yeah, that golden rule.
+tv-thewire	society	tv-quote	general	0	Omar: A man gotta have a code.
+tv-thewire	life	tv-quote	general	0	Omar: [in a lockup room] Come on now, when have you ever known me to out my gun on someone thats not in the game? Bunk: [laughing] Omar...
+tv-thewire	life	tv-quote	edgy	1	Snoop: Let us pray. Here we lay a couple New York boys who came too far south for their own fuckin' good. Where ya fuckin' Yankee pride at now, fuckin' bitches? Let's get the fuck outta here.
+tv-thewire	society	quip	edgy	1	Norman: Did you hear that naked ass appeal to racial solidarity? I'd like to kick his pale entitled ass.
+tv-thewire	life	tv-quote	general	0	Marlo: [to Herc] But you know cameras. Kinda like pigeons in the storm. You know what I'm saying? Sometimes they come back, sometimes... but I'll keep an ear out on it.
+tv-thewire	life	tv-quote	general	0	Michael: Thought maybe I could get with Chris... I--I've got a problem I can't bring to no one else.
+tv-thewire	life	tv-quote	edgy	1	Omar: [as he is leaving prison] You my ride? Bunk: I'm your mother fucking savior is what I am.
+tv-thewire	life	tv-quote	general	0	Carver: I like to think that until the handcuffs actually fit, there's still talking to be done.
+tv-thewire	tech	tv-quote	edgy	1	Proposition Joe (To Andre) You know the problem with these here machines? They too cheap to begin with. Some people think for what it's worth to fix it, make the shit work right, you might as well dump 'em and get another.
+tv-thewire	life	tv-quote	general	0	Rawls: Mr. Mayor, about Ervin - if you don't mind me asking - why keep him as a puppet commissioner when you can just fire the guy? [Carcetti & Norman look at each other] Norman: We mind you asking.
+tv-thewire	life	tv-quote	general	0	Omar: Man gotta live what he know, right?
+tv-thewire	life	tv-quote	general	0	Namond: Bunny? Colvin: Only my friends call me Bunny. Namond: Yeah, but why? Colvin: You don't need to know. And if you tell anybody, I'll cut your balls off.
+tv-thewire	life	tv-quote	edgy	1	Snoop: [after Chris beats a man to death] Damn... you ain't even wait to get the motherfucker in the house!
+tv-thewire	life	tv-quote	edgy	1	Carver: The young man seems to think highly of you boss. He invoked your name with a measure of respect. Colvin: It wasn't but a few weeks ago when I was in a room with him being called everything but a child of God. "Mr. Colvin sir. Fuck you." Namond: Yo' at least I said mister.
+tv-thewire	society	tv-quote	edgy	1	Bodie: [about Marlo] He's a cold motherfucker. Poot: It's a cold world Bodie. Bodie: Thought you said it was getting warmer. Poot: The world goin' one way, people another yo'.
+tv-thewire	life	tv-quote	general	0	Omar: Now Joe, you been so busy being devious, you done messed around and got yourself caught up in a web.
+tv-thewire	life	tv-quote	edgy	1	Bunk: The Bunk is strictly a suit-and-tie motherfucker.
+tv-thewire	life	tv-quote	edgy	1	Daniels: Detective Freamon, you have carte blanche in picking your squad. In fact, you can pick your supervisor, for all I care. Motherfucker, as far as I'm concerned, you are the Major Crimes Unit. It's morning in Baltimore, Lester. Wake up and smell the coffee.
+tv-thewire	life	tv-quote	edgy	1	Proposition Joe: [after making a deal with Omar] Omar on the one side holding a spade. And maybe Marlo to the other holding a shovel. And just at this moment... I managed to crawl out my own damn grave. No way do I crawl back in.
+tv-thewire	life	tv-quote	general	0	Norman: A wise man does not burn his bridges until he first knows he can part the waters.
+tv-thewire	life	tv-quote	nsfw	1	Cheese: Omar had one of them commando squads with him, man. I mean, he had this one ho' pulling guns out her pussy, unc! The shit was unseemly, man.
+tv-thewire	life	tv-quote	edgy	1	Landsman: [to Lester] We do not go looking for bodies. Especially moldering fucking John Does!
+tv-thewire	society	tv-quote	edgy	1	Carver: [about Namond] His mother... [shakes head] Colvin: Lovely lady. What she say? Carver: "Put that bitch in baby booking where he belong. Let him learn something."
+tv-thewire	life	tv-quote	edgy	1	Kima: Bubs got some problems, but insincerity ain't one of them. Walon: Shame is some tricky shit, ain't it? Makes you feel like you want to change, and then beats you back down when you think you can't.
+tv-thewire	life	tv-quote	edgy	1	Bodie: Come on with it, motherfuckers! I don't give a FUCK! [shoots at Chris] I'm right here! [shoots at Snoop] You ain't puttin' me in one of those empty-ass houses neither!
+tv-thewire	society	tv-quote	general	0	Chris: [To Michael, after he kills someone for the first time] You can look him in the eye now. It don't matter who he is, or what he's done, you can look him right in the eye.
+tv-thewire	life	tv-quote	edgy	1	Bunk: He's tellin' it like a bitch. We even went to Mickey D's for him because he was so motherfuckin' helpful. Two quarterpounders. Big fries. MacDonaldland cookies. Dr. Pepper... That's how your boy roll, right?
+tv-thewire	society	aphorism	general	0	Bunk: The bigger the lie, the more they believe.
+tv-thewire	life	tv-quote	general	0	Daniels: So, one thieving politician trumps twenty-two bodies? Good to know.
+tv-thewire	work-money	tv-quote	edgy	1	McNulty: Wonder what it feels like to work in a real fuckin' police department.
+tv-thewire	society	tv-quote	edgy	1	Snoop: Back to business, I say. Chris: She ain't had any work in a few months. She's somewhat eager. Snoop: God damn, right? Too much fuckin' talkin' around here lately, man. Niggas need to shut the fuck up, for real.
+tv-thewire	life	tv-quote	edgy	1	Chris: Y'all gonna pop out and pop off. Drop who you can. O-Dog: Yo, let's go all west coast with this. Snoop: [laughing] Say what? O-Dog: Drive-by. That's how they do. Drop a motherfucker and not slow down. Like Boyz n the Hood. Shit was tight, remember?
+tv-thewire	life	tv-quote	edgy	1	Snoop: Fuck them west coast niggas. 'Cuz in B-more, we aim to hit a nigga, ya heard.
+tv-thewire	life	tv-quote	general	0	Michael: Everything so serious now.
+tv-thewire	society	tv-quote	edgy	1	Proposition Joe: [on Marlo] It ain't easy civilizin' this motherfucker.
+tv-thewire	life	tv-quote	general	0	Butchie: Ain't no other way. I can see that.
+tv-thewire	society	observation	edgy	1	Proposition Joe: Marlo is Marlo, man. He weren't the one that put me in this trick bag. The motherfucker who snuggled up and whispered in Marlo's ear did that.
+tv-thewire	life	tv-quote	general	0	The Greek: The young man makes a point. You're right. These are volatile times. It is not unreasonable to carry insurance. Who can say what tomorrow will show us?
+tv-thewire	work-money	tv-quote	edgy	1	Burrell: You might think it'll be different... when you sit here... but it won't. You will eat their shit. Daniels, too, when he gets here.
+tv-thewire	society	tv-quote	general	0	Gus: Just because they're in the street doesn't mean they lack opinions. Templeton: Where am I going to find homeless people? Gus: Not at home, I imagine.
+tv-thewire	life	tv-quote	nsfw	1	Bunk: You've lost your fucking mind, Jimmy. Look at you. Half-lit every third night, dead drunk every second. Nut deep in random pussy. What little time you are sober and limp-dicked, you're working murders that don't even exist!
+tv-thewire	life	tv-quote	edgy	1	Walon: You're disappointed. Shit, this ain't about the bug, is it? This is you trying to make the past be everything, mean everything. You don't even want to think about the here and now. Sorry, Bubs. Shame ain't worth as much as you think. Let it go.
+tv-thewire	work-money	tv-quote	edgy	1	Bunk: I'm a murder police. I work murders. I don't fuck with no make-believe. I don't jerk shit around. I catch a murder, and I work it.
+tv-thewire	life	tv-quote	general	0	Omar: Now you make sure you tell old Marlo I burned the money. 'Cause it ain't about that paper. It's about me hurtin' his people and messin' with his world. Tell that boy he ain't man enough to come down to the street with Omar. You tell him that!
+tv-thewire	life	tv-quote	edgy	1	Bunk: You called the reporter huh? McNulty: No, actually. That asshole's making up his own shit. Brass called a press conference for this afternoon. They'll be shovellin' so much money at my bullshit it'll make your head spin.
+tv-thewire	life	tv-quote	edgy	1	Marlo: [after finding out Omar jumped from a 5th floor balcony] Don't seem possible. Chris: It don't. Marlo: That's some Spiderman shit there. We missed our shot. Now he goin' be at us.
+tv-thewire	life	tv-quote	edgy	1	Rupert Bond: What the fuck just happened? Rhonda: Whatever it is, they don't teach it in law school.
+tv-thewire	life	tv-quote	general	0	Terry Hanning: A lie ain't a side of a story. It's just a lie.
+tv-thewire	life	tv-quote	general	0	McNulty: You start to tell the story, you think you're the hero, and then when you get done talking...
+tv-thewire	life	tv-quote	general	0	McNulty: You miss what you had though? Kima: I still got too much dog in me to be settled like that.
+tv-thewire	society	tv-quote	general	0	Omar: You workin' a Stanfield corner, which means you workin' for a straight up punk! Ya' feel me? I'm out here in these streets every day, me and my lonesome, and where he at? Huh? A'yo, ya'll put it in his ear, Marlo Stanfield is not a man for this town, ya' digg?
+tv-thewire	society	tv-quote	edgy	1	Rawls: Bad news gentlemen, as we're actually gonna have to catch this motherfucker. Good news is that our Mayor finally needs a police department more than he needs a school system.
+tv-thewire	life	tv-quote	nsfw	1	Landsman: [To McNulty] From everything we've given you, fire should be shootin' outta your ass. But there you sit, like a genital wart.
+tv-thewire	life	tv-quote	general	0	Bubbles: Ain't no shame in holdin' on to grief, as long as you make room for other things too.
+tv-thewire	life	quip	edgy	1	Norman: I wished I was still at the newspaper so I could write on this mess. It's too fucking good.
+tv-thewire	life	tv-quote	general	0	(final line of the series) McNulty: Let's go home.

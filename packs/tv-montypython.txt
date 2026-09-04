@@ -1,0 +1,46 @@
+tv-montypython	arts	tv-quote	general	0	Interviewer: Get your own arts programme, you fairy!
+tv-montypython	life	tv-quote	general	0	Reporter: This morning, shortly after 11:00, comedy struck this little house on Dibley Road. Sudden...violent...comedy.
+tv-montypython	society	tv-quote	general	0	Narrator: In 1945, peace broke out. It was the end of the Joke. Joke warfare was banned at a special session of the Geneva Convention, and in 1950 the last remaining copy of the joke was laid to rest here in the Berkshire countryside, never to be told again.
+tv-montypython	faith	quip	general	0	Announcer: And the results of Epilogue: God exists by two falls to a submission.
+tv-montypython	life	tv-quote	general	0	[A projector clicks to a slide showing a tree.] The Announcer: No. 1: The Larch. The Larch. The Larch.
+tv-montypython	life	tv-quote	general	0	Superman One: Oh look... is it a stockbroker? Superman Two: Is it a quantity Surveyor? Superman Three: Is it a church warden? All Supermen: NO! It's Bicycle Repair Man!
+tv-montypython	life	tv-quote	general	0	Policeman: I must warn you, sir, that outside I have police dog Josephine, who is not only armed and trained to sniff out certain substances but is also a junkie.
+tv-montypython	life	tv-quote	general	0	[to a man whose wife has been eaten alive by a blancmange] Detective Inspector: I think what's happened is terribly, terribly funny... er, tragic!
+tv-montypython	life	joke	general	0	Woman: I object to all this sex on the television. I mean, I keep falling off.
+tv-montypython	life	tv-quote	general	0	Bevis: I always preferred the outdoor life...hunting...shooting...fishing...getting out there with a gun and slaughtering a few of God's creatures.
+tv-montypython	life	tv-quote	general	0	Kenny Lust: Ken Buddha. A smile, two bangs, and a religion.
+tv-montypython	life	quip	general	0	Spanish TV Host: "Pero las llamas son peligrosas. Si usted ve una llama donde hay gente&#65279; nadando, usted gritar: ¡Cuidado! ¡Llamas!" ["Llamas are dangerous, so if you see one where people are swimming, you shout: Look out, there are Llamas!"]
+tv-montypython	life	joke	general	0	Arthur Name: Here's a joke I heard down in the pub: what's brown, and sounds like a bell? Dung!
+tv-montypython	life	tv-quote	general	0	Goatkeeper: [coughing as he carries in a goat by the leash] I had to bring the goat; he's not well. I only hope he don't go on the carpet.
+tv-montypython	life	tv-quote	general	0	[Later] Goatkeeper: The goat's done a bundle!
+tv-montypython	life	tv-quote	general	0	Chief Constable There'samanbehindyou: Allow me to introduce myself. I'm Chief Constable There'samanbehindyou. Everybody: There's a man behind you? Chief Constable There'samanbehindyou: No, you're not going to fool me with that one.
+tv-montypython	life	tv-quote	general	0	Announcer: This man, he doesn't know when he's beaten! He doesn't know when he's winning, either. He has no... sort of... sensory apparatus...
+tv-montypython	food	tv-quote	general	0	Head Waiter: This is a vegetarian restaurant - we serve no meat of any kind. We're not only proud of that, we're smug about it.
+tv-montypython	life	dark	general	0	Surgeon: Mr. Notlob, there's nothing wrong with you that an expensive operation can't prolong.
+tv-montypython	society	tv-quote	general	0	Interviewer: Minister, in your plan, "A Better Britain For Us", you promised to build 88 thousand million billion houses a year in the greater London area alone. In fact, you've built only three in the last 15 years.
+tv-montypython	life	tv-quote	general	0	Interviewer: Was there anything unusual about Dinsdale? Woman: Certainly not! He was perfectly normal in every way! Except... inasmuch as he thought he was being followed by a giant hedgehog named Spiny Norman.
+tv-montypython	life	tv-quote	general	0	Interviewer:Doug and Dinsdale Piranha were born on probation in this house Kipling Road,Suffolk the eldest sons in a family of sixteen.Their father, Arthur Piranha, a scrap metal dealer and local T.V. Quizmaster, was known by the police and a devout Catholic
+tv-montypython	life	tv-quote	general	0	Reg: Mr. Wentworth just told me to come in here and say that there was trouble at the mill, that's all - I didn't expect a kind of Spanish Inquisition! [Three men in red uniforms burst through the door] Cardinal Ximinez: Nobody expects the Spanish Inquisition!
+tv-montypython	life	tv-quote	general	0	"It's" Man: I would tax Raquel Welch. I have a feeling she'd tax me.
+tv-montypython	life	joke	general	0	Doctor: [emerging from under a Scotsman's kilt] Look, would you please go away? I'm trying to examine this man! It's all right, I'm a doctor... actually I'm a gynaecologist, but this is my lunch hour.
+tv-montypython	life	tv-quote	general	0	Psychiatrist Milkman: Mrs. Ratbag, if you don't mind me saying so, you're badly in need of an expensive course of psychiatric treatment. Now, I'm not going to say that a trip to our dairy will cure you, but it will give hundreds of lower-paid workers a good laugh.
+tv-montypython	life	joke	general	0	Padre: Sorry I'm late, head master. I've been wrestling with Plato. Head Master: What you do in your own time, padre, is written on the wall in the vestry!
+tv-montypython	nature	tv-quote	general	0	Hank Spim: I love animals, that's why I like to kill 'em.
+tv-montypython	faith	tv-quote	general	0	Fourth Bruce: Bruce, I call upon you to close our meeting with a prayer. First Bruce: Oh Lord, we beseech thee etc., etc., etc., Amen. All Bruces: Amen! First Bruce: Right. Now let's get some Sheilas.
+tv-montypython	life	tv-quote	general	0	. . . TV Announcer: It's just gone eight o'clock and time for the penguin on top of your television set to explode. [The penguin explodes] Pepperpot 1: How did he know that was going to happen? TV Announcer: It was an inspired guess. And now...
+tv-montypython	life	tv-quote	general	0	Fourth City Gent: Well, I've been in the city for 30 years and I've never once regretted being a nasty, greedy, cold-hearted, avaricious money-grubber... er, Conservative!
+tv-montypython	life	tv-quote	general	0	Reverend Gumby: I believe in peace, and bashing two bricks together!
+tv-montypython	faith	tv-quote	general	0	Silly Reverend: We at the Church of the Divine Loony believe in the power of prayer to turn the face purple!
+tv-montypython	life	tv-quote	general	0	Narrator: In 1970 the British Empire lay in ruins, foreign nationals frequented the streets, many of them Hungarians (not the streets - the foreign nationals). Anyway, many of these Hungarians went into tobacconists shops to buy cigarettes...
+tv-montypython	life	quip	general	0	Hungarian: My hovercraft is full of eels.
+tv-montypython	arts	quip	general	0	Host: Tschaikowsky: Was he the tortured soul who poured out his immortal longings into dignified passages of stately music, or was he just an old poof who wrote tunes?
+tv-montypython	life	tv-quote	general	0	Banging is heard at the door Mr Kelly: Are you going to be in there all night? Newsreader:It's just a bulletin, Mr Kelly... and now back to the Story. Mr Kelly: Commence! Newsreader: All right!
+tv-montypython	food	joke	general	0	Woman: Well there's rat cake ... rat sorbet... rat pudding... or strawberry tart. Man: Strawberry tart?! Woman: Well it's got some rat in it. Man: How much? Woman: Three, rather a lot really. Man: ... well, I'll have a slice without so much rat in it.
+tv-montypython	food	tv-quote	general	0	Various characters: Lemon curry?!
+tv-montypython	life	tv-quote	general	0	Announcer #2: The BBC would like to deny the last apology. It is very happy at home, and BBC2 is bound to go through this phase, so from all of us here, good night, sleep well, and have an absolutely super day tomorrow, kiss kiss.
+tv-montypython	life	tv-quote	general	0	Mr. Pither: You are Rear Admiral Sir Dudley Compton? Chinaman: No. He die. He have heart attack and fell out of window onto exploding bomb, and was killed in shooting accident.
+tv-montypython	life	tv-quote	general	0	Chinaman: [toasting] Buttocks up!
+tv-montypython	society	quip	general	0	Communist: Oh, my lack of God! It's Trotsky!
+tv-montypython	life	tv-quote	general	0	Roger Last: Good evening. Tonight on 'Is There' we examine the question, 'Is there a life after death?' And here to discuss it are three dead people.
+tv-montypython	science	quip	general	0	Scientist: If we increase the size of the penguin until it is the same height as the man and then compare the relative brain size, we now find that the penguin's brain is still smaller. But, and this is the point, it is larger than it was!
+tv-montypython	life	tv-quote	general	0	Mr Neutron: I want you to be my helpmate. As Tarzan had his Jane, as Napoleon had his Josephine, as Frankie Laine had whoever he had. I want you to help me in my plan to dominate the world! Mrs Scum: Oh, Mr N! That I should be so lucky! Mr Neutron: You're not Jewish, are you?

@@ -1,0 +1,373 @@
+hackers	tech	wisdom	general	0	"Engelbart did not think of the computer as merely improving human thinking, but as transforming the processes of our institutions in a more profound way..." ~ Janet H. Murray, "Inventing the Medium"
+hackers	tech	quip	general	0	"Engelbart has forever changed the way we do business in America." ~ Coors American Ingenuity Award, 1991
+hackers	tech	wisdom	general	0	"Engelbart's vision was [to] multiply the power of people and collaborators by creating systems that augment our intellect, humanity and creativity. His goal was to raise the human potential." ~ Samim Winiger & Roelof Pieters
+hackers	tech	wisdom	general	0	"How do you harness the collective intelligence of the world to solve urgent global problems? That's what Doug [Engelbart] was about." ~ Adam Cheyer
+hackers	tech	wisdom	general	0	"Human beings face ever more complex and urgent problems, and their effectiveness in dealing with these problems is a matter that is critical to the stability and continued progress of society." ~ Doug Engelbart, 1961
+hackers	tech	quip	general	0	"I don't know what Silicon Valley will do when it runs out of Doug [Engelbart]'s ideas." ~ Alan Kay
+hackers	tech	wisdom	general	0	"If ease of use was the only requirement, everybody would still be riding tricycles" ~ Doug Engelbart
+hackers	tech	aphorism	general	0	"In 20 or 30 years, you'll be able to hold in your hand as much computing knowledge as exists now in the whole city, or even the whole world." ~ Doug Engelbart
+hackers	society	wisdom	general	0	"Never doubt that a small group of thoughtful, committed people can change the world. Indeed, it is the only thing that ever has." ~ Margaret Mead (see Source)
+hackers	life	wisdom	general	0	"One never notices what has been done; one can only see what remains to be done." ~ Marie Curie
+hackers	life	wisdom	general	0	"Our age of anxiety is the result of trying to do today's jobs with yesterday's tools" ~ Marshall McLuhan
+hackers	tech	wisdom	general	0	"Payoff will come when we make better use of computers to bring communities of people together and to augment the very human skills that people bring to bear on difficult problems." ~ Doug Engelbart
+hackers	society	wisdom	general	0	"Perhaps the most basic challenge humanity faces is to awaken our capacity for collective knowing and conscious action so that we can respond successfully to the immense social and ecological difficulties that now confront us." ~ Duane Elgin, Author, Educator, Consultant
+hackers	tech	wisdom	general	0	"Technology should not aim to replace humans, rather amplify human capabilities." ~ Doug Engelbart
+hackers	science	quip	general	0	"The astronomer's rule of thumb: if you didn't write it down, it didn't happen" ~ Clifford Stoll
+hackers	tech	wisdom	general	0	"The complexity of the problems facing mankind is growing faster than our ability to solve them" ~ Doug Engelbart
+hackers	tech	wisdom	general	0	"The digital revolution is far more significant than the invention of writing or even of printing." ~ Doug Engelbart
+hackers	science	wisdom	general	0	"The great obstacle to discovering the shape of the earth, the continents and the ocean was not ignorance but the illusion of knowledge.." ~ Daniel J. Boorstin
+hackers	society	wisdom	general	0	"The key thing about all the world's big problems is that they have to be dealt with collectively. If we don't get collectively smarter, we're doomed." ~ Doug Engelbart, 2006
+hackers	tech	fact	general	0	"The mouse was just a tiny piece of a much larger project, aimed at augmenting human intellect." ~ Doug Engelbart, inventor of the mouse
+hackers	life	wisdom	general	0	"The rate at which a person can mature is directly proportional to the embarrassment he can tolerate" ~ Doug Engelbart
+hackers	work-money	wisdom	general	0	"There's a double pressure on the evolution of every organization: how you evolve to be more capable and effective, and efficient, but also how you stay in synch with the rest of the environment." ~ Doug Engelbart
+hackers	tech	uplifting	general	0	"To improve our collective ability to solve the world's problems, we must harness the immense promise and power of technology." ~ Doug Engelbart
+hackers	life	uplifting	general	0	"To remain indifferent to the challenges we face is indefensible. If the goal is noble, whether or not it is realized within our lifetime is largely irrelevant. What we must do therefore is to strive and persevere and never give up." ~ Dalai Lama XIV
+hackers	life	wisdom	general	0	"We cannot solve our problems with the same thinking we used when we created them." ~ Albert Einstein
+hackers	society	wisdom	general	0	"We need to train people in an entirely new set of 21st Century skills, which are in fact the oldest skills: communication, collaboration, empathy, respect and how to overcome cultural boundaries." ~ Toomas Hendrick Ilves, the fourth President of Estonia
+hackers	work-money	quip	general	0	"Work he did 25 years ago is still at the cutting edge . . . and his organizational ideas are at least as profound." ~ Alan Kay
+hackers	science	observation	general	0	(Refering to his conclusion to the Barber paradox or Russell's paradox.) Probably I am very naive, but I also think I prefer to remain so, at least for the time being and perhaps for the rest of my life. ~ Edsger W. Dijkstra
+hackers	tech	quip	general	0	A common fallacy is to assume authors of incomprehensible code will be able to express themselves clearly in comments.
+hackers	society	quip	general	0	A commune is where people join together to share their lack of wealth. ~ Richard Stallman
+hackers	tech	wisdom	general	0	A computer shall not harm your work or, through inaction, allow your work to come to harm. ~ Jef Raskin
+hackers	tech	wisdom	general	0	A computer shall not waste your time or require you to do more work than is strictly necessary. ~ Jef Raskin
+hackers	tech	wisdom	general	0	A convincing demonstration of correctness being impossible as long as the mechanism is regarded as a black box, our only hope lies in not regarding the mechanism as a black box. ~ Edsger W. Dijkstra
+hackers	tech	aphorism	general	0	A list is only as strong as its weakest link. ~ Donald Knuth
+hackers	tech	fact	general	0	A new release of Plan 9 happened in June, and at about the same time a new release of the Inferno system, which began here, was announced by Vita Nuova. ~ Dennis Ritchie
+hackers	tech	wisdom	general	0	A picture may be worth a thousand words, a formula is worth a thousand pictures. ~ Edsger W. Dijkstra
+hackers	tech	wisdom	general	0	A well installed microcode bug will be almost impossible to detect. ~ Ken Thompson
+hackers	tech	quip	general	0	APL is a mistake, carried through to perfection. It is the language of the future for the programming techniques of the past: it creates a new generation of coding bums. ~ Edsger W. Dijkstra
+hackers	tech	wisdom	general	0	About the use of language: it is impossible to sharpen a pencil with a blunt axe. It is equally vain to try to do it with ten blunt axes instead. ~ Edsger W. Dijkstra
+hackers	society	wisdom	general	0	Accusations against innocent people happen with terrible regularity, and the danger of false convictions is immense. ~ Richard Stallman
+hackers	tech	quip	general	0	After all, C++ isn't a perfect match for Java's design aims either. ~ Bjarne Stroustrup
+hackers	society	wisdom	general	0	All governments should be pressured to correct their abuses of human rights. ~ Richard Stallman
+hackers	work-money	wisdom	general	0	All the companies I've worked for have this deep problem of devolving to something like the hunting and gathering cultures of 100,000 years ago. If businesses could find a way to invent 'agriculture,' we could put the world back together and all would prosper. ~ Alan Kay
+hackers	society	wisdom	general	0	Also, because schools must teach the spirit of goodwill, the habit of helping others around you, every class should have this rule: students, if you bring software to class you may not keep it for yourself. ~ Richard Stallman
+hackers	tech	quip	general	0	An algorithm must be seen to be believed. ~ Donald Knuth
+hackers	tech	wisdom	general	0	An interface is humane if it is responsive to human needs and considerate of human frailties. ~ Jef Raskin
+hackers	tech	wisdom	general	0	Android is a major step towards an ethical, user-controlled, free-software portable phone, but there is a long way to go. ~ Richard Stallman
+hackers	tech	quip	general	0	Android is very different from the GNU/Linux operating system because it contains very little of GNU. Indeed, just about the only component in common between Android and GNU/Linux is Linux, the kernel. ~ Richard Stallman
+hackers	tech	quip	general	0	Any editing, software work, and mail is done in this exported Plan 9. ~ Dennis Ritchie
+hackers	tech	wisdom	general	0	Any fool can write code that a computer can understand. Good programmers write code that humans can understand. ~ Martin Fowler
+hackers	life	wisdom	general	0	Anything that prevents you from being friendly, a good neighbour, is a terror tactic. ~ Richard Stallman
+hackers	tech	quip	general	0	Anytime you want to hear about graph partitioning, I will be glad to tell you what I know about graph partitioning. It remains a standard problem. I think it's an interesting problem, because it shows up in a variety of guises in real life. ~ Brian Kernighan
+hackers	tech	fact	general	0	Around 1967 Dan Bobrow wrote a program to do algebra problems based on symbols rather than numbers. ~ Marvin Minsky
+hackers	tech	observation	general	0	As a result of a long sequence of coincidences I entered the programming profession officially on the first spring morning of 1952, and as far as I have been able to trace, I was the first Dutchman to do so in my country. ~ Edsger W. Dijkstra
+hackers	tech	observation	general	0	As far as Apple goes, it was a different company every few years from the time I joined in 1984. ~ Alan Kay
+hackers	tech	aphorism	general	0	As far as the customer is concerned, the interface is the product. ~ Jef Raskin
+hackers	tech	wisdom	general	0	At least for the people who send me mail about a new language that they're designing, the general advice is: do it to learn about how to write a compiler. ~ Dennis Ritchie
+hackers	tech	quip	general	0	At the same time, much of it seems to have to do with recreating things we or others had already done; it seems rather derivative intellectually; is there a dearth of really new ideas? ~ Dennis Ritchie
+hackers	tech	wisdom	general	0	Bad programmers worry about the code. Good programmers worry about data structures and their relationships.
+hackers	tech	quip	general	0	Because I don't believe that it's really desirable to have security on a computer, I shouldn't be willing to help uphold the security regime. ~ Richard Stallman
+hackers	tech	wisdom	general	0	Because people don't understand what computing is about, they think they have it in the iPhone, and that illusion is as bad as the illusion that 'Guitar Hero' is the same as a real guitar. ~ Alan Kay
+hackers	work-money	wisdom	general	0	Bell Labs was an astonishing place for many decades, though it fell on somewhat hard times during the telecom meltdown some years ago, as its corporate owner had to cope with shrinking markets. ~ Brian Kernighan
+hackers	tech	wisdom	general	0	Besides a mathematical inclination, an exceptionally good mastery of one's native tongue is the most vital asset of a competent programmer. ~ Edsger W. Dijkstra
+hackers	tech	quip	general	0	Beware of bugs in the above code; I have only proved it correct, not tried it. ~ Donald Knuth
+hackers	tech	quip	general	0	British book publishers plan to put a microchip into every book to record who owns it - an unprecedented surveillance measure. ~ Richard Stallman
+hackers	society	quip	general	0	By the way, I hope you all know about the worldwide boycott of Coca Cola company for things like murdering union organizers in Colombia. See the site killercoke.org. ~ Richard Stallman
+hackers	science	fact	general	0	By the way, it was his simulations that helped out in Jurassic Park - without them, there would have been only a few dinosaurs. Based on his techniques, Industrial Light and Magic could make whole herds of dinosaurs race across the screen. ~ Marvin Minsky
+hackers	tech	quip	general	0	C is peculiar in a lot of ways, but it, like many other successful things, has a certain unity of approach that stems from development in a small group. ~ Dennis Ritchie
+hackers	tech	fact	general	0	C was already implemented on several quite different machines and OSs, Unix was already being distributed on the PDP-11, but the portability of the whole system was new. ~ Dennis Ritchie
+hackers	tech	observation	general	0	C++ and Java, say, are presumably growing faster than plain C, but I bet C will still be around. ~ Dennis Ritchie
+hackers	tech	quip	general	0	CD stores have the disadvantage of an expensive inventory, but digital bookshops would need no such thing: they could write copies at the time of sale on to memory sticks, and sell you one if you forgot your own. ~ Richard Stallman
+hackers	tech	quip	general	0	Certainly not every good program is object-oriented, and not every object-oriented program is good. ~ Bjarne Stroustrup
+hackers	life	wisdom	general	0	Clearly, I reject the view that there is one way that is right for everyone and for every problem. ~ Bjarne Stroustrup
+hackers	tech	quip	general	0	Comprehensiveness is the enemy of comprehensibility ~ Martin Fowler
+hackers	tech	wisdom	general	0	Computer science inverts the normal. In normal science, you're given a world, and your job is to find out the rules. In computer science, you give the computer the rules, and it creates the world. ~ Alan Kay
+hackers	tech	quip	general	0	Computers force us into creating with our minds and prevent us from making things with our hands. They dull the skills we use in everyday life. ~ Clifford Stoll
+hackers	tech	quip	general	0	Computers in classrooms are the filmstrips of the 1990s. ~ Clifford Stoll
+hackers	life	aphorism	general	0	Context is worth 80 IQ points. ~ Alan Kay
+hackers	society	wisdom	general	0	Control over the use of one's ideas really constitutes control over other people's lives; and it is usually used to make their lives more difficult. ~ Richard Stallman
+hackers	tech	wisdom	general	0	Copying all or parts of a program is as natural to a programmer as breathing, and as productive. It ought to be as free. ~ Richard Stallman
+hackers	arts	wisdom	general	0	Creativity can be a social contribution, but only in so far as society is free to use the results. ~ Richard Stallman
+hackers	tech	wisdom	general	0	Data is not information, information is not knowledge, knowledge is not understanding, understanding is not wisdom. ~ Clifford Stoll
+hackers	tech	quip	general	0	Debugging is like being the detective in a crime movie where you are also the murderer.
+hackers	tech	wisdom	general	0	Defining OO as based on the use of class hierarchies and virtual functions is also practical in that it provides some guidance as to where OO is likely to be successful. ~ Bjarne Stroustrup
+hackers	tech	wisdom	general	0	Dynamic typing is not necessarily good. You get static errors at run time, which you really should be able to catch at compile time. ~ Rob Pike
+hackers	tech	wisdom	general	0	Elegance is not a dispensable luxury but a quality that decides between success and failure. ~ Edsger W. Dijkstra
+hackers	tech	wisdom	general	0	Even though most people won't be directly involved with programming, everyone is affected by computers, so an educated person should have a good understanding of how computer hardware, software, and networks operate. ~ Brian Kernighan
+hackers	tech	wisdom	general	0	Every language teaches you something, so learning a language is never wasted, especially if it's different in more than just syntactic trivia. ~ Brian Kernighan
+hackers	tech	wisdom	general	0	Everyday life is like programming, I guess. If you love something you can put beauty into it. ~ Donald Knuth
+hackers	tech	quip	general	0	FORTRAN's tragic fate has been its wide acceptance, mentally chaining thousands and thousands of programmers to our past mistakes. ~ Edsger W. Dijkstra
+hackers	tech	quip	general	0	FORTRAN, 'the infantile disorder', by now nearly 20 years old, is hopelessly inadequate for whatever computer application you have in mind today: it is now too clumsy, too risky, and too expensive to use. ~ Edsger W. Dijkstra
+hackers	tech	observation	general	0	Facebook collects a lot of data from people and admits it. And it also collects data which isn't admitted. And Google does too. As for Microsoft, I don't know. But I do know that Windows has features that send data about the user. ~ Richard Stallman
+hackers	tech	quip	general	0	Facebook is not your friend, it is a surveillance engine. ~ Richard Stallman
+hackers	tech	wisdom	general	0	Fighting patents one by one will never eliminate the danger of software patents, any more than swatting mosquitoes will eliminate malaria. ~ Richard Stallman
+hackers	tech	wisdom	general	0	First, I'd like to see the basic tools such as compilers, debuggers, profilers, database interfaces, GUI builders, CAD tools, and so forth fully support the ISO standard. ~ Bjarne Stroustrup
+hackers	society	wisdom	general	0	For better or worse, the people who become leaders and decision makers in politics, law and business are going to come from schools like Princeton. ~ Brian Kernighan
+hackers	tech	aphorism	general	0	For infrastructure technology, C will be hard to displace. ~ Dennis Ritchie
+hackers	tech	wisdom	general	0	Free software is software that respects your freedom and the social solidarity of your community. So it's free as in freedom. ~ Richard Stallman
+hackers	tech	wisdom	general	0	Free software' is a matter of liberty, not price. To understand the concept, you should think of 'free' as in 'free speech,' not as in 'free beer'. ~ Richard Stallman
+hackers	tech	quip	general	0	GNU, which stands for Gnu's Not Unix, is the name for the complete Unix-compatible software system which I am writing so that I can give it away free to everyone who can use it. ~ Richard Stallman
+hackers	society	wisdom	general	0	Geeks like to think that they can ignore politics, you can leave politics alone, but politics won't leave you alone. ~ Richard Stallman
+hackers	tech	joke	general	0	Give someone a program, you frustrate them for a day; teach them how to program, you frustrate them for a lifetime.
+hackers	tech	quip	general	0	Giving the Linus Torvalds Award to the Free Software Foundation is a bit like giving the Han Solo Award to the Rebel Alliance. ~ Richard Stallman
+hackers	society	wisdom	general	0	Globalizing a bad thing makes it worse. But globalizing a good thing is usually good. ~ Richard Stallman
+hackers	tech	wisdom	general	0	Go is an attempt to combine the safety and performance of statically typed languages with the convenience and fun of dynamically typed interpretative languages. ~ Rob Pike
+hackers	faith	wisdom	general	0	God is a challenge because there is no proof of his existence and therefore the search must continue. ~ Donald Knuth
+hackers	tech	quip	general	0	Grant, if we edited Fortran, I assume that you'd put a column thing in there. ~ Ken Thompson
+hackers	tech	wisdom	general	0	Having an intelligent secretary does not get rid of the need to read, write, and draw, etc. In a well functioning world, tools and agents are complementary. ~ Alan Kay
+hackers	tech	wisdom	general	0	How do we convince people that in programming simplicity and clarity ~in short: what mathematicians call "elegance" ~ are not a dispensable luxury, but a crucial matter that decides between success and failure? ~ Edsger W. Dijkstra
+hackers	tech	quip	general	0	However, when Java is promoted as the sole programming language, its flaws and limitations become serious. ~ Bjarne Stroustrup
+hackers	nature	fact	general	0	I also have an idea for a book on biodiversity, and why and how we should be conserving it. ~ Ken Thompson
+hackers	tech	quip	general	0	I am a programmer. ~ Ken Thompson
+hackers	tech	wisdom	general	0	I am a very bottom-up thinker. ~ Ken Thompson
+hackers	tech	wisdom	general	0	I believed in realism, as summarized by John McCarthy's comment to the effect that if we worked really hard, we'd have an intelligent system in from four to four hundred years. ~ Marvin Minsky
+hackers	tech	wisdom	general	0	I can't recall any difficulty in making the C language definition completely open - any discussion on the matter tended to mention languages whose inventors tried to keep tight control, and consequent ill fate. ~ Dennis Ritchie
+hackers	tech	wisdom	general	0	I consider that the golden rule requires that if I like a program I must share it with other people who like it. ~ Richard Stallman
+hackers	tech	wisdom	general	0	I could have made money this way, and perhaps amused myself writing code. But I knew that at the end of my career, I would look back on years of building walls to divide people, and feel I had spent my life making the world a worse place. ~ Richard Stallman
+hackers	tech	observation	general	0	I currently use Ubuntu Linux, on a standalone laptop - it has no Internet connection. I occasionally carry flash memory drives between this machine and the Macs that I use for network surfing and graphics; but I trust my family jewels only to Linux. ~ Donald Knuth
+hackers	tech	wisdom	general	0	I decry the current tendency to seek patents on algorithms. There are better ways to earn a living than to prevent other people from making use of one's contributions to computer science. ~ Donald Knuth
+hackers	tech	quip	general	0	I did write some code in Java once, but that was the island in Indonesia. ~ Richard Stallman
+hackers	tech	quip	general	0	I figure that since proprietary software developers use copyright to stop us from sharing, we cooperators can use copyright to give other cooperators an advantage of their own: they can use our code. ~ Richard Stallman
+hackers	tech	quip	general	0	I find languages that support just one programming paradigm constraining. ~ Bjarne Stroustrup
+hackers	tech	quip	general	0	I fix things now and then, more often tweak HTML and make scripts to do things. ~ Dennis Ritchie
+hackers	life	observation	general	0	I found it tremendously humiliating to be there because most of the kids there were brain dead or psychotic. ~ Richard Stallman
+hackers	tech	quip	general	0	I founded the free software movement, a movement for freedom to cooperate. Open source was a reaction against our idealism. We are still here and the open-source people have not wiped us out. ~ Richard Stallman
+hackers	tech	quip	general	0	I had spent the summer of 1966 working at MIT in the group that was the MIT component of the Multics effort. ~ Brian Kernighan
+hackers	arts	wisdom	general	0	I had the fortune or misfortune to learn how to read fluently starting at the age of three. So I had read maybe 150 books by the time I hit 1st grade. And I already knew that the teachers were lying to me. ~ Alan Kay
+hackers	tech	quip	general	0	I have not seen anyone assume that all the citizens of New York are guilty of murder, violence, robbery, perjury, or writing proprietary software. ~ Richard Stallman
+hackers	nature	observation	general	0	I have to keep up with the scientific literature as part of my job, but increasingly I found myself reading things that weren't really relevant to my academic work, but were relevant to gardening. ~ Ken Thompson
+hackers	arts	observation	general	0	I heard that the same thing occurred in a scene in Alien, where the creature pops out of the chest of a crewman. The other actors didn't know what was to happen; the director wanted to get true surprise. ~ Marvin Minsky
+hackers	tech	wisdom	general	0	I mean, if 10 years from now, when you are doing something quick and dirty, you suddenly visualize that I am looking over your shoulders and say to yourself "Dijkstra would not have liked this", well, that would be enough immortality for me. ~ Edsger W. Dijkstra
+hackers	tech	quip	general	0	I never imagined that the Free Software Movement would spawn a watered-down alternative, the Open Source Movement, which would become so well-known that people would ask me questions about 'open source' thinking that I work under that banner. ~ Richard Stallman
+hackers	society	quip	general	0	I partly agree with the underlying message that people should take charge and solve problems, rather than just cast blame on others. ~ Richard Stallman
+hackers	life	quip	general	0	I really enjoyed Princeton as a graduate student. ~ Brian Kernighan
+hackers	work-money	wisdom	general	0	I seem to get totally wrapped up in teaching and working with students during the school year. During the summer, I try to spend time in the real world, writing code for therapy and perhaps for some useful purpose. ~ Brian Kernighan
+hackers	work-money	observation	general	0	I still have a full-time day job, which is why it took me five years to write An Ear to the Ground, and why I won't have another book finished by next week. ~ Ken Thompson
+hackers	tech	quip	general	0	I suppose many people will continue moving towards careless computing, because there's a sucker born every minute. ~ Richard Stallman
+hackers	tech	wisdom	general	0	I think Lenat is headed in the right direction, but someone needs to include a knowledge base about learning. ~ Marvin Minsky
+hackers	tech	quip	general	0	I think of the company advertising "Thought Processors" or the college pretending that learning BASIC suffices or at least helps, whereas the teaching of BASIC should be rated as a criminal offence: it mutilates the mind beyond recovery. ~ Edsger W. Dijkstra
+hackers	tech	wisdom	general	0	I think the major good idea in Unix was its clean and simple interface: open, close, read, and write. ~ Ken Thompson
+hackers	tech	wisdom	general	0	I want students to understand specific technologies, but the real goal is that they should be able to reason about how systems work and be intelligently skeptical about technology so that, when they're running the world in a few years, they'll do a good job. ~ Brian Kernighan
+hackers	tech	quip	general	0	I wanted to avoid, special IO for terminals. ~ Ken Thompson
+hackers	tech	quip	general	0	I wanted to have virtual memory, at least as it's coupled with file systems. ~ Ken Thompson
+hackers	tech	wisdom	general	0	I wanted to separate data from programs, because data and instructions are very different. ~ Ken Thompson
+hackers	tech	wisdom	general	0	I would encourage nonproprietary standards for tools and libraries. ~ Bjarne Stroustrup
+hackers	society	quip	general	0	I'm always happy when I'm protesting. ~ Richard Stallman
+hackers	tech	quip	general	0	I'm just an observer of Java, and where Microsoft wants to go with C# is too early to tell. ~ Dennis Ritchie
+hackers	life	quip	general	0	I'm not a person who particularly had heros when growing up. ~ Dennis Ritchie
+hackers	life	quip	general	0	I'm obsessively detail-oriented. ~ Donald Knuth
+hackers	tech	dark	general	0	I'm the last survivor of a dead culture. And I don't really belong in the world anymore. And in some ways I feel I ought to be dead. ~ Richard Stallman
+hackers	tech	quip	general	0	I'm trying to change the way people approach knowledge and information in general. I think that to try to own knowledge, to try to control whether people are allowed to use it, or to try to stop other people from sharing it, is sabotage. ~ Richard Stallman
+hackers	tech	observation	general	0	I've been a Fellow in a number of companies: Xerox, Apple, Disney, HP. There are certain similarities because all the Fellows programs were derived from IBM's, which itself was derived from the MIT 'Institute Professor' program. ~ Alan Kay
+hackers	life	quip	general	0	I've done a reasonable amount of travelling, which I enjoyed, but not for too long at a time. ~ Dennis Ritchie
+hackers	tech	quip	general	0	I've never been a good estimator of how long things are going to take. ~ Donald Knuth
+hackers	life	dark	general	0	I've read that male dolphins try to have sex with humans, and female apes solicit sex from humans. What is wrong with giving them what they want, if that's what turns you on, or even just to gratify them? ~ Richard Stallman
+hackers	life	quip	general	0	Idiots can be defeated but they never admit it. ~ Richard Stallman
+hackers	tech	quip	general	0	If carpenters made buildings the way programmers make programs, the first woodpecker to come along would destroy all of civilization.
+hackers	tech	wisdom	general	0	If ebooks mean that readers' freedom must either increase or decrease, we must demand the increase. ~ Richard Stallman
+hackers	tech	wisdom	general	0	If in my lifetime the problem of non-free software is solved, I could perhaps relax and write software again. But I might instead try to help deal with the world's larger problems. Standing up to an evil system is exhilarating, and now I have a taste for it. ~ Richard Stallman
+hackers	tech	wisdom	general	0	If programmers deserve to be rewarded for creating innovative programs, by the same token they deserve to be punished if they restrict the use of these programs. ~ Richard Stallman
+hackers	tech	observation	general	0	If there is a Like button in a page, Facebook knows who visited that page. And it can get IP address of the computer visiting the page even if the person is not a Facebook user. ~ Richard Stallman
+hackers	life	wisdom	general	0	If you don't fail at least 90 percent of the time, you're not aiming high enough. ~ Alan Kay
+hackers	tech	quip	general	0	If you don't have an E-mail address, you're in the Netherworld. If you don't have your own World Wide Web page, you're a nobody. ~ Clifford Stoll
+hackers	tech	wisdom	general	0	If you don't understand viruses, phishing, and similar threats, you become more susceptible to them. If you don't know how social networks leak information that you thought was private, you're likely to reveal much more than you realize. ~ Brian Kernighan
+hackers	tech	wisdom	general	0	If you focus your mind on the freedom and community that you can build by staying firm, you will find the strength to do it. ~ Richard Stallman
+hackers	tech	wisdom	general	0	If you optimize everything, you will always be unhappy. ~ Donald Knuth
+hackers	tech	wisdom	general	0	If you use a proprietary program or somebody else's web server, you're defenceless. You're putty in the hands of whoever developed that software. ~ Richard Stallman
+hackers	tech	wisdom	general	0	If you want more effective programmers, you will discover that they should not waste their time debugging, they should not introduce the bugs to start with. ~ Edsger W. Dijkstra
+hackers	life	wisdom	general	0	If you want to accomplish something in the world, idealism is not enough - you need to choose a method that works to achieve the goal. ~ Richard Stallman
+hackers	tech	pun	general	0	If you want to go somewhere, goto is the best way to get there. ~ Ken Thompson
+hackers	tech	wisdom	general	0	Imagine if every Thursday your shoes exploded if you tied them the usual way. This happens to us all the time with computers, and nobody thinks of complaining. ~ Jef Raskin
+hackers	tech	quip	general	0	In college, before video games, we would amuse ourselves by posing programming exercises. ~ Ken Thompson
+hackers	tech	quip	general	0	In essence, Chrome OS is the GNU/Linux operating system. However, it is delivered without the usual applications, and rigged up to impede and discourage installing applications. I'd say the problem is in the nature of the job ChromeOS is designed to do. ~ Richard Stallman
+hackers	tech	observation	general	0	In essence, Chrome OS is the GNU/Linux operating system. However, it is delivered without the usual applications, and rigged up to impede and discourage installing applications. ~ Richard Stallman
+hackers	tech	wisdom	general	0	In fact what I would like to see is thousands of computer scientists let loose to do whatever they want. That's what really advances the field. ~ Donald Knuth
+hackers	tech	observation	general	0	In fact, we started off with two or three different shells and the shell had life of its own. ~ Ken Thompson
+hackers	science	wisdom	general	0	In general we are least aware of what our minds do best. ~ Marvin Minsky
+hackers	arts	aphorism	general	0	In practice, the copyright system does a bad job of supporting authors, aside from the most popular ones. Other authors' principal interest is to be better known, so sharing their work benefits them as well as readers. ~ Richard Stallman
+hackers	life	wisdom	general	0	In terms of effect on the world, it's very good that I've lived. And so I guess, if I could go back in time and prevent my birth, I wouldn't do it. But I sure wish I hadn't had so much pain. ~ Richard Stallman
+hackers	work-money	wisdom	general	0	In the commercial world, you have this problem that the amount of research you can do in a company is based on how well your current business is going, whereas there actually should be an inverse relationship: when things are going worse, you should do more research. ~ Alan Kay
+hackers	tech	wisdom	general	0	In the free/libre software movement, we develop software that respects users' freedom, so we and you can escape from software that doesn't. ~ Richard Stallman
+hackers	tech	quip	general	0	In the good old days physicists repeated each other's experiments, just to be sure. Today they stick to FORTRAN, so that they can share each other's programs, bugs included. ~ Edsger W. Dijkstra
+hackers	tech	quip	general	0	In the old days, you would chastise people for reinventing the wheel. Now we beg, 'Oh, please, please reinvent the wheel.' ~ Alan Kay
+hackers	tech	quip	general	0	It doesn't take special talents to reproduce--even plants can do it. On the other hand, contributing to a program like Emacs takes real skill. That is really something to be proud of. It helps more people, too. ~ Richard Stallman
+hackers	tech	aphorism	general	0	It is easy to study the rules of overloading and of templates without noticing that together they are one of the keys to elegant and efficient type-safe containers. ~ Bjarne Stroustrup
+hackers	society	wisdom	general	0	It is not the task of the University to offer what society asks for, but to give what society needs. ~ Edsger W. Dijkstra
+hackers	tech	wisdom	general	0	It is only the inadequacy of the criminal code that saves the hackers from very serious prosecution. ~ Ken Thompson
+hackers	tech	quip	general	0	It is practically impossible to teach good programming to students that have had a prior exposure to BASIC: as potential programmers they are mentally mutilated beyond hope of regeneration. ~ Edsger W. Dijkstra
+hackers	tech	quip	general	0	It is time to unmask the computing community as a Secret Society for the Creation and Preservation of Artificial Complexity. ~ Edsger W. Dijkstra
+hackers	tech	wisdom	general	0	It's always good to take an orthogonal view of something. It develops ideas. ~ Ken Thompson
+hackers	society	aphorism	general	0	It's clear that other problems such as [...] the domination of business over government, science, thought, and society, are much bigger than non-free software. ~ Richard Stallman
+hackers	tech	wisdom	general	0	It's hard to change information in books, but if we have everything online, then a somewhat untrustworthy group of people controlling the thing - which I think is what we have - gives us '1984.' ~ Alan Kay
+hackers	tech	wisdom	general	0	It's important to be informed about issues like usability, reliability, security, privacy, and some of the inherent limitations of computers. ~ Brian Kernighan
+hackers	arts	observation	general	0	Kubrick's vision seemed to be that humans are doomed, whereas Clarke's is that humans are moving on to a better stage of evolution. ~ Marvin Minsky
+hackers	society	wisdom	general	0	Laws that oppress people have no moral authority ~ Richard Stallman
+hackers	tech	wisdom	general	0	Let us change our traditional attitude to the construction of programs. Instead of imagining that our main task is to instruct a computer what to do, let us concentrate rather on explaining to human beings what we want a computer to do. ~ Donald Knuth
+hackers	tech	wisdom	general	0	Many users of the GNU/Linux system will not have heard the ideas of free software. They will not be aware that we have ideas, that a system exists because of ethical ideals, which were omitted from ideas associated with the term 'open source.' ~ Richard Stallman
+hackers	life	wisdom	general	0	May, in spite of all distractions generated by technology, all of you succeed in turning information into knowledge, knowledge into understanding, and understanding into wisdom. ~ Edsger W. Dijkstra
+hackers	tech	wisdom	general	0	Merely that I have a World Wide Web page does not give me any power, any abilities, nor any status in the real world. ~ Clifford Stoll
+hackers	tech	aphorism	general	0	Modeling Principle: Models are not right or wrong; they are more or less useful. ~ Martin Fowler
+hackers	tech	quip	general	0	Most software today is very much like an Egyptian pyramid with millions of bricks piled on top of each other, with no structural integrity, but just done by brute force and thousands of slaves. ~ Alan Kay
+hackers	tech	aphorism	general	0	Much of the essence of building a program is in fact the debugging of the specification.
+hackers	tech	fact	general	0	My favorite programming languages are Lisp and C. However, since around 1992 I have worked mainly on free software activism, which means I am too busy to do much programming. Around 2008 I stopped doing programming projects. ~ Richard Stallman
+hackers	arts	observation	general	0	My general working style is to write everything first with pencil and paper, sitting beside a big wastebasket. Then I use Emacs to enter the text into my machine. ~ Donald Knuth
+hackers	tech	quip	general	0	My list of basic tools is a partial answer to the question about what has changed: Over the past few years, large numbers of programmers have come to depend on elaborate tools to interface code with systems facilities. ~ Bjarne Stroustrup
+hackers	tech	wisdom	general	0	My point today is that, if we wish to count lines of code, we should not regard them as "lines produced" but as "lines spent": the current conventional wisdom is so foolish as to book that count on the wrong side of the ledger. ~ Edsger W. Dijkstra
+hackers	tech	wisdom	general	0	No amount of source-level verification or scrutiny will protect you from using untrusted code. ~ Ken Thompson
+hackers	tech	quip	general	0	No computer has ever been designed that is ever aware of what it's doing; but most of the time, we aren't either. ~ Marvin Minsky
+hackers	tech	wisdom	general	0	No matter how non-technical your life and work, you're going to have to interact with technology and technical people. If you know something about how devices and systems operate, it's a big advantage. ~ Brian Kernighan
+hackers	tech	wisdom	general	0	No matter what, the way to learn to program is to write code and rewrite it and see it used and rewrite again. Reading other people's code is invaluable as well. ~ Brian Kernighan
+hackers	society	quip	general	0	No person, no idea, and no religion deserves to be illegal to insult, not even the Church of Emacs. ~ Richard Stallman
+hackers	tech	quip	general	0	Obviously, the person who had most influence on my career was Ken Thompson. ~ Dennis Ritchie
+hackers	society	wisdom	general	0	Odious ideas are not entitled to hide from criticism behind the human shield of their believers feelings. ~ Richard Stallman
+hackers	society	quip	general	0	Officially, MPAA stands for Motion Picture Association of America, but I suggest that MPAA stands for Malicious Power Attacking All. ~ Richard Stallman
+hackers	tech	wisdom	general	0	Often designers do complicated things that improve the capacity on a particular hardware platform when it might actually be cheaper to buy more hardware. ~ Martin Fowler (2012) Patterns of Enterprise Application Architecture
+hackers	tech	wisdom	general	0	Often you'll see the same three or four data items together in lots of places: fields in a couple of classes, parameters in many method signatures. Bunches of data that hang around together really ought to be made into their own object. ~ Martin Fowler
+hackers	tech	observation	general	0	On the one hand, the press, television, and movies make heroes of vandals by calling them whiz kids. ~ Ken Thompson
+hackers	tech	wisdom	general	0	Once GNU is written, everyone will be able to obtain good system software free, just like air. ~ Richard Stallman
+hackers	tech	wisdom	general	0	Once the product's task is known, design the interface first; then implement to the interface design. ~ Jef Raskin
+hackers	science	quip	general	0	Once when I was standing at the base, they started rotating the set and a big, heavy wrench fell down from the 12 o'clock position of the set, and got buried in the ground a few feet from me. I could have been killed! ~ Marvin Minsky
+hackers	nature	quip	general	0	One is that the perfect garden can be created overnight, which it can't. ~ Ken Thompson
+hackers	tech	quip	general	0	One of my most productive days was throwing away 1,000 lines of code. ~ Ken Thompson
+hackers	tech	quip	general	0	One of the obvious things that went wrong with Multics as a commercial success was just that it was sort of over-engineered in a sense. There was just too much in it. ~ Dennis Ritchie
+hackers	tech	wisdom	general	0	One reason you should not use web applications to do your computing is that you lose control. ~ Richard Stallman
+hackers	tech	quip	general	0	Open source is a development methodology; free software is a social movement. ~ Richard Stallman
+hackers	tech	quip	general	0	Our mailing lists (and their repeater newsgroups) are only for the purpose of promoting proprietary software. ~ Richard Stallman
+hackers	tech	quip	general	0	Over the past several years, I've been more in a managerial role. ~ Dennis Ritchie
+hackers	society	aphorism	general	0	Paying isn't wrong, and being paid isn't wrong. Trampling other people's freedom and community is wrong, so the free software movement aims to put an end to it, at least in the area of software. ~ Richard Stallman
+hackers	society	aphorism	general	0	People get the government their behavior deserves. People deserve better than that. ~ Richard Stallman
+hackers	tech	quip	general	0	People sometimes ask me if it is a sin in the Church of Emacs to use vi. Using a free version of vi is not a sin; it is a penance. So happy hacking. ~ Richard Stallman
+hackers	tech	wisdom	general	0	People think that computer science is the art of geniuses but the actual reality is the opposite, just many people doing things that build on eachother, like a wall of mini stones. ~ Donald Knuth
+hackers	tech	wisdom	general	0	People who are more than casually interested in computers should have at least some idea of what the underlying hardware is like. Otherwise the programs they write will be pretty weird. ~ Donald Knuth
+hackers	tech	aphorism	general	0	People who are really serious about software should make their own hardware. ~ Alan Kay
+hackers	tech	observation	general	0	People who passionately want to believe that the world is basically simple react to this with a fury that goes beyond what I consider appropriate for discussing a programming language. ~ Bjarne Stroustrup
+hackers	tech	observation	general	0	Personally, I look forward to better tools for analyzing C++ source code. ~ Bjarne Stroustrup
+hackers	life	wisdom	general	0	Perspective is worth 80 IQ points. ~ Alan Kay
+hackers	tech	wisdom	general	0	Playfully doing something difficult, whether useful or not, that is hacking. ~ Richard Stallman
+hackers	tech	wisdom	general	0	Pretty much everything on the web uses those two things: C and UNIX. The browsers are written in C. The UNIX kernel - that pretty much the entire Internet runs on - is written in C. ~ Rob Pike
+hackers	tech	quip	general	0	Prior art is as effective as US soldiers in Iraq: They control the ground they stand on, and nothing more. I used to say Vietnam, but, well, you know... ~ Richard Stallman
+hackers	tech	wisdom	general	0	Program testing can be a very effective way to show the presence of bugs, but it is hopelessly inadequate for showing their absence. ~ Edsger W. Dijkstra
+hackers	tech	wisdom	general	0	Program testing can be used to show the presence of bugs, but never to show their absence! ~ Edsger W. Dijkstra
+hackers	tech	wisdom	general	0	Programming is not a science. Programming is a craft. ~ Richard Stallman
+hackers	tech	wisdom	general	0	Programming is one of the most difficult branches of applied mathematics; the poorer mathematicians had better remain pure mathematicians. ~ Edsger W. Dijkstra
+hackers	tech	wisdom	general	0	Programming language is very specific to instructing a computer to do a particular structure of a sequence. It's the very way you tell the machine what you want it to do. ~ Brian Kernighan
+hackers	tech	quip	general	0	Proprietary software is an injustice. ~ Richard Stallman
+hackers	tech	wisdom	general	0	Proprietary software tends to have malicious features. The point is with a proprietary program, when the users don't have the source code, we can never tell. So you must consider every proprietary program as potential malware. ~ Richard Stallman
+hackers	society	observation	general	0	Quite a few people have to believe something is normal before it becomes normal - a sort of 'voting' situation. But once the threshold is reached, then everyone demands to do whatever it is. ~ Alan Kay
+hackers	tech	wisdom	general	0	Rather than bringing me closer to others, the time that I spend online isolates me from the most important people in my life, my family, my friends, my neighbourhood, my community. ~ Clifford Stoll
+hackers	tech	quip	general	0	Right now, computers, which are supposed to be our servant, are oppressing us. ~ Jef Raskin
+hackers	arts	wisdom	general	0	Science is what we understand well enough to explain to a computer. Art is everything else we do. ~ Donald Knuth
+hackers	science	wisdom	general	0	Science requires a society because even people who are trying to be good thinkers love their own thoughts and theories - much of the debugging has to be done by others. ~ Alan Kay
+hackers	life	quip	general	0	Several people have told me that my inability to suffer fools gladly is one of my main weaknesses. ~ Edsger W. Dijkstra
+hackers	tech	wisdom	general	0	Sharing is good, and with digital technology, sharing is easy. ~ Richard Stallman
+hackers	life	wisdom	general	0	Sharing knowledge is the most fundamental act of friendship. Because it is a way you can give something without loosing something. ~ Richard Stallman
+hackers	tech	wisdom	general	0	Simplicity is a great virtue but it requires hard work to achieve it and education to appreciate it. And to make matters worse: complexity sells better. ~ Edsger W. Dijkstra
+hackers	tech	wisdom	general	0	Simplicity is prerequisite for reliability. ~ Edsger W. Dijkstra
+hackers	nature	wisdom	general	0	Snow is so beautiful, it doesn't have to be useful. ~ Richard Stallman
+hackers	life	quip	general	0	So maybe I can go back to being a Gardeners' World addict again. ~ Ken Thompson
+hackers	work-money	aphorism	general	0	So, make a real effort to avoid getting sucked into all the expensive lifestyle habits of typical Americans. Because if you do that, then people with the money will dictate what you do with your life. ~ Richard Stallman
+hackers	society	wisdom	general	0	Societies need rules that make no sense for individuals. For example, it makes no difference whether a single car drives on the left or on the right. But it makes all the difference when there are many cars! ~ Marvin Minsky
+hackers	tech	wisdom	general	0	Software patents are dangerous to software developers because they impose monopolies on software ideas. ~ Richard Stallman
+hackers	tech	quip	general	0	Some people worry that artificial intelligence will make us feel inferior, but then, anybody in his right mind should have an inferiority complex every time he looks at a flower. ~ Alan Kay
+hackers	tech	wisdom	general	0	Somebody is saying this is inevitable - and whenever you hear somebody saying that, it's very likely to be a set of businesses campaigning to make it true. ~ Richard Stallman
+hackers	tech	quip	general	0	Stanley Kubrick knew we had good graphics around MIT and came to my lab to find out how to do it. We had some really good stuff. I was very impressed with Kubrick; he knew all the graphics work I had ever heard of, and probably more. ~ Marvin Minsky
+hackers	tech	quip	general	0	Steve Jobs, the pioneer of the computer as a jail made cool, designed to sever fools from their freedom, has died. ~ Richard Stallman
+hackers	tech	observation	general	0	Steve was perfectly aware of the Dynabook. That was one of the reasons he wanted me to come to Apple. ~ Alan Kay
+hackers	tech	wisdom	general	0	Technology at present is covert philosophy; the point is to make it openly philosophical. ~ Phil Agre
+hackers	tech	wisdom	general	0	Technology is anything that wasn't around when you were born. ~ Alan Kay
+hackers	tech	wisdom	general	0	Technology is mostly a force for good, but it has its downsides, too. I want my students - and my readers - to be intelligently skeptical about technology and be informed about the good and the not-so-good parts. ~ Brian Kernighan
+hackers	tech	wisdom	general	0	Testing shows the presence, not the absence of bugs ~ Edsger W. Dijkstra
+hackers	life	quip	general	0	Thank goodness we don't have only serious problems, but ridiculous ones as well. ~ Edsger W. Dijkstra
+hackers	tech	quip	general	0	That brings me to Dennis Ritchie. Our collaboration has been a thing of beauty. ~ Ken Thompson
+hackers	tech	quip	general	0	The Adobe flash plug-in is non-free software, and people should not install it, or suggest installing it, or even tell people it exists. ~ Richard Stallman
+hackers	tech	quip	general	0	The GNU GPL was not designed to be "open source". ~ Richard Stallman
+hackers	tech	quip	general	0	The Internet is a telephone system that's gotten uppity. ~ Clifford Stoll
+hackers	tech	quip	general	0	The X server has to be the biggest program I've ever seen that doesn't do anything for you. ~ Ken Thompson
+hackers	tech	wisdom	general	0	The act of describing a program in unambiguous detail and the act of programming are one and the same.
+hackers	nature	quip	general	0	The average gardener probably knows little about what is going on in his or her garden. ~ Ken Thompson
+hackers	tech	wisdom	general	0	The basic idea in case-based, or CBR, is that the program has stored problems and solutions. Then, when a new problem comes up, the program tries to find a similar problem in its database by finding analogous aspects between the problems. ~ Marvin Minsky
+hackers	tech	wisdom	general	0	The best way to predict the future is to invent it. ~ Alan Kay
+hackers	tech	wisdom	general	0	The competent programmer is fully aware of the strictly limited size of his own skull; therefore he approaches the programming task in full humility, and among other things he avoids clever tricks like the plague. ~ Edsger W. Dijkstra
+hackers	tech	quip	general	0	The computer industry is the only industry that is more fashion-driven than women's fashion. ~ Richard Stallman
+hackers	tech	wisdom	general	0	The definition I use for pattern is an idea that has been useful in one practical context and will probably be useful in others ~ Martin Fowler
+hackers	arts	wisdom	general	0	The desire to be rewarded for one's creativity does not justify depriving the world in general of all or part of that creativity. ~ Richard Stallman
+hackers	tech	wisdom	general	0	The effective exploitation of his powers of abstraction must be regarded as one of the most vital activities of a competent programmer. ~ Edsger W. Dijkstra
+hackers	tech	quip	general	0	The free world welcomes Sun's decision to use the Free Software Foundation's GPL. ~ Richard Stallman
+hackers	tech	wisdom	general	0	The hardest thing is to go to sleep at night, when there are so many urgent things needing to be done. A huge gap exists between what we know is possible with today's machines and what we have so far been able to finish. ~ Donald Knuth
+hackers	society	fact	general	0	The idea of copyright did not exist in ancient times, when authors frequently copied other authors at length in works of non-fiction. This practice was useful, and is the only way many authors' works have survived even in part. ~ Richard Stallman
+hackers	tech	wisdom	general	0	The idea of free software is that users of computing deserve freedom. They deserve in particular to have control over their computing. And proprietary software does not allow users to have control of their computing. ~ Richard Stallman
+hackers	society	wisdom	general	0	The idea that laws decide what is right or wrong is mistaken in general. Laws are, at their best, an attempt to achieve justice; to say that laws define justice or ethical conduct is turning things upside down. ~ Richard Stallman
+hackers	tech	quip	general	0	The interesting thing about cloud computing is that we've redefined cloud computing to include everything that we already do, ~ Richard Stallman
+hackers	tech	wisdom	general	0	The key is to test the areas that you are most worried about going wrong. That way you get the most benefit for your testing effort. It is better to write and run incomplete tests than not to run complete tests ~ Martin Fowler
+hackers	tech	observation	general	0	The kind of programming that C provides will probably remain similar absolutely or slowly decline in usage, but relatively, JavaScript or its variants, or XML, will continue to become more central. ~ Dennis Ritchie
+hackers	tech	quip	general	0	The manuals we got from IBM would show examples of programs and I knew I could do a heck of a lot better than that. So I thought I might have some talent. ~ Donald Knuth
+hackers	food	quip	general	0	The most important thing in the kitchen is the waste paper basket and it needs to be centrally located. ~ Donald Knuth
+hackers	tech	quip	general	0	The most important thing in the programming language is the name. A language will not succeed without a good name. I have recently invented a very good name and now I am looking for a suitable language. ~ Donald Knuth
+hackers	tech	quip	general	0	The most powerful programming language is Lisp. If you don't know Lisp (or its variant, Scheme), you don't appreciate what a powerful language is. Once you learn Lisp you will see what is missing in most other languages. ~ Richard Stallman
+hackers	work-money	wisdom	general	0	The paradigm of competition is a race: by rewarding the winner, we encourage everyone to run faster. When capitalism really works this way, it does a good job; but its defenders are wrong in assuming it always works this way. ~ Richard Stallman
+hackers	tech	wisdom	general	0	The principal lesson of Emacs is that a language for extensions should not be a mere "extension language". It should be a real programming language, designed for writing and maintaining substantial programs. Because people will want to do that! ~ Richard Stallman
+hackers	tech	wisdom	general	0	The problems of the real world are primarily those you are left with when you refuse to apply their effective solutions. ~ Edsger W. Dijkstra
+hackers	tech	observation	general	0	The process of software development doesn't feel any better than it did a generation ago. ~ Rob Pike
+hackers	tech	wisdom	general	0	The protean nature of the computer is such that it can act like a machine or like a language to be shaped and exploited. ~ Alan Kay
+hackers	tech	wisdom	general	0	The question of whether Machines Can Think... is about as relevant as the question of whether Submarines Can Swim. ~ Edsger W. Dijkstra
+hackers	society	wisdom	general	0	The reason that a good citizen does not use such destructive means to become wealthier is that, if everyone did so, we would all become poorer from the mutual destructiveness. ~ Richard Stallman
+hackers	tech	wisdom	general	0	The second problem [with using UML for the purposes of this book] is that the Unified Modeling Language concentrates on implementation modeling rather than conceptual modeling ~ Martin Fowler
+hackers	tech	quip	general	0	The sooner you start to code, the longer the program will take.
+hackers	tech	wisdom	general	0	The standard library saves programmers from having to reinvent the wheel. ~ Bjarne Stroustrup
+hackers	tech	wisdom	general	0	The system should treat all user input as sacred. ~ Jef Raskin
+hackers	tech	quip	general	0	The use of COBOL cripples the mind; its teaching should, therefore, be regarded as a criminal offense. ~ Edsger W. Dijkstra
+hackers	tech	observation	general	0	The visible things that have come from the group have been the Plan 9 system and Inferno, but I hasten to say that the ideas and the work have come from colleagues. ~ Dennis Ritchie
+hackers	tech	observation	general	0	The world has sprung very nasty threats on us and our software. ~ Richard Stallman
+hackers	tech	quip	general	0	There are no projects per se in the Computing Sciences Research Center. ~ Ken Thompson
+hackers	tech	fact	general	0	There are three basic approaches to AI: Case-based, rule-based, and connectionist reasoning. ~ Marvin Minsky
+hackers	tech	quip	general	0	There is no system but GNU and Linux is one of it's kernels ~ Richard Stallman
+hackers	tech	wisdom	general	0	There is nothing wrong with wanting pay for work, or seeking to maximize one's income, as long as one does not use means that are destructive. ~ Richard Stallman
+hackers	tech	wisdom	general	0	There is the desire of a consumer society to have no learning curves. This tends to result in very dumbed-down products that are easy to get started on, but are generally worthless and/or debilitating. ~ Alan Kay
+hackers	tech	quip	general	0	There was a failure to recognize the deep problems in AI; for instance, those captured in Blocks World. The people building physical robots learned nothing. ~ Marvin Minsky
+hackers	tech	quip	general	0	There's a lot of power in executing data - generating data and executing data. ~ Ken Thompson
+hackers	life	wisdom	general	0	There's ways to amuse yourself while doing things and thats how I look at efficency. ~ Donald Knuth
+hackers	society	wisdom	general	0	Think 'free speech,' not 'free beer.' ~ Richard Stallman
+hackers	tech	wisdom	general	0	This evolution may compromise Java's claim of being simpler than C++, but my guess is that the effort will make Java a better language than it is today. ~ Bjarne Stroustrup
+hackers	tech	wisdom	general	0	Thus, the standard library will serve as both a tool and as a teacher. ~ Bjarne Stroustrup
+hackers	tech	wisdom	general	0	To be able to choose between proprietary software packages is to be able to choose your master. Freedom means not having a master. And in the area of computing, freedom means not using proprietary software. ~ Richard Stallman
+hackers	tech	wisdom	general	0	To write a kernel without a data structure and have it be as consistent and graceful as UNIX would have been a much, much harder challenge. ~ Rob Pike
+hackers	tech	aphorism	general	0	Today many people are switching to free software for purely practical reasons. That is good, as far as it goes, but that isn't all we need to do! Attracting users to free software is not the whole job, just the first step. ~ Richard Stallman
+hackers	tech	wisdom	general	0	Transparency is valuable, but while many things can be made transparent in distributed objects, performance isn't usually one of them. ~ Martin Fowler (2003) in: Software development. Vol. 11. p. 99
+hackers	tech	wisdom	general	0	Treat your password like your toothbrush. Don't let anybody else use it, and get a new one every six months. ~ Clifford Stoll
+hackers	tech	quip	general	0	UNIX is basically a simple operating system, but you have to be a genius to understand the simplicity. ~ Dennis Ritchie
+hackers	tech	wisdom	general	0	Unauthorized access to computer systems is already a serious crime in a few states and is currently being addressed in many more state legislatures as well as Congress. ~ Ken Thompson
+hackers	tech	wisdom	general	0	Users do not care about what is inside the box, as long as the box does what they need done. ~ Jef Raskin
+hackers	society	wisdom	general	0	Value your freedom or you will lose it, teaches history. 'Don't bother us with politics', respond those who don't want to learn. ~ Richard Stallman
+hackers	tech	quip	general	0	Walking on water and developing software from a specification are easy if both are frozen.
+hackers	tech	wisdom	general	0	We can found no scientific discipline, nor a hearty profession, on the technical mistakes of the Department of Defense and, mainly, one computer manufacturer. ~ Edsger W. Dijkstra
+hackers	tech	wisdom	general	0	We don't believe we've solved the multicore-programming problem. But we think we've built an environment in which a certain class of problems can take advantage of the multicore architecture. ~ Rob Pike
+hackers	tech	quip	general	0	We have persistant objects, they're called files. ~ Ken Thompson
+hackers	life	quip	general	0	We must be very careful when we give advice to younger people: sometimes they follow it! ~ Edsger W. Dijkstra
+hackers	tech	wisdom	general	0	We must not forget that it is not our [computing scientists'] business to make programs, it is our business to design classes of computations that will display a desired behaviour. ~ Edsger W. Dijkstra
+hackers	tech	wisdom	general	0	We need to teach people to refuse to install non-free plug-ins; we need to teach people to care more about their long-term interest of freedom than their immediate desire to view a particular site. ~ Richard Stallman
+hackers	tech	aphorism	general	0	We reject: kings, presidents and voting. We believe in: rough consensus and running code. ~ Dave Clark
+hackers	tech	wisdom	general	0	We tried to avoid, you know, records. We were told over and over that was probably the most serious mistake and the reason was the system would never catch on, because we didn't have records. ~ Ken Thompson
+hackers	tech	wisdom	general	0	We wanted to solve robot problems and needed some vision, action, reasoning, planning, and so forth. We even used some structural learning, such as was being explored by Patrick Winston. ~ Marvin Minsky
+hackers	tech	quip	general	0	We're systems software people ourselves. We wanted a language to make our lives better. ~ Rob Pike
+hackers	tech	quip	general	0	We've partly removed the inconveniences of preventing a user from combining code from various free software packages. ~ Richard Stallman
+hackers	tech	fact	general	0	Web servers are written in C, and if they're not, they're written in Java or C++, which are C derivatives, or Python or Ruby, which are implemented in C. ~ Rob Pike
+hackers	tech	quip	general	0	When David Marr at MIT moved into computer vision, he generated a lot of excitement, but he hit up against the problem of knowledge representation; he had no good representations for knowledge in his vision systems. ~ Marvin Minsky
+hackers	tech	quip	general	0	When FORTRAN has been called an infantile disorder, full PL/1, with its growth characteristics of a dangerous tumor, could turn out to be a fatal disease. ~ Edsger W. Dijkstra
+hackers	tech	observation	general	0	When I first got to Apple, which was in '84, the Mac was already out, and 'Newsweek' contacted me and asked me what I thought of the Mac. I said, 'Well, the Mac is the first personal computer good enough to be criticized.' ~ Alan Kay
+hackers	tech	wisdom	general	0	When I read commentary about suggestions for where C should go, I often think back and give thanks that it wasn't developed under the advice of a worldwide crowd. ~ Dennis Ritchie
+hackers	tech	wisdom	general	0	When I'm online, I'm alone in a room, tapping on a keyboard, staring at a cathode-ray tube. ~ Clifford Stoll
+hackers	tech	wisdom	general	0	When Steve Jobs died last week, there was a huge outcry, and that was very moving and justified. ~ Rob Pike
+hackers	tech	wisdom	general	0	When in doubt, use brute force. ~ Ken Thompson
+hackers	tech	wisdom	general	0	When we had no computers, we had no programming problem either. When we had a few computers, we had a mild programming problem. Confronted with machines a million times as powerful, we are faced with a gigantic programming problem. ~ Edsger W. Dijkstra
+hackers	tech	wisdom	general	0	When you feel the need to write a comment, first try to refactor the code so that any comment becomes superfluous. ~ Martin Fowler
+hackers	tech	wisdom	general	0	When you find you have to add a feature to a program, and the program's code is not structured in a convenient way to add the feature, first refactor the program to make it easy to add the feature, then add the feature. ~ Martin Fowler
+hackers	faith	wisdom	general	0	Whether gods exist or not, there is no way to get absolute certainty about ethics. Without absolute certainty, what do we do? We do the best we can. ~ Richard Stallman
+hackers	tech	observation	general	0	While I admire the insights of many of the people in the world of computing, I get this cold feeling that I speak a different language. ~ Clifford Stoll
+hackers	tech	wisdom	general	0	While corporations dominate society and write the laws, each advance in technology is an opening for them to further restrict its users. ~ Richard Stallman
+hackers	tech	quip	general	0	Why is it drug addicts and computer aficionados are both called users? ~ Clifford Stoll
+hackers	tech	wisdom	general	0	Why waste time doing experiments in the organization with technologies that are going to be out of date in 5 years or 10 years? ~ Doug Engelbart
+hackers	tech	wisdom	general	0	With paper printed books, you have certain freedoms. You can acquire the book anonymously by paying cash, which is the way I always buy books. I never use a credit card. I don't identify to any database when I buy books. Amazon takes away that freedom. ~ Richard Stallman
+hackers	tech	wisdom	general	0	With the increasing importance of standards for system-level objects such as COM and CORBA, it is particularly important that the C++ bindings to those be clean, well documented, and simple to use. ~ Bjarne Stroustrup
+hackers	tech	quip	general	0	Would a dating service on the net be 'frowned upon' . . . ? I hope not. But even if it is, don't let that stop you from notifying me via net mail if you start one. ~ Richard Stallman
+hackers	tech	quip	general	0	Write a paper promising salvation, make it a 'structured' something or a 'virtual' something, or 'abstract', 'distributed' or 'higher-order' or 'applicative' and you can almost be certain of having started a new cult. ~ Edsger W. Dijkstra
+hackers	tech	wisdom	general	0	Writing non-free software is not an ethically legitimate activity, so if people who do this run into trouble, that's good! All businesses based on non-free software ought to fail, and the sooner the better. ~ Richard Stallman
+hackers	tech	joke	general	0	You can use any editor you want, but remember that vi vi vi is the text editor of the beast. ~ Richard Stallman
+hackers	tech	wisdom	general	0	You can't trust code that you did not totally create yourself. ~ Ken Thompson
+hackers	life	wisdom	general	0	You don't understand anything until you learn it more than one way. ~ Marvin Minsky
+hackers	tech	wisdom	general	0	You have to make a decision whether it's a new product or you integrate it with an existing product. It takes time to work these things out. ~ Rob Pike
+hackers	tech	quip	general	0	You know, if you were *really* going to starve, you'd be justified in writing proprietary software. ~ Richard Stallman
+hackers	life	wisdom	general	0	Your primary goal is not to solve their problem. Your primary goal is to help them become one notch more capable of solving their problem on their own. ~ Phil Agre
+hackers	tech	quip	general	0	[Martha said] "So what? Somebody's always had control over information, and others have always tried to steal it. Read Machiavelli. As technology changes, sneakiness finds new expressions."
+hackers	tech	quip	general	0	designed to prohibit all free software. It covers only code that implements, precisely, the Microsoft formats, which means that a program under this license does not permit modification. ~ Richard Stallman
+hackers	tech	quip	general	0	part of the long-term effort to liberate cyberspace. ~ Richard Stallman

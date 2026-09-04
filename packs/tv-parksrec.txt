@@ -1,0 +1,149 @@
+tv-parksrec	life	tv-quote	general	0	Leslie: What I hear when I'm being yelled at is people caring loudly at me.
+tv-parksrec	life	tv-quote	general	0	Lawrence: Hey park lady! You suck. Leslie: Hear that? He called me park lady.
+tv-parksrec	life	tv-quote	general	0	Ann: Am I the only [beep]ing person here who doesn't know Jeanine Restrepo?
+tv-parksrec	love	tv-quote	general	0	Leslie: Do you think that marrying penguins made some kind of statement? Tom: Yes. The statement was that you're very lonely and you need a pet.
+tv-parksrec	arts	tv-quote	general	0	Ann: When Andy and I used to go the movies, he would always try to guess the ending of the movie. And he would always guess that the main character had been dead the whole time. Even when we saw Ratatouille.
+tv-parksrec	life	tv-quote	general	0	Tom: I had to call in a few favors. But if you don't call in favors to look at women in bikinis and assign them numerical grades, what the hell do you call in favors for?
+tv-parksrec	life	tv-quote	general	0	Leslie: I was uh, dropping my niece off. Ann: What's your niece's name? Leslie: Torpel. What?! I don't know. That's not a name. I don't have a niece... my niece's name is Stephanie?
+tv-parksrec	life	tv-quote	general	0	April: I passed up a gay Halloween party to be here. Do you know how much fun gay Halloween parties are? Last year I saw three Jonas Brothers make out with three Robert Pattinsons. It was amazing.
+tv-parksrec	life	tv-quote	general	0	Greg: Are you crying? Andy: I AM NOT CRYING, OK? I'M ALLERGIC TO JERKS!
+tv-parksrec	life	tv-quote	general	0	Leslie: Check this out. These are all the possible routes from Greg Pikitis' house to the statue. Ann: That looks like something you would find on the wall of a serial killer. Leslie: In a way, that's a compliment. It shows dedication.
+tv-parksrec	life	tv-quote	general	0	Tom: I have never taken the high road. But I tell other people to 'cause then there's more room for me on the low road.
+tv-parksrec	life	tv-quote	general	0	Leslie: Yes, we are a team, but I am the team leader. So I made a bold decision: we're playing it safe.
+tv-parksrec	life	tv-quote	general	0	Leslie: I think this is gonna be a really good bonding experience with Ron. Guys love it when you can show them you're better than they are at something they love.
+tv-parksrec	life	tv-quote	general	0	Jerry: There is a great dinosaur-themed restaurant in Patterson. It is called Jurassic Fork. I have gone there three times a week for the last 15 years.
+tv-parksrec	life	tv-quote	general	0	Ron: This seems like none of our business. Leslie: Be supportive, OK? Don't be all like, "No. I don't want to. I am a guy and I like fire, and playing hockey and eating meat. No, no says I." April: That was a really good Ron. Leslie: Thank you.
+tv-parksrec	life	tv-quote	general	0	Ann: What is your ideal man? Leslie: He has the brains of George Clooney in the body of Joe Biden.
+tv-parksrec	life	tv-quote	general	0	Tom: Justin is hip. Pawnee is the opposite of hip. People in this town are just now getting into Nirvana. I don't have the heart to tell them what's going to happen to Kurt Cobain in 1994.
+tv-parksrec	society	tv-quote	general	0	Ron: Leslie needs to butt out. The whole point of this country is if you want to eat garbage, balloon up to 600 pounds, and die of a heart attack at 43, you can. You are free to do so. To me, that's beautiful.
+tv-parksrec	love	tv-quote	general	0	Wendy: Tommy, I just want you to know I'm so grateful for everything you did for me, but I only see us as friends. Tom: For now. But think how much better our friendship would be if we added...doin' it.
+tv-parksrec	society	tv-quote	general	0	Ron: Come on Leslie, you know I'm not sexist. I love powerful women. Leslie: You do attend a shocking number of WNBA games.
+tv-parksrec	life	tv-quote	general	0	Andy: Let me explain something to you, Tweep. When you're in a situation, you don't have time to think. So I thought to myself, "Don't think, Andy. Act." Tom: So you weren't thinking. Andy: Not at all. I cannot emphasize enough how little I was thinking.
+tv-parksrec	life	tv-quote	general	0	Andy: So if you had to sleep with one of the old guys, who'd it be? April: The super old one. Andy: Really? April: Mm-hm. I'm an eyebrow girl. I want to make out with him and chew his eyebrows off.
+tv-parksrec	life	tv-quote	general	0	April: Marchtember Oneteenth
+tv-parksrec	health-body	tv-quote	general	0	Leslie: Every year, Pawnee Cares teams up with the local cable access station to raise money for diabetes research. And it's important because Pawnee is the fourth fattest town in the U.S. It goes us, Dallas, Tulsa and certain parts of the Mall of America.
+tv-parksrec	nature	tv-quote	general	0	Ron: I am only here because I owe Leslie a thousand favors. I'm not big on charities. Give a man a fish and you feed him for a day. Don't teach a man to fish, and you feed yourself. He's a grown man. Fishing's not that hard.
+tv-parksrec	health-body	tv-quote	general	0	Chris: I take care of my body above all else. Diet, exercise, supplements, positive thinking. Scientists believe that the first human being who will live 150 years has already been born. I believe I am that human being.
+tv-parksrec	life	tv-quote	general	0	Jean-Ralphio: One time I waited outside a woman's house for five days just to show her how serious I was about wanting to drill her. Turns out, it was the wrong house. She loved the story anyway. We got to third base. Over the pants.
+tv-parksrec	life	tv-quote	general	0	Mark: Recently I had been thinking about maybe leaving this job but I felt like I needed a sign. And then Ann broke up with me the week I was going to propose, the government got shut down, and yesterday one of those pigeons took a [bleep] on me. And I was indoors. So...
+tv-parksrec	life	tv-quote	general	0	Ron: I am an official member of a task force dedicated to slashing the city budget. Just saying that gave me a semi.
+tv-parksrec	society	tv-quote	general	0	Ann: So are you happy to be back at work? Leslie: Well, our budget has been slashed to zero. I tried to buy fertilizer the other day for the soccer field. Request denied. We literally can't buy [bleep].
+tv-parksrec	life	tv-quote	general	0	Chris: Stop...POOPING.
+tv-parksrec	life	tv-quote	general	0	Ben: That was amazing. That was a flu ridden Michael Jordan at the '97 NBA finals. That was Kirk Gibson hobbling up to the plate and hitting a homer off of Dennis Eckersley. That was... that was Leslie Knope.
+tv-parksrec	tech	tv-quote	general	0	Andy: I typed in your symptoms here and it says you might have... network connectivity problems.
+tv-parksrec	life	tv-quote	general	0	Leslie: [flu ridden] It's not that I don't trust Ben, it's that I don't have faith in Ben. Also, I'm starting to forget who Ben is.
+tv-parksrec	health-body	tv-quote	general	0	Chris: I have a resting heart rate of 28 beats per minute. The doctors who studied me said that my heart could, literally, pump jet fuel up into a jet.
+tv-parksrec	life	tv-quote	general	0	Chris: My body is like a microchip. A grain of sand could destroy it! [exasperated] My body is a microchip...
+tv-parksrec	life	tv-quote	general	0	Leslie: [delirious, to wall poster] Good evening everyone, I'm Leslie Monster and this is Nightline.
+tv-parksrec	food	tv-quote	general	0	Ron: You had me at "Meat Tornado."
+tv-parksrec	life	tv-quote	general	0	Donna: Oh, I love any book about vampires, werewolves, monsters, zombies, sorcerers, beasties, or time-traveling romances. And if I had an hour alone with Robert Pattinson, he would forget all about Skinny Legs Magee, I'll tell you that much.
+tv-parksrec	life	tv-quote	general	0	Leslie: I know Tammy seems scary, but really she's just a manipulative, psychotic, library book pedaling, sex crazed she-demon.
+tv-parksrec	life	tv-quote	general	0	Tammy Two: You're a joke. You're not even a man anymore. Oh, and by the way, last night I faked four out of the seven. Ron: So did I.
+tv-parksrec	food	tv-quote	general	0	Ron: Just give me all the bacon and eggs you have. Wait, wait. I'm worried what you just heard was, "Give me a lot of bacon and eggs." What I said was, "Give me all the bacon and eggs you have". Do you understand?
+tv-parksrec	society	tv-quote	general	0	Ken Hotate: There are two things I know about white people. They love Rachael Ray. And they are terrified of curses.
+tv-parksrec	life	tv-quote	general	0	April: Hey, I love you. Andy: Dude, shut up! That is awesomesauce!
+tv-parksrec	life	tv-quote	general	0	Ron: I just want to get the work over as soon as possible so I can do some fishing. Fishing relaxes me. It's like yoga except I still get to kill something.
+tv-parksrec	life	tv-quote	general	0	Leslie: I'm so desperate I even brought in my dream journal hoping it would inspire me. Ann: [reading an entry] "I married ALF and we're pretty happy." That sounds nice. Leslie: It was.
+tv-parksrec	life	tv-quote	general	0	Andy: Attention, everybody! Madams and...mis...wahs? If you would do me the obligation of having your honor, heretofore, in the room doth right over there, uh, hence. Ron: What? Andy: Big event, in that room, fifteen minutes.
+tv-parksrec	love	tv-quote	general	0	Ron: Who's to say what works. You know, you find somebody you like and you roll the dice. It's all anybody can do.
+tv-parksrec	family	tv-quote	general	0	Natalie: [Wedding toast for April and Andy] My sister's really lame. But Andy's pretty cool. I guess I kinda see why he would marry her. Also, if anyone has seen my grey hoodie I lost it, thanks. [Walks off stage]
+tv-parksrec	life	tv-quote	general	0	Ron: The key to burning an ex-wife effigy is to dip it in paraffin wax and then toss the flaming bottle of isopropyl alcohol from a safe distance. Do not stand too close when you burn an ex-wife effigy.
+tv-parksrec	food	tv-quote	general	0	Ron: [presenting his cook-off entry] Here's mine. It's a hamburger, made out of meat, on a bun, with nothing. Add ketchup if you want, I couldn't care less.
+tv-parksrec	life	tv-quote	general	0	Tom: That's what you see when you close your eyes at night, Jerry: topless Leslie glued to a horse!
+tv-parksrec	food	tv-quote	general	0	Ben: Are you eating turkey chili off of a Frisbee?
+tv-parksrec	life	tv-quote	general	0	Ron: I don't like loud noises and people making a fuss. And I especially don't like people celebrating because they know a piece of private information about me. Plus the whole thing is a scam: birthdays were invented by Hallmark to sell cards.
+tv-parksrec	life	tv-quote	general	0	Leslie: The only thing I'm guilty of is loving Pawnee. And punching Lindsay in the face and shoving a coffee filter down her pants.
+tv-parksrec	life	tv-quote	general	0	Andy: You've gotta try role play like me and April. Ben: ...that explains the costume. Andy: Yeah, like you're her boss and you can't sleep together because sex is forbidden. Ben: ... That is our actual situation.
+tv-parksrec	life	tv-quote	general	0	Ben: Leslie, we have to go hire a new PR director for the health department. Leslie: Oh my god I'm so hungover. I've never been this hungover. Ben: I feel great. I ran 5K this morning. Leslie: Really? Ben: No, I threw up in the shower.
+tv-parksrec	life	tv-quote	general	0	[Ben and Leslie are interviewing people] Ben: Thank you, we'll let you know.
+tv-parksrec	life	tv-quote	general	0	[Interviewee walks out] Ben: And then our heads will explode, and we will die... [sigh]
+tv-parksrec	life	tv-quote	general	0	Leslie: I'm gonna go see a man about some porcelain, you know what I mean? I'm not buying cocaine. I'm going to the bathroom. The whiz palace, as I like to call it.
+tv-parksrec	love	tv-quote	general	0	[after her and Ben's first kiss] Leslie: Uh-oh.
+tv-parksrec	life	tv-quote	general	0	Andy: When life gives you lemons, make lemonade. I read that one on a can of lemonade. I like to think it applies to life.
+tv-parksrec	life	tv-quote	general	0	Donna: This spaceship keyboard is driving me crazy! I'm down to one word a minute. And the word is 'perfishisklep'.
+tv-parksrec	life	tv-quote	general	0	Chris: What's the point of doing 10,000 pushups a week if you have no one to do them with. I'd much rather do 5,000 pushups with a lovely woman... sitting on my back to increase my resistance.
+tv-parksrec	life	tv-quote	general	0	Ron: I have cried twice in my life. Once, when I was 7 and was hit by a bus, and again when I learned that L'il Sebastian had passed.
+tv-parksrec	life	tv-quote	general	0	Perd Hapley: There you have it, where it is the thing Leslie Knope just said about this situation.
+tv-parksrec	life	tv-quote	general	0	Leslie: Basically we are being attacked by Godzilla, and to beat Godzilla, we need Mothra. No offense. Tammy Two: None taken. I'm very flattered.
+tv-parksrec	life	tv-quote	general	0	Derry: Welcome to "Thoughts For Your Thoughts." I'm Derry Murbles, filling in for David Parker who took off for 8 months to study the migration patterns of our nation's squirrels. He has not been heard from since.
+tv-parksrec	arts	tv-quote	general	0	Donna: What is wrong with you today? Did they cancel Game of Thrones? Ben: Nothing is wrong, just do your job. And they would never cancel Game of Thrones. It's a crossover hit. It's not just for fantasy enthusiasts, they're telling human stories in a fantasy world.
+tv-parksrec	life	tv-quote	general	0	Donna: Relaxation lesson number one: acupuncture. It's great for your back and your rear. Needles in your face, pleasure in yo' base.
+tv-parksrec	life	tv-quote	general	0	Andy: Hey Ron, good to see ya! Weren't you a pirate last year? Ron: Yes. This is my Halloween costume.
+tv-parksrec	work-money	tv-quote	general	0	Tom: Well, Entertainment 720 is dead. It's up in company heaven along with Pets.com, Blockbuster, and Ask Jeeves. My company is no better than a company where you ask a fake butler to Google things for you.
+tv-parksrec	faith	tv-quote	general	0	Ron: What religion am I? Well, I'm a practicing none of your [bleep] business.
+tv-parksrec	society	tv-quote	general	0	Leslie: I need a few more volunteers. Andy, will you be Iceland? Andy: The bad guys from Mighty Ducks 2? Don't think so. Leslie: OK, how about Japan? Andy: The bad guys from Karate Kid 2? Even worse. How about Germany? They've never been the bad guys.
+tv-parksrec	life	tv-quote	general	0	Ben: It's a white flag, and you better start waving it now, Leslie! Leslie: The only thing I'll be waving is your decapitated head on a stick in front of your weeping mother! Ben: ...Good Lord.
+tv-parksrec	work-money	tv-quote	general	0	Ron: I value a good education, so I don't want to see Andy waste his time in college. Of all my co-workers, he's one of a small number whom I don't actively root against. Ah, there I go getting all sappy.
+tv-parksrec	life	tv-quote	general	0	Leslie: Ann, you beautiful tropical fish.
+tv-parksrec	life	tv-quote	general	0	Leslie: It's true. I no longer have highly trained, professional campaign managers. So what? Are most murders committed by highly trained, professional assassins? No, they're committed by friends and coworkers! ...That analogy was way better in my head.
+tv-parksrec	society	tv-quote	general	0	Leslie: He is attractive, and charming, and his family employs half the town. But so what? I am a lifelong government bureaucrat who's well versed in the issues. And those are the kind of sexy qualifications that win elections.
+tv-parksrec	life	tv-quote	general	0	Jerry: Is everybody feeling good? April: Oh, I don't know Jerry. It's Sunday night, I'm making phone calls to strangers, and you're in my house. My life couldn't be worse.
+tv-parksrec	life	tv-quote	general	0	Ron: [on bowling] Straight down the middle. No hook, no spin, no fuss. Anything more and this becomes figure skating.
+tv-parksrec	food	tv-quote	general	0	Ron: When I eat, it's the food that's scared.
+tv-parksrec	life	tv-quote	general	0	Andy: April hates Valentine's Day. And brunch, and outside, and smiling. [laughs] She's weird.
+tv-parksrec	arts	tv-quote	general	0	Tom: Hey, Kris Kross, can we change up the music? It kinda sounds like the end of a movie about a monk who killed himself. Chris: It is.
+tv-parksrec	food	tv-quote	general	0	Ron: I'm sorry, I was talking to these ribs.
+tv-parksrec	life	tv-quote	general	0	Donna: We're not big on hospitality. The Meagles are a cold people.
+tv-parksrec	life	tv-quote	general	0	Leslie: "Not enough ramps" is the number three complaint among Pawnee seniors, right behind "Everything hurts" and "I'm dying."
+tv-parksrec	life	tv-quote	general	0	Ron: It reminds me of when my dad made me choose which of my pet calves to slaughter with my own hands for my 6th birthday. I couldn't choose, so I slaughtered both of them. And they were delicious.
+tv-parksrec	life	tv-quote	general	0	Tom: It says "nympho" on the butt in silver sparkly letters. Nympho means you're addicted to sex, and since it's on the butt, there are other implications as well. So those are a maybe.
+tv-parksrec	food	tv-quote	general	0	Ron: Now if you'll excuse me, there's a hot, spinning cone of meat in that Greek restaurant next door. I don't know what it is, but I'd like to eat the whole thing.
+tv-parksrec	health-body	tv-quote	general	0	Chris: If I had to have anybody tell me that I have cancer, I would want it to be me.
+tv-parksrec	work-money	tv-quote	general	0	Donor: So you do a lot of investing? Andy: We dabble. I recently invested in some shirts at a garage sale. Left those at a Wendy's on the way home, so... [chuckles, lifts up wine glass and stares at it] The economy.
+tv-parksrec	life	tv-quote	general	0	Tom: He's just playing hard ball. Let me tell you how it's going to go down: In a few minutes, we'll walk in there, we'll give him our demands, and then BAM, I start crying.
+tv-parksrec	life	tv-quote	general	0	Andy: From now on, we will be using code names. You can address me as Eagle One. Ann, code name: Been There, Done That. April is Currently Doing That. Donna is It Happened Once In A Dream. Chris, code name: If I Had To Pick A Dude. Ben is Eagle Two. Ben: Oh thank God.
+tv-parksrec	life	tv-quote	general	0	Ben: Your victory speech, Councilwoman Knope. Leslie: Someday, when I'm more emotionally stable, I want to read the concession speech you wrote for me. Ben: I never wrote it.
+tv-parksrec	food	tv-quote	general	0	Ron: Your work is appreciated. Eat some corn.
+tv-parksrec	life	tv-quote	general	0	Andy: I'm never gonna be a cop. I'm gonna have to be a robber.
+tv-parksrec	arts	tv-quote	general	0	April: Are you busy? And writing Star Trek fan fiction doesn't count. Ben: Ha. ...And I finished that last week.
+tv-parksrec	life	tv-quote	general	0	Leslie: The perm must wait, Autumn. THE...PERM...MUST...WAIT.
+tv-parksrec	life	tv-quote	general	0	Marshall Langman: Guurrl, you look like Annie Oakley and Pippi Longstocking had a baby and I LOVE it.
+tv-parksrec	love	tv-quote	general	0	Ben: (on phone with Leslie) I love you. Leslie: I love you too. What are you wearing? Ben: I can't do that right now.
+tv-parksrec	love	tv-quote	general	0	Ben: Marry me? Leslie: Oh, yeah!
+tv-parksrec	family	tv-quote	general	0	Ben: If there's anyone who can bring my parents together, its NO ONE. No one can bring my parents together.
+tv-parksrec	love	tv-quote	general	0	Leslie: I'm so happy I want to shout it from the rooftops! Ben: And she has. We've gotten several noise complaints/ Leslie: We're getting married!! Ben: All right.
+tv-parksrec	life	tv-quote	general	0	Andy: I can never tell if people are lying to me. I hope that doesn't come up in my police work
+tv-parksrec	life	tv-quote	general	0	Ben: Just call me, Municipal Bond
+tv-parksrec	life	tv-quote	general	0	Ron: I started working on something very important. Can you help me? Chris: Yes sir. Ron: (To the camera) Its a flight of stairs leading nowhere.
+tv-parksrec	life	tv-quote	general	0	Ben: I don't know if you knew this, but Leslie was born in Eagleton. Leslie: Do not blame me for the sins of my mother!
+tv-parksrec	life	tv-quote	general	0	Andy: I'm allergic to sushi. Every time I eat more than 80 pieces, I throw up.
+tv-parksrec	life	tv-quote	general	0	Leslie: Merry Congratuchristmas! Ron: What?
+tv-parksrec	life	tv-quote	general	0	Tom: It's cold outside and I can't wear mittens because they're not flattering to my hands!
+tv-parksrec	love	tv-quote	general	0	Chris: To Tom Haverford! Wooo! Tom: And to my wife Rihanna! We truly did find love in a hopeless place
+tv-parksrec	life	tv-quote	general	0	Tom: I can't keep referring to basketball players as Khloe Kardashian's husband and his friends.
+tv-parksrec	society	tv-quote	general	0	April: You know what? I think men are better than women. Leslie: She's kidding April: No I'm not. they provide for us and we must obey them because they are our masters.
+tv-parksrec	work-money	tv-quote	general	0	Andy: You are officially a baller. Tom: I've been a baller since birth, son. Now, I'm an athlete.
+tv-parksrec	life	tv-quote	general	0	Ron: Jerry. I never thought I would say this, but I am so glad you're here.
+tv-parksrec	food	tv-quote	general	0	Ron: There's been a mistake. You've accidentally given me the food that my food eats.
+tv-parksrec	life	tv-quote	general	0	April: So tomorrow, I lead a public forum in Leslie's Fleetwood Mac sex pants. Andy: Fleetwood Mac sex pants. New band name. I call it. [snaps fingers] Ooh, you know what? Maybe just Fleetwood Mac.
+tv-parksrec	life	quip	general	0	Tom: It smells like some vomit took a dump in here.
+tv-parksrec	food	tv-quote	general	0	Tom: [Ben, Ron, and Chris all have food poisoning] I didn't eat those stupid mini-calzones. Haver-Food rule number six- Never eat anything with a sauce I have to dip myself. Drizzle it on for me. I'm not your maid.
+tv-parksrec	life	tv-quote	general	0	Leslie: Damnit, Jamm. I should have had animal control kill you. Animal Control: Huh.. Who do you want me to kill...I'll kill them.
+tv-parksrec	life	tv-quote	general	0	Donna: The tables showed up which is good, but there are no chairs which is bad.
+tv-parksrec	love	tv-quote	general	0	Tom: Love? Love fades away. But things? Things are forever.
+tv-parksrec	life	tv-quote	general	0	Donna: Did you just pee your pants? Jerry: Just a dab. Donna: You nasty Jerry.
+tv-parksrec	life	tv-quote	general	0	Chris: I hate to say this, but Ann Perkins has terrible taste in rings.
+tv-parksrec	life	tv-quote	general	0	Jerry: When I heard Leslie was getting married, I was all, "to Ben or to Game of Thrones." Tom: Nooooo... Jerry!
+tv-parksrec	love	tv-quote	general	0	Ron: [to Leslie] Before we go inside, I'd like to say something. You are a wonderful person. [voice breaks] Your friendship means a lot to me. And you look very beautiful.
+tv-parksrec	work-money	quip	general	0	Ron: People who buy things are suckers.
+tv-parksrec	work-money	tv-quote	general	0	Ron: I wish this office was just walls.
+tv-parksrec	life	tv-quote	general	0	Ann: Before I write that letter, you have to spend a whole week doing everything I say. April: So what, I have to be your slave or something? Ann: No, you have to be my friend April: Ugh, that's so much worse.
+tv-parksrec	life	tv-quote	general	0	Chris: You're a smart successful young man with an adorable belly.
+tv-parksrec	food	tv-quote	general	0	Chris: Last year I won an organic gardening contest. Donna: Who were you competing against? Chris: My own taste buds.
+tv-parksrec	food	tv-quote	general	0	Ron: There's only one thing I hate more than lying: skim milk, which is water that's lying about being milk
+tv-parksrec	life	tv-quote	general	0	Tom: May I say for the record that is a dope pocket square
+tv-parksrec	life	tv-quote	general	0	April: HIs nickname around the office is Softypants Mchuggable.
+tv-parksrec	life	tv-quote	general	0	April: We should sue Jamm's parents for spawning a human turd burger.
+tv-parksrec	life	tv-quote	general	0	Tom: Pop quiz. Name the scent. Ben: Ummm Spasm. No, Butterface.
+tv-parksrec	life	tv-quote	general	0	Leslie: April, I got a present for you. [holding a basket full of lotion bottles] April: I don't like lotion. I like my hands to be cracked and calloused like a railway worker. Leslie: I know. I filled the bottles with fake blood, vinegar, and mud. April: [smiles] Really? Thanks.
+tv-parksrec	life	tv-quote	general	0	Ron: Normally, if given a choice between doing something and nothing, I'd choose to do nothing. But I will do something if it helps someone else do nothing. I'd work all night if it meant nothing got done.
+tv-parksrec	life	joke	general	0	Tom: One time my refrigerator stopped working and I had no idea what do to! I just moved.
+tv-parksrec	work-money	tv-quote	general	0	Ron: There are only three ways to motivate people: money, fear and hunger.
+tv-parksrec	life	tv-quote	general	0	April: My spirit blood is on your hands.
+tv-parksrec	life	tv-quote	general	0	Tom: Ron, ask me if I am sad. Ron: No
+tv-parksrec	life	tv-quote	general	0	Donna: Andy will never be the new Jerry. Nothing embarrasses him. He is like a giant puppy with no shame.
+tv-parksrec	life	tv-quote	general	0	Tom: I'm gonna buy some sweat pants and a Nicholas Sparks novel. Might as well lean into it.
+tv-parksrec	faith	tv-quote	general	0	Andy: Look, Hogwarts. Ben: No, that's Buckingham Palace. Hogwarts is fictional. You do know that, don't you? It's important to me that you know that.
+tv-parksrec	society	tv-quote	general	0	Ron: History began on July 4, 1776. Everything that happened before that was a mistake.
+tv-parksrec	society	tv-quote	general	0	Ron: I thought you needed some air, even if that air is fouled by the stench of European socialism.
+tv-parksrec	family	tv-quote	general	0	Tom: Your son, he's my best friend, he's like a brother to me, but he's a disaster. And your daughter, she needs to be put in a mental institution. On an island. In space.

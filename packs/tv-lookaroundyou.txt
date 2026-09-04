@@ -1,0 +1,45 @@
+tv-lookaroundyou	science	tv-quote	general	0	Narrator: Here is a model of a calcium molecule. Do you recognise the triple helix? If you do, write it down.
+tv-lookaroundyou	science	tv-quote	general	0	Narrator: The largest number is about 45,000,000,000 although mathematicians suspect that there may be even larger numbers. Text on screen reads: 45,000,000,001?
+tv-lookaroundyou	life	tv-quote	general	0	Narrator: Maths stands for Mathematical Anti-Telharsic Harfatum Septomin.
+tv-lookaroundyou	life	tv-quote	general	0	Narrator: We use maths at almost every point of the day, whether we're working out how to thread our shoelaces, calculating the optimal moment on which to embark upon a conversation, or, if you can fly, planning your trajectory for the journey to work.
+tv-lookaroundyou	life	tv-quote	general	0	Narrator: (cutting into a boiled egg) Make sure you look out for the release of the new albumen... (the egg cracks open) It's out now.
+tv-lookaroundyou	life	tv-quote	general	0	Narrator: Thanks, ants. Thants.
+tv-lookaroundyou	life	tv-quote	general	0	Narrator: The gas mafipulates gently through the Jane Grey and into the water, causing bubbling. The mafipulation is allowed to continue for 5 minutes.
+tv-lookaroundyou	life	tv-quote	general	0	Narrator: If you look carefully, you'll notice that the water has changed colour from invisible to brown.
+tv-lookaroundyou	life	tv-quote	general	0	Narrator: Bless you, ants. Blants.
+tv-lookaroundyou	life	joke	general	0	Narrator: Germs originated in Germany, before rapidly spreading throughout the rest of the world.
+tv-lookaroundyou	life	tv-quote	general	0	Narrator: Germs are basically a malevolent form of bacteria, with one purpose: to spread germs.
+tv-lookaroundyou	life	tv-quote	general	0	Narrator: You can pick up germs from a variety of sources, and because they're invisible they're almost impossible to see.
+tv-lookaroundyou	life	tv-quote	general	0	Narrator: Moth apples are smaller than crab apples, sweeter too. Don't be tempted to eat them, as they are highly explosive.
+tv-lookaroundyou	life	tv-quote	general	0	Narrator: But there's no need to be scared of ghosts, it's a very childish attitude as the majority of them are quite harmless. This spirit is helping a girl with her homework, while this one is mending its master's caravan.
+tv-lookaroundyou	life	tv-quote	general	0	Narrator: Ghosts. You may know them as ghouls or demons or spirits or spirims or spictrims.
+tv-lookaroundyou	life	tv-quote	general	0	Narrator: One way in which ghosts are different from man is that they can't whistle. Try as they might, the most they can muster is a rather feeble hiss. Perhaps it's because their lips are transparent and their tongues are see-through?
+tv-lookaroundyou	life	tv-quote	general	0	Narrator: We will be using a household object famous for its iron content. Can you guess what it is? Correct. Champagne.
+tv-lookaroundyou	life	tv-quote	general	0	Narrator: (Talking about heat vision) You've probably seen this in action at your local dump, where it is used by the waste disposal industry.
+tv-lookaroundyou	life	tv-quote	general	0	Narrator: There are those that actually believe that this is music. They call it 'birdsong', but it's hardly a song. There's no real tune to speak of, just a cacophony of squawks and chirrups. What a racket!
+tv-lookaroundyou	arts	tv-quote	general	0	Narrator: One can only imagine a world without music, though we'd probably get used to it after a while.
+tv-lookaroundyou	tech	tv-quote	general	0	Narrator: Here's a state of the art, song-writing computer, the 'Harrington 1200.' You've probably never seen one yourself because it costs almost a thousand pounds. Price tag reads £999.99½p
+tv-lookaroundyou	arts	tv-quote	general	0	Narrator: But it's at the heart of the Harrington that we find the real musical motors that power this machine. DNA samples taken from the composers Gilbert and Sullivan.
+tv-lookaroundyou	life	tv-quote	general	0	Narrator: An enormous pair of scissors has appeared in the sky directly above the laboratory, and after a few moments, it's gone. It's an old experiment that you've probably seen before, but well worth trying nonetheless.
+tv-lookaroundyou	life	tv-quote	general	0	Narrator: Here is a model of an iron molecule. And here is a model of a model, modeled in iron.
+tv-lookaroundyou	science	tv-quote	general	0	Narrator: Man has been using iron since the stone age.% Narrator: What is the brain? If you don't know that, you've forgotten how to think.
+tv-lookaroundyou	science	observation	general	0	Narrator: The brain is basically a wrinkled bag of skin, filled with warm water, veins and thought muscles. Think of it as a kind of modified heart, only with a mind or brain.
+tv-lookaroundyou	life	tv-quote	general	0	Narrator: The opposite of the brain is probably the bum. It's nowhere near as intelligent as the brain. It doesn't have to be as it only needs to make very basic calculations. Man enters toilet, and locks door
+tv-lookaroundyou	life	quip	general	0	Narrator: You don't have to be a brain surgeon to operate on the brain.
+tv-lookaroundyou	life	tv-quote	general	0	(phone rings) Scientist: Hello? Narrator: It's the BRAIN.% Pam: Who could forget when the Post Office Tower spent 7 weeks at number one [due to a clerical error]?
+tv-lookaroundyou	life	tv-quote	general	0	Peter: Well, you've certainly given the ghost of Tchaikovsky something to think about.
+tv-lookaroundyou	life	tv-quote	general	0	Peter: Thanks, Tchaikovsky, Thaikovsky.% Morgan: (after an unusual face-lift) Wow! I love it! Packard: Yes, the tusk really sets it off!
+tv-lookaroundyou	life	tv-quote	general	0	Dr Franklin Fu: Medibot! Medibot: MEDIBOT!
+tv-lookaroundyou	life	tv-quote	general	0	Pealy: When you think of Pennsylvania, you probably think of pencils.
+tv-lookaroundyou	life	tv-quote	general	0	Peter: Thanks, ants. Thants.% Continuity Announcer: Look Around You follows in a minute, but first we have the line up for St. Frankenstein's day.
+tv-lookaroundyou	arts	tv-quote	general	0	Continuity Announcer: At 10:40 we have The Honey Programme, hosted by David Bumblebee.
+tv-lookaroundyou	life	tv-quote	general	0	Continuity Announcer: Imagine That is at 11:00, and this week the businessmen are trying to imagine The Two Ronnies having sex with each other.
+tv-lookaroundyou	food	tv-quote	general	0	Peter: When you hear the words "fast food", you automatically think of one thing: casserole.
+tv-lookaroundyou	life	tv-quote	general	0	Peter: Well, unfortunately, there never was an opening night. Only hours after that piece was filmed, Clive Pounds sadly died from complications following a wasp sting to his anus. And so, as a mark of respect, we will now observe a one-second silence.
+tv-lookaroundyou	life	tv-quote	general	0	Peter: And now for your special birthday surprise. It's you, Pam Bachelor, at age 90!
+tv-lookaroundyou	life	tv-quote	general	0	Continuity Announcer: Viewers may be pleased to know that Clive Pounds, who died during production of this program, has since come back to life.% Continuity Announcer: Look Around You follows in a minute, but first we have the line up for Antmas Eve.
+tv-lookaroundyou	life	tv-quote	general	0	Peter: Thanks, Eddie. Theddie.
+tv-lookaroundyou	life	quip	general	0	Teacher in dream: Idiot! Pidiot! Pridiot! Peroxamidiot! CABBAGE HALL IDIOT INVESTMENT FUND!!!!
+tv-lookaroundyou	life	tv-quote	general	0	Pam: Well, this trophy is made entirely from solid gold, plated with tin.
+tv-lookaroundyou	life	tv-quote	general	0	Birds of Britain narrator: (shows a picture of an arm) These are hand birds. That one is eating a worm.
+tv-lookaroundyou	life	tv-quote	general	0	Peter: Thanks, Hanks. Thanks.

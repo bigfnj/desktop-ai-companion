@@ -1,0 +1,12 @@
+brecht_dances-events-puzzles	arts	verse	general	0	10 Six Doors * exit * entrance * exit entrance * ~ George Brecht: Dances, Events Puzzles
+brecht_dances-events-puzzles	arts	fact	general	0	11 Two Durations red green ~ George Brecht: Dances, Events Puzzles
+brecht_dances-events-puzzles	arts	fact	general	0	12 Exercise Determine the centre of an object or event. Determine the centre more accurately. Repeat, until further inaccuracy is impossible. ~ George Brecht: Dances, Events Puzzles
+brecht_dances-events-puzzles	arts	verse	general	0	13 Symphony No. 5 I. before hearing II. hearing III. after hearing ~ George Brecht: Dances, Events Puzzles
+brecht_dances-events-puzzles	arts	quip	general	0	14 Three Dances 1. Saliva 2. Pause Urination. Pause. 3. Perspiration. ~ George Brecht: Dances, Events Puzzles
+brecht_dances-events-puzzles	arts	verse	general	0	15 Untitled Three of them were the same size, and two were not. ~ George Brecht: Dances, Events Puzzles
+brecht_dances-events-puzzles	arts	fact	general	0	16 Swim Puzzle Red plastic box with label on the lid containing clam shell and the score printed on card stock: "Arrange the beads in such a way the word CUAL never occurs." ~ George Brecht: Dances, Events Puzzles
+brecht_dances-events-puzzles	arts	verse	general	0	5 Three Yellow Events I yellow yellow yellow II yellow loud III red ~ George Brecht: Dances, Events Puzzles
+brecht_dances-events-puzzles	arts	fact	general	0	6 Three Window Events opening a closed window closing an open window ~ George Brecht: Dances, Events Puzzles
+brecht_dances-events-puzzles	arts	quip	general	0	7 Three Lamp Events on. off. lamp off. on. ~ George Brecht: Dances, Events Puzzles
+brecht_dances-events-puzzles	arts	fact	general	0	8 Two Elimination Events empty vessel empty vessel ~ George Brecht: Dances, Events Puzzles
+brecht_dances-events-puzzles	arts	quip	general	0	9 Word Event Exit. ~ George Brecht: Dances, Events Puzzles

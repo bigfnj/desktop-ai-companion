@@ -1,0 +1,152 @@
+EnglishAsSheIsSpoke	work-money	quip	general	0	A bad arrangement is better than a process.
+EnglishAsSheIsSpoke	food	wisdom	general	0	A day came a man consult this philosopher for to know at o'clock it was owe to eat. If thou art rich, told him eat when you shall wish; if you are poor, when you may do.
+EnglishAsSheIsSpoke	life	quip	general	0	A duchess accused of magic being interrogated for a commissary extremely unhandsome, this was beg him selve one she had look the devil. "Yes, sir, I did see him, was answer the duchess, and he was like you as two water's drops."
+EnglishAsSheIsSpoke	life	aphorism	general	0	A horse baared don't look him the tooth.
+EnglishAsSheIsSpoke	life	quip	general	0	A throat's ill.
+EnglishAsSheIsSpoke	life	quip	general	0	After the paunch comes the dance.
+EnglishAsSheIsSpoke	nature	quip	general	0	All trees have very deal bear.
+EnglishAsSheIsSpoke	life	wisdom	general	0	Apply you at the study during that you are young.
+EnglishAsSheIsSpoke	life	aphorism	general	0	At some thing the misforte is good.
+EnglishAsSheIsSpoke	food	quip	general	0	At what o'clock dine him?
+EnglishAsSheIsSpoke	life	quip	general	0	At what purpose have say so?
+EnglishAsSheIsSpoke	life	quip	general	0	Burn the politeness.
+EnglishAsSheIsSpoke	life	aphorism	general	0	Cat scalded fear the cold water.
+EnglishAsSheIsSpoke	life	quip	general	0	Do not might one's understand to speak.
+EnglishAsSheIsSpoke	life	quip	general	0	Do you know they to?
+EnglishAsSheIsSpoke	life	quip	general	0	Do you know they?
+EnglishAsSheIsSpoke	life	quip	general	0	Dont you are awaken yet?
+EnglishAsSheIsSpoke	life	quip	general	0	Dress my horse.
+EnglishAsSheIsSpoke	life	quip	general	0	Dress your hairs.
+EnglishAsSheIsSpoke	life	quip	general	0	Dry this wine.
+EnglishAsSheIsSpoke	nature	quip	general	0	Few, few the bird make her nest.
+EnglishAsSheIsSpoke	life	aphorism	general	0	Friendship of a child is water into a basket.
+EnglishAsSheIsSpoke	life	quip	general	0	Give me some good milk newly get out.
+EnglishAsSheIsSpoke	life	quip	general	0	Go to send for.
+EnglishAsSheIsSpoke	life	quip	general	0	Have you forgeted me?
+EnglishAsSheIsSpoke	life	quip	general	0	Have you say that?
+EnglishAsSheIsSpoke	life	quip	general	0	Have you understand that he says?
+EnglishAsSheIsSpoke	life	quip	general	0	Have you understand they?
+EnglishAsSheIsSpoke	life	quip	general	0	Have you understanded?
+EnglishAsSheIsSpoke	life	quip	general	0	He burns one's self the brains.
+EnglishAsSheIsSpoke	life	quip	general	0	He do the devil at four.
+EnglishAsSheIsSpoke	life	quip	general	0	He do want to fall.
+EnglishAsSheIsSpoke	life	quip	general	0	He does me some kicks.
+EnglishAsSheIsSpoke	life	quip	general	0	He eat untill to can't more.
+EnglishAsSheIsSpoke	life	quip	general	0	He has a good beak.
+EnglishAsSheIsSpoke	life	quip	general	0	He has fond the knuckle of the business.
+EnglishAsSheIsSpoke	life	quip	general	0	He has me take out my hairs.
+EnglishAsSheIsSpoke	life	quip	general	0	He has scratch the face with hers nails.
+EnglishAsSheIsSpoke	life	quip	general	0	He has spit in my coat.
+EnglishAsSheIsSpoke	life	observation	general	0	He has the word for to laugh.
+EnglishAsSheIsSpoke	life	quip	general	0	He is beggar as a church rat.
+EnglishAsSheIsSpoke	life	quip	general	0	He is not so devil as he is black.
+EnglishAsSheIsSpoke	life	aphorism	general	0	He is not valuable to breat that he eat.
+EnglishAsSheIsSpoke	life	quip	general	0	He is valuable his weight's gold.
+EnglishAsSheIsSpoke	life	quip	general	0	He laughs at my nose, he jest by me.
+EnglishAsSheIsSpoke	life	quip	general	0	He make to weep the room.
+EnglishAsSheIsSpoke	life	quip	general	0	He sin in trouble water.
+EnglishAsSheIsSpoke	life	quip	general	0	He turns as a weath turcocl.
+EnglishAsSheIsSpoke	life	quip	general	0	He was fighted in duel.
+EnglishAsSheIsSpoke	life	observation	general	0	He was wanting to be killed.
+EnglishAsSheIsSpoke	life	quip	general	0	Help-to a little most the better yours terms.
+EnglishAsSheIsSpoke	life	quip	general	0	How do you can it to deny?
+EnglishAsSheIsSpoke	life	quip	general	0	I am catched cold in the brain.
+EnglishAsSheIsSpoke	life	quip	general	0	I am catched cold.
+EnglishAsSheIsSpoke	life	quip	general	0	I am confused all yours civilities.
+EnglishAsSheIsSpoke	life	quip	general	0	I am pinking me with a pin.
+EnglishAsSheIsSpoke	life	quip	general	0	I dead myself in envy to see her.
+EnglishAsSheIsSpoke	life	quip	general	0	I have croped the candle.
+EnglishAsSheIsSpoke	life	quip	general	0	I have mind to vomit.
+EnglishAsSheIsSpoke	life	quip	general	0	I have put my stockings outward.
+EnglishAsSheIsSpoke	life	observation	general	0	I not make what to coughand spit.
+EnglishAsSheIsSpoke	life	quip	general	0	I shall not tell you than two woods.
+EnglishAsSheIsSpoke	food	quip	general	0	I take a broth all morning.
+EnglishAsSheIsSpoke	life	quip	general	0	I will not to sleep on street.
+EnglishAsSheIsSpoke	life	quip	general	0	If can't to please at every one's.
+EnglishAsSheIsSpoke	life	aphorism	general	0	In the country of blinds, the one eyed men are kings.
+EnglishAsSheIsSpoke	life	quip	general	0	It is a noise which to cleave the head.
+EnglishAsSheIsSpoke	love	aphorism	general	0	It is better be single as a bad company.
+EnglishAsSheIsSpoke	life	quip	general	0	It must never to laugh of the unhappies.
+EnglishAsSheIsSpoke	life	aphorism	general	0	It want to beat the iron during it is hot.
+EnglishAsSheIsSpoke	life	quip	general	0	Its are some blu stories.
+EnglishAsSheIsSpoke	life	aphorism	general	0	Keep the chestnut of the fire with the cat foot.
+EnglishAsSheIsSpoke	life	quip	general	0	Lay him hir apron.
+EnglishAsSheIsSpoke	life	quip	general	0	Let him have know?
+EnglishAsSheIsSpoke	life	quip	general	0	Never I have feeld a such heat
+EnglishAsSheIsSpoke	life	quip	general	0	No budge you there.
+EnglishAsSheIsSpoke	life	quip	general	0	Nothing some money, nothing of Swiss.
+EnglishAsSheIsSpoke	life	aphorism	general	0	Of the hand to mouth, one lose often the soup.
+EnglishAsSheIsSpoke	life	dark	general	0	One eyed was laied against a man which had good eyes that he saw better than him. The party was accepted. "I had gain, over said the one eyed; why I see you two eyes, and you not look me who one."
+EnglishAsSheIsSpoke	life	quip	general	0	One's can to believe you?
+EnglishAsSheIsSpoke	life	quip	general	0	One's find-modest the young men rarely.
+EnglishAsSheIsSpoke	life	quip	general	0	Put your confidence at my.
+EnglishAsSheIsSpoke	life	quip	general	0	She do not that to talk and to cackle.
+EnglishAsSheIsSpoke	life	quip	general	0	Since you not go out, I shall go out nor I neither.
+EnglishAsSheIsSpoke	life	quip	general	0	Sing an area.
+EnglishAsSheIsSpoke	life	aphorism	general	0	So many go the jar to spring, than at last rest there.
+EnglishAsSheIsSpoke	life	aphorism	general	0	So much go the jar to spring that at last it break there.
+EnglishAsSheIsSpoke	life	quip	general	0	Take attention to cut you self.
+EnglishAsSheIsSpoke	life	quip	general	0	Take care to dirt you self.
+EnglishAsSheIsSpoke	life	aphorism	general	0	Take out the live coals with the hand of the cat.
+EnglishAsSheIsSpoke	life	quip	general	0	Take that boy and whip him to much.
+EnglishAsSheIsSpoke	life	observation	general	0	Take the occasion for the hairs.
+EnglishAsSheIsSpoke	life	aphorism	general	0	Tell me whom thou frequent, I will tell you which you are.
+EnglishAsSheIsSpoke	life	quip	general	0	Tell me, it can one to know?
+EnglishAsSheIsSpoke	life	quip	general	0	That are the dishes whose you must be and to abstain.
+EnglishAsSheIsSpoke	life	quip	general	0	That is that I have think.
+EnglishAsSheIsSpoke	life	quip	general	0	That may dead if I lie you.
+EnglishAsSheIsSpoke	life	quip	general	0	That should must me to cost my life.
+EnglishAsSheIsSpoke	life	quip	general	0	The ears are too length.
+EnglishAsSheIsSpoke	life	quip	general	0	The hands itch at him.
+EnglishAsSheIsSpoke	life	quip	general	0	The necessity don't know the low.
+EnglishAsSheIsSpoke	life	quip	general	0	The pains come at horse and turn one's self at foot.
+EnglishAsSheIsSpoke	life	quip	general	0	The paving stone is sliphery.
+EnglishAsSheIsSpoke	nature	observation	general	0	The rose-trees begins to button.
+EnglishAsSheIsSpoke	life	quip	general	0	The stone as roll not heap up not foam.
+EnglishAsSheIsSpoke	life	quip	general	0	The storm is go over.
+EnglishAsSheIsSpoke	life	quip	general	0	The sun begins to dissipe it.
+EnglishAsSheIsSpoke	life	quip	general	0	The thunderbolt is falling down.
+EnglishAsSheIsSpoke	life	quip	general	0	There is not any rnler without a exception.
+EnglishAsSheIsSpoke	food	aphorism	general	0	There is not better sauce who the appetite.
+EnglishAsSheIsSpoke	life	observation	general	0	These apricots and these peaches make me and to come water in mouth.
+EnglishAsSheIsSpoke	life	quip	general	0	They fight one's selfs together.
+EnglishAsSheIsSpoke	life	quip	general	0	They shurt him the doar in face.
+EnglishAsSheIsSpoke	life	quip	general	0	This girl have a beauty edge.
+EnglishAsSheIsSpoke	life	quip	general	0	This ink is white.
+EnglishAsSheIsSpoke	food	quip	general	0	This meat ist not too over do.
+EnglishAsSheIsSpoke	life	observation	general	0	This room is filled of bugs.
+EnglishAsSheIsSpoke	life	quip	general	0	This wood is fill of thief's.
+EnglishAsSheIsSpoke	life	quip	general	0	Till hither.
+EnglishAsSheIsSpoke	life	quip	general	0	Till say-us?
+EnglishAsSheIsSpoke	life	quip	general	0	To be as a fish into the water.
+EnglishAsSheIsSpoke	life	quip	general	0	To build castles in Espagnish.
+EnglishAsSheIsSpoke	life	quip	general	0	To buy cat in pocket.
+EnglishAsSheIsSpoke	life	quip	general	0	To come back at their muttons.
+EnglishAsSheIsSpoke	life	quip	general	0	To craunch the marmoset.
+EnglishAsSheIsSpoke	life	quip	general	0	To do a wink to some body.
+EnglishAsSheIsSpoke	life	quip	general	0	To do the fine spirit.
+EnglishAsSheIsSpoke	life	quip	general	0	To fatten the foot.
+EnglishAsSheIsSpoke	work-money	quip	general	0	To force to forge, becomes smith.
+EnglishAsSheIsSpoke	life	aphorism	general	0	To look for a needle in a hay bundle.
+EnglishAsSheIsSpoke	life	quip	general	0	To make paps for the cats.
+EnglishAsSheIsSpoke	life	quip	general	0	To morrow hi shall be entirely (her master) or unoccupied.
+EnglishAsSheIsSpoke	life	quip	general	0	Upon my live.
+EnglishAsSheIsSpoke	life	quip	general	0	Wax my shoes.
+EnglishAsSheIsSpoke	life	quip	general	0	We are in the canicule.
+EnglishAsSheIsSpoke	life	quip	general	0	What is it who want you?
+EnglishAsSheIsSpoke	life	quip	general	0	Where are their stockings, their shoes, her shirt and her petlicot?
+EnglishAsSheIsSpoke	life	quip	general	0	Which like Bertram, love hir dog.
+EnglishAsSheIsSpoke	life	quip	general	0	Why you no helps me to?
+EnglishAsSheIsSpoke	food	quip	general	0	Will some mutton?
+EnglishAsSheIsSpoke	life	quip	general	0	Will you a bon?
+EnglishAsSheIsSpoke	life	quip	general	0	Will you fat or slight?
+EnglishAsSheIsSpoke	life	quip	general	0	Will you this?
+EnglishAsSheIsSpoke	life	pun	general	0	Witch prefer you?
+EnglishAsSheIsSpoke	life	quip	general	0	With a tongue one go to Roma.
+EnglishAsSheIsSpoke	love	quip	general	0	You come too rare.
+EnglishAsSheIsSpoke	life	quip	general	0	You interompt me.
+EnglishAsSheIsSpoke	life	uplifting	general	0	You make grins.
+EnglishAsSheIsSpoke	life	quip	general	0	You mistake you self heavily.
+EnglishAsSheIsSpoke	work-money	quip	general	0	You not make that to prate all day's work.
+EnglishAsSheIsSpoke	life	quip	general	0	You not make who to babble.
+EnglishAsSheIsSpoke	life	quip	general	0	You shall catch cold one's.

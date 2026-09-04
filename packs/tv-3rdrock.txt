@@ -1,0 +1,167 @@
+tv-3rdrock	nature	tv-quote	edgy	1	Dick: Can anyone get their head to swivel to the rear? (no) Then how are you suppose to lick your back!?
+tv-3rdrock	life	tv-quote	edgy	1	Dick: I think we've underestimated the life on this planet. The people have so much courage. Here they are hurling through space on a molten rock at 67000 miles an hour and the only thing that keeps them from flying out of their shoes is their misplaced faith in gravity.
+tv-3rdrock	life	tv-quote	edgy	1	Dick: Sally, I want you to observe her, find out what women on this planet do. Sally: Why can't Harry do it? Dick: Because you're the woman. Sally: That brings up a very good question: why am I the woman? Dick: Because you lost.
+tv-3rdrock	life	tv-quote	edgy	1	Dick: I want very much to feel, and to be felt. And I mean that from the heart of my bottom.
+tv-3rdrock	love	tv-quote	general	0	Harry: Women. You can't live with 'em, and yet they're everywhere.
+tv-3rdrock	arts	tv-quote	edgy	1	Dick: It was the best of times, it was the worst of times. (flips to the back of the book) I'm not going to read 380 pages if he can't even make up his mind in the first sentence!
+tv-3rdrock	family	tv-quote	general	0	Tommy: Sally, you're amazing. As sick as you are, you keep taking care of us. Sally: Yeah, I know. I don't understand. All I want to do is curl up into a ball, and yet somehow I feel compelled to nurture you. God, what a cruel disease!
+tv-3rdrock	faith	tv-quote	edgy	1	Minister: We are gathered here, before God.... Dick: Now, which one of those guys is God? Mary: Will you be quiet? Dick: Okay, but be sure to introduce me later, because I want some answers.
+tv-3rdrock	life	tv-quote	edgy	1	Dick: Mary, there's something I have to tell you. I come from another world. Mary: And this is news?
+tv-3rdrock	life	tv-quote	edgy	1	Dick: You know, you have to admire these humans. Their lives are so fragile, and yet they are willing to commit to each other for a lifetime. Sally: Or an afternoon with some petri dish in a miniskirt. Tommy: Hey, hey! At least I'm getting some here, alright?
+tv-3rdrock	faith	tv-quote	edgy	1	Dick: [reading the Bible] Man, these people begat their brains out!
+tv-3rdrock	life	tv-quote	edgy	1	Dick: Dr. Albright, have I been a perfect ass? Mary: Aw, nobody's perfect.
+tv-3rdrock	life	tv-quote	edgy	1	Sally: You just can't imagine what it feels like, Dick. It's like he reached in... and pulled all the bones out of my body... [starts crying] Dick: My God, what are you doing? Sally: [wipes her tears] Apparently I'm leaking! Dick: Well, stop!
+tv-3rdrock	life	tv-quote	general	0	Tommy: [pointing to the stars] I've been there and there and there and there... Harry: Wow. The long, boring stories you must have.
+tv-3rdrock	society	tv-quote	edgy	1	Dick: We suck, we blow -- a posse of oral fixators. Let them try and ban smoking, for if they do!.. They'll just have a bunch of SMOKING OUTLAWS on their hands!
+tv-3rdrock	life	tv-quote	general	0	Harry: By the second day I could hear my inner voice, too. Tommy: What was it saying? Harry: I have no idea, I don't speak French.
+tv-3rdrock	life	tv-quote	general	0	[Sally walks into the men's locker room] Man: Hey, it says "men" on the door! Sally: And you made the cut?
+tv-3rdrock	arts	tv-quote	edgy	1	Dick: [to Jeff] You think you're pretty clever, don't you? I happen to know that every word in your book was published years ago! Perhaps you've read...the dictionary!
+tv-3rdrock	life	tv-quote	general	0	[Tommy and August meet for the first time] August: I'm August. Don't call me "Augy". Tommy: I'm Tommy. Don't call me "Augy" either...
+tv-3rdrock	life	tv-quote	edgy	1	Dick: I'm sure you can defeat a simple door lock. [Tommy breaks through the window with his hand and unlocks the door] Dick: What are you doing?! Now this is breaking and entering! It's illegal! Tommy: What'd you expect me to do? Beam you in?
+tv-3rdrock	life	tv-quote	general	0	Harry: (holding the remote) This is the second most exciting thing I have ever held in my hand.
+tv-3rdrock	life	tv-quote	general	0	Sally: How would you like your eyes in the bottom of a martini glass, 'cause I can do it? Dr. Hamlin: [sounding delighted] Oh, the Amazon is going to manhandle me!
+tv-3rdrock	life	tv-quote	edgy	1	Harry: Oh, Dick, we've got cable! Seventy-two channels! And unlike primitive free television this one you get to pay for.
+tv-3rdrock	life	tv-quote	general	0	Sally: I'll give you your promotion if you don't say the word "really" in the next sixty seconds. Harry: Really? Sally You lose!
+tv-3rdrock	arts	tv-quote	edgy	1	[opera plays on the car radio] Harry: Dick, remember how I said I wanted to learn to sing? I've changed my mind.
+tv-3rdrock	life	tv-quote	edgy	1	Nina: I knew you had a thing for her. Dick: Yes, but I understand I'm not allowed to show it to her without her permission.
+tv-3rdrock	life	tv-quote	edgy	1	Tommy: Commander, permission to speak freely. Dick: Granted. Tommy: As the oldest member of this crew, I feel it's my duty to inform you all that this planet both wipes and sucks. In that order.
+tv-3rdrock	life	tv-quote	general	0	Mrs. Dubcek: Poor kid. I remember what it's like to be your age. Tommy: I remember what it's like to be yours.
+tv-3rdrock	life	tv-quote	general	0	[Harry is looking for a job offer in the newspaper] Harry: Here's a job I could do; "Police seek third gunman." Well, tomorrow I'm gonna march over to the police station and tell them that I'm the man they're looking for!
+tv-3rdrock	arts	tv-quote	edgy	1	Dick: [talking about art] What makes them strive to create this? Tommy: Naked women. Dick: These are not naked women, they're nudes. Nudity is the artist's passionate celebration of the human form. Tommy: [taking an art book] Well, party on!
+tv-3rdrock	arts	tv-quote	general	0	[Harry explains how he's reorganized the movies at Gung-Ho Videos] Harry: [refers to one rack] Good movies. [refers to another rack] Bad movies. [refers to the rest of the room] Movies I haven't seen.
+tv-3rdrock	life	tv-quote	general	0	[Harry is working at a video store] Customer: Excuse me, where can I find Aliens? Harry: Nowhere! Not here, that's for sure. Nobody here but us humans. [in a nervous sing-song voice] La, la, la... la, la, la. [a beat] Stop looking at me!
+tv-3rdrock	society	tv-quote	edgy	1	Mary: They opened a Hard Rock Café in Vietnam. The world's changed, huh? Dick: It certainly has. Did you know it used to be entirely covered with ice?
+tv-3rdrock	life	tv-quote	edgy	1	[Reminiscing about the 60's] Mary: Did you ever drop acid? Dick: [misunderstanding] Oh, constantly. Mary: You did a lot of tripping? Dick: That's how I dropped the acid.
+tv-3rdrock	tech	tv-quote	general	0	Harry: I want to make the world a better place. I want to give mankind the gift... of electricity. Tommy: They have electricity. Harry: Ah, then my work is done!
+tv-3rdrock	life	tv-quote	edgy	1	Dick: Everybody here sells his time for money. It's like taking a mortgage against your life.
+tv-3rdrock	family	tv-quote	edgy	1	Mr Randell: Well, uh, the truth is that, uh, I think Tommy could do a lot better. Dick: Be careful sir. You're talking about the creature I've come to think of as my son.
+tv-3rdrock	life	tv-quote	edgy	1	[about Tommy's teacher, Mr Randell] Sally: He's giving off this vibe? Can't you feel it? Dick: Yes I think I do. Does it feel like a stabbing pain in your left buttock? Sally: Uh, no. [Dick reaches under his chair] Dick: Then I appear to be sitting on a tack. [Holds up a tack]
+tv-3rdrock	life	tv-quote	edgy	1	Dick: What kind of a place is this where you can't wave handfuls of money around in the middle of the night?
+tv-3rdrock	life	tv-quote	edgy	1	Don: Okay Mr. Solomon. It's time to finger your perp. Dick: (points to Mary) Believe me I've tried but she just won't let me.
+tv-3rdrock	tech	tv-quote	edgy	1	Dick: You've got a thing in your head. Harry: A thing? Dick: Cranial micro receiver chip. Harry: In my head. Dick: But it's not in the part you use; it's in your brain.
+tv-3rdrock	work-money	tv-quote	edgy	1	Dick: Tomorrow there will be a pop quiz on the effects of thermodynamics. Remember it's a pop quiz; if you study, I'll know!
+tv-3rdrock	life	tv-quote	general	0	Harry: What matters most is life itself. And the greatest thing about life is not having a purpose; it's about finding a purpose.
+tv-3rdrock	life	tv-quote	general	0	Sally: I've seen stuff that would make your eyes burst out of your sockets and splatter against the wall... in fact, I've seen that, too.
+tv-3rdrock	life	tv-quote	edgy	1	[Dick meets his replacement for the first time] Dick: You! You're gorgeous!
+tv-3rdrock	life	tv-quote	edgy	1	[Dick is locked in an invisible box and feels the walls] Dick: Oh my God! He's turned me into a mime!
+tv-3rdrock	life	tv-quote	edgy	1	[after learning that the "family" are returning to their home planet] Dick: I wish I had a machine that could freeze time... [Mary looks at him questioningly] Dick: Unfortunately, I left it in my other jacket.
+tv-3rdrock	life	tv-quote	edgy	1	Tommy: You work at the university. Evil Dick: [smugly] Ah, so I run the university. Tommy: Well, not so much run as teach a physics class. Evil Dick: I'm a teacher? Were all the janitor's jobs taken?
+tv-3rdrock	life	tv-quote	edgy	1	Evil Dick: You see, I am building the greatest incubator these puny humans have ever known. And when it is completed, I will spawn my own private army of - [The crew stares at him apprehensively] Evil Dick: Of... fuzzy Easter chicks.
+tv-3rdrock	life	tv-quote	edgy	1	Evil Dick: Watch the destruction my little device wreaks on the world you love so well. Dick: [outraged] What have you done to our toaster?
+tv-3rdrock	life	tv-quote	edgy	1	Dick: Oh, Mary! You have to get away from here! Mary: You want me to try to escape? Dick: Yes! Mary: [pretending to struggle] Oh, let me go, let me go! How's that?
+tv-3rdrock	life	tv-quote	edgy	1	[Dick wants to tell Mary that he's an alien, but the others forbid it] Sally: Well fine, but let it be on your own head! Tommy: Which will probably be sitting next to our heads on a tray somewhere in New Mexico!
+tv-3rdrock	life	tv-quote	general	0	Harry: [to people who haven't yet seen a movie] Attention, ticket holders! At the end of the movie, when the President turns out to be an alien and he barbecues all the Congressmen, don't believe it because aliens hate barbecue!
+tv-3rdrock	life	tv-quote	general	0	Harry: I say we hold an alien pride parade!
+tv-3rdrock	life	tv-quote	general	0	Tommy: You're gonna be like some sort of alien Martin Luther King? Harry: Exactly. Because I, too, have a dream. And in that dream I'm naked on a ferris wheel.
+tv-3rdrock	life	tv-quote	edgy	1	Sally: The worst part is I'm still a virgin! Mary: Oh my God, you're a virgin? Sally: Yes, it's horrible! Mary: No, it's perfectly all right for you to save yourself for the right man. Sally: Like you did for Dick? Mary: [a shocked look on her face, after a long pause] Yes.
+tv-3rdrock	love	tv-quote	general	0	Tommy: People change for their lovers all the time. For example, I stopped wearing Old Spice and August stopped telling me to stop wearing Old Spice.
+tv-3rdrock	life	tv-quote	general	0	Tommy: Harry, I need a ride. Harry: Nope. Tommy: You know, I outrank you. Harry: In that case... no, sir!
+tv-3rdrock	society	quip	edgy	1	Dick: What's the point of having a democracy, if everybody's going to vote wrong?
+tv-3rdrock	life	tv-quote	edgy	1	Gansmiller: [about Harry] Damn! No past, no experience, no record... the perfect candidate.
+tv-3rdrock	life	tv-quote	edgy	1	Dick: Badgers don't suck! They bite!
+tv-3rdrock	life	tv-quote	edgy	1	Dick: Ah, yes, the "big game." God forbid your intellectual development should get in the way of the "big game." The fate of humanity rests on the outcome of the "big game." Bug: Is he being sarcastic?
+tv-3rdrock	life	tv-quote	general	0	Tommy: I've got to be in a regular school; one with metal detectors and pregnant cheerleaders.
+tv-3rdrock	family	tv-quote	general	0	[Mrs. Dubcek wants the aliens to babysit her grandson] Mrs. Dubcek: He's had his nap and he's just been changed. Sally: What was he before?
+tv-3rdrock	life	tv-quote	general	0	Mrs. Dubcek: He's got teeth coming in. Harry: Well, don't worry; we'll sign for them.
+tv-3rdrock	life	tv-quote	edgy	1	Dick: [explaining Thanksgiving] It's a national holiday. Tommy: What, like Big Giant Head Day? Dick: Similar...except that no one gets thrown into the sun.
+tv-3rdrock	life	tv-quote	general	0	[Tommy picks up two pool balls, holds them in the air and then drops them so they land back on the table] Tommy: Excuse me, this game's not three-dimensional, is it?
+tv-3rdrock	life	tv-quote	general	0	Harry: I lost more than a coat, Tommy. I lost a friend - a buddy - a companion who kept me warm when it was cold and warmer when it was kind of too hot to be wearing a coat.
+tv-3rdrock	life	tv-quote	edgy	1	Dick: Who needs Christmas anyway? I say bug humbar.
+tv-3rdrock	arts	tv-quote	general	0	Nina: You know, this is the only time of year I like White music.
+tv-3rdrock	faith	tv-quote	general	0	Harry: Thank you for seeing me, Father. I didn't know where else to turn. Priest: Well, that's why they pay me the big bucks.
+tv-3rdrock	life	tv-quote	general	0	Mary: Have a little compassion, Sally. We're healthy; we have to help him. Sally: I say he's lame. Shoot him.
+tv-3rdrock	society	tv-quote	general	0	Michael: You see, I would like to stay very much, but your government isn't so nice. Sally: Except for Abraham Lincoln, right?
+tv-3rdrock	family	tv-quote	general	0	Sally: It's what women are supposed to do; get married, have babies, hire total strangers to raise them and then wonder where they went wrong.
+tv-3rdrock	life	tv-quote	general	0	Sally: You could never handle my job. Harry: I could do it with my eyes closed! Tommy: You do everything with your eyes closed.
+tv-3rdrock	life	tv-quote	general	0	Tommy: [about August] I don't understand her. Sally: What's to understand? Kill her and get a new one. Harry: Oh, no, you can't do that. You've got to get a new one and then you kill her.
+tv-3rdrock	life	tv-quote	general	0	Sally: The Official Boy Scouts' Guidebook. Who're the Boy Scouts? Harry: They're an elite, prepubescent, paramilitary society and I'm going to follow their ways. Sally: But Harry, you're neither elite nor prepubescent. Harry: All in good time, Sally... all in good time.
+tv-3rdrock	life	tv-quote	general	0	Harry: [while playing Monopoly] Go to jail. Go directly to jail. Do not pass go, do not collect $200 and do not, I repeat do not drop the soap.
+tv-3rdrock	life	tv-quote	edgy	1	Dick: I'm tired of feeling like a Catholic schoolboy always getting his knuckles rapped by the nun he's dating.
+tv-3rdrock	life	tv-quote	general	0	[Judith and Mary during Physics party] Judith: Men, can't live with them, [Long Pause] good night Mary. [She leaves]
+tv-3rdrock	love	tv-quote	edgy	1	Dick: What's going on? Nina: Oh, she's having a big affair. Dick: What? You tramp! Mary: Dick, it's a catered affair. Dick: You're cheating on me and your diet?
+tv-3rdrock	arts	tv-quote	general	0	Sally: So you're saying that when a 300-pound soprano and a 250-pound tenor dress in funny costumes and take 15 minutes to die, that's art. But when the Gravedigger takes on the Caped Canadian, that's trash? I'm sorry, I don't get it.
+tv-3rdrock	food	tv-quote	edgy	1	Dick: I don't mean to panic anyone, but I'm afraid the calamari has been infested with baby squid.
+tv-3rdrock	life	tv-quote	nsfw	1	Dick: Where would we be without the agitators of the world to attach the electrodes of knowledge to the nipples of ignorance?
+tv-3rdrock	life	tv-quote	general	0	Judith: We will now deliberate and return with a guilty verdict.
+tv-3rdrock	life	tv-quote	edgy	1	Dick: Harry, did I get any phone calls? Harry: Oh, yes, it rang repeatedly. Dick: And... who called? Harry: Well, I don't know, Dick, I'm not clairvoyant.
+tv-3rdrock	life	tv-quote	edgy	1	Mary: Does this mean you've come to your senses and you're going to apologize to Nina? Dick: No, I will never come to my senses!
+tv-3rdrock	life	tv-quote	edgy	1	Tommy: Sally, they want you to appear on Good Afternoon, Rutherford. Harry: That's my second-favorite show! Dick: What's your first-favorite? Harry: Good Morning, Rutherford.
+tv-3rdrock	life	tv-quote	edgy	1	Dick: Can we take more than one? Nina: Take as much as you want! Nobody's going to be at this thing. Mary: Don't be so insensitive. Nina: [to Dick] Yeah, shame on you!
+tv-3rdrock	life	tv-quote	general	0	Sally: Don, what happens to people? Are they born mad or do one day their minds just snap? Officer Don: If only we knew, Sally. One minute little Johnny Normal is on his paper route and the next there's a pile of dead bank guards and Johnny is using Grandma as a human shield.
+tv-3rdrock	life	tv-quote	edgy	1	[Dick and Sally are doped out on antidepressants] Sally: I like TV. Dick: Me too. Let's say we turn it on. [he turns it on] Sally: It's even better on.
+tv-3rdrock	life	tv-quote	edgy	1	[in his classroom] Dick: Thank you Leon. You've made it all so clear! I've got to learn to let go, to move forward and focus on the thing that is most important in my life....MEEE!
+tv-3rdrock	love	tv-quote	edgy	1	Dick: Women. Tommy: Women. Officer Don: Women. Harry: [high-pitched voice] Women! Dick: You can't live with 'em and you can't have heterosexual sex without 'em. Harry: That's probably true.
+tv-3rdrock	life	tv-quote	edgy	1	Dick: Women always act so adult, but just like that they'll sink all the way down to your level.
+tv-3rdrock	family	tv-quote	edgy	1	Dick: I want to make a good impression on Mary's parents. Sally: Mary Albright's parents? Tommy: They're still alive?: Sally: My God, they must be so old!
+tv-3rdrock	life	tv-quote	general	0	[Harry is dressed as an alien for Halloween] Mrs. Dubcek: Oh, Harry, you're an alien. Harry: NO, I'M NOT! [realizing his costume] I mean, yes, I am.
+tv-3rdrock	life	tv-quote	edgy	1	Dick: Why should I be concerned about gaining weight? My body is just the vehicle that carries my brain around - and my brain deserves a smooth, luxurious ride.
+tv-3rdrock	life	tv-quote	edgy	1	[Dick is putting on a corset to become thinner] Sally: What's that? Dick: It's called the 'Shatner.'
+tv-3rdrock	life	tv-quote	general	0	[Harry, with a camera, sneaks up behind August in school to get a photo of her] August (noticing Harry): Harry? Harry: I am not Harry. August: What are you doing here? And what's with the camera? Harry: What camera?
+tv-3rdrock	life	tv-quote	edgy	1	Dick: My pants fit! I won the war! Harry: That's great, Dick! So you lost weight? Dick: Even better - I bought bigger pants!
+tv-3rdrock	life	tv-quote	edgy	1	[Jury selection] Prosecuting lawyer: Do you believe everything you read in the newspaper? Dick: Yes! No! I don't know what I believe anymore! You tell me what to believe and I'll do it! Prosecuting lawyer: He's fine with me. Defense lawyer: Me, too.
+tv-3rdrock	life	tv-quote	edgy	1	Dick: I'm not finger-pointing... [points at Mary]...but it's YOUR fault! YOU!
+tv-3rdrock	food	tv-quote	general	0	Tommy: This ice cream is delicious. Harry: [looking at the box] Actually, it's 'sinfully delicious.' I would gladly go to Hell for a pint of this.
+tv-3rdrock	society	tv-quote	general	0	Mary: Most people dismiss non-literate cultures. Tommy: Well, we live in one.
+tv-3rdrock	society	tv-quote	general	0	Officer Don: Here, sign this. Eddie: What is it? Officer Don: Oh, it just absolves us of any wrongdoing in arresting you without reason and without any evidence. It's standard.
+tv-3rdrock	love	tv-quote	edgy	1	Dick: Eddie, you stole my car, but more importantly, you broke my heart. You wanna know what's worse? Eddie: What? Dick: That you stole my car.
+tv-3rdrock	tech	tv-quote	general	0	Tommy: We don't have cell phones; we're from Ohio!
+tv-3rdrock	life	tv-quote	edgy	1	Harry: (to Tommy and Dick) Boys, we're going to San Francisco! Mascha: San Diego! Harry: San Diego!
+tv-3rdrock	life	tv-quote	edgy	1	Dick: Nina, here are the keys to my Rambler. Take it somewhere and have my tires rotated. Nina: That's not in my job description. Dick: What is in your job description? Nina: Typing. Dick: Okay, well, type it into your job description and have it done by lunch.
+tv-3rdrock	life	tv-quote	edgy	1	Mary: I think it's unfair that you demand Sally do whatever you want as if you were... king of the universe! Dick: Oh, please! We look nothing alike.
+tv-3rdrock	life	tv-quote	general	0	Sally: Don't listen to him, he's just a kid. Salesman: Oh, don't worry. I used to be a kid myself... a long time ago. [laughs] Say there, sport, you like girls? Tommy: Yeah. Sorry.
+tv-3rdrock	life	tv-quote	edgy	1	Dick: The library's closed on Saturday? Mary: Dick, this - is - not - a - good - school!
+tv-3rdrock	love	tv-quote	edgy	1	Nina: Where's Dr. Albright? Tommy: Well, we're not sure, but we think she's having sex with Dick in an unknown location. Nina: Oh my God, what is she thinking? Tommy: What's she thinking? What is he thinking? Nina: Okay, can we just agree they're both freaks? Tommy: Yeah!
+tv-3rdrock	family	tv-quote	general	0	George Albright: [entering Mary's office] Mary. Mary: Daddy! George Albright: Hey there, magpie. Mary: What a nice surprise. George Albright: Well, not really... I've left your mother. Mary: Again?
+tv-3rdrock	life	tv-quote	general	0	Eddie: Just a couple of rules: don't curse and don't spill nothing and if you spill something, don't curse.
+tv-3rdrock	life	tv-quote	edgy	1	Dick: How about a new strategy? What about "sad cop, slightly effeminate cop?"
+tv-3rdrock	science	tv-quote	edgy	1	Dick: And what makes that cop's gun so cool? PHYSICS! Kinetic energy generates the velocity with which the bullet exits the barrel, while the ballistics coefficient and sectional density determine the damage to its targets! Guns don't kill people, PHYSICS kills people!
+tv-3rdrock	food	tv-quote	general	0	Sally: It says here the average American uses 4.1 pounds of butter a year. Tommy: Orally?
+tv-3rdrock	society	tv-quote	general	0	Sally: I'm part of a community--a community that embraces wholesome, American values. And if you cross us... we will destroy you.
+tv-3rdrock	life	tv-quote	edgy	1	Mary: This is the best thing I have ever put in my mouth! Dick: Once again I come in second.
+tv-3rdrock	life	tv-quote	edgy	1	Dick: Dr. Neesam, I find you to be pompous, judgmental and completely self-absorbed. Would you be my friend? [pause] Liam: We'll see.
+tv-3rdrock	life	tv-quote	general	0	Liam: Your head is like a cookie. I just want to eat it.
+tv-3rdrock	life	tv-quote	edgy	1	Mary: So you're going to let this woman control your life? Dick: No, just the lunch part. [a beat] My favorite part.
+tv-3rdrock	life	tv-quote	general	0	Harry: [to Nina] Don't worry, Nina. I won't let anyone else hurt you. Dentist: Don't forget about your appointment on Friday, Nina. Harry: Until Friday.
+tv-3rdrock	life	tv-quote	general	0	Randy: I think you're Harry. Harry: Well, I think you're hairy!
+tv-3rdrock	life	tv-quote	general	0	[Don is telling a story] Officer Don: And then I said to the robber, "Not your pants, the gun!" [everyone laughs] Yeah... that didn't really happen.
+tv-3rdrock	love	tv-quote	edgy	1	[the Solomons have a repairman over] Dick: Sally, you seein' Don today? Sally: Seein' him? I'm losing my virginity to him! Repairman: You know, I can come back.
+tv-3rdrock	love	tv-quote	general	0	Harry: I'll never forget the time I lost my virginity to ol'... what's-her-name over at... the place. Magic.
+tv-3rdrock	life	tv-quote	general	0	Harry: Dubcek's threatening to make me work it off and I don't think she's talking about mowing the lawn.
+tv-3rdrock	work-money	tv-quote	edgy	1	"The Columbian": Oh, I got top dollar--I got better than top dollar. Dick: Well then, by default, wouldn't that become top dollar?
+tv-3rdrock	life	tv-quote	edgy	1	Mary: Hey Dick. What's with all the Rusty burgers? Dick: Ah, well I'm just uh, preparing box lunches for the homeless. Mary: Why are putting all of the food in the trash? Dick: It makes them more comfortable. Mary- you can be so insenitive!
+tv-3rdrock	life	tv-quote	general	0	Eric: I'm waiting to get into the K-9 unit. Sally: Aw, what's the hold up? Officer Don: Well, our- our dog ran away. But we're putting up fliers.
+tv-3rdrock	life	tv-quote	edgy	1	Dick: Oh, I miss those days with Mary. Breakfast in bed, lunch in the bed. Changing the sheets... 'cause there's food in the bed.
+tv-3rdrock	life	tv-quote	edgy	1	Dick: Harry, are you naked or am I seeing things? Harry: Actually it's a little of both.
+tv-3rdrock	life	tv-quote	edgy	1	Pitman: We all came into this world naked. Dick: Well, I didn't.
+tv-3rdrock	life	tv-quote	edgy	1	Sally: Hey, the mail's here. Dick: Ah, the mail. What would a day on Earth be like without the mail? Harry: Probably a lot like Sunday. Dick: You know. That's very clever, Harry. Tommy: Hey, wait. I said that. Harry: Oh really? How sad.
+tv-3rdrock	family	tv-quote	edgy	1	Mary: What did your father tell you about the family? Dick: Not a lot. He, uh... lost his mouth in the war.
+tv-3rdrock	life	tv-quote	edgy	1	[filling out tax forms] Dick: Line 14, "other gains or losses." Tommy: I gained two pounds. Sally: I lost my virginity.
+tv-3rdrock	life	tv-quote	general	0	Officer Don: Sally, I'm a cop. I've got keen instincts. And right now, my instincts are telling me that... I don't know what the hell is going on.
+tv-3rdrock	life	tv-quote	general	0	Tommy: It's like watching Entertainment Tonight in Carnegie-frickin'-Hall!
+tv-3rdrock	life	tv-quote	edgy	1	Dick: [while gagged, mumbling on the telephone to Judith] Mmmph! Judith: [sarcastically, alternating between Dick's mumblings] Oh, yeah. Oh, baby. I'm hot now. Do me. Do me all night. I know it's you, Dick. [hangs up] Dick: Damn!
+tv-3rdrock	life	tv-quote	edgy	1	Officer Don: The F.B.I. are coming into town tomorrow. Dick: What for? Officer Don: That's classified. Tommy: You have no idea, do you? [pause] Officer Don: That's also classified.
+tv-3rdrock	life	tv-quote	edgy	1	Nina: You think you're the smartest man on the planet, don't you? Dick: For the thousandth time, YES!
+tv-3rdrock	life	tv-quote	edgy	1	Vincent Strudwick: So... what'd you think of the book? Dick: As bathroom fare? A triumph!
+tv-3rdrock	life	tv-quote	edgy	1	Dick: Families don't refer to each other by rank. They use more familiar terms like "you" or "bastard" or... "you bastard."
+tv-3rdrock	life	tv-quote	general	0	Big Giant Head: The yelling will cease and the killing will commence!
+tv-3rdrock	life	tv-quote	edgy	1	[the aliens are looking for Vicki's hybrid alien baby in the nursery] Tommy: Which one is it? Dick: It must be him - it's hideous. Man: Hey, that's my daughter! Dick: I'm so sorry; she's hideous.
+tv-3rdrock	life	tv-quote	edgy	1	Mary: I am so hungover! Dick: Oh! Well, Mary, that's just nature's way of telling you what a tramp you are.
+tv-3rdrock	life	tv-quote	edgy	1	[the Solomons are angry at Dick because he crashed the car] Dick: Hey, be thankful I wasn't killed! Sally: Yeah, because then we'd have to hitch a ride to your funeral, BECAUSE YOU WRECKED OUR FREAKIN' CAR!
+tv-3rdrock	life	tv-quote	edgy	1	Officer Don You have to have insurance! Dick: Why? It's just a bet against myself! The only way I can win my money back is by getting horribly injured.
+tv-3rdrock	life	tv-quote	edgy	1	[Looking at himself and a picture of himself and Harrison Ford] Dick: Oh my god! I'm hideous!
+tv-3rdrock	life	tv-quote	general	0	Harry: Sally, I'm starving. What's for dinner? Sally: Oh, I made you some hamburgers--they're down at the hamburger place. All you have to do is go there, order them, and pay for them.
+tv-3rdrock	life	tv-quote	edgy	1	Dick: We can make little differences; we just can't make global differences. Harry: Can we blow up the Earth? Dick: You see, that's a global difference. Harry: It's so hard to keep track of all this.
+tv-3rdrock	life	tv-quote	edgy	1	Dick: Why do these people get to have their life stories in the paper? What makes them so special? Nina: Those are the obituaries. Dick: Well, I want one about me! Nina: Hopefully soon.
+tv-3rdrock	life	tv-quote	edgy	1	Larry: I've never noticed it before, but you look capable of violence. Dick: [picking up a chair] I'll show you who's capable of violence!
+tv-3rdrock	life	tv-quote	edgy	1	[Dick is fantasizing about Nina during his class's exam] Leon: [sees Dick kissing an imaginary person] Dr. Solomon, what are you doing? Dick: ...I said no talking, Leon. You fail!
+tv-3rdrock	arts	tv-quote	edgy	1	[after Mary receives an exercise video as a present from Dick] Mary: Here's a little "gift-giving" tip: When you give someone a bouquet of flowers, that tells them "Our love goes on forever.",when you give somebody an exercise video that tells them "Your ass goes on forever!"
+tv-3rdrock	love	tv-quote	edgy	1	Mary: [referring to Dick] I wouldn't be caught dead going out with that scab. Dick: Well, couldn't you put a band-aid over it?
+tv-3rdrock	life	tv-quote	edgy	1	[Dick has entered the office wearing a tight-fitting construction worker's outfit and a tool belt] Dick: Whaddaya think, Nina? Ya like beefcake? Nina: Not from your funky bakery. [winks]
+tv-3rdrock	love	tv-quote	general	0	Vicki Dubcek: [about Harry's new girlfriend Janice] You don't like her as much as me, do you? Harry: Oh, no!... More.
+tv-3rdrock	life	tv-quote	edgy	1	Dick: Are you going to kill me? Big Giant Head: Of course not; you're my designated driver.
+tv-3rdrock	life	tv-quote	general	0	Vicki Dubcek: How dare you use your flesh to trick me! Harry: Well, that's what it's there for.
+tv-3rdrock	life	tv-quote	edgy	1	Dick: I don't know what to do. I don't know what to feel. Who am I? [after finding out his father was "the Big Head"] Harry: Well, let me see, your first name is Dick... your new last name is Head... I guess that would make.. Dick: Oh My God!
+tv-3rdrock	life	tv-quote	edgy	1	Strudwick: My daughter just ran off with your ragamuffin son! Dick: "Ragamuffin"?! Sally, throw him out; Harry, bring me a dictionary.
+tv-3rdrock	life	tv-quote	general	0	Tommy: [about a movie Harry has seen] How was it? I heard there was an awesome shower scene. Harry: Oh, yeah...but then this naked girl got in and you could barely see the shower.
+tv-3rdrock	life	tv-quote	general	0	Tourist: Excuse me, we've been driving around for hours. Do you know of any hotels that have rooms? Harry: I believe that all hotels have rooms.
+tv-3rdrock	life	tv-quote	edgy	1	Mary: [concerned] I think there's something wrong with Dick. [Nina and Judith stare blankly at her]

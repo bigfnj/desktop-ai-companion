@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A trivial reference module that proves the plugin pipeline (S1). Builds to the app's runtime
+       modules\testmodule\ folder so the loader picks it up; references ONLY the plugin ABI, and does
+       NOT copy DesktopAICompanion.Contracts to its output (Private=false) so the host's single shared contract
+       is used. Not shipped in the ZIP/MSI (the payload manifest is root-only); it's a dev/self-test artifact. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>DesktopAICompanion.TestModule</RootNamespace>
+    <AssemblyName>TestModule</AssemblyName>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>7.3</LangVersion>
+    <Deterministic>true</Deterministic>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <OutputPath>..\..\build\DesktopAICompanionPortable\bin\$(Configuration)\x64\modules\testmodule\</OutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DesktopAICompanion.Contracts\DesktopAICompanion.Contracts.csproj" Private="false" />
+  </ItemGroup>
+
+</Project>

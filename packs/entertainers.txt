@@ -1,0 +1,353 @@
+entertainers	arts	observation	general	0	'Groundhog Day' was one of the greatest scripts ever written. It didn't even get nominated for an Academy Award.
+entertainers	arts	wisdom	general	0	A Jedi uses the Force for knowledge and defense, never for attack.
+entertainers	life	quip	general	0	A difference of opinion is what makes horse racing and missionaries. ~ Will Rogers
+entertainers	society	quip	general	0	A fool and his money are soon elected. ~ Will Rogers
+entertainers	work-money	quip	general	0	A holding company is a thing where you hand an accomplice the goods while the policeman searches you. ~ Will Rogers
+entertainers	life	wisdom	general	0	A man only learns in two ways, one by reading, and the other by association with smarter people. ~ Will Rogers
+entertainers	life	aphorism	general	0	A remark generally hurts in proportion to its truth. ~ Will Rogers
+entertainers	work-money	aphorism	general	0	A rich man is nothing but a poor man with money.
+entertainers	life	dark	general	0	A severed foot is the ultimate stocking stuffer.
+entertainers	food	observation	general	0	A waffle is like a pancake with a syrup trap.
+entertainers	life	quip	general	0	A woman drove me to drink and I didn't even have the decency to thank her.
+entertainers	society	quip	general	0	About all I can say for the United States Senate is that it opens with a prayer and closes with an investigation. ~ Will Rogers
+entertainers	life	aphorism	general	0	Abstaining is favorable both to the head and the pocket.
+entertainers	life	quip	general	0	Actually the copies of characters is something I don't particularly like to talk about in articles but just for your information, most characters there's only one.
+entertainers	faith	quip	general	0	Actually, I began to think that maybe there is a god, after all. Or maybe it's a different one. The old one got fired.
+entertainers	work-money	aphorism	general	0	Advertising is the art of convincing people to spend money they don't have for something they don't need. ~ Will Rogers
+entertainers	life	dark	general	0	Ah, the patter of little feet around the house. There's nothing like having a midget for a butler.
+entertainers	work-money	quip	general	0	Alexander Hamilton started the U.S. Treasury with nothing, and that was the closest our country has ever been to being even. ~ Will Rogers
+entertainers	life	quip	general	0	All I know is just what I read in the papers, and that's an alibi for my ignorance. ~ Will Rogers
+entertainers	family	quip	general	0	All of us kids ended up 'doing Mom.' There are four of us who've tried show business. Five if you insist on counting my sister the nun, who does liturgical dance.
+entertainers	family	dark	general	0	All the men in my family were bearded, and most of the women.
+entertainers	life	quip	general	0	All these jokes have been pre-approved as funny by me.
+entertainers	life	dark	general	0	Always carry a flagon of whiskey in case of snakebite and furthermore always carry a small snake.
+entertainers	life	tv-quote	general	0	Always two there are, a master and an apprentice.
+entertainers	society	wisdom	general	0	America is a nation that conceives many odd inventions for getting somewhere but it can think of nothing to do once it gets there. ~ Will Rogers
+entertainers	society	quip	general	0	America is becoming so educated that ignorance will be a novelty. I will belong to the select few. ~ Will Rogers
+entertainers	life	quip	general	0	An economist's guess is liable to be as good as anybody else's. ~ Will Rogers
+entertainers	life	quip	general	0	An escalator can never break: it can only become stairs. You should never see an Escalator Temporarily Out Of Order sign, just Escalator Temporarily Stairs. Sorry for the convenience.
+entertainers	life	quip	general	0	An ignorant person is one who doesn't know what you have just found out. ~ Will Rogers
+entertainers	food	observation	general	0	An onion can make people cry but there's never been a vegetable that can make people laugh. ~ Will Rogers
+entertainers	society	quip	general	0	Ancient Rome declined because it had a Senate, now what's going to happen to us with both a House and a Senate? ~ Will Rogers
+entertainers	work-money	quip	general	0	And I don't like to work. I only like working when I'm working.
+entertainers	life	quip	general	0	Anyone who hates children and animals can't be all bad.
+entertainers	society	wisdom	general	0	Anything important is never left to the vote of the people. We only get to vote on some man; we never get to vote on what he is to do. ~ Will Rogers
+entertainers	arts	observation	general	0	At the University of Maryland, my first year I started off planning to major in art because I was interested in theatre design, stage design or television design.
+entertainers	arts	observation	general	0	At the first screening, there were a lot of areas that we went around and around about. Then we had our second screening. It played better. It's almost a reasonable length film now!
+entertainers	arts	observation	general	0	At the time of Polaroid - and I did a couple of other commercials just before I stopped doing that stuff - at that point I was at the level where they respect you and your opinion and all that sort of thing.
+entertainers	life	quip	general	0	Awards are meaningless to me, and I have nothing but disdain for anyone who actively campaigns to get one.
+entertainers	society	quip	general	0	Be thankful we're not getting all the government we're paying for. ~ Will Rogers
+entertainers	life	quip	general	0	Being a hero is about the shortest-lived profession on earth. ~ Will Rogers
+entertainers	food	quip	general	0	Bologna is a deli meat for people with eyes.
+entertainers	life	quip	general	0	But I can only take so much TV, because there is so much advice. I find people will preach about virtually anything - your diet, how to live your life, how to improve your golf. The lot. I have always had a thing against the Mister Know-It-Alls.
+entertainers	arts	observation	general	0	But with The Dark Crystal, instead of puppetry we're trying to go toward a sense of realism - toward a reality of creatures that are actually alive and we're mixing up puppetry and all kinds of other techniques.
+entertainers	work-money	wisdom	general	0	Buy land. They ain't making any more of the stuff. ~ Will Rogers
+entertainers	life	wisdom	general	0	Chaotic action is preferable to orderly inaction. ~ Will Rogers
+entertainers	family	dark	general	0	Children should neither be seen or heard from - ever again.
+entertainers	society	quip	general	0	Communism to me is one-third practice and two-thirds explanation. ~ Will Rogers
+entertainers	society	quip	general	0	Democrats never agree on anything, that's why they're Democrats. If they agreed with each other, they would be Republicans. ~ Will Rogers
+entertainers	life	quip	general	0	Diplomacy is the art of saying 'Nice doggie' until you can find a rock. ~ Will Rogers
+entertainers	society	quip	general	0	Diplomats are just as essential to starting a war as soldiers are for finishing it... You take diplomacy out of war, and the thing would fall flat in a week. ~ Will Rogers
+entertainers	life	wisdom	general	0	Do the best you can, and don't take life too serious. ~ Will Rogers
+entertainers	life	quip	general	0	Do you think I am standing here, making this up as I go? I am sorry to disillusion you. I am not Robin Williams. I am the king of the pen.
+entertainers	nature	observation	general	0	Dogs are forever in the push up postion.
+entertainers	work-money	quip	general	0	Don't gamble; take all your savings and buy some good stock and hold it till it goes up, then sell it. If it don't go up, don't buy it. ~ Will Rogers
+entertainers	life	aphorism	general	0	Don't let yesterday use up too much of today. ~ Will Rogers
+entertainers	life	aphorism	general	0	Don't think about your errors or failures; otherwise, you'll never do a thing.
+entertainers	life	dark	general	0	Don't worry about your heart, it will last you as long as you live.
+entertainers	life	dark	general	0	Drown in a cold vat of whiskey? Death, where is thy sting?
+entertainers	life	aphorism	general	0	Even if you're on the right track, you'll get run over if you just sit there. ~ Will Rogers
+entertainers	life	wisdom	general	0	Even though you are on the right track - you will get run over if you just sit there. ~ Will Rogers
+entertainers	arts	quip	general	0	Every book is a children's book if the kid can read!
+entertainers	life	observation	general	0	Every time I go and shave, I assume there's someone else on the planet shaving. So I say, 'I'm gonna go shave, too.'
+entertainers	life	wisdom	general	0	Everybody is ignorant, only on different subjects. ~ Will Rogers
+entertainers	society	observation	general	0	Everything is changing. People are taking their comedians seriously and the politicians as a joke. ~ Will Rogers
+entertainers	life	wisdom	general	0	Everything is funny, as long as it's happening to somebody else. ~ Will Rogers
+entertainers	food	observation	general	0	Fettucini alfredo is macaroni and cheese for adults.
+entertainers	life	aphorism	general	0	Get someone else to blow your horn and the sound will carry twice as far. ~ Will Rogers
+entertainers	arts	observation	general	0	Golf was my first glimpse of comedy. I was a caddy when I was a kid. I was on the golf course rather than being in lessons, but I can play better now than I could then.
+entertainers	life	wisdom	general	0	Good judgment comes from experience, and a lot of that comes from bad judgment. ~ Will Rogers
+entertainers	life	quip	general	0	Half our life is spent trying to find something to do with the time we have rushed through life trying to save. ~ Will Rogers
+entertainers	society	quip	general	0	Hell, I never vote for anybody, I always vote against.
+entertainers	life	dark	general	0	Here lies W. C. Fields. I would rather be living in Philadelphia.
+entertainers	work-money	quip	general	0	Here's the thing, you just have to drive a lot faster, and if you don't get there, we're both fired.
+entertainers	nature	quip	general	0	Horse sense is the thing a horse has which keeps it from betting on people.
+entertainers	life	quip	general	0	Hyperbole is something I'd better avoid.
+entertainers	life	quip	general	0	I always keep a supply of stimulant handy in case I see a snake, which I also keep handy.
+entertainers	life	dark	general	0	I am an expert of electricity. My father occupied the chair of applied electricity at the state prison.
+entertainers	life	quip	general	0	I am free of all prejudices. I hate everyone equally.
+entertainers	society	quip	general	0	I am not a member of any organized political party. I am a Democrat. ~ Will Rogers
+entertainers	society	quip	general	0	I belong to no organized party. I am a Democrat. ~ Will Rogers
+entertainers	society	quip	general	0	I bet after seeing us, George Washington would sue us for calling him 'father.' ~ Will Rogers
+entertainers	life	observation	general	0	I bought a seven-dollar pen because I always lose pens and I got sick of not caring.
+entertainers	arts	observation	general	0	I came out of the old Second City in Chicago. Chicago actors are more hard-nosed. They're tough on themselves and their fellow actors. They're self-demanding.
+entertainers	life	quip	general	0	I can whistle with my fingers, especially if I have a whistle.
+entertainers	food	quip	general	0	I cook with wine, sometimes I even add it to the food.
+entertainers	arts	observation	general	0	I decided that what I really wanted to do was go off and paint.
+entertainers	arts	observation	general	0	I do remember doing shows strictly in black and white, too, so you're right.
+entertainers	life	wisdom	general	0	I don't buy diamonds, I don't buy cars, but I enjoy travelling. I'm not a very possessive person as far as things go.
+entertainers	love	quip	general	0	I don't have a girlfriend. But I do know a woman who'd be mad at me for saying that.
+entertainers	work-money	quip	general	0	I don't know how this guy knew how much money I was making. I didn't know how much money I was making.
+entertainers	life	quip	general	0	I don't know why I ever come in here. The flies get the best of everything.
+entertainers	society	quip	general	0	I don't make jokes. I just watch the government and report the facts. ~ Will Rogers
+entertainers	life	quip	general	0	I don't want to be that guy mumbling into his drink at a bar.
+entertainers	love	quip	general	0	I don't want to have a relationship with someone if I'm not going to work with them.
+entertainers	life	dark	general	0	I drank some boiling water because I wanted to whistle.
+entertainers	life	quip	general	0	I drink therefore I am.
+entertainers	arts	observation	general	0	I feel that if you really want an Oscar, you're in trouble. It's like wanting to be married - you'll take anybody. If you want the Oscar really badly, it becomes a naked desire and ambition. It becomes very unattractive.
+entertainers	life	observation	general	0	I go home and stay there. I wash and scrub up each day, and that's it. One month I actually grew a moustache, just so I could say that I'd done something.
+entertainers	society	observation	general	0	I got my head bashed in at a demonstration against the Vietnam War. Police were losing control because they were up against a world they really didn't understand.
+entertainers	life	quip	general	0	I guess there is nothing that will get your mind off everything like golf. I have never been depressed enough to take up the game, but they say you get so sore at yourself you forget to hate your enemies. ~ Will Rogers
+entertainers	life	dark	general	0	I had a stick of CareFree gum, but it didn't work. I felt pretty good while I was blowing that bubble, but as soon as the gum lost its flavor, I was back to pondering my mortality.
+entertainers	society	quip	general	0	I have a scheme for stopping war. It's this - no nation is allowed to enter a war till they have paid for the last one. ~ Will Rogers
+entertainers	life	tv-quote	general	0	I have no idea what a British sensibility or a British sense of humor is. I have no concept of what that is. I have no concept of what American sensibility is. I was born in Great Britain, but I was only there for six months, and we moved to Belgium, where I grew up.
+entertainers	life	joke	general	0	I haven't slept for ten days, because that would be too long.
+entertainers	life	quip	general	0	I keep referring to them in the plural but all I'm dealing with is Bob. I don't know where Harvey fits in the equation. He was very present at the beginning, winding his brother up. I don't know where he is now.
+entertainers	life	joke	general	0	I know a lot about cars, man. I can look at any car's headlights and tell you exactly which way it's coming.
+entertainers	food	quip	general	0	I like Kit-Kat, unless I'm with four or more people.
+entertainers	food	dark	general	0	I like children - fried.
+entertainers	food	quip	general	0	I like refried beans. That's why I wanna try fried beans, because maybe they're just as good and we're just wasting time. You don't have to fry them again after all.
+entertainers	arts	quip	general	0	I like to hold the microphone cord like this, I pinch it together, then I let it go, then you hear a whole bunch of jokes at once.
+entertainers	life	quip	general	0	I like to keep a bottle of stimulant handy in case I see a snake, which I also keep handy.
+entertainers	life	quip	general	0	I like to play blackjack. I'm not addicted to gambling. I'm addicted to sitting in a semi-circle.
+entertainers	arts	observation	general	0	I look back on my work and I think, 'Oh, why didn't I do that differently?'
+entertainers	arts	quip	general	0	I love 'Time Bandits;' it's great.
+entertainers	life	quip	general	0	I must have a drink of breakfast.
+entertainers	life	quip	general	0	I never drink water. I'm afraid it will become habit-forming.
+entertainers	life	quip	general	0	I never drink water; that is the stuff that rusts pipes.
+entertainers	life	observation	general	0	I never expected to see the day when girls would get sunburned in the places they now do. ~ Will Rogers
+entertainers	family	dark	general	0	I never met a kid I liked.
+entertainers	society	quip	general	0	I never vote for anyone. I always vote against.
+entertainers	arts	observation	general	0	I never wanted to be a puppeteer. I stopped puppeteering when I was about 18. I puppeteered when I was eleven years old to 18 to make extra money to go to Europe, which I made half of and my parents gave me half.
+entertainers	life	quip	general	0	I never worry about being driven to drink; I just worry about being driven home.
+entertainers	life	quip	general	0	I once saw a forklift lift a crate of forks. And it was way to literal for me.
+entertainers	life	quip	general	0	I once spent a year in Philadelphia, I think it was on a Sunday.
+entertainers	life	quip	general	0	I read about eight newspapers in a day. When I'm in a town with only one newspaper, I read it eight times. ~ Will Rogers
+entertainers	work-money	wisdom	general	0	I realized the more fun I had, the more relaxed I was working, the better I worked.
+entertainers	life	joke	general	0	I recently took up ice sculpting. Last night I made an ice cube. This morning I made 12, I was prolific.
+entertainers	arts	quip	general	0	I remixed a remix, it was back to normal.
+entertainers	life	quip	general	0	I saw a human pyramid once. It was very unnecessary.
+entertainers	work-money	observation	general	0	I think all phases of one's career are serious if you take it seriously no matter if you are doing high profile dramatic pieces or not.
+entertainers	life	quip	general	0	I think foosball is a combination of soccer and shish kabobs.
+entertainers	life	observation	general	0	I think midlife crisis is just a point where people's careers have reached some plateau and they have to reflect on their personal relationships.
+entertainers	tech	observation	general	0	I think my own strengths are in television production.
+entertainers	life	quip	general	0	I throw a Christmas party at my house. It's not really a Christmas party, because I don't want to call it a Christmas party. But let's just say I put a lot of Christmas trees around the house, so it smells good.
+entertainers	life	joke	general	0	I used to be a hot-tar roofer. Yeah, I remember that... day.
+entertainers	life	quip	general	0	I want to get a vending machine, with fun sized candy bars, and the glass in front is a magnifying glass. You'll be mad, but it will be too late.
+entertainers	life	joke	general	0	I wanted to buy a candle holder, but the store didn't have one. So I got a cake.
+entertainers	life	joke	general	0	I was at this casino minding my own business, and this guy came up to me and said, 'You're gonna have to move, you're blocking a fire exit.' As though if there was a fire, I wasn't gonna run. If you're flammible and have legs, you are never blocking a fire exit.
+entertainers	life	observation	general	0	I was born in 1940 in Minnesota and grew up in the country... dirt roads, swamps, lakes, woods.
+entertainers	arts	quip	general	0	I was doing political cartoons and getting angry to the point where I felt I was going to have to start making and throwing bombs. I thought I was probably a better cartoonist than a bomb maker.
+entertainers	society	observation	general	0	I was getting frustrated with America. It's interesting how as simple a thing as, like, letting your hair grow longer changed in the world in those days.
+entertainers	love	quip	general	0	I was in love with a beautiful blonde once. She drove me to drink. That's the one thing I'm indebted to her for.
+entertainers	arts	observation	general	0	I was very interested in theatre, mostly in stage design. I did a little bit of acting.
+entertainers	life	quip	general	0	I wear a necklace, cause I wanna know when I'm upside down.
+entertainers	arts	quip	general	0	I went to Second City, where you learned to make the other actor look good so you looked good and National Lampoon, where you had to create everything out of nothing, and SNL, where you couldn't make any mistakes, and you learned what collaboration was.
+entertainers	life	observation	general	0	I wish I could play little league now. I'd be way better than before.
+entertainers	life	observation	general	0	I wish my name was Brian because maybe sometimes people would misspell my name and call me Brain. That's like a free compliment and you don't even gotta be smart to notice it.
+entertainers	life	observation	general	0	I would imagine that if you could understand Morse code, a tap dancer would drive you crazy.
+entertainers	arts	quip	general	0	I wouldn't like to be that famous, I value my privacy. Mind you, Miss Piggy enjoys every moment of it. If it were not for me, she would spend all her time in the limelight.
+entertainers	life	quip	general	0	I'd like to get four people who do cart wheels very good, and make a cart.
+entertainers	arts	quip	general	0	I'd like to read a book sometime. I've never read a book before. That'd be an adventure. I understand they have pages and everything. Yeah, I've got to do that sometime.
+entertainers	life	quip	general	0	I'd like to see Paris before I die... Philadelphia will do.
+entertainers	life	pun	general	0	I'm a heroine addict. I need to have sex with women who have saved someone's life.
+entertainers	life	quip	general	0	I'm a nut, but not just a nut.
+entertainers	life	quip	general	0	I'm against picketing, but I don't know how to show it.
+entertainers	life	quip	general	0	I'm gonna fix that last joke by taking out all the words and adding new ones.
+entertainers	life	quip	general	0	I'm not a real movie star. I've still got the same wife I started out with twenty-eight years ago. ~ Will Rogers
+entertainers	arts	quip	general	0	I'm not an art director; I'm just not. I've always been somebody who has a sensibility that I hope is the same sensibility of others.
+entertainers	society	quip	general	0	I'm not politically committed at all in the popular sense; that is, to any party. I'm committed to whatever's best for the normal working person. I'm not a great fan of politics.
+entertainers	life	quip	general	0	I'm sick of following my dreams. I'm just going to ask them where they're goin', and hook up with them later.
+entertainers	arts	observation	general	0	I've always wanted to do non-comedies. I've always done dramas, comedies, music, and I always like to bop around and do different things.
+entertainers	arts	observation	general	0	I've been lucky, I've had movies that made a lot of money, so I don't feel like I have to kill every time out. I don't want that pressure. I don't need it.
+entertainers	life	quip	general	0	I've never felt any sense of competition with anybody, and we're all friends; we're all good friends.
+entertainers	arts	quip	general	0	I've never made any horrible, horrible movies. If you don't ruin your reputation, you can always get work.
+entertainers	arts	quip	general	0	I've rewritten a lot of the scripts I've done. 'Little Shop Of Horrors' was a complete rewrite, but I didn't touch the dialogue. Essentially, I'm a very good editor.
+entertainers	life	observation	general	0	If I had nine of my fingers missing I wouldn't type any slower.
+entertainers	life	quip	general	0	If I had to live my life over, I'd live over a saloon.
+entertainers	society	quip	general	0	If I studied all my life, I couldn't think up half the number of funny things passed in one session of congress. ~ Will Rogers
+entertainers	life	quip	general	0	If Stupidity got us into this mess, then why can't it get us out? ~ Will Rogers
+entertainers	society	quip	general	0	If advertisers spent the same amount of money on improving their products as they do on advertising then they wouldn't have to advertise them. ~ Will Rogers
+entertainers	arts	observation	general	0	If anything, there's a difference in working with color in England and the color in the US.
+entertainers	nature	observation	general	0	If carrots got you drunk, rabbits would be messed-up.
+entertainers	family	joke	general	0	If my kid couldn't draw I'd make sure that my kitchen magnets didn't work.
+entertainers	work-money	quip	general	0	If the other fellow sells cheaper than you, it is called dumping. 'Course, if you sell cheaper than him, that's mass production. ~ Will Rogers
+entertainers	life	aphorism	general	0	If there's a will, prosperity can't be far behind.
+entertainers	work-money	wisdom	general	0	If you can build a business up big enough, it's respectable. ~ Will Rogers
+entertainers	life	quip	general	0	If you can't dazzle them with brilliance, baffle them with bull.
+entertainers	society	quip	general	0	If you ever injected truth into politics you have no politics. ~ Will Rogers
+entertainers	work-money	quip	general	0	If you make any money, the government shoves you in the creek once a year with it in your pockets, and all that don't get wet you can keep. ~ Will Rogers
+entertainers	life	wisdom	general	0	If you want to be successful, it's just this simple. Know what you are doing. Love what you are doing. And believe in what you are doing. ~ Will Rogers
+entertainers	arts	quip	general	0	In Hollywood the woods are full of people that learned to write but evidently can't read. If they could read their stuff, they'd stop writing. ~ Will Rogers
+entertainers	life	quip	general	0	In Hollywood you can see things at night that are fast enough to be in the Olympics in the day time. ~ Will Rogers
+entertainers	society	observation	general	0	In Japan, you have no idea what they are saying, and they can't help you either. Nothing makes any sense. They're very polite, but you feel like a joke is being played on you the entire time you're there.
+entertainers	work-money	quip	general	0	In advertising, I was frustrated by having to deal with the client. It was the only time I really worked in a proper office, and I didn't like it-simple as that.
+entertainers	life	aphorism	general	0	In order to be a star performer you have to have someone to play against.
+entertainers	life	quip	general	0	Is a hippopotamus a hippopotamus, or just a really cool Opotamus?
+entertainers	life	aphorism	general	0	It ain't what they call you, it's what you answer to.
+entertainers	arts	quip	general	0	It has always been difficult to get Big Bird to be very pretty. Big Bird in England is much more gorgeous.
+entertainers	life	wisdom	general	0	It isn't what we don't know that gives us trouble, it's what we know that ain't so. ~ Will Rogers
+entertainers	love	dark	general	0	It was a woman who drove me to drink, and I never had the courtesy to thank her for it.
+entertainers	arts	pun	general	0	It was lights, camera, inaction.
+entertainers	life	quip	general	0	It's 85 million dollars and they got to be really careful because they are going to need me.
+entertainers	society	quip	general	0	It's a good thing we don't get all the government we pay for. ~ Will Rogers
+entertainers	life	observation	general	0	It's been interesting how kids have had hardly any problems watching it, but adults have more trouble. This happened way back even with Jabberwocky and Time Bandits.
+entertainers	society	quip	general	0	It's easy being a humorist when you've got the whole government working for you. ~ Will Rogers
+entertainers	arts	observation	general	0	It's into the same bag as E.T. and Yoda, wherein you're trying to create something that people will actually believe, but it's not so much a symbol of the thing, but you're trying to do the thing itself.
+entertainers	work-money	quip	general	0	It's morally wrong to allow a sucker to keep his money.
+entertainers	work-money	aphorism	general	0	It's not what you pay a man, but what he costs you that counts. ~ Will Rogers
+entertainers	life	quip	general	0	It's very dangerous to wave to people you don't know because what if they don't have hands? They'll think you're cocky.
+entertainers	life	quip	general	0	It's weird... people say they're not like apes. Now how do you explain football then?
+entertainers	arts	fact	general	0	John Cleese was with a group called Cambridge Circus, who had come to New York, and we became friends. Years later that produced a certain team effort.
+entertainers	life	quip	general	0	Last week, I went to Philadelphia, but it was closed.
+entertainers	society	quip	general	0	Last year we said, 'Things can't go on like this', and they didn't, they got worse. ~ Will Rogers
+entertainers	work-money	wisdom	general	0	Let advertisers spend the same amount of money improving their product that they do on advertising and they wouldn't have to advertise it. ~ Will Rogers
+entertainers	life	aphorism	general	0	Lettin' the cat outta the bag is a whole lot easier 'n puttin' it back in. ~ Will Rogers
+entertainers	society	quip	general	0	Liberty doesn't work as well in practice as it does in speeches. ~ Will Rogers
+entertainers	life	uplifting	general	0	Life's like a movie, write your own ending. Keep believing, keep pretending.
+entertainers	arts	quip	general	0	Literally overnight, I became an animator... and one that was well-known.
+entertainers	life	wisdom	general	0	Live in such a way that you would not be ashamed to sell your parrot to the town gossip. ~ Will Rogers
+entertainers	work-money	quip	general	0	Make crime pay. Become a lawyer. ~ Will Rogers
+entertainers	love	quip	general	0	Marry an outdoors woman. Then if you throw her out into the yard on a cold night, she can still survive.
+entertainers	work-money	aphorism	general	0	Money and women are the most sought after and the least known about of any two things we have. ~ Will Rogers
+entertainers	arts	quip	general	0	Movie acting suits me because I only need to be good for ninety seconds at a time.
+entertainers	life	observation	general	0	My belt holds my pants up, but the belt loops hold my belt up. I don't really know what's happening down there. Who is the real hero?
+entertainers	life	quip	general	0	My fake plants died because I did not pretend to water them.
+entertainers	society	observation	general	0	My favorite thing about New York is the people, because I think they're misunderstood. I don't think people realize how kind New York people are.
+entertainers	food	joke	general	0	My friend asked me if I wanted a frozen banana. I said 'No, but I want a regular banana later, so... yeah.'
+entertainers	life	wisdom	general	0	My hope still is to leave the world a bit better than when I got here.
+entertainers	arts	observation	general	0	My sister wanted to be an actress, but she never made it. She does live in a trailer. She got halfway. She's an actress, she just never gets called to the set.
+entertainers	arts	observation	general	0	NBC was trying to convert all of their local programming to color right away to encourage the sale of the sets, so I barely remember working in black and white, although I do know that I did do it, but there was not a major difference, though.
+entertainers	life	dark	general	0	Never cry over spilt milk, because it may have been poisoned.
+entertainers	life	aphorism	general	0	Never give a sucker an even break.
+entertainers	life	aphorism	general	0	Never let yesterday use up too much of today. ~ Will Rogers
+entertainers	love	quip	general	0	Never try to impress a woman, because if you do she'll expect you to keep up the standard for the rest of your life.
+entertainers	life	quip	general	0	No doubt exists that all women are crazy; it's only a question of degree.
+entertainers	life	observation	general	0	No one really wants to admit they are lonely, and it is never really addressed very much between friends and family. But I have felt lonely many times in my life.
+entertainers	arts	observation	general	0	No, there's not much competition between puppeteers in general because everybody's working their own style.
+entertainers	life	quip	general	0	Now don't say you can't swear off drinking; it's easy. I've done it a thousand times.
+entertainers	society	wisdom	general	0	Now if there is one thing that we do worse than any other nation, it is try and manage somebody else's affairs. ~ Will Rogers
+entertainers	life	observation	general	0	Oakland Technical High School. Like any high-school experience, it was ambiguous. I was shy with girls; I had friends, but there were times I didn't feel I had the right friends. My grades were only so-so.
+entertainers	society	quip	general	0	Ohio claims they are due a president as they haven't had one since Taft. Look at the United States, they have not had one since Lincoln. ~ Will Rogers
+entertainers	society	quip	general	0	On account of being a democracy and run by the people, we are the only nation in the world that has to keep a government four years, no matter what it does. ~ Will Rogers
+entertainers	life	quip	general	0	On the whole, I'd rather be in Philidelphia.
+entertainers	food	joke	general	0	Once, during Prohibition, I was forced to live for days on nothing but food and water.
+entertainers	society	aphorism	general	0	One Ad is worth more to a paper than forty Editorials. ~ Will Rogers
+entertainers	arts	observation	general	0	One of my gripes about movies is that people take them so seriously, and the moneymaking aspects are so brutal.
+entertainers	arts	observation	general	0	One of the things I like about acting is that, in a funny way, I come back to myself.
+entertainers	society	quip	general	0	One-third of the people in the United States promote, while the other two-thirds provide. ~ Will Rogers
+entertainers	society	quip	general	0	Our constitution protects aliens, drunks and U.S. Senators. ~ Will Rogers
+entertainers	life	observation	general	0	Parties are only bad when a fight breaks out, when men fight over women or vice versa. Someone takes a fall, an ambulance comes, and the police arrive. If you can avoid those things, pretty much all behaviour is acceptable.
+entertainers	society	quip	general	0	People are getting smarter nowadays; they are letting lawyers, instead of their conscience, be their guide. ~ Will Rogers
+entertainers	family	wisdom	general	0	People only talk about what a joyous experience it is, but there is terror: Your life, as you know it, is over. It's over the day that child is born. It's over, and something completely new starts.
+entertainers	life	quip	general	0	People say I'm difficult and sometimes that's a badge of honour.
+entertainers	nature	observation	general	0	People teach their dogs to sit; it's a trick. I've been sitting my whole life, and a dog has never looked at me as though he thought I was tricky.
+entertainers	arts	quip	general	0	People used to think we just faked all that stuff... it was all written, rehearsed. The fact that it looks as cobbled together as it does is just that we weren't very good.
+entertainers	life	aphorism	general	0	People who fly into a rage always make a bad landing. ~ Will Rogers
+entertainers	life	wisdom	general	0	People's minds are changed through observation and not through argument. ~ Will Rogers
+entertainers	society	observation	general	0	Politics has become so expensive that it takes a lot of money even to be defeated. ~ Will Rogers
+entertainers	society	quip	general	0	Politics is applesauce. ~ Will Rogers
+entertainers	life	quip	general	0	Prohibition is better than no liquor at all. ~ Will Rogers
+entertainers	life	aphorism	general	0	Remember, a dead fish can float downstream, but it takes a live one to swim upstream.
+entertainers	life	dark	general	0	Reminds me of my safari in Africa. Somebody forgot the corkscrew and for several days we had to live on nothing but food and water.
+entertainers	food	quip	general	0	Rice is great if you're really hungry and want to eat two thousand of something.
+entertainers	food	pun	general	0	Set up another case bartender! The best thing for a case of nerves is a case of Scotch.
+entertainers	arts	quip	general	0	Show me a great actor and I'll show you a lousy husband. Show me a great actress, and you've seen the devil.
+entertainers	life	quip	general	0	Sleep - the most beautiful experience in life - except drink.
+entertainers	life	wisdom	general	0	So let's be honest with ourselves and not take ourselves too serious, and never condemn the other fellow for doing what we are doing every day, only in a different way. ~ Will Rogers
+entertainers	life	quip	general	0	Some things are better than sex, and some are worse, but there's nothing exactly like it.
+entertainers	life	quip	general	0	Some weasel took the cork out of my lunch.
+entertainers	arts	quip	general	0	Somebody like a Piggy or a Kermit, there needs to be several versions and so there will be several of them.
+entertainers	life	observation	general	0	Sometimes I snore, like when I get really tired.
+entertainers	life	wisdom	general	0	Somewhere there's a score being kept, so you have an obligation to live life as well as you can, be as engaged as you can.
+entertainers	food	observation	general	0	Spaghetti... I can't eat spaghetti, there's too many of them. No matter how hungry I am, 1,000 of something is too many. I'll have 1,000 pieces of noodles.
+entertainers	life	dark	general	0	Start every day off with a smile and get it over with.
+entertainers	faith	quip	general	0	The 1928 Republican Convention opened with a prayer. If the Lord can see His way clear to bless the Republican Party the way it's been carrying on, then the rest of us ought to get it without even asking. ~ Will Rogers
+entertainers	society	quip	general	0	The United States never lost a war or won a conference. ~ Will Rogers
+entertainers	health-body	joke	general	0	The best cure for insomnia is to get a lot of sleep.
+entertainers	life	aphorism	general	0	The best way out of a difficulty is through it. ~ Will Rogers
+entertainers	arts	observation	general	0	The biggest problems with movies are expectations.
+entertainers	nature	quip	general	0	The clever cat eats cheese and breathes down rat holes with baited breath.
+entertainers	work-money	quip	general	0	The cost of living has gone up another dollar a quart.
+entertainers	life	quip	general	0	The depressing thing about tennis is that no matter how good I get, I'll never be as good as a wall.
+entertainers	society	quip	general	0	The difference between a Republican and a Democrat is the Democrat is a cannibal they have to live off each other, while the Republicans, why, they live off the Democrats. ~ Will Rogers
+entertainers	work-money	aphorism	general	0	The farmer has to be an optimist or he wouldn't still be a farmer. ~ Will Rogers
+entertainers	life	wisdom	general	0	The fellow that can only see a week ahead is always the popular fellow, for he is looking with the crowd. But the one that can see years ahead, he has a telescope but he can't make anybody believe that he has it. ~ Will Rogers
+entertainers	work-money	quip	general	0	The income tax has made liars out of more Americans than golf. ~ Will Rogers
+entertainers	life	quip	general	0	The laziest man I ever met put popcorn in his pancakes so they would turn over by themselves.
+entertainers	society	quip	general	0	The man with the best job in the country is the vice-president. All he has to do is get up every morning and say, 'How is the president?' ~ Will Rogers
+entertainers	life	wisdom	general	0	The more relaxed you are, the better you are at everything: the better you are with your loved ones, the better you are with your enemies, the better you are at your job, the better you are with yourself.
+entertainers	society	aphorism	general	0	The more that learn to read the less learn how to make a living. That's one thing about a little education. It spoils you for actual work. The more you know the more you think somebody owes you a living. ~ Will Rogers
+entertainers	work-money	observation	general	0	The more work I do, the more important it is to work with people I like - who are very talented.
+entertainers	society	quip	general	0	The more you observe politics, the more you've got to admit that each party is worse than the other. ~ Will Rogers
+entertainers	life	wisdom	general	0	The most sophisticated people I know - inside they are all children.
+entertainers	arts	quip	general	0	The movies are the only business where you can go out front and applaud yourself. ~ Will Rogers
+entertainers	work-money	quip	general	0	The only difference between death and taxes is that death doesn't get worse every time Congress meets. ~ Will Rogers
+entertainers	life	quip	general	0	The only time people dislike gossip is when you gossip about them. ~ Will Rogers
+entertainers	work-money	quip	general	0	The only way you can beat the lawyers is to die with nothing. ~ Will Rogers
+entertainers	arts	observation	general	0	The power of the 'Muppets,' and the popularity of these characters, is so iconic in people's lives that I had to distance myself from publicly. Not privately... Privately, hell, I'm with them for life, and I love these people. They're my second family.
+entertainers	society	quip	general	0	The schools ain't what they used to be and never was. ~ Will Rogers
+entertainers	work-money	wisdom	general	0	The time to save is now. When a dog gets a bone, he doesn't go out and make a down payment on a bigger bone. He buries the one he's got. ~ Will Rogers
+entertainers	life	quip	general	0	The world is getting to be such a dangerous place, a man is lucky to get out of it alive.
+entertainers	life	wisdom	general	0	The worst thing that happens to you may be the best thing for you if you don't let it get the best of you. ~ Will Rogers
+entertainers	arts	observation	general	0	There are moments when television systems are young and haven't formed properly, and there's room for lots of original stuff. Then things become more and more top-heavy with executives who are trying to guarantee the success of things.
+entertainers	life	quip	general	0	There are only two real ways to get ahead today - sell liquor or drink it.
+entertainers	work-money	quip	general	0	There are people who drove me crazy, but they got the job done. And when I see that person again, I nod my head. Respect.
+entertainers	work-money	observation	general	0	There aren't many downsides to being rich, other than paying taxes and having relatives asking for money. But being famous, that's a 24 hour job right there.
+entertainers	life	quip	general	0	There comes a time in the affairs of man when he must take the bull by the tail and face the situation.
+entertainers	society	quip	general	0	There is no more independence in politics than there is in jail. ~ Will Rogers
+entertainers	life	quip	general	0	There is nothing so stupid as the educated man if you get him off the thing he was educated in. ~ Will Rogers
+entertainers	society	quip	general	0	There ought to be one day - just one - when there is open season on senators. ~ Will Rogers
+entertainers	arts	observation	general	0	There was a little afternoon show that was called Afternoon. Back in those days in television, most local stations had a midday show for housewives that had a series of things. It was like a variety show for midday.
+entertainers	arts	observation	general	0	There was a perverse side of me, with things like Van Helsing coming out. I didn't want to go down that route.
+entertainers	arts	quip	general	0	There's a few movies I wanted to do, and I didn't get to do them partly because they wanted me to be part of the horse and pony show, getting the money, and I'm just not doing that. There's a few movies that people wanted me to do, but they were too safe.
+entertainers	society	quip	general	0	There's no trick to being a humorist when you have the whole government working for you. ~ Will Rogers
+entertainers	arts	quip	general	0	There's only one thing that can kill the movies, and that's education. ~ Will Rogers
+entertainers	arts	observation	general	0	They make Spy Kids, they make Scream, they make A Scary Movie. This doesn't do that, so it could be a very bad marriage. I'm trying to keep this potential nightmare quiet because we're just finishing editing.
+entertainers	life	quip	general	0	Things ain't what they used to be and never were. ~ Will Rogers
+entertainers	society	quip	general	0	Things in our country run in spite of government, not by aid of it. ~ Will Rogers
+entertainers	society	quip	general	0	This country has come to feel the same when Congress is in session as when the baby gets hold of a hammer. ~ Will Rogers
+entertainers	arts	observation	general	0	This really should be kept secret, but you can learn a lot by watching the making-of DVDs. Every actor should do it. You figure out what you're dealing with.
+entertainers	life	observation	general	0	This shirt is dry clean only. Which means... it's dirty.
+entertainers	life	wisdom	general	0	This thing of being a hero, about the main thing to it is to know when to die. ~ Will Rogers
+entertainers	work-money	wisdom	general	0	Too many people spend money they haven't earned to buy things they don't want to impress people they don't like. ~ Will Rogers
+entertainers	life	wisdom	general	0	We are all here for a spell, get all the good laughs you can. ~ Will Rogers
+entertainers	life	quip	general	0	We can't all be heroes, because somebody has to sit on the curb and applaud when they go by. ~ Will Rogers
+entertainers	arts	quip	general	0	We did Holy Grail, and I got my name up there as one of the directors. After that, I started moving more and more down the line I wanted to, which was making movies.
+entertainers	society	quip	general	0	We don't seem to be able to check crime, so why not legalize it and then tax it out of business? ~ Will Rogers
+entertainers	arts	observation	general	0	We thought it would be fun to try to design a show that would work well internationally and so that' s what we're intending to do with Fraggle Rock, and we are indeed now selling it around the world.
+entertainers	arts	observation	general	0	We took up the offer with the BBC, and that was Monty Python's Flying Circus. I didn't have to submit my ideas to the group. I used to turn up on the days we recorded with a can of film under my arm, and in it went.
+entertainers	society	wisdom	general	0	We will never have true civilization until we have learned to recognize the rights of others. ~ Will Rogers
+entertainers	life	wisdom	general	0	We're born alone. We do need each other. It's lonely to really effectively live your life, and anyone you can get help from or give help to; that's part of your obligation.
+entertainers	life	quip	general	0	Wearing a turtleneck is like being strangled by a really weak guy, all day. Wearing a backpack and a turtleneck is like a weak midget trying to bring you down.
+entertainers	arts	fact	general	0	Well, Detroit Institute is kind of a key - probably the largest permanent collection of puppets in the US.
+entertainers	arts	quip	general	0	Well, Hollywood isn't made up of individual studio heads anymore. It's made of corporations. And corporations are looking for the bottom line. They don't want to take chances. They want the money back for stockholders.
+entertainers	arts	observation	general	0	What I remember most about the 'Road' movies is my enjoyment at watching the two characters sparring with each other. But more important than that was my feeling that Hope and Crosby were enjoying the sparring, too.
+entertainers	society	quip	general	0	What the country needs is dirtier fingernails and cleaner minds. ~ Will Rogers
+entertainers	life	observation	general	0	When I was a kid, I never saw a puppet show. I never played with puppets or had any interest in them.
+entertainers	life	uplifting	general	0	When I was young, my ambition was to be one of the people who made a difference in this world. My hope is to leave the world a little better for having been there.
+entertainers	work-money	observation	general	0	When I work, my first relationship with people is professional.
+entertainers	arts	quip	general	0	When The Muppet Show ended, we all sat around and said, what kind of television show would we like to do. We felt the need these days are for some quality children's programming.
+entertainers	life	wisdom	general	0	When ignorance gets started it knows no bounds. ~ Will Rogers
+entertainers	work-money	quip	general	0	When should a college athlete turn pro? Not until he has earned all he can in college as an amateur. ~ Will Rogers
+entertainers	life	observation	general	0	When someone hands you a flyer, it's like they're saying here you throw this away.
+entertainers	life	quip	general	0	When the phone started ringing too many times, I had to take it back to what I can handle. I take my chances on a job or a person as opposed to a situation. I don't like to have a situation placed over my head.
+entertainers	life	dark	general	0	When we have lost everything, including hope, life becomes a disgrace, and death a duty.
+entertainers	life	quip	general	0	When you put down the good things you ought to have done, and leave out the bad ones you did do well, that's Memoirs. ~ Will Rogers
+entertainers	life	observation	general	0	When you see grown men near to tears because they've missed hitting a little white ball into a hole from three feet, it makes you laugh.
+entertainers	arts	quip	general	0	Whenever I think of the high salaries we are paid as film actors, I think it is for the travel, the time away, and any trouble you get into through being well known. It's not for the acting, that's for sure.
+entertainers	society	quip	general	0	Why don't they pass a constitutional amendment prohibiting anybody from learning anything? If it works as well as prohibition did, in five years Americans would be the smartest race of people on Earth. ~ Will Rogers
+entertainers	life	quip	general	0	Why is Cloud 9 so amazing? What is wrong with Cloud 8? That joke came off the top of my head, and the top of my head ain't funny!
+entertainers	love	quip	general	0	Women are like elephants. I like to look at 'em, but I wouldn't want to own one.
+entertainers	life	wisdom	general	0	Worrying is like paying on a debt that may never come due. ~ Will Rogers
+entertainers	life	quip	general	0	Y'know, you can't please all the people all the time... and last night, all those people were at my show.
+entertainers	life	observation	general	0	Yeah, I did some small parts in high school and the first year of college and then fairly soon thereafter I settled into the backstage scenery, and then at the University of Maryland I was doing posters for their productions.
+entertainers	society	quip	general	0	Yeah, I think that's sort of the American way. And it's also the Polish way, it turns out.
+entertainers	arts	quip	general	0	Yeah, I think we did the term Muppets before we got the show Sam and Friends - a few months after I started working.
+entertainers	arts	observation	general	0	Yeah, we pretty much had a form and a shape by that time - a style - and I think one of the advantages of not having any relationship to any other puppeteer was that it gave me a reason to put those together myself for the needs of television.
+entertainers	work-money	quip	general	0	Yeah, well when I first started working, it was $5 a show; it was probably a little higher by the time I got to my own show, but I remember that they put me under contract at $100 a week, which to me was really an astronomical price.
+entertainers	society	dark	general	0	You can't say civilization don't advance... in every war they kill you in a new way. ~ Will Rogers
+entertainers	life	aphorism	general	0	You can't trust water: Even a straight stick turns crooked in it.
+entertainers	life	observation	general	0	You get trapped by stories. Though I've got this reputation for being out of control, it's not true, it just happens to be a more interesting story than the truth.
+entertainers	nature	quip	general	0	You know when they have a fishing show on TV? They catch the fish and then let it go. They don't want to eat the fish, they just want to make it late for something.
+entertainers	arts	wisdom	general	0	You're assisting the audience to understand; you're giving them a bridge or an access. And if you don't give them that, if you keep it more abstract, it's almost more pure. It's a cooler thing.

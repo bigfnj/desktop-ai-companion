@@ -1,0 +1,12 @@
+# Default ownership for the maintained fork.
+* @bigfnj
+
+# Release, packaging, installer, product identity, lock, and legal boundaries.
+/.github/workflows/ @bigfnj
+/packaging/ @bigfnj
+/installer/ @bigfnj
+/ProductVersion.props @bigfnj
+/src/packages.lock.json @bigfnj
+/Tools/PetTester/packages.lock.json @bigfnj
+/tests/DesktopPet.CoreTests/packages.lock.json @bigfnj
+/THIRD_PARTY_NOTICES.md @bigfnj

@@ -1,0 +1,544 @@
+tv-peepshow	life	tv-quote	edgy	1	Jez (This is fucking wicked. I'm almost definitely a musical genius. Maybe a tattoo... on my chest... but... of my face. Yeahh! Double me! Feel it!)
+tv-peepshow	life	tv-quote	general	0	Mark: (You're not a paedo. You're definitely not a paedo.)
+tv-peepshow	life	tv-quote	general	0	[While boarding the bus] Mark: (Yes! "I am the lord of the bus!" said he.)
+tv-peepshow	love	tv-quote	general	0	Mark: (Women don't like your hands under their bottoms, Mark. That's been established, that's a given.)
+tv-peepshow	society	wisdom	general	0	Mark: (Those kids have no idea whatsoever of what went on at Stalingrad. Although I can in no way compare my struggle reading it with that of the Red Army, it has been a very big read. )
+tv-peepshow	love	tv-quote	general	0	TV: I'm basically looking to meet someone like myself. Mark: (Pfftt. That's exactly the opposite of what I'm looking for.)
+tv-peepshow	arts	tv-quote	general	0	Jez: Now I know how whatshisname felt when he finished the Mona Lisa... Knackered.
+tv-peepshow	love	tv-quote	edgy	1	Mark: (I don't want to go to Waitrose. I want a fuckbuddy.)
+tv-peepshow	life	tv-quote	general	0	Mark: (Maybe he doesn't mind. Maybe nobody minds about things as much as me.)
+tv-peepshow	life	tv-quote	general	0	Mark: (You can have good relationships with people who scare you. Just look at me and dad.)
+tv-peepshow	life	tv-quote	edgy	1	Super Hans: Oh what? So... Mr... Ocean Colour Pants doesn't get it? Well, quelle fucking surprise.
+tv-peepshow	life	tv-quote	general	0	Super Hans: It's not who you know... It's who you blow.
+tv-peepshow	life	tv-quote	edgy	1	Boy: Hey look, it's clean shirt. Mark: (Clean shirt? What does that even mean? Isn't that good?) ... Boy: Fuck off clean shirt!
+tv-peepshow	life	tv-quote	general	0	Jez: You're a posh spaz. Mark: Oh really? Well I'd love to know in what way I am a posh spaz. Jez: In the way that you do posh, spazzy things like... tidying up and... ironing your socks. Mark: I do not iron my socks! Jez: Socks, shirts, whatever!
+tv-peepshow	life	tv-quote	edgy	1	Toni: I tell you, you find out who your real friends are when you set fire to Hampton Court maze because you can't take any more of your husband's shit.
+tv-peepshow	life	tv-quote	general	0	Jez: (If I laugh at everything she says, I'm bound to at least get a suck job.)
+tv-peepshow	life	tv-quote	general	0	Jez: (I mean, you can't catch cancer... I'd have heard... Someone would've said...)
+tv-peepshow	life	tv-quote	general	0	Jez: Listen to you, you beautiful... crazy thing... I meant, the cancer. Paula: I'm sorry? Which cancer? Jez: The bloody cancer! Eating you away! Paula: Ok... Would you like it if I did have cancer?
+tv-peepshow	love	tv-quote	general	0	[Leaving Sophie on the bus, having failed miserably to woo Toni the previous night] Mark: (Yeah that's the way, Sophie is the one. Toni is Russia: Vast, mysterious, unconquerable. Sophie is Poland: Manageable... won't put up too much of a fight.)
+tv-peepshow	life	tv-quote	general	0	Mark: [Before having toast for breakfast] (Brown for first course, white for pudding. Brown is savoury, white's the treat. Of course I'm the one who's laughing because I actually love brown toast.)
+tv-peepshow	arts	tv-quote	general	0	Jez: Super Hans says he's come up with a bass loop for our new track that is so good, that when he tried turning it off... he literally couldn't... he actually physically couldn't do it.
+tv-peepshow	life	tv-quote	general	0	Mark: (Work-shy freeloader.) Jez: (Tight-fisted cockmuncher.)
+tv-peepshow	life	tv-quote	edgy	1	Jez: (You wouldn't ask the Chemical Brothers to do your laundry for you; they'd be off their tits.)
+tv-peepshow	life	tv-quote	general	0	Mark: (I mean, what's the worst that could happen? She could say no. Actually, that would be terrible. It would destroy me if she said no.)
+tv-peepshow	life	tv-quote	general	0	Mark: (People like him should wear stickers; they've got them for their cars. Oh, yeah, great idea, Adolf.)
+tv-peepshow	love	tv-quote	general	0	Mark: How's your day going thus far? Did you have a nice shower or bath? Sophie: Why, do I smell? Mark: God, no, you don't smell. I mean, you smell nice. Not that I've smelt you.
+tv-peepshow	life	tv-quote	general	0	Jez: (Super Hans said he'll be here in twenty minutes. That means I've got at least an hour.)
+tv-peepshow	life	tv-quote	general	0	Mark: [Drawing a cartoon.] (What the hell is that? That is very gay, that's what that is. Come on, go crazy. You're hungry, like the wolf.)
+tv-peepshow	life	tv-quote	general	0	Jez: We are NOT the Hair Blair Bunch!
+tv-peepshow	life	tv-quote	general	0	Toni: So, what you're saying is, these products are essential? The kind of products no one could do without? Jez: Well... You're kind of making me say that.
+tv-peepshow	life	tv-quote	general	0	Mark: (She's ignoring me. Of course she's ignoring me, this morning I sent her a bloody swastika.)
+tv-peepshow	life	tv-quote	edgy	1	Mark: [Trying to open his desk drawer] (Why don't I get this fixed? Why don't I ever get this fucking thing fixed?! Every night it's f... Ah, it always comes out eventually, fuck it.)
+tv-peepshow	life	tv-quote	general	0	Mark: I mean, not that.
+tv-peepshow	life	tv-quote	general	0	Mark: (Everything's okay in the cupboard. I'm safe in the cupboard.)
+tv-peepshow	life	tv-quote	general	0	Jeff: Mark. You're in the stationery cupboard. Mark: That's right, Jeff.
+tv-peepshow	work-money	tv-quote	general	0	Mark: (I'll be able to order him around. Not horrible, just... Jeremy, could you file this for me? Jeremy, could you take that for me? Jeremy could you suck this for me?... Jesus! Where did that come from?)
+tv-peepshow	life	tv-quote	general	0	Jez: No, challenging is right... Umm... But, a bit more of a relaxing challenge, more like doing a crossword than a tracheotomy.
+tv-peepshow	life	tv-quote	edgy	1	Jez: You're pissing on my bonfire! Mark: There is no bonfire! Jez: That's because you keep pissing on it!
+tv-peepshow	life	tv-quote	edgy	1	Mark: (Well that was a fucking disaster. I want compensation. I want reparations. I want the Rhineland. It's going to be 1919 all over again, fuck the inevitable backlash.)
+tv-peepshow	love	tv-quote	edgy	1	Mark: I like you. Is that such a crime? Should I be hounded to the ends of the earth, just for liking you? I like you, and if you can't handle it, you can just, you know, fuck off.
+tv-peepshow	life	tv-quote	general	0	Mark: (Life is all pain. Pain, rejection and gloom. Why do we even pretend that there's anything other than a yawning blankness at the heart of... Hey! 33% extra free! I'm doing excellent shopping. My depressed state of mind is making me even more frugal than normal.)
+tv-peepshow	food	tv-quote	general	0	Jez: You realise tinned food is just for crackheads and wars.
+tv-peepshow	life	tv-quote	general	0	Jez: I just came here to tell you we've been invited to a very wicked party. Mark: Do I look like the kind of man who goes to wicked parties?
+tv-peepshow	life	tv-quote	general	0	Mark: (Ok, well, I'm here, so I'll just sit here and drink. No one can stop me doing that. Just drink myself to death.)
+tv-peepshow	life	tv-quote	edgy	1	Mark: (I've been initiated. I am a drug user! Fuck the police!)
+tv-peepshow	life	tv-quote	general	0	Mark: What if I lose it? I'm not gonna do a poo am I, Jez?
+tv-peepshow	love	tv-quote	general	0	Jeff: So Valerie, who's your favourite member of S Club? Valerie: Oh, I'm not really into them. But I hear they have a big gay following. [mimes oral sex]
+tv-peepshow	life	tv-quote	general	0	Mark: For the worst thing that could possibly happen, this is actually going extremely well.
+tv-peepshow	life	tv-quote	general	0	Mark: (Don't think about it. If you don't think about it, it won't happen.)
+tv-peepshow	life	tv-quote	general	0	Mark: I'm bowling all right, I'm bowling FRUIT! I've reached the next level, I've gone BEYOND!
+tv-peepshow	arts	tv-quote	general	0	Mark: (She does look kind of great in my pajamas. That's sick. Why is that sick?)
+tv-peepshow	society	observation	general	0	Jez: Mark likes Israel, I'm Palestine. Makes it much more interesting if you pick sides.
+tv-peepshow	life	tv-quote	general	0	Super Hans: You passed out after the love beans... thought the table was being ironic.
+tv-peepshow	life	tv-quote	general	0	[In flash back of drug induced state] Jez: (Floss is boss, Floss is boss). [Begins to strangle Super Hans with dental floss] Jez: FLOSS IS BOSS! FLOSS IS BOSS!.
+tv-peepshow	life	tv-quote	general	0	Mark: (This is the worst thing to happen to anybody ever.)
+tv-peepshow	life	tv-quote	nsfw	1	Mark: (Good old unfriendly Mr. Patel. Never says a word whether you're buying corn flakes, fabric softener... or gay porn.)
+tv-peepshow	life	tv-quote	general	0	Super Hans: We're going to have parties that go beyond fun and actually get a bit nasty.
+tv-peepshow	life	tv-quote	general	0	Jez: Will you walk, like some stupid.. duck? Or will you drive, like Clarkson?
+tv-peepshow	life	tv-quote	general	0	Jez: The bad thing. That was the bad thing. [Cut to shot of Super Hans performing oral sex on Jeremy the previous night] Super Hans: Alright. My turn now.
+tv-peepshow	life	tv-quote	general	0	Sophie: Are you sure you can get home from here? Mark: Hmmm. (You can never go home again. Winter's coming. Is this Stalingrad? Is this where it all ends?)
+tv-peepshow	love	tv-quote	general	0	Jez: Look mate, I'm next door. I heard you. Your... noise. Last night. Super Hans: Oh, that. That was nothing. That was... press-ups. Jez: Yep, well, you certainly seemed to enjoy the last few... a lot.
+tv-peepshow	life	tv-quote	edgy	1	Therapist: Have you ever done a Rorschach test? Just tell me what you see. Mark: (A hairy twat. A hungry, devouring twat) ...a kitten?
+tv-peepshow	life	tv-quote	general	0	Jez: (This was definitely a good idea. There's no chance this wasn't a good idea.)
+tv-peepshow	life	tv-quote	general	0	Mark: It's payback time. Jez: And she's paying back... in fear dollars!
+tv-peepshow	life	tv-quote	general	0	Mark: (I've made a psycho call to the woman I love, I kicked a dog to death, and now I'm going to pepperspray an acquaintance. Something ... I mean, what's happened to me?)
+tv-peepshow	life	tv-quote	general	0	Mark: (Can't do it. It's too much. I'm not American; I can't date.)
+tv-peepshow	life	tv-quote	general	0	[Discussing life and death with Mark] Sophie: Sometimes, we're so wrapped up in the nonsense of life... Mark: Right yeah... I mean, if I want an Xbox, why don't I just get an Xbox? Sophie: [confused] ...yeah. Mark: (You're losing her) It's a brief candle... a bloody brief candle.
+tv-peepshow	faith	tv-quote	general	0	Jez: ('Abandon self-cherishing, love only others'. Yeah well Mr. Dalai Lama, I suppose you've got to be a suck-up if you haven't got your own country.)
+tv-peepshow	life	tv-quote	edgy	1	[Kissing Sophie at Jez's uncle's wake] Mark: (Oh, my God. Umm... What about my abnormal knackers? Ooh, this is nice. How weird are they? What I really need is a good, long look at another man's bollocks. But that's so fraught with potential problems.)
+tv-peepshow	life	tv-quote	general	0	Jez: There's only so much happiness in the world and they're hoarding it all! Mark: That's not how happiness works! (It completely is.)
+tv-peepshow	love	tv-quote	general	0	Mark: What do I know about love and happiness? I know you have to play dirty, my friend.
+tv-peepshow	work-money	tv-quote	edgy	1	Mark: (Yeah, fuck carrot and stick, he's making the stick out of carrot.)
+tv-peepshow	life	tv-quote	general	0	Mark: (Careful, there's man love and there's business love, and never the twain shall meet.)
+tv-peepshow	life	tv-quote	general	0	Mark: (Yeah, you won't be so cocky Jeff, when I come into the office with a Kalashnikov and 200 rounds of ammunition. I'm probably exactly the kind of person who could end up doing something like that.)
+tv-peepshow	life	tv-quote	general	0	Mark: Dancing? Y-yes... dancing... I love... dancing... (It makes me look like a coma victim being stood up and zapped with a cattle prod.)
+tv-peepshow	life	tv-quote	general	0	Jez: (God, this is such a mess. It's fantastic.)
+tv-peepshow	life	tv-quote	general	0	Jez: Maybe I should send her a bit of ear. Or a finger. Just to show I'm really serious.
+tv-peepshow	life	tv-quote	nsfw	1	Mark: (I've walked into my own personal nightmare. Must remain non-uptight for Sophie. Even if they make me play trust exercises with their genitals.)
+tv-peepshow	life	tv-quote	general	0	Jez: (Jesus, Mark's such a honky. I'm definitely the alpha-est male here. He's probably here for community service. He looks like he's actually getting a bonk on. I'm definitely king of the hippie jungle.)
+tv-peepshow	love	tv-quote	general	0	Mark: Look, Jez, what I'm trying to say is, for better or worse, the sixties happened and now sex is fine. But can't we take the best of that--the nice music, the colors, the I Have A Dream, et cetera--but not have to face the ... squalor?
+tv-peepshow	love	tv-quote	general	0	Jez: Who needs romance when you're doing it up the bum?
+tv-peepshow	society	tv-quote	general	0	Nancy: You can't imagine your mum having sex with a black man? That's pretty racist, Jeremy!
+tv-peepshow	life	tv-quote	general	0	Mark: (If I want to act relaxed, it's going to take all my cunning, skill, and concentration.)
+tv-peepshow	life	tv-quote	general	0	Mark: (I wonder which of my treasured possessions they'll be putting in each others anuses tonight.)
+tv-peepshow	life	tv-quote	edgy	1	Mark: (God it's so easy being a freak. No wonder they're ten a penny. I should get extra marks for not feeling a fucking thing.)
+tv-peepshow	love	tv-quote	general	0	Nancy: This place is amazing, Gwyn. How can you afford it all? Gwyn: Well I guess I've just been very lucky. Money's an energy and lots of it has always flowed towards me. Particularly after my parents died. Jez: Cosmic.
+tv-peepshow	life	tv-quote	edgy	1	Jez: (You're not going to out-hippie me you fucking hippie.)
+tv-peepshow	life	tv-quote	general	0	Mark: (God it's happening. It's Woodstock. It's Altamont. It's My Lai.)
+tv-peepshow	life	tv-quote	general	0	Mark: (I'm Louis Theroux. I'm Louis Theroux with his wry smile at the orgy.)
+tv-peepshow	love	quip	general	0	Mark: (Sure, an orgy sounds great, but you're basically just multiplying the number of people you're not going to be able to look in the eye afterwards.)
+tv-peepshow	life	tv-quote	nsfw	1	Jez: (This is good. This is like watching a porno, except I can't see anything, I haven't got a hard-on, and I want to cry.)
+tv-peepshow	love	tv-quote	general	0	Mark: We have something special. Not my words, yours. We can't throw that all away just because I ... spy on you ... can we!?
+tv-peepshow	life	tv-quote	nsfw	1	[Jez approaches an acquaintance from school] Jez: Gog! Gog: Jeremy! What are you doing here? Jez: Wouldn't you like to know, you big prick! [Jez twists Gog's nipple] Jez: Remember that time we made you wank off Percy's dog for a fiver?
+tv-peepshow	life	tv-quote	general	0	Mark: (He hasn't got any massage oil. He's trying to make me obsess about massage oil. And it's worked!)
+tv-peepshow	life	tv-quote	general	0	Jez: Is that? ... Oh my god it is! It's Gog! Mark: Who's Gog? Jez: It's Gog! In school, if you had to sneeze, you'd run up and do it in his face.
+tv-peepshow	life	tv-quote	general	0	Super Hans: I'll tell you what, that crack is really moreish.
+tv-peepshow	life	tv-quote	general	0	Mark: Jeremy, what is Super Hans doing? Jeremy: [observes Super Hans] He's honking on his crackpipe. Mark: Crack! Jeremy! I have company! Jeremy: Relax Mark, everyone does drugs nowadays. "Look at Me, I'm Mark. I'm dying on a street in an Advert in the 80s."
+tv-peepshow	arts	tv-quote	general	0	Super Hans: What we really need to do is create a powerful sense of dread. [Plays a long, low note on the keyboard] Super Hans: See, the longer the note... the more dread!
+tv-peepshow	life	tv-quote	general	0	Jez: (Useless...all useless. I wish they were all robots...I wish I were a robot...maybe I could punch through a wall...)
+tv-peepshow	faith	tv-quote	general	0	Jez: The only reason I don't go to church is that, for me, everything's a church. This room is my church, the hall is my church... Cost Cutters is a bloody cathedral.
+tv-peepshow	life	tv-quote	general	0	Mark: (I've shot you Jeff. With a bullet made of Scottish finance regulations.)
+tv-peepshow	life	observation	general	0	Nancy:Why don't they ever talk about all the buses that made it safely? Mark:Yes, I suppose the news should just be a dispassionate account of all the events of the day - except it would take forever.
+tv-peepshow	work-money	tv-quote	edgy	1	Mark: I can take a joke as well as anyone, but if it happens again I'm taking it to a fucking industrial tribunal
+tv-peepshow	love	tv-quote	general	0	Jez: (Come on, smile - you don't know I've got an ulterior motive for doing this.)
+tv-peepshow	life	tv-quote	edgy	1	Jez: (She probably has really nice kidneys. Yeah, I'd fuck those kidneys real good.)
+tv-peepshow	life	tv-quote	general	0	Mark: (She knows about cubits, she's not comfortable in her own skin, she's one of me!)
+tv-peepshow	life	tv-quote	edgy	1	Mark: (Do a Columbo, do a Columbo.) [To shoe shop assistant] Just remind me, which university was it April's gone to again? Assistant: Dartmouth. Mark: Dartmouth, of course. Dartmouth. Thanks. (Good old Columbo. Just the one technique, of course. Still, shits on Quincy.)
+tv-peepshow	life	tv-quote	general	0	Super Hans: The secret ingredient [waves hand] is crime.
+tv-peepshow	society	tv-quote	general	0	Jez: Stealing things just makes everything very cheap. Plus, you know how I feel about capitalism. Mark: Yes, confused.
+tv-peepshow	life	tv-quote	general	0	Jez: There's no quim likes to party... Mark: ...like the quim down in Darty!
+tv-peepshow	life	tv-quote	general	0	April: Who's your tutor? Mark: [scanning noticeboard behind her] (Netball, Keyser Söze, MacLeish!)
+tv-peepshow	life	tv-quote	general	0	Mark: You don't walk into the jaws of death--that's common knowledge!
+tv-peepshow	life	tv-quote	general	0	Mark: I'm gonna leave a tenner and a note.
+tv-peepshow	life	tv-quote	general	0	Mark: I'm dangerously close to getting what I want. Feels a bit weird.
+tv-peepshow	life	tv-quote	general	0	Mark: At least I didn't have to watch her recoil at my scrotal scar.
+tv-peepshow	life	tv-quote	general	0	Mark: (Is that it? Is that how easy it is to steal some education? Bloody hell, who's in charge? The world's just people walking around, going in to rooms and saying things. It's all a big swizzle!)
+tv-peepshow	love	tv-quote	general	0	Mark: (Oh God she is just so lovely and she doesn't even realize it. Probably no one's ever told her. I should tell her!! No, don't tell her. If she realizes, I'm finished.)
+tv-peepshow	life	tv-quote	general	0	Jez: So these are just rows and rows of books you don't like? Do you spend a lot of time not reading them? Professor: (Angry) I think you've said enough, friend.
+tv-peepshow	life	tv-quote	edgy	1	Jez: He's not a mature student, he's been a loan manager for the last five years. He lives with me and he eats ready meals and we play 'Guess the Revels' and watch Men In Black on our massive telly and we have a fucking. Good. Time.
+tv-peepshow	life	tv-quote	general	0	Mark: [As Jez and Mark leave] (This is okay....it's just one of those things that will haunt me forever.)
+tv-peepshow	life	tv-quote	general	0	Mark: If you can't have sex with the monkey, make friends with the organ-grinder. Jez: Right. You didn't, did you? Try to have sex with a monkey?
+tv-peepshow	life	tv-quote	nsfw	1	Jez: You do realise I'm bored, Mark? I'm dangerously bored. Today I even considered doing that thing that that MP and Michael Hutchence did. You know. [Mimes putting a rope around his neck and masturbating]
+tv-peepshow	life	tv-quote	general	0	... Mark: And if you do do that, don't do it in here. The hook's almost off the wall as it is.
+tv-peepshow	life	tv-quote	general	0	Jez: No Mark. I only told you for a laugh. You promised not to tell. Mark: Hitler promised not to invade Czechoslovakia, Jeremy. Welcome to the real world! Jez: But you said... what about your mum's life? Mark: What does that even mean!? What are you going to do, KILL her?
+tv-peepshow	life	tv-quote	general	0	Mark: (I have entered the abyss. I've bought a house in the abyss. I'm getting my post forwarded to the abyss.)
+tv-peepshow	life	tv-quote	edgy	1	Jez: So I was gonna twat this geezer, and then it turns out they were both Polish! Mark You were going to 'twat' a 'geezer'? Were you playing the 'Lock, Stock and Two Smoking Barrels' video game?
+tv-peepshow	society	tv-quote	general	0	Mark:(Yep, civilization is definitely doomed.)
+tv-peepshow	life	tv-quote	general	0	Mark: I've been turning this thing over and over in my head like a bloody horrible pancake.
+tv-peepshow	life	tv-quote	general	0	Mark: We all hate you Jeff! You're a cocksucker!
+tv-peepshow	life	tv-quote	general	0	Mark: I'm giving you the broom Jeff!
+tv-peepshow	love	tv-quote	edgy	1	Jeremy: Brilliant, Mark. My mate and your woman have just gone off to fuck each other. What are we gonna do now? Go and make a tent in the living room and eat Dairylea? Is that what you want? Because that's what's gonna happen.
+tv-peepshow	love	tv-quote	general	0	[discussing their marriage of convenience] Nancy: You realise its only going to be an administrative procedure? Jez: The happiest administrative procedure of our lives!
+tv-peepshow	love	tv-quote	general	0	Jez: Oh don't marry those gays, Nancy. Marry me!
+tv-peepshow	life	tv-quote	general	0	Mark: You do realise it's me you're talking to, not some Italian builder.
+tv-peepshow	life	tv-quote	general	0	Mark: (This is just not normal. Someone has got to do something. He's just going to stand there doing nothing like Jeff's the invading Chinese army. They're women, that old get out. Oh god, it's got to be me.)
+tv-peepshow	love	tv-quote	edgy	1	Mark: (Great. The woman you love has been single for only a few seconds and you've already found her a nice new boyfriend. Nice job, Mr Fucking Stupid.)
+tv-peepshow	life	tv-quote	general	0	Super Hans: She's got trouble written right through her. Like a stick of Brighton rock.
+tv-peepshow	life	tv-quote	general	0	Super Hans: Where might you find a diphthong? Mark: It's an element of speech. Super Hans: Where might you find one? Mark: In a word?
+tv-peepshow	love	tv-quote	general	0	[as Jez walks up the aisle] Mark: (I tried. I failed. Got to let him make his own mistakes. Just like Dad with me and the strimmer.)
+tv-peepshow	life	tv-quote	general	0	Mark: (Got to stick it out. Keep being charming to Sophie, stay cold and unfriendly to Karen, without breaking social convention.)
+tv-peepshow	life	tv-quote	general	0	Mark: (Brilliant. Probably looks like I was going to punch him, when actually I was going to use the Buddhist as a human shield).
+tv-peepshow	life	tv-quote	general	0	Mark: (Public humiliation. Welcome to my world, Jeff. Although personally I wouldn't have picked that dress to cry on.)
+tv-peepshow	love	tv-quote	general	0	Jez: Do you think maybe, if I plead and plead and plead, she'll forget all about it and things will go back to like before? Mark: Honestly? Jez: Quite honestly. Not brutally honestly. Mark: Then... yeah, absolutely.
+tv-peepshow	life	tv-quote	general	0	Mark: (Fish pie then missionary sex and Newsnight afterwards.)
+tv-peepshow	life	tv-quote	general	0	Mark: (Note to self re: being the Fonz - Mark, you are *not* the Fonz.)
+tv-peepshow	life	tv-quote	general	0	Big Suze: Hey, Jez! Look at all the lovely normal people.
+tv-peepshow	life	tv-quote	general	0	Mark: (They're alright with hitting, but apparently there's a massive taboo against stabbing.)
+tv-peepshow	life	tv-quote	general	0	Jeremy: About Stu (He's a monk, he's gonna have fifteen years of spunk backed up. How am I supposed to compete with that?)
+tv-peepshow	life	tv-quote	general	0	Jeremy: Yeah. Take that Stu, you lump of monk. God didn't protect you from my big fist.
+tv-peepshow	life	quip	general	0	Jeremy: (God I must look so cool to her, like Pete Doherty or Bukowski. Yeah, that's right honey, I'm a street fighting man. God she's probably getting wet just looking at me.) Hold your horses honey, I've got coupons for the Pringles.
+tv-peepshow	love	tv-quote	general	0	Mark: (Look at me; I've got a girlfriend. A proper girlfriend reading a best-seller about child-abuse. I go out and have croissant. I'm just a normal functioning member of the human race and there's no way anyone can prove otherwise.)
+tv-peepshow	tech	tv-quote	general	0	[Super Hans nonchalantly flings Merry's laptop across the room] Jez: Super Hans! Super Hans: Oh, what? Oh, 'cause it's a computer you think it's made of spiders webs and magic? It's just a metal box Jez, they're indestructible.
+tv-peepshow	life	tv-quote	general	0	Mark: I suppose doing things you hate is just the price you pay to avoid loneliness.
+tv-peepshow	work-money	tv-quote	general	0	Jeremy: "If you build it, they will come". That's my market research. Mark: Your market research is Field of Dreams? I mean, a man who made a baseball pitch in his garden for ghosts? That's your role model?
+tv-peepshow	life	tv-quote	general	0	Jez: Mark, do you have to live quite so relentlessly in the real world?
+tv-peepshow	life	tv-quote	general	0	Jez: People like lager and nuts. Super Hans: People like Coldplay and voting for the Nazis. You can't trust people, Jeremy.
+tv-peepshow	life	tv-quote	general	0	Jez: I'm definitely not co-managing a pub called 'Free the Paedos'.
+tv-peepshow	society	tv-quote	general	0	Jez: I'm just really not happy with the name Free the Paedos. I mean, can't we call it something more normal like... The Swan and Tomato? Super Hans: Yeah, or compromise? The Swan... and Paedo. Jez: Yeah OK!
+tv-peepshow	love	tv-quote	general	0	Mark:(I'd like to chemically alter my girlfriend's mood)
+tv-peepshow	life	tv-quote	general	0	Mark: She's very ill. We need to get her to someone- Jeremy: Who has more responsibility for her than us. Mark: Exactly.
+tv-peepshow	life	tv-quote	general	0	Super Hans: Did you try to section me? Jeremy: No. (That sounded convincing.)
+tv-peepshow	life	tv-quote	general	0	Jeremy: Do you really think if you give her back those papers, she's going to let you screw her?
+tv-peepshow	life	tv-quote	general	0	Jeremy: (If I was getting sectioned, I'd put up more of a fight. Downside: Could get lobotimised)
+tv-peepshow	life	tv-quote	general	0	Jeremy: Your dream is just everybody, grey, on the omnibus, eating grey sludge. That's your dream isn't it?
+tv-peepshow	life	tv-quote	general	0	Jeremy: If YOU try to section me Mark you will have crossed a line and I will section you, so help me... Doctor: Look guys. You've had your fun with the sectioning. There's going to be no more sectioning today.
+tv-peepshow	life	tv-quote	edgy	1	Jez: Oh Suze, it's not scary; you just lose your sense of who you are and all that shit. Big Suze: Will I still be able to play the piano? Jez: Of course! Suze, they're mushrooms; they're completely natural! Nothing natural ever hurt anybody, that's a scientific fact.
+tv-peepshow	life	tv-quote	edgy	1	Jez: If people only did everything they wanted everyone would just spend all day sitting on the carpet watching the poker channel, wanking and eating those expensive German biscuits. Probably.
+tv-peepshow	life	tv-quote	edgy	1	Super Hans: Listen love, just a little tip alright? You're on the edge now and you need to pick the right way. One way's heaven, and the other... well... probably best not to think about that right now... but it's fuckin' 'orrible, yeah?
+tv-peepshow	life	tv-quote	general	0	Jez: You da man! Mark: I'm a man! Jez: It's you da man. Mark: Whatever, Jeremy, let's not quibble. I'm a Man!
+tv-peepshow	life	tv-quote	edgy	1	Jez: (Shit. We're so angry together. The righteous indignation of the common man! Maybe we can start a union... The Woodworkers and General Persons Union.)
+tv-peepshow	faith	tv-quote	general	0	Jez: (Maybe we'll become best mates and he'll train me up to be a carpenter like Jesus. And if I get crucified, he'll start a religion in my name. Jeremism. 'I'm a Jeremist.' Nice.)
+tv-peepshow	life	tv-quote	nsfw	1	Jez: (It's not like I'm going to rape him. I could rape him... I'm not going to rape him.)
+tv-peepshow	love	tv-quote	general	0	Jez: I'm going to get us both really high and then try to put my hand up her jumper. Mark: That's your plan is it?
+tv-peepshow	love	tv-quote	general	0	Mark: Let me out! Let me out I need a poo!
+tv-peepshow	life	tv-quote	general	0	Mark: (This is the last friendship I have that's not backed up by a legally enforceable document.)
+tv-peepshow	life	tv-quote	general	0	Super Hans: Ooh yeah. These are the good times, love; after the initial nausea passes, but before the grinding comedown. Lovely.
+tv-peepshow	life	tv-quote	edgy	1	Johnson: Is that normal pooing you're doing, Mark? Mark: Yes, perfectly normal. Johnson: Doesn't sound normal... Doesn't smell normal. This is bollocks, Mark! You know the credo: illness equals weakness. You're off the team.
+tv-peepshow	life	tv-quote	general	0	Jez: So this is my big evening, is it? Me, tripping my nuts off, watching you do endless pooing.
+tv-peepshow	life	tv-quote	general	0	Mark: Nothing means anything to you, does it? Friendship, loyalty - they're just fusty old words like sixpence and codpiece to you, aren't they?
+tv-peepshow	life	tv-quote	nsfw	1	Mark: (Looking at porn is like lying to Parliament. It used to be wrong but now it's all a big laugh.)
+tv-peepshow	life	tv-quote	edgy	1	Mark: (Oh my God. I've fallen in love with her. Of course. Brilliant. How incredibly predictable. What a total fucking dope.)
+tv-peepshow	life	dark	general	0	Mark: (He's gonna get cancer and I'm not. I don't want him to but obviously one of us is going to get it and I'd rather it was him.)
+tv-peepshow	love	tv-quote	general	0	Mark: Promise me you will not try to sleep with her. Jez: I promise I will try not to sleep with her.
+tv-peepshow	love	tv-quote	general	0	Mark: So. You slept with her. You promised. Jez: I promised to try not to. Mark: Yeah, well you didn't try very hard did you. Jez: Mark, I tried incredibly hard. It just turns out it was literally impossible not to.
+tv-peepshow	love	tv-quote	general	0	Jez: (How can Mark be in love with Big Suze? It's like Swaziland trying to invade China - it's a bloody political joke.)
+tv-peepshow	life	tv-quote	general	0	Mark: (They're rubbing it in my face. It's like I've got his member in my face.)
+tv-peepshow	family	tv-quote	edgy	1	Mark: (Great. Okay, so I've 'dumped' my sister. That's great. That feels good. I'm intrigued to see what I'm gonna do next. Maybe I'll ring up Grandad, and tell him I think he's a boring twat.)
+tv-peepshow	food	tv-quote	edgy	1	Jez: Crunchy Nut Cornflakes are just Frosties for wankers. Mark: Frosties are just Cornflakes for people who can't face reality.
+tv-peepshow	society	tv-quote	general	0	Jez: It's probably some young black kid who's been accused of stealing a bun, and I'm going to set him free.
+tv-peepshow	society	observation	general	0	Mark: No smoke without fire? Is that what 1000 years of British Judicial Law has come down to? No smoke without fire?!
+tv-peepshow	love	tv-quote	edgy	1	Mark: Saying 'I Love You' is like firing first in a duel; if you miss, you're fucked!
+tv-peepshow	love	tv-quote	general	0	Jez: Sometimes I tell them I love them early on on a first date just to get things off to a good start. Mark: Doesn't that... devalue it a bit? Jez: No. Maybe. A bit. Who cares, it works.
+tv-peepshow	life	tv-quote	general	0	Mark: You'd be the first to admit that you're not the most rational thinker. Jez: No I wouldn't! Mark: You still don't understand what happens in Ocean's Eleven. Jez: It's a complicated film. Mark: It really isn't.
+tv-peepshow	life	tv-quote	general	0	Jez: (This isn't wrong - just illegal - like drink-driving.)
+tv-peepshow	life	tv-quote	general	0	Jez: Oh that is typical. "Jeremy can't be trusted to judge the woman he's sleeping with but ... Tony Blair can?"
+tv-peepshow	life	tv-quote	nsfw	1	Jez: (I'm in Twelve Angry Men. I'm the only one who's not angry. I'm horny. That's much nicer.)
+tv-peepshow	family	tv-quote	general	0	Mark: Sophie! The Sophster! Sophistry!
+tv-peepshow	life	tv-quote	nsfw	1	Mark: So, a candle stuck in a wine bottle apparently doesn't cut it anymore. Now for a special night you have to have Class-A drugs and... fisting.
+tv-peepshow	life	tv-quote	nsfw	1	[About ecstasy] Jez: Jesus Mark, why didn't you bang one? Mark: Because I don't want to wake up dribbling in a phone box with a trucker's penis in my ear!
+tv-peepshow	life	tv-quote	general	0	Mark: It's like I'm trapped in a giant aero!
+tv-peepshow	life	tv-quote	general	0	Mark: (How did my house become a rave? This is probably how a squat starts. They'll never leave and eventually they'll brick me up in my room and ownership will pass to them because a high court judge will rule me to be officially not living life to the max.)
+tv-peepshow	life	tv-quote	general	0	Jez: (Oh yeah. Justice is done. Not actual justice, but, what I wanted to happen. Which is basically the same thing.)
+tv-peepshow	life	tv-quote	general	0	[to Jez playing darts] Mark: Are you aiming for the bulls-eye? Jez: Yeah, 'course I am, it's the best thing on the board! Mark: No, it isn't. Jez: Mark, just look at it. It's tiny, it's red, it's right in the bloody middle. 'Course it's the best thing on the board!
+tv-peepshow	life	tv-quote	general	0	Mark: (Oh great, she posted the guide book. I suppose I'm supposed to think that's incredibly charming and French. Well it's not, it's a waste of £8.99.)
+tv-peepshow	love	tv-quote	general	0	Mark: (She's looking for company after a minute of uncomfortable silence. Well, get used to it, baby. There'll be a lot more where that came from when we're married.)
+tv-peepshow	life	tv-quote	general	0	Super Hans: We'll be going to bed when Mark's getting his morning horn off the FT.
+tv-peepshow	life	tv-quote	general	0	Jez: Right well, let's crack on. Super Hans: Don't. Say. Crack, Jez. Yeah? Please. Not now. 'Cause you saying crack makes me think about crack and I love crack. So can you not say crack?
+tv-peepshow	love	tv-quote	edgy	1	Mark: (Why won't that stupid bitch let me propose to her?)
+tv-peepshow	life	tv-quote	edgy	1	Super Hans: I've got a monkey on my back the size of King Kong. I am being fucked by King Kong!
+tv-peepshow	life	tv-quote	edgy	1	Mark: We're not going to be two of those idiots you hear about who go up a mountain in Flip Flops and Sombreros and have to be rescued. Jeremy: Would you rather be one of those idiots they find frozen to death, drinking his own piss while badgers chew on his corpse?
+tv-peepshow	life	tv-quote	edgy	1	Mark: [Dividing up his chocolate] There's seven segments, so that three each and one left over which is mine since... it's all mine. Jeremy: Oh, the spirit of the The Blitz lives on. Fuckin' hell.
+tv-peepshow	life	tv-quote	edgy	1	Jeremy: (She's so Beautiful and Fancy. If there weren't a junkie in my room shitting and retching and hurling, it would be just like Pride and Prejudice)
+tv-peepshow	life	tv-quote	general	0	Mark: (At least he doesn't know about my emergency Twix).
+tv-peepshow	love	tv-quote	general	0	Jeremy: (I'm so tired. She's gonna have a hell of a job coaxing a hard-on out of me. But I bet she'll manage)
+tv-peepshow	love	tv-quote	general	0	Mark: (Yes, this me-not-loving-her business will sort of put me in a position of power in our marriage. Yes. I win.)
+tv-peepshow	life	tv-quote	general	0	Super Hans: Drugs! Drugs! Drugs!
+tv-peepshow	life	tv-quote	general	0	Super Hans: I'd probably be very angry with you right now, if I weren't so incredibly high.
+tv-peepshow	life	tv-quote	general	0	Jez: Super Hans, are you trying to skin up with your feet again? Because it doesn't work, does it? It just makes a mess.
+tv-peepshow	arts	tv-quote	edgy	1	Jeremy: Why were you phoning me anyway, you big idiot? Mark: Well, I wanted to talk some stuff through with someone didn't I? You big.. dick. Jeremy: What stuff? You're not having gay feelings again Mark? Mark: No, one time that happened.
+tv-peepshow	life	tv-quote	general	0	Jeremy: So you accepted the acceptance? Mark: I had to .. it was check mate.
+tv-peepshow	life	tv-quote	general	0	Mark: She's good for me, Jez. She's dragging me into the twenty-first century with its meaningless logos and ironic veneration of tyrants. It's all good, my friend.
+tv-peepshow	life	tv-quote	general	0	Jeremy: I've got loads of really important stuff to do this weekend. Mark: Jeremy, a carton of Mars Bar Milk, a small bag of marijuana, and a pirated DVD of Anchorman are not important things.
+tv-peepshow	society	tv-quote	nsfw	1	Jeremy: But what's Blair going to do? Super Hans: Maybe he'll become an ethical porn star. Jeremy: Or maybe he'll form a political supergroup. Blair, Bono on vocals, Clinton on sax. Super Hans: Yeah, that's definitely going to happen. Geldof's gonna shit.
+tv-peepshow	love	tv-quote	edgy	1	Sophie's mother: Oh, you grew a beard. Makes you look handsome, like a policeman. Mark: Thank you. You're obviously very attractive, too. (Ugh! What am I going to do next? Tell her she's got lovely tits?)
+tv-peepshow	life	tv-quote	general	0	[Mark shaves off his goatee] Mark:(Goodbye beard. Hello familiar stupid face)
+tv-peepshow	life	tv-quote	edgy	1	Jez: (I'm a motherfucker! That's literally what I am!)
+tv-peepshow	society	tv-quote	general	0	Mark: You don't just declare war, Jeremy. You prime the press, you square things with the UN, you make up your reasons.
+tv-peepshow	arts	tv-quote	general	0	Jez: (It's almost like a moral decision, but not really 'cause nobody will find out.)
+tv-peepshow	life	tv-quote	general	0	Mark: (Well, this isn't what I expected. You think you're going to play Simpsons Monopoly, and you end up an arsonist.)
+tv-peepshow	life	tv-quote	edgy	1	Jeremy: Mark, we're out with a man who has guns! You're chucking his daughter and I've shagged his wife. Tonight is going, if a bit weird, extremely fucking well for us.
+tv-peepshow	life	tv-quote	general	0	Mark: (I'm a firestarter! A twisted firestarter!)
+tv-peepshow	life	tv-quote	general	0	Jez: Well... I did see him throw a petrol bomb, but I thought it might just have been a joke.
+tv-peepshow	life	tv-quote	general	0	Mark: This zip... there's no pocket to this zip! Sophie: So? Mark: (So that's the way it is? Let's just put a zip here, a swastika there. Who knows what these things once stood for? Who the hell even cares?)
+tv-peepshow	life	tv-quote	general	0	Jez: [To Sophie's father] He can't hear... Can you, you big fox-hunting, badger baiting, tweed-shirt bumfuck homophobe?
+tv-peepshow	life	tv-quote	edgy	1	[to Jez, smiling smuttily] Penny: Get yourself a nice tank of petrol. Come back soon. Jez: (Yeah, right, so your husband can kill me and your son can worship my stuffed corpse and you can wheel me out for a fuck. No thank you.)
+tv-peepshow	life	tv-quote	general	0	[Mark has just twisted a bird's head off whilst hunting] Sophie: Teas, coffees for the huntsmen. Jez: No teas for the beastmaster, thanks. He feasts on the blood of his prey.
+tv-peepshow	arts	tv-quote	general	0	Jeremy: (Of course he's not allowed to shoot. He's Mark Chapman in the making and I'm very much a 21st century Lennon)
+tv-peepshow	life	tv-quote	general	0	Mark: (He doesn't have anyone to talk to. He spends all day with the trees and animals. This is what happens when you live too far away from franchised coffee outlets)
+tv-peepshow	life	tv-quote	general	0	Mark: (Ugh, "sir". This isn't Tennessee, Mark)
+tv-peepshow	life	tv-quote	general	0	Mark: (Oh God, the first fiancé challenge and I've got a gun. An actual gun. It's OK, it's perfectly normal, this is the country. This is what farmers do. They go around shooting crows, and trespassers, and eventually, because of the EU, themselves.)
+tv-peepshow	life	tv-quote	general	0	[after Mark is forced to spend an evening in a pub with Sophie's father] Mark: (I barely have anything to say to my best friend, what am I going to talk to a fully grown man about all evening?)
+tv-peepshow	love	tv-quote	general	0	Sophie: [to Mark and her father] Hey, nice to see you two getting on. What are you two talking about? Mark: Oh, just...metal. (And the fact that I don't really love you)
+tv-peepshow	love	tv-quote	general	0	Sophie: Bye. Love you! Mark: I love you, too. (It's okay, everyone says it. I say I love Häagen-Dazs and my broadband provider, and I like Sophie more than them. In most respects.)
+tv-peepshow	life	tv-quote	general	0	Mark: Hi, Alan, you wanted to talk about... oh! Johnson: Don't be alarmed, Mark, it's just Tai Chi. Take a seat and I'll just power through. Should take 45 minutes, I'm done in ten. Stick that up your dojo. Mark: Great.
+tv-peepshow	love	tv-quote	general	0	Mark: (I do sort of like it when he's rude to me. Hopefully that's more of a psychological defect, not a weird sexual thing.)
+tv-peepshow	life	tv-quote	general	0	Johnson: In business, Jeremy, you learn that every man has his price, and I judge yours to be... £530.
+tv-peepshow	love	tv-quote	general	0	[about Indecent Proposal] Jez: (Is this a terrible idea? It can't be. It's in a film. They wouldn't put a terrible idea in a film, they'd get sued.)
+tv-peepshow	love	tv-quote	general	0	Big Suze: Sounds like you want to pimp me out. Jez: Pimp me out. Pimp my ride. There's a new climate.
+tv-peepshow	life	tv-quote	general	0	Jez: (God! I only asked her to be a hooker. It's not like I wanted her to work in telesales.)
+tv-peepshow	life	tv-quote	edgy	1	Mark: Sit down. Clear your tubes. 'Cause you and me are gonna chow down on the biggest hairy motherfucking business shit-storm since Enron.
+tv-peepshow	life	tv-quote	general	0	Mark: (Suppose I can always roll Gerrard out for the sympathy vote. He's my dark secret... my elephant man.)
+tv-peepshow	love	tv-quote	general	0	Mark: Oh right, so, now she's finished with you, suddenly you're in love with her again? Jez: Exactly. Duh! That's how love works Mark.
+tv-peepshow	love	tv-quote	general	0	Mark: (Oh great. I'm going out with literally the worst men in the world.)
+tv-peepshow	life	tv-quote	general	0	Big Suze: Jeremy?! What the hell are you doing here? Jez: Me? Oh. Nothing. I was just passing through... Kettering... And I thought, hey I know someone who's gone to Kettering for the weekend.
+tv-peepshow	love	tv-quote	general	0	Big Suze: You tried to sell my body! I don't want to talk to you. Goodbye [Suze leaves, the Barman stares at Jeremy] Jeremy: I did not try to sell her body. I tried to rent out her sexual organs [beat] on a one-use basis.
+tv-peepshow	life	tv-quote	general	0	Mark: (Oh God. This is horrible. Ughh, she's touching the tube! That can't be hygenic...)
+tv-peepshow	life	tv-quote	general	0	Sophie: And have I lived enough? I mean, I've only slept with four men. Is that enough? Jez: Four?... Oh... Yeah. (Jesus. I've had sex with more men than that, and I basically only sleep with women.)
+tv-peepshow	life	tv-quote	general	0	Mark: You know what this piece of paper says, Jeremy? Jez: Is it something to do with history? Have they stopped history books?
+tv-peepshow	work-money	tv-quote	nsfw	1	Mark: I'm about to walk into a boardroom gang bang and get fucked by the biggest swinging dicks in corporate strategy.
+tv-peepshow	life	tv-quote	general	0	Jeremy: (Hiding out in a parking lot. He's not exactly Grizzly Adams)
+tv-peepshow	life	tv-quote	general	0	Mark: (I've really done it this time. This isn't a late report or a misspelled memo. This is going feral. Rejecting society and living like an animal. That's not going to look good on my quarterly review)
+tv-peepshow	life	tv-quote	general	0	Mark: (Right, here I go. Palms dry. Mouth dry. Inter-buttock area moist.)
+tv-peepshow	life	tv-quote	general	0	Johnson: I'd just like to assure everyone that Mr. Corrigan will indeed be dead within a month.
+tv-peepshow	love	tv-quote	general	0	Mark: I'm marrying her, what more does she want?
+tv-peepshow	life	tv-quote	general	0	Jez: Mark, are you having some sort of mental breakdown? Mark: I'm just joining the gym. Get some exercise, and some time... not away from Sophie, just... without her. Jez: ..... Mark: You should join too. You get a free pen!
+tv-peepshow	life	tv-quote	general	0	Mark: (Ugh, why did they have to put the bikes right in front of the sexualiser? Be so demeaning to get a bonk-on while exercising.)
+tv-peepshow	life	tv-quote	edgy	1	Matt: Can you take some more? Can you? Do you want it? Do you want it? Mark: NO! Matt: What? Mark: No, I don't want it, alright? Fuck off! You've made it too hard, I can hardly fucking pedal! No mountain is this hard, it's just not realistic!
+tv-peepshow	life	tv-quote	nsfw	1	Mark: (Ugh, that was horrible. Now he probably thinks I'm embarrassed about the size of my penis. When in fact, I'm not. I'm much more concerned about my misshapen scrotum.)
+tv-peepshow	love	tv-quote	general	0	Jez: [after joining Nancy in the sauna] (Could use my sauna line.) Phwoor. Cor, it's like a sauna in here! [Nancy laughs] (Classic line. That is just a great line. Gotta manoeuvre more dates into saunas.)
+tv-peepshow	life	tv-quote	general	0	Eva: [after being trapped in the flotation tank] I've got to get out. It was so dark! So dark!
+tv-peepshow	life	tv-quote	general	0	Jez: Still, there are worse places to get trapped, right? I mean, you must be bloody relaxed by now!
+tv-peepshow	life	tv-quote	general	0	Mark: (Maybe it would've been simpler just to kill him. I should know how to kill someone by now. I've watched enough CSI.)
+tv-peepshow	life	tv-quote	edgy	1	Nancy: Matt, violence never solved anything: love thy neighbour as thyself. Jez: Yeah, exactly; fuck off!
+tv-peepshow	life	tv-quote	general	0	Matt: Well, you can't stay hiding there [behind Sophie and Nancy] forever! Mark: He thinks we can't hide here forever. Jez: He obviously doesn't know us at all, does he?
+tv-peepshow	life	tv-quote	general	0	Mark: What a dud evening. Low quality take-away. Low quality detective drama. Low quality sexual intercourse.
+tv-peepshow	work-money	tv-quote	edgy	1	Mark: Welcome to the world of work, Jeremy. You know, you don't have to be crazy to work here, but it helps. Jez: And you don't have to be a smack-head to wank off old geezers, but that probably helps too.
+tv-peepshow	life	quip	edgy	1	Mark: (What should I say? Anything that doesn't mention wanking over your memory for the last twenty years would be good.)
+tv-peepshow	love	tv-quote	general	0	Mark: (I thought she was a frightened little suburban mouse, but no, she's my nightmare: a liberated, sexually adventurous urban woman.)
+tv-peepshow	life	quip	general	0	Mark: If it ain't broke, don't fix it. And even if it is broke, just ignore it and maybe it'll be sort of OK. Like the environment.
+tv-peepshow	life	tv-quote	general	0	Mark: Don't flaunt your wad, Jeremy. It's not becoming.
+tv-peepshow	love	tv-quote	general	0	Mark: (What exactly is my plan here? I've lured them all to the safari park like a Bond villain, but what's the aim? Torture myself with contact with an unattainable woman?)
+tv-peepshow	life	tv-quote	general	0	Mark: I can't believe it. He's actually thrown me to the lions.
+tv-peepshow	life	tv-quote	general	0	Jeremy: You're disgusting. But I like it. Like going to a strip club with the Pope.
+tv-peepshow	life	tv-quote	edgy	1	Mark: You gave him a hand? Jeremy: Yeah. Mark: Shit. (I knew it, I knew it, I knew it!)
+tv-peepshow	life	tv-quote	edgy	1	Super Hans: Why didn't you tell me about the wanking-off bit? Jez: Sorry, I didn't think. Super Hans: Well you should've bloody thought. Jesus! Jez: Did you do it? Super Hans: 'Course I did. How do you think I got these trainers?
+tv-peepshow	life	tv-quote	edgy	1	Nancy: What's going on? Who's wanking who off? Super Hans: Jeremy's been wanking off this bloke for cash. Jez: No I haven't! It's not - Nancy: Jeremy, that is so you. I always knew you'd end up doing something like that. Jez: What do you mean that is so me? That is not so me.
+tv-peepshow	life	tv-quote	general	0	Jez: Cheer up, Mark. At least now you've got a funny story to tell people. Mark: Yes. No, I guess this is a pretty funny story. (One that I'll never ever tell anyone because of my deep and burning shame.)
+tv-peepshow	life	tv-quote	general	0	Mark: (Ugh... More data entry tonight. I guess the only good thing is that my life is so boring it feels like it might go on forever. Maybe I could put on Big Bond Themes and pretend I'm entering data for MI6.)
+tv-peepshow	love	tv-quote	general	0	[with the relationship therapist] Therapist: The sexual problems in your relationship? Mark: Oh! Right. Are there...? Sophie: Well, I just feel, I don't know, unfulfilled. Mark: Unfilled? Sophie: Unfulfilled.
+tv-peepshow	life	tv-quote	edgy	1	Mark: (Oh great, so I'll be spending £1 a minute to hear how shit I am at sex, that's value for money!)
+tv-peepshow	love	tv-quote	edgy	1	Jez: (This weekend is going to be one massive dry hump. Maybe the tension will build to the point where we actually try and fuck each other.)
+tv-peepshow	life	tv-quote	edgy	1	Jez: Oh, that is great. You wouldn't even let me drink your piss. I'm not trying to kiss you, Mark. It's liquid waste.
+tv-peepshow	life	tv-quote	general	0	Mark: (Oh, God, vodka! It'll be an orgy. Great! Disappoint three people instead of just one!
+tv-peepshow	life	tv-quote	general	0	Mark: The whole world isn't Zoo Magazine, Jeremy. People don't just go around wanting it the whole time.
+tv-peepshow	life	tv-quote	general	0	Jez: Warp factor 3 please, Scotty! Mark: (Oh, great. I'm Scotty. He's off cross-breeding with the beautiful aliens and I'm stuck down in the engine room with the probably cancer-emitting fuel cells.)
+tv-peepshow	love	quip	edgy	1	Mark: (Oh my God! I've entered an interview situation and there's a hand near my cock. This is like that dream I had about Alan Sugar and the Badger.)
+tv-peepshow	life	tv-quote	general	0	Mark: (This can't be real. They're probably Sophie and Johnson in masks and this is being paid for by MTV and the Playboy Channel.)
+tv-peepshow	life	tv-quote	general	0	Jez: (If I don't think about it, there's always a chance it didn't happen.)
+tv-peepshow	life	tv-quote	general	0	Jez: (I'll just throw it in the river like when I had my paper route. Screw you, Murdoch)
+tv-peepshow	life	tv-quote	general	0	[discussing Malcolm's daughter] Malcolm: What do you think of her? Honestly. Mark: (I think she might have a borderline personality disorder.) I think she's... lovely.
+tv-peepshow	life	tv-quote	general	0	Mark: I don't want sweet punani action; I want to take your bishop and grind you down!
+tv-peepshow	life	tv-quote	edgy	1	Mark: (Fucking hell! He's got Mummy! He's brought a dead dog into my pitch, the stupid bastard!)
+tv-peepshow	life	tv-quote	general	0	Jeremy: (I'm eating dog leg! This is definitely a new low.)
+tv-peepshow	life	tv-quote	general	0	Jeremy: It's just a hairy turkey!
+tv-peepshow	life	tv-quote	general	0	Jeremy: "Mummy" was probably the turkey's nickname. ... It could easily be!
+tv-peepshow	life	tv-quote	general	0	[after Jez has eaten "turkey" (actually the dog, "Mummy")] Mark: Did you actually have to eat it? Jez: I don't know. I keep wondering that. But in the moment, it really did feel like I needed to eat it.
+tv-peepshow	life	tv-quote	nsfw	1	Jez: Did you slink off to bed before we did the melon-off? Mark: I believe I did, and what exactly is.... Jez: Two guys get hard-ons, they put melons on their dicks, the first melon to fall off loses. Mark: Right, and who won - Gore Vidal or Dr Jonathan Miller?
+tv-peepshow	life	tv-quote	general	0	[Nancy is asleep on the sofa] Mark: Nancy stayed over? Jeremy: Yeah. Lovely, clean Nancy all over our filthy disgusting sofa.
+tv-peepshow	love	tv-quote	general	0	Mark: (I'm not marrying out of spite, I'm marrying out of fear. There's a very big difference.)
+tv-peepshow	life	tv-quote	nsfw	1	Mark: (Need time to think. How can I buy some time? Contract TB? But where from? No badgers. Try to get beaten up? I could say he's got a... fat head. Call him a jizz-cock. It's not actually an insult, all cocks are jizz-cocks really; bit like calling him a piss-kidney.)
+tv-peepshow	life	tv-quote	nsfw	1	Mark: Well, you should be more careful you... jizz-cock! Driver: What? Mark: You could have had my legs off you... piss-kidney. Driver: Arsehole! Mark: (Arsehole! Yep, nice insult. Clean, clear and insulting.)
+tv-peepshow	love	tv-quote	general	0	Jez: You OK? Mark: Yeah, yeah, fine. Bit of a wobble. I just proposed to a woman in a coffee shop and tried to get myself run over. Jez: OK. Right. That is maybe a sign that everything isn't totally groovy.
+tv-peepshow	life	tv-quote	edgy	1	Jeremy: Mark we're in the middle of the road you're gonna get us killed for the sake of your legacy. Stop it! You're not fucking Blair!
+tv-peepshow	faith	tv-quote	edgy	1	Jez: (Am I actually going to piss on the church? It'd be quite a statement. Yeah, baby! Here I go. Richard Dawkins walks the walk but does he actually follow through with an actual act of piss?)
+tv-peepshow	life	tv-quote	edgy	1	Jez: God I am dying for a piss. I feel like someone's inflating a balloon full of urine inside me. And not in a good way.
+tv-peepshow	faith	tv-quote	general	0	Priest: ...Before God Almighty who knows all the secrets of our hearts... Mark: (He's ladelling it on now. Is that in the proper thing or has he just added that to needle me?)
+tv-peepshow	life	tv-quote	general	0	Mark: (Someone save me! Jeremy? Spacemen?)
+tv-peepshow	life	tv-quote	general	0	Mark: (That's it. I've ruined my life! You only get one life and I've ruined mine!)
+tv-peepshow	love	tv-quote	general	0	Mark:: (That's it. I'm alone. Tomorrow morning I'll wake up in my bed alone. Unless... I hire a prostitute. Just for the night. Kind of like a wedding present.)
+tv-peepshow	life	tv-quote	edgy	1	Mark:: You know you really do smell quite strongly of piss. Jez:: Yes, and your hat and shoe smell of puke, so I guess neither of us are exactly the king, are we?
+tv-peepshow	life	tv-quote	general	0	Mark: (So unhappy. I wonder if anyone has ever been this unhappy while drinking champagne.)
+tv-peepshow	love	tv-quote	general	0	Jez: Mark, double date tonight? Mark: No...what's she like...is she sexy? Jez: Mark, beggars can't be choosers. She's an actual woman. Mark: It's too early, I'm not into it. No, I'm still technically married. I'm not safe to be reintroduced into society yet.
+tv-peepshow	life	tv-quote	nsfw	1	Jez: We might need to tidy up a bit. And we may have to untape the DVD and video and TV and Sky remotes Mark: [disappointed] The Megatron? But....no Jez: It smells wrong. I mean, the Megatron doesn't say 'urban freewheeelers', it says 'sofa masturbators'...y'know
+tv-peepshow	arts	tv-quote	general	0	Jez: Here we are. What are you doing? Mark: Friends of the British Museum magazine. Clearly I'm not a Johnny Depp Tony Parsons Hunk of the Month, I need my props, I have my rituals.
+tv-peepshow	love	tv-quote	general	0	Mark: (Jeremy was right; she's an actual woman.)
+tv-peepshow	love	tv-quote	general	0	Mark: (Oh my God! I've already closed on a second date! This magazine is sexual dynamite!)
+tv-peepshow	life	tv-quote	general	0	[Mark and Jez are on a double date at the theatre]
+tv-peepshow	life	tv-quote	general	0	[Jez has left the theatre early]
+tv-peepshow	life	tv-quote	general	0	Jez: (This is amazing. I wasn't meant to be out 'till eleven, and it's not even nine. I've time travelled. I've made time! I could do anything. I'm golden!)
+tv-peepshow	life	tv-quote	general	0	[Whilst giving his ticket to a tramp]
+tv-peepshow	life	tv-quote	edgy	1	Jez: Here you go mate. Go and see the second half. It's shit.
+tv-peepshow	life	tv-quote	general	0	[Mark comes home to find the flat has been burgled] Mark: Have you called the locksmith, have the police already been? Jez: No, I thought I'd check with you first, coz, I mean what do you call?....or do you do it all online now?
+tv-peepshow	tech	tv-quote	general	0	Mark: The Playstation! The memory card! I'd nearly broken through on Medal of Honour. They've nicked 120 hours of quality me time! Bloody hell!!
+tv-peepshow	society	tv-quote	general	0	[Apprehending the burglar] Mark: (I'm wrestling with the white working class! Morse never did this!) Just shut up!! (I'm better than Morse!)
+tv-peepshow	life	tv-quote	general	0	[On the phone to the police] Mark: 45 minutes? But...I'm sitting on him. Is that legal?
+tv-peepshow	life	tv-quote	general	0	Mark: Look, let's just try to continue our evening as if he wasn't here and if he tries to escape, I'll just have to take him down. (I've got balls like baked potatoes!)
+tv-peepshow	life	tv-quote	general	0	[Holding up the Megatron] Heather: What's this? Mark: (Oh, the Megatron is shrinking my massive balls!)
+tv-peepshow	life	tv-quote	edgy	1	Mark: You know Jez... I've started to get this feeling that I'm totally, totally fucked... You know, I fucked up my wedding, I fucked up my only relationship. Everything's just completely fucked. Jez: You have been thinking this for a while, haven't you?
+tv-peepshow	life	tv-quote	general	0	Mark walks past two of Sophie's friends. They stop their conversation and give him nasty looks Mark: (Ugh.. the gossip mill. That's right, stare at Hess; throw fruit at Hess, pacing his prison yard!)
+tv-peepshow	life	tv-quote	general	0	Jez: This is a chain-on scenario.
+tv-peepshow	food	tv-quote	general	0	Mark: Mmmm. Why toast when you can roast? Jez: Another roast? That's the third today. Mark: What's nicer than a roast? Jez: Yeah, but, chain-eating roasts?
+tv-peepshow	life	tv-quote	general	0	Mark: Ugh no... Heartbreak Tuna! No, just bin it. But not literally - no need to be dramatic. Freeze it. See how I feel in six months.
+tv-peepshow	society	tv-quote	general	0	Mark: If she wants a PR War, then she can have a PR War... I'll Mandelson her! Nobody wanted New Labour, Jeremy, but now we all know how it works.
+tv-peepshow	arts	tv-quote	general	0	Mark: Mmmm, Piggin' Tea Break. Cup of piggin' tea and work out my piggin' campaign strategy.
+tv-peepshow	life	tv-quote	edgy	1	Lisa: Erm, Mark, I just want to say about the wedding... that I think you're a real piece of shit. Mark: Oh... OK. (That's fair. Lisa is a very fair person.)
+tv-peepshow	love	tv-quote	edgy	1	Mark: Hi Soph, how are you? How are you feeling? Sophie: Well... I want to give things another go. Mark: You... you do? Sophie: No, of course I fucking don't!
+tv-peepshow	arts	tv-quote	general	0	[Jeremy plays Barney's music to Super Hans] Super Hans: Yeah, this is raw. Who is this, is this us?
+tv-peepshow	arts	tv-quote	edgy	1	Super Hans: Shit, he's done something there. How's he done that? Jez: I think that what's happening is maybe two or three different musical things, at the same time!
+tv-peepshow	life	tv-quote	general	0	Super Hans: Have you read the Big Beat Manifesto lately? Jez: Did we write it down? Super Hans: The Big Beat Manifesto goes "Big Beats are the best, Get high all the time". Jez: Right. At the time, it felt like a much more all-encompassing philosophy.
+tv-peepshow	life	tv-quote	general	0	Super Hans: I think this is probably the best example of the sort of stuff we'd do we've ever had. Jez: Oh yeah. 'cause sometimes it's really hard actually to do your own ideas.
+tv-peepshow	life	tv-quote	general	0	Mark: (Where do I sit... This must be what it's like being a nonce in prison.)
+tv-peepshow	life	tv-quote	general	0	[after Dobby asks Mark to reach something high inside a closet room] Mark: Ugh...you'll, you'll have to...move. Dobby: Yeah, I should move, but...I might not move. [begins to rub her bottom against Mark's private area]
+tv-peepshow	life	tv-quote	edgy	1	Mark: (I win because they all think I pissed myself, when they have no idea I came all in my pants!)
+tv-peepshow	love	tv-quote	edgy	1	[about Jeremey's show in the club Fuckbunker, after Dobby seduced Mark earlier in a closet] Mark: I just wondered if you fancied coming down with me to the Fuckbunker. Dobby: Is that what you call the stationery cupboard?
+tv-peepshow	life	tv-quote	nsfw	1	Jez: (Hmmm... women. There they are, walking around. And they've all got them. Under their clothes. Hiding there. But I know the secret. Vaginas.)
+tv-peepshow	life	tv-quote	general	0	Mark: (I've been caught out! Like Angus Deayton or Harold Shipman)!
+tv-peepshow	life	tv-quote	general	0	Mark: This is piggin' massive!
+tv-peepshow	life	tv-quote	general	0	Barney: I wanna go home. I wanna go home. I wanna go home. I wanna go home. I wanna go home. I wanna go home. I wanna go home. Jez: What's going on? Super Hans: He wants to go home.
+tv-peepshow	life	tv-quote	general	0	Super Hans: [Discussing Barney] He's in a K-Hole right now, but in ten the speed'll kick in. Can a coke and a cig, he'll be right as rain.
+tv-peepshow	food	tv-quote	edgy	1	Mark: Okay, what now? Go home and roast the shit out of some meat.
+tv-peepshow	life	tv-quote	edgy	1	Jez: (He's such a tight arse. Won't even replace the widescreen. How are they meant to brainwash me with their adverts if I can't see them properly?)
+tv-peepshow	life	tv-quote	general	0	[Mark is making a list of everything that Jez can consume.] Mark: Toilet paper, OK. Soap, OK. But not shower gel. And no razors. If you're poor, grow a beard. Tea Bags are allowed within limits. Jez:Limits? What Limits? Mark:No making a pie out of tea or anything weird
+tv-peepshow	work-money	tv-quote	general	0	Mark: You ate your nest egg? You're meant to sit on your nest egg until it hatches, not eat it like some greedy, mad chicken.
+tv-peepshow	work-money	tv-quote	edgy	1	Jez: It's not that easy Mark, there's just not that many jobs in the media. That's the reality. Mark: Do something else. Get on your bike. Jez: I can't believe you're making me get a job not in the media. You're such a bastard.
+tv-peepshow	food	tv-quote	general	0	Jez: (Mmm... Delicious Cumberland final straw, dripping in onion gravy.)
+tv-peepshow	love	tv-quote	edgy	1	Mark: (Ugh, speed dating. That was horrible. No one else seemed to mind. Maybe this is the future. Three minute date, three minute fuck, three minute marriage.)
+tv-peepshow	arts	tv-quote	edgy	1	Jez: So that's what it comes down to, is it? You don't want to bone me, so I'm out - it's that brutal. Have you seen the old man, down by the seaman's mission? Yes - not very fuckable, is he?
+tv-peepshow	life	tv-quote	general	0	Dobby: [sings] Jeff's doing a joke, Jeff's doing a joke, everybody quiet 'cos Jeff's doing a joke! Jeff: Freak.
+tv-peepshow	life	tv-quote	edgy	1	Super Hans: It's a pisser though, innit - cancer. They should find a fucking cure. Mark: I think they're trying. Super Hans: Yeah, sure they are. They should pull their fucking fingers out. It's important, Mark.
+tv-peepshow	work-money	tv-quote	general	0	Jez: Twenty thousand pounds. I'm going to be a millionaire!
+tv-peepshow	life	tv-quote	general	0	Super Hans: Wow, nice. Nice gun. Must be, what, a... war gun.
+tv-peepshow	life	tv-quote	general	0	Jez: You've got sarcasm. I've got a big gun.
+tv-peepshow	life	tv-quote	general	0	Mark: (It's Paddy Ashdown. It's Indiana Jones. It's Indiana Ashdown!)
+tv-peepshow	family	tv-quote	general	0	Mark: (Why doesn't Jeremy want you to be his dad? I want you to be my dad. I want to sit on your knee right now.)
+tv-peepshow	life	tv-quote	general	0	Martin: Do you write at all? Mark: Well...I did once start a business book and I've always fancied doing an article about the evacuation of Greece in 1941 for the local paper. Not that it would really fit in with all the kebab shop stabbings.
+tv-peepshow	life	tv-quote	general	0	Mark: (It's fascinating. Everything that can kill a man is fascinating... guns, electric chairs, paracetemol, lead piping)
+tv-peepshow	tech	tv-quote	general	0	Mark: (This is great! Why was I anxious? I'm in my element. Older people are still people. They're just people who think when they open a new window on the computer the previous window has disappeared for good.)
+tv-peepshow	life	tv-quote	general	0	Mark: (YES!!! No-one else I know would have found that funny, but I was right to think it was amusing!)
+tv-peepshow	life	tv-quote	general	0	Mark: (I would literally stab a baby to do it!)
+tv-peepshow	life	tv-quote	edgy	1	Mark: (This is a fantastic evening. I've become a military historian and Jeremy's future happiness rests in my hands...And I've got a tiramisu. This is fucking amazing!)
+tv-peepshow	life	tv-quote	general	0	Super Hans: Jez - can you tell me, yeah, as a mate, someone who knows me really well, is the bottom half of me on fire?
+tv-peepshow	life	tv-quote	edgy	1	Super Hans: Come on Mark, don't piss on my strawberries.
+tv-peepshow	life	tv-quote	general	0	Mark: (Is she straight? Gay? Doesn't bother me, just nice to know. It's not like I'm a homophobe. But it's good to know who you are. Stay safe. Praise the food, the lukewarm, disgusting food.) This food is superb.
+tv-peepshow	life	tv-quote	general	0	Jez: How was the rest of your evening with Peaches Stalin?
+tv-peepshow	life	tv-quote	general	0	Jez: It sounds like you've been raped, by a soldier, like in a Mike Leigh film.
+tv-peepshow	life	tv-quote	general	0	Jez: Hello Natalie, how's your dad? Mark: Jez, don't. Natalie: Yeah, fine thank you. Jez: Enjoying my money, is he? Is he lying in a bath of my money nude, after having sex with my mum nude?
+tv-peepshow	life	tv-quote	nsfw	1	Mark: (I'm having an orgasm against my will!)
+tv-peepshow	life	tv-quote	nsfw	1	Jez: You, my friend, are a rape victim. [...] Do you have feelings of guilt and shame, self-loathing? Mark: You know I do - don't load the question!
+tv-peepshow	life	tv-quote	nsfw	1	Mark: It wasn't rape, alright? It was just a minor sexual assault. She didn't force anything up my bum - that's why it's not rape. Jez: Well, it's not bum-rape, no. Super Hans: Never said it was bum-rape, Mark.
+tv-peepshow	life	tv-quote	general	0	Mark: (Maybe that was actually good sex? Loosen up, Corrigan - that's what happens in the bedroom now: no old fashioned fumbling and kissing, a lesbian rapes you whilst you dream about your mother. It's edgy.).
+tv-peepshow	life	tv-quote	edgy	1	Mark: (Please don't shit on my dreams. I don't want shit on my dreams.)
+tv-peepshow	society	tv-quote	general	0	Mark: War is never a picnic. Although obviously soldiers do end up eating outdoors a lot.
+tv-peepshow	life	tv-quote	general	0	Jez: If they can't get to Corfu, they can't spend my money. That's physics.
+tv-peepshow	life	tv-quote	general	0	[Cally is signing up Jez and Super Hans' band] Cally: Any questions? Super Hans: Yeah, there are certain countries within the European Union that I'm barred from entering. You got a problem with that? Jeremy: I'm a very sexual performer. Are you going to be able to handle that?
+tv-peepshow	life	tv-quote	general	0	Jeremy: Wow, we've finally met the man. And the man is a woman. And he's hot!
+tv-peepshow	work-money	tv-quote	nsfw	1	Jeremy: Wow, this is definitely happening. Okay, got to focus. It's very important for my future career development that I give my manager an orgasm.
+tv-peepshow	love	tv-quote	edgy	1	Mark: (Jeremy's getting a manager. I'm getting divorced. Maybe he'll end up happy and successful and I won't. That would be typical! I do everything society demands and die in a ditch, he sits on his arse an accidently shits a golden egg!)
+tv-peepshow	life	tv-quote	edgy	1	Super Hans: We want to wallow in our own filth, Mark. Have a good old fucking wallow.
+tv-peepshow	life	tv-quote	general	0	Super Hans: A suitcase with wheels? Real men don't get the earth to carry their luggage for them, mate. They carry it themselves.
+tv-peepshow	life	tv-quote	edgy	1	Cally: I thought you were a business brain Mark, but you're better than that. You're what my grandma would call 'a real piece of shit'
+tv-peepshow	love	tv-quote	general	0	.... Cally: Do you want to date? Are you a dater? Mark: (Well, err, I have been out with women...so I guess...)
+tv-peepshow	love	tv-quote	nsfw	1	.... Mark: (Wow, I've got a date! I'm a real piece of shit! I bet those two things go hand-in-hand. I bet if I got into defrauding pensioners, the pussy would really start rolling in.)
+tv-peepshow	love	tv-quote	general	0	Mark: (God, I can't believe I'm dating someone I really like. I've done it right! I've done it right for once!)
+tv-peepshow	faith	tv-quote	general	0	[Mark and Jez are at a Christian rock festival] Mark: (Look at them all - the Christians. It's not fair. I could be that happy if I believed in a lot of rubbish.)
+tv-peepshow	faith	tv-quote	general	0	[Jeremy's been baptised] Jeremy: There's like a 1 per cent chance the whole Jesus thing is true. In which case I'll have something to pull out of the bag on Judgement Day.
+tv-peepshow	life	tv-quote	general	0	Mark: (Oh God. He's in a raft drifting towards Niagara Falls, flicking through Heat magazine with one hand down his trousers.)
+tv-peepshow	faith	tv-quote	general	0	Jeremy: We'd be selling our souls. Super Hans: Well, we'd be selling our souls to Jesus. Isn't he the best person to sell your soul to? It's his whole setup.
+tv-peepshow	life	tv-quote	general	0	Jeremy: So, did Cally tell you about her and me...much? Mark: No, no, God no. Don't worry, nothing like that. (She stopped him in the middle! I'll save that for a rainy day! That's money in the bank!)
+tv-peepshow	life	tv-quote	general	0	Jeremy: (Christian security guard? What's he gonna do, excommunicate me?)
+tv-peepshow	life	tv-quote	general	0	Mark: (The one is giving me the finger and driving away. There's the familar gut punch of pain and loneliness. Hello, old friend.)
+tv-peepshow	life	tv-quote	general	0	Mark: (I feel guilty about everything, from the pollution caused by Chinese industrialisation to not wearing some pairs of boxers as much as others. I'm sorry, stripey blue - you're just too tight.)
+tv-peepshow	love	tv-quote	general	0	Mark: (Dobby - the acceptable face of woman. I hardly have to modify my behaviour at all in her company. I really think she might be the one.)
+tv-peepshow	life	tv-quote	general	0	Mark: (Is that... it? No sarcastic putdown, no casual kick in the balls? Maybe it's because she's been smoking drugs... Good old drugs).
+tv-peepshow	life	tv-quote	general	0	Mark: (Maybe I'm Shaft. Maybe I'm Trump. Yeah, I'm Trump, in my dirty, wiggy tower.)
+tv-peepshow	love	tv-quote	general	0	Mark: (Look at me! Drunken one night stand. I mean, she is my wife. Still, finally got to use my bachelor's emergency condom.)
+tv-peepshow	life	tv-quote	general	0	Mark: (Sperm is like lending someone less than a fiver. You can't really ask for it back.)
+tv-peepshow	love	tv-quote	general	0	Mark: (Hope she's not pregnant. It's been ages, she hasn't mentioned it. She won't be pregnant. It's not like I'm a Royal Marine with super sperm.)
+tv-peepshow	life	tv-quote	general	0	Johnson: I'm not running a rehab clinic. This is a maximum security business institution.
+tv-peepshow	family	tv-quote	general	0	Mark: (Oh fiddlesticks. Of course, I'm having a baby. Great, I'll probably drop it or it'll grow up and write a bitter memoir about how distant I was.)
+tv-peepshow	life	tv-quote	general	0	Mark: (Just gotta say the right words - can think about what they mean later.)
+tv-peepshow	work-money	tv-quote	general	0	Mark: (Oh my God, I can't fire anyone. I'm like British Leyland in 1976.)
+tv-peepshow	work-money	tv-quote	edgy	1	Super Hans: You should just get a van. With a van, it's like you've got an MBA, but you've also got a fucking van. You're not just a man anymore - you are a man with a van. You get a van, Jez, we could be men with ven.
+tv-peepshow	life	tv-quote	edgy	1	Mark: OK. Keys, change, wallet, phone. OK. Jeremy: Jesus.. You are something else. Mark: Thank you very much. Jeremy: (He took the insult as a compliment. Shit! He could become invulnerable!)
+tv-peepshow	life	tv-quote	general	0	Sophie: One small spritzer, half a unit. Should I have got written permission? Mark: Listen to her, she's exaggerating for comic effect!
+tv-peepshow	work-money	tv-quote	general	0	Mark: The recession is here and my new sofa is a white elephant. Jez: [Stroking the leather] It's a creamy elephant! Mark: Please don't call it the creamy elephant.
+tv-peepshow	life	tv-quote	general	0	Mark: (I'm becoming the Fuhrer - the Fuhrer of Laughs!)
+tv-peepshow	life	tv-quote	general	0	Mark: (I'm Russell Brand, and he's lovely Andrew Sachs.)
+tv-peepshow	work-money	tv-quote	general	0	Jeremy: Oh my god! It's wheels within wheels! I've been invited inside, with the bean counters and the water boarders! Mark: (At some point he's going to find out what goes in sausages.)
+tv-peepshow	life	tv-quote	general	0	Mark: I thought I might do a skit with Dobbie. Jez: Oh, I get it! The smell of the grease-paint, the swish of the curtain, the rub-job in the dressing room.
+tv-peepshow	work-money	tv-quote	general	0	[Discussing both being fired] Jeremy: They've really screwed us, man! Mark: They've screwed me, they've diddled you at best.
+tv-peepshow	life	tv-quote	general	0	Mark: (Well, got Dobbie, but there goes the Nazi gold, back in the vault with all the Rembrandt's')
+tv-peepshow	love	tv-quote	general	0	[Mark and Jez see Elena at the supermarket] Mark: She is very attractive. But brown rice and Pop Tarts? Camomile tea and economy vodka? That's a car crash of a shopping basket.
+tv-peepshow	life	tv-quote	general	0	Mark: (He actually thinks he has suave spermatazoa. He characterises his sperms!)
+tv-peepshow	life	tv-quote	general	0	Mark: [Trying to operate the new boiler] Obey my commands, Orac!
+tv-peepshow	love	tv-quote	general	0	Jeremy: Mark, just because today was the first time you have ever, ever, EVER successfully arranged a date with a woman, does not suddenly make you Alfie, ok?
+tv-peepshow	life	tv-quote	general	0	Mark: Why do you insist on seeing the anus as some sort of human USB port, just waiting to have all kinds of hardware plugged into it?
+tv-peepshow	life	tv-quote	general	0	Jeremy: Fork my leg. Mark: I do sort of want to but... no, too weird!
+tv-peepshow	life	tv-quote	general	0	Mark: We are not equals-pequals!
+tv-peepshow	life	tv-quote	general	0	Mark:You haven't drunk all the difficult conversation wine, have you?
+tv-peepshow	life	tv-quote	general	0	Jeremy: Just because I'm dealing a little bit of drugs it does not make me a drug dealer! Mark: Yes it does. Jeremy: Oh god. Come Mr Taliban, tally my bananas!
+tv-peepshow	society	tv-quote	general	0	Jeremy: (Yeah! Russian men are probably all infertile! Thanks Chernobyl!)
+tv-peepshow	love	tv-quote	general	0	Mark: Condom, condom, condom. Although maybe, two? Dobby: Two condoms? Mark: Two's company. In fact, maybe I should go for a third. Three is the magic number. (I've got to tell her. I couldn't slide this in anyway. It'll be like trying to clingfilm an earthworm.)
+tv-peepshow	life	tv-quote	edgy	1	Mark: Shove that up your bollocks!
+tv-peepshow	love	tv-quote	general	0	Mark: (Dobby: the anxious self-hating man's crumpet. But probably best if I never ever say that to her.)
+tv-peepshow	family	tv-quote	general	0	Mark: (Oh my God, there's a baby in there, about the size of a croissant. A terrifying, life-altering croissant-baby!)
+tv-peepshow	life	tv-quote	nsfw	1	Jez: Oh and I saw the porn she was looking at! Man, it's hot! She's got great taste, it was the most fantastic porn I've ever seen. Mark: Isn't it just the usual dead-eyed men fucking dead-eyed women in a desperate world of pain?
+tv-peepshow	life	tv-quote	general	0	Jez: I don't want to tempt fate, but I think everything is going to be totally great forever.
+tv-peepshow	life	tv-quote	general	0	Jez: Always wipe, Mark. Discharge your pipe, then have a wipe. That's the rhyme.
+tv-peepshow	life	tv-quote	edgy	1	Jez: Oh my giddy arse!
+tv-peepshow	arts	tv-quote	general	0	Jez: She's the one person for me, in the whole world. Mark: Isn't it convenient that out of the approximately three billion adult women in the world, your one true love happens to live in the same block of flats as you, instead of in a village in Mozambique?
+tv-peepshow	life	tv-quote	edgy	1	Mark: Why does everything have to be fun to be worthwhile? Crick and Watson have discovered the double helix. Did they do it on a skateboard? No? Well fuck off then, I'm not interested.
+tv-peepshow	life	tv-quote	general	0	Sophie: Obviously it would be really great if you were happy but it's not the most pressing thing. Mark: No... no, of course not.
+tv-peepshow	life	tv-quote	general	0	Jez: Why do you have to bring worry and doubt into everything? You're like some kind of mad evangelist for anxiety! Mark: (Lots to go around old son. I'm probably a few grams lighter now.)
+tv-peepshow	family	tv-quote	general	0	Sophie: When our child looks up at you, I want them to see a happy, contented role model - not some grey faced, dull eyed drone who's hated his job and his life for years. Mark: (Must ring Dad).
+tv-peepshow	life	tv-quote	general	0	Mark: Oh dear, he's having an episode. Should I... put my hand on his arm? No. That sets a precedent.
+tv-peepshow	life	tv-quote	edgy	1	Jez: I don't want to take another wank bullet. What, am I some kind of wank shield!?
+tv-peepshow	life	tv-quote	edgy	1	Mark: I think we can count our friendship pretty much over from now on. Jez: Oh, don't be a cock! Mark: I'm not a cock, but the cock has certainly crowed... thrice. Jez: When? What are you talking about? Mark: It means you've betrayed me, it's the New Testament. You cock!
+tv-peepshow	life	tv-quote	nsfw	1	Mark: I don't think I wiped off that porn you recommended. Jez: I didn't recommend it Mark. I'm not Timeout. Mark: Yes you did - you gave it five stars!
+tv-peepshow	life	tv-quote	general	0	Mark: That's the single nicest thing Jez has ever done for me and it's completely ruined my life.
+tv-peepshow	life	tv-quote	general	0	Jez: It's a great boiler, it's just got a very idiosyncratic control panel. It's like the Jesus and Mary Chain of central heating control systems, difficult to get into initially, but then- so much to explore!
+tv-peepshow	life	tv-quote	general	0	Jez: So you'll buy tissue paper for me to wipe my sphincter, but you won't buy a bit of lube to aid the giving and receiving of pleasure? Mark: That's right.
+tv-peepshow	life	tv-quote	general	0	Elena: Gail's in Mensa. She reads books. For fun!
+tv-peepshow	life	tv-quote	general	0	Jez: Me and this Gail, we're just eating from different sides of the plate. I play woodwind, she's on brass.
+tv-peepshow	work-money	tv-quote	general	0	Johnson: In, fire thirty percent of the workforce, new logo, boom, out. You are now a fully trained management consultant.
+tv-peepshow	tech	tv-quote	general	0	Johnson: Stick it on the laterbase!
+tv-peepshow	life	quip	general	0	Johnson: Print you damnable fudger.
+tv-peepshow	life	tv-quote	general	0	Elena: Isn't there a saying in life: "Whatever you don't know makes you stronger"? Mark: No.
+tv-peepshow	life	tv-quote	general	0	Elena: Maybe it would be better if you told him. Mark: Better for who? For you?
+tv-peepshow	love	tv-quote	general	0	Gail: I'm in a relationship, Mark...and it's a same-sex relationship. And I don't find you attractive. Even speaking objectively. Mark: (Great! The big triple: uninterested, unavailable and physically repulsed.)
+tv-peepshow	tech	tv-quote	general	0	Mark: (It's NOT wireless! It doesn't say it's wireless... It needs wires!)
+tv-peepshow	love	tv-quote	edgy	1	Jez: (What a bastard! Destroys my perfect love just because it's built on lies!)
+tv-peepshow	life	tv-quote	general	0	Mark: It'd be like picking off bystanders with a sniper rifle: fun at first, but it would quickly become a depressing chore.
+tv-peepshow	life	tv-quote	general	0	Johnson: Suze! Have you seen the big scissors? Have you moved the big scissors?
+tv-peepshow	life	tv-quote	nsfw	1	Jez: Even a dried up, dessicated old branflake on toast like you should be able to see that! Mark: (If I'm a branflake, he's a slutty Sugar Puff!)
+tv-peepshow	love	tv-quote	general	0	Johnson: Did you make the bed? You're not my wife, Mark. I had a wife, I don't need another bullet in the head...okay? Righty righty! Mark: (I made his bed and got his tea, I am his wife!)
+tv-peepshow	life	tv-quote	general	0	Jez: I'm like Raffles! No? No clothes for Raffles. Raffles doesn't deserve clothes.
+tv-peepshow	life	tv-quote	general	0	Jez: You've known for two whole days! That's...sick!
+tv-peepshow	life	tv-quote	general	0	Dobby: Hey Mark!! Mark: Hi Dobbs. I just happened to be passing. I remember you were saying if I happened to be passing.. (Two buses here, three buses home. Five convenient buses.)
+tv-peepshow	life	tv-quote	edgy	1	Mark: (Oh god this could be a disaster. I want a night of edgy banter and tipsy indiscretions, he wants us all lying around in our pants flinging shit at each other.)
+tv-peepshow	life	tv-quote	general	0	Jez: Big of you, inviting him. Mark: I thought it would look petty and vindictive not to, and as a petty and vindictive individual I have to take extra care not to appear petty or vindictive.
+tv-peepshow	life	tv-quote	edgy	1	Mark: I need to get Gerrard incredibly fucked. Booze, drugs, whatever. Jez: Chemical castration; classic.
+tv-peepshow	life	tv-quote	general	0	Jez: Will you excuse me? I've got to go and give that ill-looking man an enormous drink.
+tv-peepshow	life	tv-quote	general	0	Mark: Only downside is no Dobby. If it peaks before Dobby gets here, I've wasted good party. Jez: Maybe call her? Give her some flavour. Mark: What, like start a message and then say "Stop it Julio. Get your own cocaine, I've got too much tit in my mouth."? Jez: Exactly
+tv-peepshow	life	tv-quote	general	0	Jez: Oh god, Elena. Mark: .... Jez: This is not all my chickens coming home to roost, Mark, all right? Don't stand there thinking it is. Mark: I'm not Jez. (This is all his chickens coming home to roost. It's a roost-a-thon.)
+tv-peepshow	life	tv-quote	general	0	Mark: Good Will to all men! (Did I just say 'Good will to all men')
+tv-peepshow	life	tv-quote	general	0	Big Suze: Mark - there's something wrong in the loo. Mark: (God, she looks like she's witnessed a war crime.)
+tv-peepshow	life	tv-quote	edgy	1	Super Hans: All right Jez. Jez: Yeah, um, just an idea, would it be okay mate if you fucked off before I ram a wine bottle up your cock?
+tv-peepshow	life	tv-quote	general	0	Mark: Dobby, Come in. No need to explain what the hell you've been doing till this time.
+tv-peepshow	life	tv-quote	general	0	Mark: Dobby mustn't see Gerrard. He's gone over the edge of reason. Get rid of him! Jez: Aye aye, captain.
+tv-peepshow	life	tv-quote	general	0	Jez: Gayle. Great you could make it. Gayle: Hi Jez. Jez: (You're about to get dumped. Have a lager.) Gayle: Thanks! Jez: (Come on in to your emotional torture pit.)
+tv-peepshow	life	tv-quote	general	0	Sophie: What days do you want, Mark? Mark: (I don't know, Easter and Shrove Tuesday?)
+tv-peepshow	life	tv-quote	general	0	Jez: (She's so suggestable, like a sexy robot anybody can hack into and program. Oh there it goes, lesbian kiss - and no one minds! Where are all the homophobes when you need them? God, people are so fickle.)
+tv-peepshow	life	tv-quote	general	0	Mark: (Great. Gerrard gets Dobby and I get a pukey bucket of snake.)
+tv-peepshow	love	tv-quote	general	0	Jez: (Oh what a disaster. Love is all you need. No, actually, Beatles. You also need a person to do it with; Beatles.
+tv-peepshow	life	tv-quote	nsfw	1	Mark: (God she's huge. It's like Alien, if the alien was a human. Hmm, If I had to choose would I rather an alien burst out of my chest quickly, or was heaved out of my vagina slowly?)
+tv-peepshow	life	tv-quote	general	0	Mark: (He'll never be a lad.Boy to geek to drone.Thats the Corrigan trajectory)
+tv-peepshow	family	tv-quote	general	0	Mark: Sophie? Jeff says the baby's a boybe. Is it a boybe? Sophie: Yes! Mark: Right... almost makes it seem real. Sophie: Well it is real. Mark: Of course. (Totally doesn't feel real. maybe 1% more real now)
+tv-peepshow	life	tv-quote	general	0	Mark:(I'll stick with My high fat foods which will eventually kill Me and My play which is obviously never gonna happen)
+tv-peepshow	love	tv-quote	general	0	Jez:(This would be so much easier if She wasn't a person with hopes and dreams and grasping clinging Arms)
+tv-peepshow	love	tv-quote	general	0	Mark:(Its great being a wedding guest.You get to be an unpaid extra in the climactic scene of someone else's Rom-Com)
+tv-peepshow	life	tv-quote	general	0	[Sophie hands Mark an envelope] Mark: (Hate mail? In person?!)
+tv-peepshow	life	tv-quote	general	0	Mark: The absolute worst thing anyone could say about you is that you were a selfish, moral blank, whose lazy cynicism and sneering, ironic take on the world encapsulates everything wrong with a generation. But you my friend are not evil.
+tv-peepshow	society	dark	general	0	Mark: Killing your enemies is a simple solution. Probably why in ethics and law it's so frowned upon
+tv-peepshow	life	tv-quote	general	0	Jez:(No milk. Not black tea. I'm not some kind of monster!)
+tv-peepshow	life	tv-quote	general	0	Mark:(He brings the insufferable music and then leaves. He's like the 1980s.)
+tv-peepshow	life	tv-quote	edgy	1	[Mark on Caesarian section] Mark: (Holy fuck, living innards! I thought now it'd be all high tech, chip and pin, not London Dungeon!)
+tv-peepshow	life	tv-quote	general	0	Mark: (Never go to war with Stalin, Gerard. Uncle Joe doesn't play by your rules.)
+tv-peepshow	life	tv-quote	nsfw	1	[Supporting the woman whose partner is in a coma] Jez: We need to get you some answers. Is he going to pull through? You need to know. (I need to know. Right now I'm the supporting character in a weepy when I want to be the leading man in a porno.)
+tv-peepshow	arts	tv-quote	general	0	Mark: [Watching Jeremy try to read Wuthering Heights] (Fascinating. It's like watching a sheep try to use an iPhone.)
+tv-peepshow	life	tv-quote	general	0	Jez: Why do they have these brushes anyway? Who wants brushed post?
+tv-peepshow	family	tv-quote	nsfw	1	Mark: Jeremy, do you think we could take a brief time-out from the masturbate-athon that is your life, to go to my son's christening?
+tv-peepshow	arts	tv-quote	general	0	Jez: I'm a Christmasist.
+tv-peepshow	life	tv-quote	general	0	Mark: I would have found that funnier if I hadn't been literally weeping in fear.
+tv-peepshow	life	tv-quote	general	0	Jez: Not the Hootenanny! Never the Hootenanny! We're better than that.
+tv-peepshow	life	tv-quote	general	0	Jez: (We could be the Chemical Toilet Brothers.)
+tv-peepshow	love	tv-quote	general	0	Mark: (So great that Dobby's agreed to move in. Just gotta close the deal. Get her into the flat and keep her locked down like Fritzl. No, not like Fritzl, like a nice normal loving guy who knows where she is at all times. Which at no point would be locked in the cellar.)
+tv-peepshow	life	tv-quote	general	0	Jez: Jeff?! Mark: I think it's okay. Or do you think there's any chance he's trying to kill all of my offspring. Like Herod.
+tv-peepshow	life	tv-quote	general	0	Dobby: Oh, Jez, Mark told me about you burning the band. Are you okay? Jez: Yeah. I'm too big to fail. Mark: He doesn't know what that means. Jez: I do know what that means. Mark: (He doesn't know what that means.)
+tv-peepshow	love	tv-quote	general	0	Mark: (What if I broke the microwave? Test case: if she buys a new one I know she's never moving in.)
+tv-peepshow	life	tv-quote	general	0	Mark: (Yes Gerrard, but there's a sting in the tail, a scorpion in the Kinder Egg, a nail in the Toblerone, and... 'tis I.)
+tv-peepshow	family	tv-quote	general	0	Mark: (Maybe Ian won't remember I gave him away to another man. If he does, he'll be some kind of memory genius. Yeah, my son hates me, but he can remember a full deck of cards and that's why he lives in Vegas.)
+tv-peepshow	work-money	tv-quote	general	0	Jez: I've always got the Three 0h Walcott millions. Mark: Jeremy's planning to sell the headline "Three Oh Walcott" to a tabloid newspaper when Theo Walcott turns thirty, and we've agreed not to argue whether that's a good plan. Jez: It is a good plan. Mark: I know.
+tv-peepshow	life	tv-quote	edgy	1	Jez: (Right, therapy. What do I really want from therapy? A harsh, unremitting stare at the bare facts of my actual life. Ah, fuck that, he's eating a Twix! I can't take him seriously.)
+tv-peepshow	love	tv-quote	general	0	Mark: (Hang on, this is prime therapy time. Oh I get it, the lady doth eat bhaji too much, methinks. I've seen behind the curtain. Ahoy there, moral high ground. He's wasting five hundred of my pounds, and it feels fantastic!)
+tv-peepshow	life	tv-quote	edgy	1	Mark: What did he die of? Dobby: Flu. Mark: He died of flu? Hey, Jeremy, Gerrard's died of flu. Jez: Bull-shit Mark: Seriously. Jez: Bloody hell, that is SO Gerrard. Mark: I know. Dobby: He had a weak immune system Mark. Jez: He had a weak everything, to be fair Dobs.
+tv-peepshow	life	tv-quote	general	0	Mark: (The reproachful, but still quite irritating, voice from beyond the grave.)
+tv-peepshow	arts	tv-quote	general	0	Mark: (Funeral parlour, massage parlour - those are the main parlours, aren't they? What's the link, both lying down? Except, pizza parlour?)
+tv-peepshow	life	tv-quote	general	0	Mark: (Interview then funeral, the ultimate combo. Minicab waiting, same outfit for both.)
+tv-peepshow	life	tv-quote	general	0	Mark: (This is a mega-funeral. It was a mega-interview. Hugh was the only real rival, but look what's happened to Gerrard. This is what I do to rivals, I put my rivals in the ground.)
+tv-peepshow	life	tv-quote	edgy	1	Mark: (Well played Gerard, you couldn't beat me on Earth so now you're shitting on me from heaven, like a dead jealous pidgeon)
+tv-peepshow	life	tv-quote	general	0	Mark: (This must be the greatest quantity of squeezable mustard ever present at a literary lunch.)
+tv-peepshow	love	tv-quote	general	0	Jez: Look, I'm just going to say this. I love you Celia. (So great for a first date. Stone cold classic.)
+tv-peepshow	life	tv-quote	general	0	Celia: That is so true. Jez: (Of course it's true. I just made it up.)
+tv-peepshow	life	tv-quote	general	0	Mark: Robert, is Super Hans my boss now? Have you just promoted him? Robert: Well that depends how you define "boss". Mark: In the normal way? Robert: Then yes, he is.
+tv-peepshow	life	tv-quote	general	0	Super Hans: I'm guessing: cat Mark: (Yes, and this cat's going to help me lure Dobby in, like a classic 70s paedo with a Ford Grenada.)
+tv-peepshow	life	tv-quote	general	0	Dobby: We will do this for real, right? We will go interrailing? Mark: (Ohh, she's insatiable. I don't want to sleep with strangers in hostels and never have a proper relaxed poo.) Yeah, sure.
+tv-peepshow	life	tv-quote	general	0	Jez: I've got medical training, I've got a certificate. Mark: I gave you the certificate. It's utterly meaningless. Jez: In a way, aren't all so called qualifications meaningless?
+tv-peepshow	love	tv-quote	general	0	Mark: (Wow, you're like a sexy, human, Duncan Bannatyne.)
+tv-peepshow	love	tv-quote	general	0	Mark: (Am I expecting to have adulterous sex with Stephanie? I don't know. I did put my nice pants on. But then I also wore those to the Jubilee pageant)
+tv-peepshow	love	tv-quote	nsfw	1	Mark: (What can I get away with before it's sure-fire infidelity? A kiss on the lips? Some people say hello like that. Touch the waist? Another innocent greeting gesture. As long as she doesn't rub my penis. No-one says hello like that, other than in prison.)
+tv-peepshow	life	tv-quote	edgy	1	Jez: (You're not letting me steal your girlfriend you total bastard.)
+tv-peepshow	life	tv-quote	general	0	Jez: (Good old fate. It does the hard work so you don't have to. Or am I thinking of flash?)
+tv-peepshow	love	tv-quote	general	0	Mark: Well, me and Dobby make a great team... Opposites attract! Jez: No they don't. Not really. That's just something scientists and people in horrible relationships say.
+tv-peepshow	life	tv-quote	edgy	1	Mark: I'll kill you, Jeremy, for trying to steal Dobby, and electrocuting me, and destroying my fucking pie!

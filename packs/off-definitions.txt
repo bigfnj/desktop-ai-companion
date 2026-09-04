@@ -1,0 +1,304 @@
+off-definitions	life	pun	general	0	68: Do me now and I'll owe you one.
+off-definitions	life	quip	edgy	1	71: 69 with two fingers up your ass.
+off-definitions	life	dark	nsfw	1	A clitoris is a lot like Antarctica: most men know it's there, but few really care.
+off-definitions	life	quip	general	0	A.A.A.A.A.: An organization for drunks who drive.
+off-definitions	science	quip	general	0	Achilles' Biological Findings: (1) If a child looks like his father, that's heredity. If he looks like a neighbor, that's environment. (2) A lot of time has been wasted arguing over what came first -- the chicken or the egg. It was undoubtedly the rooster.
+off-definitions	love	quip	general	0	Adam's Law: (1) Women don't know what they want; they don't like what they have got. (2) Men know very well what they want; having got it, they begin to lose interest.
+off-definitions	life	pun	general	0	Adolescence, n.: The stage between puberty and adultery.
+off-definitions	love	pun	general	0	Adultery: Putting yourself in someone else's position.
+off-definitions	life	quip	nsfw	1	ambition, n: An ant crawling up an elephant's leg with rape on his mind.
+off-definitions	life	pun	general	0	anxiety, n: The first time you can't do it a second time. panic, n: The second time you can't do it the first time.
+off-definitions	work-money	observation	general	0	Appointment book: The reference of last resort when trying to duck undesired invitations ("Gee, the soonest I can pencil you in is December, 2004"), or when trying to figure out what the hell it was you did during the past year.
+off-definitions	life	insult	general	0	Arkansas: Where the men are men, so are the women and the sheep run scared.
+off-definitions	life	quip	edgy	1	Ass: The masculine of "lass".
+off-definitions	life	quip	general	0	Bacchus, n.: A convenient deity invented by the ancients as an excuse for getting drunk.
+off-definitions	life	quip	general	0	Balls' Law: The angle of the dangle is directly proportional to the heat of the meat provided that the thrusts of the busts are constant.
+off-definitions	life	dark	general	0	Baltimore, n.: Where the women wear turtleneck sweaters to hide their flea collars.
+off-definitions	life	quip	general	0	Baltimore: A wharf-rat stealing Diogenes' lamp.
+off-definitions	food	dark	nsfw	1	beef stroganoff, n: A bull masturbating.
+off-definitions	love	quip	general	0	"Better late than never!": The single girl's motto.
+off-definitions	life	quip	general	0	bi, n: When *everybody* thinks you're a pervert.
+off-definitions	life	dark	general	0	BOHICA: Bend over, here it comes again.
+off-definitions	life	quip	general	0	Boston, n.: Ludwig van Beethoven being jeered by 50,000 sports fans for finishing second in the Irish jig competition.
+off-definitions	life	quip	general	0	Boston: An outdoor Betty Ford Clinic.
+off-definitions	life	pun	general	0	brunette bush, n: The dark side of the moon.
+off-definitions	love	dark	general	0	cad, n.: A man who doesn't tell his wife that he's sterile until she's pregnant.
+off-definitions	society	quip	general	0	California: From Latin 'calor', meaning "heat" (as in English 'calorie' or Spanish 'caliente'); and 'fornia', for "sexual intercourse" or "fornication." Hence: Tierra de California, "the land of hot sex."
+off-definitions	life	quip	general	0	callgirl, n: A negotiable blonde.
+off-definitions	life	observation	general	0	Camille's Axiom: If you haven't asked yourself, "Why the hell did I go to college anyway?", you must be teaching.
+off-definitions	life	pun	general	0	Chastity belt: An anti-trust suit. (And an unchivalrous knight is the one that files it.)
+off-definitions	life	dark	general	0	Chastity: The most unnatural of the sexual perversions.
+off-definitions	society	quip	general	0	Chicago, n.: Where the dead still vote ... early and often!
+off-definitions	faith	quip	general	0	Christ: A man who was born at least 5,000 years ahead of his time.
+off-definitions	society	dark	general	0	Christmas: A time when each of us gets to reflect upon what we each most deeply and sincerely believe in. Money. At the mall of our choice.
+off-definitions	life	quip	general	0	cigarette, n.: A fire at one end, a fool at the other, and a bit of tobacco in between.
+off-definitions	life	dark	edgy	1	Cinderella 10: A woman who sucks and fucks 'til midnight and then turns into a pizza and a six-pack.
+off-definitions	tech	quip	edgy	1	Clarke's Third Law: Any sufficiently advanced technology is indistinguishable from magic. G's Third Law: In spite of all evidence to the contrary, the entire universe is composed of only two basic substances: magic and bullshit. H's Dictum: There is no magic ...
+off-definitions	life	tv-quote	general	0	Cleveland: Where their last tornado did six million dollars worth of improvements.
+off-definitions	life	pun	nsfw	1	clitoris, n: A haired trigger.
+off-definitions	life	dark	general	0	Cocaine: The thinking man's Dristan.
+off-definitions	life	quip	edgy	1	cock-sucker, n: Someone who got caught doing what you got away with.
+off-definitions	love	quip	general	0	coitus interruptus, n: A jerky movement following the words (by either sex partner) "I want to have your child."
+off-definitions	life	quip	general	0	cold, adj.: When the local flashers are handing out written descriptions.
+off-definitions	nature	quip	general	0	cold, adj: When your dog sticks to the fire hydrant.
+off-definitions	society	quip	general	0	Colorado: Where they don't buy M & M's, 'cause they're so hard to peel.
+off-definitions	tech	pun	general	0	computerfirm nymphomaniac, n: Hot Apple pie.
+off-definitions	life	dark	general	0	confusion, n: Father's Day in San Francisco.
+off-definitions	life	joke	general	0	confusion: One woman plus one left turn. excitement: Two women plus one secret. bedlam: Three women plus one bargain. chaos: Four women plus one luncheon check.
+off-definitions	society	quip	general	0	Conservative, n.: One who admires radicals centuries after they're dead.
+off-definitions	society	quip	general	0	Conservative, n: A statesman who is enamored of existing evils, as distinguished from the Liberal who wishes to replace them with others.
+off-definitions	life	quip	general	0	continental breakfast, n: A roll in bed with some honey.
+off-definitions	food	quip	edgy	1	Coors, n: Like making love in a canoe -- fucking close to water.
+off-definitions	society	quip	general	0	Corrupt, adj.: In politics, holding an office of trust or profit.
+off-definitions	life	dark	general	0	courage, n: Two cannibals having oral sex.
+off-definitions	life	aphorism	edgy	1	Cox's philosophy: Life's a bitch, then you die.
+off-definitions	life	quip	general	0	crew, n: Eight big men and their cute little cox.
+off-definitions	love	observation	general	0	Crinklaw's Observation: Nowadays the order of life is reversed: Sex is first enjoyed, marriage follows, and after marriage comes abstinence.
+off-definitions	life	quip	general	0	Dallas: The city that chose Astroturf to keep the cheerleaders from grazing.
+off-definitions	society	quip	general	0	Democracy, n: In which you say what you like and do what you're told.
+off-definitions	life	quip	general	0	diaphragm, n: A childproof cap.
+off-definitions	love	pun	general	0	dicker, v: What you do to your wife if arguing doesn't work.
+off-definitions	society	quip	edgy	1	Disclaimer of the Week: Any Society Which Requires Disclaimers Has Too Many Goddamn Lawyers.
+off-definitions	life	quip	general	0	dyke, n: A woman who kick-starts her vibrator. And rolls her own tampons.
+off-definitions	love	quip	general	0	Elliptical, n.: The feel of a kiss.
+off-definitions	life	joke	general	0	embarrassment, n.: Finding out your German Shepherd has the clap.
+off-definitions	love	quip	general	0	Erogenous zone, n.: The skin you touch to love.
+off-definitions	love	quip	general	0	eternity, n.: The length of time between when you come and he leaves.
+off-definitions	life	pun	general	0	exotic dancer, n.: A girl who brings home the bacon a strip at a time.
+off-definitions	faith	dark	general	0	Faith, n: That quality which enables us to believe what we know to be untrue.
+off-definitions	life	quip	general	0	Fear, n.: What you feel when you see a U-Haul with Texas license plates.
+off-definitions	life	pun	general	0	felt tip, v.: Past tense for a breast examination!
+off-definitions	nature	quip	general	0	Female rabbits: The gift that just "keeps on giving."
+off-definitions	life	quip	nsfw	1	female, n.: Life support system for a pussy.
+off-definitions	society	quip	general	0	Feminism, n.: A political position which seeks to rebuild society so that both men and women are treated as women wish to be treated.
+off-definitions	tech	quip	edgy	1	First Corollary of Taber's Second Law: Machines that piss people off get murdered.
+off-definitions	love	quip	general	0	Flirt, n.: A girl whose favorite man is the next one.
+off-definitions	life	dark	general	0	fornication, n.: Term used by people who don't have anybody to screw with.
+off-definitions	life	quip	general	0	FORTUNE'S RULES TO LIVE BY: #5 Don't wear your spurs while making love in a waterbed.
+off-definitions	life	quip	general	0	FORTUNE'S RULES TO LIVE BY: #8 Don't wear your high heels while making love on the pool table.
+off-definitions	faith	dark	general	0	Frisbeetarianism, n.: The belief that when you die, your soul goes up the on roof and gets stuck.
+off-definitions	life	fact	edgy	1	fuck-me-pumps, n.: Stiletto heels of a certain length, usually black patent leather. The proper designation is "throw-me-down-and-fuck-me" pumps. Shoes with heels just high enough to let the frayed tip of a bullwhip trail around them properly.
+off-definitions	life	quip	edgy	1	fuckoff, n.: The tie breaker at the Miss America Beauty Pageant.
+off-definitions	life	quip	general	0	garter, n.: An elastic band intended to keep a woman from coming out of her stockings and desolating the country.
+off-definitions	life	quip	general	0	gay, adj.: Of a man, one who'd rather swish than fight.
+off-definitions	life	quip	general	0	Georgia: Where kinky sex means getting laid.
+off-definitions	life	pun	general	0	Glee Club groupie, n.: A girl into choral sex.
+off-definitions	faith	quip	general	0	God: Darwin's chief rival.
+off-definitions	love	dark	general	0	good scout, n.: Someone who knows the lay of the land and will take you to her.
+off-definitions	food	quip	general	0	Gourmet, n.: Anyone whom, when you fail to finish something strange or revolting, remarks that it's an acquired taste and that you're leaving the best part.
+off-definitions	love	quip	general	0	great lover, n.: A man who can breathe through his ears.
+off-definitions	food	quip	general	0	Gross, adj.: When your bloody mary still has the string in it.
+off-definitions	family	dark	general	0	Gross, adj.: When your grandmother kisses you goodnight and slips you some tongue.
+off-definitions	life	pun	general	0	Gynecologist, n.: Someone who spends their time spreading old wives' tails.
+off-definitions	life	quip	general	0	Handel's Proverb: You can't produce a baby in one month by impregnating 9 women!
+off-definitions	life	dark	general	0	Handy hint: A tea bag or two can be a dandy substitute when you're out of tampons.
+off-definitions	life	quip	general	0	happiness, n.: Finding the owner of a lost bikini.
+off-definitions	life	dark	general	0	happiness, n.: Having your Herpes (Type II) test come back negative.
+off-definitions	love	quip	general	0	Hartley's Second Law: Never sleep with anyone crazier than yourself. My corollary: The completely psychotic have all the fun.
+off-definitions	life	aphorism	edgy	1	Harvard Law: Under the most rigorously controlled conditions of pressure, temperature, volume, humidity, and other variables, the organism will do as it damn well pleases.
+off-definitions	life	dark	general	0	hell, n.: Truth seen too late.
+off-definitions	love	joke	general	0	henpecked husband, n.: One who's afraid to tell his pregnant wife that he's sterile.
+off-definitions	life	quip	general	0	hermit, n.: A man who'd rather get off by himself.
+off-definitions	life	quip	general	0	herpes, n.: The final proof that 'tis better to give than to receive. Much better.
+off-definitions	tech	quip	general	0	high technology, n.: A California innovation composed of equal parts of silicon and marijuana.
+off-definitions	society	pun	general	0	honor, n.: Almost as good as in 'er.
+off-definitions	life	quip	nsfw	1	horny, adj.: When your cock gets hard if the wind blows.
+off-definitions	life	quip	nsfw	1	hypocrite, n.: A man who says he likes cats, but won't eat pussy.
+off-definitions	life	quip	general	0	Impossible, adj.: (1) I wouldn't like it and when it happens I won't approve; (2) I can't be bothered; (3) God can't be bothered. Meaning (3) may perhaps be valid but the others are 101% whaledreck.
+off-definitions	life	pun	general	0	impotent loser, n.: Someone who can't even get his hopes up.
+off-definitions	life	quip	general	0	Incest, n: Sibling revelry; a sport the whole family can enjoy.
+off-definitions	love	joke	general	0	Infatuation, n: When you're in love, there's a lump in your throat. When you're infatuated, there's a lump in your pants.
+off-definitions	faith	quip	general	0	Infidel: In New York, one who does not believe in the Christian religion; in Constantinople, one who does.
+off-definitions	life	pun	general	0	innunendo, n.: Italian enema.
+off-definitions	life	quip	general	0	irony, n.: A windy day, when, just as a beautiful girl with a short skirt approaches, dust blows in your eyes.
+off-definitions	love	joke	general	0	Johnny Carson's Observation on Geriatrics: Sex in the sixties is great, but it improves if you pull over to the side of the road.
+off-definitions	society	quip	general	0	Kansas: Where the men are men and so are the women!
+off-definitions	food	fact	edgy	1	Kasha, n.: Kasha is always defined as "buckwheat groats". There's only one problem with this definition: what the fuck are "buckwheat groats"? *I* know what they are -- they're kasha. But that doesn't help *you* much.
+off-definitions	society	quip	general	0	Kerr's Three Rules for a Successful College: Have plenty of football for the alumni, sex for the students, and parking for the faculty.
+off-definitions	life	quip	general	0	Kleptomaniac, n.: A rich thief.
+off-definitions	life	quip	general	0	Kotex, n.: Not the best thing on earth, but next to the best.
+off-definitions	nature	observation	general	0	LA: Where the only way to determine that the seasons have changed is to note that people have changed the main topic of conversation. From mud slides to brush fires.
+off-definitions	life	quip	general	0	Labia majora, n.: The curly gates.
+off-definitions	life	quip	edgy	1	lagnaf, n.: Let's All Get Naked And Fuck!
+off-definitions	life	quip	general	0	Law of Probable Dispersal: Whatever it is that hits the fan will not be evenly distributed.
+off-definitions	life	quip	general	0	Law of the Yukon: Only the lead dog gets a change of scenery.
+off-definitions	life	quip	general	0	lawyer, n.: Someone who can get a sodomy charge changed to "following too closely."
+off-definitions	life	quip	general	0	lazy, adj.: Marrying a pregnant woman.
+off-definitions	love	joke	nsfw	1	Lesbian QOTD: I didn't give up sex, I just gave up premature ejaculation.
+off-definitions	society	quip	general	0	liberal, n.: Someone too poor to be a capitalist and too rich to be a communist.
+off-definitions	life	dark	nsfw	1	Life is like a penis: when it's soft you can't beat it, and when it's hard you get fucked.
+off-definitions	society	joke	general	0	Little Known Facts, #23: Did you know... that if you dial 911 in Los Angeles you get the BMW repair garage?
+off-definitions	life	quip	general	0	Lucky, adj: When you have a wife and a cigarette lighter -- both of which work.
+off-definitions	life	quip	general	0	Luser, n.: Someone who picks up a female hitch-hiker walking home from a date.
+off-definitions	life	quip	general	0	macho, adj.: Jogging home from your vasectomy.
+off-definitions	life	quip	general	0	maiden aunt, n.: A girl who never had the sense to say "uncle."
+off-definitions	life	quip	edgy	1	Male, n.: Life support system for a cock.
+off-definitions	tech	quip	general	0	man-hour, n.: A sexist, obsolete measure of macho effort, equal to 60 Kiplings.
+off-definitions	work-money	quip	general	0	manager, n.: A man known for giving great meeting.
+off-definitions	life	quip	nsfw	1	masturbation, n.: A self-service elevator.
+off-definitions	life	pun	nsfw	1	masturbation, n.: Coming unscrewed.
+off-definitions	life	quip	nsfw	1	menage a trois, n.: Using both hands to masturbate.
+off-definitions	life	pun	general	0	Meteorologist, n.: A man who can look in a woman's eyes and predict whether.
+off-definitions	society	quip	general	0	Miss, n.: A title with which we brand unmarried women to indicate that they are in the market.
+off-definitions	life	quip	general	0	Missionary Position: The missionary on top.
+off-definitions	love	pun	general	0	Mistress, n.: Something between a mister and a mattress.
+off-definitions	family	quip	general	0	Mom's Law: When they finally do have to take you to the hospital, your underwear won't be clean or new.
+off-definitions	life	quip	general	0	Monday, n.: In Christian countries, the day after the baseball game.
+off-definitions	love	pun	general	0	monotony, n.: Marriage to one woman at a time.
+off-definitions	nature	quip	general	0	Montana: A grizzly bear praying for the early arrival of cable television.
+off-definitions	life	quip	general	0	Montana: Where forty-three below keeps out the riff-raff.
+off-definitions	society	quip	general	0	Montana: Where men are men and women are sheep.
+off-definitions	nature	quip	general	0	mosquito, n.: The state bird of New Jersey.
+off-definitions	life	pun	general	0	mother: Half a word.
+off-definitions	tech	quip	nsfw	1	Motto of the Electrical Engineer: Working computer hardware is a lot like an erect penis: it stays up as long as you don't fuck with it.
+off-definitions	society	quip	general	0	Murphy's Discovery: Do you know Presidents talk to the country the way men talk to women? They say, "Trust me, go all the way with me, and everything will be all right." And what happens? Nine months later, you're in trouble!
+off-definitions	faith	fact	general	0	mythology, n.: The body of a primitive people's beliefs, concerning its origin, early history, heroes, deities and so forth, as distinguished from the true accounts which it invents later.
+off-definitions	tech	quip	general	0	Naeser's Law: You can make it foolproof, but you can't make it damnfoolproof.
+off-definitions	life	quip	general	0	navel, n.: A place to stash your gum on the way down.
+off-definitions	life	dark	general	0	necrophelia, n.: Dead boring. incest, n.: Relatively boring.
+off-definitions	life	dark	general	0	necrophilia, n.: Dropping in for a cold one.
+off-definitions	society	dark	general	0	New release: Abortions are becoming so popular in some countries that the waiting time to get one is lengthening rapidly. Experts predict that at this rate there will soon be an up to a one year wait.
+off-definitions	life	quip	general	0	New York: Where men are men, sheep enjoy it, and lepers laugh their heads off.
+off-definitions	society	dark	general	0	Noncombatant, n.: A dead Quaker.
+off-definitions	life	quip	general	0	nothing, adj.: A man with an erection who walks into a wall and breaks his nose.
+off-definitions	life	quip	general	0	O'Riordan's Theorem: Brains x Beauty = Constant. Purmal's Corollary: As the limit of (Brains x Beauty) goes to infinity, availability goes to zero.
+off-definitions	nature	quip	general	0	Ocean, n.: A body of water occupying about two-thirds of a world made for man -- who has no gills.
+off-definitions	life	joke	general	0	On Brassieres: Russian: Uplifts the masses. Salvation Army: Raises the fallen. American: Makes mountains out of molehills.
+off-definitions	life	quip	general	0	optimist, n.: A man who makes a motel reservation before a blind date.
+off-definitions	love	quip	general	0	optimist, n.: Someone who goes down to the marriage bureau to see if his license has expired.
+off-definitions	love	quip	general	0	oral contraceptive, n.: The word "No".
+off-definitions	life	pun	general	0	oral sex, n.: The taste of things to come.
+off-definitions	nature	quip	general	0	Oregon, n.: Eighty billion gallons of water with no place to go on Saturday night.
+off-definitions	life	quip	general	0	Overheard: "How do I feel? Great! And I kiss pretty good, too!"
+off-definitions	life	dark	general	0	pain, n.: Falling out of a twenty story building, and snagging your eyelid on a nail.
+off-definitions	life	dark	general	0	pain, n.: Sliding down a 50-foot razor blade into a bucket of alcohol.
+off-definitions	life	quip	general	0	Parker's Law: Beauty is only skin deep, but ugly goes clean to the bone.
+off-definitions	life	pun	general	0	Peeping Tom: A window fan.
+off-definitions	life	quip	nsfw	1	penis envy, n.: The desire to be pink and wrinkled and about four inches long.
+off-definitions	life	dark	general	0	perfect woman, n.: Four feet tall, no teeth and a flat head so you can rest your drink. [Pistol-grip ears? Ed.]
+off-definitions	nature	quip	general	0	Pig, n.: An animal (Porcus omnivorous) closely allied to the human race by the splendor and vivacity of its appetite, which, however, is inferior in scope, for it balks at pig.
+off-definitions	food	quip	general	0	pile driver, n.: Local drink; two parts vodka, one part prune juice.
+off-definitions	life	quip	general	0	Planned Parenthood: The emission Control Center.
+off-definitions	love	quip	general	0	platonic friendship, n.: What develops when two people get tired of making love to each other.
+off-definitions	life	pun	general	0	pocket pool, n.: Well, for guys, it's two-ball in the side pocket. For women, it's playing the slots.
+off-definitions	life	dark	general	0	polish fly, n.: You put it in her drink and she begs you to take her bowling.
+off-definitions	society	quip	general	0	Politician, n.: From the Greek "poly" ("many") and the French "tete" ("head" or "face," as in "tete-a-tete:" head to head or face to face). Hence "polytetien," a person of two or more faces.
+off-definitions	faith	dark	general	0	pray, n: To ask that the laws of the universe be annulled on behalf of a single petitioner confessedly unworthy.
+off-definitions	life	pun	nsfw	1	premature ejaculation, n.: A spoilspurt.
+off-definitions	love	pun	nsfw	1	premature ejaculator, n.: Troubled shooter.
+off-definitions	life	quip	general	0	Premenstrual Syndrome: Just before their periods women behave the way men do all the time.
+off-definitions	work-money	dark	general	0	promotion from within: A system of moving incompetents up to the policy-making level where they can't foul up operations.
+off-definitions	work-money	quip	general	0	promotion, n.: New title, new salary, new office, same old crap.
+off-definitions	life	quip	general	0	psychologist, n.: Someone who watches everyone else when an attractive woman walks into a room.
+off-definitions	life	dark	general	0	pubic hair, n.: Organic dental floss.
+off-definitions	faith	quip	general	0	Puritanism: the haunting fear that someone, somewhere, may be happy.
+off-definitions	life	quip	edgy	1	QFD: Quelle fucking drag. "Jamie got stuck at Rome airport for thirty-six hours and it was, like, totally QFD."
+off-definitions	life	quip	general	0	QOTD: "... was it a dream where you see yourself standing in sort-of Sun-God robes, on a pyramid, with a thousand naked women screaming and throwing little pickles at you? ... Why am I the only one who has that dream?"
+off-definitions	love	quip	general	0	QOTD: "Are you into casual sex, or should I dress up?"
+off-definitions	love	quip	general	0	QOTD: "He's a perfectionist. If he married Raquel Welch, he'd expect her to cook."
+off-definitions	life	quip	general	0	QOTD: "He's so egotistical he yells his own name when he comes."
+off-definitions	life	quip	general	0	QOTD: "He's such a hick he doesn't even have a trapeze in his bedroom."
+off-definitions	life	quip	general	0	QOTD: "Her other car is a broom."
+off-definitions	life	quip	edgy	1	QOTD: "I don't give a flying fuck at a rolling doughnut."
+off-definitions	life	quip	edgy	1	QOTD: "I say, and without apology, hang the bitch."
+off-definitions	love	quip	general	0	QOTD: "I treat her like a throughbred, and she's STILL a nag!"
+off-definitions	life	quip	general	0	QOTD: "I used to beat off so much in the shower, I'd get a hard on every time it rained."
+off-definitions	love	quip	general	0	QOTD: "I want a home, a family, an occasional spanking ..."
+off-definitions	life	quip	general	0	QOTD: "I was a fifty-four-year-old virgin, but I'm all right now."
+off-definitions	love	dark	edgy	1	QOTD: "I'd crawl a mile over burning desert sand just to kiss the dick of the guy who screwed her last."
+off-definitions	life	quip	nsfw	1	QOTD: "I'd drag my dick a mile over broken glass just to masturbate in her shadow!"
+off-definitions	life	quip	general	0	QOTD: "It's been so long since I've had sex, I've forgotten who gets tied up."
+off-definitions	life	quip	general	0	QOTD: "It's men like him that give the Y chromosome a bad name."
+off-definitions	life	quip	general	0	QOTD: "Let go of my ears, I know what I'm doing!"
+off-definitions	life	quip	general	0	QOTD: "Let's do it."
+off-definitions	love	quip	general	0	QOTD: "My ambition is to marry a rich woman who's too proud to let her husband work."
+off-definitions	society	quip	general	0	QOTD: "One day, I'd like to wake up in the morning to find that every gay and lesbian has lavender skin. On that morning, I will be -- mauve."
+off-definitions	life	quip	general	0	QOTD: "She was so tough she rolled her own tampons."
+off-definitions	life	quip	general	0	QOTD: "The difference between dark and hard is... it stays dark all night."
+off-definitions	life	quip	general	0	QOTD: "The marines and I have something in common; we're both looking for a few good men!"
+off-definitions	life	quip	general	0	QOTD: "The only real difference between men and women is that men are crabby all month long."
+off-definitions	life	quip	general	0	QOTD: "To hell with patience, I'm gonna kill me something!"
+off-definitions	life	quip	general	0	QOTD: "Well, let's say she's friendly. Last year she was the Herpes Poster Girl."
+off-definitions	life	quip	general	0	QOTD: "What would the world be like without men? A lot of fat, happy women."
+off-definitions	life	quip	general	0	QOTD: "Whhoooooooeeeeeeeeeee, Elmer! Take a look at that purty young lady over thar! Why, I'd walk a mile barefoot over barbed wire and broken glass just to drive the truck that takes her panties to the cleaners!"
+off-definitions	life	dark	edgy	1	QOTD: "Whip me, beat me, come all over me, tell me you love me. Then get the fuck out."
+off-definitions	life	quip	general	0	QOTD: "You might as well say "yes", the sheets are messy already."
+off-definitions	life	dark	nsfw	1	QOTD: I get girls because of who I am... a rapist.
+off-definitions	life	quip	general	0	QOTD: I met her [his fiance] over lunch on Thursday. She had a firm grip. He's a lucky man.
+off-definitions	life	quip	general	0	QOTD: I own my own body, but I share.
+off-definitions	life	quip	general	0	QOTD: I won't say he's unsavory, but for his birthday he bought himself a pair of velcro gloves.
+off-definitions	life	quip	edgy	1	QOTD: It *was* wonderfully polite of me. Usually I call the kind of cretinous dipshit that pisses me off a ``fucking asshole.''
+off-definitions	life	quip	general	0	QOTD: Men come in four sizes -- small, medium, large, and "You're going to put that thing *where*?"
+off-definitions	life	quip	nsfw	1	QOTD: My penis is better than corn, because corn doesn't squeal when you stick those little prongs into it.
+off-definitions	life	quip	general	0	QOTD: No, honey, I've never been circumcised; it's simply wear and tear.
+off-definitions	life	quip	general	0	QOTD: Sex is like everything else. To get it done right, do it yourself.
+off-definitions	life	quip	general	0	QOTD: Sex is the most fun you can have without laughing.
+off-definitions	life	quip	general	0	QOTD: She began coming, making noises like a small animal in pain. Ouch! Ow! My paw! Ouch!!
+off-definitions	life	pun	general	0	quickie, n.: A moment's piece.
+off-definitions	love	pun	general	0	quickie, n.: No sooner spread than done.
+off-definitions	society	quip	general	0	Radicalism: The conservatism of tomorrow injected into the affairs of today.
+off-definitions	life	fact	general	0	randel, n.: A nonsensical poem recited by Irish schoolboys as an apology for farting at a friend.
+off-definitions	life	dark	nsfw	1	real buddy, n.: Someone who'll go downtown and get two blowjobs, and come back and give you one.
+off-definitions	life	quip	general	0	real class, adj.: When you're by yourself, fart, and say "Excuse me."
+off-definitions	life	dark	nsfw	1	rejection, n.: When you're masturbating and your hand falls asleep.
+off-definitions	tech	quip	general	0	Robot, n.: Someone who's been made by a scientist.
+off-definitions	love	quip	edgy	1	rodeo fuck, n.: When you lean down and whisper in your lover's ear, "Honey, you're the worst piece of ass I've ever had!". And then try to stay on for seven seconds...
+off-definitions	life	pun	general	0	rugby, n.: A sport requiring leather balls.
+off-definitions	life	quip	general	0	rugby, n.: Elegant violence. (Rugby players eat their dead.) (Blood makes the grass grow!) (Support your local hooker! Play rugby!) [A "hooker" is part of the scrum. Thought you'd want to know. Ed.]
+off-definitions	life	quip	general	0	sadism, n.: A sadist refusing to whip a masochist.
+off-definitions	life	pun	general	0	sadoequinecrophilia, n.: Beating a dead horse.
+off-definitions	food	quip	general	0	San Diego: Four million people, where you can't get a good cheeseburger, no matter how hard you try.
+off-definitions	society	quip	general	0	San Francisco, n.: Marcel Proust editing an issue of Penthouse.
+off-definitions	life	quip	general	0	San Francisco: A nice place to visit, but I wouldn't want to tie my shoelaces there.
+off-definitions	life	observation	general	0	schnuffel, n.: A dog's practice of continuously nuzzling in your crotch in mixed company.
+off-definitions	life	quip	general	0	Schwiggle, n.: The amusing rotation of one's bottom while sharpening a pencil.
+off-definitions	work-money	pun	edgy	1	seminars, n.: From 'semi' and 'arse', hence, any half-assed discussion.
+off-definitions	love	quip	general	0	Sex: the thing that takes up the least amount of time and causes the most amount of trouble.
+off-definitions	love	dark	general	0	Showerbath: Natural venue for sexual adventures -- wash together, make love together: only convenient overhead point in most apartments or hotel rooms to attach a partner's hands. Don't pull down the fixture, however -- it isn't weightbearing. See Discipline.
+off-definitions	life	quip	general	0	small, adj.: Is it in yet?
+off-definitions	life	quip	general	0	spinster, n.: A bachelor's wife.
+off-definitions	life	pun	general	0	spinster, n.: Unlusted number.
+off-definitions	life	aphorism	edgy	1	Stockmayer's Theorem: If it looks easy, it's tough. If it looks tough, it's damn well impossible.
+off-definitions	life	quip	general	0	strapless evening gown, n.: Bust truster.
+off-definitions	life	quip	edgy	1	stress, n.: The confusion created when one's mind overrides the body's desire to choke the living shit out of some asshole who desperately needs it.
+off-definitions	life	joke	nsfw	1	subpoena, n: From the root "sub", below, and the Latin "poena" for male organ or penis. Therefore, "below the penis" or "by the balls."
+off-definitions	life	quip	general	0	successful cunnilingus: When you wake up the next morning with a face like a frosted doughnut.
+off-definitions	love	quip	general	0	Sudden Death Dating: Quote, female: Am I worried about taking his last name? Forget it, at this point I'll take his first name, too.
+off-definitions	life	pun	general	0	swallow, v.: The (blew) bird of birth control.
+off-definitions	life	dark	edgy	1	T-shirt of the Day: See Dick Drink... See Dick Drive... See Dick Die. DON'T BE A DICK.
+off-definitions	life	quip	general	0	T-shirt of the Week: I'm not excited, I'm cold!
+off-definitions	faith	quip	general	0	tacky, adj.: Serving grape kool-aid at religious functions.
+off-definitions	life	quip	general	0	tear leather: To become excited, as in the sentence "Robin Hood tore his leather jerkin' off."
+off-definitions	life	quip	general	0	tearing off a quicky: Gunning the jump.
+off-definitions	society	insult	general	0	Texan: A wet-back that didn't make Oklahoma.
+off-definitions	tech	aphorism	general	0	The First Commandment for Technicians: Beware the lightning that lurketh in the undischarged capacitor, lest it cause thee to bounce upon thy buttocks in a most untechnician-like manner.
+off-definitions	society	quip	general	0	The New Right: A javelin team that elects to receive.
+off-definitions	life	observation	edgy	1	THE THREE MOST COMMONLY-ASKED QUESTIONS AT DISNEYLAND: (1) Where's the bathroom? (2) What time does the parade start? (3) Do you sell anything without that damn mouse on it?
+off-definitions	society	quip	general	0	The United States Army: 194 years of proud service, unhampered by progress.
+off-definitions	life	quip	general	0	There's more than one way to skin a cat: Way number 15
+off-definitions	life	dark	general	0	There's more than one way to skin a cat: Way number 27 -- Use an electric sander.
+off-definitions	life	dark	general	0	There's more than one way to skin a cat: Way number 32 -- Wrap it around a lonely frat man's pecker.
+off-definitions	life	pun	general	0	thorny: A thailor at thea.
+off-definitions	life	quip	general	0	Thought: Girls get minks the same way minks get minks!
+off-definitions	life	quip	general	0	three-bag ugly, adj: That's when you put one bag over her head, one bag over your head in case her's falls off, and one over the dog's to keep it from howling. four-bag ugly, adj: When you leave a bag by the door in case someone drops by.
+off-definitions	life	dark	general	0	Today's title: Creative Violence in Sexual Relationships
+off-definitions	life	quip	general	0	tourist, n.: A pretty girl in Oklahoma.
+off-definitions	life	pun	general	0	transvestite, n.: Someone who likes to eat, drink, and be Mary.
+off-definitions	life	pun	general	0	transvestite, n.: Someone who spends his junior year at college abroad.
+off-definitions	life	quip	general	0	"Trust me": Get me, give me, buy me, do me.
+off-definitions	life	quip	edgy	1	"Trust me": Los Angeles for "Fuck you, your mother, and the horse she rode in on."
+off-definitions	life	dark	general	0	trust, n.: Two cannibals having oral sex.
+off-definitions	tech	quip	general	0	Unix, n.: A computer operating system, once thought to be flabby and impotent, that now shows a surprising interest in making off with the workstation harem.
+off-definitions	life	dark	nsfw	1	vagina, n.: The box a penis comes in.
+off-definitions	life	dark	nsfw	1	vaginal lubricant, n.: A slitty slicker.
+off-definitions	life	dark	general	0	VD, n.: The gift that keeps on giving.
+off-definitions	life	quip	general	0	Virgin, n.: An ugly third grader.
+off-definitions	society	quip	general	0	Virginia: A group of beautifully mounted hunters galloping behind baying hounds in pursuit of a union organizer.
+off-definitions	life	joke	edgy	1	WASP, n.: Someone who gets out of the shower to take a piss.
+off-definitions	arts	joke	general	0	Watership Down: You've read the book. You've seen the movie. Now eat the stew!
+off-definitions	life	pun	general	0	wet dream, n.: Overnight sensation.
+off-definitions	life	aphorism	general	0	Wethern's Law: Assumption is the mother of all screw-ups.
+off-definitions	work-money	quip	general	0	Why You Can't Run When There's Trouble in the Office: No matter where you stand, no matter how far or fast you flee, when it hits the fan, as much as possible will be propelled in your direction, and almost none will be returned to the source.
+off-definitions	life	dark	general	0	woman, n.: An animal usually living in the vicinity of Man, and having a rudimentary susceptibility to domestication.
+off-definitions	life	aphorism	general	0	Zisla's Law: If you're asked to join a parade, don't march behind the elephants.
+off-definitions	life	quip	edgy	1	ignoranus, n.: A person who's both stupid and an asshole.

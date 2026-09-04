@@ -1,0 +1,44 @@
+news	food	pun	general	0	A journalist, thrilled over his dinner, asked the chef for the recipe. Retorted the chef, "Sorry, we have the same policy as you journalists, we never reveal our sauce."
+news	arts	quip	general	0	A newspaper is a circulating library with high blood pressure. -- Arthure "Bugs" Baer
+news	nature	dark	general	0	"A raccoon tangled with a 23,000 volt line today. The results blacked out 1400 homes and, of course, one raccoon."
+news	life	dark	general	0	A young girl once committed suicide because her mother refused her a new bonnet. Coroner's verdict: "Death from excessive spunk."
+news	society	quip	general	0	Advertisements contain the only truths to be relied on in a newspaper.
+news	society	quip	general	0	All newspaper editorial writers ever do is come down from the hills after the battle is over and shoot the wounded.
+news	arts	quip	general	0	An editor is one who separates the wheat from the chaff and prints the chaff.
+news	society	quip	general	0	"... And remember: if you don't like the news, go out and make some of your own." -- "Scoop" Nisker, KFOG radio reporter Preposterous Words
+news	life	quip	general	0	And that's the way it is...
+news	life	quip	general	0	Earth Destroyed by Solar Flare -- film clips at eleven.
+news	arts	quip	general	0	Every journalist has a novel in him, which is an excellent place for it.
+news	society	observation	general	0	Everything you read in newspapers is absolutely true, except for that rare story of which you happen to have first-hand knowledge.
+news	society	quip	general	0	FLASH! Intelligence of mankind decreasing. Details at ... uh, when the little hand is on the ....
+news	life	quip	general	0	... Had this been an actual emergency, we would have fled in terror, and you would not have been informed.
+news	life	quip	general	0	I only know what I read in the papers.
+news	society	quip	general	0	I read the newspaper avidly. It is my one form of continuous fiction.
+news	society	observation	general	0	I really look with commiseration over the great body of my fellow citizens who, reading newspapers, live and die in the belief that they have known something of what has been passing in their time.
+news	life	quip	general	0	If I were to walk on water, the press would say I'm only doing it because I can't swim.
+news	work-money	quip	general	0	If you lose your temper at a newspaper columnist, he'll get rich, or famous or both.
+news	society	wisdom	general	0	In a medium in which a News Piece takes a minute and an "In-Depth" Piece takes two minutes, the Simple will drive out the Complex.
+news	life	quip	general	0	Isn't it conceivable to you that an intelligent person could harbor two opposing ideas in his mind?
+news	society	quip	general	0	Its failings notwithstanding, there is much to be said in favor of journalism in that by giving us the opinion of the uneducated, it keeps us in touch with the ignorance of the community.
+news	arts	quip	general	0	Journalism is literature in a hurry.
+news	arts	quip	general	0	Journalism will kill you, but it will keep you alive while you're at it.
+news	arts	quip	general	0	Most rock journalism is people who can't write interviewing people who can't talk for people who can't read.
+news	family	observation	general	0	My father was a God-fearing man, but he never missed a copy of the New York Times, either.
+news	life	quip	general	0	Never offend people with style when you can offend them with substance.
+news	society	dark	general	0	<BEL><BEL><BEL> *** NEWSFLASH *** Russian tanks steamrolling through New Jersey!!!! Details at eleven!
+news	food	quip	general	0	"No self-respecting fish would want to be wrapped in that kind of paper."
+news	life	observation	general	0	Of what you see in books, believe 75%. Of newspapers, believe 50%. And of TV news, believe 25% -- make that 5% if the anchorman wears a blazer.
+news	society	quip	general	0	One of the signs of Napoleon's greatness is the fact that he once had a publisher shot.
+news	life	observation	general	0	People who are funny and smart and return phone calls get much better press than people who are just funny and smart.
+news	nature	observation	general	0	Photographing a volcano is just about the most miserable thing you can do.
+news	society	quip	general	0	The advertisement is the most truthful part of a newspaper.
+news	life	quip	general	0	The American Dental Association announced today that most plaque tends to form on teeth around 4:00 PM in the afternoon. Film at 11:00.
+news	society	wisdom	general	0	The most important service rendered by the press is that of educating people to approach printed matter with distrust.
+news	society	observation	general	0	"The New York Times is read by the people who run the country. The Washington Post is read by the people who think they run the country. The National Enquirer is read by the people who think Elvis is alive and running the country ..."
+news	work-money	quip	general	0	The only qualities for real success in journalism are ratlike cunning, a plausible manner and a little literary ability. The capacity to steal other people's ideas and phrases ... is also invaluable.
+news	life	quip	general	0	"Then you admit confirming not denying you ever said that?" "NO! ... I mean Yes! WHAT?" "I'll put `maybe.'"
+news	life	dark	general	0	This is a test of the emergency broadcast system. Had there been an actual emergency, then you would no longer be here.
+news	life	quip	general	0	This is a test of the Emergency Broadcast System. If this had been an actual emergency, do you really think we'd stick around to tell you?
+news	life	dark	general	0	This life is a test. It is only a test. Had this been an actual life, you would have received further instructions as to what to do and where to go.
+news	life	quip	general	0	Warning: Listening to WXRT on April Fools' Day is not recommended for those who are slightly disoriented the first few hours after waking up.
+news	life	quip	general	0	You know the great thing about TV? If something important happens anywhere at all in the world, no matter what time of the day or night, you can always change the channel.

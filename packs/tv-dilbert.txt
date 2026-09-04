@@ -1,0 +1,43 @@
+tv-dilbert	life	tv-quote	general	0	Dilbert: I told them at the rollout meeting that anthrax was a bacteria, not a herb! Wally: No you didn't! Dilbert: Well, I was thinking it pretty hard!
+tv-dilbert	life	tv-quote	general	0	Executive: Bob, you're like a son to me. Bob: You don't have a son. Executive: That's where I'm headed here. Bob: Oooh.
+tv-dilbert	life	tv-quote	general	0	Dilbert: Do you think the guy who invented the mouse pad started with the name? What's a mouse pad? Wally: Heheh, feminine protection for mice. [Alice smacks Wally in the face with a book]
+tv-dilbert	work-money	tv-quote	general	0	Accountant: Walter is good with these name things. He just named his baby. PHB: How is Walter Jr? Walter: She's fine, thanks for asking.
+tv-dilbert	life	tv-quote	general	0	Vibrating chair store owner [speaking in a shaky voice]: Would you like to try a vibrating chair? Dogbert: Get out of my way, you pervert.
+tv-dilbert	work-money	tv-quote	general	0	Office worker: Help, Dilbert, I've been shot! Dilbert: "I've been shot!", "I've been shot!" - I have a few problems of my own you know! Office worker: Yeah I heard about the name thing, that's a drag...
+tv-dilbert	tech	tv-quote	general	0	Dilmom: Why don't you call your product the Gruntmaster 6000? Dilbert: What kind of product do you see when you imagine a Gruntmaster 6000? Dilmom: Well it's a stripped-down version of the Gruntmaster 9000 of course. But it's software-upgradeable.
+tv-dilbert	tech	tv-quote	general	0	Dogbert: As you probably know, all the good product names have been trademarked by companies who are competent. Wally: Competent? How are we going to compete with that?
+tv-dilbert	work-money	tv-quote	general	0	Boss: Ah - am I late? PHB: Right on time sir. Boss: Oh...in that case I've got time to make some phone calls. [leaves]
+tv-dilbert	life	tv-quote	general	0	[Dogbert causes all the chairs in the store to vibrate wildly] Vibrating chair store owner [shaky voice]: Will you be sitting down in any of these? Dogbert: No, I'm gonna run for it and you might wanna do the same.
+tv-dilbert	work-money	tv-quote	general	0	Loud Howard: The rumor is that they treat you like a human being! And I would love to be treated like a human being - just once!
+tv-dilbert	work-money	tv-quote	general	0	Dilbert: This is impossible! How am I gonna get any work done if there's no tension?
+tv-dilbert	life	tv-quote	general	0	Dilbert: What kind of madhouse is this?!
+tv-dilbert	life	tv-quote	general	0	Fred's head: Get out while you still can. Dilbert: Get out? Fred's head: Can't you see? We're severed heads in a jar! Dilbert: Well maybe it didn't work out with you guys, but that doesn't mean it won't work out with me. She really likes me.
+tv-dilbert	work-money	tv-quote	general	0	Alice: Team Lena is going down! Dilbert: Must one person's triumph be another's humiliation? Alice: Of course.
+tv-dilbert	life	tv-quote	general	0	Alice: She's making me think of sex at the same time I see you naked. Now I've got Dilbert and sex in the same part of my brain! Ow! Ow! Ow! Get it out!
+tv-dilbert	life	tv-quote	general	0	Dilbert: It's so small - I can't even find it!
+tv-dilbert	life	tv-quote	general	0	Dogbert: That's outrageous. Idiots shouldn't have money.
+tv-dilbert	work-money	tv-quote	general	0	Dilbert: Hold it - were you just reading a book? Wally: Are you bonkers - what makes you think that? Dilbert: My own eyes. Wally: Hardly a reliable source. Dilbert: I just saw you!
+tv-dilbert	life	tv-quote	general	0	Dilbert: Insider trading is illegal - you could go to jail! PHB: Wally I'll need you to review the RFP for the BGA project before the IOC meeting. Wally: Well that has alibi written all over it. Are you in?
+tv-dilbert	work-money	tv-quote	general	0	Dilbert: I thought you were supposed to buy when the stock is down. Dogbert: Have I ever lied to you? Dilbert: About a thousand times. Dogbert: You don't have to throw it in my face.
+tv-dilbert	life	tv-quote	general	0	Wally: Who died and made you the Dalai Lama?
+tv-dilbert	work-money	tv-quote	general	0	Wally: You do whatever you want. Me - I'm cashing out. Dilbert: You plan to retire? Wally: Retire? From what? I don't do anything now except surf the net - why should I pay for that? Besides, I really like the coffee here.
+tv-dilbert	life	tv-quote	general	0	Stockholder: You two are going to fit right in here, and I'm referring of course only to Wally.
+tv-dilbert	life	tv-quote	general	0	Dilbert: That's it! I've done it! Dogbert: That's not the word on the street.
+tv-dilbert	tech	tv-quote	general	0	Dilbert: What are you doing with my laser? Dogbert: Did you know there are no laws in space?
+tv-dilbert	work-money	tv-quote	general	0	Dilbert: Just out of curiosity, how often does an asteroid hit an exercise machine? PHB: A comet hit my Stairmaster - that's why I don't exercise anymore!
+tv-dilbert	life	tv-quote	general	0	Dilbert: You're going into space? Dogbert: Good observation, potato boy. I'll send you a postcard. Dilbert: I don't think you can send a postcard from outer space. Dogbert: Ooh, it can be done. But you might see a little jump in your next tax bill.
+tv-dilbert	life	tv-quote	general	0	Dogbert: So, you're welcome! Dilbert: Thanks, Dogbert. You really bailed me out. Dogbert: Ohh, it's nothing you wouldn't have done for me if you weren't you and I wasn't me and everything was completely different.
+tv-dilbert	life	tv-quote	general	0	Garbageman: Well in that case he'll need the help of someone who is incapable of sympathy; someone so cynical that the suffering of others is nothing but a source of cheap entertainment. Dogbert: Oh alright - I'll go.
+tv-dilbert	work-money	tv-quote	general	0	Dilbert: Hey, hi. PHB: What an odd-looking people. Alice: It's us! From work! Dilbert: Remember? PHB: If only I spoke your language. Do you know where the pool is? The POOL? Swimmy swimmy?
+tv-dilbert	life	tv-quote	general	0	Alice and Dilbert stare at the PHB. PHB: Ignorant wogs.
+tv-dilbert	life	tv-quote	general	0	Dilbert: Shouldn't there be a guard-rail around that? Elbonian: Guard-rail? Haha, what is this, an amusement park?
+tv-dilbert	work-money	tv-quote	general	0	Alice: You can't put babies to work on an assembly line! Elbonian: These are not babies. They are toddlers.
+tv-dilbert	work-money	tv-quote	general	0	Dilbert: Are those people dead? Elbonian: Technically, yes. But that's no excuse. Get to work you lazy corpse!
+tv-dilbert	work-money	tv-quote	general	0	Dilbert: If you're going to change anything you're gonna have to organise. Elbonian Worker: Now you've lost us.
+tv-dilbert	society	tv-quote	general	0	Elbonian Dictator: You will be read your rights, given a fair trial, then executed. On second thought, since we have no rights, and we have no courts, let's go to the execution.
+tv-dilbert	life	tv-quote	general	0	Loud Howard: I, I cough, cough I've lost my voice!
+tv-dilbert	life	tv-quote	general	0	Everyone cheers PHB: Sorry son, I couldn't hear you! Mhm, mhm, mhm.
+tv-dilbert	life	tv-quote	general	0	PHB: At this time it gives me great pleasure to do this.
+tv-dilbert	work-money	quip	general	0	PHB scratches armpit PHB: Their sacrifices are a inspiration to us all - not to mention the cost-savings that go directly to the bottom line.
+tv-dilbert	life	tv-quote	general	0	PHB: Secondly, we've stocked the first aid kits with these new wonder-drugs - placebos [pronounced plah-see-bos].
+tv-dilbert	work-money	tv-quote	general	0	Alice: I could sue you both for making this a hostile workplace. Dilbert: Ten minutes ago you beat a man senseless. Alice: He was senseless before I beat him.

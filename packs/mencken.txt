@@ -1,0 +1,151 @@
+mencken	faith	quip	general	0	A Sunday school is a prison in which children do penance for the evil conscience of their parents.
+mencken	love	dark	general	0	A bad man is the sort who weeps every time he speaks of a good woman.
+mencken	faith	quip	general	0	A church is a place in which gentlemen who have never been to heaven brag about it to persons who will never get there.
+mencken	life	wisdom	general	0	A cynic is a man who, when he smells flowers, looks around for a coffin.
+mencken	society	quip	general	0	A good politician is quite as unthinkable as an honest burglar.
+mencken	society	quip	general	0	A judge is a law student who marks his own examination papers.
+mencken	love	quip	general	0	A man always remembers his first love with special tenderness, but after that he begins to bunch them.
+mencken	love	dark	general	0	A man may be a fool and not know it, but not if he is married.
+mencken	society	quip	general	0	A national political campaign is better than the best circus ever heard of, with a mass baptism and a couple of hangings thrown in.
+mencken	society	quip	general	0	A newspaper is a device for making the ignorant more ignorant and the crazy crazier.
+mencken	society	quip	general	0	A politician is an animal which can sit on a fence and yet keep both ears to the ground.
+mencken	life	quip	general	0	A professor must have a theory as a dog must have fleas.
+mencken	life	quip	general	0	A prohibitionist is the sort of man one couldn't care to drink with, even if he drank.
+mencken	society	observation	general	0	A society made up of individuals who were all capable of original thought would probably be unendurable.
+mencken	love	quip	general	0	Adultery is the application of democracy to love.
+mencken	love	quip	general	0	Alimony - the ransom that the happy pay to the devil.
+mencken	society	aphorism	general	0	All government, of course, is against liberty.
+mencken	life	wisdom	general	0	All men are frauds. The only difference between them is that some admit it. I myself deny it.
+mencken	life	observation	general	0	An idealist is one who, on noticing that roses smell better than a cabbage, concludes that it will also make better soup.
+mencken	faith	dark	general	0	Archbishop - A Christian ecclesiastic of a rank superior to that attained by Christ.
+mencken	life	aphorism	general	0	As the arteries grow hard, the heart grows soft.
+mencken	love	quip	general	0	Bachelors know more about women than married men; if they didn't they'd be married too.
+mencken	life	wisdom	general	0	Before a man speaks it is always safe to assume that he is a fool. After he speaks, it is seldom necessary to assume it.
+mencken	society	observation	general	0	Communism, like any other revealed religion, is largely made up of prophecies.
+mencken	life	quip	general	0	Conscience is a mother-in-law whose visit never ends.
+mencken	life	quip	general	0	Conscience is the inner voice that warns us that someone might be looking.
+mencken	life	aphorism	general	0	Criticism is prejudice made plausible.
+mencken	society	quip	general	0	Democracy is a pathetic belief in the collective wisdom of individual ignorance.
+mencken	society	quip	general	0	Democracy is also a form of worship. It is the worship of Jackals by Jackasses.
+mencken	society	quip	general	0	Democracy is only a dream: it should be put in the same category as Arcadia, Santa Claus, and Heaven.
+mencken	society	quip	general	0	Democracy is the art and science of running the circus from the monkey cage.
+mencken	society	quip	general	0	Democracy is the theory that the common people know what they want, and deserve to get it good and hard.
+mencken	life	quip	general	0	Don't overestimate the decency of the human race.
+mencken	society	quip	general	0	Each party steals so many articles of faith from the other, and the candidates spend so much time making each other's speeches, that by the time election day is past there is nothing much to do save turn the sitting rascals out and let a new gang in.
+mencken	society	wisdom	general	0	Every decent man is ashamed of the government he lives under.
+mencken	society	quip	general	0	Every election is a sort of advance auction sale of stolen goods.
+mencken	life	dark	general	0	Every man is his own hell.
+mencken	family	observation	general	0	Every man sees in his relatives, and especially in his cousins, a series of grotesque caricatures of himself.
+mencken	life	dark	general	0	Every normal man must be tempted, at times, to spit on his hands, hoist the black flag, and begin slitting throats.
+mencken	faith	quip	general	0	Faith may be defined briefly as an illogical belief in the occurrence of the improbable.
+mencken	faith	quip	general	0	For centuries, theologians have been explaining the unknowable in terms of the-not-worth-knowing.
+mencken	life	aphorism	general	0	For every complex problem there is an answer that is clear, simple, and wrong.
+mencken	love	wisdom	general	0	For it is mutual trust, even more than mutual interest that holds human associations together. Our friends seldom profit us but they make us feel safe. Marriage is a scheme to accomplish exactly that same end.
+mencken	society	wisdom	general	0	Giving every man a vote has no more made men wise and free than Christianity has made them good.
+mencken	faith	quip	general	0	God is a comedian, playing to an audience too afraid to laugh.
+mencken	life	observation	general	0	Have you ever watched a crab on the shore crawling backward in search of the Atlantic Ocean, and missing? That's the way the mind of man operates.
+mencken	arts	quip	general	0	Historian: an unsuccessful novelist.
+mencken	life	aphorism	general	0	Honor is simply the morality of superior men.
+mencken	love	quip	general	0	Husbands never become good; they merely become proficient.
+mencken	society	wisdom	general	0	I believe in only one thing: liberty; but I do not believe in liberty enough to want to force it upon anyone.
+mencken	society	quip	general	0	I believe that all government is evil, and that trying to improve it is largely a waste of time.
+mencken	life	wisdom	general	0	I believe that it is better to tell the truth than a lie. I believe it is better to be free than to be a slave. And I believe it is better to know than to be ignorant.
+mencken	society	quip	general	0	I confess I enjoy democracy immensely. It is incomparably idiotic, and hence incomparably amusing.
+mencken	work-money	quip	general	0	I go on working for the same reason that a hen goes on laying eggs.
+mencken	life	quip	general	0	I hate all sports as rabidly as a person who likes sports hates common sense.
+mencken	life	quip	general	0	I never lecture, not because I am shy or a bad speaker, but simply because I detest the sort of people who go to lectures and don't want to meet them.
+mencken	life	quip	general	0	I never smoked a cigarette until I was nine.
+mencken	arts	wisdom	general	0	I write in order to attain that feeling of tension relieved and function achieved which a cow enjoys on giving milk.
+mencken	society	quip	general	0	If a politician found he had cannibals among his constituents, he would promise them missionaries for dinner.
+mencken	love	quip	general	0	If women believed in their husbands they would be a good deal happier and also a good deal more foolish.
+mencken	life	wisdom	general	0	If, after I depart this vale, you ever remember me and have thought to please my ghost, forgive some sinner and wink your eye at some homely girl.
+mencken	life	quip	general	0	Immorality: the morality of those who are having a better time.
+mencken	love	quip	general	0	In the duel of sex woman fights from a dreadnought and man from an open raft.
+mencken	society	quip	general	0	In this world of sin and sorrow there is always something to be thankful for; as for me, I rejoice that I am not a Republican.
+mencken	society	aphorism	general	0	In war the heroes always outnumber the soldiers ten to one.
+mencken	society	wisdom	general	0	Injustice is relatively easy to bear; what stings is justice.
+mencken	society	wisdom	general	0	It doesn't take a majority to make a rebellion; it takes only a few determined leaders and a sound cause.
+mencken	science	quip	general	0	It is even harder for the average ape to believe that he has descended from man.
+mencken	life	dark	general	0	It is hard for the ape to believe he descended from man.
+mencken	life	quip	general	0	It is hard to believe that a man is telling the truth when you know that you would lie if you were in his place.
+mencken	arts	quip	general	0	It is impossible to imagine Goethe or Beethoven being good at billiards or golf.
+mencken	faith	quip	general	0	It is impossible to imagine the universe run by a wise, just and omnipotent God, but it is quite easy to imagine it run by a board of gods.
+mencken	society	wisdom	general	0	It is inaccurate to say that I hate everything. I am strongly in favor of common sense, common honesty, and common decency. This makes me forever ineligible for public office.
+mencken	life	wisdom	general	0	It is not materialism that is the chief curse of the world, as pastors teach, but idealism. Men get into trouble by taking their visions and hallucinations too seriously.
+mencken	faith	quip	general	0	It is now quite lawful for a Catholic woman to avoid pregnancy by a resort to mathematics, though she is still forbidden to resort to physics or chemistry.
+mencken	life	quip	general	0	Judge: a law student who marks his own examination-papers.
+mencken	life	quip	general	0	Legend: A lie that has attained the dignity of age.
+mencken	society	quip	general	0	Let's not burn the universities yet. After all, the damage they do might be worse.
+mencken	life	wisdom	general	0	Life is a constant oscillation between the sharp horns of dilemmas.
+mencken	life	aphorism	general	0	Life is a dead-end street.
+mencken	love	dark	general	0	Love is an emotion that is based on an opinion of women that is impossible for those who have had any experience with them.
+mencken	love	aphorism	general	0	Love is like war: easy to begin but very hard to stop.
+mencken	love	quip	general	0	Love is the delusion that one woman differs from another.
+mencken	love	aphorism	general	0	Love is the triumph of imagination over intelligence.
+mencken	life	wisdom	general	0	Man is a beautiful machine that works very badly.
+mencken	life	quip	general	0	Man is always looking for someone to boast to; woman is always looking for a shoulder to put her head on.
+mencken	love	quip	general	0	Man weeps to think that he will die so soon; woman, that she was born so long ago.
+mencken	love	quip	general	0	Marriage is a wonderful institution, but who would want to live in an institution?
+mencken	society	quip	general	0	Men have a much better time of it than women. For one thing, they marry later; for another thing, they die earlier.
+mencken	society	wisdom	general	0	Morality is the theory that every human act must be either right or wrong, and that 99 % of them are wrong.
+mencken	arts	dark	general	0	Most people are unable to write because they are unable to think, and they are unable to think because they congenitally lack the equipment to do so, just as they congenitally lack the equipment to fly over the moon.
+mencken	society	wisdom	general	0	Most people want security in this world, not liberty.
+mencken	science	quip	general	0	Nevertheless, it is even harder for the average ape to believe that he has descended from man.
+mencken	arts	dark	general	0	Nine times out of ten, in the arts as in life, there is actually no truth to be discovered; there is only error to be exposed.
+mencken	society	wisdom	general	0	No man ever quite believes in any other man. One may believe in an idea absolutely, but not in a man.
+mencken	love	quip	general	0	No married man is genuinely happy if he has to drink worse whisky than he used to drink when he was single.
+mencken	love	quip	general	0	No matter how happily a woman may be married, it always pleases her to discover that there is a nice man who wishes that she were not.
+mencken	life	quip	general	0	No matter how long he lives, no man ever becomes as wise as the average woman of forty-eight.
+mencken	society	wisdom	general	0	No one in this world, so far as I know - and I have searched the records for years, and employed agents to help me - has ever lost money by underestimating the intelligence of the great masses of the plain people.
+mencken	society	quip	general	0	Nobody ever went broke underestimating the taste of the American public.
+mencken	society	quip	general	0	On some great and glorious day the plain folks of the land will reach their heart's desire at last, and the White House will be adorned by a downright moron.
+mencken	life	wisdom	general	0	One may no more live in the world without picking up the moral prejudices of the world than one will be able to go to hell without perspiring.
+mencken	life	wisdom	general	0	One of the most mawkish of human delusions is the notion that friendship should be eternal, or, at all events, life-long, and that any act which puts a term to it is somehow discreditable.
+mencken	arts	quip	general	0	Opera in English is, in the main, just about as sensible as baseball in Italian.
+mencken	life	observation	general	0	Platitude: an idea (a) that is admitted to be true by everyone, and (b) that is not true.
+mencken	arts	wisdom	general	0	Poetry has done enough when it charms, but prose must also convince.
+mencken	faith	dark	general	0	Puritanism. The haunting fear that someone, somewhere, may be happy.
+mencken	faith	observation	general	0	Say what you will about the ten commandments, you must always come back to the pleasant fact that there are only ten of them.
+mencken	life	quip	general	0	Self-respect: the secure feeling that no one, as yet, is suspicious.
+mencken	love	quip	general	0	Strike an average between what a woman thinks of her husband a month before she marries him and what she thinks of him a year afterward, and you will have the truth about him.
+mencken	love	quip	general	0	Temptation is a woman's weapon and man's excuse.
+mencken	life	aphorism	general	0	Temptation is an irresistible force at work on a movable body.
+mencken	life	wisdom	general	0	The basic fact about human existence is not that it is a tragedy, but that it is a bore. It is not so much a war as an endless standing in line.
+mencken	life	observation	general	0	The capacity of human beings to bore one another seems to be vastly greater than that of any other animal.
+mencken	faith	quip	general	0	The chief contribution of Protestantism to human thought is its massive proof that God is a bore.
+mencken	work-money	wisdom	general	0	The chief value of money lies in the fact that one lives in a world in which it is overestimated.
+mencken	society	quip	general	0	The common argument that crime is caused by poverty is a kind of slander on the poor.
+mencken	life	dark	general	0	The cynics are right nine times out of ten.
+mencken	life	wisdom	general	0	The difference between a moral man and a man of honor is that the latter regrets a discreditable act, even when it has worked and he has not been caught.
+mencken	life	wisdom	general	0	The most costly of all follies is to believe passionately in the palpably not true. It is the chief occupation of mankind.
+mencken	society	wisdom	general	0	The most dangerous man to any government is the man who is able to think things out... without regard to the prevailing superstitions and taboos. Almost inevitably he comes to the conclusion that the government he lives under is dishonest, insane, intolerable.
+mencken	life	wisdom	general	0	The older I grow the more I distrust the familiar doctrine that age brings wisdom.
+mencken	life	wisdom	general	0	The one permanent emotion of the inferior man is fear - fear of the unknown, the complex, the inexplicable. What he wants above everything else is safety.
+mencken	life	quip	general	0	The only cure for contempt is counter-contempt.
+mencken	love	quip	general	0	The only really happy folk are married women and single men.
+mencken	arts	quip	general	0	The opera is to music what a bawdy house is to a cathedral.
+mencken	society	quip	general	0	The penalty for laughing in a courtroom is six months in jail; if it were not for this penalty, the jury would never hear the evidence.
+mencken	faith	quip	general	0	The theory seems to be that as long as a man is a failure he is one of God's children, but that as soon as he succeeds he is taken over by the Devil.
+mencken	society	quip	general	0	The urge to save humanity is almost always a false front for the urge to rule.
+mencken	society	dark	general	0	The whole aim of practical politics is to keep the populace alarmed (and hence clamorous to be led to safety) by menacing it with an endless series of hobgoblins, all of them imaginary.
+mencken	society	dark	general	0	The worst government is often the most moral. One composed of cynics is often very tolerant and humane. But when fanatics are on top there is no limit to oppression.
+mencken	faith	quip	general	0	Theology is the effort to explain the unknowable in terms of the not worth knowing.
+mencken	life	wisdom	general	0	There are men so philosophical that they can see humor in their own toothaches. But there has never lived a man so philosophical that he could see the toothache in his own humor.
+mencken	food	fact	general	0	There is a saying in Baltimore that crabs may be prepared in fifty ways and that all of them are good.
+mencken	life	aphorism	general	0	There is always an easy solution to every problem - neat, plausible, and wrong.
+mencken	life	aphorism	general	0	Time stays, we go.
+mencken	love	quip	general	0	To be in love is merely to be in a state of perceptual anesthesia - to mistake an ordinary young woman for a goddess.
+mencken	society	wisdom	general	0	To die for an idea; it is unquestionably noble. But how much nobler it would be if men died for ideas that were true!
+mencken	society	dark	general	0	Unquestionably, there is progress. The average American now pays out twice as much in taxes as he formerly got in wages.
+mencken	society	quip	general	0	War will never cease until babies begin to come into the world with larger cerebrums and smaller adrenal glands.
+mencken	life	wisdom	general	0	We are here and it is now. Further than that, all human knowledge is moonshine.
+mencken	society	wisdom	general	0	We must be willing to pay a price for freedom.
+mencken	faith	quip	general	0	We must respect the other fellow's religion, but only in the sense and to the extent that we respect his theory that his wife is beautiful and his children smart.
+mencken	work-money	observation	general	0	Wealth - any income that is at least one hundred dollars more a year than the income of one's wife's sister's husband.
+mencken	society	aphorism	general	0	What men value in this world is not rights but privileges.
+mencken	society	observation	general	0	When a new source of taxation is found it never means, in practice, that the old source is abandoned. It merely means that the politicians have two ways of milking the taxpayer where they had one before.
+mencken	love	observation	general	0	When women kiss it always reminds one of prize fighters shaking hands.
+mencken	love	dark	general	0	Whenever a husband and wife begin to discuss their marriage they are giving evidence at a coroner's inquest.
+mencken	society	quip	general	0	Whenever you hear a man speak of his love for his country, it is a sign that he expects to be paid for it.
+mencken	life	quip	general	0	Women always excel men in that sort of wisdom which comes from experience. To be a woman is in itself a terrible experience.
+mencken	love	quip	general	0	Women have simple tastes. They get pleasure out of the conversation of children in arms and men in love.

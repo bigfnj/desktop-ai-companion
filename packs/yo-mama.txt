@@ -1,0 +1,978 @@
+yo-mama	tech	joke	edgy	0	If we were to code your mom in a C++ function she would look like this: double mom (double fat){ mom(fat);return mom;}; //your mom is recursively fat.
+yo-mama	life	insult	edgy	0	It took yo momma 10 tries to get her drivers license - she couldn't get used to the front seat!
+yo-mama	life	insult	edgy	0	The infinite series of yo momma from 0 to infinity is strictly diverging.
+yo-mama	life	insult	edgy	0	The integral of yo momma is fat plus a constant, where the constant is equal to more fat.
+yo-mama	life	insult	edgy	1	The limit of yo momma's ass goes to infinity.
+yo-mama	life	insult	edgy	0	The mass of yo momma at rest is approximately equal to that of a neutron star traveling at (1-(10^-1000))c.
+yo-mama	life	insult	edgy	1	The only way to get from point A to point B is around yo momma's fat ass.
+yo-mama	life	insult	edgy	0	The volume of yo momma is an improper integral.
+yo-mama	life	insult	edgy	0	What's the difference between yo momma and a 747? About 20 pounds.
+yo-mama	life	insult	edgy	0	What's the difference between yo momma and a Lay-Z-Boy? One's soft, squishy, and always has someone in it. The other is a chair.
+yo-mama	life	insult	edgy	0	What's the difference between yo momma and a walrus? One has whiskers and smells of fish... the other one is a walrus!
+yo-mama	life	insult	edgy	0	Ya momma's so fat, her wand is a Slim Jim.
+yo-mama	life	insult	edgy	0	Yo momma = x/0 for every x in yo momma.
+yo-mama	life	insult	edgy	0	Yo momma So Fat, she can't fit through the moon door.
+yo-mama	life	insult	edgy	0	Yo momma conforms to Planck's law - the greater the frequency with which she screws, the more energetic she gets.
+yo-mama	life	insult	edgy	0	Yo momma got hit upside the head with an ugly stick.
+yo-mama	life	insult	edgy	0	Yo momma has so many teeth missing, that it looks like her tongue is in jail.
+yo-mama	life	insult	edgy	0	Yo momma has so much hair on her upper lip that she braids it.
+yo-mama	life	insult	edgy	0	Yo momma is cross-eyed and watches TV in stereo.
+yo-mama	life	insult	edgy	0	Yo momma is like Bazooka Joe, 5 cents a blow.
+yo-mama	life	insult	edgy	0	Yo momma is like Dominoes Pizza, one call does it all.
+yo-mama	life	insult	edgy	0	Yo momma is like Humpty Dumpty - First she gets humped, then she gets dumped.
+yo-mama	life	insult	edgy	0	Yo momma is like Pizza Hut - if she isn't there in 30 minutes... it's Free!
+yo-mama	life	insult	edgy	0	Yo momma is like Sprint - 10 cents a minute anywhere in the country.
+yo-mama	life	insult	edgy	0	Yo momma is like a Chinese restaurant - All you can eat for only $9.95!
+yo-mama	life	insult	edgy	0	Yo momma is like a Christmas tree, everybody hangs balls on her.
+yo-mama	life	insult	edgy	0	Yo momma is like a Discover card, she gives cash back.
+yo-mama	life	insult	edgy	0	Yo momma is like a bag of potato chips, 'Free-To-Lay.'
+yo-mama	life	insult	edgy	0	Yo momma is like a basketball hoop, everybody gets a shot.
+yo-mama	life	insult	edgy	0	Yo momma is like a bowling ball, she always winds up in the gutter.
+yo-mama	life	insult	edgy	0	Yo momma is like a bowling ball... round, heavy, and you can fit three fingers in.
+yo-mama	life	insult	edgy	0	Yo momma is like a bus, guys climb on and off her all day long.
+yo-mama	life	insult	edgy	0	Yo momma is like a carpenter's dream - flat as a board and easy to nail.
+yo-mama	life	insult	edgy	0	Yo momma is like a championship ring, everybody puts a finger in her.
+yo-mama	life	insult	nsfw	1	Yo momma is like a chicken coop, cocks fly in and out all day.
+yo-mama	life	insult	edgy	0	Yo momma is like a door knob, everybody gets a turn.
+yo-mama	life	insult	edgy	0	Yo momma is like a fan - she's always blowing someone.
+yo-mama	life	insult	edgy	0	Yo momma is like a fine restaurant, she only takes deliveries in the rear.
+yo-mama	life	insult	edgy	0	Yo momma is like a gas station - you gotta pay before you pump!
+yo-mama	life	insult	edgy	0	Yo momma is like a goalie - she only changes her pads after three periods.
+yo-mama	life	insult	edgy	0	Yo momma is like a hockey player, she only showers after three periods.
+yo-mama	life	insult	edgy	0	Yo momma is like a library, she's open to the public.
+yo-mama	life	insult	edgy	0	Yo momma is like a light switch, even a little kid can turn her on.
+yo-mama	life	insult	edgy	0	Yo momma is like a mail box, open day and night.
+yo-mama	life	insult	edgy	0	Yo momma is like a microwave, press one button and she's hot.
+yo-mama	life	insult	edgy	0	Yo momma is like a paper towel, she picks up all kinds of slimy wet stuff.
+yo-mama	life	insult	edgy	0	Yo momma is like a protractor - she's good at every angle.
+yo-mama	life	insult	edgy	0	Yo momma is like a slaughter house - everybody's hanging their meat up in her.
+yo-mama	life	insult	edgy	0	Yo momma is like a telephone, even a 3 year old can pick her up.
+yo-mama	life	insult	edgy	1	Yo momma is like a turtle - once she's on her back she's fucked.
+yo-mama	life	insult	edgy	0	Yo momma is like an ATM, open 24 hours.
+yo-mama	life	insult	edgy	0	Yo momma is like the new AOL 4.0: Fun, Fast, Easy and Free!
+yo-mama	life	insult	edgy	0	Yo momma is like the sun, look at her too long and you'll go blind.
+yo-mama	life	insult	edgy	0	Yo momma is missing a finger and can't count past nine.
+yo-mama	life	insult	edgy	0	Yo momma is so bald that even a wig wouldn't help!
+yo-mama	life	insult	edgy	0	Yo momma is so bald that she took a shower and got brain-washed!
+yo-mama	life	insult	edgy	0	Yo momma is so bald that you can see what's on her mind.
+yo-mama	life	insult	edgy	1	Yo momma is so dark that her ass looks like two tires.
+yo-mama	life	insult	edgy	0	Yo momma is so dark that her nickname is midnight.
+yo-mama	life	insult	edgy	0	Yo momma is so dark that she bleeds molasses.
+yo-mama	life	insult	edgy	0	Yo momma is so dark that she could show up naked to a funeral.
+yo-mama	life	insult	edgy	0	Yo momma is so dark that she drinks water and pees coffee.
+yo-mama	life	insult	edgy	0	Yo momma is so dark that she got her tattoo done in chalk.
+yo-mama	life	insult	edgy	0	Yo momma is so dark that she has to wear white gloves when she eats Tootsie Rolls to keep from eating her fingers.
+yo-mama	life	insult	edgy	0	Yo momma is so dark that she looks like a picture of outer-space with no stars... except when she smiles.
+yo-mama	life	insult	edgy	0	Yo momma is so dark that she makes asphalt look grey.
+yo-mama	life	insult	edgy	0	Yo momma is so dark that she spits chocolate milk!
+yo-mama	life	insult	edgy	0	Yo momma is so dark that she was riding a motorcycle and got a ticket for tinted windows.
+yo-mama	life	insult	edgy	0	Yo momma is so dark that she went to night school and was marked absent!
+yo-mama	life	insult	edgy	0	Yo momma is so dark that that she can leave fingerprints on charcoal.
+yo-mama	life	insult	edgy	0	Yo momma is so dark that when her eyes are red she looks like a beeper.
+yo-mama	life	insult	edgy	0	Yo momma is so dark that when she goes outside, the streetlights turn on.
+yo-mama	life	insult	edgy	0	Yo momma is so dark that when she goes swimming it looks like an oil spill.
+yo-mama	life	insult	edgy	0	Yo momma is so dark that when she puts lotion on her legs it looks like she has on patent leather pants.
+yo-mama	life	insult	edgy	0	Yo momma is so dark that when she puts on yellow lipstick, she looks like a cheese burger.
+yo-mama	life	insult	edgy	0	Yo momma is so dark that when she smiles at night she looks like a pack of floating Chiclets.
+yo-mama	life	insult	edgy	0	Yo momma is so dark that when the police shot at her, the bullets came back for flashlights.
+yo-mama	life	insult	edgy	0	Yo momma is so dirty that even Swamp Thing told her to take a shower.
+yo-mama	life	insult	edgy	0	Yo momma is so dirty that she has to creep up on bathwater.
+yo-mama	life	insult	edgy	0	Yo momma is so dirty that she loses weight in the shower.
+yo-mama	life	insult	edgy	0	Yo momma is so dirty that she makes mud look clean.
+yo-mama	life	insult	edgy	0	Yo momma is so dirty that that she was banned from a sewage facility because of sanitation concerns.
+yo-mama	life	insult	edgy	0	Yo momma is so dirty that that you can't tell where the dirt stops and she begins.
+yo-mama	life	insult	edgy	0	Yo momma is so dirty that the US Government uses her bath water as a chemical weapon.
+yo-mama	life	insult	edgy	0	Yo momma is so dirty that when she tried to take a bath, the water jumped out and said 'I'll wait.'
+yo-mama	life	insult	edgy	0	Yo momma is so fat MTX audio's subwoofers couldn't rattle her bones!
+yo-mama	life	insult	edgy	0	Yo momma is so fat and dumb that the only reason she opened her email was because she heard it contained spam.
+yo-mama	life	insult	edgy	0	Yo momma is so fat her headphones are a pair of PA speakers connected to a car amplifier.
+yo-mama	life	insult	edgy	0	Yo momma is so fat she threw on a sheet for Halloween and went as Antarctica.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that Dracula got Type 2 Diabetes after biting her neck.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that God couldn't light the Earth until she moved!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that I had to take a train and two buses just to get on the her good side!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that I ran around her twice and got lost.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that I took a picture of her last Christmas and it's still printing!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that NASA has to orbit a satellite around her!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that Weight Watchers won't look at her.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that a picture of her would fall off the wall.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that at the zoo, the elephants throw HER peanuts.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that eating contests have banned her because she is unfair competition.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that even Bill Gates couldn't pay for her liposuction!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that even Chuck Norris couldn't run around her.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that even Dora can't explore her!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that even god can't lift her spirit.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that even her clothes have stretch marks!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that everytime she walks in high heels, she strikes oil!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that her belly button doesn't have lint, it has sweaters.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that her belly button's got an echo.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that her bellybutton gets home 15 minutes before she does.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that her blood type is Ragu.
+yo-mama	life	quip	edgy	0	Yo momma is so fat that her butt drags on the ground and kids yell - 'there goes santa claus with his bag of toys!'
+yo-mama	life	insult	edgy	0	Yo momma is so fat that her cereal bowl came with a lifeguard.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that her derivative is strictly positive.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that her legs are like spoiled milk - white & chunky!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that her neck looks like a dozen hot dogs!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that her sedan can fit 5 people... or just yo momma with the front seats removed.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that her waist size is the Equator.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that in a love triangle, she'd be the hypotenuse.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that it took Usain Bolt 3 years to run around her.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that light bends around her.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that people jog around her for exercise.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she broke the Stairway to Heaven.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she can't even fit into an AOL chat room.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she can't even jump to a conclusion.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she cant reach into her back pocket.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she comes at you from all directions.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she could fall down and wouldn't even know it.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she could sell shade.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she cut her leg and gravy poured out
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she doesn't eat with a fork, she eats with a forklift.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she doesn't have a tailor, she has a contractor.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she eats 'Wheat Thicks'.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she fell and created the Grand Canyon!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she fell in love and broke it.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she fell out of both sides of her bed.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she gets group insurance.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she gets her toenails painted at Lucky's Auto Body.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she got hit by a car and had to go to the hospital to have it removed.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she got hit by a parked car!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she had to go to Sea World to get baptized.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she has been declared a natural habitat for condors.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she has her own gravity field.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she has more Chins than a Chinese phone book!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she has to buy three airline tickets.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she has to iron her pants on the driveway.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she has to pull down her pants to get into her pockets.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she has to put her belt on with a boomerang.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she has to use a VCR as a beeper!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she influences the tides.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she left the house in high heels and came back wearing flip flops.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she looked up cheat codes for Wii Fit
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she looks like she's smuggling a Volkswagen!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she measures 36-24-36, and the other arm is just as big.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she puts mayonnaise on aspirin.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she puts on her lipstick with a paint-roller!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she sat on a dollar and squeezed a booger out George Washington's nose.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she sets off car alarms when she runs.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she stands in two time zones.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she stepped on a rainbow and made Skittles.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she took geometry in high school just cause she heard there was gonna be some pi.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she uses a mattress for a tampon.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she uses redwoods to pick her teeth
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she uses the entire country of Mexico as her tanning bed.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she uses two buses for roller-blades.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she wakes up in sections!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she walked into the Gap and filled it.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she was born on the fourth, fifth, and sixth of June.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she was born with a silver shovel in her mouth.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she was cut from the cast of E.T., because she caused an eclipse when she rode the bike across the moon.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she was floating in the ocean and Spain claimed her for the New World.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she was in the Macy's Thanksgiving Day Parade... wearing ropes.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she was zoned for commercial development.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she went on a light diet. As soon as it's light she starts eating.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she went to the fair and the kids thought she was a bouncy castle.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she went to the movie theatre and sat next to everyone.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she's got Amtrak written on her leg.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she's got every caterer in the city on speed dial!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she's got her own area code!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that she's half Italian, half Irish, and half American.
+yo-mama	family	insult	edgy	0	Yo momma is so fat that she's on both sides of the family!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that that her senior pictures had to be taken from a helicopter!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that that she cant tie her own shoes.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that that when I tried to drive around her I ran out of gas.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that that when she sits on the beach, Greenpeace shows up and tries to tow her back into the ocean...
+yo-mama	life	insult	edgy	0	Yo momma is so fat that the National Weather Service names each one of her farts.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that the camera TAKES AWAY 10 lbs from her appearance.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that the highway patrol made her wear a sign saying 'Caution! Wide Turn'.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that the last time she saw 90210, it was on a scale.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that the last time the landlord saw her, he doubled the rent.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that the only exercise she gets is when she chases the ice cream truck.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that the only pictures you have of her were taken by satellite cameras.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that the ratio of the circumference to her diameter is four.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that the shadow of her butt weighs 100 pounds.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that the sign inside one restaurant says, "Maximum occupancy: 300, or Yo momma."
+yo-mama	life	insult	edgy	0	Yo momma is so fat that the stripes on her pajamas never end.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that they have to grease the bath tub to get her out!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that they use the elastic in her underwear for bungee jumping.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that we went to the drive-in and didn't have to pay for her because we dressed her up as a Toyota.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that we're in her right now!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when her beeper goes off, people think she's backing up.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she asked for a waterbed, they put a blanket over the ocean!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she bungee jumps she goes straight to hell!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she bungee jumps, she brings down the bridge too.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she climbed onto a diving board at the beach, the lifeguard told your dad 'sorry, you can't park here'.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she dances at a concert the whole band skips.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she fell over she rocked herself asleep trying to get up again.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she gets in an elevator, it has to go down.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she gets on the scale it says 'We don't do livestock'.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she gets on the scale it says 'to be continued'.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she goes to a buffet, she gets the group rate.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she goes to a restaurant, she looks at the menu and says 'okay!'
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she goes to an all you can eat buffet, they have to install speed bumps.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she goes to an amusement park, people try to ride HER!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she got her shoes shined, she had to take the guy's word for it.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she got hit by a bus, she said, 'Who threw that rock at me?'
+yo-mama	life	insult	edgy	1	Yo momma is so fat that when she hauls ass, she has to make two trips.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she jumps up in the air she gets stuck!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she lays on the beach, people run around yelling Free Willy.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she lies on the beach no one else gets any sun!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she plays hopscotch, she goes 'New York, L.A., Chicago...'
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she ran away, they had to use all four sides of the milk carton to display her picture.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she runs the fifty-yard dash she needs an overnight bag.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she sat on Wal-Mart, she lowered the prices.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she sat on an iphone, it turned into an ipad.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she sings, it's over for everybody.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she sits around the house, she SITS AROUND THE HOUSE!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she sits on my face I can't hear the stereo.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she steps on a scale, it reads 'one at a time, please'.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she takes a shower, her feet don't get wet.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she talks to herself, it's a long distance call.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she tripped on 4th Ave, she landed on 12th.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she turns around people throw her a welcome back party.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she visited Toronto's City Hall, she was arrested for attempting to smuggle 500 lbs of crack into Mayor Rob Ford's office.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she walked in front of the TV, I missed 3 seasons of Breaking Bad.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she wants to shake someones hand, she has to give directions!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she was born, she gave the hospital stretch marks.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she was diagnosed with a flesh-eating disease, the doctor gave her ten years to live.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she was growing up she didn't play with dolls, she played with midgets.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she wears a 'Malcolm X' T-shirt, helicopters try to land on her back!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she wears a yellow raincoat, people yell 'taxi!'
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she went to church and sat on a bible, Jesus came out and said 'LET MY PEOPLE GO!'
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she went to seaworld the whales started singing 'We Are Family'.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when she's standing on the corner police drive by and yell, "Hey, break it up."
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when we were playing Call of Duty, I got a 20 kill streak for killing her.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that when you get on top of her your ears pop.
+yo-mama	life	insult	edgy	0	Yo momma is so fat that whenever she goes to the beach the tide comes in!
+yo-mama	life	insult	edgy	0	Yo momma is so fat that you have to grease the door frame and hold a twinkie on the other side just to get her through!
+yo-mama	life	insult	edgy	0	Yo momma is so fat when she goes skydiving she doesn't use a parachute to land, she uses a twin-engine plane!
+yo-mama	life	insult	edgy	0	Yo momma is so fat you have to roll over twice to get off her.
+yo-mama	life	insult	edgy	0	Yo momma is so fat, Al Gore accuses her of global warning everytime she farts!
+yo-mama	life	insult	edgy	0	Yo momma is so flat that she makes the walls jealous!
+yo-mama	life	insult	edgy	0	Yo momma is so greasy that I buttered my popcorn with her leg hairs.
+yo-mama	life	insult	edgy	0	Yo momma is so greasy that Texaco buys Oil from her.
+yo-mama	life	insult	edgy	0	Yo momma is so greasy that her freckles slipped off.
+yo-mama	life	insult	edgy	0	Yo momma is so greasy that if Crisco had a football team, she'd be the mascot.
+yo-mama	life	insult	edgy	0	Yo momma is so greasy that she squeezes Crisco from her hair to bake cookies.
+yo-mama	life	insult	edgy	0	Yo momma is so greasy that she sweats Crisco!
+yo-mama	life	insult	edgy	0	Yo momma is so greasy that she sweats butter and syrup and has a full time job at Denny's wiping pancakes across her forehead.
+yo-mama	life	insult	edgy	0	Yo momma is so greasy that she uses bacon as a band-aid!
+yo-mama	life	insult	edgy	0	Yo momma is so greasy that she's labeled as an ingredient in Crisco.
+yo-mama	life	insult	edgy	0	Yo momma is so greasy that you could fry a chicken dinner for 12 on her forehead.
+yo-mama	life	insult	edgy	0	Yo momma is so grouchy that the McDonald's she works in doesn't even serve Happy Meals.
+yo-mama	life	insult	edgy	0	Yo momma is so hairy that Bigfoot wants to take HER picture!
+yo-mama	life	insult	edgy	0	Yo momma is so hairy that Jane Goodall follows her around.
+yo-mama	life	insult	edgy	0	Yo momma is so hairy that her armpits look like she has Don King in a headlock.
+yo-mama	life	insult	edgy	0	Yo momma is so hairy that if she could fly she'd look like a magic carpet.
+yo-mama	life	insult	edgy	0	Yo momma is so hairy that if you shaved her legs, you could supply wigs for the entire Hair Club for Men.
+yo-mama	life	insult	edgy	0	Yo momma is so hairy that people run up to her and say 'Chewbacca, can I get your autograph?'
+yo-mama	life	insult	edgy	0	Yo momma is so hairy that she gets mistaken for Chewbacca's cousin.
+yo-mama	life	insult	edgy	0	Yo momma is so hairy that she got a trim and lost 20 pounds.
+yo-mama	life	insult	nsfw	1	Yo momma is so hairy that she has afros on her nipples.
+yo-mama	life	insult	edgy	0	Yo momma is so hairy that she looks like Bigfoot in a tank top.
+yo-mama	life	insult	edgy	0	Yo momma is so hairy that she looks like a Chia pet with a sweater on.
+yo-mama	life	insult	edgy	0	Yo momma is so hairy that she looks like she has Buckwheat in a headlock.
+yo-mama	life	insult	edgy	0	Yo momma is so hairy that she shaves her legs with a weed wacker.
+yo-mama	life	insult	edgy	0	Yo momma is so hairy that the only language she can speak is wookie.
+yo-mama	life	insult	edgy	0	Yo momma is so hairy that they filmed 'Gorillas in the Mist' in her shower!
+yo-mama	life	insult	edgy	0	Yo momma is so hairy that two birds made nests in her armpits and she doesn't even know about it!
+yo-mama	life	insult	edgy	0	Yo momma is so hairy that when I took her to a pet store they locked her in a cage.
+yo-mama	life	insult	edgy	0	Yo momma is so hairy that when she's at a nude beach people think she's wearing a fur coat!
+yo-mama	life	insult	edgy	0	Yo momma is so hairy that you almost died of rug burn at birth!
+yo-mama	life	insult	edgy	0	Yo momma is so lazy that she came in last place in a recent snail marathon.
+yo-mama	life	insult	edgy	0	Yo momma is so lazy that she thinks a two-income family is where yo daddy has two jobs.
+yo-mama	life	insult	edgy	0	Yo momma is so lazy that she's got a remote control just to operate her remote!
+yo-mama	life	insult	edgy	0	Yo momma is so mean that she has no standard deviation.
+yo-mama	life	insult	edgy	0	Yo momma is so nasty that I chatted with her on MSN and she gave me a virus.
+yo-mama	life	insult	edgy	0	Yo momma is so nasty that I when I talked to her on the phone, she gave me an ear infection.
+yo-mama	life	insult	edgy	1	Yo momma is so nasty that a skunk smelled her ass and passed out.
+yo-mama	life	insult	edgy	0	Yo momma is so nasty that even dogs won't sniff her crotch.
+yo-mama	life	insult	edgy	1	Yo momma is so nasty that every time she opens her mouth she's talking shit.
+yo-mama	life	insult	edgy	0	Yo momma is so nasty that her crabs use her tampon string as a bungee cord.
+yo-mama	life	insult	edgy	1	Yo momma is so nasty that her shit is glad to escape.
+yo-mama	life	insult	edgy	1	Yo momma is so nasty that her tits leak sour milk.
+yo-mama	life	insult	edgy	0	Yo momma is so nasty that next to her a skunk smells sweet.
+yo-mama	life	insult	edgy	0	Yo momma is so nasty that she bit the dog and gave it rabies.
+yo-mama	life	insult	edgy	0	Yo momma is so nasty that she brings crabs to the beach.
+yo-mama	life	insult	edgy	0	Yo momma is so nasty that she calls Janet 'Miss Jackson.'
+yo-mama	life	insult	edgy	0	Yo momma is so nasty that she has a sign by her crotch that says: 'Warning: May cause irritation, drowsiness, and a rash or breakouts.'
+yo-mama	life	insult	edgy	0	Yo momma is so nasty that she has more crabs then Red Lobster.
+yo-mama	life	insult	edgy	0	Yo momma is so nasty that she has more rappers in her than an iPod.
+yo-mama	life	insult	edgy	0	Yo momma is so nasty that she has to use Right Guard and Left Guard.
+yo-mama	life	insult	edgy	0	Yo momma is so nasty that she made right guard turn left.
+yo-mama	life	insult	edgy	0	Yo momma is so nasty that she makes speed stick slow down.
+yo-mama	life	insult	edgy	0	Yo momma is so nasty that she only changes her drawers once every 10000 miles.
+yo-mama	life	insult	edgy	0	Yo momma is so nasty that she's got more clap than an auditorium.
+yo-mama	life	insult	edgy	0	Yo momma is so nasty that that pours salt water down her pants to keep her crabs fresh.
+yo-mama	life	insult	edgy	0	Yo momma is so nasty that the fishery pays her to stay away.
+yo-mama	life	insult	edgy	0	Yo momma is so nasty that the only dis I want to give her is a disinfectant.
+yo-mama	life	insult	edgy	0	Yo momma is so nasty that when you were being delivered, the doctor was wearing the oxygen mask.
+yo-mama	family	joke	edgy	0	Yo momma is so old she remembers when the Mayans published their calendar.
+yo-mama	life	insult	edgy	0	Yo momma is so old that I told her to act her own age, and she died.
+yo-mama	life	insult	edgy	0	Yo momma is so old that her birth certificate is written in Roman numerals.
+yo-mama	life	insult	edgy	0	Yo momma is so old that her birth certificate says 'expired' on it.
+yo-mama	life	insult	edgy	0	Yo momma is so old that her memory is in black and white.
+yo-mama	life	insult	edgy	0	Yo momma is so old that her social security number is 1.
+yo-mama	life	insult	edgy	0	Yo momma is so old that she DJ'd at the Boston Tea Party.
+yo-mama	life	insult	edgy	0	Yo momma is so old that she baby-sat for Jesus.
+yo-mama	life	insult	edgy	0	Yo momma is so old that she called the cops when David and Goliath started to fight.
+yo-mama	life	insult	edgy	0	Yo momma is so old that she co-wrote the Ten Commandments.
+yo-mama	life	insult	edgy	0	Yo momma is so old that she drove a chariot to high school.
+yo-mama	life	insult	edgy	0	Yo momma is so old that she has Adam & Eve's autographs.
+yo-mama	life	insult	edgy	0	Yo momma is so old that she has a picture of Moses in her yearbook.
+yo-mama	life	insult	edgy	0	Yo momma is so old that she has an autographed bible.
+yo-mama	life	insult	edgy	0	Yo momma is so old that she knew Burger King while he was still a prince.
+yo-mama	life	insult	edgy	0	Yo momma is so old that she knew Captain Crunch while he was still a private.
+yo-mama	life	insult	edgy	0	Yo momma is so old that she knew Mr. Clean when he had an afro.
+yo-mama	life	insult	edgy	0	Yo momma is so old that she knew the Beetles when they were the New Kids on the Block.
+yo-mama	life	insult	edgy	0	Yo momma is so old that she learned to write on cave walls.
+yo-mama	life	insult	edgy	0	Yo momma is so old that she needed a walker when Jesus was still in diapers.
+yo-mama	life	insult	edgy	0	Yo momma is so old that she owes Fred Flintstone a food stamp.
+yo-mama	life	tv-quote	edgy	0	Yo momma is so old that she owes Jesus a dollar.
+yo-mama	life	insult	edgy	0	Yo momma is so old that she planted the first tree at Central Park.
+yo-mama	life	insult	edgy	0	Yo momma is so old that she ran track with dinosaurs.
+yo-mama	life	insult	edgy	0	Yo momma is so old that she sat next to Jesus in third grade.
+yo-mama	life	insult	edgy	0	Yo momma is so old that she took her drivers test on a dinosaur.
+yo-mama	life	insult	edgy	0	Yo momma is so old that she walked into an antique store and they kept her.
+yo-mama	life	insult	edgy	0	Yo momma is so old that she was a waitress at the Last Supper.
+yo-mama	life	insult	edgy	0	Yo momma is so old that she's mentioned in the shout out at the end of the bible.
+yo-mama	life	insult	edgy	0	Yo momma is so old that that when she was in school there was no history class.
+yo-mama	family	insult	edgy	0	Yo momma is so old that the candles cost more than the birthday cake.
+yo-mama	life	insult	edgy	0	Yo momma is so old that when God said 'Let there be light' she was there to flick the switch.
+yo-mama	life	insult	edgy	0	Yo momma is so old that when Moses split the red sea, she was on the other side fishing.
+yo-mama	life	insult	edgy	0	Yo momma is so old that when she farts, dust comes out.
+yo-mama	life	insult	edgy	0	Yo momma is so old that when she was born, the Dead Sea was just getting sick.
+yo-mama	life	insult	edgy	0	Yo momma is so old that when she was young rainbows were black and white.
+yo-mama	life	insult	edgy	0	Yo momma is so poor Nigerian scammers wire HER money!
+yo-mama	life	insult	edgy	0	Yo momma is so poor she couldn't afford to apply for Medicare!
+yo-mama	life	insult	edgy	0	Yo momma is so poor that I came over for dinner and she read me recipes.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that I saw her running after a garbage truck with a shopping list.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that I saw her wrestling a squirrel for a peanut.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that I stepped on her skateboard and she said 'Hey, get off the car!'
+yo-mama	life	insult	edgy	0	Yo momma is so poor that I threw a rock at a trash can and she popped out and said 'Who knocked?'
+yo-mama	life	insult	edgy	0	Yo momma is so poor that I walked into her house and swatted a firefly and Yo momma said, 'Who turned off the lights?'
+yo-mama	life	insult	edgy	0	Yo momma is so poor that I walked into her house, asked to use the bathroom, and she said '3rd bucket to your right.'
+yo-mama	life	insult	edgy	0	Yo momma is so poor that I went through her front door and ended up in the back yard.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that I went to her house and tore down some cob webs, and she said 'Who's tearing down the drapes?'
+yo-mama	life	insult	edgy	1	Yo momma is so poor that after I pissed in your yard, she thanked me for watering the lawn.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that burglars break in and leave money.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that for halloween, her trick was the treat.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that her face is on the front of a food stamp.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that her front and back doors are on the same hinge.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that her idea of a fortune cookie is a tortilla with a food stamp in it.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that her idea of a timeshare is a few days camped out under a bridge.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that she can't afford to pay attention!
+yo-mama	life	insult	edgy	0	Yo momma is so poor that she can't even afford to go to the free clinic.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that she can't even put her two cents in this conversation.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that she got in an elevator and thought it was a mobile home.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that she had to get a second mortgage on her cardboard box.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that she has to take the trash IN.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that she has to wear her McDonald's uniform to church.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that she lives in a two story Dorrito bag with a dog named Chip.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that she married young just to get the rice!
+yo-mama	life	insult	edgy	0	Yo momma is so poor that she was in K-Mart with a box of Hefty bags and when I asked her what she was doing she said, 'Buying luggage.'
+yo-mama	life	insult	edgy	0	Yo momma is so poor that she washes paper plates.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that she watches TV on an Etch-A-Sketch.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that she waves around a popsicle stick and calls it air conditioning.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that she went to McDonald's and put a milkshake on layaway.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that she's got more furniture on her porch than in her house.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that the bank repossessed her cardboard box.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that the closest thing to a car she has is a low-rider shopping cart with a box on it.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that we were on a road trip and she stopped by a dumpster and got out. I said 'what are you doing' and she said I'm 'booking a hotel!'
+yo-mama	life	insult	edgy	0	Yo momma is so poor that when I asked what was for dinner, she pulled her shoelaces off and said 'Spaghetti.'
+yo-mama	life	insult	edgy	0	Yo momma is so poor that when I ring the doorbell I hear the toilet flush!
+yo-mama	life	insult	edgy	0	Yo momma is so poor that when I ring the doorbell she says,'DING!'
+yo-mama	life	insult	edgy	0	Yo momma is so poor that when I saw her in the park digging up plants, she said she was 'getting groceries'.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that when I saw her kicking a can down the street, I asked her what she was doing, and she said 'moving.'
+yo-mama	life	insult	edgy	0	Yo momma is so poor that when I saw her rolling some trash cans around in an alley, I asked her what she was doing, she said 'Remodeling.'
+yo-mama	life	insult	edgy	0	Yo momma is so poor that when I saw her walking down the street with one shoe and said 'Hey miss, lost a shoe?' she said 'Nope, just found one!'
+yo-mama	life	insult	edgy	0	Yo momma is so poor that when I walked inside her house and put out a cigarette, she said 'who turned off the heater?'
+yo-mama	life	insult	edgy	0	Yo momma is so poor that when I went over to her house for dinner and grabbed a paper plate, she said 'Don't use the good china!'
+yo-mama	life	insult	edgy	0	Yo momma is so poor that when she goes to KFC, she has to lick other people's fingers!
+yo-mama	life	insult	edgy	0	Yo momma is so poor that when she tells people her address, she says 'it's in the second alley from main street, beside the yellow dumpster.'
+yo-mama	life	insult	edgy	0	Yo momma is so poor that when yo family watches TV, they go to Sears.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that your TV got 2 channels: ON and OFF.
+yo-mama	life	insult	edgy	0	Yo momma is so poor that your family ate cereal with a fork to save milk.
+yo-mama	life	insult	edgy	0	Yo momma is so short that her homies are the Keebler Elves.
+yo-mama	life	insult	edgy	0	Yo momma is so short that she can do push-ups under the door.
+yo-mama	life	insult	edgy	0	Yo momma is so short that she can limbo under the door.
+yo-mama	life	insult	edgy	0	Yo momma is so short that she can play handball on the curb.
+yo-mama	life	insult	edgy	0	Yo momma is so short that she does backflips under the bed.
+yo-mama	life	insult	edgy	0	Yo momma is so short that she does pull-ups on a staple.
+yo-mama	life	insult	edgy	0	Yo momma is so short that she has to get a running start to get up on the toilet.
+yo-mama	life	insult	edgy	0	Yo momma is so short that she has to look up to look down.
+yo-mama	life	insult	edgy	0	Yo momma is so short that she has to use a ladder to pick up a dime.
+yo-mama	life	insult	edgy	0	Yo momma is so short that she makes Gary Coleman look like Shaquille O'Neal.
+yo-mama	life	insult	edgy	0	Yo momma is so short that she models for trophies.
+yo-mama	life	insult	edgy	0	Yo momma is so short that she slam-dunks her bus fare.
+yo-mama	life	insult	edgy	0	Yo momma is so short that she uses a condom for a sleeping bag.
+yo-mama	life	insult	edgy	0	Yo momma is so short that when I was dissin' her she tried to jump kick me in the ankle.
+yo-mama	life	insult	edgy	0	Yo momma is so short that when she sneezes, she hits her head on the floor.
+yo-mama	life	insult	edgy	0	Yo momma is so short that you can see her feet on her drivers license!
+yo-mama	life	insult	edgy	0	Yo momma is so short, you can make a life size sculpture of her using one can of Play-Doh.
+yo-mama	life	insult	edgy	0	Yo momma is so skinny that I could blind-fold her with dental floss.
+yo-mama	life	insult	edgy	0	Yo momma is so skinny that her bra fits better when she wears it backwards.
+yo-mama	life	insult	nsfw	1	Yo momma is so skinny that her nipples touch.
+yo-mama	life	insult	edgy	0	Yo momma is so skinny that her pants only have one belt loop.
+yo-mama	life	insult	edgy	0	Yo momma is so skinny that if she had a sesame seed on her head, she'd look like a push pin.
+yo-mama	life	insult	edgy	0	Yo momma is so skinny that if she had a yeast infection she'd be a Quarter Pounder with Cheese.
+yo-mama	life	insult	edgy	0	Yo momma is so skinny that if she had dreads I'd grab her by the ankles and use her to mop the floor.
+yo-mama	life	insult	edgy	0	Yo momma is so skinny that if she turned sideways and stuck out her tongue, she would look like a zipper.
+yo-mama	family	insult	edgy	0	Yo momma is so skinny that instead of calling her your parent, you call her transparent.
+yo-mama	life	insult	edgy	0	Yo momma is so skinny that she can dodge rain drops.
+yo-mama	life	insult	edgy	0	Yo momma is so skinny that she can see out a peephole with both eyes.
+yo-mama	life	insult	edgy	0	Yo momma is so skinny that she goes hot tubing with the Mini Wheats Man.
+yo-mama	life	insult	edgy	0	Yo momma is so skinny that she had to stand in the same place twice to cast a shadow.
+yo-mama	life	insult	edgy	0	Yo momma is so skinny that she has to run around in the shower to get wet.
+yo-mama	life	insult	edgy	0	Yo momma is so skinny that she has to wear a belt with spandex.
+yo-mama	life	insult	edgy	0	Yo momma is so skinny that she hula hoops with a Cheerio.
+yo-mama	life	insult	nsfw	1	Yo momma is so skinny that she inspires crack whores to diet.
+yo-mama	life	insult	edgy	0	Yo momma is so skinny that she looks like a mic stand.
+yo-mama	life	insult	edgy	0	Yo momma is so skinny that she only has one stripe on her pajamas.
+yo-mama	life	insult	edgy	0	Yo momma is so skinny that she swallowed a meatball and thought she was pregnant.
+yo-mama	life	insult	edgy	0	Yo momma is so skinny that she turned sideways and disappeared.
+yo-mama	life	insult	edgy	0	Yo momma is so skinny that she uses Chapstick for deodorant.
+yo-mama	life	insult	edgy	0	Yo momma is so skinny that she uses a Band-Aid as a maxi-pad.
+yo-mama	life	insult	edgy	0	Yo momma is so skinny that when she takes a bath and lets the water out, her toes get caught in the drain.
+yo-mama	life	insult	edgy	0	Yo momma is so skinny that when she wore her yellow dress, she looked like an HB pencil.
+yo-mama	life	insult	edgy	0	Yo momma is so skinny that you can save her from drowning by tossing her a Fruit Loop.
+yo-mama	life	insult	edgy	0	Yo momma is so small that she goes paragliding on a Dorito.
+yo-mama	life	insult	edgy	0	Yo momma is so square that she's got imaginary numbers on her social security card.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that I saw her in the frozen food section with a fishing rod.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that I saw her jumping up and down, asked what she was doing, and she said she drank a bottle of medicine and forgot to shake it.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that I saw her walking down the street yelling into an envelope, asked what she was doing, and she said sending a voice mail.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that I told her Christmas was just around the corner and she went looking for it.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that I told her I was reading a book by Homer and she asked if I had anything written by Bart.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that at bottom of application where it says Sign Here - she put Scorpio.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that if she spoke her mind, she'd be speechless.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that if you gave her a penny for her thoughts, you'd get change.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that in the 'No Child Left Behind' act there's a provision that exempts yo momma.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that it takes her an hour to cook minute rice.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that it took her 2 hours to watch 60 Minutes!
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that on her job application where it says emergency contact she put 911.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she asked for a price check at the dollar store.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she asked me what yield meant, I said 'Slow down' and she said 'What... does.... yield... mean?'
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she asked you 'What is the number for 911?'
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she bought a solar-powered flashlight!
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she bought a video camera to record cable tv shows at home.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she brought a cup to the movie 'Juice.'
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she called the 7-11 to see when they closed.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she can't make Jello because she can't fit 2 quarts of water in the box.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she climbed over a glass wall to see what was behind it.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she failed a survey.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she got fired from the M&M factory for throwing away all the W's.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she got hit by a parked car.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she got locked in a Furniture store and slept on the floor.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she got locked in a grocery store and starved!
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she got locked out of a convertible car with the top down.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she got stabbed in a shoot out.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she leaves the house for the Home Shopping Network.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she locked her keys inside a motorcycle.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she makes Beavis and Butt-Head look like Nobel Prize winners.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she needs twice as much sense to be a half-wit.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she once attempted to commit suicide by jumping off a curb.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she ordered a cheese burger from McDonald's and said 'Hold the cheese.'
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she ordered her sushi well done.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she peals M&M's to make chocolate chip cookies.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she picked up the phone and asked 'What button do I push?'
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she put 2 quarters in her ears and thought she was listening to 50 cent.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she put a peephole in a glass door.
+yo-mama	life	insult	edgy	1	Yo momma is so stupid that she put a phone up her ass and thought she was making a booty call.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she put a quarter in a parking meter and waited for a gumball to come out.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she put on a coat to chew Winterfresh gum.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she put on bug spray before going to the flea market.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she put on her glasses to watch 20/20.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she put two M&M's in her ears and thought she was listening to Eminem.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she puts lipstick on her head just to make-up her mind
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she ran outside with a purse because she heard there was change in the weather.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she said 'what's that letter after x' and I said Y she said 'Cause I wanna know'.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she sat in a tree house because she wanted to be a branch manager.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she sent me a fax with a stamp on it.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she shoved a AA battery up her butt and said 'I got the power!'
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she sits on the TV, and watches the couch!
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she sold her car for gas money!
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she sold the house to pay the mortgage.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she spent twenty minutes lookin' at an orange juice box because it said 'concentrate'.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she stole free bread.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she stopped at a stop sign and waited for it to say go.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she thinks Christmas Wrap is Snoop Dogg's holiday album.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she thinks Fleetwood Mac is a new hamburger at McDonald's!
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she thinks Johnny Cash is a pay toilet!
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she thinks Taco Bell is a Mexican Phone Company.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she thinks Tiger Woods is a forest in India.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she thinks Tiger Woods is a forest.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she thinks a quarterback is a refund!
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she thinks a stereotype is the brand on her clock-radio.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she thinks deadbeat is a type of music.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she thinks fruit punch is a gay boxer.
+yo-mama	life	insult	nsfw	1	Yo momma is so stupid that she thinks sexual battery is something in a dildo.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she thinks socialism means partying!
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she thought Delta Airlines was a sorority.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she thought Dunkin' Donuts was a basketball team!
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she thought Grape Nuts was an STD.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she thought Mick Jagger was a breakfast sandwich!
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she thought St. Ides was a Catholic church.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she thought Tupac Shakur was a Jewish holiday.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she thought a lawsuit was something you wear to court.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she thought brownie points were coupons for a bake sale.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she thought menopause was a button on the VCR.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she thought meow mix was a record for cats.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she thought she needed a token to get on Soul Train.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she threw a rock the ground and missed.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she told everyone that she was 'illegitimate' because she couldn't read.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she took a ruler to bed to see how long she slept.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she took a spoon to the superbowl.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she took a umbrella to see Purple Rain.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she took lessons for a player piano.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she took the Pepsi challenge and chose Dr. Pepper.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she tried to commit suicide by jumping out of the basement window.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she tried to drop acid but the car battery fell on her foot.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she tried to drown a fish.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she tries to email people by putting envelopes into her computer's disk drive.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she tries to insult you with yo momma jokes.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she tripped over a cordless phone!
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she uses Old Spice for cooking.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she was born on Independence Day and can't remember her birthday.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she was on the corner with a sign that said 'Will eat for food.'
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she went to the store to buy a color TV and asked what colors they had.
+yo-mama	life	insult	edgy	1	Yo momma is so stupid that she wiped her ass before she took a shit.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that she wouldn't know up from down if she had three guesses.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that that she thought Boyz II Men was a day care center.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that that she tried to put M&M's in alphabetical order!
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that the first time she used a vibrator, she cracked her two front teeth.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that when I asked her about X-Men she said 'Sure, there's Bobby my first baby daddy, Roger the guy I see on Thursdays...'
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that when I asked her if she wanted to play one on one, she said 'Ok, but what's the teams?'
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that when I told her 'pi-r-squared' and she replied no, they are round.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that when I was drowning and yelled for a life saver, she said 'Cherry or Grape?'
+yo-mama	family	insult	edgy	0	Yo momma is so stupid that when asked on an application, 'Sex?', she marked, 'M, F, and wrote sometimes Wednesday too.'
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that when her husband lost his marbles she ran to the store and bought him new ones.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that when she asked me what kinda jeans I wore, I said Guess and she said 'Ummm... Levis?'
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that when she heard 90% of all crimes occur around the home, she moved.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that when she heard her neighbour was spanking the monkey, she called the humane society.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that when she locked her keys in the car, it took her all day to get Yo family out.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that when she pulled into the drive-thru at McDonald's, she drove through the window.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that when she read on her job application to not write below the dotted line she put 'OK'.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that when she saw a 'Wrong Way' sign in her rearview mirror, she turned around.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that when she saw the 'Under 17 not admitted' sign at a movie theatre, she went home and got 16 friends.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that when she took an IQ test, the results came out negative.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that when she took you to the airport and a sign said 'Airport Left,' she turned around and went home.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that when she went for a blood test, she asked for time to study.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that when she went to take the 44 bus, she took the 22 twice instead.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that when she worked at McDonald's and someone ordered small fries, she said 'Hey Boss, all the small one's are gone.'
+yo-mama	tech	insult	edgy	0	Yo momma is so stupid that when the computer said 'Press any key to continue', she couldn't find the 'Any' key.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that when the judge said 'Order in the court,' she said 'I'll have a hamburger and a Coke.'
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that when they said they were playing craps she went and got toilet paper.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that when your dad said it was chilly outside, she ran out the door with a spoon.
+yo-mama	life	insult	edgy	0	Yo momma is so stupid that you have to dig for her IQ!
+yo-mama	life	insult	edgy	0	Yo momma is so stupid, she went to the aquarium to buy a Blu-Ray.
+yo-mama	life	insult	edgy	1	Yo momma is so stupid, that she thought Moby Dick was a sexually transmitted disease.
+yo-mama	life	insult	edgy	0	Yo momma is so tall that if she did a back-flip she'd kick Jesus in the mouth.
+yo-mama	life	insult	edgy	0	Yo momma is so tall that she tripped in Michigan and bumped her head in Florida.
+yo-mama	life	insult	edgy	0	Yo momma is so tall that she tripped over a rock and hit her head on the moon.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that I took her to a haunted house and she came out with a job application.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that I took her to the zoo, guy at the door said ''
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that I took her to the zoo, guy at the door said 'Thanks for bringing her back.'
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that Santa pays an elf to drop off her gifts at Christmas.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that a sculpture of her face is used when torturing prisoners at Guantanamo Bay.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that even Bill Clinton wouldn't sleep with her.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that even Rice Krispies won't talk to her!
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that government intelligence agencies have to pixelize her face when spying on her.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that her birth certificate contained an apology letter from the condom factory.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that her face is blurred on her driver's license.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that her mom had to be drunk to breast feed her.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that her pillow cries at night.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that her shadow ran away from her.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that if she was a scarecrow, the corn would run away.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that it looks like she's been bobbing for french fries.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that it looks like someone did the stanky leg dance on her face.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that just after she was born, her mother said 'What a treasure!' and her father said 'Yes, let's go bury it.'
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that neither Jacob nor Edward want her on their team.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that people at the circus pay money not to see her.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that people go as her for Halloween.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that people hang her picture in their cars so their radios don't get stolen.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that she can look up a camel's butt and scare the hump off of it.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that she climbed the ugly ladder and didn't miss a step.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that she could be the poster child for birth control.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that she could make a freight train take a dirt road.
+yo-mama	life	insult	edgy	1	Yo momma is so ugly that she could scare the flies off a shit wagon.
+yo-mama	life	insult	edgy	1	Yo momma is so ugly that she didn't get hit with the ugly stick, she got hit by the whole damn tree.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that she gets 364 extra days to dress up for Halloween!
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that she gives Freddy Kreuger nightmares.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that she has 7 years bad luck just trying to look at herself in the mirror.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that she looked out the window and got arrested for mooning.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that she looks like she's been in a dryer filled with rocks.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that she made Barack Obama lose hope!
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that she made an onion cry!
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that she makes blind children cry.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that she practices birth control by leaving the lights on.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that she put the Boogie Man out of business!
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that she scared the crap out of the toilet.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that she scares the roaches away.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that she threw a boomerang and it wouldn't even come back.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that she tried to take a bath and the water jumped out!
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that she turned Medusa to stone!
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that she'd scare the monster out of Loch Ness.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that she's never seen herself 'cause the mirrors keep breaking.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that that when she sits in the sand on the beach, cats try to bury her.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that that your father takes her to work with him so that he doesn't have to kiss her goodbye.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that the FCC requires her face to be blurred when she's on TV, because of decency rules.
+yo-mama	family	insult	edgy	0	Yo momma is so ugly that the government moved Halloween to her birthday!
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that the last time I saw something that looked like her, I pinned a tail on it.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that they didn't give her a costume when she auditioned for Star Wars.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that they pay her to put her clothes on in strip joints
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that they push her face into dough to make gorilla cookies.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that we put her in the kennel when we go on vacation.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that when I last saw a mouth like hers, it had a hook in it.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that when she drove past area 51, she was thought to be extraterrestrial life. They took her away never to be seen again.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that when she goes to the therapist, he makes her lie on the couch face down.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that when she joined an ugly contest, they said 'Sorry, no professionals.'
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that when she looks in the mirror it says 'viewer discretion is advised.'
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that when she looks in the mirror, the reflection looks back and shakes its head.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that when she moved into the projects, all her neighbors chipped in for curtains.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that when she plays Mortal Kombat, Scorpion tells her to 'Stay Over There!'
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that when she uploaded a photo of herself to a computer, it was rejected by the anti-virus software.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that when she walked out of her house, the neighbours called animal control.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that when she walks down the street in September, people say 'Wow, is it Halloween already?'
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that when she walks in the kitchen, the rats jump on the table and start screaming.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that when she walks into a bank, they turn off the surveillance cameras.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that when she was born she was put in an incubator with tinted windows.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that when she was born, the doctor slapped her AND her parents!
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that when she went to Taco Bell everyone ran for the border.
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that when she went to a beautician it took 12 hours... to get a quote!
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that you have to tie a steak around her neck so the dog will play with her!
+yo-mama	life	insult	edgy	0	Yo momma is so ugly that... well... look at you!
+yo-mama	life	insult	edgy	0	Yo momma is so ugly, that Pythagoras wouldn't touch her with a 3-4-5 triangle.
+yo-mama	life	insult	edgy	0	Yo momma is such a ho, that she asked all the math majors to to figure out g(f(your mom)) just so they could 'f' her first.
+yo-mama	life	insult	edgy	0	Yo momma is twice the man you are.
+yo-mama	life	insult	edgy	0	Yo momma likes to applaud, 'cause she's got clap
+yo-mama	life	insult	edgy	0	Yo momma smells so bad that the doctor diagnosed her with breath cancer.
+yo-mama	life	insult	edgy	0	Yo momma so Ugly, she got turned down for 'Girls Gone Wilding'
+yo-mama	life	insult	edgy	0	Yo momma so bad at sex, the only kind of head she gives is severed.
+yo-mama	life	insult	edgy	0	Yo momma so dumb, she lost a spelling bee to Hodor
+yo-mama	life	insult	edgy	0	Yo momma so dumb, she thought Bran Stark was a type of muffin.
+yo-mama	life	insult	edgy	0	Yo momma so fat that she sweats more than a dog in a chinese restaurant.
+yo-mama	life	insult	edgy	0	Yo momma so fat, all she wants for Christmas is to see her feet.
+yo-mama	life	insult	edgy	0	Yo momma so fat, even Roose Bolton won't touch her
+yo-mama	life	insult	edgy	0	Yo momma so fat, she Winter-fell and couldn't get up!
+yo-mama	life	insult	edgy	0	Yo momma so fat, that went she stepped in the water, Thailand had to declare another tsunami warning.
+yo-mama	life	insult	edgy	0	Yo momma so fat, they've been calling her 'the wall' for thousands of years!
+yo-mama	life	insult	edgy	0	Yo momma so old, the old gods pray to HER!
+yo-mama	life	insult	edgy	0	Yo momma so ugly, winter turned around and left!
+yo-mama	life	insult	edgy	1	Yo momma sucks so much dick her butt chin turned into a nut chin!
+yo-mama	life	insult	edgy	0	Yo momma was such an ugly baby that her parents had to feed her with a slingshot.
+yo-mama	life	insult	edgy	0	Yo momma's a convenient proof that the universe is still expanding exponentially.
+yo-mama	life	insult	edgy	0	Yo momma's aging with such grace and beauty that she could be featured on the cover of Elle magazine.
+yo-mama	life	insult	edgy	0	Yo momma's arms are so short that she has to tilt her head to scratch her ear.
+yo-mama	life	insult	edgy	0	Yo momma's been on welfare so long that her picture is on food stamps.
+yo-mama	life	insult	edgy	0	Yo momma's breath is so nasty that it chases away Miasma.
+yo-mama	life	insult	edgy	0	Yo momma's breath is the secret ingredient in the Weasly's Butterscotch Barf-ies.
+yo-mama	life	insult	edgy	0	Yo momma's breath smells so bad that when she yawns her teeth duck out of the way.
+yo-mama	life	insult	edgy	0	Yo momma's breath smells so fresh that Wrigley's could make a chewing gum flavour based on it.
+yo-mama	life	insult	edgy	0	Yo momma's cosplay is so bad that she got beat by a Narutard in the masquerade!
+yo-mama	life	insult	edgy	0	Yo momma's dumber than an augmented rat.
+yo-mama	life	insult	edgy	0	Yo momma's face is so wrinkled, that she has to screw her hat on.
+yo-mama	life	insult	edgy	0	Yo momma's feet are so big that her shoes need to have license plates on them!
+yo-mama	life	insult	edgy	0	Yo momma's got 1 leg longer than the other so they call her call her hip hop.
+yo-mama	life	insult	edgy	0	Yo momma's got 1 toe & 1 knee and they call her Tony.
+yo-mama	life	insult	edgy	0	Yo momma's got Play-Doh teeth.
+yo-mama	life	insult	edgy	0	Yo momma's got a 'wait' problem, she can't wait to eat.
+yo-mama	life	insult	edgy	0	Yo momma's got a 4 dollar weave and don't know when to leave.
+yo-mama	life	insult	edgy	0	Yo momma's got a leather wig with suede sideburns.
+yo-mama	life	insult	edgy	0	Yo momma's got a peanut butter wig with jelly sideburns.
+yo-mama	life	insult	edgy	0	Yo momma's got an eagle's nest wig.
+yo-mama	life	insult	edgy	1	Yo momma's got an eating disorder, she be eating dis order, dat order, she be eating all the damn orders!
+yo-mama	life	insult	edgy	0	Yo momma's got more chins than a Chinese phone book.
+yo-mama	life	insult	edgy	0	Yo momma's got more crust than a bucket of Kentucky Fried Chicken.
+yo-mama	life	insult	edgy	0	Yo momma's got more weave than a dog in traffic.
+yo-mama	life	insult	edgy	0	Yo momma's got no ears and was trying on sunglasses.
+yo-mama	life	insult	edgy	0	Yo momma's got one leg and people call her Ilene.
+yo-mama	life	insult	edgy	0	Yo momma's got so much dandruff, she needs to defrost it before she combs her hair.
+yo-mama	life	insult	edgy	0	Yo momma's got so much weave, AT&T uses her extensions as backup lines.
+yo-mama	life	insult	edgy	0	Yo momma's got so much weave, when a fly goes by her hair swats at it.
+yo-mama	life	insult	edgy	0	Yo momma's gums are so black that she spits Yoo-hoo.
+yo-mama	life	insult	edgy	0	Yo momma's hair is so nappy that she has to take Tylenol just to comb it.
+yo-mama	life	insult	edgy	0	Yo momma's head is so small that she got her ear pierced and died.
+yo-mama	life	insult	edgy	0	Yo momma's head is so small that she uses a tea-bag as a pillow.
+yo-mama	life	insult	edgy	0	Yo momma's hips are so big that people set their drinks on them.
+yo-mama	life	insult	edgy	0	Yo momma's house is so dirty that roaches ride around on dune buggies!
+yo-mama	life	insult	edgy	0	Yo momma's house is so dirty that she has to wipe her feet before she goes outside.
+yo-mama	life	insult	edgy	0	Yo momma's like 7-Eleven - open all night, hot to go, and for 89 cents you can get a slurpy.
+yo-mama	life	insult	edgy	0	Yo momma's like McDonald's... Billions and Billions served.
+yo-mama	life	insult	edgy	0	Yo momma's like Wal-Mart... She's got different discounts everyday.
+yo-mama	life	insult	edgy	0	Yo momma's like a 5 foot tall basketball hoop, it ain't that hard to score.
+yo-mama	life	insult	edgy	0	Yo momma's like a Reese's Peanut Butter Cup, there's no wrong way to eat her.
+yo-mama	life	insult	edgy	0	Yo momma's like a Snickers bar, packed with nuts.
+yo-mama	life	insult	edgy	0	Yo momma's like a birthday cake, everybody gets a piece.
+yo-mama	life	insult	edgy	0	Yo momma's like a bowling ball, she gets picked up, fingered, thrown down the gutter, and she still comes back for more.
+yo-mama	life	insult	edgy	0	Yo momma's like a brick, dirty, flat on both sides, and always getting laid by Mexicans.
+yo-mama	life	insult	edgy	1	Yo momma's like a bungee cord... 100 dollars for 30 seconds and if that rubber breaks, your ass is dead!
+yo-mama	life	insult	edgy	0	Yo momma's like a converging lens - she's wider in the middle than she is on either end.
+yo-mama	life	insult	edgy	0	Yo momma's like a dollar bill, she gets handled all across the country.
+yo-mama	life	insult	edgy	0	Yo momma's like a nickel, she ain't worth a dime.
+yo-mama	life	insult	edgy	0	Yo momma's like a parking garage, three bucks and you're in.
+yo-mama	life	insult	edgy	0	Yo momma's like a pool table, she likes balls in her pocket.
+yo-mama	life	insult	edgy	0	Yo momma's like a postage stamp, you lick her, stick her, then send her away.
+yo-mama	life	insult	edgy	0	Yo momma's like a puppy... everybody wants to give her a hug.
+yo-mama	life	insult	edgy	0	Yo momma's like a race car driver - she burns a lot of rubbers.
+yo-mama	life	insult	edgy	0	Yo momma's like a railroad track, she gets laid all over the country.
+yo-mama	life	insult	edgy	0	Yo momma's like a refrigerator, everyone puts their meat in her.
+yo-mama	life	insult	edgy	0	Yo momma's like a screen door, after a couple of bangs she loosens up.
+yo-mama	life	insult	edgy	0	Yo momma's like a set of speakers - loud, ugly, lives in a box, and you can turn her up, down, on, and off.
+yo-mama	life	insult	edgy	1	Yo momma's like a shotgun, one cock and she blows.
+yo-mama	life	insult	edgy	0	Yo momma's like a squirrel, she's always got some nuts in her mouth.
+yo-mama	life	insult	edgy	0	Yo momma's like a streetlamp, you can find her turned on at night on any street corner.
+yo-mama	life	insult	edgy	0	Yo momma's like a telephone booth, open to the public, costs a quarter, and guys go in and out all day.
+yo-mama	life	insult	edgy	0	Yo momma's like a tricycle, she's easy to ride.
+yo-mama	life	insult	edgy	0	Yo momma's like a vacuum cleaner - a real good suck.
+yo-mama	life	insult	edgy	0	Yo momma's like a vacuum cleaner... she sucks, blows, and then gets laid in the closet.
+yo-mama	life	insult	edgy	0	Yo momma's like an elevator, guys go up and down on her all day.
+yo-mama	life	insult	edgy	0	Yo momma's like an iPod, fun to touch!
+yo-mama	life	insult	edgy	0	Yo momma's like cake mix, 15 servings per package!
+yo-mama	life	insult	edgy	0	Yo momma's like lettuce, 25 cents a head.
+yo-mama	life	insult	edgy	0	Yo momma's like mustard, she spreads easy.
+yo-mama	life	insult	edgy	0	Yo momma's like peanut butter: brown, creamy, and easy to spread.
+yo-mama	life	insult	edgy	0	Yo momma's like school at 3 o'clock... children keep coming out and nobody can remember all the fathers.
+yo-mama	life	insult	edgy	0	Yo momma's like the Bermuda Triangle, they both swallow a lot of seamen.
+yo-mama	life	insult	edgy	0	Yo momma's like the Panama Canal, vessels full of seamen pass through her everyday.
+yo-mama	life	insult	edgy	0	Yo momma's like the Pillsbury dough boy - everybody pokes her.
+yo-mama	life	insult	edgy	0	Yo momma's lips are so big that Chapstick had to invent a spray.
+yo-mama	life	insult	edgy	0	Yo momma's mouth is so big that she speaks in surround sound.
+yo-mama	life	insult	edgy	0	Yo momma's muscle-to-fat ratio can only be explained in irrational complex numbers.
+yo-mama	life	insult	edgy	0	Yo momma's nose hairs are so long that they make Bobobo jealous!
+yo-mama	life	insult	edgy	0	Yo momma's nostrils are so huge she makes Patrick Ewing jealous.
+yo-mama	life	insult	edgy	0	Yo momma's only got one finger and runs around stealing key rings.
+yo-mama	life	insult	edgy	0	Yo momma's so bald that I can tell fortunes on her head.
+yo-mama	life	insult	edgy	0	Yo momma's so bald that when she braids her hair, it looks like stitches.
+yo-mama	life	insult	edgy	0	Yo momma's so bald that when she goes to bed, her head slips off the pillow.
+yo-mama	life	insult	edgy	1	Yo momma's so bald that you could draw a line down the middle of her head and it would look like my ass.
+yo-mama	life	insult	edgy	0	Yo momma's so big that doctors use scuba divers as nanobots to clean her arteries.
+yo-mama	life	insult	edgy	0	Yo momma's so big that she has a gravitational pull equal to that of the sun.
+yo-mama	life	insult	edgy	0	Yo momma's so clean, she could bottle her bathwater and sell it at the grocery store alongside Evian, Dasani and FIJI.
+yo-mama	life	insult	edgy	0	Yo momma's so dirty, she fertilizes her lawn by rolling in it!
+yo-mama	life	insult	edgy	0	Yo momma's so dirty, she jumped in a river and created a mud slide!
+yo-mama	life	insult	edgy	1	Yo momma's so dirty, when a seed gets stuck in her ass crack it beings to grow!
+yo-mama	life	insult	edgy	0	Yo momma's so dirty, when the wind blows people yell 'Sand Storm!!!'
+yo-mama	life	insult	edgy	0	Yo momma's so dumb she thought that she could talk to snakes if she put parsley on her tongue
+yo-mama	life	insult	edgy	0	Yo momma's so dumb that a stupify spell actually made her smarter.
+yo-mama	life	insult	edgy	0	Yo momma's so dumb that she tried to rent a car from The Enterprise.
+yo-mama	life	insult	edgy	0	Yo momma's so dumb that she went to the dentist and asked for a bluetooth.
+yo-mama	life	insult	edgy	0	Yo momma's so dumb that when she found a vulcan, she tried to call Santa to take him back to the north pole.
+yo-mama	life	insult	edgy	0	Yo momma's so dumb that when she was handed the death note, she thought they were asking for her autograph.
+yo-mama	life	insult	edgy	0	Yo momma's so dumb, she failed out of Cromartie High School.
+yo-mama	life	insult	edgy	0	Yo momma's so fashionable that Gucci, Prada and Fendi call her on a daily basis to get insight into upcoming fashion trends.
+yo-mama	life	insult	edgy	0	Yo momma's so fat even Grawp can't pick her up!
+yo-mama	life	insult	edgy	0	Yo momma's so fat she blew up the Death Star.
+yo-mama	life	insult	edgy	0	Yo momma's so fat she makes Riker's belly look 3 atoms thick.
+yo-mama	life	insult	edgy	0	Yo momma's so fat she makes a Snorlax look like a chihuahua!
+yo-mama	life	insult	edgy	0	Yo momma's so fat she wears her own inertia dampener.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that 'ACORN' registered her to vote eight times!
+yo-mama	life	insult	edgy	0	Yo momma's so fat that China uses her to block the internet.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that Dexster Jettster mistook her for his wife.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that Gardulla the Hutt had a boost in self-esteem after seeing her.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that IEEE is working on a wifi protocol so people can get the signals to reach users on opposite sides of her. It's called 802.11 Draft Fat Momma
+yo-mama	life	insult	edgy	1	Yo momma's so fat that NASA shot a rocket into her ass looking for water.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that Sarah Palin can see her from her house.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that Sarah Palin can't see Russia anymore!.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that Spock couldn't find a pressure point to perform the Vulcan Death Grip on her.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that THX can't even surround her.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that a $700 billion bailout would only keep her fed for a week.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that a Wingardium Leviosa spell couldn't lift her.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that a recursive function computing her weight causes a stack overflow.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that even Mitt Romney couldn't afford to take her out to dinner!
+yo-mama	life	insult	edgy	0	Yo momma's so fat that even her Quidditch robes have stretch marks.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that even the Death Star couldn't blow her up!
+yo-mama	life	insult	edgy	0	Yo momma's so fat that even the Dementors can't suck her soul out in one sitting.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that her biography is called 'The Audacity of Hardee's'.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that her lack of balance caused her to stumble into an Utapau sinkhole.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that if she confronted a boggart it would morph into a treadmill.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that if she was thrown into the second Death Star's reactor core, she could have blown up the entire Imperial fleet.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that if she were placed beside a changeling during regeneration, no one would know the difference.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that it takes two boggarts to shape-shift into her!
+yo-mama	life	insult	edgy	0	Yo momma's so fat that it took the entire Dragon Ball Z crew 1 week just to lift her off the ground.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that only half her body was able to come out frozen from the carbon freezing chamber in Cloud City.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that scientists track her position by observing anomalies in Pluto's orbit.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that she and the great wall of China are used as reference points when astronauts look back at the Earth.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that she broke the HP limit!
+yo-mama	life	insult	edgy	0	Yo momma's so fat that she cant even fit in the expanding plug suit.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that she caused Kamino to flood when her water broke.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that she crushed Boga as soon as she mounted her.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that she doesn't get dreams, she gets movies!
+yo-mama	life	insult	edgy	0	Yo momma's so fat that she doesn't just have a low center of gravity, she has an elliptical orbit.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that she doesn't need the internet - she's worldwide.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that she expresses her weight in scientific notation.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that she fell to the dark side and couldn't get back up.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that she makes the USS Enterprise look like a micro machines racer.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that she supported the bailout just because she wanted a 'barrel of pork'.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that she thought the opening line of Kirk's monologue was 'Spice, the final Frontier...'
+yo-mama	life	insult	edgy	0	Yo momma's so fat that she tried to eat someone dressed as a box of Pocky!
+yo-mama	life	insult	edgy	0	Yo momma's so fat that she tried to fly through a temporal anomaly but she didn't fit.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that she was mistaken for Mt. Fuji at the Sakura festival.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that the Dragon Ball Z crew uses her to make craters on set.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that the Kaminoans couldn't use her as a host for clones since they couldn't pierce her skin deep enough to draw blood.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that the Sorting Hat put her in all four houses!
+yo-mama	life	insult	edgy	0	Yo momma's so fat that the housing bubble popped because she sat on it!
+yo-mama	life	insult	edgy	0	Yo momma's so fat that the long double numeric variable type in C++ is insufficient to express her weight.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that the passengers of the Millennium Falcon mistook her for a small moon.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that the sorting hat couldn't decide where to put her - she couldn't fit in any of the houses!!
+yo-mama	life	insult	edgy	0	Yo momma's so fat that when she asked me 'what's up?' I said 'your weight!'
+yo-mama	life	insult	edgy	0	Yo momma's so fat that when she beams to a ship, the ship beams inside of her.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that when she goes on a scale, it reads 'lose some weight'.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that when she goes on a scale, it shows her own phone number.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that when she got upgraded by the Cybermen, they turned her into an ice cream truck
+yo-mama	life	insult	edgy	0	Yo momma's so fat that when she sat down on a park bench, she caused the Naruto time skip.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that when she stepped on the scale, her weight was OVER 9000!!!
+yo-mama	life	insult	edgy	0	Yo momma's so fat that when she tried to captain a galaxy class they had to separate the saucer so she could fit.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that when she walks into a room the replicators stop working.
+yo-mama	life	insult	edgy	0	Yo momma's so fat that when she walks, she changes the earth's rotation!
+yo-mama	life	insult	edgy	0	Yo momma's so fat the Sorting Hat assigned her to the House of Pancakes.
+yo-mama	life	insult	edgy	0	Yo momma's so fat the core of her wand has a creame filling.
+yo-mama	life	insult	edgy	0	Yo momma's so fat the odds against not finding her fat are approximately 3,720 to 1.
+yo-mama	life	insult	edgy	0	Yo momma's so fat they'd have to use transfiguration to sneak her through the hole in the Gryffindor Tower.
+yo-mama	life	insult	edgy	0	Yo momma's so fat, Choji told her to lose weight.
+yo-mama	life	insult	edgy	0	Yo momma's so fat, Data feels strong emotions of disgust and self-terminates.
+yo-mama	life	insult	edgy	0	Yo momma's so fat, Naruto couldn't make enough clones to see all sides of her.
+yo-mama	life	insult	edgy	0	Yo momma's so fat, her Patronus is a Double-Whopper with Cheese.
+yo-mama	life	insult	edgy	0	Yo momma's so fat, it doesn't matter that the Tardis is bigger on the inside. She can't get through the door.
+yo-mama	life	insult	edgy	0	Yo momma's so fat, she ate the Death Eaters.
+yo-mama	life	insult	edgy	0	Yo momma's so fat, she got stuck trying to enter the Nexus.
+yo-mama	life	insult	edgy	0	Yo momma's so fat, she looked in the mirror of Erised and saw a ham!
+yo-mama	life	insult	edgy	0	Yo momma's so fat, she makes Hagrid look like 'Mini-me'.
+yo-mama	life	insult	edgy	0	Yo momma's so fat, she makes Vash look anorexic!
+yo-mama	life	insult	edgy	0	Yo momma's so fat, she managed to contain a warp core breach.
+yo-mama	life	insult	edgy	0	Yo momma's so fat, she scared L into giving up all sweets.
+yo-mama	life	insult	edgy	0	Yo momma's so fat, she tried to eat Cornelius Fudge.
+yo-mama	life	insult	edgy	0	Yo momma's so fat, she used the invisibility cloak as a bib.
+yo-mama	life	insult	edgy	0	Yo momma's so fat, she walked in front of the TV and I missed three seasons of Inuyasha!
+yo-mama	life	insult	edgy	0	Yo momma's so fat, she's bigger than both the outside AND the inside of the Tardis
+yo-mama	life	insult	edgy	0	Yo momma's so fat, that in an attempt to beam her up, the ship ended up being pulled down to the surface.
+yo-mama	life	insult	edgy	0	Yo momma's so fat, the Cyberman DOWNgraded her.
+yo-mama	life	insult	edgy	0	Yo momma's so fat, the Doctor caught her eating his psychic paper, thinking it was a burger.
+yo-mama	life	insult	edgy	0	Yo momma's so fat, the Pirate Planet tried to take her over.
+yo-mama	life	insult	edgy	0	Yo momma's so fat, when she fell over, she punched a hole in the fabric of space/time.
+yo-mama	life	insult	edgy	0	Yo momma's so fit that she could run a marathon, teach a Zumba class AND climb Mount Everest without stopping to catch her breath once.
+yo-mama	life	insult	edgy	0	Yo momma's so flatulent that she forced the Mustafarians to wear masks!
+yo-mama	life	insult	edgy	0	Yo momma's so generous that she sponsors children in Africa, Asia AND South America!
+yo-mama	life	insult	edgy	0	Yo momma's so greasy that her face could free the U.S. from its dependence on foreign oil.
+yo-mama	life	insult	edgy	1	Yo momma's so greasy, on hot days she cooks bacon strips on her ass cheeks!
+yo-mama	life	insult	edgy	0	Yo momma's so hairy Naruto thought she was a Summon.
+yo-mama	life	insult	edgy	0	Yo momma's so hairy and ugly that she got used as Ashitare's stunt double.
+yo-mama	life	insult	edgy	0	Yo momma's so hairy that she has to go to Furfest to meet a man.
+yo-mama	life	insult	edgy	1	Yo momma's so hairy that she's got sideburns on her tits.
+yo-mama	life	insult	edgy	0	Yo momma's so healthy that medical textbooks use her x-rays to demonstrate what perfect bone structure should look like.
+yo-mama	life	insult	edgy	0	Yo momma's so hunchbacked, she can stand on her feet and her head at the same time.
+yo-mama	life	insult	edgy	0	Yo momma's so hunchbacked, she has to look up to tie her shoes.
+yo-mama	life	insult	edgy	0	Yo momma's so hunchbacked, she has to wear goggles to wash dishes.
+yo-mama	life	insult	edgy	0	Yo momma's so hunchbacked, she hits her head on speed bumps.
+yo-mama	life	insult	edgy	0	Yo momma's so lazy, she's a 'part-time' lord
+yo-mama	life	insult	edgy	0	Yo momma's so lonely that she buys hot dogs and nuts wishing she could have sex with them.
+yo-mama	life	insult	edgy	0	Yo momma's so masculine that Dumbledore would sleep with her!
+yo-mama	life	insult	edgy	0	Yo momma's so nasty that the order of the phoenix was 'stay away from that woman!'
+yo-mama	life	insult	edgy	0	Yo momma's so nasty, every pair of her panties has the Dark Mark on them.
+yo-mama	life	insult	edgy	0	Yo momma's so nasty, the Forbidden Forrest was named after her.
+yo-mama	life	insult	edgy	0	Yo momma's so old and fat they use her wrinkles as set terrain for Dragon Ball Z.
+yo-mama	life	insult	edgy	0	Yo momma's so old even Guinan refers to her as 'old bag'.
+yo-mama	life	insult	edgy	0	Yo momma's so old she gave Nicholas Flamel his first kiss.
+yo-mama	life	insult	edgy	0	Yo momma's so old she makes Dumbledore look like a teenager.
+yo-mama	life	insult	edgy	0	Yo momma's so old that she goes on carbon dates.
+yo-mama	life	insult	edgy	1	Yo momma's so old, her boobs look like two upside down Sorting Hats!
+yo-mama	life	insult	edgy	0	Yo momma's so old, she used to babysit Dumbledore.
+yo-mama	life	insult	edgy	0	Yo momma's so old, when she breast feeds, people mistake her for a fog machine.
+yo-mama	life	insult	edgy	0	Yo momma's so pasty, she makes Ron Weasely look like George Hamilton.
+yo-mama	life	insult	edgy	0	Yo momma's so poor she can't even afford a Gringotts account.
+yo-mama	family	insult	edgy	0	Yo momma's so poor she had to go to the Weasley's for a loan.
+yo-mama	life	insult	edgy	0	Yo momma's so poor that Dobby gave her a sock to keep her foot warm.
+yo-mama	life	insult	edgy	0	Yo momma's so poor, that her doormat doesn't say 'welcome', it says 'welfare'.
+yo-mama	life	insult	edgy	0	Yo momma's so popular that Facebook crashed on her birthday, because too many people posted wishes on her wall.
+yo-mama	life	insult	edgy	0	Yo momma's so promiscuous that electrons have a positive charge when they're around her.
+yo-mama	life	insult	edgy	0	Yo momma's so round that she makes a Pokéball look flat!
+yo-mama	life	insult	edgy	0	Yo momma's so short that when she sat on the curb her feet didn't touch the ground.
+yo-mama	life	insult	edgy	0	Yo momma's so skanky that the reason you're called a Half-Blood Prince is because she has no idea who your father is!
+yo-mama	life	insult	edgy	0	Yo momma's so slow and dumb that she can be emulated on a 286.
+yo-mama	life	insult	edgy	0	Yo momma's so smart that an employee from Wikipedia calls her when they need to verify facts about 18th century political figures.
+yo-mama	life	insult	edgy	0	Yo momma's so smart, the hardest decision she's ever had to make was which college to accept a scholarship from - Harvard, Yale or Princeton!
+yo-mama	life	insult	edgy	0	Yo momma's so smelly, Bertie Bott made her his next jelly bean flavor.
+yo-mama	life	insult	edgy	0	Yo momma's so stanky that not even dobby would accept one of her socks.
+yo-mama	life	insult	edgy	0	Yo momma's so stupid she makes Tristan look like Einstein!
+yo-mama	life	insult	edgy	0	Yo momma's so stupid she thinks Patronus is a kind of Tequlia.
+yo-mama	life	insult	edgy	0	Yo momma's so stupid that her exchange particle is a 'moron'.
+yo-mama	tech	insult	edgy	0	Yo momma's so stupid that she bought tickets to Xbox Live.
+yo-mama	life	insult	edgy	0	Yo momma's so stupid that she got locked inside a motorcycle.
+yo-mama	life	insult	edgy	0	Yo momma's so stupid that she thinks sub-prime is a way to cut steak.
+yo-mama	life	insult	edgy	0	Yo momma's so stupid that she though Jar-Jar came with Pickles-Pickles.
+yo-mama	life	insult	edgy	0	Yo momma's so stupid that she went to the dentist to get a bluetooth.
+yo-mama	life	insult	edgy	0	Yo momma's so stupid that when Cassandra says 'Moisturize!', she begins to sweat.
+yo-mama	life	insult	edgy	0	Yo momma's so stupid that when she broke her VCR, she bought a video tape on how to fix your VCR.
+yo-mama	life	insult	edgy	0	Yo momma's so stupid that when the borg had to choose between assimilating her and a tree, they chose the tree.
+yo-mama	life	insult	edgy	0	Yo momma's so stupid that whenever someone rings the doorbell, she checks the microwave.
+yo-mama	life	insult	edgy	0	Yo momma's so stupid the Borg wouldn't assimilate her!
+yo-mama	life	insult	edgy	0	Yo momma's so stupid, she drowned in a pensieve
+yo-mama	life	insult	edgy	0	Yo momma's so stupid, she thinks Sirius Black is a hip hop station on satellite radio.
+yo-mama	life	insult	edgy	0	Yo momma's so stupid, she thinks the G8 is a Value Meal at McDonald's.
+yo-mama	life	insult	edgy	0	Yo momma's so such a ho that she slept with me... therefore, I AM YOUR FATHER!
+yo-mama	life	insult	edgy	0	Yo momma's so tall, she can see her house from anywhere.
+yo-mama	life	insult	edgy	0	Yo momma's so tall, she did a push-up and burned her back on the sun.
+yo-mama	life	insult	edgy	0	Yo momma's so tall, she has to take out the driver's seat of her car and sit in the back to operate the vehicle.
+yo-mama	life	insult	edgy	0	Yo momma's so tall, she makes Shaquille O'Neal look like Gary Coleman.
+yo-mama	life	insult	edgy	0	Yo momma's so tall, she uses two 100-foot ladders as crutches.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly even Data would need special eye googles to look at her.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly even a Ferengi would dress her in clothes.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly her Kazon hairdo is an improvement!
+yo-mama	life	insult	nsfw	1	Yo momma's so ugly she did the truly impossible: she made Captain James T Kirk's penis go limp.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly she scares the Dementors away.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly she turned the Basilisk to stone.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly that Dalek's don't actually say 'Exterminate' when they see her, because they figure somebody else already got there first!
+yo-mama	life	insult	edgy	0	Yo momma's so ugly that Dr. Evazan looks like a male supermodel next to her.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly that Voldemort took one look at her and killed HIMSELF!'
+yo-mama	life	insult	edgy	0	Yo momma's so ugly that Wuher said 'We don't serve your kind here'.
+yo-mama	family	insult	edgy	0	Yo momma's so ugly that as a baby they had to use the Confundus Charm so the family would play with her.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly that even Voldemort won't say her name.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly that she lost a beauty contest to Mountain Troll.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly that she made Loz cry.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly that she made Spike Spiegel choke on his cigarette
+yo-mama	life	insult	edgy	0	Yo momma's so ugly that she made doctor McCoy say 'Damnit Jim, I'm a doctor, not a Zoologist!'
+yo-mama	life	insult	edgy	0	Yo momma's so ugly that she makes Orochimaru look beautiful.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly that she makes Sailor Bubba feel dirty.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly that she's like a Death Note. Get someone to look at her, and they'll die!
+yo-mama	life	insult	edgy	0	Yo momma's so ugly that she's probably a Shi'ido Clawdite that stays in her regular form all the time.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly that the Dementor's Kiss was swapped out for a hearty handshake and a promise to give her a call sometime.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly that the term 'bantha poodoo' wasn't used metaphorically with reference to her.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly that the whomping willow saw her and died.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly that when Captain Jack Harkness saw her, he actually died.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly that when Kakashi looked directly at her, he lost an eye.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly that when Nozomu Itoshiki saw her, he didn't even bother with his 'ZETSUBOUSHITA!' speech - he skipped straight to hanging himself.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly that when she asked Crabbe to take her to the Yule Ball, he decided to go with Goyle instead!
+yo-mama	life	insult	edgy	0	Yo momma's so ugly that when she looks into the Tardis, the Tardis doesn't look into her.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly that when she walked into Gringotts Wizarding Bank, they gave her a job application.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly that when the Daleks Exterminate her, it's not for domination.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly that when the bassalisk snuck up on her and saw her face, HE dropped dead.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly that you could put lipstick on a pig and it would look ten times better than her!
+yo-mama	life	insult	edgy	0	Yo momma's so ugly, Jiraiya saw her and turned gay!
+yo-mama	life	insult	edgy	0	Yo momma's so ugly, Saya thought she was a Chiropteran.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly, even Tamaki wouldn't hit on her.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly, even a Dementor wouldn't kiss her!
+yo-mama	life	insult	edgy	0	Yo momma's so ugly, everybody calls her 'She-Who-Must-Not-Be-Naked'
+yo-mama	life	insult	edgy	0	Yo momma's so ugly, she can't even get tentacle raped.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly, she thought that Hogwarts were the growth on her thigh.
+yo-mama	life	insult	edgy	0	Yo momma's so ugly, she's the real reason Sasuke left the village.
+yo-mama	life	insult	edgy	0	Yo momma's so weak-minded that I got her to lead me to Jabba without using a jedi mind trick!
+yo-mama	life	insult	edgy	0	Yo momma's such a drunk, that her sonic screwdriver is made of vodka and orange juice.
+yo-mama	life	insult	edgy	0	Yo momma's such a good cook that her vegetable lasagna could be served as the featured item at a Michelin Star restaurant!
+yo-mama	life	insult	edgy	0	Yo momma's such a ho that 'who's your daddy?' is a multiple-choice question.
+yo-mama	life	insult	edgy	0	Yo momma's such a ho that even the noble gases are attracted to her.
+yo-mama	life	insult	edgy	0	Yo momma's such a ho that she lets ANYONE enter her 'chamber of secrets'.
+yo-mama	life	insult	nsfw	1	Yo momma's such a hoe that the nickname for her vagina (Bad Wolf) is scattered across time and space.
+yo-mama	life	insult	edgy	0	Yo momma's such a noisy hoe, her nickname is the sonic screwdriver!
+yo-mama	life	insult	edgy	0	Yo momma's such a tramp that she's given more rides than the Hogwarts Express!
+yo-mama	life	insult	edgy	0	Yo momma's such a tramp that she's like a quidditch broomstick - everyone gets a ride.
+yo-mama	life	insult	edgy	0	Yo momma's teeth are so rotten that when she smiles it looks like she has dice in her mouth.
+yo-mama	life	insult	edgy	0	Yo momma's teeth are so yellow that she spits butter!
+yo-mama	life	insult	edgy	0	Yo momma's teeth are so yellow that traffic slows down when she smiles!
+yo-mama	life	insult	edgy	0	Yo momma's teeth are so yellow that when she smiles everyone sings 'We're Walking on Sunshine.'
+yo-mama	life	insult	edgy	0	Yo momma's teeth are so yellow, when she smiles it looks like a Kraft Singles pack.
+yo-mama	life	insult	nsfw	1	Yo momma's the only mute prostitute in Hogsmeade. They call her 'dumb-le-whore'!
+yo-mama	life	insult	edgy	0	Yo momma's the reason that Dumbledore turned gay.
+yo-mama	life	insult	edgy	0	Yo momma's twice the man you are.
+yo-mama	life	insult	edgy	0	Yo momma... 'nuff said.
+yo-mama	life	insult	edgy	0	You suck... yo momma does too, but she charges.
+yo-mama	life	insult	edgy	0	You'll never be the man Yo momma was.
+yo-mama	life	insult	edgy	0	yo momma's breath is so stanky, she eats odour eaters.
+yo-mama	life	insult	edgy	0	yo mommas like a hardware store. 25 cents a screw.

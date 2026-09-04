@@ -1,0 +1,46 @@
+{
+    "modules": [
+        {
+            "id": "fortunes",
+            "name": "Fortunes",
+            "desc": "Offline smart fortunes and speech bubbles, picked contextually by a bundled bge-small embedding model. Ships a built-in corpus of ~10,000 lines, so it has something to say before you download a single pack.",
+            "version": "1.0.0",
+            "permissions": "Speech, ScreenContext, Storage"
+        },
+        {
+            "id": "aibrain",
+            "name": "AI Brain",
+            "desc": "An optional, off-by-default screen-commentary AI brain (local Ollama/llama.cpp or an optional cloud provider). Reads the screen with Windows' built-in OCR, so it needs no separate Tesseract install.",
+            "version": "1.0.0",
+            "permissions": "Speech, Animation, ScreenContext, Network, Hotkey, Storage"
+        },
+        {
+            "id": "petstudio",
+            "name": "Companion Studio",
+            "desc": "Check a companion's animations.xml before you use it: what the host would reject, which animations can never play, and how it actually looks running on your desktop. Edit the XML in place, watch any animation's real sprite frames, preview the companion temporarily on your desktop, then install it.",
+            "version": "1.0.0",
+            "permissions": "Companions, Storage"
+        },
+        {
+            "id": "reminder",
+            "name": "Reminder",
+            "desc": "Your companion announces upcoming calendar events and reads your agenda. Watches up to five calendars (local file, ICS URL, or running Outlook), each with its own name, style, and chime; one-click Join for Teams/Zoom/Meet links; a daily morning briefing; typed personal reminders; skips declined and all-day events; lead times, quiet hours, and hush-while-presenting.",
+            "version": "1.0.0",
+            "permissions": "Speech, Storage, Network, Companions, Audio, Animation"
+        },
+        {
+            "id": "remembrance",
+            "name": "Remembrance",
+            "desc": "Records a meeting (your microphone + the system output over WASAPI loopback), transcribes it offline with a local Whisper, names it from your calendar (via the Reminder module) or a timestamp, snapshots the screen on a hotkey, and purges the audio + snapshots after 72 hours while keeping the transcript. Needs a local Whisper (whisper-cli + a model) set up in options, and the machine's own console - a Remote Desktop session presents no real microphone.",
+            "version": "1.0.0",
+            "permissions": "Microphone, SystemAudio, ScreenContext, Hotkey, Storage, Network"
+        },
+        {
+            "id": "blinkingled",
+            "name": "Blinking LED",
+            "desc": "Blinks your keyboard's Scroll Lock light so the machine reads as active. Six speeds from Glacial to Hyper, switchable from the tray, and your companion has an opinion about each one. It works by pressing Scroll Lock, a key no application acts on, so nothing is ever typed anywhere; Windows still counts it as activity, which is the whole point. Caps Lock stops it.",
+            "version": "1.0.0",
+            "permissions": "Speech, Storage"
+        }
+    ]
+}

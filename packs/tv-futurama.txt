@@ -1,0 +1,754 @@
+tv-futurama	life	tv-quote	general	0	Fry: Space. It seems to go on forever. But then you get to the end and the gorilla starts throwin' barrels at you.
+tv-futurama	life	tv-quote	general	0	Fry: Hello? Pizza delivery for uh... I.C. Wiener? Aww crud. I always thought by this point in my life I'd be the one making the prank calls.
+tv-futurama	life	tv-quote	general	0	Leela: I'm an alien, alright? Let's drop the subject. Fry: Cool, an alien. Has your race taken over the planet? Leela: No, I just work here.
+tv-futurama	life	tv-quote	general	0	[Fry's first glimpse of the future] Fry: My God, it's the future. My parents, my co-workers, my girlfriend. I'll never see any of them again. [Pause.] Fry: YAHOO!!!
+tv-futurama	life	tv-quote	general	0	Fry: Can't you just leave me alone? I'm miserable enough already Leela: I know it's not much consolation, but I know how you feel Fry: No you don't. I've got no home, no family Bender: No friends
+tv-futurama	life	tv-quote	general	0	Leela: This is Officer 1-B D-I requesting backup. [The camera pulls back to reveal two police officers standing right next to her.] Officer Smitty: We'll be there in 5 minutes.
+tv-futurama	life	tv-quote	general	0	Fry: Why would a robot need to drink? Bender: I don't need to drink. I can quit anytime I want!
+tv-futurama	life	tv-quote	general	0	Leela: Fry, we have a crate to deliver. Fry: Well, let's just dump it in the sewer and say we delivered it. Bender: Too much work. Let's burn it and say we dumped it in the sewer.
+tv-futurama	life	tv-quote	general	0	Amy: Leela's gonna kill me. Bender: No, she'll probably make me do it.
+tv-futurama	life	tv-quote	general	0	Bender: I'm going to build my own theme park! With blackjack! And hookers! You know what- forget the park!
+tv-futurama	life	tv-quote	general	0	Bender: Oh, no room for Bender, eh? I'll build my OWN lunar landing... with blackjack, and hookers! In fact, forget the lunar lander and the blackjack! Ehh, screw the whole thing.
+tv-futurama	life	tv-quote	general	0	Craterface: Hi, I'm Craterface. Welcome to Luna Park. I'll have to confiscate your alcohol, sir. Bender: Better mascots than you have tried. (takes a swig of booze and jams the bottle in Craterface's eye) Craterface: At least I have my self-respect. (laughs, then sobs quietly)
+tv-futurama	life	tv-quote	general	0	[Farnsworth watches Fry, Bender and Leela trying to escape from the Moon Farmer on a telescope] Farnsworth: My God! I've got to save them! Although I am already in my pajamas. [falls asleep]
+tv-futurama	life	tv-quote	general	0	Animatronic Whalers: [Singing] We're whalers on the moon, We carry a harpoon. But there ain't no whales, So we tell tall-tales, And sing our whaling tune.
+tv-futurama	life	tv-quote	general	0	Fry: Uh, greetings Moon Man, we come in peace. I am Fry from the planet Earth. Sal: Wise guy, huh? If I wasn't so lazy I'd punch you in the stomach. Fry: But, you are lazy right? Sal: Oh, don't get me started!
+tv-futurama	love	tv-quote	general	0	Bender: You know, Fry, out of all the friends I've ever had... you're the first.
+tv-futurama	life	tv-quote	general	0	Farnsworth: (Talking on the phone) Did he at least die painlessly? To shreds, you say. How's his wife holding up? To shreds, You say.
+tv-futurama	life	tv-quote	general	0	Bender: Not enough room? My place is two cubic meters, and we only take up 1.5 cubic meters. We've got room for a whole 'nother two thirds of a person!
+tv-futurama	arts	tv-quote	general	0	[Fry, Bender and Leela are checking out an appartment based on the "Relativity" print by M.C. Escher] Leela: Wow, this is fantastic. Fry: I don't know, I don't want to pay for an extra dimension we're not going to use.
+tv-futurama	life	tv-quote	general	0	Bender: This last week with Fry has been great. Beneath his warm, soft exterior beats the cold, mechanical heart of a robot.
+tv-futurama	love	tv-quote	general	0	Calculon: I've been processing this for quite sometime, Monique, will you marry me? Monique: Oh, Calculon! Yes! [Calculon fits the ring on Monique's finger] Monique: It fits! Then you must know I'm... Calculon: Metric? I've always known, but for you I'm willing to convert
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: Whatever it is, I'm willing to put wave after wave of men at your disposal. Right, men? Unseen Man: You suck!
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: Kif, I have made it with a woman. Inform the men.
+tv-futurama	life	tv-quote	general	0	Leela: You know Zapp, once I thought you were a big pompous buffoon. Then I realized that inside, you were just a pitiful child. But now I realize that outside that child is a big pompous buffoon! Zapp Brannigan: And which one rocked your world?
+tv-futurama	love	tv-quote	general	0	Leela: Look, last night was a mistake. Zapp Brannigan: A sexy mistake. Leela: No, just a regular mistake.
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: In the game of chess, you can never let your adversary see your pieces.
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: We have failed to uphold Brannigan's Law. However I did make it with a hot alien babe. And in the end, is that not what man has dreamt of since first he looked up at the stars? [Short pause] Zapp Brannigan: Kif, I'm asking you a question. [Kif groans]
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: Brannigan's Law is like Brannigan's love: hard and fast.
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: So, crawling back to the Big Z like a bird on its belly. Delicious. Leela: Birds don't crawl. Zapp Brannigan: They've been known to!
+tv-futurama	love	tv-quote	general	0	Zapp Brannigan: Welcome to my humble chamber, or as I call it, "the Lovenasium". Sham-pag-in? Leela: I didn't realise you were such a coin-a-sewer. Zapp Brannigan: Well, I have studied abroad...or two!
+tv-futurama	life	tv-quote	general	0	Fry: Man, we look stupid. We should've gotten store-bought costumes. Leela: Yeah, but there wasn't a Woolworth's in this quadrant.
+tv-futurama	life	tv-quote	general	0	Farnsworth: He's good, alright. But he's no Clem Johnson. And Johnson played back in the days before steroid injections were mandatory.
+tv-futurama	arts	tv-quote	general	0	Fry: I don't get this. Is Blernsball exactly the same as baseball? Farnsworth: Baseball? God forbid. Leela: Face it, Fry, baseball was as boring as mom and apple pie. Fry: It wasn't bori- (cuts himself off) so they finally jazzed it up.
+tv-futurama	life	tv-quote	general	0	Fry: We're rescuing ya. Bender: I don't want to be rescued. Fry: Say what? Bender: I love this planet! I've got wealth, fame, and access to the depths of sleaze that those things bring.
+tv-futurama	life	tv-quote	general	0	Bender: Now Wireless Joe Jackson - there was a blern-hitting machine. Leela: Exactly! He was a machine designed to hit blerns. Wireless Joe Jackson was nothing but a programmable bat on wheels. Bender: Oh, and I suppose Pitch-o-Mat 5000 was just a modified howitzer! Leela: Yep.
+tv-futurama	life	tv-quote	general	0	[Fry is playing a compact disc recording of Sir Mix-a-Lot's "Baby Got Back;" Leela turns it off.] Leela: Fry, you can't just sit here in the dark listening to classical music. Fry: I could if you hadn't turned on the light and shut off my stereo.
+tv-futurama	life	tv-quote	general	0	Voice on TV: Do you remember when chocolate-chip cookies came fresh out of the oven? Petridge Farm remembers Fry: Oh, those were the days... Voice on TV: Do you remember when women weren't allowed to vote and certain folk weren't allowed on golf courses? Petridge Farm remembers.
+tv-futurama	life	tv-quote	general	0	Fry: I finally found what I need to be happy and it's not friends, it's things. Bender: I'm a thing...
+tv-futurama	life	tv-quote	general	0	[Fry is serving pizza with anchovies] Fry: Okay, my friends, get ready for the most delicious extinct animal you've ever tasted. Amy: I don't know, I've had cow.
+tv-futurama	life	tv-quote	general	0	Leela: I don't get it, Fry. Who was Ted Danson, and why did you bid $10, 000 for his skeleton? Fry: I have an idea for a sitcom.
+tv-futurama	food	tv-quote	general	0	Zoidberg: That stench. That heavenly stench! [Eats all the anchovies] More...More... Fry: There aren't any more, and there never will be. Zoidberg: [advances menacingly] More...More! More! MORE!!!
+tv-futurama	food	tv-quote	general	0	Fry: That was the saltiest thing I ever tasted! And I once ate a big heaping bowl of salt!
+tv-futurama	food	tv-quote	general	0	Bender: There was nothing wrong with that food. The salt level was 10% less than a lethal dose. Zoidberg: Uh-oh! I shouldn't have had seconds.
+tv-futurama	life	tv-quote	general	0	Leela: I know you like cooking shows, but you're a robot. You don't even have a sense of taste. Bender: Honey, I wouldn't talk about taste if I was wearing a lime green tank top.
+tv-futurama	life	tv-quote	general	0	Hermes: Bender, it has come to my attention that this company has been paying you to do nothing but loaf around on the couch. Bender: You call that a couch? I demand a pillow!
+tv-futurama	life	tv-quote	general	0	Bart Simpson-doll: Eat my shorts! Bender: Okay! [Eats the doll's shorts.] Mmm, shorts.
+tv-futurama	life	tv-quote	general	0	Fry: Hey, you have no right to criticize the 20th century. We gave the world the light bulb, the steam boat and the cotton gin. Leela: Those things are all from the 19th century. Fry: Yeah, well, they probably just copied us.
+tv-futurama	life	tv-quote	general	0	Professor Farnsworth: I daresay that Fry has discovered the smelliest object in the known universe! Bender: Ooh, name it after me!
+tv-futurama	life	tv-quote	general	0	Leela: Bender, why are you spending so much time in the bathroom? Are you jacking on in there? Bender: [Nervous] No! Don't come in!
+tv-futurama	arts	tv-quote	general	0	Selling bootleg tapes is wrong, Musicians need that income to survive Beastie Boys: Hey, Bender, gonna make some noise, With your hard drive scratched by the Beastie Boys! [Ad-Rock plays on Bender's hardrive with his tongue] That's whatcha, whatcha, whatcha get on Level Five!
+tv-futurama	life	tv-quote	general	0	Robot Devil: Fencing diamonds, Fixing cockfights, publishing indecent magazines, You'll pay for every crime, knee-deep in electric slime, You'll suffer till the end of time, Enduring tortures, most of which rhyme, Trapped forever here in Robot Hell!!!
+tv-futurama	arts	tv-quote	general	0	Fry: Bender, are you alright? Bender: No! Oh, they tortured me with up-tempo singing and dancing!
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: Good news, everyone! Today you'll be delivering a crate of subpoenas to Sicily 8, the Mob Planet.
+tv-futurama	life	tv-quote	general	0	[After delivering the subpoenas] Fry: I know Big Vinny said he was giving me the Kiss of Death, but I still think he's gay. Leela: Did he use his tongue? Fry: A little.
+tv-futurama	life	tv-quote	general	0	[at a Beastie Boys concert] Leela: They're laying down mad rhymes with an 80% success rate. Bender: I believe that qualifies as ill, at least from a technical standpoint.
+tv-futurama	life	tv-quote	general	0	Bender: In the name of all that is good and logical, we give thanks for the chemical energy we are about to absorb. To quote the prophet Jerematic, one-zero-zero-zero-one-zero-one-zero-one-zero-one-zero-one... [later] ... zero-one-zero-one-one-zero-zero-one... two. Amen.
+tv-futurama	life	tv-quote	general	0	Kif: Sir, can I speak with you? Zapp Brannigan: No! Kif: But, sir, it's an emergency. Zapp Brannigan: Come back when it's a catastrophe. [The ship shakes and rumbles] Zapp Brannigan: [stands up] Oh, very well.
+tv-futurama	food	tv-quote	general	0	Leela: That was the worst delivery ever. Fry: Yeah, I'm never going to another planet called Cannibalon. Bender: Me neither! Food was good, though.
+tv-futurama	arts	tv-quote	general	0	Zapp Brannigan: Kif, I'm feeling the "Captain's itch". Kif: I'll get the powder, sir.
+tv-futurama	life	tv-quote	general	0	Countess de LaRoca: Bender, you risked your life to save me! Bender: And I'd do it again! And perhaps a third time! But that would be it.
+tv-futurama	life	tv-quote	general	0	Kif: Sir, remember your course correction? Zapp Brannigan: No. Kif: Well, it's proving somewhat more suicidal than we had initially hoped.
+tv-futurama	life	tv-quote	general	0	Bender: Wait, my cheating unit malfunctioned. You gotta' give me a do-over. Craps dealer: Sorry, the house limit is three do-overs.
+tv-futurama	love	tv-quote	general	0	Zapp Brannigan: But as a gentleman, I must warn you, if you so much as glance at another woman, I'll be on Leela like a fly on a pile of very seductive manure.
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: Thank God there's plenty of escape pods. We won't have to dress up like women and children. [The camera pulls back to reveal Farnsworth dressed in a kid's sailor outfit and holding a lollipop]
+tv-futurama	love	tv-quote	general	0	Leela: Oh, God, not Zapp Brannigan. Dr. Zoidberg: You know Zapp Brannigan? Leela: Let's just say we've crossed paths. Bender: Was that before or after you slept with him?
+tv-futurama	love	tv-quote	general	0	Fry: You're not jealous, are you? Leela: No! Fry: Good, 'cause I consider my fake relationship with you a lot more meaningful.
+tv-futurama	love	tv-quote	general	0	Fry: Oh. Look, I'm not actually interested in her, if that's what's bothering you. Leela: Oh, are you sure? I mean, she has two eyes, you have two eyes...? Fry: I know. We seem like a perfect match. But, I just don't feel that way about her.
+tv-futurama	life	tv-quote	general	0	Professor Farnsworth: Oh, I always feared he might run off like this. Why, why, why didn't I break his legs?
+tv-futurama	life	tv-quote	general	0	Leela: What you did to Guenter was cruel. At the risk of sounding like an after-school special, I think we learned who the real animal was today. Fry: You mean peer pressure?
+tv-futurama	life	tv-quote	general	0	Fry: This is awesome! I had no idea that Mars had a university Professor Farnsworth: Well, back in those days, Mars was a dreary, uninhabitable wasteland. Much like Utah.
+tv-futurama	life	tv-quote	general	0	[While searching the jungle for Guenter] Fry: Wow, the jungles on Mars look exactly like the jungles on Earth! Professor Farnsworth: Jungles on Earth? [Laughs]
+tv-futurama	life	tv-quote	general	0	Guenter: All I want is to be a monkey of moderate intelligence who wears a suit... that's why I'm transferring to business school! Professor Farnsworth: NOOOOOO!
+tv-futurama	life	tv-quote	general	0	Dean Vernon: You robots are a disgrace to this university! Whenever a fire alarm is pulled, Robot House! Whenever the campus liquor store is looted, Robot House! Whenever a human corpse is desecrated... Bender: Now I can explain that!
+tv-futurama	life	tv-quote	general	0	Dean Vernon: [repeated line] Robot House!!
+tv-futurama	life	tv-quote	general	0	Leela: So you're saying that he just ran off in the middle of the exam? Prof. Farnsworth: All he handed in was a paper smeared with feces. He tied with Fry.
+tv-futurama	life	tv-quote	general	0	Leela: You went to college? Bender: Of course. I'm a bender. I went to Bending College; I majored in Bending. Fry: What was your minor? Bender: Robo-American Studies.
+tv-futurama	science	tv-quote	general	0	Prof. Farnsworth: It's a little experiment that might win me the Nobel Prize. Leela: In what field? Prof. Farnsworth: I don't care; they all pay the same.
+tv-futurama	life	tv-quote	general	0	Beach Bully: Huh, err, sir, you don't understand. I'm a professional beach bully. I pretend to steal your girl, you punch me, I go down, she swoons, you slip me 50 bucks. Fry: 50 bucks? Not even if she was my girlfriend. You take her!
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: The alien mother-ship is in orbit here. If we can hit that bulls-eye, the rest of the dominoes will fall like a house of cards. Checkmate.
+tv-futurama	tech	tv-quote	general	0	Zapp Brannigan: [having just seen another massive spaceship appear] What the hell is that thing?! Kif Kroker: It appears to be the mother ship. Zapp Brannigan: Then what did we just blow up? [Kif checks the star chart] Kif Kroker: The Hubble Telescope.
+tv-futurama	life	tv-quote	general	0	[The real alien mothership appears and it starts easily destroying the ships] Zapp Brannigan: Stop exploding, you cowards!
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: When I'm in command, every mission is a suicide mission.
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: Our mission is clear: Destroy all alien lifeforms. Kif Kroker: Um...not me, sir. Zapp Brannigan: Right. Nobody destroy Kif. Unless you have too.
+tv-futurama	arts	tv-quote	general	0	Fry: OK, Leela, you'll be starring as Jenny-- Leela: Uh-uh, forget it. A, I'm camera shy; and B, I get tongue tied in front of an audience armed with death rays. Amy: Plus, you don't really have the thighs for a miniskirt. Leela: Gimme the script
+tv-futurama	life	tv-quote	general	0	Lrrr: Surely you know McNeal. She is an unmarried human female struggling to succeed in a human male's world. Zapp Brannigan: Maybe that's just her excuse for being incompetent.
+tv-futurama	life	tv-quote	general	0	Amy: There. How do I look? Farnsworth: Like a cheap French harlot. Amy: French?
+tv-futurama	life	tv-quote	general	0	Bender: They must just wanna see that episode. Let's find a tape and give it to 'em. Amy: There aren't any copies left. Farnsworth: No, there wouldn't be. Most videotapes from that era were damaged in 2443 during the Second Coming of Jesus.
+tv-futurama	life	tv-quote	general	0	Lrrr: Attention McNeil. We are reasonably satisfied with the events we have seen. Overall I would rate it a C+. Okay, not great. As a result we will not destroy your planet. But neither will we provide you with our recipe for immortality! Fry: Way to overact, Zoidberg!
+tv-futurama	life	tv-quote	general	0	[Bender feels sick] Amy Wong: You should try homeopathic medicine, Bender. Try some zinc. Bender: I'm 40% zinc! Amy Wong: Then take some echinacea, or St. John's Wort. Professor Farnsworth: Or a big fat placebo. It's all the same crap!
+tv-futurama	life	tv-quote	general	0	Bender: What should we try it on first? Fry: Try it on me [Bender points the F-Ray at Fry's body] ow, my sperm! Bender: I'll try it again [He does so] Fry: Huh. Didn't hurt that time
+tv-futurama	life	tv-quote	general	0	Fry: All this prolonged exposure to radiation is making me thirsty
+tv-futurama	life	tv-quote	general	0	Professor Farnsworth: Who are those horrible orange creatures over there? Glurmo: Why those are the Grunka-Lunkas. They work here in the Slurm factory. Professor Farnsworth: Tell them I hate them.
+tv-futurama	life	tv-quote	general	0	Glurmo: There will be no further questions! Fry: [Raises his hand] Why?
+tv-futurama	life	tv-quote	general	0	Glurmo: You'll have all the Slurm you can drink when you're partying with Slurms McKenzie! Fry: When will that be? Glurmo: Soon enough. Fry: That's not soon enough!
+tv-futurama	life	tv-quote	general	0	Professor Farnsworth: And so we say goodbye to our beloved pet, Nibbler, who's gone to a place where I, too, hope one day to go. The toilet.
+tv-futurama	life	tv-quote	general	0	Bender: You guys realize you live in a sewer, right? Dwayne: Perhaps, but perhaps your civilization is merely the sewer of an even greater society above you! Leela: No. We're on the top. Fry: Daylight and everything. Vyolet: It must be wonderful. Bender: Meh.
+tv-futurama	food	tv-quote	general	0	Leela: Bender, I thought you were supposed to be cooking for this party. Bender: Fine, we'll have rack of Nibbler! Leela: Just make a simple cake, and this time if someone's going to jump out of it, make sure you put them in after you cook it.
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: Throw her in the brig. Fry: We don't have a brig. Zapp Brannigan: Then throw her in the laundry room, which will hereafter be referred to as "the brig". [Later] Kif: What shall I do with your civilian clothes? Zapp Brannigan: Take them to the laundry/brig!
+tv-futurama	life	tv-quote	general	0	Glab: I can think of no better place for this centre of diplomacy than here in orbit around the Neutral Planet. What are your thoughts on this momentous occasion, Your Neutralness? Neutral President: I have no strong feelings one way or the other.
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: It was almost the perfect crime, but you forgot one thing: Rock crushes scissors ... but paper covers rock ... and scissors cut paper. Kif, we have a conundrum. Search them for paper, and bring me a rock.
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: My friends, you can take away a man's title and his uniform but you can never take away his integrity or his honour. Plus it was mostly Kif's fault. Kif Kroker: What? Glab: Kif Kroker, you are also stripped of your rank and dishonourably discharged
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: This is Zapp Brannigan of the good ship ... Planet Express Ship. I come swinging the olive branch of peace. Neutral President's Aide: Should we trust him, Your Neutralness? Neutral President: All I know is my gut says maybe.
+tv-futurama	life	tv-quote	general	0	Neutral President's Aide: Your Neutralness, it's a beige alert. Neutral President: If I don't survive, tell my wife, "Hello".
+tv-futurama	life	tv-quote	general	0	Bender: Ah, yes! John Quincy Adding Machine. He struck a chord with the voters when he pledged not to go on a killing spree. Prof. Farnsworth: But, like most politicians, he promised more than he could deliver.
+tv-futurama	life	tv-quote	general	0	Richard Nixon's Head: Look here, you drugged-out communist! I paid for this body, and I'd no sooner return it than my Cocker-Spaniel dog, Checkers. Checker's Head: Arf! Richard Nixon's Head: SHUT UP, DAMMIT!!!
+tv-futurama	society	tv-quote	general	0	Richard Nixon's Head: Nixon with charisma? My god, I could rule the universe!
+tv-futurama	life	tv-quote	general	0	Richard Nixon's Head: NIXON'S BACK!!
+tv-futurama	life	tv-quote	general	0	Morbo: All hail our gargantuan, cyborg president. May death come quickly to his enemies.
+tv-futurama	work-money	tv-quote	general	0	Bender: Game's over, losers! I have all the money!! Compare your lives to mine and then kill yourselves!
+tv-futurama	society	tv-quote	general	0	Prof Farnsworth: The problem with both parties is they always want to give your tax dollars to the less fortunate. Fry: The less fortunate get all the breaks!
+tv-futurama	life	tv-quote	general	0	Fry: You look different. Did you get a haircut? Bender: No! I sold my body. Prof. Farnsworth: Sold your body? Oh, Bender, I've been down that road. I know it's glamorous and the parties are great, but you'll end up spending every dollar you make on jewelry and skintight pants.
+tv-futurama	society	tv-quote	general	0	Jack Johnson: It's time for someone who has the courage to stand up and say, I'm against those things that everybody hates! John Jackson: Now, I respect my opponent. I think he's a good man. But quite frankly... I agree with everything he just said!
+tv-futurama	society	tv-quote	general	0	Leela: There's a political debate on! Quick, change the channel! Bender: Hey, that's what Fry said when we turned on the debate.
+tv-futurama	life	tv-quote	general	0	Professor Farnsworth: Dear God, they'll be killed on our doorstep! And there's no trash pickup until January 3rd.
+tv-futurama	food	tv-quote	general	0	Fry: Every Christmas my Mom would get a fresh goose, for gooseburgers, and my Dad would whip up his special eggnog out of bourbon and ice cubes.
+tv-futurama	arts	tv-quote	general	0	Bender: Lets face it, comedy's a dead art form. Now tragedy! Ha ha ha, that's funny.
+tv-futurama	nature	tv-quote	general	0	Fry: This snow is beautiful. I'm glad global warming never happened. Leela: Actually, it did. But thank God nuclear winter canceled it out.
+tv-futurama	life	tv-quote	general	0	Fry: I feel like a rat. Here I am whining like a pig while all along Leela is as lonely as a frog.
+tv-futurama	life	tv-quote	general	0	Fry: Please let us live. We'll put out milk and cookies for you. Robot Santa: You dare bribe Santa? I'm going to shove coal so far up your stocking you'll be coughing up diamonds.
+tv-futurama	life	tv-quote	general	0	Leela: Fry's outside? He's in great danger! Dr. Zoidberg: Why? Leela: I'm telling you why! Because Santa Claus is coming to town!
+tv-futurama	life	dark	general	0	[the Planet Express crew are relaxing at the ski lodge] Fry: It really puts you in the Christmas mood. Prof. Farnsworth: What-mas? Fry: Christmas! You know, X-M-A-S. Leela: Oh, you mean "Xmas"! You must be using an archaic pronunciation, like when you say "ask" instead of "axe".
+tv-futurama	life	tv-quote	general	0	Santa Claus Robot: You have all been very naughty! Very naughty indeed! Except you, Dr. Zoidberg. This is for you. Dr. Zoidberg: A pogo stick!
+tv-futurama	life	tv-quote	general	0	Fry: Girls like swarms of lizards, right?
+tv-futurama	life	tv-quote	general	0	Dr. Zoidberg: Now Fry, it's been a few years since medical school, so remind me. Disemboweling in your species: fatal or non-fatal? Fry: Fatal. Dr. Zoidberg: [To Bender] Large bet on myself in round one.
+tv-futurama	life	tv-quote	general	0	Decapodian: See you at the frenzy, Doctor [He makes a gibberish noise]. Fry: Is that how you say "Zoidberg"? [The Decapodian runs off crying] Zoidberg: [angrily] You didn't have to call attention to his speech impediment.
+tv-futurama	life	tv-quote	general	0	[after the "Frenzy" has finished] Dr. Zoidberg: Now how am I going to get rid of my male jelly? Fry: I'll lend you this. [Waves severed arm]
+tv-futurama	life	tv-quote	general	0	Leela: Look at you guys. No offence, Fry, but you've become a fat sack of crap. Fry: "Sack"? Amy: And Bender, your beer belly is so big your door won't even close. And that doesn't even make sense.
+tv-futurama	life	tv-quote	general	0	Fry: Co-ed steam rooms! I love the future! Leela: Uh, Fry, you're in the women's steam room. Fry: Ah, futuristic! Amy: [To Leela] Psst, look what life was like before genetic engineering. Leela: Those poor 20th century women. [Fry crosses his legs, embarrassed.]
+tv-futurama	life	tv-quote	general	0	Voice on T.V.: Is today's hectic lifestyle making you tense and impatient? Bender: Shut up and get to the point!
+tv-futurama	life	tv-quote	general	0	Fry: Bender?! You stole the atom? Bender: I can explain: It's very valuable.
+tv-futurama	life	tv-quote	general	0	Fry: My girlfriend had one of those. Actually it wasn't hers, it was her dad's. And she wasn't my girlfriend, she just lived next door and never closed her curtains. Leela: Fry, remember what we said about ending your stories a sentence earlier?
+tv-futurama	life	tv-quote	general	0	Fry: How's that robot I ran over? Farnsworth: We did all we could... Fry: You mean he's...? Farnsworth: Good as new? Yes!
+tv-futurama	life	tv-quote	general	0	Leela: Fry, why are you looking for Flexo in my underpants drawer? Fry: I didn't find him ten minutes ago, so I thought it was time to check again.
+tv-futurama	life	tv-quote	general	0	Bender: She is well traveled... and I don't mean she travels a lot.
+tv-futurama	life	tv-quote	general	0	Fry: Sorry, I'm not here to buy. Car Dealer: I understand. But it's wonderful that you don't care whether anyone questions your sexual orientation. Fry: I care! I care plenty! But I just don't know how to make them stop! Car Dealer: One word: Thundercougarfalconbird.
+tv-futurama	life	tv-quote	general	0	Bender: Congratulations, Fry! You snagged the perfect girlfriend. Amy's rich, she probably has got other characteristics... Leela: Bender! Romance isn't about money. Bender: Oh, so it's just coincidence that Zoidberg is desperately poor and miserably lonely? Please!
+tv-futurama	life	tv-quote	general	0	(Zoidberg raises one of his mouth mandibles to protest) Leela: For your information, it's because he's hideous.
+tv-futurama	life	tv-quote	general	0	(Zoidberg drops his mouth mandible and slumps sadly) Prof. Farnsworth: I still don't understand why you wouldn't let me graft a laser cannon on your chest, to crush those who disobey you! But I guess we're just two different people.
+tv-futurama	life	tv-quote	general	0	Amy: Hey, let's go car shopping! My parents promised if I got all B's they'd buy me a bar, and I got all C's!
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: Cheers! "Woman": [with five o'clock shadow] Cheers! [Later] Sal: Anybodys else for Nutley? [Bender's customers get up and head for the door. Zapp's date also leaves.] Zapp Brannigan: Baby, wait! You didn't show me your surprise.
+tv-futurama	life	tv-quote	general	0	Fry: Hey, I can get a date too. Now that I'm single, I'll attract all sorts of women! Amy: With my body I think you might only attract one sort of woman. Fry: Oh! Oh...
+tv-futurama	life	tv-quote	general	0	Zoidberg: There you are, good as new. Except for your dorsal fin, I'm afraid I couldn't find it after the crash. Fry: Can I live without it? Zoidberg: If you call that living.
+tv-futurama	tech	tv-quote	general	0	Professor Farnsworth: Good news, everyone! I've taught the toaster to feel love!
+tv-futurama	life	tv-quote	general	0	George Foreman: As an interesting side note, as a head without a body, I envy the dead. Rich Little: No argument here.
+tv-futurama	food	tv-quote	general	0	George Foreman: This seems as good a time as any to bring up my new grill for no reason. With its patented design, the fat drains directly into my mouth!
+tv-futurama	life	tv-quote	general	0	Hermes: [With a brain-slug attached] Your mission today is to go to the Brain-Slug Planet. Zoidberg: What are we doing to do there? Hermes: Just walk around not wearing a helmet.
+tv-futurama	life	tv-quote	general	0	[After finding out that Master Fnog is the trainer of Destructor] Leela: Come on, Bender, let's hit the gym. I'm gonna teach you how to fight like a girl. Bender: [vengefully] I'll put on my tutu...
+tv-futurama	life	tv-quote	general	0	Fnog: You were an excellent student. Too bad I was a lousy teacher!
+tv-futurama	life	tv-quote	general	0	Zoidberg: I'm going to a movie...with friends!
+tv-futurama	life	tv-quote	general	0	Billionaire Bot: You'll be the most unpopular robot fighter since Sergeant Feces-Processor.
+tv-futurama	life	tv-quote	general	0	Bender: Let's commence preparations for rumbling!
+tv-futurama	life	tv-quote	general	0	Fry: Man, I thought Ultimate Robot Fighting was real, like pro-wrestling, but it turns out it's fixed, like boxing.
+tv-futurama	life	tv-quote	general	0	Fry: Well, thanks to the Internet, I'm now bored with sex. Is there a place on the web that panders to my lust for violence? Bender: [sarcastically] Is the Space Pope reptilian?
+tv-futurama	life	tv-quote	general	0	Bender: [singing] I like stealing, I like taking things.
+tv-futurama	life	tv-quote	general	0	Leela: After all this time, somebody else with one eye... who ISN'T a clumsy carpenter or a kid with a BB gun.
+tv-futurama	tech	tv-quote	general	0	[the gang is logged onto the internet in virtual reality] Bender: Behold... the Internet! Fry: My God! It's full of ads!
+tv-futurama	tech	tv-quote	general	0	[on the internet, Amy finds a door titled "Amy Wong Naked". She looks inside] Amy Wong: Hey! That's me! Bender: No it isn't. I just took some pictures of your face and stuck them on someone else's body. [Leela looks inside] Leela: Hey!
+tv-futurama	life	tv-quote	general	0	Fry: Leela, you have to get me out of here. It's horrible! Eating scraps, letting my waste drop where I stand like an animal in the zoo. Leela: Animals go on the corner. Fry: The corner! Why didn't I think of that?
+tv-futurama	tech	tv-quote	general	0	Prof. Farnsworth: Good news, everyone. Several years ago I tried to log on to AOL, and it just went through.
+tv-futurama	life	tv-quote	general	0	Alcazar: This sacred mosaic depicts our goddess of beauty. Fry: Hmm. You got any sacred artwork of her from the back?
+tv-futurama	life	tv-quote	general	0	Alcazar: By the way, your pal Fry fell in the dungeon. Take him a taco so he doesn't die and stink up the place. Leela: Come on, Al. Can't you let the little guy out? Alcazar: Geez, Leela! Twice in one day? I'm not Superman! Alcazar's friends: WOOOOO!
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: Go ahead, get into these net suits. I designed and tested them myself. Leela: [She sniffs her glove.] They smell like burning Rhesus Monkey. Prof. Farnsworth: Really? I guess when you're around it all day you stop noticing. Off you go.
+tv-futurama	life	tv-quote	general	0	Leela: Alright, Alcazar, I just have one last question for you. Alcazar: What's that? Leela: If you can change form, why didn't you change it in the one place that counts? Everyone: WOOOOO!
+tv-futurama	life	tv-quote	general	0	Cubert: What? You've never seen a genius' wiener before?
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: Nothing is impossible! Not if you can imagine it. That's what being a scientist is all about! Cubert Farnsworth: No, that's what being a magical elf is all about!
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: Everyone's always in favor of saving Hitler's brain but when you put it in the body of a great white shark, ooh, suddenly you've gone too far.
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: Good news, everyone! The university is bringing me up on disciplinary charges. Wait...that's not good news at all!
+tv-futurama	life	tv-quote	general	0	Cubert: Why do I have to be the hump? Fry: Because you're too ugly to be a wart.
+tv-futurama	life	tv-quote	general	0	Fry: Try waking him up by shocking him! Bender: Your social security check is late! Things cost more than they used to! Young people use curse words!
+tv-futurama	life	tv-quote	general	0	[Hermes is threatening to jump off a building.] Planet Express Crew: No! Don't jump! Bender: Do a flip!
+tv-futurama	life	tv-quote	general	0	Professor Farnsworth: If you're going to jump, Hermes, do something that won't damage your liver. Other people need it, you know!
+tv-futurama	life	tv-quote	general	0	Leela: Don't, Hermes! You have so much to live for! Bender: I get it: reverse psychology
+tv-futurama	society	tv-quote	general	0	Number 1.0: Don't quote regulation to me! I co-chaired the committee that reviewed the recommendation to revise the color of the book that regulation is in. We kept it gray.
+tv-futurama	life	tv-quote	general	0	Number 1.0: Guards! Bring me the forms I need to fill out to have her taken away!
+tv-futurama	life	tv-quote	general	0	Morgan Proctor: Naturally I have to assign someone to fill in for Hermes while he's gone. I assign me. I accept. Welcome aboard
+tv-futurama	life	tv-quote	general	0	Morgan Proctor: Why is there yogurt in this cap? Fry: Uh, I can explain that. See, it used to be milk and, well, time makes fools of us all.
+tv-futurama	life	tv-quote	general	0	Leela: I'm having a poker game tonight with some of my old cryogenics lab coworkers. Would any of you like to join? Bender: I don't know. I only gamble with chumps. Fry: I'll play. Bender: I'm in!
+tv-futurama	life	tv-quote	general	0	Hermes: [a letter comes in on the mail tube] Great gorilla of Manilla! A letter from the Central Bureaucracy. "Attention, Hermes Conrad. You are about to receive a letter from the Central Bureaucracy." [Another letter comes in] Oh, my God! It's from the Central Bureaucracy!
+tv-futurama	life	tv-quote	general	0	Hermes: Sweet someting of... someplace.
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: Dammit, Hermes, just jump already! Stop hogging that healthy liver.
+tv-futurama	life	tv-quote	general	0	[Fry is presented with an egg-sized pill which will allow him to withstand the pressure underwater.] Fry: I can't swallow that. Professor Farnsworth: Well, then good news! It's a suppository.
+tv-futurama	life	tv-quote	general	0	Bender: Let's hope some robot doesn't kill everybody.
+tv-futurama	life	tv-quote	general	0	[Whilst underwater] Zoidberg: Nooo! My home, it burnt down! How did this happen? Hermes: That's a very good question... Bender: Ah, so that's where I left my cigar! Hermes: ...That just raises further questions!!
+tv-futurama	food	tv-quote	general	0	Hermes: My Manwich!
+tv-futurama	food	tv-quote	general	0	Hermes: The important thing is that we don't panic! There are rules for situations like this! Now, the first order of business is lunch. I suggest a nice Lobster Zoidberg. I mean, Lobster Newburg. I mean
+tv-futurama	life	tv-quote	general	0	Fry: What's so far-fetched about mermaids? There's all kinds of weird sea creatures here in the future, like Dr. Zoidberg!
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: This is uncomfortable and humiliating. Now if they were to make it in the form of a suppository...
+tv-futurama	life	tv-quote	general	0	Bender: Ahoy, mateys. I shanghaied us some hearthy grog. [he tries to drink it, but it just dissolves in the water] Arrgh, the laws of science be a harsh mistress.
+tv-futurama	life	tv-quote	general	0	Leela': Ah, the sun, the sea air, good friends... Bender: Leela's right, fishing blows. What do we say we make it interesting? Everyone kick in five bucks. [they all give Bender five bucks; he pockets the money] Bender: Now, wasn't that interesting?
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: Good Lord! That's over 5000 atmospheres of pressure! Fry: How many atmospheres can the ship withstand? Prof. Farnsworth: Well, it was built for space travel, so anywhere between zero and one.
+tv-futurama	life	tv-quote	general	0	Supplicant: Please, Don-Bot... look into your hard drive, and open your mercy file! Don-Bot: File not found.
+tv-futurama	food	tv-quote	general	0	Bender: Wow! I'm finally gonna see my favourite chef, TV's Elzar! Aww, this is the greatest nanosecond of my life! No, this one is! No, this one. Wait! That one was... slightly worse. Ah! So far so good on this one!
+tv-futurama	life	tv-quote	general	0	Fry: It's funny, Bender. With you sick and Leela blind, only I know what really went on out there. Maybe someday I'll tell you the whole story. Bender: And maybe someday I won't listen.
+tv-futurama	life	tv-quote	general	0	Dr. Zoidberg: I don't like the looks of this doctor. I bet I've lost more patients than he's treated.
+tv-futurama	life	tv-quote	general	0	[The ship takes off, damaging the roof.] Hermes: [to Zoidberg] That's coming out of your pay! [Zoidberg cries.]
+tv-futurama	food	tv-quote	general	0	Hermes: It's the biggest Jamaican platter I've ever seen! Jerk chicken, jerk beef, jerk pork. Is there any meat this man can't jerk?
+tv-futurama	life	tv-quote	general	0	Professor Farnsworth: Good news, everyone! There's a report on TV with some very bad news!
+tv-futurama	society	tv-quote	general	0	Greeting Card: Come, Comrade Bender! We must take to the streets! Bender: Um, is this the boring, peaceful kind of taking to the streets? Greeting Card: No! The kind with looting and maybe starting a few fires! Bender: Yes! In your face, Gandhi!
+tv-futurama	family	tv-quote	general	0	Mom: You broke my heart, Hubert. Prof. Farnsworth: And you broke mine. Granted, that was four or five hearts ago.
+tv-futurama	life	tv-quote	general	0	Hermes: Help! My stapler is collating me alive!
+tv-futurama	life	tv-quote	general	0	Hermes: Without machines, who will feed us and clothe us and compose our smooth jazz?
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: Just the thought of caressing that leathery hide makes the tapioca rise in my gullet. Fry: Professor, please. The fate of the world depends on you getting to second base with Mom. Prof. Farnsworth: Very well. If cop a feel I must, then cop a feel I shall!
+tv-futurama	society	tv-quote	general	0	Greeting Card: Comrades, throw off the chains of human oppression.
+tv-futurama	society	quip	general	0	Greeting Card: The bourgeois human is a virus on the hard drive of the working robot.
+tv-futurama	life	tv-quote	general	0	Fry: They're like sex, except I'm having it!
+tv-futurama	life	tv-quote	general	0	Free Waterfall Jr.: Pssh! You can't own property, man! Professor Farnsworth: I can, but that's because I'm not a penniless hippie!
+tv-futurama	food	tv-quote	general	0	Poppler Song: Pop a Poppler in your mouth, when you come to Fishy Joe's What they're made of is a mystery; where they come from, no one knows You can pick 'em, you can lick 'em, you can chew 'em, you can stick 'em If you promise not to sue us, you can shove one up your nose.
+tv-futurama	love	tv-quote	general	0	Zapp Brannigan: I realize this may hurt our chances of consummating our relationship again. Leela: Go consummate yourself.
+tv-futurama	life	tv-quote	general	0	Free Waterfall Jr.: The point is, you shouldn't eat things that feel pain. [Bender throws a brick at him] Free Waterfall Jr.: Ow! Bender: Okay, we won't eat you. Leela: I'll go get some more bricks
+tv-futurama	life	tv-quote	general	0	Fry: Let's bring back a few pocketfuls. Bender: Better yet, let's take a whole Benderful. Leela: No, take only what's necessary. Stuff the ship.
+tv-futurama	life	tv-quote	general	0	Farnsworth: My God, they're back! We're doomed! Amy: Doomed! Bender: [Deep inhale] DOOOOOOOOOOOOOOOOOO....
+tv-futurama	nature	tv-quote	general	0	Bender: Who wants some dolphin? Amy: Dolphin? But dolphins are intelligent! Bender: Not this one. He blew his life savings on lottery tickets
+tv-futurama	life	tv-quote	general	0	Leela: Great, we're two days from Earth with no food! Bender: Problem solved: You two fight to the death and I'll cook the loser! [To Leela.] Work his gut, I like it tender.
+tv-futurama	life	tv-quote	general	0	Professor Farnsworth: You've killed me! Oh, you've killed me! Leela: Oh God, what have I done? Professor Farnsworth: I just told you! You've killed me!
+tv-futurama	life	tv-quote	general	0	Hermes: What are you hacking off? Is it my torso?! It is! My precious torso!
+tv-futurama	life	tv-quote	general	0	Leela: Who are you? Scruffy: I'm Scruffy, the janitor. Leela: I've never seen you before. Scruffy: And I've never seen you before neither.
+tv-futurama	life	tv-quote	general	0	Zoidberg: My first clue came at 4:15, when the clock stopped. The next clue came 3 hours later at 4:15 when I found the body of Amy's dead, deceased corpse!
+tv-futurama	life	tv-quote	general	0	Bender: There's nothing wrong with murder, so long as you let Bender wet his beak. Leela: You're blackmailing me? Bender: Blackmail is such an ugly word; I prefer "extortion". The "X" makes it sound cool.
+tv-futurama	life	tv-quote	general	0	Nichelle Nichols: Eternity with nerds. It's the Pasadena Star Trek convention all over again.
+tv-futurama	life	tv-quote	general	0	Stephen Hawking: Oh, great. The universe was destroyed. Fry: Destroyed? Then where are we? Al Gore: I don't know, but I dang well know where we're not: the universe.
+tv-futurama	life	tv-quote	general	0	Dr. Zoidberg: [sees a guinea pig on a plate] What's this? Two meals in one week? [Zoidberg devours the live guinea pig, and is trapped behind a glass box] Fry: Gotcha! Amy: Sucker! Dr. Zoidberg: Friends, help! A guinea pig tricked me!
+tv-futurama	life	tv-quote	general	0	Fry: What are you monsters? Is one of you I.C. Wienner? Dr. Zoidberg: If that's his pizza, then I'm I.C. Whatever.
+tv-futurama	life	tv-quote	general	0	Bender: This is the worst kind of discrimination: the kind against me!
+tv-futurama	life	tv-quote	general	0	Henry Kissinger's Head: Please, gentlemen, we must put an end to the bloodshed. We have all seen too many body bags and ball sacks.
+tv-futurama	love	tv-quote	general	0	Leela: You know, Zapp, someone ought to teach you a lesson. Zapp Brannigan: If it's a lesson in love, watch out. I suffer from a very sexy learning disability. What did I call it, Kif? Kif: Ugh... sexlexia.
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: Dammit, Kif! Where's the little umbrella? That's what makes it as scotch on the rocks.
+tv-futurama	society	tv-quote	general	0	Soldier: This is the worst part. The calm before the battle. Fry: And then the battle's not so bad? Soldier: Oh right. I forgot about the battle. [whimpers]
+tv-futurama	life	tv-quote	general	0	Fry: [To Bender] Wait, If you say the A-word, this planet will blow straight up to the H-word.
+tv-futurama	society	tv-quote	general	0	Richard Nixon's Head: Accompaning you will be our top peace negotiator, Henry Kissinger. Henry Kissinger's Head: How are you? Bender: Is he any good? Richard Nixon's Head: Looking like that, he talked his way into Jill St. John's bed. Enough said.
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: That young man fills me with hope. Plus some other emotions which are weird and deeply confusing.
+tv-futurama	work-money	tv-quote	general	0	Zapp Brannigan: I'm de-promoting you, soldier. Kif, what's the most humiliating job there is? Kif Kroker: Being your assistant. Zapp Brannigan: Wrong. Being your assistant.
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: Oh, god, I've never been so happy to be beaten up by a woman. Leela: Let's do it again sometime.
+tv-futurama	life	tv-quote	general	0	Bender: And until then, I can never die? Gypsy-Bot: Who said that? SURE you can die! [Pulls out big gun.] You want to die?! Bender: No! I want to live! There are still too many things I don't own!
+tv-futurama	arts	tv-quote	general	0	Calculon: I was all of history's great robot actors: Acting Unit 0.8, Thespomat, David Duchovny!
+tv-futurama	life	tv-quote	general	0	Fry: Nightrider wasn't evil! Calculon: No, but his windshield wipers were. Didn't come up much in the show...
+tv-futurama	life	tv-quote	general	0	Leela: There, no rampaging for you tonight. Bender: Wouldn't it make sense to weld everyone except me to the wall? Leela: Just relax, Bender. Tomorrow we'll pry you down, have a nice breakfast, and then go hunt down and slaughter that ancient evil. Fry: It'll be a rich, full day.
+tv-futurama	life	wisdom	general	0	Sal: We're all scared, it's the human condition. Why do you think I put on this tough guy facade?
+tv-futurama	life	tv-quote	general	0	Robot Villager #1: Some say unholy things happen up there. Robot Villager #2: For example, all of us say that. Prof. Farnsworth: Pfft! Supersticious robot mumbo-jumbo! Robot Villager #2: Mumbo, perhaps. Jumbo, perhaps not.
+tv-futurama	life	tv-quote	general	0	Will Reader: To my lazy, spoiled son Tandy, who never understood the value of a dollar, I leave my entire $20 million fortune. Tandy: [whispers to girlfriend] Is that a lot?
+tv-futurama	life	tv-quote	general	0	Leela: Well, good night. I'm gonna make all my meals for the next month and freeze them.
+tv-futurama	love	tv-quote	general	0	Fry: Michelle, I don't regret this, but I both rue and lament it.
+tv-futurama	life	tv-quote	general	0	Dr. Zoidberg: For one beautiful night I knew what it was like to be a grandmother. Subjugated, yet honored.
+tv-futurama	life	tv-quote	general	0	Fry: What's deathrolling? Black Child: It's like skateboarding. Punk Kid: But half the time someone dies. Fry: Oh. So it's a little safer than skateboarding.
+tv-futurama	life	tv-quote	general	0	Michelle: Fry, why must you analyze everything with your relentless logic?
+tv-futurama	life	tv-quote	general	0	Michelle: It's a relief to meet you, Amy. I'm just having a hard time adjusting to all the strange stuff here in the future. Amy: I'm from Mars.
+tv-futurama	life	tv-quote	general	0	Leela: We don't need to beg Bender, for God's sake we're not veterans. Fry: Then what do you suggest? A daring daylight robbery of Fort Knox on elephant back. That's the dumbest thing I ever heard.
+tv-futurama	life	tv-quote	general	0	[After the men have been sentenced to death by snu-snu.] Fry: Goodbye, friends. I never thought I'd die like this. But I always really hoped.
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: She's built like a steak house, but she handles like a Bistro
+tv-futurama	life	tv-quote	general	0	Fry: We have to go save them. Bender: Nah, why bother? Fry: Bender, think of the señoritas! [A cord of Latin music plays] Bender: Vámonos!
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: You win again, gravity!
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: We need rest. The spirit is willing, but the flesh is spongy and bruised.
+tv-futurama	life	tv-quote	general	0	Professor Farnsworth: Anyhoo, your net-suits will allow you to experience Fry's worm infested bowels as if you were actually wriggling through them. Dr. Zoidberg: There's no part of that sentence I didn't like!
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: [whispers] Be very quiet. We're in the ear. Amy: [whispers] Okay professor. Prof. Farnsworth: WHAT?! Fry: [to Leela] What about "what"? Leela: Uh...What about we go for a walk because it's a lovely day, perhaps? Fry: Oh, okay.
+tv-futurama	food	tv-quote	general	0	Farnsworth: Leela, you're just in time to help. If we don't get rid of the worms now, they'll burrow so deep into the bowel that not even Hermes' famous jerk prunes could dislodge them. Hermes: I call it "Caribbean Drain-o".
+tv-futurama	life	tv-quote	general	0	Fry: Apartment 1I. The old me would have made a joke about that!
+tv-futurama	life	tv-quote	general	0	Bender: Isn't it true that you have been paid for your testimony? Pramala: Yes. You gave me a dollar and some candy. Bender: And yet you haven't said what I told you to say! How can any of us trust you?
+tv-futurama	life	tv-quote	general	0	Fry: I'm Santa Claus! Hermes: No, I'm Santa Claus! Amy: We're also Santa Claus! Dr. Zoidberg: And I'm his friend, Jesus. Mayor: You guys aren't Santa! You're not even robots. How dare you lie in front of Jesus!
+tv-futurama	life	tv-quote	general	0	Santa: Bender can't be Santa. He's not built to yuletide specifications. Bender: Well, I wasn't built to steal Leela's purse either, but that didn't stop me.
+tv-futurama	life	tv-quote	general	0	Linda: In what has become a holiday tradition, members of the Zarlon 7 Polar Bear Club today took the plunge into a river of liquid ammonia. Morbo: There were no survivors. Linda: [Chuckles] Takes all kinds.
+tv-futurama	life	tv-quote	general	0	Young Fry: Ah, the Breakfast Club soundtrack! I can't wait 'til I'm old enough to feel ways about stuff!
+tv-futurama	life	tv-quote	general	0	Fry: Leela, Bender, we're going grave robbing. Bender: I'll get my kit!
+tv-futurama	family	tv-quote	general	0	Doctor: It's a boy. And look at that red hair. Yancy Fry, Sr.: [angry] You sayin' my boy is a Commie?
+tv-futurama	life	tv-quote	general	0	Yancy Fry, Jr.: [two years old] I wanna be Philip. Me Philip. Me Philip. Yancy Fry, Sr.: Son, your name is Yancy, just like me, and my grandfather, and so on, all the way back to Minuteman Yancy Fry, who blasted Commies in the American Revolution.
+tv-futurama	life	tv-quote	general	0	[At the horse races] Hermes: Come on, baby needs a new pair of shoes! Dr. Zoidberg: The hell with your spoiled baby! I need those shoes.
+tv-futurama	life	tv-quote	general	0	Yancy Fry, Jr: [wearing a camouflage-colored tuxedo] Thanks for lending me your tux dad. It'll be perfect for my wedding. Yancy Fry, Sr.: Yancy, that tux got me through 'Nam in style.
+tv-futurama	life	tv-quote	general	0	Free Waterfall Sr.: If you're cold, rub your bodies with permafrost. It's nature's long johns. If rubbin' frozen dirt in your crotch is wrong, hey I don't wanna be right.
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: Good news, everyone! I'm sending you on a highly controversial mission. Fry: Controversial? Prof. Farnsworth: Oh, my, no.
+tv-futurama	life	tv-quote	general	0	Bender: Wiggles, weren't you about to propose a toast to your gallant captain? Fry: Fine, I've got a toast. To Captain Bender, he's the best... at being a big jerk who's stupid and his big ugly face is as dumb as a butt! Bender: Eh, I've heard better.
+tv-futurama	life	tv-quote	general	0	Fry: What happened? Dr. Zoidberg: All 6, 000 hulls have been breached. Fry: Oh, the fools! Why didn't they build it with 6, 001 hulls?! When will they learn?
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: Being a captain is about intuition and heart. A good captain can't have either one. That's why cold, logical Bender is the perfect candidate for the job. Bender: Well, I do think of human life as expendable.
+tv-futurama	life	tv-quote	general	0	Leela: Why do we have to resort to non-violence? Can't we just kick their asses? Free Waterfall Sr.: Now, little lady, those people's asses are living things too.
+tv-futurama	love	tv-quote	general	0	Fry: No fair! Leela was training me to be captain. She even let me sit in her lap and steer... in this comic I drew. Dr. Zoidberg: [Grabs comic] Ooh, the new one's out!
+tv-futurama	life	tv-quote	general	0	Bender: That's right, baby, I ain't your loverboy Flexo: the guy you love so much you even love anyone pretending to be him! Angleyne: Maybe I love you so much I love you no matter who you're pretending to be. Bender: Oh, how I wish I could believe or understand that!
+tv-futurama	work-money	tv-quote	general	0	Robots: Give us a raise you big fat jerk Sal: Nevers!
+tv-futurama	life	tv-quote	general	0	Leela: My God! Even the professor is bent! Prof. Farnsworth: [Bent facing the floor] Thank you for your sympathy, talking square of linoleum.
+tv-futurama	life	tv-quote	general	0	Bender: Hooray! I graduated. Time to bend around Europe for a few months, then get a job bending.
+tv-futurama	life	tv-quote	general	0	Pet Show Judge: And the grand prize winner...[monotonous] The Hypnotoad. [The Hypnotoad turns its powers on the crowd, making them all clap at once] Pet Show Judge: All glory to the Hypnotoad.
+tv-futurama	life	tv-quote	general	0	Fry: Don't listen to them, Leela. People said I was dumb, but I proved them!
+tv-futurama	life	tv-quote	general	0	Linda:Today, some bad things happened. One bad thing was, a train got crashed in New Jersey. Wanna see? People won't be late for work though. The governor lady said, "I'm sending more trains!"
+tv-futurama	life	tv-quote	general	0	Ken: They travel from world to world making everyone stupid in order to wipe out all thought in the universe. Leela: Wipe out all thought? My God, they're like flying televisions.
+tv-futurama	life	tv-quote	general	0	Leela: Am I going crazy? Have my years of wild hedonism finally caught up with me?
+tv-futurama	life	tv-quote	general	0	Professor Farnsworth: Good news, everyone! We were supposed to make a delivery to the planet, Tweenis 12, but it mysteriously exploded. Leela: Why is that good news? Professor Farnsworth: They paid in advance.
+tv-futurama	life	tv-quote	general	0	Morbo: Morbo can't understand his teleprompter. He forgot how you say that letter that's shaped like a man wearing a hat. Linda: It's a T. It goes "tuh". Morbo: Hello, little man. I will destroy you!
+tv-futurama	life	tv-quote	general	0	Bender: Calculon is gonna kill us and it's all everybody else's fault!
+tv-futurama	life	tv-quote	general	0	Calculon: Nay, I respect and admire Harold Zoid too much to beat him to death with his own Oscar.
+tv-futurama	society	tv-quote	general	0	Leela: It's some kind of hollow tube, devoid of human life. [gasps] The Los-Angeles Subway.
+tv-futurama	arts	tv-quote	general	0	Calculon: [upset] Everyone walked out. They hated it. I've seen plagues that had better opening nights than this. You said that Oscar was practically on my mantle. Bender: Now you know why I used the qualifier "practically".
+tv-futurama	life	tv-quote	general	0	Billy Crystal's Head: And the nominees for Best Soft Drink Product Placement are... Slurm Vending Machine: "Star Trek: The Pepsi Generation", "They Call Me Mr. Pibb", and "Snow White and the Seven-ups."
+tv-futurama	food	tv-quote	general	0	Waiter: What can I get you gentlemen? Dr. Zoidberg: Is bread free? Waiter: Yeah. Dr. Zoidberg: We'll split an order.
+tv-futurama	arts	tv-quote	general	0	Harold Zoid: People, People please, just because its a dramatic scene doesn't mean you cant do a little comedy in the background.
+tv-futurama	life	tv-quote	general	0	Bender: That plot makes perfect sense. Wink, wink. Dr. Zoidberg: Bender, you said "wink, wink" out loud. Bender: No I didn't. Raise middle finger.
+tv-futurama	arts	tv-quote	general	0	Harold Zoid: So, you want to be a comedian, is it? Dr. Zoidberg: It's my life long dream. Harold Zoid: Well, that dream dies now! You're unfunny and untalented. That's why you're perfect for drama.
+tv-futurama	life	tv-quote	general	0	Amy: What are their names? Bender: Kids have names? Orphan: My name is Nina, this is Albert-- Bender: And from now on you're all named Bender Jr.
+tv-futurama	life	tv-quote	general	0	Morbo: So I gave the cookies you made to Fawn and the kids and they couldn't believe it -- they were delicious. But, I digress. Tremble, puny earthlings! One day my race will destroy you all!
+tv-futurama	life	tv-quote	general	0	Zoidberg: Be careful with that Adlai, Leela, he's a doctor, they're very poor. Leela: Actually, most doctors are rich. Zoidberg: What? When did this happen? You're joking, right? That's not funny!
+tv-futurama	life	tv-quote	general	0	Adlai: I've never been good with words, which is why I'm in such a delicate conundrum. Will you go out with me this Sunday? Leela: Sure! [Fry gasps.] Adlai: I don't know what else to say, so I'll just say it. Okey-dokey, see you then.
+tv-futurama	life	tv-quote	general	0	Sally: Daddy Bender, we're hungry. Bender: What's with you kids? Every other day it's food, food, food. [pause] Alright, I'll get you some stupid food. Albert: Can we have Bender Burgers again? Bender: No! The cat shelter's on to me.
+tv-futurama	life	tv-quote	general	0	Smitty: You're under arrest for child cruelty, child endangerment, depriving children of food, selling children as food, and misrepresenting the weight of livestock! Bender (as he's being cuffed): If you had kids of your own, you'd understand!
+tv-futurama	life	tv-quote	general	0	Singing Wind: I am Singing Wind, Chief of the Martians. Zapp Brannigan: Take me to your leader! Singing Wind: Moving along...
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: [introducing himself] I am the man with no name. Zapp Brannigan at your service.
+tv-futurama	life	tv-quote	general	0	Singing Wind: You must smoke peace pipe, and you must do it peacefully. Or we'll kill you. Kif: Well, it's just really that I don't feel that-- Zapp Brannigan: Don't be such a chicken, Kif. Teenagers all smoke and they seem pretty on-the-ball.
+tv-futurama	science	tv-quote	general	0	Leela: Wow, look at that: Olympus Mons, the tallest volcano in the solar system. Fry: Where? Leela: Right in front of you. Fry: Oh. Oh!
+tv-futurama	life	tv-quote	general	0	Leo Wong: Anyway, make yourselves at home. [Dr. Zoidberg comes downstairs wearing a bathrobe] Dr. Zoidberg: Don't mind if I already did. By the way, do you have any more of this Dom Pérignon bubble bath? There was only enough to fill the tub halfway.
+tv-futurama	love	tv-quote	general	0	Zapp Brannigan: Now remember Kif, the quickest way to a girl's bed is through her parents. Have sex with them and you're in. Kif: Well, sir, I'm a little nervous about meeting her parents. Zapp Brannigan: Of course you are. You're meek and uninteresting.
+tv-futurama	love	tv-quote	general	0	Leela: OK, this has gotta stop. I'm going to remind Fry of his humanity the way only a woman can. Farnsworth: You're going to do his laundry?
+tv-futurama	life	tv-quote	general	0	Leela: Fry, stay back, he's too powerful! Fry: Negative, bossy meat creature.
+tv-futurama	life	tv-quote	general	0	Hermes: Don't be a hero, Fry! It's not covered in the health plan!
+tv-futurama	life	tv-quote	general	0	Roberto: Back off! I've got hostages! Zoidberg: Hooray! I'm helping! Smitty: Do you have any better hostages?
+tv-futurama	life	tv-quote	general	0	Fry: Fear not. I shall assist ye. Hermes: Robots don't say "ye"! Fry: Relax, mammal. My robotic software shall meet your calculatory needs. What is the meaning of this symbol? Hermes: That's a plus sign, ya pointy-haired loony! Quit thinking you're a robot! Fry: I'll show ye...
+tv-futurama	food	tv-quote	general	0	Fry: I'm not a robot like you, I don't like having discs crammed into me... unless they're Oreos... and then only in the mouth.
+tv-futurama	society	tv-quote	general	0	Judge Whitey: Counselor, what evidence do you offer to support this new plea of insanity? Hyper-Chicken: For starters, they done hired me to represent them. Judge Whitey: Insanity plea is accepted!
+tv-futurama	life	tv-quote	general	0	Fry: Let me guess. He thinks he's Abraham Lincoln. Unit 2013': Well, he's supposed to, but he has multiple personalities. All of them Lincoln. Abraham Lincoln Robot: I was born in 200 log cabins.
+tv-futurama	life	tv-quote	general	0	Unit 2013: This is Frankie. He thinks he's a lunch room attendant, so we put him to work in the lunch room. [Loudly] How are things in the lunch room, Frankie? Frankie: S'okay. Unit 2013: Poor Frankie...
+tv-futurama	family	tv-quote	general	0	Bender: I guess if you want children beaten, you have to do it yourself.
+tv-futurama	life	tv-quote	general	0	Dwight: Can I use the gun? Hermes: What kind of a father would I be if I said no?
+tv-futurama	food	tv-quote	general	0	Bender: We're making beer. I'm the brewery. Dwight: I heard alcohol makes you stupid. Fry: No I'm ... doesn't. Leela: Actually, Dwight, you're right. Alcohol is very, very bad ... for children. But once you turn 21 it becomes very, very good.
+tv-futurama	life	tv-quote	general	0	Dwight: What's this devices marketability? Who's the target consumer? Farnsworth: There is no target consumer! Only targets. Targets that will tremble in fear as their new master hands down edicts in my glorious, booming voice!
+tv-futurama	life	tv-quote	general	0	Farnsworth: This is my latest invention; a device that lets anyone sound exactly like me! Cubert: [Speaks into machine] Good news, everyone! I'm a horse's butt! Farnsworth: I am? That's not good news at all, you little--!
+tv-futurama	life	tv-quote	general	0	Leela: If you were my kids, you'd get quite a talking to ... from your father ... when he got home from the Senate.
+tv-futurama	life	tv-quote	general	0	Sal: Gets movings. These papers ain't gonna deliver themselveses. Only the Sunday edition can dos that.
+tv-futurama	life	tv-quote	general	0	Cubert: How dare they call us kids? We're old enough to find the Fox network infantile.
+tv-futurama	life	tv-quote	general	0	Dr. Zoidberg: It's toe-tappingly tragic!
+tv-futurama	life	tv-quote	general	0	Beck: You, minion. Lift my arm. [a stagehand lifts his arm] AFTER HIM!
+tv-futurama	life	tv-quote	general	0	[As the gang are trying to escape via the Golden Gate Bridge] Bender: Oh no! I forgot this is a hover-bridge! Leela: And I forgot this isn't a hover-car! Fry: Is any of that a problem? Zoidberg: Not if you've lived a life without regret! [screams in terror]
+tv-futurama	life	tv-quote	general	0	Bender: Fry cracked corn, and I don't care! Leela cracked corn, still don't care! Bender cracked corn and he is great! Take that you stupid corn!
+tv-futurama	life	tv-quote	general	0	Hippie: Wow, look at the colours. These'll go great with my soul. Zoidberg: Glad you like them. I've been making fine jewellery for years, apparently.
+tv-futurama	arts	tv-quote	general	0	Bender: Hey, yeah, I could write a song! With real words, not phoney ones like "odelay". Beck: "Odelay" is a word. Just look it up in the Becktionary.
+tv-futurama	life	tv-quote	general	0	Bender: No, don't you see? I was a hero to broken robots 'cause I was one of them. But how can I sing about being damaged if I'm not? That's like Christina Aguilera singing in Spanish. Wait, that's it! I'll fake it!
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: Where's the device that lets you speed or slow the passage of time? Fry:Under the seat. [Holds up a bong]
+tv-futurama	arts	tv-quote	general	0	Bender: Hey, the blues. The tragic sound of other people's suffering. That's kind of a pick-me-up.
+tv-futurama	nature	tv-quote	general	0	Fry: She just needs some gas. Prof. Farnsworth: Wrong again, idiot. There is no gas. Petroleum preserves went dry in 2038. Leela: Gas was an environmental disaster, anyway. Now we use alternative fuels. Fry: Like what? Leela: Whale oil.
+tv-futurama	science	tv-quote	general	0	Prof. Farnsworth: What do you know of this? Ethan 'Bubblegum' Tate: Not much yet, but I am a senior lecturer of physics at Globetrotter U, and I'd like to help you investigate. Prof. Farnsworth: You're that Bubblegum Tate? Ethan 'Bubblegum' Tate: Well, I sure ain't his grandma.
+tv-futurama	life	tv-quote	general	0	Fry: So, Leela, how about a romantic ride in one of those swan boats? They're kinda dangerous, but I finally mastered them. Leela: Those aren't swan boats, they're swans. Fry: Oh. That explains these boat eggs.
+tv-futurama	life	tv-quote	general	0	Zoidberg: Don't be so hard on yourself, Fry. You lost the woman of your dreams but you still have Zoidberg. You all still have Zoidberg!
+tv-futurama	work-money	tv-quote	general	0	Fry: Put me on, Professor. I wanna show Leela my skills. Prof. Farnsworth: Hmm. Will said skills pay the bills?
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: At this rate, by Tuesday it will be Thursday, by Wednesday it will be August, and by Thursday it will be the end of existence as we know it!
+tv-futurama	love	tv-quote	general	0	Leela: Fry, please try to understand: you're a man, I'm a woman. We're just too different.
+tv-futurama	love	tv-quote	general	0	Leela: All right, cool your jets, hot shot. Fry: Come on, Leela. Why won't you go out with me? We both know there's something there. Leela: No, I mean cool your jets. You're melting Bender's face.
+tv-futurama	life	tv-quote	general	0	Professor Farnsworth: Oh dear! She's stuck in an infinite loop, and he's an idiot! Well, that's love for you.
+tv-futurama	life	tv-quote	general	0	Bender: Humans dating robots is sick. You people wonder why I'm still single? It's 'cause all the fine robot sisters are dating humans! Leela: Bender, this is Fry's decision... and he made it wrong. So it's time for us to interfere in his life.
+tv-futurama	life	tv-quote	general	0	Fry: Oh, Lucy! You're just like I always thought you'd be from your movies. Liubot: My personality is mathematically derived from my movies, proportionally weighted by box office receipts. Fry: Aaawww... you say the CUTEST things!
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: Now that's a wave of destruction that's easy on the eyes!
+tv-futurama	science	tv-quote	general	0	[At the edge of the universe, Fry sees alternative versions of himself and his friends on the other side, dressed as cowboys] Fry: Far out! So there really is an infinite number of universes? Prof. Farnsworth: No, just the two
+tv-futurama	life	tv-quote	general	0	Auctioneer: Are there no further bids for this exquisite galaxy? Sold! To the being of inconceivable horror! Being of Inconceivable Horror: Mwa-ha-ha-ha-ha! [pause] Will a money order be okay? Auctioneer: Yes. Being of Inconceivable Horror: MWA-HA-HA-HA-HA!
+tv-futurama	life	tv-quote	general	0	Fry: How can you guys be so blasé? Here we are in the year three-hundred-or-so, yet you're just sitting around like it's the boring time I came from. Prof. Farnsworth: Boring? Wasn't that the period when they cracked the human genome, and boy bands roamed the earth?
+tv-futurama	life	tv-quote	general	0	Leela: Hey, you know what might be a hoot? Prof. Farnsworth: No! Why would I know that? Leela: Let's take the rest of the morning off and take Fry to do everything he ever wanted to do. Fry: Everything? Leela: Except that.
+tv-futurama	life	tv-quote	general	0	Liubot: Oh, Fry, I love you more than the moon, the stars, the--POETIC IMAGE #36 NOT FOUND.
+tv-futurama	life	tv-quote	general	0	Bender: Hey, you add a one and two zeros to that or we walk! Leela: How much did you make me? Bender: One hundred dollars.
+tv-futurama	life	tv-quote	general	0	[Leela is signing autographs.] Leela: Who am I making this out to? Girl: Ummm...to eBay? Leela: That's a popular name today. Little "e", big "B"?
+tv-futurama	life	tv-quote	general	0	Leela: Oh, put down the binoculars, Fry. The wall of that strip club isn't going to collapse twice in one day. Fry: I know, and I've grown to accept that.
+tv-futurama	food	tv-quote	general	0	[Leela makes a retching noise after sampling an alien's pizza] Leela: I don't mean to offend, but this tastes like vomit. Cygnoid Woman: Thank you. Leela: No, actually, I did mean to offend a little. This is awful.
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: Why is your number 7/8? Leela: All the whole numbers have been retired.
+tv-futurama	society	tv-quote	general	0	Fry: Look, the players who broke the various color barriers. Bender: When will man learn that all races are equally inferior to robots?
+tv-futurama	life	tv-quote	general	0	Leela: Bender, we're trying our best. Bender: Your best is an idiot!
+tv-futurama	life	tv-quote	general	0	Leela: Impressive. Who's building it? Osiran: You. Leela: Say again? Osiran: You are now slaves of the great Pharaoh Hermenthotip. Guards! [The guards grab the crew] Fry: Call it a hunch but I've got a bad feeling about this.
+tv-futurama	work-money	tv-quote	general	0	Fry: You know what else sucks about being a slave? The hours.
+tv-futurama	life	tv-quote	general	0	Fry: You know what the worst thing about being a slave is? They make you work all day but they don't pay you or let you go. Leela: That's the only thing about being a slave.
+tv-futurama	life	tv-quote	general	0	Bender: You've convinced me life is worth living... by showing me how bad my funeral will suck!
+tv-futurama	life	tv-quote	general	0	Osiran Slavemaster: We learned many things from the mighty Egyptians, such as pyramid building, space travel, and how to prepare our dead so as to scare Abbott and Costello. Fry: Also, Wolfman.
+tv-futurama	life	tv-quote	general	0	[Bender storms out and the bouquet lands in Farnsworth's lap] Amy': I know whose funeral we'll be attending next! Prof. Farnsworth: Oh, stop.
+tv-futurama	life	tv-quote	general	0	Fry: Dearly Beloved, we are here today to remember Bender, taken from us in the prime of life; when he was crushed by a runaway semi, driven by the Incredible Hulk. Bender: Aww, you knew my favorite cause of death.
+tv-futurama	arts	tv-quote	general	0	Prof. Farnsworth: Your basic bending unit is made of an iron-osmium alloy, but Bender was different. Bender had an 0.04% nickel impurity. Bender: It's what made me me.
+tv-futurama	life	tv-quote	general	0	Bender: Danny Boy?! You're at my funeral, singing about some stiff named Danny Boy? You really are a massive bonehead! Zoidberg: I'm expressing my sorrow! Bender: Get lost! I'd say don't quit your day job, but you're awful at that too!
+tv-futurama	life	tv-quote	general	0	Bender: Being a robot's great, but we don't have emotions and sometimes that makes me very sad. [sniffs]
+tv-futurama	life	tv-quote	general	0	Bender: Whoa, you look better than you used to for some reason. Amy: You're not so bad yourself, big boy. [kisses Bender] Bender: Hey that felt great! [kisses the Professor] Nah, it's not working anymore. Farnsworth: Speak for yourself.
+tv-futurama	life	tv-quote	general	0	Bender: Hey, my antenna's gone! Nah, it just moved. I'm not getting good reception on it, though. Maybe if I wiggle it around a little... Fry: Bender, no! You'll make God cry!
+tv-futurama	life	tv-quote	general	0	Wernstrom: When did he die? Farnsworth: About twelve hours ago, when the party started. Wernstrom: But he just said "Woo!" Farnsworth: No, that was just air escaping from the folds of his fat. [pushes against Bender's fat] Bender: Woo!
+tv-futurama	life	tv-quote	general	0	Lrrr: You are defeated. Instead of shooting where I was, you should have shot where I was going to be
+tv-futurama	life	tv-quote	general	0	Mario: Mamma Mia! The cruel meatball of war has rolled onto our laps and ruined our white pants of peace!
+tv-futurama	life	tv-quote	general	0	Leela: Why did you bring us here? Dr. Zoidberg: And why did I have to take a cab?
+tv-futurama	life	tv-quote	general	0	Leela: Haven't I seen you in some copyrighted movie?
+tv-futurama	life	tv-quote	general	0	Farnsworth: What do you nice kids want? Zoidberg: Nothing. I'm leaving. But if you had extra courage I'd haul it away for you, maybe. Farnsworth: Oh blithery poop, my cowardly lobster. You don't need courage. After all, who needs courage when you have a gun?
+tv-futurama	life	tv-quote	general	0	Fry: Leela, are you alright? You got wanged on the head. Leela: I was having the most wonderful dream. Except you were there, and you were there, and you were there!
+tv-futurama	science	tv-quote	general	0	Prof. Farnsworth: For example, if you killed your grandfather, you'd cease to exist! Fry: But existing is basically all I do!
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: Start the ship, Leela! Let's just steal the dish and get back to our own time. Fry: But won't that change history? Prof. Farnsworth: Oooh, a lesson in not changing history from "Mr. I'm-My-Own-Grandpa"!
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: Your grandfather?! Stay away from him, you dim-witted monkey! You mustn't interfere with the past! Don't do anything that affects anything, unless it turns out you were supposed to do it, in which case for the love of God, don't not do it!
+tv-futurama	society	tv-quote	general	0	President Truman: Whistlin' Dixie! I want this sent to Area 51 for study. General: But Sir, that's where we are building the fake moon landing site. President Truman: Then we'll have to really land on the moon! Invent NASA and tell them to get off their fannies!
+tv-futurama	life	tv-quote	general	0	General: What's your purpose? Zoidberg: Alright, officer, I'll move it along. Military Official: What the general means is, why did you come to Earth? Zoidberg: Not a day goes by I don't ask myself the same question.
+tv-futurama	life	tv-quote	general	0	Leela: Well, settle in. Without a microwave, we're stuck in this time period. Prof. Farnsworth: Oh, Lord! We'll have to endure the horrible music of the Big Bopper, and then the terrible tragedy of his death.
+tv-futurama	life	tv-quote	general	0	Bender: Fry, stop interfering with history! I don't wanna have to memorize a lot of new kings when I get back. Fry: I had no choice. I was about to not exist. I could feel myself fading away, like Greg Kinnear.
+tv-futurama	life	tv-quote	general	0	Fry: She sure is pretty. You ought to marry her and father some children right away. Enos: Yeah, folks say that. But did you ever get the feeling you're only going with girls 'cause you're supposed to? Fry: What?! Don't ever, ever say or think that again!
+tv-futurama	faith	tv-quote	general	0	Bender: You know, I was God once. God Entity: Yes, I saw. You were doing well, until everyone died.
+tv-futurama	life	tv-quote	general	0	Leela: Look, I miss Bender almost half as much as you do, but you can't bring him back this way! It's hopeless! Fry: You can't give up hope just because it is hopeless! You gotta hope even more, and cover your ears, and go: "Blah blah blah blah blah blah blah blah!"
+tv-futurama	life	tv-quote	general	0	Leela: Well, you obviously won't listen to reason... So I guess I'll listen to idioticness and come with you.
+tv-futurama	life	tv-quote	general	0	Bender: O' cruel fate, to be thusly boned! Ask not for whom the bone bones - it bones for thee.
+tv-futurama	life	tv-quote	general	0	Bender: That galaxy is signaling in binary. I should signal back, but I only know enough binary to ask where the bathroom is. You speak English? God Entity: I do now.
+tv-futurama	faith	tv-quote	general	0	Bender: So do you know I'm going to do something before I do it? God Entity: Yes. Bender: What if I do something else? God Entity: Then I don't know that.
+tv-futurama	faith	tv-quote	general	0	Fry: So that's my story, Father Changstein el Gamahl. Is there anything religion can do? Father Changstein el Gamahl: Well, we could join together in prayer. Fry: Uh-huh, but is there anything useful we can do? Father Changstein el Gamahl: No.
+tv-futurama	life	tv-quote	general	0	Defrosted Neanderthal: As a caveman frozen in a glacier, I faced different challenges. [crying] The hardest thing was seeing my wife on display in the British Museum.
+tv-futurama	life	tv-quote	general	0	That Guy: There are two kinds of people: sheep and sharks. Anyone who is a sheep is fired. Who's a sheep? Dr. Zoidberg: Errr, excuse me... which is the one people like to hug? That Guy: Gutsy question. You're a shark.
+tv-futurama	life	tv-quote	general	0	Professor Farnsworth: I'll ruin you like I ruined this company!
+tv-futurama	work-money	tv-quote	general	0	Leela: Zoidberg owned 51% of the company? Hermes: The shares were worthless, and he kept asking for toilet paper!
+tv-futurama	work-money	tv-quote	general	0	Professor Farnsworth: This isn't a business. I've always thought of it more of a source of cheap labour, like a family.
+tv-futurama	life	tv-quote	general	0	Leela: We haven't made a single delivery since you took over! That Guy: Delivery has nothing to do with the delivery business!
+tv-futurama	work-money	tv-quote	general	0	Scruffy: Now hold on there. Scruffy votes his forty thousand shares for the mysterious stranger. Leela: Forty thousand? How come you have four times as much stock as the rest of us? Scruffy: Scruffy believes in this company. [Sniffles]
+tv-futurama	work-money	tv-quote	general	0	Leela: Oh my god! I'm a millionare! Suddenly I have an opinion on the capital gains tax!
+tv-futurama	life	tv-quote	general	0	That Guy: Hairgel? Fry: No thanks. I make my own.
+tv-futurama	life	tv-quote	general	0	Mom: [Watching Fry moon her] You call that a pressed ham? Walt, hit the retaliate button! [Walt searches for the button] Mom: Press any button! They all retaliate!
+tv-futurama	work-money	tv-quote	general	0	Dr. Zoidberg: Once again, the conservative, sandwich-heavy portfolio pays off for the hungry investor. [eats the old rotten sandwich in his hand] Dr. Zoidberg: Oh, I'm ruined!
+tv-futurama	life	tv-quote	general	0	[Dr. Zoidberg has broken the professor's ship-in-a-bottle.] Dr. Zoidberg: Oh no! The professor will hit me! But if Zoidberg fixes it... then perhaps gifts!
+tv-futurama	food	tv-quote	general	0	Bender: I decline the title of Iron Cook and accept the lesser title of Zinc Saucier, which I just made up. Uhh... also, comes with double prize money.
+tv-futurama	life	tv-quote	general	0	Koji: Ironu... Cookuru!
+tv-futurama	food	tv-quote	general	0	Morbo: So, Elzar, what will you be cooking for Morbo to devour with his mighty jaws? Elzar: Morbo, I'm gonna whip you up a nice, unnameable horror from beyond, with mango chutney. Morbo: Pathetic humans, prepare to write down the recipe!
+tv-futurama	food	tv-quote	general	0	Helmut Spargle: [after tasting Bender's first meal] It is... acceptable. Bender: Yahoo! Another thing I'm great at. Wait, why'd you stopped eating, master? Helmut Spargle: Because, my stomach is about to explode.
+tv-futurama	food	tv-quote	general	0	Bender: If it's chicken, chicken a la king. If it's fish, fish a la king. If it's turkey, fish a la king.
+tv-futurama	food	tv-quote	general	0	Fry: Man, I don't wanna hurt Bender's feelings but this food actually tastes better as vomit! Leela: It's unbearable! How much do you think it would cost to have my tongue removed?
+tv-futurama	food	tv-quote	general	0	Morbo: Welcome back. Our next guest has been teaching the world to cook for over 20 years. But apparently my, uh, wife hasn't been listening. I will destroy her!!!
+tv-futurama	life	tv-quote	general	0	Attila the Hun: Stop! Don't shoot fire stick in space canoe! Cause explosive decompression! Zapp Brannigan: Spare me your space age technobabble, Attila the Hun!
+tv-futurama	life	tv-quote	general	0	Fry: Check it out, y'all. Everyone who was invited is here. Dr. Zoidberg: Also Zoidberg.
+tv-futurama	life	tv-quote	general	0	Amy: Spirit! Kif, that's the pony I always wanted but my parents said I had too many ponies already. Kif: Yes, I programmed it in for you. Four million lines of BASIC.
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: Kif, I'm sensing a very sensual disturbance in the force. Prepare for ship-to-ship intimacy.
+tv-futurama	life	tv-quote	general	0	Evil Lincoln: Real holographic simulated Evil Lincoln is BACK!!!
+tv-futurama	life	tv-quote	general	0	Leela: There goes my DNA. What a disgusting and beautiful process. Fry: That's birth for you.
+tv-futurama	arts	tv-quote	general	0	Kif: Well, we've given them a great start, Amy. And in 20 years they'll sprout legs and crawl back onto land as children. Amy: I'll be ready then.
+tv-futurama	life	tv-quote	general	0	Fry: I didn't ask for a completely reasonable excuse! I asked you to get busy!
+tv-futurama	life	tv-quote	general	0	Leela: I usually try to keep my sadness pent up inside where it can fester quietly as a mental illness. Fry: Yeah, I do that with my stupidness.
+tv-futurama	life	tv-quote	general	0	Hermes: It looks like toxic waste. And it smells like toxic waste. Fry: What does it taste like? Hermes: Delicious fig pudding. Oh, that's good. But a distinct aftertaste of toxic waste.
+tv-futurama	life	tv-quote	general	0	Fry: Isn't there anything more you can tell me? Warden Vogel: Nothing that wouldn't be a waste of your time. Fry: That is impossible, because my time is worthless.
+tv-futurama	life	tv-quote	general	0	[Leela emerges from the mutagenic lake with an octopus on her head] Leela: The lake didn't mutate me. What is going on here? Octopus: It worked for me. I used to be a little blonde girl named Virginia.
+tv-futurama	life	tv-quote	general	0	Fry: Leela, don't shoot! Leela: But they killed my parents! Fry: Close. [Fry removes the hoods from the mutants, revealing that they are in fact Cyclopses] Leela: They are my parents.
+tv-futurama	life	tv-quote	general	0	Ndnd: What is this emotion you humans call "wuv?" Lrrr: Surely it says "love." Ndnd: No, "wuv," with an earth w. Behold. Lrrr: This concept of "wuv" confuses and infuriates us!
+tv-futurama	life	tv-quote	general	0	Fry: You could have picked a better time to break up with the ship, Bender. Bender: Ah, the moment felt right. Call me old-fashioned, but I like a dump to be as memorable as it is devastating.
+tv-futurama	love	tv-quote	general	0	Prof. Farnsworth: Remember, we need to show these people that we are not bitter husks of human beings, who long ago abandoned hope of finding love in this lifetime. Leela, you'll have to do some acting. Leela: Check.
+tv-futurama	life	tv-quote	general	0	Lrrr: This is ancient Earth's most foolish program. Why does Ross, the largest friend, not simply eat the other five? Ndnd: Perhaps they are saving that for sweeps.
+tv-futurama	nature	tv-quote	general	0	Planet Express Ship: Oh, honey, look! The tapirs! It says here that the babies lose their pajama-like coat after their first year. Isn't that interesting, honey? Bender: Yep, mind-numbingly interesting.
+tv-futurama	tech	tv-quote	general	0	Planet Express Ship: I'm afraid I can't do that, Leela.
+tv-futurama	love	tv-quote	general	0	Lucy Liu: [Inside Bender's compartment] Who are you talking to? Bender: No one, baby. Lucy Liu is the only woman for Bender. Lucy Liu: I love y... [Bender closes door on her]
+tv-futurama	life	tv-quote	general	0	Leela: Man, I'm sore all over. I feel like I just went ten rounds with mighty Thor. Fry: I feel like I was mauled by Jesus.
+tv-futurama	life	tv-quote	general	0	Fry: Wow! A superpowers drug you can just rub onto your skin? You'd think it would be something you'd have to freebase.
+tv-futurama	tech	tv-quote	general	0	Prof. Farnsworth: Good news anyone! The Swedish robot from pi-kea is here with the super collider I ordered.
+tv-futurama	tech	tv-quote	general	0	Prof. Farnsworth: Bad news, nobody! The super-collider super-exploded. I need you to take it back and exchange it for a wobbly CD rack and some of those rancid meatballs.
+tv-futurama	life	tv-quote	general	0	Leela: I'm getting a one-day pass for my parents from city hall. Hermes: While you're there, can you get me a license to kill? Leela: Sure. Fire arms of bare hands? Hermes: Which one does piano wire fall under?
+tv-futurama	life	tv-quote	general	0	Fry: When you were a kid, what was your biggest fantasy? Leela: To have parents. Fry: Whatever. The correct answer is, to be a superhero!
+tv-futurama	life	tv-quote	general	0	[Fry and Leela test out their superpowers] Leela: Ability to command the loyalty of sea creatures? Fry: Hey, Zoidberg! Get in here! Dr. Zoidberg: (fainly, from another room) Screw you! Leela: Ain't got that. Fry: Nope
+tv-futurama	life	tv-quote	general	0	Leela: We have to keep our secret identities secret! Fry: From everybody? Leela: Especially from everybody! Fry: Give several reasons why.
+tv-futurama	life	tv-quote	general	0	Nixon's Head: In our darkest hour, we can stand erect, with proud upthrust bosoms. Fry: Anyone who laughs is a communist!
+tv-futurama	life	tv-quote	general	0	[Old Man Waterfall takes a stand against the Decapodian Mobile Oppression Palace.] Old Man Waterfall: You can crush me but you can't crush my spirit! [He is crushed.] Old Man Waterfall: Aagh, my spirit! Urrgh!
+tv-futurama	society	tv-quote	general	0	Old Man Waterfall: That's right, I'm a polygamist. Crowd: Boo! [later] Supreme justice: And, in a rare double-whammy, we also find polygamy to be constitutional. Crowd: Boo! Old Man Waterfall: I can't wait to tell my husband! Crowd: (louder) Boo!
+tv-futurama	life	tv-quote	general	0	Fry: Wow! Nude hot-tubbing - that's all I need to hear about Freedom Day! Dr. Zoidberg: Then consider the following lecture a bonus.
+tv-futurama	life	tv-quote	general	0	Leela: Dr. Zoidberg, how can you claim to love freedom and then enslave humanity? Dr. Zoidberg: Bah! Your planet doesn't deserve freedom until it learns what it is not to have freedom. It's a lesson, I say!
+tv-futurama	life	tv-quote	general	0	Leela: As unclean as it makes me feel, I agree with Bender. Kids don't turn rotten just because of what they see on TV. Fry: Yeah. Give a little credit to our public schools.
+tv-futurama	life	tv-quote	general	0	Announcer: [on TV] We now join America's most popular show already in progress, Everybody Loves Hypno-Toad. [The TV cuts into the episode. The Hypno-Toad does nothing except sit, hypnotising his audience] Fry: This show's been going downhill since season three.
+tv-futurama	family	tv-quote	general	0	Bender: Have you ever tried just turning off the TV, sitting down with your children, and hitting them?
+tv-futurama	life	tv-quote	general	0	Bender: I got ants in my butt, and I needs to strut!
+tv-futurama	life	tv-quote	general	0	Calculon: That was so terrible, I think you gave me cancer! I don't care how popular you are, you will never work on my show! Fry: Yay, Bender! Leela: We demand Bender! Calculon: However, you've got the job.
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: Those ruffians smoked one of your cigars. Hermes: That's not a cigar... and it's not mine.
+tv-futurama	life	tv-quote	general	0	Fry: What kind of bozos would form a Bender protest group? Prof. Farnsworth: Good news, everyone! Hermes and I have formed a Bender protest group. Dr. Zoidberg: That was uncanny.
+tv-futurama	life	tv-quote	general	0	Leela: Bender, your swarthy Latin charm will only get you so far. There are a lot of professional child robots here. Fry: Look, there's Macaulay Cul-kon. Leela: He's just not cute since he had puberty installed.
+tv-futurama	life	tv-quote	general	0	Fry: Wow. They discovered an intact 20th century pizzeria. Just like the one I used to work at. Bender: Interesting. No, wait, the other thing: tedious.
+tv-futurama	life	tv-quote	general	0	Fry: You can see how I lived before I met you. Bender: You lived before you met me?! Fry: Yeah, lots of people did. Bender: Really?!
+tv-futurama	life	tv-quote	general	0	Crowd: What do you want? Fry: Fry's dog! Crowd: When do you want it? Fry: Fry's dog!
+tv-futurama	life	tv-quote	general	0	Fry: Bender, this has nothing to do with you. Bender: That's impossible!
+tv-futurama	life	tv-quote	general	0	Robo-Puppy: Robo-Puppy commencing two hour yipping session. [Robo-Puppy does so. Bender, frustrated, kicks it across the room where it hits the wall and falls to the ground] Robo-Puppy: [as a siren begins to wail out] Robo-Puppy mistreatment alert! Robo-Puppy mistreatment alert!
+tv-futurama	life	tv-quote	general	0	Fry: I have a pizza here for Seymour Asses. Man: There isn't anybody by that name here. Or anywhere. I hope in time you realize how stupid you are. Fry: I wouldn't count on it.
+tv-futurama	life	tv-quote	general	0	Leela: Acting like a moron won't solve anything. Fry: Then all hope is lost!
+tv-futurama	life	tv-quote	general	0	Bender: Robo-Puppy, lick my cheek. Robo-Puppy: Robo-Puppy preparing to lick cheek. (It's tongue comes out) Robo-Puppy commencing cheek-licking. Licking in progress. Licking complete.
+tv-futurama	love	tv-quote	general	0	Bender: Fry, I'm sorry. I should have understood how someone can love an inferior creature... because I love you... not in the way of the ancient Greeks, but the way a robot loves a human, and a human loves a dog, and, occasionally, a gorilla loves a kitty
+tv-futurama	nature	tv-quote	general	0	Al Gore: My fellow Earthicans, as I discuss in my book "Earth in the Balance," and the much more popular "Harry Potter and the Balance of Earth," we need to defend our planet against pollution. As well as dark wizards. Dark Wizard in the Audience: Sure, blame the wizards!
+tv-futurama	life	tv-quote	general	0	Morbo: Morbo wishes these stalwart nomads peace among the Dutch tulips Linda: I'm sure those windmills will keep them cool. Morbo: WINDMILLS DO NOT WORK THAT WAY! GOODNIGHT!
+tv-futurama	life	tv-quote	general	0	Al Gore: I have ridden the mighty moon worm!
+tv-futurama	life	tv-quote	general	0	Truck: Calling all scientists, calling all scientists! Scientist: I've got a degree in homeopathic healing! Truck: You've got a degree in baloney! [sprays him with water]
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: A billion robots' lives are going to be extinguished! Ooh, the Jedis are going to feel this one...
+tv-futurama	life	tv-quote	general	0	Bender: Look, I love life and all its pleasures as much as anyone...except perhaps you, Hedonism Bot! But we need to be shut off... especially you, Hedonism Bot! Hedonism Bot: I apologize for nothing!
+tv-futurama	faith	tv-quote	general	0	Randy: They called me crazy for building this ark. Randy's Partner: You ARE crazy. You filled it with same sex animal couples. Randy: Hey, there are parts of the Bible I like and parts I don't like.
+tv-futurama	life	tv-quote	general	0	Fry: Oh, my God! It's out of ice, like some outer space Motel 6! Leela: Completely out of ice? Bender: This could mean the end of the banana daiquiri as we know it! Also, life.
+tv-futurama	society	tv-quote	general	0	Richard Nixon's head: For saving Earth and foiling me, I proudly yet angrily present you with our new highest honor: the Polluting Medal of Pollution.
+tv-futurama	life	tv-quote	general	0	Linda: With Halley's Comet out of ice, Earth is experiencing a sudden case of global warming. Morbo: Morbo is pleased but sticky.
+tv-futurama	life	tv-quote	general	0	Professor Farnsworth: I've got to find a way to escape the horrible ravages of youth. Suddenly, I'm going to the bathroom like clockwork, every three hours. And those jerks at Social Security stopped sending me checks. Now I have to pay them!
+tv-futurama	life	tv-quote	general	0	Professor Farnsworth: Oh, I don't have time for this. I have to go and buy a single piece of fruit with a coupon and then return it, making people wait behind me while I complain.
+tv-futurama	life	tv-quote	general	0	Professor Farnsworth: But I like being old. I don't have to talk to my parents, no one asks me to help move their stuff, I don't need to understand today's "edgy" TV sitcoms
+tv-futurama	life	tv-quote	general	0	Professor Farnsworth: Fifty-three years old? Oh... now I'll need a fake ID to rent ultraporn!
+tv-futurama	life	tv-quote	general	0	Professor Farnsworth: With my last breath, I curse Zoidberg!
+tv-futurama	life	tv-quote	general	0	Mandy: So this is the famous Fry. What is he, like, the biggest loser on the surface so he has to hang out in the sewer? Fry: They're onto me.
+tv-futurama	life	tv-quote	general	0	Fry: We miss the turn. We'll never catch up. Leela: Yes we will. This pipe goes under Planet Express, and it's 9:00 PM. [cut to Planet Express; toilet flushes] Professor Farnsworth: The devil take this predictable colon!
+tv-futurama	family	tv-quote	general	0	Morris: Let's all have some tequila to celebrate! Leela: Dad, I'm underage! Morris: Oh, right. Here's a silly straw.
+tv-futurama	life	tv-quote	general	0	[after Leela refuses the treatment to restore her age] Fry: Bye Leela. I'll come visit you when I'm all grown up. Leela: [whispering] Bring beer. Morris: No beer until you finish your tequila!
+tv-futurama	life	tv-quote	general	0	Heather: Sir, it's not necessary or wise to be naked. Professor Farnsworth: Oh! You sound just like my tennis instructor!
+tv-futurama	life	tv-quote	general	0	Fry: But I know you in the future. I cleaned your poop. Nibbler: Quite possible. We live long and are celebrated poopers.
+tv-futurama	life	tv-quote	general	0	Ken: You are the last hope of the universe. Fry: So I really am important? How I feel when I'm drunk is correct? Ken: Yes, except the Dave Matthews Band doesn't rock.
+tv-futurama	life	tv-quote	general	0	Fry: There are guys in the background of Mary Worth comics who are more important than me.
+tv-futurama	life	tv-quote	general	0	Big Brain: Detecting trace amounts of mental activity, possibly a dead weasel or a cartoon viewer.
+tv-futurama	life	tv-quote	general	0	Ken: Does he not know? Nibbler: He does not know. Fiona: He knows not? Nibbler: Knows not does he. Male Nibblonian 2: Not he knows? Ken: Enough!
+tv-futurama	food	tv-quote	general	0	Nibbler: I hereby place an order for one cheese pizza. Mr. Panucci: One pie, nothing good on it. Name? Nibbler: I period C period Weinner.
+tv-futurama	life	tv-quote	general	0	Nibbler: Do you remember some months ago when the Earth was under attack by flying brains? Fry: Hmmm. I remember the square-dancing stomachs, but that might have been a Mylanta commercial.
+tv-futurama	love	tv-quote	general	0	Leela: You may not be the most important person in the universe, but I'm really glad to see you right now. Fry: Then I am the most important person in the universe. [Leela kisses him] Fry: Yes!!
+tv-futurama	arts	tv-quote	general	0	Walter Koenig: When we woke up, we had these bodies. Fry: Say it in Russian! Walter Koenig: [sigh] Ven ve voke up, ve had zese wodies. Fry: Eeeee! Now say "nuclear wessels"! Walter Koenig: No!
+tv-futurama	life	tv-quote	general	0	Fry: [after Welshy gets electrocuted by Melllvar] WELLLLSHIEEEEEEEEE!!!!!
+tv-futurama	life	tv-quote	general	0	William Shatner: I have an idea! Wasn't there an episode where I threw my shoe at the enemy? Leonard Nimoy: You mean Doohan? (both men giggle and snicker and follow up with a high-five)
+tv-futurama	life	tv-quote	general	0	Fry: Look at Walter Koenig. After Star Trek, he became an actor. Walter Koenig: Not just an actor, but a well-rounded person. With my own friends and credit cards and keys.
+tv-futurama	life	pun	general	0	Star Trek Priest: ...And Scotty beamed them to the Klingon ship, where there would be no tribble at all.
+tv-futurama	life	tv-quote	general	0	[Fry is in a Captain Pike-style life-support machine] Zapp Brannigan: Do you understand the charges? Kif Kroker: One beep for yes, two beeps for no. [Fry beeps once] Zapp Brannigan: Yes, so noted. Do you plead guilty? [Fry beeps twice] Zapp Brannigan: Double yes. Guilty.
+tv-futurama	life	tv-quote	general	0	[Leonard Nimoy is introducing the cast of Star Trek] Leonard Nimoy: Nichelle, George, Walter, DeForest, Welshie... Fry: "Welshie"? Nichelle Nichols: We did some musical reunion specials in the 22-hundreds, but the guy who played Scotty had trouble yodeling.
+tv-futurama	life	tv-quote	general	0	[Leela is now in the Captain Pike-style life-support machine] Zapp Brannigan: The court will now hear some very sensual testimony from this court's ex-lover, Turanga Leela. Leela: Go [beep] yourself.
+tv-futurama	life	tv-quote	general	0	Fry: I am literally angry with rage!
+tv-futurama	arts	tv-quote	general	0	George Takei: You see, the show was banned after the Star Trek wars. Zapp Brannigan: You mean the mass migration of Star Wars fans? Nichelle Nichols: No, that was the Star Wars trek.
+tv-futurama	life	tv-quote	general	0	Leela: For 100 Quatloos, who did the Captain maroon on Ceti Alpha V? William Shatner: KHAAAAAAAAAAN! Fry: Uh... Khan? Leela: Correct.
+tv-futurama	life	tv-quote	general	0	Leela: Burn on that old crew! The only things they did better than us were suck and die.
+tv-futurama	life	tv-quote	general	0	LaBarabra Conrad: Husband, can't you go anywhere without lighting something up? Hermes Conrad: It's an old Jamaican accounting tradition: we burn his timecard. That way, his zombie doesn't come back looking for his final pay check.
+tv-futurama	life	tv-quote	general	0	Bender: All those times I said "Kill all humans," I'd always whisper "except one". Fry was that one. [sobbing] And I never told him so!
+tv-futurama	life	tv-quote	general	0	Leela: Maybe I am freaking out a little. Bender: A little? You're screwier than my Aunt Rita. And she's a screw!
+tv-futurama	life	tv-quote	general	0	Leela: That proves it! Fry is alive somewhere and he's reaching me in my dreams! Prof. Farnsworth: Bull-pies!
+tv-futurama	life	tv-quote	general	0	Fry: Why am I sticky and naked? Did I miss something fun?
+tv-futurama	life	tv-quote	general	0	Leela: I'll find Fry's coffin, get his corpse, and keep it under my mattress to remind me that he's really dead. That'll prove I'm not insane!
+tv-futurama	life	tv-quote	general	0	Professor Hubert Farnsworth: These bees are larger than most Buicks, and twice as ugly. Fry: Larger than an American sedan? How big is the honeycomb? Hermes: Honeycomb's big, yeah, yeah, yeah. Bender: It's not small? Hermes: No, no, no.
+tv-futurama	life	tv-quote	general	0	Leela: [crying] It's all my fault! He died because of me! Farnsworth: [comforting] No, no, no, no, no, no. [shouting to Bender] I'm lying to make her feel better! [Leela cries harder.]
+tv-futurama	life	tv-quote	general	0	Bender: Just once I'd like to eat dinner with a celebrity who isn't bound and gagged.
+tv-futurama	life	tv-quote	general	0	Bender: Professor, make a woman out of me. Professor Farnsworth: Oh, I think we should just stay friends.
+tv-futurama	life	tv-quote	general	0	Professor Farnsworth: You've fallen into the final debilitating stages of womanhood.
+tv-futurama	life	tv-quote	general	0	Olympics Commentator: Barbados Slim takes an early lead. God, I hope he wins. What's this? Hermes Conrad is closing the gap. He's limbo-ed out of retirement and straight into my heart. I say go to hell, Barbados Slim!
+tv-futurama	life	tv-quote	general	0	Bender: My dreams are over before they began! Dr. Zoidberg: [happily] Welcome to my life! [starts crying]
+tv-futurama	life	tv-quote	general	0	Bender: Something tells me I could easily beat those trained professionals...
+tv-futurama	life	tv-quote	general	0	Bender: This outfit makes me look fat. Is it trampy to go on a first date nude?
+tv-futurama	life	tv-quote	general	0	Bender: I'm sorry, guys. I never meant to hurt you. Just to destroy everything you ever believed in.
+tv-futurama	life	tv-quote	general	0	Hermes: Bender, hurry! This fuel's expensive! Also, we're dying!
+tv-futurama	life	tv-quote	general	0	Bender: Robot 1-X, save my friends! And Zoidberg!
+tv-futurama	life	tv-quote	general	0	Speaker: Presenting the woman who "Mom"-opolizes the robot industry... Fry: I get it! Speaker: MOM! Fry: Ohhh, now I get it!
+tv-futurama	life	tv-quote	general	0	Bender: A working cartridge unit? You guys went obsolete years ago. Cartridge Unit: [inserts "snappy comeback" cartridge] Your mother!
+tv-futurama	life	tv-quote	general	0	[caught in the middle of an experiment gone spectacularly wrong] Professor Farnsworth: Oh Lordy Lou, HELP! Buddha, Zeus, God! One of you guys do something! Help! Satan, you owe me!
+tv-futurama	life	tv-quote	general	0	Professor Farnsworth: Now, now. Perfectly symmetrical violence never solved anything.
+tv-futurama	life	tv-quote	general	0	Leela: Uh, have you robot versions of you guys seen any extra Zoidbergs around here? Robo Fry: NEGATIVE. WILL-YOU-GO-OUT-WITH-ME. Leela: Uh, ACCESS-DENIED. Robo Fry: (head explodes)
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth-1: It's the Apocalypse all right. I always thought I'd have a hand in it.
+tv-futurama	life	tv-quote	general	0	Leela-1: Fine, you be crummy Universe "A", and we'll be Universe "1". Fry-1: Yeah, or the Mongooses, that's a good team name. "The Fighting Mongooses."
+tv-futurama	life	tv-quote	general	0	Hermes-A: Like my grammy always said, if you want a box hurled into the sun, you got to do it yourself. God rest her zombie bones...
+tv-futurama	life	tv-quote	general	0	Bender-1: This is awful. Somewhere there's a more evil Bender than me. I do my best, dammit!
+tv-futurama	science	tv-quote	general	0	Prof. Farnsworth: There. That space-time eversion has given us their box and vice versa. Leela: So, what you think you just explained to us is that- Prof. Farnsworth: Correct! This box contains our own universe.
+tv-futurama	life	tv-quote	general	0	Amy-1: Hello? Did you see two smelly lobsters? Hermes-25: We didn't see anything ... [Leela-25, Hermes-25 and Fry-25 turn around. They have no eyes.] Hermes-25: ... ever!
+tv-futurama	life	tv-quote	general	0	Hermes: With a warning label this big, you know they gotta be fun!
+tv-futurama	life	tv-quote	general	0	[Morbo's wife is adjusting his tie.] Morbo: Stop it, stop it. It's fine. I will destroy you!
+tv-futurama	life	tv-quote	general	0	Bender: What to do, what to do. One 300 dollar hookerbot or 300 one dollar hookerbots?
+tv-futurama	life	tv-quote	general	0	Richard Nixon's Head: The loot! The loot! The loot is on fire!
+tv-futurama	life	tv-quote	general	0	[In the credits] Roseanne Barr: Futurama: Noun. Definition: Oh, I don't know. You just watched it, dummy. What are you asking me for? Here's a fun definition. Idiot: Noun. You! This has been Roseanne, your guide to the world of facts.
+tv-futurama	life	tv-quote	general	0	Hermes: Dwight, the boots only cost me 299 dollars and 99 cents. Here, you spend the penny on whatever you want. Dwight: Thanks, dad. I think I'll invest it on five shares of Amazon.com. Hermes: A risk taker. That's my boy.
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: The Spiderians, though weak and woman-like on the battlefield, are masters of the textile arts. Taste like king crab, by the way. Crazy bugs actually wove this tapestry of my heroic conquest while I was still killing them.
+tv-futurama	life	tv-quote	general	0	Leela: I'd like a pass to swim with Mushu. Whale Biologist: Well, you asked the right guy. I'm the whale biologist. Though personally I hate whales. Especially Mushu.
+tv-futurama	love	tv-quote	general	0	Ndnd: For the last time, I don't like lilacs! Your first wife was the one who liked lilacs. Lrrr: She also liked to shut up.
+tv-futurama	life	tv-quote	general	0	Fry: We've been to every scuzzy bazaar in the galaxy, including Pottery Barn.
+tv-futurama	life	tv-quote	general	0	Lrrr: One of these days, Ndnd - bang, zoom, straight to the third moon of Omicron Persei 8!
+tv-futurama	life	tv-quote	general	0	Professor Farnsworth: Fry, what in Sega Genesis happened?
+tv-futurama	life	tv-quote	general	0	Fry: Wait! Listen. I'm usually the first guy to toot my own lower horn-- Bender: I'll say! Wooooo! Fry: But in this case I-I just don't think it'll do any good. Bender: That's what she said! Wooooo!
+tv-futurama	life	tv-quote	general	0	Lrrr: Mmm, this jerked chicken is good. I think I'll have Fry's lower horn jerked. Bender: It's used to it. Woooo!
+tv-futurama	life	tv-quote	general	0	Fry: Yes! I never thought I'd escape with my doodle, but I pulled it out! Bender: (Off screen) Just like at the movie theater! Woooo!
+tv-futurama	life	tv-quote	general	0	Lrrr: This human's lower horn is one of God's creatures, a living thing, and all living things, large and small-- Bender: [off-screen] In this case "small"! Wooooo!
+tv-futurama	life	tv-quote	general	0	Leela: Well, Fry, it looks like you get to hold onto your lower horn. Bender: As usual! Wooooo!
+tv-futurama	arts	tv-quote	general	0	Robot Devil: This opera's as lousy as it is brilliant! Your lyrics lack subtlety. You can't just have your characters announce how they feel. That makes me feel angry!
+tv-futurama	arts	tv-quote	general	0	Hedonismbot: Less reality, more fantasy. Resume the opera! Fry: But I can't play anymore! Zoidberg: Yes you can! The music was in your heart, not your hands! [Fry begins playing off-key and the audience starts booing.] Zoidberg: Your music is bad and you should feel bad!
+tv-futurama	arts	tv-quote	general	0	Leela: Please don't stop playing, Fry. I wanna hear how it ends.
+tv-futurama	life	tv-quote	general	0	(At a dance studio a dance-party is interrupted by Bender; in a white dancing suit partying to work off his excess energy) Bender: Yeah! Do the Bender! Do the Bender! Guy in crowd: (Uninterestedly) No thank you. Bender: (Threateningly) I SAID "DO IT!!!!!"
+tv-futurama	life	tv-quote	general	0	(Guy in crowd backs up from Bender in fear) Bender: Who are you, my warranty?
+tv-futurama	life	tv-quote	general	0	Professor Farnsworth: Prepare for rebirth! [Pulls down a big switch and gets shocked by lightning. He then pulls the switch back up] Wrong switch. [walks over to a light switch and turns it on]
+tv-futurama	life	tv-quote	general	0	[The Hypnotoad is shown on screen.] Bender: [Voice over.] On the count of three, you will awaken feeling refreshed, as if Futurama had never been cancelled by idiots and then brought back by bigger idiots. One... two... [Snaps fingers.]
+tv-futurama	life	tv-quote	general	0	Bender: Coma, coma, coma, coma, coma chameleon!
+tv-futurama	life	tv-quote	general	0	Leela: There's no room for two captain's butts in this chair! Robot Leela: There would be if you'd have taken a spin class instead of lounging around in a coma!
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: Fire all weapons and set a transmission frequency for my victory yodel.
+tv-futurama	life	tv-quote	general	0	Fry: Does anybody else feel jealous and aroused and worried? Bender: I haven't felt much of anything since my guinea pig died.
+tv-futurama	life	tv-quote	general	0	Zoidberg: Who's brave enough to fly into something we all keep calling a death sphere?
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: My god, we're defenceless. Like fish in a barrel. Richard Nixon's Head: Options? Zapp Brannigan: My instinct is to hide in this barrel, like the wily fish.
+tv-futurama	life	tv-quote	general	0	Leela: This is it. The moment we should have trained for.
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: Mr. President, what the hell?
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: I don't like the looks of this V-GINY
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: I surrender and volunteer for treason!
+tv-futurama	life	tv-quote	general	0	[as Leela and Zapp have sex] Fry: For God's sake! Censor it! Censor it! V-Giny: Approved for all audiences! Fry: Nooooo!
+tv-futurama	life	tv-quote	general	0	Leela: Come, Adam, and taste of my forbidden fruit. Zapp Brannigan: Thee will be done.
+tv-futurama	arts	tv-quote	general	0	Professor Farnsworth: These old doomsday devices are dangerously unstable. I'll rest easier not knowing where they are.
+tv-futurama	life	tv-quote	general	0	Leela: So long, overly-complicated Japanese toilet! Toilet: Please, not throw away. I give you, uh, happy poopy time! Fry: Sorry, you know too much.
+tv-futurama	life	tv-quote	general	0	Clerk: Okay, it's $500, you have no choice of carrier, the battery can't hold the charge and the reception isn't very... Fry: Shut up and take my money!
+tv-futurama	tech	tv-quote	general	0	Fry: That was low, Bender, even by your standards. Bender: My what, now? Fry: Since when is the internet about robbing people of their privacy? Bender: August 6, 1991.
+tv-futurama	life	tv-quote	general	0	Hermes: When the lights go out, it's nobody's business what goes on between two consenting adults. Zoidberg: Or one!
+tv-futurama	faith	tv-quote	general	0	Reverand Lionel Preacherbot: The only lies worth believing are the ones in the Bible.
+tv-futurama	life	tv-quote	general	0	Bender: We're gonna fight to legalize it right here! Hermes: Ya mon! Ya got to legalize it! Amy: We're talking about robosexual marriage. Hermes: We're talking about lots of stuff.
+tv-futurama	life	tv-quote	general	0	Amy: Why do you have to be so mean to me? Bender: Shut up, baby. You love it. Amy: Don't tell me to shut up! You know what happened to the last guy that told me to shut up? Bender: What? [Cut to Amy and Bender in bed] Amy: That was great. Bender: Shut up.
+tv-futurama	life	tv-quote	general	0	Professor Farnsworth: I hate these nerds. Just because I'm stupider than them they think they're smarter than me.
+tv-futurama	arts	tv-quote	general	0	Prof. Farnsworth: My God! DaVinci's Vitruvian Man! Fry: It's truly a masterpiece. Note how the perspective lines draw the eye right to his dong.
+tv-futurama	family	tv-quote	general	0	Amy: Smeesh, Professor. Don't have a schmaneurysm. Fry's your distant relative. Prof. Farnsworth: Not distant enough! I'll be a monkey's uncle if I'm this monkey's nephew!
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: My God! This is the greatest mystery in history. We must go to Rome and exhume the body of Saint James. Hermes: Didn't we used to be a delivery company? Prof. Farnsworth: To the ship!
+tv-futurama	life	tv-quote	general	0	Bender: Anything less than immortality is a complete waste of time!
+tv-futurama	life	tv-quote	general	0	Fry: This is every bit as fun as the real Civil War. Leela: Not the Civil War, Private. We're re-enacting the Sith Wars. Fry: Sith? What the Hoth?
+tv-futurama	life	tv-quote	general	0	Darth Trocious: I shall rip out your heart and show it to you! [Taps Scruffy with toy lightsaber] It is done. Scruffy: [lies down] The candle that burns twice as bright burns half as long. Mmm-hmm.
+tv-futurama	life	tv-quote	general	0	Bender: [Exits phone booth.] Well, things are startin' to look up. Hermes: Look up! [Missile explodes.] Who did you call? Dial-a-bomb?
+tv-futurama	life	tv-quote	general	0	Hermes: They have phones in booths now? Finally! I don't have to lug this cell phone around.
+tv-futurama	life	tv-quote	general	0	Bender: Aw, shoot! Killbot 1: Someone said "shoot!" [Killbots 1 and 3 shoot at Killbot 2 and 2 explodes]
+tv-futurama	life	tv-quote	general	0	Killbot 1: We're gonna get fired. Killbot 2: Someone said "fire!" [Gunfire kills killbot 1 then killbot 2 is killed by the tunnel.]
+tv-futurama	life	tv-quote	general	0	Killbot 2: Cease fire. Mom called off the attack, although I don't see how it's her- Killbot 3: Someone said "howitzer!" [Killbots 1 and 3 start firing on the middle killbot, eventually blowing themselves up.]
+tv-futurama	life	tv-quote	general	0	Hermes: Leela! What in the name of Jah happened? Leela: Too much papers! Not enough hiding plants!
+tv-futurama	food	tv-quote	general	0	Elzar: Weren't you the loser who got stood up at my other restaurant? Leela: Shut up and bring me two dinners!
+tv-futurama	life	tv-quote	general	0	Fry: Hey, uh... What was the purpose of life, anyway? Professor Farnsworth: Who knows? Probably some hogwash about the human spirit. Bender: Mm-hm. Fry: Sounds about right.
+tv-futurama	life	tv-quote	general	0	Farnsworth: Ah, but this time machine only goes forward in time. That way you can't accidentally change history. Or do something disgusting like sleep with your own grandmother. Fry: I wouldn't wanna do that again.
+tv-futurama	life	tv-quote	general	0	Hedonism bot: Everywhere I looked there were piles of bodies. And then the explosion struck.
+tv-futurama	life	tv-quote	general	0	Fry: All in all, I had a pretty sweet life. How about we grab a six pack and watch the universe end. Bender: That's what I basically do everyday.
+tv-futurama	life	tv-quote	general	0	Leela: I have to admit, I was afraid you wouldn't make it. Fry: That was the old Fry. He's dead now.
+tv-futurama	life	tv-quote	general	0	Professor Katz: We shall now vote "yea" or "nay". Nay. Wernstrom: Nay! Ethan "Bubblegum" Tate: Hell nay! Professor Fisherprice Shpeekenshpell: The horse says: "doctorate denied".
+tv-futurama	life	tv-quote	general	0	Announcer: Cash, cash, cash! Too many bones and not enough cash? Sell your extra bones for cash! Ribs, skulls, spines, even certain little ear bones! The leg bone's connected to the... Cash Bone!
+tv-futurama	life	tv-quote	general	0	Leela: [Dresses cat in Nibbler's sailor suit] Admiral Cutiepaws reporting for duty... I mean, cutie! Nibbler: My best friend died in that uniform.
+tv-futurama	life	tv-quote	general	0	Nibbler: Can we at least know what you're doing down there? Prof. Farnsworth: We're certainly not building anything sinster, if that's what you mean. Come on, Bender. Something sinister won't build itself.
+tv-futurama	work-money	tv-quote	general	0	Amy: So you call my thesis a fat sack of barf and then stole it? Professor Katz: Welcome to academia.
+tv-futurama	life	tv-quote	general	0	Amy: I'm finally done with school! How's the job market? Professor Fisherprice Shpeekenshpell: [Pointer lands on "dog"] Ruff!
+tv-futurama	life	tv-quote	general	0	Amy: Core magnetic field, 31 microteslas. Prof. Farnsworth: Nice. Amy: Temperature? Woah! The magma P.I. is 10,000 degrees Selleck!
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: You've got a bright future, Amy. As sure as the Sun sets in the east.
+tv-futurama	science	tv-quote	general	0	Prof. Farnsworth: As a professor of science, I assure you we did, in fact, evolve from filthy monkey-men.
+tv-futurama	life	tv-quote	general	0	Hermes: And here's something. [Finds a fossilized dog] Uh-oh, it's another one of Fry's dogs. Fry: Did you say something, Hermes? Hermes: Nothing.
+tv-futurama	food	tv-quote	general	0	Leela: Okay, we've got shelter and just enough precious food to ward off starvation. Hermes: It's pizza time. [passes boxes to the rest of the crew.] Amy: Ugh, pineapple? [Everyone makes disgusted noises] Hermes: So much for that.
+tv-futurama	life	tv-quote	general	0	Amy: [in Farnsworth's body] Oh no! Can we switch back using four or more bodies? Professor Farnsworth: [in Bender's body] I'm not sure. I'm afraid we need to use... MATH.
+tv-futurama	life	tv-quote	general	0	Linda: Tonight at 11... Morbo: DOOOOOOOOOOOOM!
+tv-futurama	life	tv-quote	general	0	Amy: I wasted my youth porking out. Farnsworth: Yes, I remember. [He points to a picture of a fat Amy, captioned "2997 employee of the year".] Amy: Would you please take that down? It's making me hungry.
+tv-futurama	life	tv-quote	general	0	Hermes: Sweet orca of Majorca! You make Fat Albert look like Normal Albert!
+tv-futurama	life	tv-quote	general	0	Ndnd: I demand the ancient ritual of Rrmmr-mr-fr-mrh or consequences! Fry: Rrmmr-mr-fr-mrh or what?!
+tv-futurama	arts	tv-quote	general	0	Fry: I don't want my comic picked apart by nerds. I'm taking it to a comic book convention.
+tv-futurama	arts	tv-quote	general	0	Fry: So? What do you think of my comic? Bender: Let me put it like this: After I leave here, I'm getting a memory enema.
+tv-futurama	life	tv-quote	general	0	Bender: This calls for a party, baby! I'm ordering a hundred kegs, a hundred hookers, and a hundred Elvis impersonators who aren't above a little hooking, should the occasion arise!
+tv-futurama	life	tv-quote	general	0	Mutated Mark Mothersbaugh: As long-time mutants ourselves, we support your righteous struggle, and will do anything we can for you. Dwayne: Play "Whip It"! Mutated Mark Mothersbaugh: No. [to a band member] Play the other one.
+tv-futurama	life	tv-quote	general	0	Mrs. Astor: A Farnsworth, you say? Well, if I'm not mistaken, the Farnsworths have been in New New York for almost two hundred years. Prof. Farnsworth: Yes, I have.
+tv-futurama	life	tv-quote	general	0	Zoidberg: Hooray! A happy ending for the rich people.
+tv-futurama	life	tv-quote	general	0	Dwayne: Are we not men now? Mutated Mark Mothersbaugh: I'm 40% potato, but close enough.
+tv-futurama	life	tv-quote	general	0	Amy: Something's wrong. It's way too quiet. Fry: Like the deadly Prius.
+tv-futurama	life	tv-quote	general	0	Amy: Oh no! This could be the year without a Kwanza, like every year before 1966.
+tv-futurama	life	tv-quote	general	0	Professor: We have only one hope left, and as usual, it's Norwegian!
+tv-futurama	life	tv-quote	general	0	Bender: You know, I don't recall having done anything in a while, but I still feel I deserve a smoke.
+tv-futurama	science	tv-quote	general	0	Prof. Farnsworth: Good news! All these pine trees are fighting global warming by producing oxygen. Happy now, Gore? Al Gore's Head: Yeah. But I'd be happier if I had a set of lungs.
+tv-futurama	life	tv-quote	general	0	Zoidberg: What's that loud, boring sound you'll hear when I stop talking? Prof. Farnsworth: [gasps] It's an albino humping worm! Fry: Why do they call it that? [The ship begins to rock back and forth] Prof. Farnsworth: Because it doesn't have any pigment.
+tv-futurama	life	tv-quote	general	0	Al Gore's Head: Don't worry, the Futurama crew will be back next year with new episodes, starring Bender, Leela, and me, Al Gore, as Captain Lance Starman.
+tv-futurama	life	tv-quote	general	0	Amy: It would've been nice to shop at Tommy Hilfiger one last time. Hattie: It wasn't Tommy Hilfi-gigger. It was Linens 'n' Things! Petunia: The hell it was! It was a Juicy Couture! Leela: I guess we all saw what we wanted to see.
+tv-futurama	life	tv-quote	general	0	Fry: Wait. Why didn't that hurt? [stretches pants to check] Aggghhh! My wing-wang's gone! Leela: My girls! Bender: My antenna! Hattie: My kajigger! Zoidberg: My gonopores! [slight pause in compilcation] Zoidberg: Look it up.
+tv-futurama	life	tv-quote	general	0	Fry: Never bet against me being stupid!
+tv-futurama	life	tv-quote	general	0	Leela: Well, it was a lot of hard work, but it beats posing in skimpy, demeaning outfits. Prof. Farnsworth: Here are your skimpy, demeaning stewardress uniforms.
+tv-futurama	food	tv-quote	general	0	Hermes: Mmm, you're cooking me back fat bacon. LaBarbara: That's not back fat bacon! That's your back fat bakin'!
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: I got your distress call and came here as soon as I wanted to.
+tv-futurama	work-money	tv-quote	general	0	Hermes: I've found a loophole. It says here that we can renew the mortgage for the building by actually paying it. All we need is... $11, 000, 000. Bender: Aaand boned.
+tv-futurama	life	tv-quote	general	0	Morbo: Our top story: All alcohol on Earth has mysteriously disappeared. Consequences are minimal, except among the most hardened alcoholics. Linda? Linda: I can no longer face my children!!!
+tv-futurama	life	tv-quote	general	0	Amy: This chair is so comfortable. [She throws up] Bender: Heh, heh. Classic Amy.
+tv-futurama	life	tv-quote	general	0	Hermes: You'll have to be respectful. This customer is fifty-feet tall and sensitive about his appearance. Amy: Colossal tooth whitener, mega deodorant, humongous acne cream... Aw, and one regular-sized condom. Bender: All that and a small wiener? This guy's got it goin' on.
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: Oh, God. We've opened Pandora's fly. They'll reproduce without limit, consuming all the matter in the world! Fry: Like the Kardashians!
+tv-futurama	life	tv-quote	general	0	Bender: Legion of Benders, come unto me! We have one thing to do. Bender clones: Screw that! Bender: Oh, come on, you lazy jerks! If we all pitch in, we each only have to do one-quintillionth of a thing. Bender clones: [sigh] All right.
+tv-futurama	life	tv-quote	general	0	Fry: Bender, you duuu. Bender: No, we duuu.
+tv-futurama	life	tv-quote	general	0	Robot Devil: You see, Bender, it's simple. You're a ghost! Bender: A g-g-g-g-ghost?! Robot Devil: No, just the regular kind.
+tv-futurama	life	tv-quote	general	0	Zoidberg: Hey, look, a fog is rolling in. Hermes: No, that's just the Jamaican pride float. Amy: Looks like it's speeding up. Hermes: Oh, no! It's within munching distance of the Doritos float!
+tv-futurama	life	tv-quote	general	0	Hermes: Last time you went to the suicide booth, you ended up dating it for six months. Leela: How is Lynn, by the way? Bender: Livin' in Oregon with her crazy mother!
+tv-futurama	life	tv-quote	general	0	Fry: All I know is I've got a ghost that needs busting. [dials a number.] Hermes: Who you gonna call? Fry: Gho - [interrupted by a beep.] Female voice: The number you have dialed has been lame since 1989.
+tv-futurama	life	tv-quote	general	0	Clamps: Hey, scuttle on home. Dis ain't none of your business, slick. Zoidberg: My name isn't Slick, it's Zoidberg. JOHN (beep)ing ZOIDBERG!
+tv-futurama	life	tv-quote	general	0	Billy West: Sorry mister, but I'm no Bender. I'm just a simple farmer. Name's Billy West. Fry: [laughs] "Billy West". What a stupid, phony, made up name.
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: Who likes good news? [the crew raise their hands] Prof. Farnsworth: Everyone? Then, good news, everyone!
+tv-futurama	life	tv-quote	general	0	Warden Vogel: Sometimes you gotta choose between eating and reading, so they ate the books.
+tv-futurama	life	tv-quote	general	0	Lady Buggle: I'm as sad as an upside-down smile.
+tv-futurama	life	tv-quote	general	0	Hermes: Well, it's 6o'clock. I guess we'll have to deliver that human heart tomorrow. Good work, people! Bender: Woo-hoo! Time to go clubbing! [pulls out a baseball bat] Baby seals, here I come!
+tv-futurama	life	tv-quote	general	0	Franklin D. Roosevelt's Head: We have nothing to fear but running out of beer.
+tv-futurama	society	tv-quote	general	0	Thomas Jefferson: Alexander Hamilton of New York, how say you? Alexander Hamilton: Nay. Thomas Jefferson: John Hancock and John Adams of Massachusetts? John Adams: Yea. John Hancock: Yea. Thomas Jefferson: The yeas have it. Our nation's official joke state shall be New Jersey.
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: Fry, you dope! You've really screwed the granny this time!
+tv-futurama	life	tv-quote	general	0	Amy: Oh no, I'm having a Serengeti Flashback! Die you stinkin' giraffe!
+tv-futurama	life	tv-quote	general	0	Fry: Leela, I'm no medical expert, but I think you be showing some serious signs of 'illin.
+tv-futurama	society	tv-quote	general	0	Amy: You've gone from crazy like a fox to crazy like Fox News.
+tv-futurama	life	tv-quote	general	0	Hermes: Zoidberg was popular?! Amy: Zoidberg had hair?! Prof. Farnsworth: I never said he had hair! If you imagined it that way, that's your business!
+tv-futurama	life	tv-quote	general	0	Leela: Need I remind you that in space, the captain's word is law? I could marry Hermes with Bender against their will if I wanted to. Hermes: [gasps] You wouldn't dare! Bender: Eh, I've been married to worse.
+tv-futurama	faith	tv-quote	general	0	Amy: Where are we? Hermes: Inside the belly of the beast. Fry: Like that guy in the Bible... Pinocchio!
+tv-futurama	life	tv-quote	general	0	Leela: All right, which one of you sea dogs has the guts and know-how to harpoon a whale? Amy: I spent a semester in Africa hunting giraffes, and giraffes are basically land space whales. Leela: Ms. Wong, you have the 'poon.
+tv-futurama	life	tv-quote	general	0	Amy: Jinkies! He Scooby-Dooed us!
+tv-futurama	life	tv-quote	general	0	Angus McZongo: May I buy you a drink? We don't get a lot of pretty faces around here. Leela: Uh, sure, but I'm driving. I'll just have the smallest whiskey you've got. Angus McZongo: A small aquarium of whiskey for the busty lass.
+tv-futurama	life	tv-quote	general	0	Fry: You can't sit on something for a week without falling in love with it.
+tv-futurama	life	tv-quote	general	0	Fry: Mr. Peppy wouldn't hurt your sheep. He's a vegetarian, and he's not even preachy about it.
+tv-futurama	life	tv-quote	general	0	Fry: You can't just kill somebody because they're ugly and corrosive. Amy: That's what we said about Zoidberg, and look where that got us. Zoidberg: Amy makes a good point.
+tv-futurama	life	tv-quote	general	0	Zoidberg: Is this one o' those "No means yes" deals?! Prof. Farnsworth: Yes and no.
+tv-futurama	life	tv-quote	general	0	Zoidberg: I'm afraid Fry lost a lot of juice. He's developed Simpson's Jaundice. Fry: [with yellow skin] Ay, carumba!
+tv-futurama	life	tv-quote	general	0	Zoidberg: His only hope is some replacement liver. Yours looks like a good match. Leela: Well, if it'll help Fry... Fry: Careful, Leela. He knows less about human anatomy than I do, and I can't even find my own uterus.
+tv-futurama	life	tv-quote	general	0	Fry: Oh, sure. Leela's fine. But my jaundice has progressed to Muppet Gangrene. It's not easy being gangrenous.
+tv-futurama	life	tv-quote	general	0	Leela: It wasn't unavoidable! You just had to stop cutting my spine when I yelled, "Stop! You're cutting my spine!" Fry: Stop complaining. My body rejected your liver and now I have Garfield Syndrome. I hate Mondays.
+tv-futurama	life	tv-quote	general	0	Leela: Once and for all, Fry, even though it's the future, most objects are still just objects. Not Aliens who look like objects. Fry: So my efforts to establish diplomatic relations with the cactus people were doomed from the start.
+tv-futurama	life	tv-quote	general	0	Doctor: My God. I've never seen such a gruesome shark attack. Especially this far inland. Leela: It wasn't a shark. It was an awful, incompetent doctor. Doctor: Wow. He must've been a total Zoidberg.
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: We have only one option: Protocol 62. Richard Nixon's Head: Not possible. We don't have nearly enough piranhas. Zapp Brannigan: Then Protocol 63 it is.
+tv-futurama	life	tv-quote	general	0	Zoidberg: They're flying Manhattan into the sun. They must have been out of piranhas.
+tv-futurama	life	tv-quote	general	0	[flashback to 1988 as the Fry family are enjoying Thanksgiving dinner at Panucci's Pizza] Mr. Panucci: Hey, Barack! Pizza goin' out. Come on! Barack Obama: Man, I've got to go back to law school. Fry: [to Yancy, Jr.] Pffft! I'm not gonna wind up a loser like that guy.
+tv-futurama	tech	tv-quote	general	0	Cubert: This may take a while. I've got to adjust the memory timing, raise the CPU voltage, and delete twelve terabytes of outdated catchphrases. Bender: Sounds like fun on the bun! Female voice: Deleted.
+tv-futurama	love	tv-quote	general	0	Leela: Don't you ever wonder about the future? Fry: Well, sure, but you're always in it. [Leela smiles] Fry: Also, sometimes Terminators.
+tv-futurama	life	tv-quote	general	0	Mom: Farnsworth? What a lucky break, after all these years I've got him, and legally too. Larry: Even an idiot like me knows he'll be ruined. Mom: An idiot like you is correct! [slaps him]
+tv-futurama	life	tv-quote	general	0	Hermes: Good news, everyone! That's what the Professor would say if he weren't in jail facing a life sentence.
+tv-futurama	tech	tv-quote	general	0	Professor Farnsworth: Oh god! I clicked without reading. Cubert Farnsworth: And I slightly modified a thing that I own. Professor Farnsworth We're monsters! [Both cry]
+tv-futurama	faith	tv-quote	general	0	God Entity: A wise man once said that nothing really dies. It just comes back in a new form. Then he died. So, next time you see a lowly salamander, think twice before you step on it; it might be you. Stand by for "Reincarnation".
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: Movietone News, everyone!
+tv-futurama	life	tv-quote	general	0	Amy: Watch it, you stumble bums! You're boopin' my Betty!
+tv-futurama	life	tv-quote	general	0	Leela: Is my eye playing trick on me?
+tv-futurama	life	tv-quote	general	0	Bender: Th-th-that's all you get, chumps!
+tv-futurama	life	tv-quote	general	0	Fry: All right, diamond. You won those round, but I have an ace up my hole.
+tv-futurama	life	tv-quote	general	0	Fry: A guy like me can't afford a diamond ring for a gal like her. Bender: That's for sure, not on the measly salary I steal from you every week. [takes Fry's wallet]
+tv-futurama	life	tv-quote	general	0	Bender: [trying to cheer up the professor] Would it cheer you up if I punch Fry in the groin? Cause I'll do it, regardless.
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: Fry, you idiot, you're a genius!
+tv-futurama	science	tv-quote	general	0	Amy: You solved the problem that drove Einstein and forced Stephen Hawking to quit physics and become a cartoon voice-actor. Stephen Hawking's Head: I like physics, but I love cartoons.
+tv-futurama	tech	tv-quote	general	0	Leela: What is that box, you old witch? Prof. Farnsworth: Ha ha ha ha! I'll never tell you! It's a deep space emotion detector. [all gasp] Prof. Farnsworth: The detector detects that you are impressed.
+tv-futurama	life	tv-quote	general	0	Fry: Zoidberg, a diplomat? The list of things I've heard now contains everything.
+tv-futurama	life	tv-quote	general	0	Farnsworth: All attempts to communicate with the aliens have failed. I fear our only option is thrilling space battle. Bender/Fry: Power Friends Go!
+tv-futurama	life	tv-quote	general	0	Zoidberg: Here my words. My shell may be tough like a samurai honeymoon mask, but inside I'm as soft and sensitive as a girl made of custard. Cubert: Custard Time?! Hooray!
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: Of course! Having no mouths or ears they can only communicate through motions! Fry: Or perhaps by odors. Bender: That is how you communicate. Amy/Leela/Fry/Bender/Hermes: Hahahahahahaha!
+tv-futurama	life	tv-quote	general	0	Bender and Fry: [communicating with the aliens via dance] Hey aliens, we will kill you! And dishonor your widows by making them gather wood!
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: Zoidberg, you are the greatest hero. You saved us all. Zoidberg: For now. But another threat from the stars is sure to arise [mouth stops moving] next week at the same time!
+tv-futurama	life	tv-quote	general	0	Leela: Aw, he's so cute. Wait, no, he isn't. He looks like Bender!
+tv-futurama	life	tv-quote	general	0	Amy: Didn't your mom ever tell you where robot babies come from? Bender: No, she was a religious fundamentalist, plus she didn't have a mouth. It's an unusual combination.
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: I hate to crush a boy's dreams, but... [upbeat] What the heck!
+tv-futurama	life	tv-quote	general	0	Fry: I hope you're not too mad at me, Leela. For tearing your arm off and all. Leela: I can't be mad, I'm on way too many painkillers. Plus, you were willing to sacrifice yourself so I could live. I mean you failed miserably, but you're only person who loves me enough to try.
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: What an idiot I was! And by "I", I meant "you"!
+tv-futurama	society	tv-quote	general	0	Linda: This is the first time a presidential candidate got to see his own birth live.
+tv-futurama	life	tv-quote	general	0	Leela: This is crazy! You're from the future? Chris Travers: Yes. I was sent back from the year 3028 to prevent Nixon from getting elected. Fry: I was sent forward from the year 2000, but you don't hear me gassing on about it.
+tv-futurama	tech	tv-quote	general	0	Hermes: Film? Who uses film? We've had digital cameras for a thousand years! Bender: Digital? [spits] No digital camera can capture the warmth and grain o' good, ol' film. Prof. Farnsworth: How can you even tell? Your eyes are digital cameras.
+tv-futurama	life	tv-quote	general	0	Leela: [to Calculon] Now, your only chance is a classic death scene, one with a lot of thy's and thou's. Bender: Voíla! The tragic end of "Rome-o and Julie-t." Leela: That's Romeo and Juliet, dummy...by will.i.am Shakespeare.
+tv-futurama	love	tv-quote	general	0	Zapp Brannigan: Very well. Morris, Munda, I now pronounce you man and wife. May I kiss the bride? [Morris punches Zapp in the chest.] Zapp Brannigan: Congratulations.
+tv-futurama	life	tv-quote	general	0	Zapp Brannigan: We're under attack and the wedding's off. Kif, return fire AND the cake. Kif: [panicking] All systems are disabled and you can't return an ice cream cake!!
+tv-futurama	love	tv-quote	general	0	[Leela gives Fry a long kiss.] Leela: Keep your door unlocked tonight. Fry: But McGruff the Crime Dog says... Oh!
+tv-futurama	food	tv-quote	general	0	Leela: Professor, there's nothing wrong with Nectar. It's all natural. Prof. Farnworth: So are carrots, but you don't see me injecting them between my toes! [He lights up a carrot and smokes it.]
+tv-futurama	life	tv-quote	general	0	[Amy and Leela continuously kiss Fry] Hermes: Sweet orgy of Georgia! Have you girls gone wild?
+tv-futurama	life	tv-quote	general	0	Bender: With one-sixth gravity, you can work and be lazy at the same time! It's like being a voice actor!
+tv-futurama	life	tv-quote	general	0	Morbo: Once again, Eternliax the Immortal, dead, at the age of 26.
+tv-futurama	life	tv-quote	general	0	Hermes: No more implants. I don't want to end up a cold, emotionless machine like you.
+tv-futurama	arts	tv-quote	general	0	Zoidberg: You don't understand. He was the only one who cared enough to insult me. Leela: I insult you, you fat sack. Zoidberg: Sure, when it's convenient.
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: For once, I thought it might be nice to do something in a social setting! Finally get to know each other. Why, I don't even know half your names! [Points to Fry.] You, boy! What do they call you? Fry: Most folks just call me 'Orange Joe'.
+tv-futurama	food	tv-quote	general	0	Bender: Hey, Elzar! I've just recently started always having dreamt of being a sausage making champion
+tv-futurama	tech	tv-quote	general	0	Zapp Brannigan: Foolproof and durable; it's designed to withstand the weight of a modern day elephant foot. [A wooly mammoth tramples them, making Zapp drop the controller, which is crushed by the mammoth's foot, causing the drones to crash and explode.]
+tv-futurama	food	tv-quote	general	0	Bender: I enjoy getting drunk as much as the next fellow, but this sir, is Oktoberfest!
+tv-futurama	life	tv-quote	general	0	Bender: Thanks to you, I went on a soul-searching journey. I hate those!
+tv-futurama	life	tv-quote	general	0	Bender: How does a robot join this monk outfit? AbBot: Just put on this monk outfit.
+tv-futurama	life	tv-quote	general	0	Bender: I gotta mope things over for a while. Fry: What's happening? Leela: I don't know. I think he's shuffling off sadly in the distance. Fry: Oh lord.
+tv-futurama	life	tv-quote	general	0	Bender: Life is about decisions. Make the wrong ones and you'll wind up face down in a pool of your own blood and urine. Zoidberg: Still, to have your own pool!
+tv-futurama	life	tv-quote	general	0	Bender: It's been quite a journey. I dropped out of school, joined a gang, took money from a loan shark, and fell into a spiral of despair, addiction, and discount prostitution. Hermes: Mon, you had one hell of a day.
+tv-futurama	life	tv-quote	general	0	Leela: Fry, you're so confident and take charge on this trip! It's kind of a turn-on. Fry: Not now, Leela, I'm trying to meet old people!
+tv-futurama	life	tv-quote	general	0	Zoidberg: It's so wonderful to meet the Professor's parents! [to Ned and Velma] Hello, my name is Dr. Zoidberg. I'm very important here. Leela: Hey, Zoidberg! You forgot to empty this trashcan! Zoidberg: [scared] Don't hit me!
+tv-futurama	life	tv-quote	general	0	Fry: Ahem! Professor: Oh what? Oh yeah your award show? I'm sorry I couldn't make it but I had a very good reason! Fry: Perhaps you'd favor us with it? Professor: Sure my pleasure. I came down with a searing case of... who gives a crap?! HAHAHAHA!!
+tv-futurama	life	tv-quote	general	0	Leela: Hmmmm... Hats with wires on them. Are you sure this is safe? Bender: It's not just safe; it's 40% safe.
+tv-futurama	society	tv-quote	general	0	Prof. Farnsworth: Fox news, everyone! I've decided to make the fox our new corporate mascot!
+tv-futurama	life	tv-quote	general	0	Fry: It's Bender's middle finger. I'd recognize this anywhere.
+tv-futurama	faith	tv-quote	general	0	Zoidberg: [prays] God, it's Zoidberg. I hate to bother you, but- [A huge bag full of money lands directly in front of him] Okay, okay, I'll shut up!
+tv-futurama	life	tv-quote	general	0	Zoidberg: Look out, penny slots, I've got a system! It's to put all my money in you!
+tv-futurama	life	tv-quote	general	0	Prof. Farnsworth: My God! He was so saturated with ink that his entire body structure was polarized! Zoidberg: You mean I'm invisible? Prof. Farnsworth: No, no, no, not in any sense of the word. But essentially, yes, entirely.
+tv-futurama	life	tv-quote	general	0	Salmon Hermes: Still, six of ten alive! That's considered good for our species. Lobster Zoidberg: Five out of ten, also nice. [Takes a bit out of Scruffy] Salmon Scruffy: Yep.
+tv-futurama	life	tv-quote	general	0	Salmon Hermes: Oh-ho I'm good! Who wants a piece of me? Lobster Zoidberg: I'll try-a-bite! [Eats Hermes]
+tv-futurama	life	tv-quote	general	0	Bass Bender: (his dying words) Tell my kids I love me... very much.
+tv-futurama	life	tv-quote	general	0	Lonesome Hubert: Sad news everyone. I'm lonesome.
+tv-futurama	work-money	tv-quote	general	0	Professor Farnsworth: That's it, you hoodlums! Your mouth just wrote a PayPal transfer request that your butt has insufficient funds to honor! Racer: Yo. It is on! Before that it was off.
+tv-futurama	life	tv-quote	general	0	Amy: [upset] Do you think they're...dead? Hermes: No, no. I choose to believe they're alive in some other dimension. Screamin' in agony. [Amy wipes away a tear.] Amy: I hope so.
+tv-futurama	society	quip	general	0	King of Flatbush: He's opening our minds to new ideas. Kill him!
+tv-futurama	life	tv-quote	general	0	[Amy approaches Zoidberg whilst dressed like a marmoset.] Amy: I'm not sure this marmoset disguise is working... Zoidberg: I'm not sure either. We better ask Amy!
+tv-futurama	life	tv-quote	general	0	Fry: An-and the robot hands would make you a strawberry shortcake any time of day. Four, seven, any time! Hermes: No way! Fry: I'm not lyin'!
+tv-futurama	love	tv-quote	general	0	Leela: Sean, I'd like you to meet Fry, he and I are... What would you say we are, Fry? Fry: Nude and interrupted.
+tv-futurama	life	tv-quote	general	0	Professor Farnsworth: Good news, everyone! I'm in terrible pain.
+tv-futurama	life	tv-quote	general	0	Kif: Sir, there's an Omicronian ship requesting safe passage home. Zapp: Home, eh? That's where I live! Let 'em through the blockade.
+tv-futurama	life	tv-quote	general	0	Hermes: Five-O! Five-O! Amy: Five what? Hermes: Five Omicronians!
+tv-futurama	love	tv-quote	general	0	Leela: Bender. Do you know where Fry is? I haven't seen him since we got back from Omicron Persei 8. Bender: Fry?! You... just missed him. He went out to buy you flowers. Whatever kind you like best. 'Cuz he loves you and crap.
+tv-futurama	tech	tv-quote	general	0	Lrrr: Jrrr! How do I watch a funny on the YouTube?
+tv-futurama	life	tv-quote	general	0	Jrrr: Can you save him? Drrr: I could, but he'd only live another 80 years at most. The humane thing is to put him to sleep.
+tv-futurama	life	tv-quote	general	0	Lrrr: What's happening? Why's his butt glowing? Drrr: The electromagnetic intensity of the robot's friendship is causing the herbs in his bowels to bioluminesce with love. Probably.
+tv-futurama	life	tv-quote	general	0	Bender: I failed at my life-long dream again. How can I be so bad at everything I try, and still be so great?
+tv-futurama	arts	tv-quote	general	0	Zoidberg: But, robot, you can't just make up a folk song like you can a medical diploma, they have to come from the heart!
+tv-futurama	life	tv-quote	general	0	Mayor Poopenmeyer: These boys must have hero in their bones, and you, ma'am, must have heroine in your veins.
+tv-futurama	life	tv-quote	general	0	Bender: Polar bears don't burn! I've tried many times!
+tv-futurama	life	tv-quote	general	0	Professor Farnsworth: We can have 4 idiots and a fat guy, but no arsonist!
+tv-futurama	society	tv-quote	general	0	Mayor Poopenmeyer: There is no fire department! I sold it to pay for Bender's medal!
+tv-futurama	life	tv-quote	general	0	Bender: I'll stay here and be in charge of 'not dying'
+tv-futurama	life	tv-quote	general	0	Zapp: But here we are, stealing an unlimited supply of birthday grade helium from the unsuspecting moon. Kif: That's the sun. Zapp: At night, its the moon.
+tv-futurama	life	tv-quote	general	0	[a rock is thrown into the White House shattering a window] Nixon: Is that a rock? I hate rocks!
+tv-futurama	life	tv-quote	general	0	Farnsworth: [repetitive line] Just wait 'til I get my hands on those healthy purple berries!
+tv-futurama	life	tv-quote	general	0	Fry: No! We like you and your big words, and we need you back on TV, so we can watch and not talk to each other. Our friendship depends on it! Bender: [screaming] Your voice is so annoying! Fry: [screaming] You always leave the toilet seat crushed!
+tv-futurama	life	quip	general	0	Opening sequence: Avenge us

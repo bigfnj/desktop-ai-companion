@@ -1,0 +1,106 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The Fortunes module (S3). Builds to the runtime modules\fortunes\ folder. Ships the fortune ENGINE
+       + the personalized welcome starter, with ZERO bundled fortune content (see BACKLOG.md).
+       S3c-1 relocates the DUMB engine here (engine\FortuneProvider.cs + FortuneFileImporter.cs, rebound to
+       FortuneSettings / FortunePaths + a copied AtomicFile). It stays DORMANT (FortunesModule.Init still
+       only does the welcome) so the base keeps owning fortunes until the flip (S3d) => no regression. The
+       SMART layer (SmartFortunes + Embedder) + the ONNX PackageReference + bge-small model come in S3c-2.
+       References ONLY the plugin ABI (Private=false => the host's shared contract). SDK default globbing
+       compiles engine\*.cs. -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>DesktopAICompanion.FortunesModule</RootNamespace>
+    <AssemblyName>Fortunes</AssemblyName>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <Deterministic>true</Deterministic>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <!-- S3c-2: the smart layer carries native ONNX (like NAudio for Sound). Pin win-x64 (framework-
+         dependent) so the onnxruntime native assets are pulled; keep the flat modules\fortunes\ layout
+         (don't append the RID to the output path); emit a deps.json + copy NuGet assemblies so the module's
+         AssemblyLoadContext can resolve both the managed Microsoft.ML.OnnxRuntime.dll and, via LoadUnmanagedDll,
+         the native onnxruntime.dll under runtimes\win-x64\native\. -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <GenerateDependencyFile>true</GenerateDependencyFile>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <OutputPath>..\..\build\DesktopAICompanionPortable\bin\$(Configuration)\x64\modules\fortunes\</OutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DesktopAICompanion.Contracts\DesktopAICompanion.Contracts.csproj" Private="false" />
+    <!-- ModuleKit is deliberately NOT Private="false" like the contract: the host shares one contract, but
+         the support library ships inside this module's folder so each load context carries its own copy. -->
+    <ProjectReference Include="..\..\src\DesktopAICompanion.ModuleKit\DesktopAICompanion.ModuleKit.csproj" />
+    <!-- The smart engine's ONNX runtime - the module's own dependency (like NAudio for the Sound module).
+         The managed Microsoft.ML.OnnxRuntime.dll + native onnxruntime.dll land beside/under the module and
+         are recorded in Fortunes.deps.json; the module's AssemblyLoadContext resolves both.
+         GeneratePathProperty exposes $(PkgMicrosoft_ML_OnnxRuntime) so the license + notices ship beside the
+         binaries they cover (the MIT license requires the notice travel with the redistributed runtime). -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.28.0" GeneratePathProperty="true" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- bge-small model + vocab: the semantic picker's brain, copied flat beside Fortunes.dll
+         (Embedder.AppDir = the module dll's own folder). Engine asset, not shipped fortune content. -->
+    <None Include="..\..\src\Models\bge-small.onnx">
+      <Link>bge-small.onnx</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\src\Models\bge-small.vocab.txt">
+      <Link>bge-small.vocab.txt</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <!-- ONNX Runtime license + third-party notices, shipped in the module folder next to the native
+         onnxruntime.dll / managed Microsoft.ML.OnnxRuntime.dll they cover. Pulled from the restored NuGet
+         package (same pattern the base uses for Newtonsoft) so they never drift from the pinned version. -->
+    <None Include="$(PkgMicrosoft_ML_OnnxRuntime)\LICENSE"
+          Condition="'$(PkgMicrosoft_ML_OnnxRuntime)' != '' and Exists('$(PkgMicrosoft_ML_OnnxRuntime)\LICENSE')">
+      <Link>ONNXRUNTIME_LICENSE.txt</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="$(PkgMicrosoft_ML_OnnxRuntime)\ThirdPartyNotices.txt"
+          Condition="'$(PkgMicrosoft_ML_OnnxRuntime)' != '' and Exists('$(PkgMicrosoft_ML_OnnxRuntime)\ThirdPartyNotices.txt')">
+      <Link>ONNXRUNTIME_THIRD_PARTY_NOTICES.txt</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The personalized starter corpus: sheep-themed one-liners with a {name} slot, filled with the
+         Windows username. This is the module's default voice until the user adds real fortune packs.
+         Not "content" in the pack sense - it's the greeting framework (adapted from ai-platform's
+         DeskPet welcome quips). -->
+    <EmbeddedResource Include="welcome.json" />
+    <!-- The built-in fortune corpus (26 sources, ~10k lines) that FortuneProvider.EmbeddedCorpus() loads,
+         so a lean install has something to say before the user downloads a single pack. This is the half of
+         the S3 move that never landed: the base stopped embedding it and the module never started, leaving
+         EmbeddedCorpus() to fail into _embeddedError on every build since. Seven of its sources exist in no
+         pack file, so it is not duplicate content. -->
+    <EmbeddedResource Include="..\..\src\Fortunes\fortunes.txt">
+      <Link>fortunes.txt</Link>
+      <LogicalName>fortunes.txt</LogicalName>
+    </EmbeddedResource>
+    <!-- Curated pack -> collection map, so the INSTALLED packs card groups by the same collection names
+         the online catalog shows (the local pack scan knows only ids). Small (~14 KB) and read once. -->
+    <EmbeddedResource Include="..\..\packs\collections.json">
+      <LogicalName>collections.json</LogicalName>
+    </EmbeddedResource>
+    <!-- Curated id -> display name map: pack ids are cryptic file stems ("lwall-quotes", "rfc1925"), so
+         the picker shows these instead. Same file the catalog generator reads, so both cards agree. -->
+    <EmbeddedResource Include="..\..\packs\pack-names.json">
+      <LogicalName>pack-names.json</LogicalName>
+    </EmbeddedResource>
+    <!-- Classifier-parity fixture the engine's FilterSelfTest reads (same LogicalName it looked up in the
+         base). Not shipped content - a test fixture that keeps the relocated classifier check verifiable. -->
+    <EmbeddedResource Include="..\..\src\Fortunes\classifier-parity-cases.tsv">
+      <Link>classifier-parity-cases.tsv</Link>
+      <LogicalName>DesktopAICompanion.ClassifierParity.tsv</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+</Project>

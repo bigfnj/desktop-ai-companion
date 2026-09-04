@@ -1,0 +1,153 @@
+off-religion	faith	quip	general	0	A casual stroll through a lunatic asylum shows that faith does not prove anything.
+off-religion	faith	quip	general	0	A Christian is a man who feels repentance on Sunday for what he did on Saturday and is going to do on Monday.
+off-religion	society	quip	general	0	A Galileo could no more be elected president of the United States than he could be elected Pope of Rome. Both high posts are reserved for men favored by God with an extraordinary genius for swathing the bitter facts of life in bandages of self-illusion.
+off-religion	faith	wisdom	general	0	A key to the understanding of all religions is that a God's idea of a good time is a game of Snakes and Ladders with greased rungs.
+off-religion	faith	quip	general	0	A man without a God is like a fish without a bicycle.
+off-religion	faith	quip	general	0	"A Mormon is a man that has the bad taste and the religion to do what a good many other people are restrained from doing by conscientious scruples and the police."
+off-religion	faith	aphorism	general	0	A myth is a religion in which no-one any longer believes.
+off-religion	faith	quip	general	0	A Puritan is someone who is deathly afraid that someone, somewhere, is having fun.
+off-religion	faith	quip	general	0	"Acceptance without proof is the fundamental characteristic of Western religion, Rejection without proof is the fundamental characteristic of Western science."
+off-religion	faith	quip	general	0	All religions issue Bibles against Satan, and say the most injurious things against him, but we never hear his side.
+off-religion	life	quip	general	0	All the waters of the earth are in the armpit of the Great Frog.
+off-religion	faith	quip	general	0	An atheist is a man with no invisible means of support.
+off-religion	faith	quip	general	0	...And have you ever noticed that you never see the Father, the Son, and the Holy Ghost partying together at the same time? Oh, sure, everybody talks like they aren't the same person, but I wonder...
+off-religion	faith	joke	general	0	And on the third day, Christ arose, pushed aside the rock that had served as the tomb door, and walked again on the earth. And as he departed, a passer-by pointed at the door Jesus had left open. "What's the matter with you?" he said. "Born in a barn?"
+off-religion	faith	quip	general	0	Ankh if you love Isis.
+off-religion	faith	quip	general	0	Any priest or shaman must be presumed guilty until proved innocent.
+off-religion	faith	quip	general	0	As the Catholic church becomes more and more tolerant, some day they will have to consider the possibility of a gay pope. Possibly the largest issue will be having to decide whether he is "absolutely divine" or "just simply marvelous."
+off-religion	faith	verse	general	0	Ashes to ashes, dust to dust, If God won't have you, the devil must.
+off-religion	faith	pun	general	0	Atheism is a non-prophet organization.
+off-religion	life	verse	general	0	Better the prince of some inferior court, Than second, or less, in beatific light.
+off-religion	faith	quip	general	0	Beware of mathematicians and all those who make empty prophecies. The danger already exists that the mathematicians have made covenant with the devil to darken the spirit and to confine man in the bonds of hell.
+off-religion	faith	quip	general	0	Campus crusade for Cthulhu -- it found me.
+off-religion	faith	quip	general	0	Catholicism has changed tremendously in the recent years. Now when Communion is served there is also a salad bar.
+off-religion	faith	dark	general	0	Christ died for our sins, so let's not disappoint Him.
+off-religion	faith	joke	general	0	Christianity and Judaism aren't all that different, really. Growing up in a Christian family, the feeling of guilt for Man's sins comes from God. In a Jewish family, it comes from your parents.
+off-religion	faith	quip	general	0	Christianity has not been tried and found wanting; it has been found difficult and not tried.
+off-religion	faith	quip	general	0	Christianity might be a good thing if anyone ever tried it.
+off-religion	faith	quip	general	0	Crucifixes are sexy because there's a naked man on them.
+off-religion	life	quip	general	0	Cthulhu Cthucks!
+off-religion	society	quip	general	0	Cthulhu for President! (If you're tired of choosing the lesser of two evils.)
+off-religion	life	quip	general	0	Cthulhu Saves -- in case He's hungry later.
+off-religion	faith	dark	general	0	David was just a shepherd who liked to get his rocks off in leather.
+off-religion	faith	quip	general	0	Dear Ann Landers: My husband watches the TV preachers every Sunday. He claims one minister said there are 350 different sins. My husband wants to know if you can get the list. He thinks he is missing something.
+off-religion	faith	quip	general	0	Dianetics is a milestone for man comparable to his discovery of fire and superior to his invention of the wheel and the arch.
+off-religion	faith	observation	general	0	Did you ever wonder what you'd say to God if He sneezed?
+off-religion	life	joke	general	0	Didja hear about the dyslexic devil worshipper who sold his soul to Santa?
+off-religion	society	dark	general	0	Enemy -- SP (Suppressive Person) Order. Fair Game. May be deprived of property or injured by any means by any Scientologist without any discipline of the Scientologist. May be tricked, sued or lied to or destroyed.
+off-religion	faith	aphorism	edgy	1	Ere the cock crows thrice one of you will betray me.
+off-religion	faith	quip	general	0	Every day people are straying away from the church and going back to God.
+off-religion	faith	joke	general	0	God did not create the world in seven days; he screwed around for six days and then pulled an all-nighter.
+off-religion	faith	quip	general	0	God is a polytheist.
+off-religion	faith	quip	general	0	God is an atheist.
+off-religion	faith	quip	general	0	"God is as real as I am," the old man said. My faith was restored, for I knew that Santa would never lie.
+off-religion	faith	quip	edgy	1	"God is big, so don't fuck with him."
+off-religion	faith	quip	general	0	God is not dead -- he's been busted.
+off-religion	faith	quip	general	0	God is not dead! He's alive and autographing bibles at Cody's.
+off-religion	faith	quip	general	0	God is not dead. He is alive and well and working on a much less ambitious project.
+off-religion	faith	dark	general	0	God is omnipotent, omniscient, and omnibenevolent -- it says so right here on the label. If you have a mind capable of believing all three of these divine attributes simultaneously, I have a wonderful bargain for you. No checks, please. Cash and in small bills.
+off-religion	faith	quip	general	0	God isn't dead, He's just trying to avoid the draft.
+off-religion	faith	quip	edgy	1	God must love assholes -- She made so many of them.
+off-religion	faith	aphorism	general	0	God said it, I believe it and that's all there is to it.
+off-religion	faith	quip	general	0	God votes Republican.
+off-religion	life	tv-quote	general	0	He has been known by many names; the Prince of Lies, the Director, Lucifer, Belial, and once, at a party, some obnoxious drunk kept calling him "Dude".
+off-religion	faith	fact	general	0	Heaven and earth were created all together in the same instant, on October 23rd, 4004 B.C. at nine o'clock in the morning.
+off-religion	society	quip	general	0	History has the relation to truth that theology has to religion -- i.e., none to speak of.
+off-religion	faith	quip	general	0	I am an atheist, thank God!
+off-religion	faith	dark	general	0	I call Christianity the one great curse, the one enormous and innermost perversion, the one great instinct of revenge, for which no means are too venomous, too underhand, too underground and too petty -- I call it the one immortal blemish of mankind.
+off-religion	faith	observation	general	0	I do not feel obliged to believe that the same God who has endowed us with sense, reason, and intellect has intended us to forego their use.
+off-religion	faith	joke	general	0	I don't care what star you're following, get that camel off my front lawn! -- Heard in Bethlehem
+off-religion	faith	quip	general	0	I figure that if God actually does exist, He's big enough to understand an honest difference of opinion.
+off-religion	faith	tv-quote	general	0	"I think he said 'Blessed are the cheesemakers.'" "Nonsense, he was obviously referring to all manufacturers of dairy products."
+off-religion	faith	quip	general	0	"I'd like to start a new religion. One that doesn't use a dead young man as its logo."
+off-religion	life	quip	general	0	I'm a creationist; I refuse to believe that I could have evolved from man.
+off-religion	science	joke	general	0	I'm an evolutionist; I refuse to believe that I could have been created by man.
+off-religion	faith	quip	general	0	If Christianity was morality, Socrates would be the Saviour.
+off-religion	faith	quip	general	0	If God did not exist, it would be necessary to invent him.
+off-religion	faith	quip	general	0	"If God had wanted us to use the metric system, Jesus would have had 10 apostles."
+off-religion	faith	quip	general	0	If God lived on Earth, people would knock out all His windows. -- Yiddish saying
+off-religion	faith	joke	general	0	If Jesus Christ came to this town, people would say, great guy; terrible carpenter.
+off-religion	faith	observation	general	0	If Jesus Christ were to come today, people would not even crucify him. They would ask him to dinner, and hear what he had to say, and make fun of it.
+off-religion	faith	quip	general	0	If the church put in half the time on covetousness that it does on lust, this would be a better world.
+off-religion	faith	quip	general	0	If the Lord God Almighty had consulted me before embarking upon the Creation, I would have recommended something simpler. -- Alfonso the Wise, 13th Century King of Castile, Commenting on the Almagest, by Ptolemy.
+off-religion	faith	quip	general	0	If you don't count some of Jehovah's injunctions, there are no humorists in the Bible.
+off-religion	faith	uplifting	general	0	If you liked the Earth you'll love Heaven.
+off-religion	faith	observation	general	0	Imagine there's no heaven... it's easy if you try.
+off-religion	faith	quip	general	0	"In Christianity neither morality nor religion come into contact with reality at any point."
+off-religion	faith	quip	general	0	In every country and every age, the priest has been hostile to Liberty.
+off-religion	faith	quip	general	0	It is convenient that there be gods, and, as it is convenient, let us believe there are.
+off-religion	faith	quip	general	0	"It says he made us all to be just like him. So if we're dumb, then god is dumb, and maybe even a little ugly on the side."
+off-religion	faith	wisdom	general	0	... it still remains true that as a set of cognitive beliefs about the existence of God in any recognizable sense continuous with the great systems of the past, religious doctrines constitute a speculative hypothesis of an extremely low order of probability.
+off-religion	faith	quip	general	0	Jehovah is an alien and still threatens this planet!
+off-religion	faith	quip	general	0	Jesus died for your sins. Make it worth his time.
+off-religion	faith	joke	general	0	Jesus Never Fails (He's never taken the Massachusetts Bar Exam, either.)
+off-religion	faith	pun	general	0	Jesus Saves! (And Esposito scores on the rebound!)
+off-religion	faith	pun	general	0	Jesus Saves, Moses Invests, But only Buddha pays Dividends.
+off-religion	life	quip	general	0	"Jesus saves...but Gretzky gets the rebound!"
+off-religion	faith	dark	general	0	Jesus was killed by a Moral Majority.
+off-religion	faith	dark	general	0	John Paul II is famous for his touring, and his quaint habit of pressing his lips to foreign soil on his arrival. This sparked some wit to remark: "The Pope has it backwards: he kisses the ground, and walks on the women!"
+off-religion	faith	dark	general	0	LET Jesus be YOUR anchor! So when Satan rocks your boat, THROW Jesus overboard!
+off-religion	faith	aphorism	general	0	Man proposes, God disposes.
+off-religion	faith	observation	general	0	Many a long dispute between divines may thus be abridged: It is so. It is not so. It is so. It is not so.
+off-religion	faith	quip	general	0	Many a sober Christian would rather admit that a wafer is God than that God is a cruel and capricious tyrant.
+off-religion	faith	quip	general	0	Militant agnostic: I don't know, and you don't either.
+off-religion	life	tv-quote	general	0	My daddy's brains was so scrambled he thought he was Jesus. They put him in a nut house for 5 years and when he got out, he didn't think he was Jesus, he thought he was *God*! ... Which made me Jesus.
+off-religion	faith	quip	general	0	"Not only is God dead, but just try to find a plumber on weekends."
+off-religion	faith	quip	general	0	One man's theology is another man's belly laugh.
+off-religion	faith	dark	general	0	One thing I have no worry about is whether God exists. But it has occurred to me that God has Alzheimer's and has forgotten we exist.
+off-religion	faith	dark	general	0	One, with God, is always a majority, but many a martyr has been burned at the stake while the votes were being counted.
+off-religion	faith	quip	general	0	Pain is just God's way of hurting you.
+off-religion	faith	quip	general	0	Praise the Lord and pass the ammunition.
+off-religion	society	quip	general	0	Prisons are built with stones of Law, brothels with bricks of Religion.
+off-religion	faith	quip	general	0	Religion has done love a great service by making it a sin.
+off-religion	faith	dark	general	0	Religion is a crutch, but that's okay... humanity is a cripple.
+off-religion	faith	quip	general	0	Religion is fine, Churchianity sucks.
+off-religion	faith	quip	general	0	Religion is what keeps the poor from murdering the rich.
+off-religion	faith	observation	general	0	Religions revolve madly around sexual questions.
+off-religion	faith	quip	general	0	She say, Miss Colie, You better hush. God might hear you. Let 'im hear me, I say. If he ever listened to poor colored women the world would be a different place, I can tell you.
+off-religion	faith	aphorism	general	0	Si Dieu n'existait pas, il faudrait l'inventer. [If God did not exist, it would be necessary to invent him.]
+off-religion	life	dark	general	0	Smile, Cthulhu Loathes You.
+off-religion	faith	quip	general	0	So far as I can remember, there is not one word in the Gospels in praise of intelligence.
+off-religion	faith	quip	general	0	So, if there's no God, who changes the water?
+off-religion	faith	quip	general	0	So, what's with this guy Gideon, anyway? And why can't he ever remember his Bible?
+off-religion	faith	quip	general	0	So... how come the Corinthians never wrote back?
+off-religion	faith	quip	edgy	1	Some people seem to think that "damn" is God's last name.
+off-religion	faith	wisdom	general	0	Some things have to be believed to be seen.
+off-religion	faith	quip	general	0	Such evil deeds could religion prompt.
+off-religion	faith	joke	general	0	Sure banking is Biblical! How about when Onan received a substantial penalty for early withdrawal? Or when Pharaoh's daughter went into the bulrushes and came out with a little prophet? And it was Moses who led the Children of Israel to the Banks of the Jordan!
+off-religion	faith	quip	general	0	"That's no answer," Job said, "And for someone who's supposed to be omnipotent, let me tell you 'tabernacle' has only one l."
+off-religion	faith	observation	general	0	The divinity of Jesus is made a convenient cover for absurdity. Nowhere in the Gospels do we find a precept for Creeds, Confessions, Oaths, Doctrines, and whole carloads of other foolish trumpery that we find in Christianity.
+off-religion	faith	quip	general	0	The ecumenical movement has reached a milestone with the agreement on the text of the first Jewish-Catholic prayer -- one that begins "Oy vay, Maria".
+off-religion	faith	quip	general	0	... The Father, the Son and the Holy Ghost would never throw the Devil out of Heaven as long as they still need him as a fourth for bridge. -- Letter in NEW LIBERTARIAN NOTES #19
+off-religion	faith	observation	general	0	The good Christian should beware of mathematicians and all those who make empty prophecies. The danger already exists that mathematicians have made a covenant with the devil to darken the spirit and confine man in the bonds of Hell.
+off-religion	faith	dark	general	0	The infliction of cruelty with a good conscience is a delight to moralists. That is why they invented hell.
+off-religion	faith	quip	general	0	The Lord giveth and the Lord taketh away. Indian Giver be the name of the Lord.
+off-religion	faith	aphorism	general	0	The nearer to the church, the further from God.
+off-religion	faith	dark	general	0	The only excuse for God is that he doesn't exist.
+off-religion	faith	observation	general	0	The only thing that stops God from sending a second Flood is that the first one was useless.
+off-religion	faith	observation	general	0	The reason Roman Catholics are allowed to use the rhythm method of birth control is that it doesn't work.
+off-religion	faith	quip	general	0	The Unitarians are really just a bunch of atheists who really like going to church.
+off-religion	life	quip	general	0	The wages of sin are high -- unless you know someone who does it for nothing.
+off-religion	faith	quip	general	0	The whole religious complexion of the modern world is due to the absence from Jerusalem of a lunatic asylum.
+off-religion	faith	dark	general	0	Theology is an attempt to explain a subject by men who do not understand it. The intent is not to tell the truth but to satisfy the questioner.
+off-religion	faith	quip	general	0	"There is a God, but He drinks"
+off-religion	food	quip	general	0	There is a limit to the admiration we may hold for a man who spends his waking hours poking the contents of chickens with a stick.
+off-religion	faith	quip	general	0	There is no ox so dumb as the orthodox.
+off-religion	society	dark	general	0	To be patriotic, hate all nations but your own; to be religious, all sects but your own; to be moral, all pretenses but your own.
+off-religion	faith	quip	general	0	To listen to some devout people, one would imagine that God never laughs.
+off-religion	faith	joke	general	0	Unitarians pray "To whom it may concern".
+off-religion	faith	pun	general	0	Vatican upholds ban on contraceptives: "To heir is humane," claims the Pope.
+off-religion	faith	quip	general	0	We must respect the other fellow's religion, but only in the sense and to the extent that we respect his theory that his wife is beautiful and his children smart.
+off-religion	faith	quip	general	0	"Well, we've come full circle, Lord; I'd like to think there's some higher meaning to all this. It would certainly reflect well on you."
+off-religion	faith	joke	general	0	"What are you doing?" "Examining the world's major religions. I'm looking for something that's light on morals, has lots of holidays, and with a short initiation period."
+off-religion	faith	quip	general	0	What good is having someone who can walk on water if you don't follow in his footsteps?
+off-religion	faith	quip	general	0	What if there had been room at the inn?
+off-religion	life	quip	general	0	When Cthulhu calls, He calls collect!
+off-religion	faith	quip	general	0	Why attack God? He may be as miserable as we are.
+off-religion	faith	joke	general	0	Why I am an atheist: 1. Atheists do not believe in higher powers. 2. God is the highest power. 3. Therefore, God must be an atheist. 4. We should all strive to be like God. 5. We should all be atheists.
+off-religion	faith	dark	general	0	Yeah, God is dead, he laughed himself to death.
+off-religion	life	quip	general	0	"You little (such a one who, while wearing a copper nose ring, stands in a footbath atop Mount Raruaruaha during a heavy thunderstorm and shouts that Alohura, Goddess of Lightning, has the facial features of a diseased uloruaha root)!"
+off-religion	nature	observation	general	0	Your chances of getting hit by lightning go up if you stand under a tree, shake your fist at the sky, and say, "Storms suck!"
+off-religion	faith	dark	general	0	Cold is God's way of telling us to burn more Catholics.
+off-religion	faith	quip	general	0	"It don't matter, Sail, ... Could be worse. The fam'ly might be donatin' the proceeds to the Cath'lic Church, or the Mormons or somethin'. One cult's the same another."
+off-religion	faith	tv-quote	general	0	"I don't know whether God exists or not, but it makes no difference to me." "It's not like He's passing out free money or anything." -- Townsperson in Estard, Dragon Warrior VII

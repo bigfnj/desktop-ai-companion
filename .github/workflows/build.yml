@@ -1,0 +1,145 @@
+name: build
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build, test, and package x64
+    runs-on: windows-2025
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          # Full history: the module-publish freshness check below compares commit ordering between
+          # modules/<Id>/ and modules-dist/<id>.zip, which a shallow single-commit clone cannot answer.
+          fetch-depth: 0
+
+      - name: Set up the .NET 10 SDK
+        # Must match global.json exactly: it pins 10.0.302 with rollForward "disable" so the FINAL
+        # artifact is reproducible, which means a mismatched runner SDK fails the build outright.
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: '10.0.302'
+
+      - name: Build Release x64 and the portable ZIP
+        shell: pwsh
+        run: .\build.ps1 -Release -Zip
+
+      - name: Build and run core regression tests
+        shell: pwsh
+        run: |
+          dotnet build .\tests\DesktopAICompanion.CoreTests\DesktopAICompanion.CoreTests.csproj `
+            -c Release -p:Platform=x64 --nologo -v:minimal
+          & '.\tests\DesktopAICompanion.CoreTests\bin\Release\DesktopAICompanion.CoreTests.exe'
+          if ($LASTEXITCODE -ne 0) { throw "Core tests failed (exit $LASTEXITCODE)." }
+
+      - name: Run product self-tests
+        # The product is a GUI-subsystem exe, so Start-Process -Wait is required to block for its
+        # exit code -- `& $exe` returns immediately with no exit code for a GUI application. (The
+        # former PowerShell reflection harnesses are now in-process flags; nothing is LoadFrom-ed.)
+        shell: pwsh
+        run: |
+          $exe = 'build\DesktopAICompanionPortable\bin\Release\x64\DesktopAICompanion.exe'
+          foreach ($test in @(
+              '--security-selftest',
+              '--catalog-selftest',
+              '--fullscreen-selftest',
+              '--pettyperegistry-selftest',
+              '--hardening-selftest',
+              # Module audio: the decode seam and the barge-in ramp. Deliberately device-independent, so it
+              # runs here even though the runner has no playback device.
+              '--audio-selftest',
+              '--module-host-selftest',
+              '--fortunes-selftest',
+              '--fortunes-engine-selftest',
+              '--aibrain-selftest',
+              '--petstudio-selftest',
+              '--wpf-options-selftest',
+              # Cold-cache embed of a 1,500-line sample (~18s locally). Kept out of the local default
+              # gate list for speed, but run here -- being merely "opt-in" is how it sat orphaned with
+              # no caller at all from the S3d module move until 2026-08-12.
+              '--fortunes-smart-progress-selftest',
+              # Convention-based: --module-selftest=<id> loads the module through the real loader and calls
+              # its public static bool SelfTest(out string), so a new module needs no edit in Program.cs.
+              # Keep in sync with tests\run-gate.ps1.
+              '--module-selftest=reminder',
+              '--module-selftest=remembrance',
+              '--module-selftest=blinkingled')) {
+            $process = Start-Process -FilePath $exe -ArgumentList $test -Wait -PassThru -NoNewWindow
+            if ($process.ExitCode -ne 0) { throw "$test failed (exit $($process.ExitCode))." }
+          }
+          # Source-text invariant checks (no assembly load; the reflection half is --hardening-selftest).
+          .\tests\runtime-hardening-selftest.ps1
+
+      - name: Check published module payloads are current
+        # modules-dist\<id>.zip is a committed artifact the in-app catalog serves, and nothing rebuilds
+        # it automatically -- so it rots silently when module source lands without a republish. That is
+        # how fortunes.zip shipped with no fortune corpus and aibrain.zip shipped without PR #71's
+        # Windows OCR. Needs full history, hence fetch-depth: 0 on the checkout above.
+        shell: pwsh
+        run: .\packaging\Test-ModulePublishFreshness.ps1
+
+      - name: Check the module template still scaffolds a module that builds
+        # Nothing else builds templates\desktoppet-module, so a rename in the ABI or ModuleKit would leave it
+        # broken and nobody would find out until someone tried to start a module. Scaffolds a throwaway
+        # module, asserts every placeholder was substituted and that ModuleKit ships beside it while
+        # Contracts does not, builds it, then removes it. tests\run-gate.ps1 runs this too.
+        shell: pwsh
+        run: .\packaging\Test-ModuleTemplate.ps1
+
+      - name: Install WiX and build the MSI
+        shell: pwsh
+        run: |
+          .\packaging\Install-LockedWixToolchain.ps1 `
+            -PackageRoot (Join-Path $env:RUNNER_TEMP 'DesktopAICompanion-WiX-5.0.2') `
+            -GlobalExtension
+          .\installer\build-installer.ps1 -Config Release
+
+      - name: Upload the ZIP and MSI
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: DesktopAICompanion-x64
+          path: |
+            dist/DesktopAICompanion-Portable.zip
+            dist/DesktopAICompanion.msi
+          if-no-files-found: error
+
+  resource-soak:
+    name: Leak soak (manual)
+    # Opt-in only. The soak drives the real app and asserts that OS handle/GDI/USER/private-byte growth stays
+    # bounded, which needs a genuine window station and makes it the flakiest assertion available on a hosted
+    # runner -- so it must not gate every PR. The release checklist runs it locally before a tag; this job
+    # exists so it is reachable in CI when a maintainer wants it.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-2025
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+
+      - name: Set up the .NET 10 SDK
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
+        with:
+          dotnet-version: '10.0.302'
+
+      - name: Build Release x64
+        shell: pwsh
+        run: .\build.ps1 -Release
+
+      - name: Run the bounded leak soak
+        shell: pwsh
+        run: .\tests\runtime-resource-soak.ps1

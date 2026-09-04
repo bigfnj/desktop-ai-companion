@@ -1,0 +1,96 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Custom console harness (its own Program.cs) that recompiles three production source files and
+       asserts their invariants. net10.0-windows + UseWindowsForms so the shared sources compile in the
+       same environment as the app (System.Drawing for RuntimeGeometry, MutexAcl/AccessControl for
+       AppSettingsStore). Console (OutputType Exe) so CI can read its exit code + output at
+       bin\Release\DesktopAICompanion.CoreTests.exe. -->
+  <Import Project="$(MSBuildThisFileDirectory)..\..\ProductVersion.props" />
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>DesktopAICompanion</RootNamespace>
+    <AssemblyName>DesktopAICompanion.CoreTests</AssemblyName>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <LangVersion>7.3</LangVersion>
+    <Deterministic>true</Deterministic>
+    <WarningLevel>4</WarningLevel>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode Condition="'$(RestoreLockedMode)' == '' and '$(CI)' == 'true'">true</RestoreLockedMode>
+    <!-- Keep the flat bin\<Config> layout the CI step + build docs expect (no TFM subfolder). -->
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <!-- Configuration alone, matching DesktopAICompanion_Portable.csproj: a $(Platform) condition here only ever
+       worked by accident (the SDK's default bin\<Config> path happens to match) and would break the same
+       way the product's did if anything relied on these values. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <OutputPath>bin\Debug\</OutputPath>
+    <IntermediateOutputPath>obj\Debug\</IntermediateOutputPath>
+    <DefineConstants>TRACE;DEBUG</DefineConstants>
+    <DebugType>full</DebugType>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <OutputPath>bin\Release\</OutputPath>
+    <IntermediateOutputPath>obj\Release\</IntermediateOutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <Optimize>true</Optimize>
+    <DebugType>pdbonly</DebugType>
+  </PropertyGroup>
+
+  <!-- ModuleKit is tested as the BUILT library a module would reference, not by recompiling its sources
+       like the production files below: it ships as a DLL inside each module's folder, so that is the shape
+       worth asserting. Contracts is referenced directly (and privately, unlike a module's reference) purely
+       so it resolves in this harness's own output folder. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DesktopAICompanion.ModuleKit\DesktopAICompanion.ModuleKit.csproj" />
+    <ProjectReference Include="..\..\src\DesktopAICompanion.Contracts\DesktopAICompanion.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="ModuleKitTests.cs" />
+    <Compile Include="..\..\src\Portable\AppPaths.cs">
+      <Link>Production\AppPaths.cs</Link>
+    </Compile>
+    <Compile Include="..\..\src\Portable\AppSettingsStore.cs">
+      <Link>Production\AppSettingsStore.cs</Link>
+    </Compile>
+    <Compile Include="..\..\src\dotNet\RuntimeGeometry.cs">
+      <Link>Production\RuntimeGeometry.cs</Link>
+    </Compile>
+  </ItemGroup>
+
+  <Target Name="GenerateDesktopAICompanionCoreTestProductInfo" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <_DesktopAICompanionCoreTestProductInfoFile>$(IntermediateOutputPath)DesktopAICompanion.CoreTests.ProductInfo.g.cs</_DesktopAICompanionCoreTestProductInfoFile>
+    </PropertyGroup>
+    <ItemGroup>
+      <_DesktopAICompanionCoreTestAssemblyAttribute Include="System.Reflection.AssemblyProductAttribute">
+        <_Parameter1>$(DesktopAICompanionProductName)</_Parameter1>
+      </_DesktopAICompanionCoreTestAssemblyAttribute>
+      <!-- The shared production sources call Windows-only APIs (MutexAcl / WindowsIdentity); mark this
+           harness Windows-only so CA1416 is satisfied (GenerateAssemblyInfo=false suppresses the SDK's
+           auto platform attribute, same as the app project). -->
+      <_DesktopAICompanionCoreTestAssemblyAttribute Include="System.Runtime.Versioning.SupportedOSPlatformAttribute">
+        <_Parameter1>windows7.0</_Parameter1>
+      </_DesktopAICompanionCoreTestAssemblyAttribute>
+    </ItemGroup>
+    <WriteCodeFragment Language="C#"
+                       OutputFile="$(_DesktopAICompanionCoreTestProductInfoFile)"
+                       AssemblyAttributes="@(_DesktopAICompanionCoreTestAssemblyAttribute)" />
+    <ItemGroup>
+      <Compile Include="$(_DesktopAICompanionCoreTestProductInfoFile)" />
+    </ItemGroup>
+  </Target>
+
+</Project>

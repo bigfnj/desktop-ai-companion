@@ -1,0 +1,136 @@
+ObliqueStrategies	life	quip	general	0	(Organic) machinery.
+ObliqueStrategies	life	quip	general	0	A line has two sides.
+ObliqueStrategies	life	quip	general	0	A very small object. Its center.
+ObliqueStrategies	arts	quip	general	0	Abandon normal instruments.
+ObliqueStrategies	life	wisdom	general	0	Accept advice.
+ObliqueStrategies	life	quip	general	0	Accretion.
+ObliqueStrategies	life	quip	general	0	Allow an easement (an easement is the abandonment of a stricture).
+ObliqueStrategies	life	aphorism	general	0	Always first steps.
+ObliqueStrategies	life	wisdom	general	0	Always give yourself credit for having more than personality.
+ObliqueStrategies	life	quip	general	0	Are there sections?
+ObliqueStrategies	life	quip	general	0	Ask people to work against their better judgment.
+ObliqueStrategies	life	quip	general	0	Ask your body.
+ObliqueStrategies	life	quip	general	0	Assemble some of the elements in a group and treat the group.
+ObliqueStrategies	life	quip	general	0	Balance the consistency principle with the inconsistency principle.
+ObliqueStrategies	life	quip	general	0	Be dirty.
+ObliqueStrategies	life	quip	general	0	Be extravagant.
+ObliqueStrategies	life	wisdom	general	0	Be less critical more often.
+ObliqueStrategies	life	uplifting	general	0	Breathe more deeply.
+ObliqueStrategies	life	aphorism	general	0	Bridges -build -burn.
+ObliqueStrategies	life	quip	general	0	Cascades.
+ObliqueStrategies	arts	aphorism	general	0	Change instrument roles.
+ObliqueStrategies	life	aphorism	general	0	Change nothing and continue with immaculate consistency.
+ObliqueStrategies	life	quip	general	0	Children -speaking -singing.
+ObliqueStrategies	tech	quip	general	0	Cluster analysis.
+ObliqueStrategies	life	aphorism	general	0	Consider different fading systems.
+ObliqueStrategies	life	aphorism	general	0	Consider transitions.
+ObliqueStrategies	life	quip	general	0	Consult other sources -promising -unpromising.
+ObliqueStrategies	arts	quip	general	0	Convert a melodic element into a rhythmic element.
+ObliqueStrategies	life	aphorism	general	0	Courage!
+ObliqueStrategies	life	quip	general	0	Cut a vital connection.
+ObliqueStrategies	life	quip	general	0	Decorate, decorate.
+ObliqueStrategies	life	quip	general	0	Define an area as 'safe' and use it as an anchor.
+ObliqueStrategies	life	quip	general	0	Destroy -nothing -the most important thing.
+ObliqueStrategies	life	wisdom	general	0	Discard an axiom.
+ObliqueStrategies	life	quip	general	0	Disciplined self-indulgence.
+ObliqueStrategies	life	wisdom	general	0	Disconnect from desire.
+ObliqueStrategies	life	wisdom	general	0	Discover the recipes you are using and abandon them.
+ObliqueStrategies	life	quip	general	0	Distorting time.
+ObliqueStrategies	life	aphorism	general	0	Do nothing for as long as possible.
+ObliqueStrategies	life	quip	general	0	Do something boring.
+ObliqueStrategies	life	quip	general	0	Do the washing up.
+ObliqueStrategies	life	quip	general	0	Do the words need changing?
+ObliqueStrategies	life	observation	general	0	Do we need holes?
+ObliqueStrategies	life	wisdom	general	0	Don't be afraid of things because they're easy to do.
+ObliqueStrategies	arts	wisdom	general	0	Don't be frightened of cliches.
+ObliqueStrategies	life	uplifting	general	0	Don't be frightened to display your talents.
+ObliqueStrategies	life	wisdom	general	0	Don't break the silence.
+ObliqueStrategies	life	aphorism	general	0	Don't stress one thing more than another.
+ObliqueStrategies	arts	aphorism	general	0	Emphasize differences.
+ObliqueStrategies	life	quip	general	0	Emphasize repetitions.
+ObliqueStrategies	life	quip	general	0	Emphasize the flaws.
+ObliqueStrategies	life	wisdom	general	0	Faced with a choice, do both.
+ObliqueStrategies	tech	quip	general	0	Feed the recording back out of the medium.
+ObliqueStrategies	arts	aphorism	general	0	Fill every beat with something.
+ObliqueStrategies	life	dark	general	0	From nothing to more than nothing.
+ObliqueStrategies	life	wisdom	general	0	Get your neck massaged.
+ObliqueStrategies	life	quip	general	0	Ghost echoes.
+ObliqueStrategies	life	quip	general	0	Give the game away.
+ObliqueStrategies	life	dark	general	0	Give way to your worst impulse.
+ObliqueStrategies	life	quip	general	0	Go outside. Shut the door.
+ObliqueStrategies	life	aphorism	general	0	Go slowly all the way round the outside.
+ObliqueStrategies	life	wisdom	general	0	Go to an extreme, move back to a more comfortable place.
+ObliqueStrategies	life	aphorism	general	0	Honor thy error as a hidden intention.
+ObliqueStrategies	life	quip	general	0	How would you have done it?
+ObliqueStrategies	life	quip	general	0	Humanize something free of error.
+ObliqueStrategies	life	quip	general	0	Idiot glee (?).
+ObliqueStrategies	nature	observation	general	0	Imagine a caterpillar moving.
+ObliqueStrategies	arts	quip	general	0	Imagine the piece as a set of disconnected events.
+ObliqueStrategies	life	quip	general	0	In total darkness, or in a very large room, very quietly.
+ObliqueStrategies	life	quip	general	0	Infinitesimal gradations.
+ObliqueStrategies	life	wisdom	general	0	Intentions -nobility of -humility of -credibility of.
+ObliqueStrategies	life	quip	general	0	Into the impossible.
+ObliqueStrategies	life	quip	general	0	Is it finished?
+ObliqueStrategies	life	quip	general	0	Is the intonation correct?
+ObliqueStrategies	life	quip	general	0	Is there something missing?
+ObliqueStrategies	life	quip	general	0	It is quite possible (after all).
+ObliqueStrategies	life	uplifting	general	0	Just carry on.
+ObliqueStrategies	tech	fact	general	0	Left channel, right channel, center channel.
+ObliqueStrategies	life	wisdom	general	0	Listen to the quiet voice.
+ObliqueStrategies	life	wisdom	general	0	Look at a very small object, look at its center.
+ObliqueStrategies	life	aphorism	general	0	Look at the order in which you do things.
+ObliqueStrategies	arts	quip	general	0	Look closely at the most embarrassing details and amplify them.
+ObliqueStrategies	life	quip	general	0	Lost in useless territory.
+ObliqueStrategies	life	quip	general	0	Lowest common denominator.
+ObliqueStrategies	arts	wisdom	general	0	Make a blank valuable by putting it in an exquisite frame.
+ObliqueStrategies	life	quip	general	0	Make a sudden, destructive unpredictable action; incorporate.
+ObliqueStrategies	work-money	quip	general	0	Make an exhaustive list of everything you might do and do the last thing on the list.
+ObliqueStrategies	life	quip	general	0	Mechanize something idiosyncratic.
+ObliqueStrategies	life	quip	general	0	Mute and continue.
+ObliqueStrategies	life	wisdom	general	0	Not building a wall but making a brick.
+ObliqueStrategies	life	aphorism	general	0	Once the search is in progress, something will be found.
+ObliqueStrategies	life	aphorism	general	0	Only a part, not the whole.
+ObliqueStrategies	science	fact	general	0	Only one element of each kind.
+ObliqueStrategies	life	aphorism	general	0	Overtly resist change.
+ObliqueStrategies	life	quip	general	0	Put in ear plugs.
+ObliqueStrategies	life	aphorism	general	0	Question the heroic approach.
+ObliqueStrategies	life	fact	general	0	Reevaluation (a warm feeling).
+ObliqueStrategies	life	uplifting	general	0	Remember those quiet evenings.
+ObliqueStrategies	life	aphorism	general	0	Remove ambiguities and convert to specifics.
+ObliqueStrategies	life	aphorism	general	0	Remove specifics and convert to ambiguities.
+ObliqueStrategies	arts	wisdom	general	0	Repetition is a form of change.
+ObliqueStrategies	life	aphorism	general	0	Retrace your steps.
+ObliqueStrategies	life	quip	general	0	Reverse.
+ObliqueStrategies	life	quip	general	0	Short circuit (example; a man eating peas with the idea that they will improve his virility shovels them straight into his lap).
+ObliqueStrategies	life	quip	general	0	Simple subtraction.
+ObliqueStrategies	work-money	aphorism	general	0	Simply a matter of work.
+ObliqueStrategies	science	fact	general	0	Spectrum analysis.
+ObliqueStrategies	life	aphorism	general	0	State the problem in words as clearly as possible.
+ObliqueStrategies	life	uplifting	general	0	Take a break.
+ObliqueStrategies	life	wisdom	general	0	Take away the elements in order of apparent non-importance.
+ObliqueStrategies	life	quip	general	0	Tape your mouth.
+ObliqueStrategies	life	quip	general	0	The inconsistency principle.
+ObliqueStrategies	life	wisdom	general	0	The most important thing is the thing most easily forgotten.
+ObliqueStrategies	arts	observation	general	0	The tape is now the music.
+ObliqueStrategies	life	quip	general	0	Think of the radio.
+ObliqueStrategies	life	quip	general	0	Tidy up.
+ObliqueStrategies	life	quip	general	0	Towards the insignificant.
+ObliqueStrategies	life	uplifting	general	0	Trust in the you of now.
+ObliqueStrategies	life	quip	general	0	Turn it upside down.
+ObliqueStrategies	life	quip	general	0	Twist the spine.
+ObliqueStrategies	work-money	quip	general	0	Use 'unqualified' people.
+ObliqueStrategies	arts	aphorism	general	0	Use an old idea.
+ObliqueStrategies	arts	quip	general	0	Use an unacceptable color.
+ObliqueStrategies	arts	wisdom	general	0	Use fewer notes.
+ObliqueStrategies	life	quip	general	0	Use filters.
+ObliqueStrategies	life	quip	general	0	What are the sections sections of?
+ObliqueStrategies	life	observation	general	0	What are you really thinking about just now?
+ObliqueStrategies	life	quip	general	0	What is the reality of the situation?
+ObliqueStrategies	life	wisdom	general	0	What mistakes did you make last time?
+ObliqueStrategies	life	quip	general	0	What would your closest friend do?
+ObliqueStrategies	life	quip	general	0	What wouldn't you do?
+ObliqueStrategies	work-money	wisdom	general	0	Work at a different speed.
+ObliqueStrategies	life	quip	general	0	Would anybody want it?
+ObliqueStrategies	tech	quip	general	0	You are an engineer.
+ObliqueStrategies	life	quip	general	0	You can only make one dot at a time.
+ObliqueStrategies	life	uplifting	general	0	You don't have to be ashamed of using your own ideas.

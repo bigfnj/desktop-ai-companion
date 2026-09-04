@@ -1,0 +1,88 @@
+tv-squidbillies	life	pun	nsfw	1	Therapist: I'm not a therapist. I'm The Rapist.
+tv-squidbillies	life	tv-quote	general	0	Early: Don't time fly when you're drunk as hell!
+tv-squidbillies	life	tv-quote	general	0	(Early awakens from a coma to the sound of a life support machine. He opens his eyes to see his son Rusty standing over him saying "Boop... boop... boop...") Rusty: Y'all hear that? That's what it'd sound like if we had insurance.
+tv-squidbillies	faith	tv-quote	general	0	Early: (In a strip club) Yes darlin', your chest is full and heaving. But what about the heart that lays beneath them puppies? Look here (pulls out a religious tract)... I want you to read this here literature.
+tv-squidbillies	life	tv-quote	general	0	Early: Nope! Pick it up with your butt cheeks!
+tv-squidbillies	life	tv-quote	general	0	Head Elf: Dispatch the Silent Knights!
+tv-squidbillies	faith	tv-quote	edgy	1	Elves: (disguised as carolers in a manger, singing) Fall on your knees... (They pull out ninja weapons) Elf: I said fall on your knees, you son-of-a-bitch!
+tv-squidbillies	life	tv-quote	general	0	Santa: What are you going to do to me? Early: You ever see the movie Saw II? Santa: Oh no, oh no, please, please... Early: No? Me, neither.
+tv-squidbillies	life	tv-quote	edgy	1	Early: I done tell you once, you son-of-a-bitch, I'm the best that's ever been! Santa: What? Rusty: Fire in the mountain, run boys run!
+tv-squidbillies	science	tv-quote	nsfw	1	Dan Halen: Science, you cheap whore.
+tv-squidbillies	life	tv-quote	nsfw	1	Dan Halen: Go behind the Dumpster and mate the tangy with the mild. Rusty: Well, how I go about doing that? Dan Halen: Tie Tangy up, have a black chicken fuck it in a fake rape scenario while Mild watches helpless because that's what gets him off.
+tv-squidbillies	life	tv-quote	general	0	Rusty: Hail Satan, my dark lord and master.
+tv-squidbillies	life	tv-quote	general	0	Rusty: Oh my God! It's Ridley Scott's "Alien"! Look at it! Oh my God! Oh my God! Early: No, son, it ain't Ridley Scott's "Alien". It's worse.
+tv-squidbillies	life	tv-quote	general	0	Early: (taking Lil's babies to the "movies") Alright. C'mon y'all. C'mon. Step right in to the movies. Yeah, see what Hollyweird has cooked up next. Getcha good seat now. You don't wanna miss them previews. Rusty: Daddy, this ain't the movies. Early: No movies. Lake boat.
+tv-squidbillies	life	tv-quote	general	0	Early: I have dubbed thee Herschel Walker Cuyler Them Dawgs is Hell Don't They!
+tv-squidbillies	life	tv-quote	general	0	Early: "I have re-evalutated the saturation, and I have convoluted that you ain't wild... You're mild."
+tv-squidbillies	life	tv-quote	general	0	Early: War, Famine, Death... and grasshoppers. Looks like one just dont quite belong does it?
+tv-squidbillies	life	tv-quote	general	0	Early: Mute yer wooo's boy.....there's a seven headed beast afoot."
+tv-squidbillies	life	tv-quote	general	0	Dan Halen: I have to say it was all worth it! Screw every last one of you!
+tv-squidbillies	faith	tv-quote	general	0	Reverend: Who even cares? Life is merely a fantasy draped in confusion. The curtain is yanked back from the charade! Early: Would you grab my skull bong, from the reverend please?
+tv-squidbillies	life	tv-quote	general	0	Melissa: We caught up with Halen in his inground pool, inexplicably built in the middle of a giant lake, which is itself a giant aboveground pool.
+tv-squidbillies	life	tv-quote	general	0	Dan Halen: I should have put it together. The copious references to "Nature Boy" Ric Flair and former Black Crowes bassist Johnny Colt. Hell, Halen, they're written on waffle bar napkins. Where was my analytical mind?!
+tv-squidbillies	life	tv-quote	general	0	Early: Hell yeah. You stepped up. You handled your business!
+tv-squidbillies	life	tv-quote	general	0	Young, Dumb and Full of Gums Early: I like the way the tiny food bits mix with my spit, and get all soft so I can swallow em down my neck tube. Early: "Just get it half mashed. I can get the rest with my nuggets. Delecious."
+tv-squidbillies	life	quip	general	0	"Booty Hunter"
+tv-squidbillies	life	quip	general	0	"Here's the Beef"
+tv-squidbillies	life	quip	nsfw	1	"Breathe If You're Horny"
+tv-squidbillies	life	quip	general	0	"World's Greatest Illegitimate Daddy"
+tv-squidbillies	life	quip	general	0	"May I Help You, My Child?", a combination Pope/trucker hat
+tv-squidbillies	life	tv-quote	general	0	A deer on camouflage containing Early's résumé. The text appears as just lines, but Dan Halen reveals that Early can "skin a buck, run a trout-line, and all my rowdy friends are coming over tonight", which are references to Hank Williams Jr. songs.
+tv-squidbillies	life	quip	general	0	"Goal Bandit"
+tv-squidbillies	life	joke	edgy	1	"I Love Cock Fighting", with "Fighting" appearing much smaller than the other words
+tv-squidbillies	life	observation	general	0	A squid drawn in the shape of the Pontiac Firebird logo
+tv-squidbillies	life	quip	general	0	"Free Hat Limit 1"
+tv-squidbillies	life	quip	general	0	"Prom King", shaped like a crown whose front forms the number "2005"
+tv-squidbillies	society	fact	general	0	A bald eagle's head in front of a stylized US flag
+tv-squidbillies	life	quip	general	0	Four fanned aces
+tv-squidbillies	life	quip	general	0	"David Allan CEO Live In Macon"
+tv-squidbillies	life	quip	general	0	"GLUG", the logo for the beverage created in the episode
+tv-squidbillies	life	quip	general	0	Police slacks, including a belt
+tv-squidbillies	society	quip	general	0	"Support Our Troops", with a yellow ribbon and US flag color scheme. The hat reads "Support Our oops" after Early is struck by lightning.
+tv-squidbillies	life	quip	general	0	"I love you Daddy" next to a picture of Rusty, all a dot matrix printout heat transfer decal
+tv-squidbillies	life	quip	general	0	A banana costume headpiece
+tv-squidbillies	life	quip	general	0	"Sonny LIED!!!", in front of a Confederate flag
+tv-squidbillies	life	quip	general	0	"Tricky Two" with a hand holding up two fingers
+tv-squidbillies	life	quip	general	0	"John Beer", a play on the John Deere logo with a silhouette of a drunken anthropomorphic deer sprawled out among beer cans
+tv-squidbillies	life	tv-quote	general	0	"Swayze Crazy", with an image of Patrick Swayze flexing his right arm
+tv-squidbillies	life	quip	nsfw	1	A stuffed toy donkey hat. The donkey has suction-cup hooves (for sticking to a window) and extremely large genitalia (censored by image mosaic).
+tv-squidbillies	faith	quip	general	0	"God's Good Buddy" with a semi-truck bearing a cross on the side driving out of the heavens
+tv-squidbillies	society	dark	general	0	"Remember 9-111", stamped with the word "irregular"
+tv-squidbillies	life	quip	general	0	"DO It... ... TO It", with an image of Plumber Bubba (a parody of Larry the Cable Guy) between the two halves of the phrase
+tv-squidbillies	life	quip	edgy	1	"Damn I'm Good!!"
+tv-squidbillies	life	quip	general	0	"Gynaecologist Saturday Nights Only" (never actually seen, Early claims to own it)
+tv-squidbillies	faith	pun	general	0	"Hooked On Jesus", with the Ichthys on a fishing hook
+tv-squidbillies	life	quip	general	0	"I'm Going Nuckin' Futz!!"
+tv-squidbillies	faith	quip	general	0	"Hooked on Darwin", with the word "Darwin" inside a legged Ichthys on a fishing hook
+tv-squidbillies	faith	quip	general	0	An "truth" Ichthys eating a "Darwin" Ichthys
+tv-squidbillies	faith	quip	general	0	A "science" beast eating a "faith" Ichthys
+tv-squidbillies	faith	observation	general	0	A "science" beast being arrow shot by a "faith" Ichthys
+tv-squidbillies	faith	observation	general	0	An Ichthys-shaped "China" spaceship abducting a "faith" man
+tv-squidbillies	life	observation	general	0	Two wolves in a dark forest, one with a US flag behind it howling at a full moon.
+tv-squidbillies	life	quip	general	0	A red flannel hunter's ushanka
+tv-squidbillies	work-money	quip	general	0	"I support the flat tax `cause I'm FLAT BROKE!"
+tv-squidbillies	life	tv-quote	general	0	"Taste Daytona!"
+tv-squidbillies	life	quip	general	0	"Bodywork by WANDA", with a small red flower
+tv-squidbillies	life	quip	general	0	"SHOOT FIRST ASK QUESTION NEVER!", over a reticle targeting a skull & crossbones with sawed-off shotguns for crossbones.
+tv-squidbillies	life	quip	general	0	"Too Cool for You!"
+tv-squidbillies	life	quip	edgy	1	"Damn Bald Eagles, Ft. McPherson, GA", with an American Flag and bird droppings all over it.
+tv-squidbillies	life	quip	general	0	"Lifeguard on Booty"
+tv-squidbillies	life	tv-quote	general	0	"ICE WIND IGNITE AND EXCITE", Dan Halen's body spray, over snow-capped mountains
+tv-squidbillies	faith	quip	general	0	"JESUS SHAVES", with a picture of Jesus shaving
+tv-squidbillies	life	quip	general	0	"MY Other Hat is YO' MOMMA!", with the last two words over a sunburst
+tv-squidbillies	life	tv-quote	general	0	"Didn't ask. DON'T TELL!!"
+tv-squidbillies	life	quip	general	0	"Been there, Done that, Got this HAT!"
+tv-squidbillies	life	observation	general	0	A red trucker hat with black bill stacked beneath a leather football helmet and a top hat
+tv-squidbillies	food	quip	general	0	"got breast milk?"
+tv-squidbillies	society	quip	general	0	"NO HABLA JIBBER-JABBER!", on a US flag-styled hat
+tv-squidbillies	life	quip	general	0	"NIFTY! NIFTY! look who's 53!"
+tv-squidbillies	life	quip	general	0	"LINE DANCERS Do It!! IN A LINE!"
+tv-squidbillies	society	dark	general	0	"Guns don't kill people. I DO!", with the "O" in "DO" as a target over a bloodstain
+tv-squidbillies	life	quip	general	0	"BORN TO DIE!!!", with a skull & crossbones beneath
+tv-squidbillies	faith	quip	general	0	"When God takes a DUMP on your head, you just gotta craft it into a hat!", on a brown & white hat worn by Rusty
+tv-squidbillies	life	quip	general	0	"This ain't no HAT. It's a rag top for a sex convertible!!"
+tv-squidbillies	life	quip	general	0	"This hat contains minimum 85% post-consumer recycled hats.", on a recycled-looking hat
+tv-squidbillies	life	tv-quote	general	0	"LAUGH SO I CAN SEE 'EM BOUNCE!!", with the "OU" in "BOUNCE" fashioned into bikini-top-clad breasts
+tv-squidbillies	life	quip	general	0	"too FUNK to DRUCK!!" with one beer bottle on each side of "to"
+tv-squidbillies	society	quip	general	0	"Don't blame me, I didn't vote!!!"
+tv-squidbillies	life	tv-quote	general	0	"I Survived Yuri's Androp-Off", with picture of Early and Granny in middle

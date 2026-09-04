@@ -1,0 +1,28 @@
+Shimeji base behaviour configuration (actions.xml, behaviors.xml)
+=================================================================
+
+These two files are the default behaviour configuration from Shimeji-EE
+(Shimeji English Enhanced), included UNMODIFIED so that a sprites-only Shimeji
+skin -- one that ships only shimeN.png images and no conf of its own -- can be
+converted without the user supplying the base configuration separately.
+
+They are redistributed under their original permissive licenses:
+
+  Copyright (c) Shimeji-ee Group.  Licensed under a 3-clause BSD license.
+  Original Shimeji Copyright (c) 2009 Yuki Yamada, Group Finity
+  (http://www.group-finity.com/Shimeji/), under a BSD-style license.
+
+  Redistribution and use in source and binary forms, with or without
+  modification, are permitted provided that redistributions retain the above
+  copyright notice, this list of conditions, and the following disclaimer.
+
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+  AND ANY EXPRESS OR IMPLIED WARRANTIES ARE DISCLAIMED. IN NO EVENT SHALL THE
+  COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DAMAGES ARISING IN ANY WAY
+  OUT OF THE USE OF THIS SOFTWARE.
+
+Credit: Kilkakon (kilkakon.com) and the original Shimeji / Shimeji-EE authors.
+Source: https://github.com/gil/shimeji-ee
+
+Only these behaviour-config XML files are bundled. No sprite ART is included --
+skin artwork is the skin author's copyright and the converter never ships it.

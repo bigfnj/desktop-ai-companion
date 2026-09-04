@@ -1,0 +1,188 @@
+humorists	life	joke	general	0	A friend of mine is into Voodoo Acupuncture. You don't have to go. You'll just be walking down the street and... Ooohh, that's much better.
+humorists	life	quip	general	0	A lot of people are afraid of heights. Not me. I'm afraid of widths.
+humorists	life	wisdom	general	0	A possum must be himself, and being himself he is honest.
+humorists	life	quip	general	0	"A power so great, it can only be used for Good or Evil!"
+humorists	life	quip	general	0	All men are mortal. Socrates was mortal. Therefore, all men are Socrates.
+humorists	life	quip	general	0	And now for something completely different.
+humorists	life	quip	general	0	And now for something completely the same.
+humorists	life	quip	general	0	"Are you sure you're not an encyclopedia salesman?" No, Ma'am. Just a burglar, come to ransack the flat."
+humorists	nature	joke	general	0	As the poet said, "Only God can make a tree" -- probably because it's so hard to figure out how to get the bark on.
+humorists	work-money	wisdom	general	0	Being Ymor's right-hand man was like being gently flogged to death with scented bootlaces.
+humorists	arts	quip	general	0	Bernard Shaw is an excellent man; he has not an enemy in the world, and none of his friends like him either.
+humorists	life	wisdom	general	0	"Boy, life takes a long time to live."
+humorists	life	dark	general	0	But I always fired into the nearest hill or, failing that, into blackness. I meant no harm; I just liked the explosions. And I was careful never to kill more than I could eat.
+humorists	food	tv-quote	general	0	"But I don't like Spam!!!!"
+humorists	life	tv-quote	general	0	"But I don't want to go on the cart..." "Oh, don't be such a baby!" "But I'm feeling much better..." "No you're not... in a moment you'll be stone dead!"
+humorists	arts	quip	general	0	Comedy, like Medicine, was never meant to be practiced by the general public.
+humorists	arts	quip	general	0	Death didn't answer. He was looking at Spold in the same way as a dog looks at a bone, only in this case things were more or less the other way around.
+humorists	life	quip	general	0	Decorate your home. It gives the illusion that your life is more interesting than it really is.
+humorists	society	joke	general	0	Do you think that when they asked George Washington for ID that he just whipped out a quarter?
+humorists	life	wisdom	general	0	Don't take life so serious, son, it ain't nohow permanent.
+humorists	life	quip	general	0	Don't worry about the world coming to an end today. It's already tomorrow in Australia.
+humorists	life	dark	general	0	Early to rise, early to bed, makes a man healthy, wealthy and dead.
+humorists	life	dark	general	0	Eternal nothingness is fine if you happen to be dressed for it.
+humorists	life	quip	general	0	Eternity is a terrible thought. I mean, where's it going to end?
+humorists	life	joke	general	0	For my birthday I got a humidifier and a de-humidifier... I put them in the same room and let them fight it out.
+humorists	arts	quip	general	0	From the moment I picked your book up until I put it down I was convulsed with laughter. Some day I intend reading it.
+humorists	faith	quip	general	0	God is a comic playing to an audience that's afraid to laugh.
+humorists	life	joke	general	0	He asked me if I knew what time it was -- I said yes, but not right now.
+humorists	work-money	quip	general	0	"Here's something to think about: How come you never see a headline like `Psychic Wins Lottery'?"
+humorists	life	observation	general	0	Hey, what do you expect from a culture that *drives* on *parkways* and *parks* on *driveways*?
+humorists	life	quip	general	0	"Humor is a drug which it's the fashion to abuse."
+humorists	arts	quip	general	0	Humorists always sit at the children's table.
+humorists	nature	pun	general	0	I am a conscientious man, when I throw rocks at seabirds I leave no tern unstoned.
+humorists	arts	quip	general	0	I am getting into abstract painting. Real abstract -- no brush, no canvas, I just think about it. I just went to an art museum where all of the art was done by children. All the paintings were hung on refrigerators.
+humorists	life	quip	general	0	I am two with nature.
+humorists	life	quip	general	0	I argue very well. Ask any of my remaining friends. I can win an argument on any topic, against any opponent. People know this, and steer clear of me at parties. Often, as a sign of their great respect, they don't even invite me.
+humorists	life	quip	general	0	"I assure you the thought never even crossed my mind, lord." "Indeed? Then if I were you I'd sue my face for slander."
+humorists	life	quip	general	0	I base my fashion taste on what doesn't itch.
+humorists	life	joke	general	0	I bought some used paint. It was in the shape of a house.
+humorists	life	joke	general	0	"I changed my headlights the other day. I put in strobe lights instead! Now when I drive at night, it looks like everyone else is standing still ..."
+humorists	love	quip	general	0	I could dance with you till the cows come home. On second thought, I'd rather dance with the cows till you come home.
+humorists	life	quip	general	0	I don't deserve this award, but I have arthritis and I don't deserve that either.
+humorists	life	quip	general	0	I don't get no respect.
+humorists	life	joke	general	0	I don't kill flies, but I like to mess with their minds. I hold them above globes. They freak out and yell "Whooa, I'm *way* too high."
+humorists	life	quip	general	0	I don't want to live on in my work, I want to live on in my apartment.
+humorists	health-body	joke	general	0	I finally went to the eye doctor. I got contacts. I only need them to read, so I got flip-ups.
+humorists	life	joke	general	0	I got my driver's license photo taken out of focus on purpose. Now when I get pulled over the cop looks at it (moving it nearer and farther, trying to see it clearly)... and says, "Here, you can go."
+humorists	life	joke	general	0	I got this powdered water -- now I don't know what to add.
+humorists	life	dark	general	0	I had no shoes and I pitied myself. Then I met a man who had no feet, so I took his shoes.
+humorists	life	observation	general	0	I hate it when my foot falls asleep during the day cause that means it's going to be up all night.
+humorists	life	joke	general	0	I have a dog; I named him Stay. So when I'd go to call him, I'd say, "Here, Stay, here..." but he got wise to that. Now when I call him he ignores me and just keeps on typing.
+humorists	life	joke	general	0	I have a friend whose a billionaire. He invented Cliff's notes. When I asked him how he got such a great idea he said, "Well first I... I just... to make a long story short..."
+humorists	nature	quip	general	0	I have a hobby. I have the world's largest collection of sea shells. I keep it scattered on beaches all over the world. Maybe you've seen some of it.
+humorists	life	quip	general	0	I have a map of the United States. It's actual size. I spent last summer folding it. People ask me where I live, and I say, "E6".
+humorists	life	joke	general	0	I have a rock garden. Last week three of them died.
+humorists	life	joke	general	0	I have a switch in my apartment that doesn't do anything. Every once in a while I turn it on and off. On and off. On and off. One day I got a call from a woman in France who said "Cut it out!"
+humorists	life	quip	general	0	I have an existential map. It has "You are here" written all over it.
+humorists	arts	pun	general	0	I just got out of the hospital after a speed reading accident. I hit a bookmark.
+humorists	life	tv-quote	general	0	I know the answer! The answer lies within the heart of all mankind! The answer is twelve? I think I'm in the wrong building.
+humorists	life	dark	general	0	I look at life as being cruise director on the Titanic. I may not get there, but I'm going first class.
+humorists	arts	quip	general	0	"I love Saturday morning cartoons, what classic humour! This is what entertainment is all about ... Idiots, explosives and falling anvils."
+humorists	love	quip	general	0	I met my latest girl friend in a department store. She was looking at clothes, and I was putting Slinkys on the escalators.
+humorists	life	insult	general	0	I never forget a face, but in your case I'll make an exception.
+humorists	life	dark	general	0	I poured spot remover on my dog. Now he's gone.
+humorists	nature	joke	general	0	I put contact lenses in my dog's eyes. They had little pictures of cats on them. Then I took one out and he ran around in circles.
+humorists	life	joke	general	0	I put instant coffee in a microwave and almost went back in time.
+humorists	life	tv-quote	general	0	"I said I hope it is a good party," said Galder, loudly. "AT THE MOMENT IT IS," said Death levelly. "I THINK IT MIGHT GO DOWNHILL VERY QUICKLY AT MIDNIGHT." "Why?" "THAT'S WHEN THEY THINK I'LL BE TAKING MY MASK OFF."
+humorists	life	joke	general	0	I saw a subliminal advertising executive, but only for a second.
+humorists	life	quip	general	0	I should have been a country-western singer. After all, I'm older than most western countries.
+humorists	love	quip	general	0	I sold my memoirs of my love life to Parker Brothers -- they're going to make a game out of it.
+humorists	life	dark	general	0	I stayed up all night playing poker with tarot cards. I got a full house and four people died.
+humorists	life	quip	general	0	I think we're all Bozos on this bus.
+humorists	life	pun	general	0	I thought there was something fishy about the butler. Probably a Pisces, working for scale.
+humorists	arts	joke	general	0	I took a course in speed reading and was able to read War and Peace in twenty minutes. It's about Russia.
+humorists	life	pun	general	0	I used to work in a fire hydrant factory. You couldn't park anywhere near the place.
+humorists	life	quip	general	0	I was at this restaurant. The sign said "Breakfast Anytime." So I ordered French Toast in the Rennaissance.
+humorists	life	joke	general	0	I was in Vegas last week. I was at the roulette table, having a lengthy argument about what I considered an Odd number.
+humorists	life	quip	general	0	I was the best I ever had.
+humorists	life	joke	general	0	"I went into a general store, and they wouldn't sell me anything specific".
+humorists	arts	quip	general	0	"I went to the museum where they had all the heads and arms from the statues that are in all the other museums."
+humorists	life	joke	general	0	I worked in a health food store once. A guy came in and asked me, "If I melt dry ice, can I take a bath without getting wet?"
+humorists	life	quip	general	0	I'd horsewhip you if I had a horse.
+humorists	life	quip	general	0	I'd never join any club that would have the likes of me as a member.
+humorists	life	quip	general	0	I'll be comfortable on the couch. Famous last words.
+humorists	life	joke	general	0	I'm going to Boston to see my doctor. He's a very sick man.
+humorists	life	quip	general	0	I'm going to give my psychoanalyst one more year, then I'm going to Lourdes.
+humorists	life	dark	general	0	I'm going to live forever, or die trying!
+humorists	life	quip	general	0	I'm not afraid of death -- I just don't want to be there when it happens.
+humorists	faith	quip	general	0	If God had wanted us to be concerned for the plight of the toads, he would have made them cute and furry.
+humorists	food	quip	general	0	If only Dionysus were alive! Where would he eat?
+humorists	faith	quip	general	0	If only God would give me some clear sign! Like making a large deposit in my name at a Swiss bank.
+humorists	life	joke	general	0	If you live to the age of a hundred you have it made because very few people die past the age of a hundred.
+humorists	faith	quip	general	0	If you want to make God laugh, tell him about your plans.
+humorists	arts	quip	general	0	If you've done six impossible things before breakfast, why not round it off with dinner at Milliway's, the restaurant at the end of the universe?
+humorists	life	quip	general	0	In like a dimwit, out like a light.
+humorists	life	quip	general	0	Is it weird in here, or is it just me?
+humorists	life	dark	general	0	It is impossible to experience one's death objectively and still carry a tune.
+humorists	life	quip	general	0	It looked like something resembling white marble, which was probably what it was: something resembling white marble.
+humorists	life	quip	general	0	It's a small world, but I wouldn't want to have to paint it.
+humorists	life	pun	general	0	It's hard to get ivory in Africa, but in Alabama the Tuscaloosa.
+humorists	life	dark	general	0	It's not that I'm afraid to die. I just don't want to be there when it happens.
+humorists	life	joke	general	0	Last night the power went out. Good thing my camera had a flash.... The neighbors thought it was lightning in my house, so they called the cops.
+humorists	life	observation	general	0	Last year we drove across the country... We switched on the driving... every half mile. We had one cassette tape to listen to on the entire trip. I don't remember what it was.
+humorists	life	dark	general	0	Life is divided into the horrible and the miserable.
+humorists	life	dark	general	0	Life is wasted on the living.
+humorists	life	joke	general	0	Man 1: Ask me the what the most important thing about telling a good joke is. Man 2: OK, what is the most impo -- Man 1: TIMING!
+humorists	life	quip	general	0	Many years ago in a period commonly know as Next Friday Afternoon, there lived a King who was very Gloomy on Tuesday mornings because he was so Sad thinking about how Unhappy he had been on Monday and how completely Mournful he would be on Wednesday....
+humorists	life	quip	general	0	My brother sent me a postcard the other day with this big satellite photo of the entire earth on it. On the back it said: "Wish you were here".
+humorists	family	observation	general	0	My friend has a baby. I'm writing down all the noises he makes so later I can ask him what he meant.
+humorists	life	quip	general	0	Nietzsche says that we will live the same life, over and over again. God -- I'll have to sit through the Ice Capades again.
+humorists	faith	quip	general	0	Nirvana? That's the place where the powers that be and their friends hang out.
+humorists	life	quip	general	0	Now is the time for all good men to come to.
+humorists	life	quip	general	0	One doesn't have a sense of humor. It has you.
+humorists	life	quip	general	0	Outside of a dog, a book is a man's best friend. Inside a dog it's too dark to read.
+humorists	life	quip	general	0	"Right now I'm having amnesia and deja vu at the same time."
+humorists	arts	quip	general	0	Rincewind formed a mental picture of some strange entity living in a castle made of teeth. It was the kind of mental picture you tried to forget. Unsuccessfully.
+humorists	life	pun	general	0	Romeo wasn't bilked in a day.
+humorists	nature	quip	general	0	Sharks are as tough as those football fans who take their shirts off during games in Chicago in January, only more intelligent.
+humorists	life	aphorism	general	0	Showing up is 80% of life.
+humorists	life	quip	general	0	Thank goodness modern convenience is a thing of the remote future.
+humorists	life	quip	general	0	The best way to make a fire with two sticks is to make sure one of them is a match.
+humorists	nature	fact	general	0	The buffalo isn't as dangerous as everyone makes him out to be. Statistics prove that in the United States more Americans are killed in automobile accidents than are killed by buffalo.
+humorists	nature	quip	general	0	The grand leap of the whale up the Fall of Niagara is esteemed, by all who have seen it, as one of the finest spectacles in nature.
+humorists	life	quip	general	0	The other day I... uh, no, that wasn't me.
+humorists	life	quip	general	0	"The pyramid is opening!" "Which one?" "The one with the ever-widening hole in it!"
+humorists	life	quip	general	0	There comes a time in the affairs of a man when he has to take the bull by the tail and face the situation.
+humorists	life	wisdom	general	0	There's no easy quick way out, we're gonna have to live through our whole lives, win, lose, or draw.
+humorists	society	quip	general	0	There's so much plastic in this culture that vinyl leopard skin is becoming an endangered synthetic.
+humorists	life	quip	general	0	Things will get better despite our efforts to improve them.
+humorists	life	verse	general	0	This land is full of trousers! this land is full of mausers! And pussycats to eat them when the sun goes down!
+humorists	life	aphorism	general	0	Time is an illusion, lunchtime doubly so.
+humorists	work-money	quip	general	0	Twenty Percent of Zero is Better than Nothing.
+humorists	society	wisdom	general	0	We have met the enemy, and he is us.
+humorists	life	quip	general	0	We is confronted with insurmountable opportunities.
+humorists	life	joke	general	0	What if everything is an illusion and nothing exists? In that case, I definitely overpaid for my carpet.
+humorists	life	observation	general	0	What if nothing exists and we're all in somebody's dream? Or what's worse, what if only that fat guy in the third row exists?
+humorists	arts	wisdom	general	0	What is comedy? Comedy is the art of making people laugh without making them puke.
+humorists	arts	quip	general	0	What's another word for "thesaurus"?
+humorists	society	joke	general	0	When I was crossing the border into Canada, they asked if I had any firearms with me. I said, "Well, what do you need?"
+humorists	life	joke	general	0	When I was little, I went into a pet shop and they asked how big I'd get.
+humorists	love	joke	general	0	When I woke up this morning, my girlfriend asked if I had slept well. I said, "No, I made a few mistakes."
+humorists	life	observation	general	0	Where humor is concerned there are no standards -- no one can say what is good or bad, although you can be sure that everyone will.
+humorists	life	observation	general	0	Why is the alphabet in that order? Is it because of that song?
+humorists	life	insult	general	0	Will Rogers never met you.
+humorists	life	tv-quote	general	0	Winny and I lived in a house that ran on static electricity... If you wanted to run the blender, you had to rub balloons on your head... if you wanted to cook, you had to pull off a sweater real quick...
+humorists	life	quip	general	0	Would you *really* want to get on a non-stop flight?
+humorists	life	aphorism	general	0	You can't have everything. Where would you put it?
+humorists	life	quip	general	0	You may already be a loser. -- Form letter received by Rodney Dangerfield.
+humorists	life	quip	general	0	You'd better beat it. You can leave in a taxi. If you can't get a taxi, you can leave in a huff. If that's too soon, you can leave in a minute and a huff.
+humorists	life	insult	general	0	You're a good example of why some animals eat their young.
+humorists	life	quip	general	0	This Christmas, the meek shall inherit the action!
+humorists	life	wisdom	general	0	The whole of life is just like watching a film. Only it's as though you always get in ten minutes after the big picture has started, and no-one will tell you the plot, so you have to work it out all yourself from the clues.
+humorists	tech	quip	general	0	Real stupidity beats artificial intelligence every time.
+humorists	life	quip	general	0	I'd rather be a rising ape than a falling angel.
+humorists	arts	wisdom	general	0	Stories of imagination tend to upset those without one.
+humorists	arts	wisdom	general	0	Fantasy is an exercise bicycle for the mind. It might not take you anywhere, but it tones up the muscles that can.
+humorists	life	wisdom	general	0	The presence of those seeking the truth is infinitely to be preferred to the presence of those who think they've found it.
+humorists	life	dark	general	0	There are times in life when people must know when not to let go. Balloons are designed to teach small children this.
+humorists	science	observation	general	0	The entire universe has been neatly divided into things to (a) mate with, (b) eat, (c) run away from, and (d) rocks.
+humorists	life	wisdom	general	0	If you don't turn your life into a story, you just become a part of someone else's story.
+humorists	life	wisdom	general	0	The truth may be out there, but the lies are inside your head.
+humorists	faith	wisdom	general	0	Goodness is about what you do. Not who you pray to.
+humorists	life	quip	general	0	I have no use for people who have learned the limits of the possible.
+humorists	love	observation	general	0	A marriage is always made up of two people who are prepared to swear that only the other one snores
+humorists	science	quip	general	0	Geography is just physics slowed down, with a couple of trees stuck in it
+humorists	life	dark	general	0	Give a man a fire and he's warm for the day. But set fire to him and he's warm for the rest of his life
+humorists	nature	quip	general	0	In ancient times cats were worshipped as gods. They have not forgotten this.
+humorists	arts	wisdom	general	0	The space between the young readers eyeballs and the printed page is a holy place and officialdom should trample all over it at their peril
+humorists	tech	quip	general	0	Dickens, as you know, never got round to starting his home page
+humorists	food	joke	general	0	I once absent-mindedly ordered Three Mile Island dressing in a restaurant and, with great presence of mind, they brought Thousand Island Dressing and a bottle of chili sauce
+humorists	work-money	quip	general	0	Only in our dreams are we free. The rest of the time we need wages.
+humorists	life	quip	general	0	The trouble with having an open mind, of course, is that people will insist on coming along and trying to put things in it.
+humorists	society	observation	general	0	Taxation is just a sophisticated way of demanding money with menaces.
+humorists	arts	quip	general	0	The pen is mightier than the sword if the sword is very short, and the pen is very sharp.
+humorists	society	wisdom	general	0	Most of the great triumphs and tragedies of history are caused not by people being fundamentally good or fundamentally evil, but by people being fundamentally people.
+humorists	work-money	wisdom	general	0	It is well known that a vital ingredient of success is not knowing that what you're attempting can't be done.
+humorists	life	observation	general	0	Human beings make life so interesting. Do you know, that in a universe so full of wonders, they have managed to invent boredom.
+humorists	life	observation	general	0	Some humans would do anything to see if it was possible to do it. If you put a large switch in some cave somewhere, with a sign on it saying 'End-of-the-World Switch. PLEASE DO NOT TOUCH', the paint wouldn't even have time to dry
+humorists	life	wisdom	general	0	Wisdom comes from experience. Experience is often a result of lack of wisdom.
+humorists	life	quip	general	0	It's not worth doing something unless someone, somewhere, would much rather you weren't doing it.
+humorists	society	wisdom	general	0	People don't alter history any more than birds alter the sky, they just make brief patterns in it.
+humorists	society	quip	general	0	Here's some advice boy. Don't put your trust in revolutions. They always come around again. That's why they're called revolutions.
+humorists	life	wisdom	general	0	Evil begins when you begin to treat people as things.
+humorists	life	wisdom	general	0	Inside every sane person there's a madman struggling to get out.
+humorists	life	quip	general	0	Most gods throw dice, but Fate plays chess, and you don't find out til too late that he's been playing with two queens all along.
+humorists	life	quip	general	0	Pets are always a help in times of stress. And in times of starvation, too, o'course.
+humorists	society	wisdom	general	0	The intelligence of that creature known as a crowd is the square root of the number of people in it.
+humorists	life	dark	general	0	Time is a drug. Too much of it kills you.

@@ -1,0 +1,331 @@
+tv-x-files	science	tv-quote	general	0	Mulder: Do you believe in the existence of extraterrestrials? Scully: Logically I would have to say no. Given the distances need to travel from the of reaches of space the energy requirements would exceed a spacecraft's capabilities ... Mulder: Conventional wisdom...
+tv-x-files	life	tv-quote	general	0	Section Chief Blevins: Agent Mulder. What are his thoughts? Scully: Agent Mulder believes we are not alone.
+tv-x-files	life	tv-quote	general	0	MIB: [tapping on window] Please, step out of the car. Mulder: [to Scully] You think if maybe we ignore him, he'll go away? MIB: [tapping on window] Please, step out of the car. Mulder: [to Scully] Guess not.
+tv-x-files	life	tv-quote	general	0	Scully: Mulder, they don't want you involved, they don't want to hear your theories. That's why Blevins has you hidden away down here. Mulder: You're down here, too.
+tv-x-files	life	tv-quote	general	0	Scully: Oh my god, Mulder. It smells like... I think it's bile. Mulder: Is there any way I can get it off my fingers quickly without betraying my cool exterior?
+tv-x-files	life	tv-quote	general	0	Mulder: Hey, that's a nice tattoo, what is that? Bartender: What's it look like? Mulder: Flying saucer. You don't really believe in that stuff, do ya? Bartender: I take it you don't. Mulder: No, I think it's all just a bunch of crazy people howling at the moon.
+tv-x-files	science	tv-quote	general	0	Scully: At least if we had a legitimate source... Mulder: This is the essence of science. You ask an impertinent question and you're on your way to a pertinent answer.
+tv-x-files	life	tv-quote	general	0	Scully: Mulder, it's the same story I've heard since I was a kid. It's a folk tale, a myth. Mulder: I heard the same story when I was a kid too. Funny thing is I believed it. Fact is we've got a cannibalized body in New Jersey. Someone or something out there is hungry.
+tv-x-files	life	tv-quote	general	0	Scully: I think Howard Graves faked his own death. Mulder: Do you know how hard it is to fake your own death? Only one man has pulled it off: Elvis.
+tv-x-files	life	tv-quote	general	0	Mulder: I would never lie. I willfully participated in a campaign of misinformation.
+tv-x-files	life	tv-quote	general	0	Scully: Are you saying Lauren Kyte crashed our car? Mulder: Either that or a poltergeist. Scully: They're heeeere...
+tv-x-files	life	tv-quote	general	0	Scully: How can the oesophagus be crushed without the neck even being touched? Mulder: Psychokinetic manipulation. Scully: Psychokinesis? You mean how Carrie got even at the prom?
+tv-x-files	life	tv-quote	general	0	Scully: Brad Wilczek? We're with the FBI. Brad Wilczek: What took you guys so long? Oh, and do you mind taking off your shoes.
+tv-x-files	tech	tv-quote	general	0	Mulder: You're afraid of the government but you're willing to accept the risk that your machine will kill again. Wilczek: The lesser of two evils. Mulder: What about a third option? You created that machine. Now you tell me how to destroy it.
+tv-x-files	life	tv-quote	general	0	Mulder: [taking his shirt off for a physical exam] Before anyone passes judgment, may I remind you - we are in the Arctic.
+tv-x-files	science	tv-quote	general	0	Mulder: It's still there, Scully, two hundred thousand years down in the ice. Scully: Leave it there.
+tv-x-files	science	tv-quote	general	0	Mulder: Hey, Scully, we send those men up into space to unlock the doors of the universe, and we don't even know what's behind them.
+tv-x-files	life	tv-quote	general	0	Mulder: You never wanted to be an astronaut when you were a kid, Scully? Scully: Guess I missed that phase.
+tv-x-files	life	tv-quote	general	0	Mulder: [after seeing a shuttle launch from the control room] I have to admit, that fulfilled one of my boyhood fantasies. Scully: Yeah, it ranks right up there with getting a pony and learning how to braid my own hair.
+tv-x-files	life	tv-quote	general	0	Scully: Mulder, the hearing is tomorrow at 10 o'clock. Mulder: So that gives us 24 hours to investigate. Scully: My assignment is to bring you back, not help you dig yourself in deeper. Mulder: "The Last Detail" starring Dana Scully.
+tv-x-files	society	tv-quote	general	0	Mulder: You really believe that story? Scully: That story happens to be highly classified. Mulder: It's a highly classified lie.
+tv-x-files	science	tv-quote	general	0	Deep Throat: Mulder, the continental United States is surrounded by an electronic fence that reaches 15,000 miles into space. We use it to track and monitor the 7,087 man-made objects that orbit the earth. Last night at 23:17 that fence was breached.
+tv-x-files	life	tv-quote	general	0	Eve 6: Cut off the chains... then we'll talk. Mulder: They're probably there for a good reason. Eve 6: No. Bad reason. I paid too much attention to a guard. Bit into his eyeball. I meant it as a sign of affection.
+tv-x-files	life	tv-quote	general	0	Eve 10: Hello, Eve 8. Eve 9: We've been waiting ... Eve 8: How did you know I'd come for you? Eve 10: We just knew. Eve 9: We just knew.
+tv-x-files	life	tv-quote	general	0	Mulder: There's something else I haven't told you about myself, Scully. I hate fire. Hate it. Scared to death of it. Scully: Mulder? Are you sure you don't want me to help you out on this one? Mulder: Sooner or later, a man's got to face his demons.
+tv-x-files	life	tv-quote	general	0	Mulder: Ten years it's taken me to forget about this woman and she shows up in my life with a case like this. Scully: So she shows up knowing the power she has over you and then she makes you walk through fire, is that it? Mulder: Phoebe is fire.
+tv-x-files	life	tv-quote	general	0	Mulder: Well, that's one of the luxuries of hunting down aliens and genetic mutants. You rarely get to press charges.
+tv-x-files	faith	tv-quote	general	0	Mulder: Dana, after all you've seen, after all the evidence, why can't you believe? Scully: I'm afraid. I'm afraid to believe.
+tv-x-files	life	tv-quote	general	0	Scully: Last time you were that engrossed, it turned out you were reading the Adult Video News.
+tv-x-files	life	tv-quote	general	0	Scully: Did Boggs confess? Mulder: No, no, it was five hours of Boggs "channeling." After three hours I asked him to summon up the soul of Jimi Hendrix and requested 'All Along the Watchtower'. You know, the guy's been dead for 20 years but he hasn't lost his touch.
+tv-x-files	life	tv-quote	general	0	Scully: There's something up there, Mulder. Mulder: Ooh, I've been saying that for years.
+tv-x-files	life	tv-quote	general	0	Scully: I don't understand, how can they just disappear? They have no means of transportation. Mulder: No earthly means of transportation.
+tv-x-files	life	tv-quote	general	0	Scully: The 65-year-old female teller was pistol-whipped. Died from a massive subdural hemorrhage all because she didn't put the money in the bag fast enough. Mulder: Lovely couple.
+tv-x-files	life	tv-quote	general	0	Mulder: Can you at least accept the possibility that during his near-death experience some kind of psychic transference occurred? Scully: Can't you accept the possibility that this isn't an X-File?
+tv-x-files	life	tv-quote	general	0	Mulder: Do you believe he's predisposed to this type of psychotic episode? Scully: I believe it's a long way from saying Jack had a near death experience to saying his body's been inhabited by Warren Dupre. A long way.
+tv-x-files	life	tv-quote	general	0	Mulder: Two men died in that crash room, Scully. One man came back. The question is... which one?
+tv-x-files	life	tv-quote	general	0	Bruskin: Okay, everyone, Mulder says he's got something. Daniels: What? An alien virus or new information on the Kennedy assassination? Bruskin: Hey, Mulder's all right. If you'd pay attention, you might learn something from the man.
+tv-x-files	life	tv-quote	general	0	Scully: Mulder, I know what you did wasn't by the book. Mulder: Tells you a lot about the book, doesn't it?
+tv-x-files	life	tv-quote	general	0	Mulder: Steve Wallenberg had a wife and two kids. One of his boys is an all-star on his football team now. I pulled that trigger two seconds earlier and Wallenberg would be here to see his kid play. Instead, I've got some dead man robbing jewelry stores and sending me haikus.
+tv-x-files	life	tv-quote	general	0	Scully: What are you going to do? Mulder: I know what I'm not going to do. I'm not going to hang around and wait for Barnett to send me another valentine.
+tv-x-files	life	tv-quote	general	0	Mulder: Thanks, Henderson, I owe you one. Henderson: Promises, promises.
+tv-x-files	life	tv-quote	general	0	Deep Throat: I know why you've contacted me. Listen and I'll explain. I am not particularly proud of the way in which this matter was handled, but, like it or not, John Barnett is a fact of life. Mulder: I wish Agent Perdue were around to appreciate the irony.
+tv-x-files	life	tv-quote	general	0	Byers: That's why we like you, Mulder. Your ideas are weirder than ours.
+tv-x-files	life	tv-quote	general	0	Deep Throat: You're awfully quiet, Mr. Mulder. Mulder: I'm wondering which lie to believe.
+tv-x-files	life	tv-quote	general	0	Scully: Those were the most paranoid people I have ever met. I don't know how you could think that what they say is even remotely plausible. Mulder: I think it's remotely plausible that someone might think you're hot.
+tv-x-files	life	tv-quote	general	0	Mulder: I think I saw some of these same people at Woodstock. Scully: Mulder, you weren't at Woodstock. Mulder: I saw the movie!
+tv-x-files	life	tv-quote	general	0	Scully: Maybe we should head backstage and see what the Reverend has to say. Mulder: No, wait. This is the part where they bring out Elvis.
+tv-x-files	life	tv-quote	general	0	Sheriff Daniels: Ninety-nine percent of the people in this world are fools ... and the rest of us are in great danger of contagion.
+tv-x-files	faith	tv-quote	general	0	Scully: I was raised a Catholic. I have a certain... familiarity with the scripture. And God never lets the Devil steal the show. Mulder: You must've really liked The Exorcist. Scully: One of my favorite movies.
+tv-x-files	life	tv-quote	general	0	Scully: You've got that look on your face, Mulder. Mulder: What look is that? Scully: The kind when you've forgotten your keys and you're trying to figure out how to get back in the house.
+tv-x-files	life	tv-quote	general	0	Ish: I could smell you a mile away. Mulder: Well, they told me that even though my deodorant is made for a woman, it's strong enough for a man.
+tv-x-files	life	tv-quote	general	0	Ish: I sense you are different, FBI. You're more open to Native American belief than some Native Americans. You even have an Indian name - Fox. You should be Running Fox, or Sneaky Fox. Mulder: Just as long as it's not Spooky Fox.
+tv-x-files	life	tv-quote	general	0	Scully: What do you think? Mulder: I think I'm going to suggest we sleep with the lights on.
+tv-x-files	life	tv-quote	general	0	Scully: What kind of an insect could have gotten a man all the way up into that tree? Mulder: Itsy-bitsy spider.
+tv-x-files	life	tv-quote	general	0	Mulder: 30 loggers working a clear-cutting contract in Washington state. Rugged, manly men in the full bloom of their manhood. Scully: Right, but what am I looking for? Mulder: Anything strange, unexplainable, unlikely ... boyfriend?
+tv-x-files	life	tv-quote	general	0	[trying to distract Eugene Tooms] Mulder: I'm looking for my dog. His name is Heinrich. He's a Norwegian Elkhound. I use him to hunt moose!
+tv-x-files	life	tv-quote	general	0	Mulder: You think they would have taken me more seriously if I wore the grey suit?
+tv-x-files	love	tv-quote	general	0	Mulder: If there's an ice tea in that bag, could be love. Scully: Must be fate, Mulder. Root beer.
+tv-x-files	life	tv-quote	general	0	Mulder: Why is it still so hard for you to believe, even when all the evidence suggests extraordinary phenomena? Scully: Because sometimes ... Mulder: What? Scully: ... looking for extreme possibilities makes you blind to the probable explanation right in front of you.
+tv-x-files	life	tv-quote	general	0	Mulder: I don't believe you. Deep Throat: There are limits to my knowledge, Mr. Mulder.
+tv-x-files	life	tv-quote	general	0	Scully: Okay, Mulder. But I'm warning you, if this is monkey pee, you're on your own.
+tv-x-files	life	tv-quote	general	0	Deep Throat: [last words] Trust no one.
+tv-x-files	science	tv-quote	general	0	Scully: Mulder, there are thousands of scientists working on the Human Genome project. Mulder: Yeah, but only one who decided to go bungee jumping with medical gauze wrapped around his neck.
+tv-x-files	life	tv-quote	general	0	Mulder: Deep Throat said "trust no one." And that's hard, Scully. Suspecting everyone, everything, it wears you down. You even begin to doubt what you know is the truth. Before, I could only trust myself. Now, I can only trust you...and they've taken you away from me.
+tv-x-files	life	tv-quote	general	0	CSM: Your time is over and you leave with nothing. Skinner:Get out.
+tv-x-files	life	tv-quote	general	0	CSM looks over at Skinner* Skinner: I said get the hell out.
+tv-x-files	life	tv-quote	general	0	Scully: Somebody shoved this under my door. I guess you really do have a friend in the FBI. And, Mulder, when you see Skinner to hand in field report, I hope that you know that I'd consider it more than a professional loss if you decided to leave.
+tv-x-files	science	tv-quote	general	0	Mulder: Scientist say three species become extinct everyday. Who knows how many new ones are being created?
+tv-x-files	life	tv-quote	general	0	Mulder: Have you ever come across this chemical compound? Langly: L.S.D.M. Obviously, you haven't read our August edition of "T.L.G." Mulder: Oh, sorry boys. It arrived the same day as my subscription to "Celebrity Skin."
+tv-x-files	life	tv-quote	general	0	Frohike: So, Mulder, where's your little partner? Mulder: She wouldn't come. She's afraid of her love for you. Frohike: She's tasty. Mulder: You know, Frohike, it's men like you that give perversion a bad name.
+tv-x-files	life	tv-quote	general	0	Spencer: Things like this aren't supposed to happen here. Mulder: A forty-two year old real estate agent murders four strangers with his bare hands? That's not supposed to happen anywhere.
+tv-x-files	life	tv-quote	general	0	Krycek: Reassigning them to other areas seems to have only strengthened their determination. Scully's a problem. A much larger problem than you described. The Cigarette Smoking Man: Every problem has a solution.
+tv-x-files	life	tv-quote	general	0	Mulder: All right, what do you want to know? Krycek: What's the truth? There are things you're not telling me that I need to know. Mulder: It's just that my ideas usually aren't very popular. Krycek: I told you, I want to believe. But I need a place to start.
+tv-x-files	life	tv-quote	general	0	Krycek: Hey , I don't like being ditched like somebody's bad date. Mulder: Oh stop, or your gonna hurt my feelings Krycek: Look, you don't know the first thing about me. Mulder: Exactly.
+tv-x-files	life	tv-quote	general	0	Krycek: If Mulder is such a threat, why not eliminate him? The Cigarette Smoking Man: That's not our policy. Krycek: It's not? After what you had me do? The Cigarette Smoking Man: Kill Mulder and you risk turning one man's religion into a crusade.
+tv-x-files	life	tv-quote	general	0	Commander Carver: Eternal life. Smashed mirrors. Blood drinking. Should I be issuing my men stakes and cloves of garlic? Mulder: Only if they're hungry.
+tv-x-files	life	pun	general	0	The Son: Don't you want to live forever? Mulder: Not if drawstring pants come back in style.
+tv-x-files	life	tv-quote	general	0	Margaret Scully: Hello, Fox. Scully [smiles] Not Fox. Mulder. [opens her eyes] Mulder: How you feeling? Scully: Mulder, I don't remember anything. After Duane Barry... Mulder: [shakes his head] Doesn't... doesn't matter.
+tv-x-files	life	tv-quote	general	0	Mulder: I'm going to find Trepkos. Scully: What if he's already dead? Mulder: Then he'll have a lot of trouble answering my questions.
+tv-x-files	faith	tv-quote	general	0	Trepkos: You still believe you can petition heaven and get some penetrating answer. If you found that answer, what would you do with it?
+tv-x-files	life	tv-quote	general	0	Mulder: Scully? I don't think it's a good idea for you to go. Scully: Mulder, I appreciate your concern - but I'm ready. I want to work. Mulder: Well, maybe you should take some time off. Scully: I've already lost too much time.
+tv-x-files	science	tv-quote	general	0	Trepkos: [on video] Scientific data? We're talking about revisiting the very origin of the earth, peering into the fire where it all began - a human endeavor more important even than man's exploration of space.
+tv-x-files	life	tv-quote	general	0	Scully: Good morning. Mulder: Whatever tape you found in that VCR, it isn't mine. Scully: Good, because I put it back in that drawer with all those other videos that aren't yours.
+tv-x-files	life	wisdom	general	0	Mulder: I've always figured that dreams are answers to questions we haven't figured out how to ask yet.
+tv-x-files	faith	tv-quote	general	0	Mulder: Did you really think you could call up the Devil and ask him to behave?
+tv-x-files	life	tv-quote	general	0	Scully: I mean, there's nothing weird about... [toads start falling from the sky, then stop] Mulder: So... lunch? Scully: Mulder, toads just fell from the sky! Mulder: I guess their parachutes didn't open. You were saying something about this place not feeling "odd"?
+tv-x-files	life	tv-quote	general	0	Mulder: Private John McAlpin, he was one of the few, the proud... the dead. Last week he wrapped his car around a tree, died on impact.
+tv-x-files	life	tv-quote	general	0	Scully: Mulder, voodoo only works by instilling fear among its believers. You saw the way Bauvais tried to intimidate me. The power of suggestion is considerable, I'll admit.. But this is no more magic than a pair of fuzzy dice.
+tv-x-files	life	tv-quote	general	0	Mulder: What do you know about zombies? Scully: Well I hope you don't intend to tell Robin McAlpin that she married one.
+tv-x-files	life	tv-quote	general	0	Scully: Our friend from the CIA is about as unbelievable as his story... as is everything about this case. I mean, whatever happened to "trust no one", Mulder? Mulder: Oh, I changed it to "trust everyone". I didn't tell you?
+tv-x-files	faith	tv-quote	general	0	Scully: Thanks for ditching me. Mulder:I'm sorry, I, uh... I couldn't let you risk your life on this. Scully: Did you find what you were looking for? Mulder: No... no. But I found something I thought I'd lost. [Scully gives him a questioning look] Mulder: Faith to keep looking.
+tv-x-files	life	tv-quote	general	0	Mr. X: You'll only win the war if you pick the right battles, Agent Mulder. This is a battle you can't win.
+tv-x-files	life	tv-quote	general	0	Mr. X: You wanted to see me? Mulder: How was the opera? Mr. X: Wonderful. I've never slept better. I don't like these hasty public meetings, Agent Mulder. Mulder: I'm sorry. I need your help. Mr. X: It's over. The fat lady is singing.
+tv-x-files	life	tv-quote	general	0	Mulder: Just tell me where she is! Alien Bounty Hunter: She's alive...can you die now?
+tv-x-files	nature	tv-quote	general	0	Kyle: All animals should run free. Scully: Even if that means trampling a man to death? Kyle: Maybe he should have gotten out of the way. Mulder: I'm sure he would have if he had seen it coming.
+tv-x-files	life	tv-quote	general	0	Frohike: If that's the lovely Agent Scully, let her know I've been working out ... I'm buff!
+tv-x-files	tech	tv-quote	general	0	Byers: Langly couldn't join us. He has a philosophical aversion to having his image bounced off a satellite.
+tv-x-files	life	tv-quote	general	0	Mulder: I always thought when I got older I'd maybe take a cruise somewhere. This isn't exactly what I had in mind. The service on this ship is terrible, Scully.
+tv-x-files	life	tv-quote	general	0	Mulder: I could be mistaken. Maybe it was another bald-headed, jigsaw-puzzle-tattooed, naked guy I saw.
+tv-x-files	arts	tv-quote	general	0	Mulder: I got the impression that Glazebrook wasn't the only sideshow performer residing here.
+tv-x-files	life	tv-quote	general	0	Sheriff Hamilton: [to Scully] Are you sure it was the brother you saw? Maybe it was the Fiji Mermaid who jumped in the sea and swam back to Fiji. Mulder: [to Scully] Now you know how I feel.
+tv-x-files	love	tv-quote	general	0	Mr Nut: You'd be surprised how many women find my size alluring. Mulder: You'd be surprised how many men do as well.
+tv-x-files	life	tv-quote	general	0	Dr. Blockhead: I don't speak to any police without my lawyer. Mulder: Who's your lawyer? 'Dr. Blockhead: I represent myself.
+tv-x-files	society	tv-quote	general	0	Skinner: For every step you take they're three steps ahead. Mulder: What about you, where do you stand? Skinner: I stand right on the line you keep crossing.
+tv-x-files	life	tv-quote	general	0	Scully: According to the briefing, the prisoners escaped while hiding in a laundry cart. Mulder: I don't think the guards have been watching enough prison movies.
+tv-x-files	society	tv-quote	general	0	Mulder: He believes the government is out to get him. Mr. X: It's tax season - so do most Americans.
+tv-x-files	life	tv-quote	general	0	Scully: Neat trick, Mulder; for your birthday I'll buy you a utility belt.
+tv-x-files	life	tv-quote	general	0	Frohike: I don't think we've been followed. Mulder: Who would follow you? Byers: Multinational black ops unit. Code name Garnett. Langly: Trained killers. School of the American Alumni. Mulder: Have you boys been defacing library books again?
+tv-x-files	life	tv-quote	general	0	Mulder: My father's dead, Scully. They killed him.
+tv-x-files	life	tv-quote	general	0	Well Manicured Man: We predict the future. And the best way to predict it, is to invent it.
+tv-x-files	life	tv-quote	general	0	Scully: I went to your father's funeral. I told your mother that you were going to be okay. Mulder: How did you know? Scully: I just knew.
+tv-x-files	life	tv-quote	general	0	Scully: So, what are we supposed to charge him with, 'assaulting a cellular phone'?
+tv-x-files	life	tv-quote	general	0	Clyde Bruckman: How can I see the future if it didn't already exist? Mulder: Then if the future is written, then why bother to do anything? Clyde Bruckman: Now you're catching on.
+tv-x-files	life	tv-quote	general	0	Clyde Bruckman: You know, there are worse ways to go, but I can't think of a more undignified way than autoerotic asphyxiation. Mulder: Why are you telling me that? Clyde Bruckman: Look, forget I mentioned it. It's none of my business.
+tv-x-files	life	tv-quote	general	0	Scully: So, how do I die? Clyde Bruckman: You don't.
+tv-x-files	life	tv-quote	general	0	Mulder: Ok, but imagine if it was true, Scully. Imagine if you can come back [from the dead] and take out five people, who caused you to suffer. Who whould they be? Scully: I only get five? Mulder: [looks up at her] I've remembered your birthday this year, didn't I, Scully?
+tv-x-files	faith	tv-quote	general	0	Mulder: The man was obsessed with reincarnation. Scully: Being obsessed with it doesn't mean you can do it. Mulder: No. Unless he knew something we don't. Scully: Like what? The secret password?
+tv-x-files	love	tv-quote	general	0	Scully: Woman gets lonely. Sometimes she can't wait around for her man to be reincarnated.
+tv-x-files	life	tv-quote	general	0	Scully: From a dry skin sample, you're concluding what, that he's some kind of a fat-sucking vampire?
+tv-x-files	love	tv-quote	general	0	Mulder: (pouting to Scully, after she runs a bath for Kevin) You never draw my bath.
+tv-x-files	faith	tv-quote	general	0	Mulder: (about religious fanatics) They give bona fide paranoids like myself a bad name.
+tv-x-files	faith	tv-quote	general	0	Scully: I'm afraid that God is speaking and no one is listening.
+tv-x-files	science	tv-quote	general	0	Mulder: Yeah, did you know that the ancient Egyptians worshipped the scarab beetle and possibly erected the pyramids to honor them, which may be just giant symbolic dung heaps? Scully: Did you know the inventor of the flush toilet was named Thomas Crapper?
+tv-x-files	life	tv-quote	general	0	Scully: I'm not going to ask you if you just said what I think you just said, because I know it's what you just said.
+tv-x-files	life	tv-quote	general	0	[Scully and Mulder both reach for the latex gloves] Mulder: Go ahead. Scully: No, you go ahead. Mulder: No, no, no. Be my guest. I know how much you like snapping on the latex.
+tv-x-files	life	tv-quote	general	0	Mulder: Eh, Scully, if I'm not mistaken, we're gonna be taking a left up here... eh, there's an intersection up here, you're gonna wanna... Scully! You're gonna, wanna...! You just... ran a stop sign back there, Scully. Scully: Shut up, Mulder. Mulder: Sure, fine, whatever.
+tv-x-files	life	tv-quote	general	0	Scully: Sure, fine, whatever.
+tv-x-files	life	tv-quote	general	0	About Mulder not telling Scully he was going to follow up a lead with Detective White. Scully: Look, we've been working together for what two years now, we have differing opinions, but I didn't expect you to ditch me. Mulder: I didn't ditch you. Scully: Fine, whatever.
+tv-x-files	life	tv-quote	general	0	Mulder: I wouldn't want to disappoint you by not disappointing you.
+tv-x-files	life	tv-quote	general	0	[about Mulder's encounter with a gargoyle] Scully: Maybe you're just seeing what you wanted to see. Mulder: What makes you think I'd want to see that?
+tv-x-files	life	tv-quote	general	0	Morgan: What the hell is that? Mulder: Looks like the fuselage of a plane. Scully: It's a North American P-51 Mustang. Mulder: I just got very turned on.
+tv-x-files	life	tv-quote	general	0	Johansen: Conscience is just the voices of the dead trying to save us from our own damnation.
+tv-x-files	life	tv-quote	general	0	[Skinner is in the hospital, recovering from a gunshot wound] Scully: How are you feeling? Skinner: Like someone's been inside my stomach redecorating.
+tv-x-files	life	tv-quote	general	0	Mulder (enters the hospital in body armour holding the gun): Federal agent. Go about your business as usual.
+tv-x-files	life	tv-quote	general	0	Mulder: Let's go, G-woman.
+tv-x-files	life	tv-quote	general	0	Scully (to Mulder): Please explain to me the scientific nature of the "whammy".
+tv-x-files	life	tv-quote	general	0	Pusher (to A.D. Skinner) Take a walk, Mel Cooley.
+tv-x-files	life	tv-quote	general	0	Mulder: How many dishes do you have to break before your boss tosses you in an oven?
+tv-x-files	life	tv-quote	general	0	Jose Chung: Aren't you nervous telling me all this? Receiving all those death threats? Blaine: Well, hey, I didn't spend all those years playing Dungeons and Dragons and not learn a little something about courage.
+tv-x-files	life	tv-quote	general	0	Jose Chung: And though we may not be alone in the universe, in our own separate ways, on this planet we are all alone.
+tv-x-files	life	tv-quote	general	0	[In the posh apartment of a Madame] Scully: Business is booming. Mulder: I think you mean banging.
+tv-x-files	life	tv-quote	general	0	The Alien Bounty Hunter: Everything dies.
+tv-x-files	science	tv-quote	general	0	Scully: Nothing happens in contradiction to nature, only in contradiction to what we know of it. And that's a place to start. That's where the hope is.
+tv-x-files	life	tv-quote	general	0	Sheriff: This is my deputy, Barney. Mulder: Fife?! Barney: (Sighing, frustrated) Pastor!
+tv-x-files	science	tv-quote	general	0	Scully: We all have a natural instinct to propagate. Mulder: Do we?
+tv-x-files	life	tv-quote	general	0	Mulder: Scully. (She stops walking and turns around. He smiles.) I never saw you as a mother before.
+tv-x-files	life	tv-quote	general	0	Scully: I think the way it goes here is that Edmund is both the father and brother of the other two. Mulder: Does that mean that when Edmund was a kid, he got to ground his brothers for playing with his things?
+tv-x-files	faith	tv-quote	general	0	Melissa/Sarah: I am he that liveth and was dead. And behold, I am alive, forevermore. (Revelations 1:18) ((Said in a whisper as Mulder and Scully look out over a misty field the woman claims her past life died in.))
+tv-x-files	life	tv-quote	general	0	The Cigarette-Smoking Man: They [the Buffalo Bills] will never win the Super Bowl as long as I'm alive.
+tv-x-files	society	tv-quote	general	0	Caller ID: Saddam Hussein Line 2. The Cigarette-Smoking Man: Call back.
+tv-x-files	life	tv-quote	general	0	Lone Gunman: (About Cigarette Smoking Man, as he listens over the wiretap.) He's the most dangerous man alive, not so much because he believes in his actions, but because he believes these actions are the only ones life allows him.
+tv-x-files	life	tv-quote	general	0	The Cigarette-Smoking Man: I could kill you whenever I please. But not today.
+tv-x-files	life	tv-quote	general	0	Scully: (to Mulder) You said it yourself, once - "a dream is an answer to a question we haven't learned how to ask."
+tv-x-files	life	tv-quote	general	0	Scully: Don't you think the car might've been searched at least once already? Mulder: Not by me.
+tv-x-files	life	tv-quote	general	0	El Camino owner: (Excited) Honest to God? A serial killer owned my car? For real?
+tv-x-files	life	tv-quote	general	0	John Lee Roche: (Referring to the number of murders he confessed to) 13 sounds more magical.
+tv-x-files	life	tv-quote	general	0	Scully: What are we doing here, Mulder? Mulder: Did I mention that Mr Betts had no head?
+tv-x-files	life	tv-quote	general	0	Mulder: You check out how he died, I wanna see how he lives. Scully: (Correcting him) Lived. Mulder: Lived.
+tv-x-files	life	tv-quote	general	0	Mulder: (Scully wants a desk; Mulder is trying to figure out how to fit it in their tiny shared office) We'll put 'em really close together, face to face... maybe we could play some BATTLESHIP!
+tv-x-files	love	tv-quote	general	0	Mulder: (Explaining how he knew where to find Scully) I checked where we always stay in Philadelphia. I was sure you wouldn't abandon me.
+tv-x-files	life	tv-quote	general	0	Mulder: (To Scully) Congrats on making a personal appearance in the X-Files for the second time!
+tv-x-files	life	tv-quote	general	0	Mulder: I refuse to believe that. Scully: For all the times that I've said that to you, I am as certain about this as you have ever been.
+tv-x-files	life	tv-quote	general	0	Skinner: (About Mulder's tiny office) At least he doesn't take an elevator up to get to work. Cigarette Smoking Man: (Snarky smile) You think I'm the devil?
+tv-x-files	life	tv-quote	general	0	Skinner: You can't ask the truth of a man who trades in lies.
+tv-x-files	life	tv-quote	general	0	Mulder: The truth will save you, Scully. I think it'll save both of us.
+tv-x-files	life	tv-quote	general	0	Cigarette Smoking Man: You wish to bargain for Agent Scully's life? Skinner: (shouting) WHAT WILL IT TAKE?!
+tv-x-files	life	tv-quote	general	0	Skinner: (on the phone with Mulder) There's always another way. [Hangs up; camera pans around to reveal Cigarette Smoking Man] Cigarette Smoking Man: Yes, I think there is. If you're willing to pay the price.
+tv-x-files	life	tv-quote	general	0	Mulder: I am hesitant to speculate. Scully: (rolls eyes)
+tv-x-files	love	tv-quote	general	0	Scully: (to Mulder, sarcastically) You sure know how to make a girl feel special on her birthday.
+tv-x-files	life	tv-quote	general	0	Mulder: Does your policy cover the acts of extraterrestrials?
+tv-x-files	life	tv-quote	general	0	Mulder: (About to scuba dive to the bottom of a lake) Once, I got a quarter off the deep end at the Y pool!
+tv-x-files	life	tv-quote	general	0	Scully: (looking through Max's trailer) I think you were actually kindred spirits in some deep, strange way. Mulder: What do you mean? Scully: Men with Spartan lives, simple in their creature comforts, and willing to allow for the complexity of their passions.
+tv-x-files	life	tv-quote	general	0	Mulder: More people are trying to get their hands on this than a Tickle-Me-Elmo doll.
+tv-x-files	life	tv-quote	general	0	Skinner: Is this man on the plane? Mulder: I think he got the connecting flight.
+tv-x-files	science	tv-quote	general	0	Scully: (sarcastically) What else about this interests you? Could it be... [reading from magazine cover] "visitors from space?"
+tv-x-files	life	tv-quote	general	0	Mulder: Take your best shot, Scully, but I think there's more going on here than Luke Skywalker and his lightsaber.
+tv-x-files	science	tv-quote	general	0	Mulder: How would this happen? Scully: The birds and the bees and the monkey babies, Mulder.
+tv-x-files	life	tv-quote	general	0	Mulder: I have a theory. Do you wanna hear it? Scully: Van Blundht somehow physically transformed into his captor and walked out the door, leaving no one the wiser? Mulder: (pleased) Scully, should we be picking out china patterns or what?
+tv-x-files	life	tv-quote	general	0	Scully: So what are you saying, that Van Blundht's an alien? Mulder: (grinning) Not unless they have trailer parks in space.
+tv-x-files	life	tv-quote	general	0	Mulder: (a decaying body just fell out of the ceiling) You think the fall killed him?
+tv-x-files	life	tv-quote	general	0	Eddie Van Blundht: (annoyed, looking at Mulder's "I Want To Believe" poster in his office, as Mulder) Good night! This is where my tax dollars go?!
+tv-x-files	life	tv-quote	general	0	Eddie Van Blundht: [As Mulder, walks in to Mulder's apartment and looks around] Where the hell do I sleep?!
+tv-x-files	life	tv-quote	general	0	Scully: I don't imagine you need to be told this, Mulder, but you're not a loser. Mulder: Yeah, but I'm no Eddie Van Blundht either, am I.
+tv-x-files	life	tv-quote	general	0	Skinner: I have handled this like I've handled everything else you've asked me to do.
+tv-x-files	life	tv-quote	general	0	Cigarette Smoking Man: You're in no position to question the terms of our arrangement. Skinner: Then we have no arrangement.
+tv-x-files	life	tv-quote	general	0	Cigarette Smoking Man: A man digs a hole, he has to fall into it.
+tv-x-files	life	tv-quote	general	0	Skinner: (to Cigarette Smoking Man) If anything happens to her, I will expose you! I don't care what happens to me!
+tv-x-files	life	tv-quote	general	0	Cigarette Smoking Man: Only yesterday you said you wouldn't be party to murder, and now, here you are.
+tv-x-files	life	tv-quote	general	0	Scully: (talking to her psychiatrist about Mulder) I guess I never realized how much I rely on him before this. His passion... he's been a great source of strength that I've drawn on.
+tv-x-files	life	tv-quote	general	0	Mulder: Level Four. That means I get to dine at the Officer's Club?
+tv-x-files	life	tv-quote	general	0	Cigarette Smoking Man: (angrily) I created Mulder! Fat Man: Agent Mulder is dead. Our FBI source confirmed it this morning. Mulder killed himself.
+tv-x-files	life	tv-quote	general	0	Cigarette Smoking Man: I never underestimated Mulder. I still don't.
+tv-x-files	life	tv-quote	general	0	Scully: The very existence of this cure would mean with certainty that I had believed in a lie from the start.
+tv-x-files	life	tv-quote	general	0	Scully: It's got to happen. Everything in my life depends on it.
+tv-x-files	love	tv-quote	general	0	Skinner: (to Scully) Yes, I am afraid. But I'm only afraid for you.
+tv-x-files	life	tv-quote	general	0	Skinner: When you compound the lies, you compound the consequences. Scully: All lies lead to the truth.
+tv-x-files	life	tv-quote	general	0	Skinner: Silence won't save you. If you lie, I don't know if anything can. Scully: Except the truth.
+tv-x-files	life	tv-quote	general	0	Mulder: I was depending on Scully to tell her story, to weave her tale, to make them believe the lie.
+tv-x-files	life	tv-quote	general	0	Skinner: Agent Mulder...Where you going? Mulder: I.C.U. Skinner: You're moving pretty good for a dead man. Mulder: No, I'm only half-dead.
+tv-x-files	life	tv-quote	general	0	Mulder: Please tell me you're here with severe chest pains. Cigarette Smoking Man: I'm here tonight as a friend, Agent Mulder.
+tv-x-files	life	tv-quote	general	0	Scully: Why'd you come here if you'd already made up your mind? Mulder: (smiling) Because I knew you'd talk me out of it if you thought I'd made a mistake.
+tv-x-files	tech	tv-quote	general	0	Frohike: Me and the narc have a proposition for you. Langly: What proposition? Frohike: The coolest hack in the world. Langly: [smiles] Say it. [Frohike hesitates] Say it... Frohike: [grudgingly] ...Your kung fu is the best.
+tv-x-files	tech	tv-quote	general	0	Langly: Last week, I got into the Maryland DMV to change my endorsements so I could handicap park.
+tv-x-files	society	tv-quote	general	0	Lieutenant: Here's a tip - aluminum foil makes a lovely hat, and it blocks out the government's mind control rays. Keep you guys outta trouble.
+tv-x-files	life	tv-quote	general	0	Physical therapist: That gunshot wound did a hell of a lot of damage. (looks at Mulder, realizing) ...you're the officer that shot him.
+tv-x-files	life	tv-quote	general	0	Mulder: [Looking around at room covered in painted kanji symbols.] I'm gonna take a wild stab here and guess this is a clue.
+tv-x-files	life	tv-quote	general	0	Mulder: What happened?! Skinner: (sigh) You were told to go home, Mulder. Mulder: WHAT. HAPPENED?!
+tv-x-files	life	tv-quote	general	0	Scully: (sarcastically) That's one hell of a plan, Mulder. The serial killer makes us believe that he's guilty, in turn diverting suspicion away from the real estate lady?
+tv-x-files	life	tv-quote	general	0	Mulder: (about man who died after swallowing 12 pounds of mud; smiling) Is it possible that he took the term "mud pie" literally?
+tv-x-files	life	tv-quote	general	0	Scully: His mother said that Bobby can't make friends. He's been in therapy for his anger since 1995. Mulder: (grin) That could be me.
+tv-x-files	life	tv-quote	general	0	[Mulder comes in carrying a plastic evidence bag.] Bobby: What is that? Mulder: (points to word "Evidence" clearly written on the bag) Evidence.
+tv-x-files	life	tv-quote	general	0	Mulder: (as he climbs a tree) Hey, Scully, is this demonstration of boyish agility turning you on at all?
+tv-x-files	life	tv-quote	general	0	Mulder: I don't think this was an act of grave robbing, Scully. Scully: No, that's what we were doing.
+tv-x-files	life	tv-quote	general	0	Scully: (objecting as Mulder starts using a laptop taken from a crime scene) Mulder, that's evidence! Mulder: Gee, I hope so.
+tv-x-files	life	tv-quote	general	0	Scully: (chasing after him) Mulder? Mulder: [moves the lips on the boy he just staked to reveal vampire fangs] Look at that! Eh? [Scully taps the fangs to show that they're just plastic. Mulder looks horrified.] Oh sh- [Credits roll.]
+tv-x-files	life	tv-quote	general	0	Mulder: (looking at the tourist's ugly shirt, sarcastically) Nice threads!
+tv-x-files	arts	tv-quote	general	0	Mulder: (pulling on dead man's collar to reveal two apparent bite marks) Your Satanic cultists have some sharp little teeth. Sheriff Lucius Hartwell: What satanic cultists? Mulder: Go ahead, tell him your, heh, (makes quotation marks in the air, mockingly) "theory."
+tv-x-files	arts	tv-quote	general	0	Sheriff Lucius Hartwell: You really know your stuff, Dana. Mulder: (disbelief) Dana?! [Cuts back to Mulder's office; he laughs] He never even knew your first name! Scully: (embarrassed) You gonna interrupt me, or what? Mulder: No, go ahead. (grinning) Dana.
+tv-x-files	life	tv-quote	general	0	Scully: [speaking into a tape recorder] 4:54 p.m. begin autopsy on one white male, age 60, who is arguably having a worse time in Texas than I am...although not by much. [She picks up the scalpel provided to her and the blade falls off] Scully: Yee-haw.
+tv-x-files	life	tv-quote	general	0	Scully: But I just put money in the "magic fingers"! Mulder: [hops on bed] I won't let it go to waste!
+tv-x-files	life	tv-quote	general	0	Mulder: But as always, I-I'm very eager to hear your opinion. Scully: (annoyed) Well, it's obviously not a vampire. Mulder: Well why not? Scully: (like it should be obvious) Because they don't exist? Mulder: Well, that's one opinion and I respect that.
+tv-x-files	life	tv-quote	general	0	Scully: (objecting) He had big buck teeth? Mulder: He had a slight overbite Scully: And that's significant? How? Mulder: I was just trying to be thorough!
+tv-x-files	life	tv-quote	general	0	Sheriff Hartwell: Yeah. Okay. Uh... what she said, that's what I'm thinking, and, uh... Yeah.
+tv-x-files	life	tv-quote	general	0	Mulder: Historically, cemeteries were thought to be a haven for vampires, as are castles, catacombs and swamps, but unfortunately, you don't have any of those. Sheriff Hartwell: We used to have swamps, only the EPA made us take to calling 'em "wetlands."
+tv-x-files	life	tv-quote	general	0	[Mulder throws his sunflower seeds at Ronnie, which forces him to pick them up] Oh man! What'd you have to go and do that for?! You are in big trouble.
+tv-x-files	life	tv-quote	general	0	Scully: You're saying that I actually hit him two times. Mulder: Square in the chest. No effect. Scully: ...and then he sort of flew at me like a flying squirrel. Mulder: I don't think I'd use the phrase "flying squirrel" when I talk to Skinner, but... yeah, that's what happened.
+tv-x-files	life	tv-quote	general	0	Coroner: Probable cause of death... [looking at Ronnie Strickland's body with a stake through the heart] Gee, that's a tough one.
+tv-x-files	life	tv-quote	general	0	Mulder: (to the sheriff) You can stay behind here with Agent Scully and keep an eye on things where I go check something out. (to Scully, with a bad southern accent) Don't say I never did nothin' for ye!
+tv-x-files	life	tv-quote	general	0	Sheriff Lucius Hartwell: He's just not who we are anymore. I mean we pay taxes, we're good neighbors. Old Ronnie... he just can't seem to grasp the concept of low profile. But, though he may be a moron, he is one of our own.
+tv-x-files	life	tv-quote	general	0	Mulder: One more anal-probing gyro-pyro levitating ecoplasm alien anti-matter story and I'm going to take out my gun and shoot somebody.
+tv-x-files	life	tv-quote	general	0	Krycek: Well, look who's answering the bat-phone.
+tv-x-files	life	tv-quote	general	0	Guard: Yes, sir? Mulder: We're federal agents requesting permission to enter the base. Guard: Do you have any paperwork to go with that, Agent "Muldar?" Mulder: (annoyed) It's Mulder.
+tv-x-files	faith	tv-quote	general	0	Mulder: [Speaking to Father Gregory who is praying inside an interrogation room] What are you asking for, Father? Mercy or forgiveness? You know... they say when you talk to God it's prayer, but when God talks to you it's schizophrenia. What is your God telling you, Father?
+tv-x-files	life	tv-quote	general	0	Mulder: [leaving the room to go under cover] If you don't hear from me by midnight... (pauses) feed my fish.
+tv-x-files	life	tv-quote	general	0	Mulder: What did you tell him? Scully: The truth ... as well as I understand it. Mulder: Which is? Scully: Folie a deux. A madness shared by two.
+tv-x-files	life	tv-quote	general	0	Skinner: So this kid is a human oddity. Tell me why anyone would go to such lengths as to kill him? Mulder: This kid may be the key not just to all human potential, but to all spiritual unexplained paranormal phenomena. The key to everything in The X-Files.
+tv-x-files	society	tv-quote	general	0	Scully: Mulder, I just want to remind you that by not informing local PD we are in technical violation of state laws prohibiting contamination of a crime scene. (Mulder pays no attention to her; mutters) Why do I bother?
+tv-x-files	life	tv-quote	general	0	Mulder: [Scrapes nail from wall] Ah. Somebody broke a nail. Scully: Is it an animal? Mulder: Well, it ain't RuPaul.
+tv-x-files	life	tv-quote	general	0	Mulder: Why are you here? Gibson: They were using me 'cause I can communicate with it. Scully: Communicate with what? Gibson: You already know. You just don't want to believe it. [Mulder and Scully glance at each other]
+tv-x-files	life	tv-quote	general	0	Farmer: I figure I got better things to do with my fertilizer than going around blowing government buildings sky high. Scully: Yeah. Well, as we said, sir this is just routine. Mulder: (quietly to Scully) So routine, it numbs the mind.
+tv-x-files	life	tv-quote	general	0	[Mulder stops the car at a stoplight; Crump screams.] Crump: What are you doing?! Mulder: What? What am I doing? Crump: What the hell are you doing?! Mulder: (sarcastically) I'm composing a sonnet. I'm slowing down for a light!
+tv-x-files	society	tv-quote	general	0	Mulder: On behalf of the International Jewish Conspiracy, I've got to inform you that we're almost out of gas.
+tv-x-files	society	tv-quote	general	0	Crump: Hey, uh... The Jew stuff? No offense. I mean, uh... A man can't help who he's born to. Mulder: (sarcastic) That was an apology, right? Gee, I don't know if I can see to drive my eyes are tearing up so bad.
+tv-x-files	life	tv-quote	general	0	Scully: (on phone) Mulder, are you okay? Mulder: (on phone) Yeah, aside from terminal cell phone withdrawal... That, and I got to pee.
+tv-x-files	life	tv-quote	general	0	Mulder (as Morris): [Looks into "his" closet, filled with black suits and white shirts.] Ladies and gentlemen, Mr. Johnny Cash.
+tv-x-files	life	tv-quote	general	0	Scully: Check out lines were worse than rush hour on the 95. If I heard "Silent Night" one more time, I was going to start taking hostages.
+tv-x-files	life	tv-quote	general	0	[Mulder and Scully have just found a corpse.] Scully: You know what's weird? Mulder: What? Scully: Mulder, she's wearing my outfit. Mulder: How embarrassing.
+tv-x-files	life	tv-quote	general	0	Lyda: I don't show my hole to just anyone. Mulder: (grimaces, looks away) Why are you showing it to me?
+tv-x-files	life	tv-quote	general	0	[Wayne comes out of the house to see Mulder encouraging the three boys to play with his car.] Wayne: (annoyed) I want those kids out of my car. Mulder: (cheerfully) Okay, speed racers. That's enough driver's education for today.
+tv-x-files	arts	tv-quote	general	0	Hotel manager: Oh, miss, we moved your boyfriend's things into your room. Scully: He's my partner, and we prefer separate rooms. Hotel manager: Oh, old-fashioned are you, huh? Well, we're booked solid with the high school reunion. You can take it or leave it.
+tv-x-files	life	tv-quote	general	0	Mulder: Scully, I don't think it's a coincidence that a cow gets hurled at me just as we're down here investigating the weather. Scully: (checking his scalp and forehead) Mulder, did they check you for head trauma? Mulder: I'm telling you, that cow had my name on it.
+tv-x-files	life	tv-quote	general	0	[All the couples at the reunion are dancing and kissing, including Holman and Sheila.] Mulder: I didn't know reunions could be so... Scully: Wet? [Holman and Sheila approach.] Mulder: Well, how'd it go? Holman: You should try it sometime.
+tv-x-files	life	tv-quote	general	0	Tunisian diplomat: (something Arabic and angry) Mulder: Yeah, so's your mom.
+tv-x-files	life	tv-quote	general	0	Skinner's assistant: (hearing someone going through Skinner's things in his office, opens the door) Sir? Is that you? (sees that it's actually Mulder) Agent Mulder! Mulder: Hey, do you have the key to this drawer?
+tv-x-files	life	tv-quote	general	0	Mulder: (looking at hairs from a blonde wig) Don't hate me 'cause I'm beautiful.
+tv-x-files	life	tv-quote	general	0	Scully: (on phone) Scully. Mulder: (on phone, disguising his voice jokingly) Hi. My name is Fox Mulder. We used to sit next to each other at the FBI. (both smile)
+tv-x-files	life	tv-quote	general	0	Mulder: Want to know what L.H. Rice's birthday is? April 4, 1849. I'm not good at math, but I'm figuring that's a whole lot of candles on the cake.
+tv-x-files	life	tv-quote	general	0	Cassandra Spender: Agent Mulder? Mulder: Shh. Shhh. Shhhh. Cassandra Spender: Oh, my god. (laughing) Oh, my god, I think I'm going to pee the floor. Mulder: (nervous chuckle) Don't... don't do that.
+tv-x-files	life	tv-quote	general	0	Mulder: There must be some kind of mistake. I signed up for the aroma therapy treatment.
+tv-x-files	life	tv-quote	general	0	Deputy Greer: Oh, no. You're going to kill me. Mulder: (annoyed) No, I'm not, but I'd like to. Scully: (holds up badge) Deputy... Deputy Greer: (surprised) The FBI? For real? Scully: (smiles tightly; nods) I'll be in the car.
+tv-x-files	life	tv-quote	general	0	Mulder: (in nature documentary narrator voice) If the sea is where life began - where our ancestors first walked ashore - then who's to say what new life may be developing in its uncharted depths. Scully: You know what? Maybe you are a member of the Manson family. (he smiles)
+tv-x-files	life	tv-quote	general	0	Mulder: You know, Scully, someday we're going to look back on this and we're going to laugh. We'll just think of it as, uh... you know man pitted against the forces of nature. Think of it as a test of our mettle. Scully: I don't need my mettle tested.
+tv-x-files	life	tv-quote	general	0	Mulder: You don't know this man, mister...? Walter: Uh, Suarez. Walter Suarez. (shines light at looter) Uh, no. He's not with you? Looter: (looks at Mulder awkwardly) I'll put it back. Mulder: Yeah. Everything in your pockets, too.
+tv-x-files	love	tv-quote	general	0	Mulder: (about the very strict neighborhood) Oh, yeah. Nothing weird going on around here. (following Scully into the house) Hey... ooh, wait a minute. You didn't let me carry you over the threshold.
+tv-x-files	life	tv-quote	general	0	Scully: Mulder... Mulder: The name... is Rob.
+tv-x-files	life	tv-quote	general	0	Mulder: Yeah, there's no sign of him in his house. I didn't see him in the storm drain, either. I take it he's dead, Scully. Scully: (correcting him, from the bathroom) Laura. [Mulder sarcastically mouths "Okay.")
+tv-x-files	life	tv-quote	general	0	[Mulder has just put a pink plastic flamingo in the front yard; looks around confidently and pumps his fists] Mulder: Bring it on.
+tv-x-files	life	tv-quote	general	0	Scully: Look, Mulder, huge creatures aside do you care to hear what I think? Mulder: (not quite sarcastic) Always.
+tv-x-files	life	tv-quote	general	0	Scully: (walking in to the X-Files office, where Mulder is pinning pictures to the wall) Aren't you going home? Mulder: (not turning around) I am home. I'm just feathering the nest.
+tv-x-files	nature	tv-quote	general	0	Scully: (looking through the file) What happened to the dog? Mulder: (sitting close to her) Dog gone... Dog gone... (proudly) Doggone. Scully: (dryly) Yeah, I got it.
+tv-x-files	life	tv-quote	general	0	Scully: (stares at him) You're not going to tell me that a dog did this. Mulder: (sounding serious, but grinning) A bad dog.
+tv-x-files	life	tv-quote	general	0	Mulder: I think we're speaking in too common terms about an animal we're calling a dog but which displays none of the behavior of man's best friend. Scully: You mean covering up crime scenes? Mulder: (smiles) You get a biscuit, Scully.
+tv-x-files	life	tv-quote	general	0	Stacy: You two looking for Karin about boarding? Mulder: No, it's actually more of a behavior problem. Scully: (glancing up at Mulder) Yeah, he doesn't listen and he chews on the furniture.
+tv-x-files	life	tv-quote	general	0	Scully: (reading some of Karin's book titles) Ah. "The Wolf Inside." "Dogs Don't Lie." "Better Than Human." (pause) "Better Than Human?" Mulder: (shrugging apologetically) She's not a real people person.
+tv-x-files	life	tv-quote	general	0	Scully: (about the body, chopped in half) Should we arrest David Copperfield? Mulder: (seriously) Yes, we should... but not for this.
+tv-x-files	life	tv-quote	general	0	Phillip Padgett: Best not to question it. (pause) See? You are curious about me. Scully: Well, you lead a curious life. Phillip Padgett: It's not so different from yours I imagine - lonely. Scully: (looks away) Loneliness is a choice.
+tv-x-files	love	tv-quote	general	0	Phillip Padgett: I made a mistake myself. Mulder: What's that, Mr. Padgett? Phillip Padgett: In my book, I'd written that Agent Scully falls in love but that's obviously impossible. (looking at Mulder) Agent Scully is already in love.
+tv-x-files	life	tv-quote	general	0	Arthur Dales: Mr. Mulder... maybe you'd better start paying a little less attention to the heart of the mystery and a little more attention to the mystery of the heart.
+tv-x-files	life	tv-quote	general	0	Alien Bounty Hunter: Show me your true face or you will die without honor. Josh Exley: This is my true face.
+tv-x-files	life	tv-quote	general	0	Langly: What if 'they' did something to him? You know, to make him pancake himself? Scully: Who's "they?" Langly: You know... "them." Scully: (rolling her eyes) I'll begin with the Y-incision.
+tv-x-files	life	tv-quote	general	0	Frohike: I don't understand. Why would the government want to turn Scully into a bimbo?
+tv-x-files	life	tv-quote	general	0	Scully: Hello, Mulder? Can you hear me? I'm at the hotel. Where are you? What do you mean, "What hotel?" Las Vegas. I'm in Las Vegas, aren't you? You called me. What do you mean you didn't call me? ...Oh, man, I am going to kick their asses.
+tv-x-files	life	tv-quote	general	0	Frohike: So you want to hit the slots? Langly: You know, Byers, growing old with us ain't so bad. Frohike: Oh, shut up, Langly. You really want him to kill himself?
+tv-x-files	life	tv-quote	general	0	Mulder: It doesn't sound like you Scully. I can't believe you're buying this. Scully: Mulder, I'm admitting that I was wrong.
+tv-x-files	life	tv-quote	general	0	Rob Roberts: Welcome to Lucky Boy. May I take your order? Mulder: Yeah, we'll have it our way. (both flash their badges) Scully: FBI. Special Agents Scully and Mulder. We'd like a word with your manager, please.
+tv-x-files	life	tv-quote	general	0	Mr Rice: But look - there's four Lucky Boys in Costa Mesa alone and something like 30 in Orange County. Scully: (sighing) Thirty-two. Mulder: (quickly, annoyed) Yeah, long day. So let's make this quick. Does everybody have their button?
+tv-x-files	life	tv-quote	general	0	Mulder: What is that? Next to it. Is that, uh... oh, my... ugh. Is that brain? Is that brain matter there? Scully: No, I'd say that's ground beef. Mulder: Ground beef. Scully: Yeah.
+tv-x-files	life	tv-quote	general	0	Mulder: If there's anybody that can tell us about the Millennium Group, it's him. He used to consult for them. Later, he fought to bring them down at the expense of his own career and reputation. Scully: Single-minded. Mulder: Yeah. Scully: Sounds like someone I know.
+tv-x-files	life	tv-quote	general	0	Max: (to Scully) You must have been a Betty, back in the day. (walks away) Scully: A "Betty"? Mulder: (smiling) Back in the day.
+tv-x-files	life	tv-quote	general	0	Mulder: I'll show you my theory if you show me yours.
+tv-x-files	life	tv-quote	general	0	Mulder: A programmed behavior prompted and manifested by suggestion in this case, a rhythmic motion of the hands producing a unconscious act in a conscious state. (Raises and lowers his hand; she gives him a Look.) Doesn't work on you. (She smiles.)
+tv-x-files	life	tv-quote	general	0	Mulder: You know, it's funny, when all is said and done, there's not much mystery in murder.
+tv-x-files	life	tv-quote	general	0	Billy LaBonge: Yo. Can't you do anything that ain't a hundred years old? That ain't old school, that's decrepit. Maleeni: (patiently) Young man, shall I come heckle you on your job? Make sure you count out the requisite number of McNuggets?
+tv-x-files	life	tv-quote	general	0	Pinchbeck: Come in. Good morning, Mr. And Mrs...? Mulder: (quickly; taking out his badge) Agents... Mulder and Scully. FBI.
+tv-x-files	life	tv-quote	general	0	Billy LaBonge: What's in it for me? I mean, let's say I help you out. What do I get in return? Scully: (hopefully) The feeling of pride that comes from performing your civic duty?
+tv-x-files	life	tv-quote	general	0	Scully: Snake handling. I didn't learn that in catechism class. Mulder: That's funny. I knew a couple of Catholic schoolgirls who were expert at it.
+tv-x-files	faith	tv-quote	general	0	Mulder: Reverend, do something about these snakes, please. Reverend O'Connor: You got nothing to fear if you're righteous people. Mulder: (very nervous) Just in case we're not, we could use a little righteous help here.
+tv-x-files	life	tv-quote	general	0	Reverend O'Connor: Your FBI partner could've learned something about herself if you hadn't stopped me. Some powerful good news, maybe. Mulder: I'd say it's good news for you that she's not here right now, considering what you tried to do to her.
+tv-x-files	life	tv-quote	general	0	Mulder: [Whispers after finding her] Samantha.
+tv-x-files	work-money	tv-quote	general	0	Deputy Wetzel: And it's hard to have a fast-track career in law enforcement when everybody thinks you're nuts. Mulder: Tell me about it.
+tv-x-files	life	tv-quote	general	0	Coroner's Assistant: Well, we got murder victims stacked three-deep in the freezer. Plus you got this camera crew reporting everything. Why? Scully: [to the camera, smiling pleasantly] Because the FBI has nothing to hide.
+tv-x-files	life	tv-quote	general	0	Cigarette Smoking Man: That which makes miracles, can also make great evil.
+tv-x-files	life	tv-quote	general	0	Mulder: [on the phone] Mulder. Scully: Mulder, when you find me dead, my desiccated corpse propped up staring lifelessly through the telescope at drunken frat boys peeing and vomiting into the gutter just know that my last thoughts were of you and how I'd like to kill you.
+tv-x-files	life	tv-quote	general	0	Security Guard: Do you have an appointment? [Skinner and Mulder flash their badges.] Security Guard: (rudely) Do you have an appointment? [They look at each other, surprised, and flash their badges again.] Skinner: (insistent) Maybe you missed this the first time around.
+tv-x-files	life	tv-quote	general	0	Mulder: One more pun and I pull out my gun.
+tv-x-files	life	tv-quote	general	0	Cardinal O'Fallon: Is being made a fool of a crime, Agent Mulder? Mulder: I'd be doing life if it were, sir.
+tv-x-files	arts	tv-quote	general	0	Scully: How...? Mulder: [answering the question before she asks] 42. Scully: You've seen this movie 42 times? Mulder: Yes. Scully: Doesn't that make you sad? It makes me sad.
+tv-x-files	life	tv-quote	general	0	Scully: Can you hot-wire it? Doggett: (confident) Can I hot-wire it? Gone in 60 seconds, Jack. I'm going to strand these lunatics.
+tv-x-files	life	tv-quote	general	0	Sharon Pearl: (looking at watch) Is this going to happen? Doggett: Shouldn't you be telling us that? Sharon Pearl: (smiles) You're no doubt confused, Agent Doggett. I take psychic readings, not see through walls.
+tv-x-files	life	tv-quote	general	0	Doggett: Looks like you missed a spot, Mr. Hangemuhl.
+tv-x-files	life	tv-quote	general	0	Krycek: We all have a life in our hands. I have yours... you have Mulder's... and Scully has her unborn child. It's who's willing to sacrifice.
+tv-x-files	life	tv-quote	general	0	[Mulder closes the laptop and removes the hard drive.] Scully: What are you doing? Mulder: I'm going to book myself on that Princess cruise. Scully: I'll book it for you. (takes the harddrive - and the responsibility - from him. He covers up the boxes, smiles and follows her.)
+tv-x-files	society	tv-quote	general	0	Mulder: Well, just remember, boys, this is America. Just because you get more votes doesn't mean you win.
+tv-x-files	love	tv-quote	general	0	Mulder: [hintingly glances towards the couch (he has placed a gift under the pillows)] Scully: [looks and notices gift] Is that for me? Mulder: Yep. Scully: Nice package. Mulder: (stutteringly quietly) Thank you.
+tv-x-files	life	tv-quote	general	0	[Knock on the door] Mulder: Little Caesar, I presume?
+tv-x-files	life	tv-quote	general	0	[Scully nods, sits down with her present. Mulder opens the door, and turns to squint suspiciously at Scully.] Scully: [to deliveryman] Hi. Just give it to the man with the funny look on his face.
+tv-x-files	life	tv-quote	general	0	Doggett: What is this place? Skinner: An illegal medical facility for the purpose of human cloning. It goes on from here. In fact, it occupies the entire warehouse. Doggett: You read about these things but you don't imagine they exist. Skinner: Yeah, just like aliens.
+tv-x-files	life	tv-quote	general	0	Reyes: I'm guessing I don't have time to go to the little girls' room?
+tv-x-files	life	tv-quote	general	0	Knowle Rohrer: I'm your new second-in-command.
+tv-x-files	love	tv-quote	general	0	Scully: It's okay. I understand. I mean ... it's hard enough caring for a child. Patti: You don't have anyone, do you? Scully: No. (looks down.) But I wish I did. Patti: (smiling) Maybe he'll come back.
+tv-x-files	life	tv-quote	general	0	Doggett: Hell of a thing to wake up to, huh? We stopped after work. She had a beer. Scully: Well, the man who hit her had fifteen. Don't do this to yourself, John.
+tv-x-files	life	tv-quote	general	0	Doggett: Morris Fletcher? Morris: (perks up a little) Finally. What took you so long? You must be Reyes. Enchanté. Reyes: (rolls eyes) Yeah.
+tv-x-files	life	tv-quote	general	0	Morris: Agents, I'm tellin' ya, you don't want these three involved. I mean, they don't even have their ridiculous tinker toy gizmos. This place is like "How The Grinch Stole Radio Shack."
+tv-x-files	life	tv-quote	general	0	Morris: "Area 51 Exposé!" Ooo! (sarcastic) Where's your new issue? This one's a year old. Frohike: Back off, Skeezick.
+tv-x-files	life	tv-quote	general	0	Morris: (patting Jimmy; sarcastically) Cheer up, Gomer. You're bringin' the whole room down.
+tv-x-files	life	tv-quote	general	0	Byers: Lone Gunman Newspaper Group. Byers speaking.
+tv-x-files	life	tv-quote	general	0	Reyes: Well, why name himself after cousin Oliver? None of the other Brady's particularly liked Oliver. He was a self-described pest. Scully: A jinx. Cousin Oliver, the Jinx. (SCULLY tries to explain her knowledge of the show.) Oh, so maybe I watched an episode or two.
+tv-x-files	life	tv-quote	general	0	Mulder: [After escaping Knowle Rohrer with help from Krycek's ghost] No! You're dead! Krycek: Go. There's others. [An alarm rings & Krycek vanishes]
+tv-x-files	life	tv-quote	general	0	Guard: What are you thinking? Mulder: Where am I? Guard: Wrong answer! What are you thinking? Mulder: I'm thinking about getting the hell out of here. Guard: Wrong... answer! [He hits Mulder and walks to the door of the cell] No sleeping!
+tv-x-files	life	tv-quote	general	0	Reyes: What is the point of all of this? To destroy a man who seeks the truth, or to destroy the truth so no man can seek it? Either way, you lose.
+tv-x-files	life	tv-quote	general	0	Doggett: [answering phone] Yeah... I'll tell her. [He hangs up] Scully: Who was it? Doggett: Skinner. Scully: Agent Doggett? Doggett: Death by lethal injection.

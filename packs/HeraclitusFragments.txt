@@ -1,0 +1,109 @@
+HeraclitusFragments	life	wisdom	general	0	(One must remember also) the man who forgets which way the road leads. ~ Heraclitus, Fragments
+HeraclitusFragments	faith	wisdom	general	0	(To the Egyptians): "If they are gods, why do you lament them? If you lament them, you must no longer regard them as gods." ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	... stepping near ... ~ Heraclitus, Fragments
+HeraclitusFragments	nature	wisdom	general	0	... the cycles: of these the sun is commander and overseer, for determining the changes and the seasons which carry all things. ~ Heraclitus, Fragments
+HeraclitusFragments	faith	wisdom	general	0	...that they rise up and become the wakeful guardians of the living and the dead. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	A dry gleam of light is the wisest and best soul. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	A man, when he gets drunk, is led by a beardless lad, tripping, knowing not where he steps, having his soul moist. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	All the things we see when awake are death, even as all we see in slumber are sleep. ~ Heraclitus, Fragments
+HeraclitusFragments	science	wisdom	general	0	All things are an interchange for Fire, and Fire for all things, just like goods for gold and gold for goods. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	And it is the same thing in us that is quick and dead, awake and asleep, young and old; the former are shifted and become the latter, and the latter in turn are shifted and become the former. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	Because men in search of wisdom must be aware of very many things. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	Bow: the bow's name is life, though its work is death.(biós, Homeric word for bow - bíos, life) ~ Heraclitus, Fragments
+HeraclitusFragments	science	wisdom	general	0	Cold things become warm, and what is warm cools; what is wet dries, and the parched is moistened ~ Heraclitus, Fragments
+HeraclitusFragments	science	wisdom	general	0	Concerning the circumference of a circle the beginning and end are common. ~ Heraclitus, Fragments
+HeraclitusFragments	science	wisdom	general	0	Conjunctions: wholes and non wholes, convergent divergent, consonant dissonant, from everything the One and from the One everything. ~ Heraclitus, Fragments
+HeraclitusFragments	life	dark	general	0	Corpses are more fit to be cast out than dung. ~ Heraclitus, Fragments
+HeraclitusFragments	nature	aphorism	general	0	Dogs bark at every one they do not recognize. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	Even the barley-drink separates if it is not stirred. ~ Heraclitus, Fragments
+HeraclitusFragments	life	aphorism	general	0	Every beast is driven to pasture with a blow. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	Eyes and ears are bad witnesses to men who have barbarian souls. ~ Heraclitus, Fragments
+HeraclitusFragments	nature	wisdom	general	0	Fire in its advance will judge and convict all things. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	For a horse, a dog and a human being have different pleasures; asses prefer straw to gold, since asses find food sweeter than gold. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	For even the best of them choose one thing above all others, immortal glory among mortals, while most of them are glutted like beasts. ~ Heraclitus, Fragments
+HeraclitusFragments	faith	wisdom	general	0	For if it were not to Dionysus that they made a procession and sang the shameful phallic hymn, they would be acting most shamelessly. But Hades is the same as Dionysus in whose honor they go mad and rave. ~ Heraclitus, Fragments
+HeraclitusFragments	faith	wisdom	general	0	For it is death to souls to become water, and death to water to become earth. But water comes from earth; and from water, soul. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	For what thought or wisdom have they? They follow the poets and take the crowd as their teacher, knowing not that "the many are bad and few good." ~ Heraclitus, Fragments
+HeraclitusFragments	faith	wisdom	general	0	God is day and night, winter and summer, war and peace, surfeit and hunger; but he takes various shapes, just as fire, when it is mingled with spices, is named according to the savor of each. ~ Heraclitus, Fragments
+HeraclitusFragments	society	wisdom	general	0	Gods and men honor those who are slain by Ares. ~ Heraclitus, Fragments
+HeraclitusFragments	society	wisdom	general	0	Greater deaths win greater portions. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	Hearing they do not understand, like the deaf. Of them does the saying bear witness: 'present, they are absent.' ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	Heraclitus attacked Hesiod for making some days good and other days bad, because he did not recognize that the nature of every day is one. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	Heraclitus said that a man's character is his fate. ~ Heraclitus, Fragments
+HeraclitusFragments	faith	wisdom	general	0	Heraclitus said that thinking is a sacred disease and that sight is deceptive. ~ Heraclitus, Fragments
+HeraclitusFragments	arts	quip	general	0	Homer deserves to be taken out of the games and beaten with a stick, and Archilochus too. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	How can one hide from that which never sets? ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	Human opinions are children's toys. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	I searched myself. ~ Heraclitus, Fragments
+HeraclitusFragments	science	wisdom	general	0	If all things were turned to smoke, the nostrils would distinguish them. ~ Heraclitus, Fragments
+HeraclitusFragments	life	aphorism	general	0	If happiness consisted in the pleasures of the body, we should call oxen happy whenever they come across bitter vetch to eat. ~ Heraclitus, Fragments
+HeraclitusFragments	science	observation	general	0	If there were no sun, on account of the other stars it would be night. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	If you do not expect the unexpected, you will not find it; for it is hard to be sought out and difficult. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	In Priene lived Bias, son of Teutamas, who is of more account than the rest. ~ Heraclitus, Fragments
+HeraclitusFragments	faith	wisdom	general	0	It is best to hide folly. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	It is hard to fight with one's heart's desire. Whatever it wishes to get, it purchases at the cost of soul. ~ Heraclitus, Fragments
+HeraclitusFragments	society	wisdom	general	0	It is law, also, to obey the will of one. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	It is not better for men to get all they wish to get. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	It is sickness that makes health pleasant and good; hunger, plenty; weariness, rest. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	It rests by changing. It is a weariness to labor for the same masters and be ruled by them. ~ Heraclitus, Fragments
+HeraclitusFragments	arts	wisdom	general	0	Knowing not how to listen, they do not [know] how to speak ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	Let us not conjecture randomly about the most important things. ~ Heraclitus, Fragments
+HeraclitusFragments	faith	wisdom	general	0	Man is called a baby by God, even as a child [is called a baby] by a man. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	Man kindles a light for himself in the night-time, when he has died but is alive. The sleeper, whose vision has been put out, lights up from the dead; he that is awake lights up from the sleeping. ~ Heraclitus, Fragments
+HeraclitusFragments	faith	wisdom	general	0	Mortals are immortals and immortals are mortals, the one living the others' death and dying the others' life. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	Most are at odds with that with which they most constantly associate - the account which governs the universe - and... what they meet with every day seems foreign to them. ~ Heraclitus, Fragments
+HeraclitusFragments	nature	wisdom	general	0	Nature loves to hide. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	Of all whose discourses I have heard, there is not one who attains to recognizing what is wise, set apart from all. - or - Of all whose discourses I have heard, there is not one who attains to recognizing that the wise is set apart from all. ~ Heraclitus, Fragments
+HeraclitusFragments	nature	wisdom	general	0	On those who enter the same rivers, ever different waters flow. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	One is ten thousand to me, if he be the best. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	One,the wisdom. Understand what steers all things by means of all things. ~ Heraclitus, Fragments
+HeraclitusFragments	nature	wisdom	general	0	Pigs delight in the mire more than in clean water. ~ Heraclitus, Fragments
+HeraclitusFragments	science	observation	general	0	Pythagoras, son of Mnesarchus, pursued inquiry further than all other men and, choosing what he liked from these compositions, claimed for himself a wisdom of his own: much learning, a bad craft. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	Recognizing oneself and being of a sound mind are for all men. ~ Heraclitus, Fragments
+HeraclitusFragments	faith	quip	general	0	Souls smell in Hades. ~ Heraclitus, Fragments
+HeraclitusFragments	nature	wisdom	general	0	Swine wash in the mire, and barnyard fowls in dust. ~ Heraclitus, Fragments
+HeraclitusFragments	nature	wisdom	general	0	The death of fire is the birth of air, and the death of air is the birth of water. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	The fool is fluttered at every word. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	The learning of many things does not teach understanding; otherwise, it would have taught Hesiod and Pythagoras, and again Xenophanes and Hecataeus. ~ Heraclitus, Fragments
+HeraclitusFragments	nature	verse	general	0	The limits of dawn and evening are the Bear and, opposite the Bear, the guardian of bright Zeus. ~ Heraclitus, Fragments
+HeraclitusFragments	faith	wisdom	general	0	The logos of the soul is increasing itself. ~ Heraclitus, Fragments
+HeraclitusFragments	faith	wisdom	general	0	The lord whose is the oracle at Delphi neither speaks nor hides his meaning, but gives a sign. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	The many do not take heed of such things as those they meet with, nor do they recognize them when they are taught, though they think they do ~ Heraclitus, Fragments
+HeraclitusFragments	science	wisdom	general	0	The most beautiful universe is (a) pouring out (of) sweepings at random. ~ Heraclitus, Fragments
+HeraclitusFragments	society	wisdom	general	0	The most esteemed of them knows - holds fast to - fancies. Justice shall overtake the artificers of lies and the false witnesses. ~ Heraclitus, Fragments
+HeraclitusFragments	life	observation	general	0	The most handsome of apes is ugly in comparison with a human. ~ Heraclitus, Fragments
+HeraclitusFragments	faith	wisdom	general	0	The mysteries practiced among men are unholy mysteries ~ Heraclitus, Fragments
+HeraclitusFragments	arts	wisdom	general	0	The path of writing is crooked and straight. ~ Heraclitus, Fragments
+HeraclitusFragments	society	wisdom	general	0	The people must fight for its law as for its walls. ~ Heraclitus, Fragments
+HeraclitusFragments	nature	wisdom	general	0	The sea is the purest and the impurest water. Fish can drink it, and it is good for them; to men it is undrinkable and destructive. ~ Heraclitus, Fragments
+HeraclitusFragments	nature	wisdom	general	0	The sun will not overstep his measures; if he does, the Erinyes, the handmaids of Justice, will find him out. ~ Heraclitus, Fragments
+HeraclitusFragments	nature	wisdom	general	0	The sun... as Heraclitus says, is new every day. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	The thunderbolt that steers all things. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	The waking have one common world, but the sleeping turn aside each into a world of his own. ~ Heraclitus, Fragments
+HeraclitusFragments	faith	wisdom	general	0	The way of man has no wisdom, but that of God has. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	The way up and the way down is one and the same. ~ Heraclitus, Fragments
+HeraclitusFragments	faith	wisdom	general	0	The wise is one only. It is unwilling and willing to be called by the name of Zeus. ~ Heraclitus, Fragments
+HeraclitusFragments	faith	wisdom	general	0	The wisest of men, in contrast to God, appears as an ape in wisdom and beauty and all things. ~ Heraclitus, Fragments
+HeraclitusFragments	faith	wisdom	general	0	There awaits men when they die such things as they look not for nor dream of. ~ Heraclitus, Fragments
+HeraclitusFragments	science	wisdom	general	0	They can't comprehend how the different assembles; harmony of inverse tensions, such as that of the bow and the lyre. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	They would not have known the name of justice if these things were not. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	Thinking well is the greatest excellence; and wisdom is to act and speak what is true, perceiving things according to their nature. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	This world, which is the same for all, no one of gods or men has made. But it always was, is, and will be: an ever-living Fire, with measures of it kindling, and measures going out. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	Those who are asleep are fellow-workers in what goes on in the world. ~ Heraclitus, Fragments
+HeraclitusFragments	work-money	wisdom	general	0	Those who seek for gold dig up much earth and find a little. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	Though the logos is common, the many live as if they had a wisdom of their own. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	Thought is common to all. ~ Heraclitus, Fragments
+HeraclitusFragments	faith	wisdom	general	0	To God all things are fair and good and just, but men hold some things wrong and some right. ~ Heraclitus, Fragments
+HeraclitusFragments	faith	wisdom	general	0	Traveling on every path, you will not find the boundaries of soul by going - so deep is its word (logos). ~ Heraclitus, Fragments
+HeraclitusFragments	life	aphorism	general	0	Wantonness needs putting out, even more than a house on fire. ~ Heraclitus, Fragments
+HeraclitusFragments	society	wisdom	general	0	We must know that war is common to all and strife is justice, and that all things come into being through strife necessarily. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	We must not act and speak like sleepers; because then we also believe we act and speak. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	We should not act and speak like 'children of our parents': i.e., in the way that has been handed down to us. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	What opposes unites, and the finest attunement stems from things bearing in opposite directions, and all things come about by strife. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	When they are born, they wish to live and to meet with their dooms - or rather to rest - and they leave children behind them to meet with their dooms in turn. ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	[... in the words of Heraclitus,] "the prince of lies." ~ Heraclitus, Fragments
+HeraclitusFragments	faith	wisdom	general	0	[But the greater part of things divine, according to Heraclitus,] escape recognition due to lack of confidence. ~ Heraclitus, Fragments
+HeraclitusFragments	science	fact	general	0	[Concerning the size of the sun: it is] the width of a human foot ~ Heraclitus, Fragments
+HeraclitusFragments	life	wisdom	general	0	[Heraclitus calls it (i.e., fire)] want and surfeit. ~ Heraclitus, Fragments
+HeraclitusFragments	arts	observation	general	0	[Heraclitus] said that Homer was an atronomer. ~ Heraclitus, Fragments
+HeraclitusFragments	science	fact	general	0	[Thales], according to some, seems to have been the first student of astronomy ... a fact that both Heraclitus and Democritus bear witness to. ~ Heraclitus, Fragments

@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The stable, versioned plugin ABI. Third-party module DLLs reference ONLY this small assembly,
+       never the app. Keep it minimal and dependency-free (no WinForms/WPF/System.Drawing leakage) so
+       the contract can evolve independently of the host. Its AssemblyVersion IS the ABI version that
+       modules declare a MinHostVersion against. Lives under src/ so it inherits Directory.Build.props
+       (LangVersion 7.3, Deterministic, warnings-as-errors). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>DesktopAICompanion.Modules</RootNamespace>
+    <AssemblyName>DesktopAICompanion.Contracts</AssemblyName>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <!-- AssemblyVersion is the ABI binding version modules reference ("DesktopAICompanion.Contracts, Version=
+         1.0.0.0"); it MUST stay stable or already-built modules fail to load. FileVersion, by contrast,
+         tracks the PRODUCT (from ProductVersion.props via src/Directory.Build.props) so a Windows Installer
+         major upgrade actually refreshes this DLL when the ABI changes — a fixed FileVersion made the
+         installer skip the overwrite, shipping a stale Contracts.dll that couldn't resolve new ABI types. -->
+    <Version>$(DesktopAICompanionVersion)</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>$(DesktopAICompanionAssemblyVersion)</FileVersion>
+    <Company>bigfnj</Company>
+    <Product>Desktop AI Companion</Product>
+  </PropertyGroup>
+
+  <!-- Published to NuGet so a module can be built OUTSIDE this repo. This assembly is already the right
+       shape for it: no dependencies, and an AssemblyVersion frozen at 1.0.0.0 so a module built against any
+       package version keeps binding to the copy the host ships. The PACKAGE version tracks the product, which
+       is the useful signal for an author — it names the host release the contract came from, and it is what a
+       module's MinHostVersion is compared against at load time. -->
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>DesktopAICompanion.Contracts</PackageId>
+    <Title>DesktopAICompanion plugin contract</Title>
+    <Description>The plugin ABI for Desktop AI Companion: implement IModule, talk to the app through IHost. Reference this and nothing else to build a module. See docs/module-authoring.md in the repository.</Description>
+    <Authors>bigfnj</Authors>
+    <PackageTags>desktoppet;plugin;module;desktop-pet</PackageTags>
+    <PackageProjectUrl>$(DesktopAICompanionRepositoryUrl)</PackageProjectUrl>
+    <RepositoryUrl>$(DesktopAICompanionRepositoryUrl)</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

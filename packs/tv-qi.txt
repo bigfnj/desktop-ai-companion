@@ -1,0 +1,210 @@
+tv-qi	life	tv-quote	general	0	Stephen Fry: Where is ninety percent of the universe? Jeremy? Jeremy Hardy: Ikea.
+tv-qi	life	tv-quote	general	0	Jeremy Hardy: You're basing all this on what Stephen Hawking says, and the fact is, he's subject to interference from minicabs.
+tv-qi	life	tv-quote	general	0	Alan Davies: Pluto and Bangkok don't exist. I'm scared to go out.
+tv-qi	life	tv-quote	general	0	Stephen Fry: Holmes was retired by this point, and was keeping bees on the Sussex Downs. Alan Davies: Against their will?
+tv-qi	life	tv-quote	general	0	Stephen Fry: What begins with A, has six Cs, and no Bs? Clive Anderson: Is it the Welsh alphabet?
+tv-qi	life	tv-quote	general	0	Stephen Fry: What is the most boring place in Britain? Jo Brand: Is it the Big Brother House?
+tv-qi	life	tv-quote	general	0	Stephen Fry: Welcome to QI, the closest modern equivalent to Lions versus Christians.
+tv-qi	life	tv-quote	general	0	Stephen Fry: How do otters kill crocodiles? Rob Brydon: Softly with their songs.
+tv-qi	society	tv-quote	general	0	[Danny Baker has related a theory that states if a person can lick their own elbow, then they will be immortal.] Stephen Fry: But isn't that how socialism was invented, that someone said, "Come, let us lick each other's elbows"?
+tv-qi	life	tv-quote	general	0	Danny Baker: The fourth largest navy in the world, if one goes by boats alone? Disney. Disney has the fourth largest flotilla in the world. Stephen Fry: Good God. They'll be making films next!
+tv-qi	life	tv-quote	general	0	Jackie Clune: It is actually possible for the ball sack to be stretched beyond recognition. Jimmy Carr: By a woman scorned?
+tv-qi	nature	tv-quote	general	0	After 15 seconds... Stephen Fry:The intelligent voices in my head tell me you're absolutely right Sean, they do walk! They walk up to 40 centimetres in a lifetime.
+tv-qi	nature	tv-quote	general	0	Stephen Fry: If a lion mates with a tiger, you get a ...? Alan Davies: Scandal.
+tv-qi	life	tv-quote	general	0	Stephen Fry: Who are the Lords of Shouting? Jo Brand, Alan Davies: [hitting their buzzers] WE ARE!
+tv-qi	nature	tv-quote	general	0	Stephen Fry: How do hedgehogs make love? Alan Davies: Carefully! [The klaxon goes off.]
+tv-qi	life	joke	general	0	Stephen Fry: What's long and pink and hard in the morning? Answer - The Financial Times crossword.
+tv-qi	arts	quip	general	0	Peter Serafinowicz: I never saw American History X, because I didn't see any of the first nine.
+tv-qi	life	tv-quote	general	0	Stephen Fry: There's a little bit of Alan in me. Is there any Alan in you? Rich Hall: No. No. Alan Davies: Do you want some?
+tv-qi	nature	observation	general	0	[Discussing the possibility of receiving xenotransplanted organs from pigs] Linda Smith: Now what are the chances of a reckless young pig, goes out and gets killed in a motorcycle accident? They probably don't even carry donor cards!
+tv-qi	faith	tv-quote	general	0	Stephen Fry: It's in the Bible ... Alan Davies: I haven't read it! Stephen Fry: You should - it's hilarious.
+tv-qi	nature	tv-quote	general	0	Stephen Fry: What, or which, is the largest living thing on earth? Alan Davies: It is the blue whale. [The klaxon goes off.]
+tv-qi	society	tv-quote	general	0	Stephen Fry: I'll give you an extra two points if you can tell me the longest fence in the world. Phill Jupitus: The Great Fence of China! Alan Davies: It's to keep people off the Great Wall.
+tv-qi	nature	tv-quote	general	0	Jo Brand: When I was a teenager, someone I knew gave their dog LSD ... Stephen Fry: Oh, my Lord! Jo Brand: ... It went to Glastonbury.
+tv-qi	life	tv-quote	general	0	Stephen Fry: Phill, one for you, I think. What goes 'woof, woof, boom'? Phill Jupitus: Suicidal corgi. The next Norwegian entry for the Eurovision Song Contest? [Singing.] "My heart goes woof, woof, boom." Rich Hall: A terrierist!
+tv-qi	life	tv-quote	general	0	Alan Davies: Eight hundred Americans die in a McDonald's every year. Rich Hall: Which one? Best to avoid that one.
+tv-qi	life	tv-quote	general	0	Stephen Fry: This brings us neatly to our General Ignorance round, in which we ask Alan, is this a rhetorical question? Alan Davies: [He thinks for a while.] No. Stephen Fry: Quite right.
+tv-qi	life	tv-quote	general	0	Stephen Fry: You don't meet many American Jeremys do you? Have you ever met one? Jeremy Clarkson: No it's too complicated, there's three syllables.
+tv-qi	life	tv-quote	general	0	Stephen Fry: What has large teeth and only one facial expression? Bill Bailey: Janet Street-Porter. [Forfeit klaxon sounds]
+tv-qi	science	joke	general	0	Bill Bailey: How many amoebas does it takes to change a lightbulb? One. No, two. No, four. No, eight ...
+tv-qi	life	tv-quote	general	0	Stephen Fry: They are homophones. They do sound the same ... and they hate gay people.
+tv-qi	life	tv-quote	general	0	[After Alan incorrectly guesses that Julius Caesar was born by Caesarian section.] Stephen Fry: We don't know anything particularly extraordinary about his birth, we just wanted, uh, Laughing Boy [gestures to Alan] here to fall into the trap.
+tv-qi	science	tv-quote	general	0	Stephen Fry: How many moons does the earth have? Alan Davies: Two. Stephen Fry: Oh dear, oh dear, oh dear, oh dear. Alan Davies: We did this last series! Stephen Fry: Yes, but Alan, that was last year. There have been three more discovered. Alan Davies: Oh, shut up!
+tv-qi	life	tv-quote	general	0	Alan Davies: See what happens on this show, Dara, is he (gestures to Stephen) thinks&#65279; I'm an idiot. Dara Ó Briain: Yeah, well you think my name is an anagram of diarrhoea, so... I'm really on their side at the moment.
+tv-qi	nature	tv-quote	general	0	Stephen Fry: Do you know why the grass is greener in Ireland than over here? Dara O'Briain: Uhm, it's because of lime stone? Stephen Fry: No, because you're all over here walking on ours.
+tv-qi	life	tv-quote	general	0	Stephen Fry: What's the collective noun for a group of baboons? Rich Hall: The Pentagon.
+tv-qi	life	tv-quote	general	0	Stephen Fry: If I've got a mothball in this hand and a mothball in that hand, what have I got? Alan Davies: Two mothballs? Stephen Fry: No, a rather excited moth.
+tv-qi	life	tv-quote	general	0	[discussing the naked chef who won the only race of the first ancient Olympics] Stephen Fry: He, of course, won by a short head- no... After his final spurt- NO, shut up!
+tv-qi	life	tv-quote	general	0	Stephen Fry: What is bottomry? Clive Anderson: It's the opposite of topiary.
+tv-qi	life	tv-quote	general	0	Stephen Fry: What is the commonest material in the world? Clive Anderson: Jim Davidson's.
+tv-qi	life	tv-quote	general	0	Clive Anderson: Alan, even I can work out that when you know the answer, never give it, cos it's always the one they're hoping we'll say.
+tv-qi	nature	tv-quote	general	0	Sean Lock: The huntsman spider is the only spider with lungs. Alan Davies: So you can get it a birthday cake with a candle on.
+tv-qi	nature	tv-quote	general	0	[On the subject of what music do spiders like] Sean Lock: They've got eight legs; they'd appreciate a one-man band. [...] Mark Gatiss: Kylie Minogue Stephen Fry: Why's that? Mark Gatiss: Spinning Around [...] Sean Lock: But I don't think spiders are that into puns.
+tv-qi	life	tv-quote	general	0	Alan Davies: I'm not as stupid as you think. Stephen Fry: No, you're not. You couldn't be.
+tv-qi	life	tv-quote	general	0	Alan Davies: What would your super power be of choice? Stephen Fry: Invisibility. Alan Davies: Really? Stephen Fry: Yeah, I think. Ah, it'd be great. What would you like? Alan Davies: I would like to have no bodily smell.
+tv-qi	life	tv-quote	general	0	Rich Hall: I would like to travel ahead in time, but only by two seconds. I could go 'gesundheit', and you [points at Stephen] would sneeze.
+tv-qi	life	tv-quote	general	0	[repeatedly, after having switched seats with Stephen] Alan Davies: ...This question is for Stephen Fry.
+tv-qi	life	tv-quote	general	0	Alan Davies: This one for everyone... What kind of animal is sacred in India?
+tv-qi	life	tv-quote	general	0	(short silence) Stephen Fry: (growled whisper): DO NOT SAY COW!
+tv-qi	life	tv-quote	general	0	(audience laughs) Stephen Fry: DO NOT SAY COW!"
+tv-qi	life	tv-quote	general	0	(Phil's buzzer goes off) Phil Jupitus: Is it a cow?
+tv-qi	life	tv-quote	general	0	Stephen Fry: Well, Port Talbot may be less than 30.000 pounds, but it's like that old joke isn't it? About the atomic bomb going off in Cardiff, and causing seven pounds worth of damage.
+tv-qi	life	quip	general	0	Rich Hall: For five million pounds, I'd want a map that showed me looking at the map I'd just bought.
+tv-qi	life	tv-quote	general	0	Stephen Fry: What is a taffy pull? Rob Brydon: Is this another dig at my forefathers? Stephen Fry: You've got four fathers? The Welsh are weird.
+tv-qi	life	tv-quote	general	0	Stephen Fry: Who, or what, is Cummingtonite? Alan Davies: [Giggles.] I don't know. The night is young, Stephen.
+tv-qi	life	tv-quote	general	0	Arthur Smith: It's marvellous to be six because you're not aware of your own mortality. You think you're the centre of the universe... Days last a hundred years! It's always summer! You can put your head in some custard and no one cares.
+tv-qi	life	tv-quote	general	0	Doon Mackichan: I'd quite like to be, sort of ... a minute ... old. After the smack and everything's washed off, you're straight on the tit, you've got entertainment, you've got sleep and you can cry all the time without anyone thinking you're weird.
+tv-qi	life	tv-quote	general	0	[Guessing the contents of the Queen's handbag] Doon Mackichan: The Little Book of Calm ... and mace spray.
+tv-qi	life	tv-quote	general	0	Alan Davies: Something's 98% water, I know it is. Jimmy Carr: Is it the sea?
+tv-qi	life	tv-quote	general	0	Stephen Fry: Do you remember anything he said? Sean Lock: No, not a word. He said something about calcium, there's a tree with a funny name, I don't know. Koalas invented rice. Um, other stuff. He's like a robot!
+tv-qi	arts	tv-quote	general	0	Stephen Fry: So tonight we have three astronauts, and one astro-minus-25. Ha, the things I do with words.
+tv-qi	life	tv-quote	general	0	[Jeremy Clarkson holds up a sign saying "I like Stephen".] Stephen Fry: It's like having your own little performing donkeys.
+tv-qi	society	tv-quote	general	0	Stephen Fry: In 1900 there was a sport where Britain won a gold medal, in which the only other country that competed was France. Can you imagine what that might have been? John Sessions: Arrogance?
+tv-qi	life	tv-quote	general	0	Stephen Fry: What do you get when you cross a camel with a leopard? Jo Brand: You get a fireside rug you can have a good hump on. Sean Lock: You get sacked from the zoo?
+tv-qi	life	tv-quote	general	0	[On how the ancient armies caught elephants] Rich Hall: Well, the truth of the matter is many of these elephants volunteered. They came from small towns, there was no future, no ... no circus coming through town ...
+tv-qi	nature	tv-quote	general	0	Stephen Fry: So, the question is, how does the U.S. government look after its sequoia groves? Bill Bailey: Er ... lions ... and tigers are let loose to roam the surrounding areas ... Alan Davies: Do they try to win the hearts and minds of the sequoia?
+tv-qi	life	tv-quote	general	0	Stephen Fry: Why shouldn't I strip Alan naked and cover him in gold paint? Phill Jupitus: You win your Oscar properly like everyone else!
+tv-qi	life	tv-quote	general	0	Sean Lock: I got the worst Christmas present ever, ever in my life. My sister gave me a "Grow Your Own Luffa" kit. Stephen Fry: God bless her! Sean Lock: It was a clay pot, a bag of earth and five seeds. And I think the clay pot hit her hardest.
+tv-qi	life	tv-quote	general	0	Stephen Fry: What colour was the Model T Ford? Jeremy Clarkson: [Whispering to Alan] Don't say, don't say, don't say... Alan Davies: Black? Jeremy Clarkson: Oh. [forfeit alarm goes off]
+tv-qi	life	dark	general	0	Jeremy Clarkson: Did you know a veal has to have more space to be transported to the abattoir than a human being in the back of an aeroplane. Sean Lock: ...yeah, but to be fair, we have a holiday, they get killed.
+tv-qi	life	tv-quote	general	0	Jeremy Clarkson: I had a puffin last week, that's not delicious, but the point of eating it was because I never had one before... Sean Lock: ...have you tried one of my turds? Stephen Fry: Did you just say what I thought you said? Get out. Out now.
+tv-qi	food	tv-quote	general	0	[On fortune cookies] Phill Jupitus: I wish they'd be a bit more honest - I mean, snap, "With the amount of MSG you've just had, a massive coronary is on the way"!
+tv-qi	life	tv-quote	general	0	Bill Bailey: I saw a goat up a tree in Morocco. They go right up the top! I couldn't believe it, I thought it was somebody in the pub having me on, but no ... Stephen Fry: And you're sure it was a tree, not a goathanger?
+tv-qi	life	tv-quote	general	0	Stephen Fry: What does a pair of pygmy chimpanzees do when they see a box? Helen Atkinson-Wood: Wear children's clothes and have a tea party.
+tv-qi	nature	tv-quote	general	0	Stephen Fry: An octopus the size of a volleyball can fit into a soft drink can. Bill Bailey: Er, bluff.
+tv-qi	life	tv-quote	general	0	Stephen Fry: After a lifetime working with radioactivity, what did Marie Curie have two of? Alan Davies: Lesbians. Stephen Fry: She had two lesbians? She left them in her will to someone.
+tv-qi	life	tv-quote	general	0	Stephen Fry: What is the Italian for cuttlefish? Do you know by any chance?? Alan Davies: Cuttlefishio?
+tv-qi	life	tv-quote	general	0	[after a question barrage from Alan] Stephen Fry: I'm looking at my information card here because you're really pumping me, Alan. You're pumping me.
+tv-qi	life	tv-quote	general	0	Stephen Fry: When the Titanic sank, what was the first thing that happened to the crew? Phill Jupitus: Terrible luck for them, but they actually had their six-month review...
+tv-qi	life	tv-quote	general	0	Stephen Fry: What is three times more dangerous than war? Jimmy Carr: ...three wars?
+tv-qi	society	tv-quote	general	0	Stephen Fry: You are three times more likely to die at work than at war. Alan Davies: Does that include soldiers?
+tv-qi	life	tv-quote	general	0	Stephen Fry: Another dangerous sport is russian roulette of course. Alan Davies: That's dangerous. In the early days, you had a musket. You'd only have the one.
+tv-qi	life	tv-quote	general	0	Arthur Smith: I had occasion to hire a theatrical duck, once ... Clive Anderson: A luvvie duck! Vic Reeves: In my career, I've had occasion to hire many, many an animal, but the most expensive was a pelican. Stephen Fry: Was it an enormous bill?
+tv-qi	life	tv-quote	general	0	Stephen Fry: ....good evening and welcome to QI, for another tentative sniff at the enormous bottom of knowledge.
+tv-qi	life	tv-quote	general	0	[On the Silbo Gomero whistling language] Stephen Fry: Do you know how they communicate across valleys? Alan Davies: Shout. Neil Mullarkey: Mobile phone. Stephen Fry: [grinning] No... Not... It's a language they use, but instead of their vocal cords, they... Alan Davies: Fart.
+tv-qi	life	dark	general	0	Stephen Fry: My great-uncle had his tongue shot off in the war. He never talked about it.
+tv-qi	nature	quip	general	0	[Discussing dolphins] Ronni Ancona: A lot of people say that they're smarter than people, but if they were, wouldn't they be saying that?
+tv-qi	society	tv-quote	general	0	Ronni Ancona: It's so weird that these national heroes are not from the place they are supposed to be. William Wallace was from Kenya. His mother was Masai... Not really!
+tv-qi	life	tv-quote	general	0	[Speaking of marmots] Stephen Fry: Given the right conditions, it's a dangerous, a deadly merciless killer of humans. How? Clive Anderson: [presses his buzzer] Stephen Fry: Clive. Clive Anderson: Lead piping in the billiard room.
+tv-qi	health-body	tv-quote	general	0	[Guessing which illness most doctors treat more than any other] Alan Davies: Pregnancy? Clive Anderson: Pregnancy isn't a disease, Alan. Andy Parsons: It would be if Alan got it!
+tv-qi	society	tv-quote	general	0	Stephen Fry: Oh, there you are. Great Wall of China. Jimmy Carr: I've got quite an interesting fact about that. Stephen Fry: Yep. Jimmy Carr: Longest wall in the world, not one cashpoint.
+tv-qi	life	tv-quote	general	0	[After Stephen has had to have beer goggles explained to him] Phill Jupitus: Stephen doesn't have beer goggles, he has Madeira pince-nez.
+tv-qi	life	tv-quote	general	0	[on breaking wind in front of the queen] Julian Clary: It was just a little smidge as I thought, and I tried to get rid of it by internal squeezing. But it can't be done, and... Stephen Fry: ...are the muscles a little lax down there?
+tv-qi	life	tv-quote	general	0	[Stephen asks for Gandhi's first name, which is not 'Mahatma'.] Stephen Fry: Do you know what "Mahatma" means? Alan Davies: It means "Can I have my hat please, Mother?"
+tv-qi	family	tv-quote	general	0	Jonathan Ross: What's the protocol for when you see a really ugly baby? Rich Hall: I'll tell you. People show you their babies on their phone now, and it's like a cashew with some hair coming out of it. The thing to say is "Nice phone".
+tv-qi	science	tv-quote	general	0	[Discussing what babies have that adults do not] Stephen Fry: They don't have kneecaps, do they? Jonathan Ross: Aren't you confusing them with mer-babies?
+tv-qi	life	tv-quote	general	0	[After not speaking for ages, Rich hits his buzzer.] Stephen Fry: Er, Rich? Rich Hall: Ever since the clangers, I've been lost. The last picture I recognised was the KKK and that's pretty sad.
+tv-qi	life	tv-quote	general	0	Stephen Fry: Thirty-mile-an-hour winds come when a train enters the station, and a lot of hair gets blown down into the tunnels. Andy Hamilton: That's how I lost mine, actually. Most of it is Tottenham Court Road.
+tv-qi	life	tv-quote	general	0	[Talking about how Tube tunnels are cleaned] Alan Davies: I don't understand why you can't have a - you know, like you used to have a cleaning tape for your cassette deck - you can't have a cleaning Tube? You'd just send a big furry train down ...
+tv-qi	arts	tv-quote	general	0	Stephen Fry: The word "donkey" - when did it come into the English language? Graeme Garden: When was Don Quixote published?
+tv-qi	life	tv-quote	general	0	Stephen Fry: Jo, what's a good way to create the impression that you've cleaned the house when you haven't? Jo Brand: Just lock the door and kill everyone.
+tv-qi	life	tv-quote	general	0	Stephen Fry: What is the cheapest way to remove blood stains from clothes? Let's imagine if you cut yourself shaving and you get a spot there. Alan Davies: The cheapest way? Stephen Fry: Yeah. Alan Davies: What, you have to go down to the river and beat it on a rock?
+tv-qi	life	tv-quote	general	0	[A picture of a blood-spattered surgeon appears on the screen.] Jo Brand: Can I just say, I'm so impressed you got a picture of my husband in our fantasy sex kit.
+tv-qi	life	tv-quote	general	0	Dara Ó Briain: [explaining how to pour Guinness correctly] Five-twelfths of an inch is the ideal head around the top, and if somebody paints a shamrock into it, you're allowed to stab them in the eye with a fork.
+tv-qi	faith	tv-quote	general	0	Dara Ó Briain: I do remember once going out with a lady who was raised atheist, and an utter chore to walk around the gallery with. They go, 'who's the guy on the sticks? Is he the same guy who was in the shed earlier on?'
+tv-qi	life	tv-quote	general	0	Stephen Fry: Name a saint who comes from Ireland. Alan Davies: Patrick. [The klaxon goes off.] Alan Davies: Why do I even bother?
+tv-qi	society	dark	general	0	Stephen Fry: Where is the best place to be when a nuclear bomb goes off? Jimmy Carr: I would've gone with downtown Nagasaki. Because what are the chances of that happening again? You've got to play the odds.
+tv-qi	life	tv-quote	general	0	Stephen Fry: What could you make with an ultrasound rectal probe, a light-emitting tube, bicycle helmets, protective clothing, a huge tub of Vaseline, and a wheel-barrow? Jimmy Carr: I could make you the happiest man alive.
+tv-qi	nature	tv-quote	general	0	[About vampire bats.] Stephen Fry: How do they ingest their blood? What do they do? Alan Davies: They bite and sniff it up. Swallow it. Lick it. Slurp it. Hide it. Store it. Decant it. Stephen Fry: Decant it!?
+tv-qi	life	tv-quote	general	0	Stephen Fry: Where is the biggest load of rubbish in the world? Audience Member: France
+tv-qi	faith	joke	general	0	Stephen Fry: How can you tell that God is a civil engineer? Because when he designed the human body, he put the recreational area right next to the sewage outflow.
+tv-qi	nature	tv-quote	general	0	[The number of British people killed by lightning each year] Stephen Fry: It's between three and six, actually, it's not very many. Alan Davies: Four or five.
+tv-qi	life	tv-quote	general	0	Stephen Fry: You're not doing badly, I must say. A fulsome pair of funbags there. Jo Brand: You know what? That was almost heterosexual. Alan Davies: But it wasn't though, was it?
+tv-qi	family	tv-quote	general	0	[After hearing that eating nothing but rabbit will eventually kill you] Johnny Vegas: My dad killed my pet rabbit and fed it to me. [The audience is stunned.] Stephen Fry: Did he?! [kindly] Perhaps he was trying to kill you, Johnny.
+tv-qi	life	tv-quote	general	0	Stephen Fry: I love the way your mind works, Alan Davies ... and I use the word "works" quite wrongly.
+tv-qi	science	tv-quote	general	0	[About the first words spoken from the surface of the moon] Bill Bailey: Was it 'This is the Moon, this is the end of the line...' Rich Hall: Great to be here in Philadelph - I mean, the Moon.
+tv-qi	society	tv-quote	general	0	David Mitchell: [in imitation of an outraged right-winger] You don't take an active interest in how your country is run for just forty-five years, and look what happens!
+tv-qi	life	tv-quote	general	0	Stephen Fry: Einigkeit und Recht und Freiheit für das deutsche Vaterland! Danach lasst uns alle streben Brüderlich mit Herz und Hand! Phill Jupitus: I have an erection.
+tv-qi	arts	tv-quote	general	0	[Clive Anderson's buzzer is (Everything I Do) I Do It for You by Bryan Adams.] Stephen Fry: Sometimes there just isn't enough vomit in the world.
+tv-qi	life	tv-quote	general	0	Stephen Fry: And what are the symptoms of taking E? Do you know, Clive? Clive Anderson: Um, I don't know, I haven't taken it myself. I've given ecstasy, but not ...
+tv-qi	society	tv-quote	general	0	Stephen: And who are the most dangerous cars driven by in the world? Jeremy: Oh, are we talking about men or women, children, babies, dogs... Stephen: No, nationalities. The most dangerous cars are green apparently, and driven by the Chinese. Alan: ...called tanks.
+tv-qi	life	tv-quote	general	0	Stephen Fry: What would you find in the middle of a pearl?? Alan Davies: An oyster Jeremy Clarkson: [Whilst audience are laughing] No Stephen: [Surprised voice] You find an oyster in the middle of a pearl?!
+tv-qi	life	tv-quote	general	0	Jo Brand: There's a great story about Conan Doyle, actually. Just for a joke, one day, he wrote a note saying, We are discovered. Flee immediately, and he sent it to five of his friends to see what they would do. And one of them disappeared!
+tv-qi	life	tv-quote	general	0	Stephen Fry: There was a time when all the elevator cables were sheared off in the Empire State Building. Do you know about this story? Clive Anderson: Yeah, there was a giant ape on the side of it.
+tv-qi	nature	tv-quote	general	0	David Mitchell: Fish don't blink. Which is the main eye defence. If you're ever trying to get the eye out of a fish and it blinks... it may be a lion.
+tv-qi	life	tv-quote	general	0	Jimmy Carr: It's just so stupid, isn't it? Beating your wife... I mean, it's your wife- it's like keying your own car! David Mitchell: Society just got a tiny bit worse... Jimmy Carr: I like to think I can help.
+tv-qi	life	tv-quote	general	0	Stephen Fry: What happens if an ear wig gets into your ear? David Mitchell: It gets into your brain, and it stays there, and you form a sort of symbiotic relation with it. It happened to me 20 years ago, and we've never been happier! [forfeit alarm sounds]
+tv-qi	nature	dark	general	0	Jimmy Carr: You know if a spider lays its eggs underneath your skin, think about how much worse it'd be if it was a goose.
+tv-qi	life	tv-quote	general	0	[Alan makes his entrance wearing an elephant mask.] Alan Davies: I was the elephant in the room! Stephen Fry: I know, it was brilliant. Alan Davies: It was brilliant!
+tv-qi	life	tv-quote	general	0	Stephen Fry: Well, bless him, when he arrived - I'm not wishing to sound patronising, but I've just said "bless him," so there's no way out
+tv-qi	society	tv-quote	general	0	Stephen Fry: So that's the Cameroon's Eton tribe. They have other ethnic groups called the Bum, the Bang, the Banana, the Mang, the Fang, the Tang, the Wum, the Wam, the War, and, of course, the Pongo. Sean Lock: Who discovered this tribe, Benny Hill?
+tv-qi	life	tv-quote	general	0	Alan Davies: We had a Jimmy Glasscock at school. Stephen Fry: Oh, did you? Alan Davies: Yeah, you could always see when he was coming.
+tv-qi	life	tv-quote	general	0	Stephen Fry: What is pink, has pendulous breasts, gets sailors all excited and tastes of prime beef? [as Jimmy rings in] Yes? Jimmy Carr: Was Princess Margaret buried at sea?
+tv-qi	life	tv-quote	general	0	Stephen Fry: It was before Haile Selassie, there was an emperor... Jimmy Carr: Lowly Selassie.
+tv-qi	life	tv-quote	general	0	[on getting static shock] Doon Mackichan: But some people say, it's because of passion, like when you meet the man or woman of your dreams, you have an electric shock. Jimmy Carr: Sometimes if I meet an attractive woman, I will tazer her.
+tv-qi	family	tv-quote	general	0	[How to keep your children from peeking at their Christmas presents] Alan Davies: Blind them.
+tv-qi	food	tv-quote	general	0	Phill Jupitus: [stuffing his face with spaghetti] Can I just say, this is the best quiz I've ever been on.
+tv-qi	arts	tv-quote	general	0	Stephen Fry: What's the most famous line from a Tarzan film? Ronni Ancona: Oh, "Me Tarzan, you Jane." Stephen Fry: Yes, except of course it never happened. Ronni Ancona: What?! David Mitchell: Why do these films always forget to put their most famous lines in?
+tv-qi	life	tv-quote	general	0	Stephen Fry: What happened to the fireman's pole? Rob Brydon: He tiled the fireman's bathroom.
+tv-qi	arts	tv-quote	general	0	[attempting a Richard Burton impression] Rob Brydon: "When a baby cries it's first cry when it's born it's crying out knowing..." [audience member giggles] Shut up. [more laughter] You wouldn't know a good impression if it sat on your face!
+tv-qi	life	tv-quote	general	0	Alan Davies: Did you really work that out? Charlie Higson: Some of us paid attention at school, Alan. Alan Davies: That one again! That seems to be the root of all my problems.
+tv-qi	society	tv-quote	general	0	[After hearing about how the East German secret police used to take swabs of dissidents' body odour in order to identify them] Charlie Higson: It does sound like a new perfume range, though, doesn't it? "Dissidence, from Calvin Klein."
+tv-qi	society	tv-quote	general	0	Stephen Fry: Anyway. The Borgia pope celebrated the feast of chestnuts by an evening of prostitute racing in the vatican.
+tv-qi	life	tv-quote	general	0	Stephen Fry: Do you know what the French for "flying fish" is? Alan Davies: Poisson ... d'aeroplane ...?
+tv-qi	life	tv-quote	general	0	Stephen Fry: What's the opposite of a flying fish? Sean Lock: Tunnelling flamingo!
+tv-qi	life	tv-quote	general	0	[audience member inexplicably starts laughing hysterically] Stephen Fry: Nurse! Nurse! She's out of bed again!
+tv-qi	nature	tv-quote	general	0	[On the superb lyrebird imitating a chainsaw] Jimmy Carr: I can't see that bird surviving for much longer if it's doing impressions of the chainsaw that's coming toward it.
+tv-qi	nature	tv-quote	general	0	Sean Lock: Salamanders can go in fire, can't they? Stephen Fry: Yes, that's the legend, presumably that's what happened. Marcus Brigstocke: How long can a salamander go in fire? Sean Lock: 'till it's cooked!
+tv-qi	faith	tv-quote	general	0	Stephen Fry: Now, how many commandments are there? Jimmy Carr: Are we talking about the commandments that God dictated to Moses on Mount Sinai? Stephen Fry: Yeah. Jimmy Carr: Literally none, never happened.
+tv-qi	science	tv-quote	general	0	[on how the king of Syracuse asked Archimedes to find out if his crown was made of real gold] Alan Davies: I put it in the bath? Stephen Fry: Mm, yeah... Jimmy Carr: What, does gold go small and wrinkly in the bath? Sean Lock: That's your crown jewels!
+tv-qi	life	quip	general	0	[on sword swallowing] Jimmy Carr: I think that the actual secret of doing it is to do it really quick and if it gets caught on anything... just jab it.
+tv-qi	life	tv-quote	general	0	Stephen Fry: By the way, does anyone know, incidentally, what is the best opening move of Paper, Scissors, Stone? Dara Ó Briain: If you say, "You go first."
+tv-qi	life	tv-quote	general	0	[after being asked to hold pencils in their mouths] Dara Ó Briain: it doef feem like a bad move in a fpoken wowd comedy fhow, I'm chofing my wowds vewy cawefully hewe, to effenfially difable the fouw conteftants.
+tv-qi	life	tv-quote	general	0	Stephen Fry: What's the ideal way to kiss a Frenchman? Alan Davies: A French man? [laughing] I don't know. With their consent? Stephen Fry: Very well put! What a nice young man.
+tv-qi	life	tv-quote	general	0	[About the number of kisses given as a greeting in certain regions] Stephen Fry: And 5 is Corsica, I suppose... Dara Ó Briain: 5?! They really have very little to do in Corsica do they? Stephen Fry: Can you tell me what sort of person kisses 5 times? "Cors-i-can!"
+tv-qi	life	quip	general	0	Stephen Fry: My grandfather was a Hungarian jew, he said "A Hungarian is the only man who can follow you into a revolving door and come out first."
+tv-qi	food	tv-quote	general	0	[on that London is not the city with the most Michelin stars in the world] Reginald D. Hunter: I feel that any country that can produce marmite, they started later than everybody else in trying to make food taste good. Stephen Fry: This from a country that has spray-on cheese?
+tv-qi	life	tv-quote	general	0	Stephen Fry: My name is Stephen "My Bottom Is a Treasure-house" Fry; Thank you and good night.
+tv-qi	life	tv-quote	general	0	Stephen Fry: [to the camera] If you are watching QI now, and you believe in astrology, you are banned from watching in future. You are not allowed; you must turn it over now. Thank you.
+tv-qi	tech	tv-quote	general	0	Alan Davies: They had vacuum cleaners in America in the 19th century, and they were huge, and they had to go on the back of a car drawn by horses. Stephen Fry: [pedantic]I remember seeing that on a programme called QI! ...But well remembered!
+tv-qi	life	tv-quote	general	0	Stephen Fry: [pointing to the red flower in his buttonhole] What does my buttonhole tell you about me? Jo Brand: That you're a closet heterosexual? Stephen Fry: How dare you!
+tv-qi	life	tv-quote	general	0	[After discussing how the heroine of La Dame aux Camélias wore a red camellia instead of a white one to indicate when she was on her period] Stephen Fry: And the film based on La Dame aux Camélias is ...? Jo Brand: Carry On Menstruating.
+tv-qi	science	joke	general	0	Stephen Fry: Do you know the difference between a frog and a toad? Alan Davies:&#8232; Spelling.
+tv-qi	life	tv-quote	general	0	Stephen Fry: What do you call a slug with a shell? Alan Davies: I'm not falling for that one.
+tv-qi	life	observation	general	0	David Mitchell:There's one of those adverts that sort of says 'There are more germs on your chopping board than on your loo seat.' To which the answer is, 'well clearly that's fine, then.'
+tv-qi	life	tv-quote	general	0	Stephen Fry: What can you usefully teach an oyster? [as David rings in] Yes? David Mitchell: Is it ... you know ... not to get its hopes up? To expect ... lemon juice and death?
+tv-qi	society	tv-quote	general	0	Stephen Fry: Name a poisonous snake. Jimmy Carr: Piers Morgan. [The forfeit alarm goes off.]
+tv-qi	life	tv-quote	general	0	[Alan is testing his gentleman gardener's saw on the table, despite Stephen's protests] David Mitchell: I really wish they hadn't made the set out of asbestos.
+tv-qi	life	tv-quote	general	0	Stephen Fry: [both arms on his waist] Do you know that rhyme, "I'm a little teapot, short an stout, [looks right] here's my handle, [looks left] oh bugger, I'm a sugar bowl!"
+tv-qi	life	tv-quote	general	0	Stephen Fry: So that's the uses of gooses or the eese of geese. Sean Lock:&#8232;Is the next question on the habits of rabbits? Stephen:&#8232;Oh, I wish that it were. Sean:&#8232;"How far can you shove a dove?" Alan:&#8232;Hats of cats. That's my offer.
+tv-qi	nature	tv-quote	general	0	[On giraffes] Stephen Fry: So there you are. There are these beautiful animals, and they are graceful and sweet and long eyelashes and sexy and rather desirable in many ways... Sandi Toksvig: Good thing you're tall.
+tv-qi	life	tv-quote	general	0	Stephen Fry: What's the commonest cause of death among mountain goats? Bill Bailey: [hitting his buzzer] BRIAN BLESSED.
+tv-qi	life	tv-quote	general	0	Stephen Fry: Which popular game traditionally ends with all of the participants being thrown into a lake of fiery sulfur? Sean Lock: I hope it's show jumping. I hate show jumping!
+tv-qi	life	tv-quote	general	0	Stephen Fry: What are large - very large - blue, rare, slow-moving, have calfs, suffer from wet bottoms, and are found all over the world? Alan Davies: [with a sly grin, pointing his finger at Stephen] Not the blue whale!
+tv-qi	science	tv-quote	general	0	[After Stephen has explained that 98% of the atoms in the human body are replaced yearly] David Mitchell: I think some of my socks are older than I am. I feel like I should defer to them.
+tv-qi	life	tv-quote	general	0	[On why there are few female guests on QI] Sandi Toksvig: Is it because women are just not funny? [Stephen gasps] Ronni Ancona: [imitating deep Southern woman] Now, that's right, but we're good at other things, we're good at raisin' kittens and knittin' cakes!
+tv-qi	life	tv-quote	general	0	Sandi Toksvig:I think there's a scientific relationship between a sense of humour and the male sex organ. Alan Davies: People&#65279; are always laughing at mine.
+tv-qi	society	tv-quote	general	0	Stephen Fry: What happens in Germany at 11:11 on the 11th of November every year? Alan Davies: [completely deadpan] Everything carries on as normal.
+tv-qi	life	tv-quote	general	0	Stephen Fry: Now, tell me about the "Great Disappointment". Jo Brand: Have you been talking to my husband? [The forfeit klaxon goes off, with the words "Have you been talking to my husband?" flashing on the screens]
+tv-qi	life	tv-quote	general	0	Stephen Fry: Why are so many great men short? David Mitchell: [doubtfully] Are they really? Stephen Fry: David, David. You've hit the nail on the head. Rem acu tetigisti, as they would say in latin. David Mitchell: ...I'm sure they would. Sean Lock: It means: 'Nice one, son'.
+tv-qi	society	tv-quote	general	0	Stephen Fry: 'Heightism' does exist. Short people are paid less on average than tall people. The disparity is comparable in magnitude to race and gender. Alan Davies: They should rise up. Stephen Fry: Yeah... Hey!
+tv-qi	life	tv-quote	general	0	Stephen Fry: Name and shame the worlds cheapest cheapskate. Jan Ravens: [rings in] Was it Diogenes the Cynic? Stephen Fry: ...Wow. Jimmy Carr: You've seen this show before, haven't you? I think I'm slightly aroused. Alan Davies: I can confirm 'slightly'.
+tv-qi	life	tv-quote	general	0	Stephen Fry: Now, what would you call someone who never laughs? Alan Davies: [points towards the audience] That bloke. Stephen Fry: [laughing] You're right. He hasn't cracked a smile the whole evening. Alan Davies: He might be dead. Nudge him.
+tv-qi	science	tv-quote	general	0	[On equipment doctors leave in patients] Barry Humphries: This is when we need Hugh Laurie on this show, isn't it? Stephen Fry: He would explain it, exactly. If the script was put in front of him. He's a gibbering idiot without it.
+tv-qi	life	tv-quote	general	0	Jack Dee: I was a goth for a while. Stephen Fry: Were you? Jack Dee: I was asked to leave, 'cos I was just too miserable.
+tv-qi	life	tv-quote	general	0	Stephen Fry: We only call ourselves 'Quite Interesting', we don't call ourselves 'Astonishing'.
+tv-qi	life	tv-quote	general	0	[Giving the scores] Stephen Fry: We should do this the Athenian way. We should offer Alan the chance - because I can say that Alan is coming last... Alan Davies: It's one of my best features.
+tv-qi	food	tv-quote	general	0	[Why are people who don't eat meat called 'vegetarians'?] Jeremy Clarkson: It's because if you said you had a herbivore coming round for dinner, the children would be frightened.
+tv-qi	nature	tv-quote	general	0	Jeremy Clarkson: How do you get wheat to mate? Stephen Fry: Pollination. Jeremy Clarkson: Yes, well, how does that happen? Bill Bailey: You turn down the lights... Alan Davies: Ask the barley to leave the room...
+tv-qi	society	quip	general	0	David Mitchell: We are in trouble as a species if people will refuse to believe in things they couldn't actually do themselves.
+tv-qi	life	tv-quote	general	0	Alan Davies: [to cautious David] Embrace the klaxon! David Mitchell: I'm trying to!
+tv-qi	life	tv-quote	general	0	Stephen Fry: What is the point of teenagers? Jo Brand: Are they the only group you are legally allowed to punch?
+tv-qi	life	tv-quote	general	0	Stephen Fry: It's not often I find myself in a group of four people, thinking I'm the most normal, sane and balanced person, but I'm happy to feel that today.
+tv-qi	life	tv-quote	general	0	Rich Hall: They say that a friend will help you, uhh, a friend will come over to your house and help you move, and a good friend will help you move a body. Stephen Fry: That's good. That's... Rich Hall: ...I have two good friends.
+tv-qi	life	tv-quote	general	0	[Describing the home of a tongue-eating louse, trying to guide the panelists towards the right answer] Stephen Fry: It is a sliding organ, a wet organ, that is... Alan Davies: What are you looking at me for?
+tv-qi	life	tv-quote	general	0	[The producer and creator of QI, John Lloyd, is in the panel and has been introduced last] Alan Davies: You normally introduce me last. It slightly caught me out, and I was applauding myself. Stephen Fry: Oh, bless. Alan Davies: And I was applauding myself insincerely.
+tv-qi	nature	joke	general	0	Sandi Toksvig: A chicken and an egg are lying in bed enjoying a post-coital cigarette. And the chicken turns to the egg and says, "Well, I think we've just answered that question".
+tv-qi	life	tv-quote	general	0	Stephen Fry: [To David Mitchell] Once again, your&#65279; relentless, urgent, slightly worried logic is making this nonsense.
+tv-qi	life	tv-quote	general	0	Stephen Fry: Why might I put my finger up your bottom if you couldn't name of seven bald men apart from Yul Brynner? [Beat] That is one of the oddest questions I've ever asked anybody.
+tv-qi	life	tv-quote	general	0	Stephen Fry: A million British horses were sent to the First World War front. What happened to the ones that survived? Alan Davies: They settled in the southern France, opened a caravan park... Jimmy Carr: Of course they couldn't learn the language, so they ended up moving back.
+tv-qi	life	tv-quote	general	0	Stephen Fry: What's the oldest trick in the book? Lee Mack: Debbie McGee.
+tv-qi	life	tv-quote	general	0	Daniel Radcliffe: The oldest trick in the book is pulling the head off a dead goose and then restoring it. Lee Mack: I can do the first half of that trick.
+tv-qi	life	tv-quote	general	0	[Daniel Radcliffe has given several correct and comprehensive answers. Alan is starting to look miserable.] Stephen Fry: Don't be put off by a young person knowing more than you, Alan. You must be used to it by now.
+tv-qi	life	tv-quote	general	0	[Stephen has hypnotized a lobster] Ronnie Ancona: You truly are a renaissance man! Stephen Fry: I wear tights, put it that way.
+tv-qi	life	tv-quote	general	0	Stephen Fry: So, with that display of general incompetence, we reach the end of recorded history. All that remains to see is who has learned its lessons, and who's condemned to repeat their mistakes endlessly... On Dave.
+tv-qi	life	observation	general	0	[On answering a question about how you tell whether a chick is male or female]
+tv-qi	faith	tv-quote	general	0	Stephen Fry: [Talking about St. Catherine of Sienna] She also actively sought out degrading experiences. She once drank a cupful of cancerous pus from a woman who'd abused her. Alan Davies: But had she appeared on Mock the Week?
+tv-qi	life	tv-quote	general	0	["Fill in the gaps in slogans"] Stephen Fry: "Welcome to Northamptonshire - Let yourself..." Sue Perkins: "...down."
+tv-qi	life	tv-quote	general	0	Stephen Fry: This is an optimistic one here. "Welcome to Tower Hamlets - Let's make it..." Alan Davies: "...out alive."
+tv-qi	life	tv-quote	general	0	[Looking at a painting on the screen] Alan Davies: That's a really ugly baby. Clive Anderson: That's not any use! Don't learn that expression. "Really ugly baby." There's never an option to use that in real life.
+tv-qi	life	tv-quote	general	0	Stephen Fry: Tell me something quite interesting about the original geishas. Jack Dee: They were all men. Stephen Fry: Yes! Jack Dee: Oh, God.

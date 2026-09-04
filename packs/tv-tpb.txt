@@ -1,0 +1,326 @@
+tv-tpb	life	tv-quote	general	0	[To Julian] Ricky: I don't do as much coke as you do. We're not on the same wavelength.
+tv-tpb	life	tv-quote	edgy	1	[To Cory and Trevor] Ricky: Knock knock, boys? Cory: What? Ricky: Knock knock. Cory: Who's there? Ricky: Two fucking dumb idiots that drive a big piece of shit from the trailer park that don't know when to come buy fucking dope. Now get the fuck out of here!
+tv-tpb	life	tv-quote	edgy	1	Ricky: B and E? That's Grade 10 shit and I'm sick of it.
+tv-tpb	life	tv-quote	general	0	[To officers investigating the disturbance] Patrick Lewis: Officers, these guys, they're trying to kill my dog. Ricky: This man is drunk and he is soliciting us for prostitution.
+tv-tpb	life	tv-quote	edgy	1	[Off Camera voice] Young kid: Hey, Reveen! [To Julian] Ricky: Do I fuckin' look like Reveen? [To Young Kid] Ricky: Come on down here, ya little bastard, I'll fuckin' 'Reveen' ya.
+tv-tpb	life	tv-quote	edgy	1	Static Noise Cory: Reveen... [Trevor laughs] Cory: I- I mean I call him Reveen too, but he calls me dick. So I'm justified. Trevor: I'd rather be called a dick than Reveen.
+tv-tpb	life	tv-quote	edgy	1	Ricky: Smokes, let's go, gimme some smokes. Randy: I've only got two left, I'm not giving you any. Ricky: You're a fucking dick. Lahey, go fuck yourself.
+tv-tpb	life	tv-quote	edgy	1	Cyrus: What's that camera doin' here? Ricky: None of your fuckin' business actually.
+tv-tpb	life	tv-quote	edgy	1	Ricky: You better chill out there, heavy metal dick. Cyrus: Why don't you go back to the bowling alley where you came from, helmet head?
+tv-tpb	life	tv-quote	general	0	[To Cyrus] Ricky: What, are ya filmin' more episodes of Happy Days there, Fonzie?
+tv-tpb	life	tv-quote	edgy	1	Ricky: Me and Julian could definitely take care of the Cyrus thing. It's just that, Number One: we're on probation. Which is no big deal, but you know I don't really wanna go back to jail. And number two or three, or whatever the fuck number we're on...
+tv-tpb	life	tv-quote	general	0	Julian: I want you outta that car in two days though, Ricky. Ricky: No more than two weeks, I promise.
+tv-tpb	life	tv-quote	general	0	Julian: What the hell happened to my trailer, boys?! Cory: Okay, chill. There's this guy named Cyrus. He just moved in here, there was nothing we could do about it. He has a gun, and he's nuts.
+tv-tpb	life	tv-quote	general	0	Cyrus: Safety--always off.
+tv-tpb	arts	tv-quote	general	0	Jroc: you know what? I don't hear a heart." "Carpe Dizem!" "Pound that in your word-hole and tell me that ain't the birth of Christ..
+tv-tpb	life	tv-quote	nsfw	1	Julian: Would you see DeNiro doing a porn flick? Ricky: Well, I don't know. If they paid him enough money he'd probably do one. Julian: No, he wouldn't. You're stupid.
+tv-tpb	life	tv-quote	edgy	1	J-ROC: You gonna be a great big star, G! Ma-fuckas in Russia...Why do you think Reveen does so good over there, you know what I'm sayin'? You gonna be bigger than Reveen! Put that shit on, get your freak on, it's all good!
+tv-tpb	life	tv-quote	edgy	1	Bubbles: The whole idea of it's got me pretty damn frisky, too! It's been, uh...Been quite a while since that stuff went on with me. I'm really frisky!
+tv-tpb	life	tv-quote	edgy	1	Bubbles: That was a prick job!
+tv-tpb	life	tv-quote	general	0	Mr. Lahey: You know, do you know what recidivism is Randy? Randy: I don't have a clue, Mr. Lahey. Mr. Lahey: That's when people go back to jail over and over and over. I think we got a couple of A-1, class act recidivists up there.
+tv-tpb	life	tv-quote	general	0	Trinity: I shot my Daddy in the bum and Mummy's gonna get mad at me. [Takes a bite of a pot brownie] Trinity: These taste funny! [Throws the brownie into the yard]
+tv-tpb	life	tv-quote	edgy	1	Mr. Lahey: Not paying your drug debts again, eh Ricky? Ricky: Lahey, fuck off!
+tv-tpb	nature	tv-quote	general	0	Desiree: See, now you can always tell something about a person by the way they treat animals. One hour with Ricky and the dog's on drugs.
+tv-tpb	life	tv-quote	general	0	Ricky: [to Cory and Trevor] Knock knock boys? Trevor: Who's there? [Ricky gives them two middle fingers directly in their faces]
+tv-tpb	life	tv-quote	edgy	1	[To Julian in a drunken embrace]: Ricky: We got this plutonium kind of love shit going and I don't wanna fuck that up, all right.
+tv-tpb	arts	tv-quote	edgy	1	[As he is forcibly being escorted from bank]: Ricky: I've been sexually assaulted here! That man tried to abuse me at a party. Bank Manager: No that's not true! Ricky: He feels up men and women all over the place. He's an asshole!
+tv-tpb	life	tv-quote	general	0	Ricky: You know Jim or Jim knows you? Cop: Jim.. Jim, my dad Jim? Ricky: Jim's your dad? Oh yeah...he mentioned he had a son on the force. Cop: Yeah? Ricky: Yeah, him and my dad go way back!
+tv-tpb	life	tv-quote	general	0	Bubbles: (getting in the car) Jesus Christ!
+tv-tpb	life	tv-quote	edgy	1	Levi: You're all dressed up today. Bubbles: Yeah. Got my tuxedo on. Hey, maybe you can fix my tie for me. Levi: Yeah. Bubbles: Tricked ya! [Levi laughs] Bubbles: It's not even real! 150 bucks for one of those real fuckers!
+tv-tpb	life	tv-quote	edgy	1	[Cat looking at Ricky] Ricky: (to the cat) What the fuck are you looking at, huh? Don't fuckin' stare at me!
+tv-tpb	work-money	tv-quote	edgy	1	Bubbles: Ricky just waltzes in there and becomes the king of the carts. The fuck does he expect me to do for a living? What does he want me to do, go to EI and say
+tv-tpb	life	tv-quote	general	0	Bubbles: Somebody's got their hand on the cart then--Whoopsies! (as he "accidentally" drops the cart down the hill) and somebody comes along and picks it up later.
+tv-tpb	life	tv-quote	general	0	Mr. Lahey: Listen, I was unaware that I had an appointment with you fine people today. As it turns out I have another engagement: I plan to get DRUNK!
+tv-tpb	life	tv-quote	edgy	1	[Ricky and Sam arguing] Ricky: Knock knock. Sam: Who's there? Ricky: (gives Sam two middle fingers) Fuck off!
+tv-tpb	life	tv-quote	edgy	1	Ricky: Hey, Sam, knock knock. Sam: ...Who's there? Ricky: Get the fuck off the stage, ya idiot!
+tv-tpb	life	tv-quote	edgy	1	[Lahey comes on stage to say his speech] Lahey: Test...test...test. Donny: GET OFF THE STAGE, YOU DRUNK BASTARD!!!
+tv-tpb	life	tv-quote	edgy	1	J-Roc: (to Randy) You better back off, you no-shirt, lawn-mowing, 15-cheeseburger-eating prick.
+tv-tpb	nature	tv-quote	general	0	Ricky: I've met cats and dogs smarter than Cory and Trevor, in fact most cats and dogs are smarter than Cory and Trevor.
+tv-tpb	life	tv-quote	general	0	Julian: (to Cory and Trevor) What was the name of the bar where you guys put up those flyers? Cory: Uh...The Empty Closet....Yeah that was it. Julian: You guys don't have a clue, do you?
+tv-tpb	life	tv-quote	general	0	Ricky: It's a Catch-23 situation.
+tv-tpb	faith	tv-quote	edgy	1	Tania: Have you read the Bible? Bubbles: Maybe I have, maybe I haven't. What's it to you? Hampton: Can you read, my son? Bubbles: Well, that depends. Can you go fuck yourself?
+tv-tpb	life	tv-quote	general	0	[Bubbles as a lumberjack holding a camcorder, with a close up on his face, running through the woods breathing heavily stops] Bubbles: UH UH UH...I ain't...I ain't never been so frisky in my entire life! UH UH UH! J-ROC [off camera]: CUT! Bubbles: How was that, J-ROC?
+tv-tpb	family	tv-quote	general	0	Ricky: I haven't seen Treena since her dysfunctional parents grounded her over something stupid. Barb: How dare you speak to us like that! Ricky: How dare you marry a money-hustlin' caveman.
+tv-tpb	life	tv-quote	edgy	1	[Ricky slams on the brakes in front of the bank] Bubbles: (to camera) Did you see that fuckin' skid?
+tv-tpb	life	tv-quote	edgy	1	[Ricky lights a cigarette in the bank] Bubbles: Ricky, you can't fuckin' light up in the bank! Ricky: I can do whatever the fuck I want now, buddy! I'm rich as fuck now! Thirty-eight grand in unmarked bills, I don't give a fuck!
+tv-tpb	food	tv-quote	edgy	1	Ricky: Holy fuck that's good pepperoni!
+tv-tpb	life	tv-quote	edgy	1	Mr. Lahey: All right everybody, clear the area! Hand over the weapons, Bubbles. Bubbles: Go fuck yourself, Lahey!
+tv-tpb	life	tv-quote	edgy	1	Lahey: Where's the five grand, Ricky? Ricky: It's right here, Shitler!
+tv-tpb	life	tv-quote	general	0	Bubbles: Nobody really knows Ricky the way I do. I just hope he's all right after putting his lips on Mr. Lahey's bum.
+tv-tpb	life	tv-quote	general	0	[watching an episode of The Littlest Hobo] Ricky: Every stop I make, I make a new friend...
+tv-tpb	life	tv-quote	general	0	Ricky: I haven't stolen a 10-speed in over 2 years.
+tv-tpb	life	tv-quote	general	0	[Trinity runs up to Ricky's car, where he is sleeping on the hood.]
+tv-tpb	life	tv-quote	general	0	Trinity: Daddy, wake up! Wake up, Daddy, wake up! Wake up! It's time to put my patch on, hurry up, Daddy!
+tv-tpb	faith	tv-quote	general	0	[During a 'confessional']
+tv-tpb	family	tv-quote	general	0	Ricky: Trinity has got to quit smoking, like I can't have her smoking anymore, it's ridiculous. She had the idea that maybe me and her can quit together, and it's kind of like a good father-daughter thing, so we're going to quit together, we're going to go on the patch.
+tv-tpb	life	tv-quote	general	0	[Ricky is training Cory and Trevor to steal gasoline.]
+tv-tpb	life	tv-quote	general	0	Ricky: Unleaded: blue container; supreme: red container; diesel: in the green. OK? Are we clear here, guys?
+tv-tpb	life	tv-quote	general	0	Trevor: Yeah, but how can you tell which one is the supreme?
+tv-tpb	life	tv-quote	edgy	1	Ricky: (Breathes out heavily) What, are you stupid? You fucking taste it. Unleaded tastes a little tangy, supreme is kinda sour, and diesel tastes pretty good.
+tv-tpb	society	tv-quote	general	0	Bubbles: Stealing gas? Why, Cory and Trevor, that's highly illegal, you shouldn't be stealing gas, Cory and Trevor.
+tv-tpb	life	tv-quote	edgy	1	Ricky: Yeah, it's fucked up to be stealing gas like Cory and Trevor, I don't want anything to do with Cory and Trevor's gas stealing.
+tv-tpb	life	tv-quote	general	0	J-ROC: Only wack suckas like Cory and Trevor steal gas.....and deal dope.
+tv-tpb	society	tv-quote	general	0	Judge: Richard, since you chose to defend yourself and fire the public defender, I guess it's your turn to question the witness.
+tv-tpb	life	tv-quote	general	0	Ricky: Thank you, Your Majesty.
+tv-tpb	society	tv-quote	general	0	Judge: And Richard, before you begin, I'd like to say that I think this is a very bad idea. However, you do have a right to defend yourself, so proceed, but please remember to watch your language.
+tv-tpb	life	tv-quote	general	0	Prosecutor: This man can't represent anyone...Your Honor! He's a complete and total idiot!
+tv-tpb	life	tv-quote	general	0	Ricky: Thank you. I just gotta get some cigarettes, actually.
+tv-tpb	life	tv-quote	edgy	1	[Ricky walks over to the prosecutor's desk and snaps his fingers] Ricky: Let's go, smokes! Prosecutor: But I've only got two left! Ricky: I don't care. You've been a dick all morning. It's the least you can do for me! Prosecutor: Oh, for the love of God...
+tv-tpb	life	tv-quote	general	0	[Several members of the prosecution start to light cigarettes] Judge: Just the defendant, please.
+tv-tpb	arts	tv-quote	edgy	1	Ricky: My first order of business is to tell the prosecutor to shut the fuck up and wipe that stupid fucking grin off his face because it's distraculating my case.
+tv-tpb	life	tv-quote	edgy	1	Ricky: The defense rests, everybody can fuck off. Except you (points to the magistrate) I didn't mean you. But those two guys, and him (pointing to the prosecutor). (to cameraman) Could you guys get the fuck out of the way? Please!
+tv-tpb	life	tv-quote	edgy	1	J-ROC: There's two things mafuckas gotta know about J-to-the-R-O-C, straight up, you know what I'm sayin'? First of all, I spin more rhymes than a Lazy Susan and I'm innocent until my guilt is proven. Peace. Representin' Sunnyvale, straight the fuck up.
+tv-tpb	life	tv-quote	edgy	1	Bubbles: Lahey, will you please get the flyin' fuck out of our way! We gotta go get Rush tickets! [Ricky drives the Shitmobile through the garbage] Randy: Ricky! [Bubbles gives Lahey and Randy the finger to the opening riff of "Limelight"]
+tv-tpb	life	tv-quote	edgy	1	[Randy over phone/radio after stealing Bubbles' answer and winning the Rush radio contest] Randy: Holy fuck, Mr. Lahey, we won!
+tv-tpb	life	tv-quote	edgy	1	Bubbles: Ricky, you fuckin' promised me you'd get me a Rush ticket! Ricky: It wasn't my fault, Bubbles. I'm sorry! Bubbles: It is your fault! This could affect our friendship, you know! Ricky: Bubbles, don't talk like that! Bubbles: COCKSUCKER!
+tv-tpb	life	tv-quote	general	0	Julian: Don't do anything stupid, Ricky! Bubbles: (sarcastically) Oh, yeah. He probably won't do anything stupid, Julian...
+tv-tpb	life	tv-quote	general	0	Julian: Randy, a lot of barbecues look alike. You're probably on drugs or confused or something like you usually are.
+tv-tpb	life	tv-quote	general	0	Bubbles: Check this baby out...that there's called the Super Double Bunk BQ...built that myself...like to see that Red Blue Green cocksucker put one of those together...Duct-taping it.
+tv-tpb	life	tv-quote	edgy	1	Bubbles: Ricky, those laws are there to protect kids, not so goofballs like you can put them in the car with no door on it, and drive around the fuckin' neighbourhood stealin' barbecues!
+tv-tpb	life	tv-quote	edgy	1	Mr.Lahey: Well Rick, looks like you fucked your shit goose this time, doesn't it?
+tv-tpb	life	tv-quote	edgy	1	[Ricky stops at a gas station with a cigarette] Jacob: Excuse me, sir. Could you please step 20 feet away from the pump and extinguish your cigarette? Ricky: Can you please fuck off? Thank you.
+tv-tpb	life	tv-quote	edgy	1	Ricky: "Closed for renovations"?! This is fucked!
+tv-tpb	life	tv-quote	edgy	1	[Attempting to distract Ricky] Bubbles: Holy fuck, have you guys ever tried that dope-flavoured rum?
+tv-tpb	life	tv-quote	general	0	[Featuring the Trailer Park Boys]
+tv-tpb	life	tv-quote	general	0	[Video opens with Bubbles & Julian running over to Ricky who is passed out, face down in the driveway.]
+tv-tpb	life	tv-quote	general	0	Mr. Lahey: Look, you might have my job now, Ricky. But I got something you'll never have. Ricky: Yeah? What's that, Lahey? Mr. Lahey: My Grade 11.
+tv-tpb	life	tv-quote	edgy	1	[Bubbles walks up to Randy while playing guitar drunk] Bubbles: (singing) Fuckin' Randy's gut, it's full of dirty little cheeseburgers...
+tv-tpb	love	tv-quote	general	0	Randy: You looking for a date? 10 bucks or 6 Dairy Queen coupons.
+tv-tpb	food	tv-quote	general	0	Julian: You're not prostituting yourself for cheeseburgers again, are ya, Randy? Randy: Man's gotta eat, Julian.
+tv-tpb	nature	tv-quote	general	0	TV Narrator: The Sasquatch: Fact Or Fiction? Ricky: Those big hairy monsters, they're real, Trin. Trinity: No they're not. Ricky: Look at that thing. What person ever moved like that in the history of people?
+tv-tpb	life	tv-quote	edgy	1	Ricky: Bubbles, go get some tape, tape yourselves up, and we'll go steal some furniture for Mr. Fucking Selfish... Holy fuck, this cereal's good.
+tv-tpb	life	tv-quote	edgy	1	Ricky: Holy fuck boys! Cyrus #1! [The boys start vandalizing Cyrus' car] Bubbles: It says "Dick" and there's an arrow pointing right to Cyrus.
+tv-tpb	life	tv-quote	edgy	1	J-Roc: Like, I'll go to fuckin' jail, you know what I'm sayin', 'cause I'm hard, right? I ain't shook about goin' to jail. But it's like, I kinda like my freedom, too, at the same time, know what I mean?
+tv-tpb	life	tv-quote	general	0	Phil: What are you looking at my gut fer?
+tv-tpb	life	tv-quote	general	0	[The drawers drop out of a dresser as they're stealing it from a hotel] Bubbles: AW YEAH! WHO'S YOUR DADDY?!
+tv-tpb	life	tv-quote	edgy	1	Donny: GET YOUR HANDS OFF IT! I PAID FOR A LADY, NOT FUCKING CORY AND TREVOR!
+tv-tpb	life	tv-quote	edgy	1	Cyrus: I bet one of you isn't even man enough, to knock this chip off my shoulder. [Randy comes through the car door and marches up to Cyrus] Randy: I am, Cyrus. And I'm more of a man than you'll ever be, you dirty bitch!
+tv-tpb	life	tv-quote	edgy	1	Bubbles: I can't wait to start fuckin' hammerin' people! (shoulder-checks his shed door)
+tv-tpb	life	tv-quote	edgy	1	Bubbles: (as The Green Bastard) Boys! Green Bastard! Parts unknown! Cory and Trevor? Get the fuck in the ring! Ricky: You look good, buddy! Bubbles: Green Bastard!
+tv-tpb	life	tv-quote	edgy	1	Donny: NO, YOU POUND SAND UP THE EYE O' YOUR COCK! CALM DOWN? YOU FUCKIN' CALM DOWN! WHO'S RUNNING THIS FUCKIN' TRAILER PARK?!
+tv-tpb	society	tv-quote	general	0	[at the 1st Annual Sunnyvale Trailer Park Bake Sale] Lahey: (to camera) U.N. president J. Edgar Hoover once said, "Ask not what your country can do for you, but what you can do for your country."
+tv-tpb	society	tv-quote	general	0	Randy: (while pouring Lahey a drink) Are you sure you want to use the community fund for this, Mr. Lahey? Lahey: The cat population in the park is Malthusian in scope, Randy. We have no choice.
+tv-tpb	life	tv-quote	edgy	1	(Julian raises the gun and shoots Conky in the face, blowing his head apart, but avoiding Bubbles.) Sam Losco: Smoking much dope lately boys? You guys are fucked!
+tv-tpb	life	tv-quote	general	0	Bubbles: You look kind of French with your little mustache, there. I'm gonna call you Steve French! That's a good name for you.
+tv-tpb	life	tv-quote	edgy	1	Bubbles: Julian, we found him! Julian: Well, lock him in your shed, Bubbles. Bubbles: He was down fucking around with Donny's garbage, then he pooped on the hood of Mrs, Peterson's car!
+tv-tpb	life	tv-quote	edgy	1	[the mountain lion chases Trevor into Lahey and Randy's camper] Mr.Lahey: Trevor, what the hell are you doing in our trailer? (Lahey watches as the lion follows Trevor into the camper) Oh, shit! Trevor! Randy: Stop, drop, and roll, Trevor! Mr.Lahey: That's for fire, Randy!
+tv-tpb	life	tv-quote	edgy	1	Mr.Lahey: The shitabyss! Randy: Mr. Lahey, not another night of the shitabyss, please?! Mr.Lahey: Ah, fuck it.
+tv-tpb	life	tv-quote	edgy	1	Ricky: What's that fuckin' smell? Julian: Keep driving, Rick. Ricky: Steve, I know you didn't shit on my seat... Julian: Nah, everything's cool, Rick. Bubbles: Ricky? Ricky: What? Bubbles: Steve French pooped on the seat.
+tv-tpb	life	tv-quote	edgy	1	[After Bubbles emotionally said goodbye to Steve French]: Bubbles: Are you guys crying? Ricky: [trying to hold back his tears] No, we're not fuckin' crying!
+tv-tpb	life	tv-quote	edgy	1	Sarah: Ricky. I just wanted to come and tell you that Corey and Trevor are now mine! Ricky: Sarah I'm so sick of your shit. I own Corey and Trevor and that's never going to fuckin' change!
+tv-tpb	life	tv-quote	edgy	1	Jim Lahey: *Drunk* Hey, Bubbles. I need a little (starts singing) Propane Propane. Time to start the flame. Propane Propane. Bubbles: Mr Lahey.. You're pissing yourself.
+tv-tpb	life	tv-quote	edgy	1	Lahey: Tick-tock, tick-tock. Shit clock's tickin', Rick!
+tv-tpb	life	tv-quote	general	0	Lahey: You are the dumbest cop on the force, George. The dumbest.
+tv-tpb	life	tv-quote	edgy	1	[exterior transition shot of the park, a dog is barking] Woman: Shut the fuck up! Man: Brenda, you shut the fuck up!
+tv-tpb	life	tv-quote	edgy	1	Ricky: The fuck was that? Bubbles: Take a guess! What are sirens usually bolted to the roof of?
+tv-tpb	life	tv-quote	edgy	1	[Police officers arrive at the trailer park to confiscate stolen Christmas trees]} Officer Cliff: Would anyone be willing to tell me who they bought their Christmas tree from this year? Danny/Donnie: I DON'T KNOW... WOULD ANYONE HERE LIKE TO SUCK MY COCK?
+tv-tpb	life	tv-quote	general	0	Lahey: If I can't play, Randy, no one can. [Lahey shuts off power to the trailer park]
+tv-tpb	life	tv-quote	general	0	(upon seeing his shed piled with liquor bottles) Bubbles: It's a liquorlanche!
+tv-tpb	life	tv-quote	edgy	1	Ricky: I'm usually not the type of person to say I toadaso, but I toadaso, I-fuckin'-toadaso!
+tv-tpb	life	tv-quote	edgy	1	Bubbles: Lucy got fake boobs. I mean...its obvious. I don't mean I was staring at them, but I can't exactly control what direction my eyes go in all the time. I mean obviously she used our money to buy them anyway so, if you think about it, I sorta own one-third of them.
+tv-tpb	life	tv-quote	general	0	Ricky: Well I was plannin' on takin' the blame, cuz I mean there is a pretty good chance that I did it. Well, I mean I did do it. But Bubbles took the blame, so once someone takes the blame, whaddya do? I couldn't take it then, he had already taken it.
+tv-tpb	life	tv-quote	edgy	1	Ricky: Fuck off, dog.
+tv-tpb	life	tv-quote	edgy	1	[Bubbles smells the bacon cooking in his sleep] Bubbles: Yes, can I order pancakes please...with syrup...and...butter...bacon...hash browns...toast...with...butter... [A cat meows, waking him up] Bubbles: Aw, fuck! That was gonna be delicious!
+tv-tpb	life	tv-quote	edgy	1	Randy: I can't believe Trinity was throwing bottles, Mr. Lahey. Lahey: Shitapple.
+tv-tpb	life	tv-quote	edgy	1	[Over a department store loudspeaker] Ricky: Mr. Lahey and Randy to the Fuck Off Department. Mr. Lahey and Randy to the Fuck Off Department and hurry the fuck up! Thank you.
+tv-tpb	life	tv-quote	general	0	Mall Cop: All right, I'm gonna have to get some names, here. Trevor: I'm Cory Lahey. Cory: Um, Trevor Lahey. Mall Cop: Are those your real names, boys? Trevor: Yes, sir. Mall Cop: Are they really? Trevor: No...I'm Trevor and he's Cory. We were lyin'.
+tv-tpb	life	tv-quote	edgy	1	Ricky: Aw, man, that is fuckin' cool! Nice decnals!
+tv-tpb	life	tv-quote	edgy	1	Randy: Hey, boys! We got a complaint that someone was gettin' high and drunk and playin' space in the middle of the street! Ricky: Yeah, US! I'm fuckin' stoned right now! You got a problem with that?
+tv-tpb	life	tv-quote	edgy	1	Bubbles: You guys wanna stay and watch? You wanna see a rocket go, Randy? Randy: Does it really launch, Bubbles? Bubbles: Does it really launch? Does the Tin Man have a sheetmetal cock?
+tv-tpb	life	tv-quote	edgy	1	Lahey: You just opened Pandora's shitbox, Ray!
+tv-tpb	life	tv-quote	edgy	1	Ricky: Why don't you suck my cock, Trevor? How 'bout that, you skinny little fuckin weasel?
+tv-tpb	life	tv-quote	edgy	1	Ricky: Hey, Trevor, knock knock Trevor: I'm not gonna say, "Who's there," Ricky. Ricky: You just did, you fuckin idiot. [Ricky rips off Trevor's pants]
+tv-tpb	life	tv-quote	edgy	1	Mr. Lahey: That video game is the key to Shitty City, Randy, and Julian is muscular mayor.
+tv-tpb	life	tv-quote	general	0	[Julian hands Trevor a gun] Trevor: Awwhh...but Julian this is a pirate's gun. Bubbles: Well then I guess that makes you Long-John Dickweed then.
+tv-tpb	life	tv-quote	edgy	1	Mr.Lahey: You feel that Randy? Randy: What, Mr.Lahey? Mr.Lahey: The way the shit clings to the air. Randy: What Mr.Lahey? Mr.Lahey: Randy m'boy, it's already started. Randy: What's started, Mr.Lahey? Mr.Lahey: The Shit Blizzard.
+tv-tpb	life	tv-quote	edgy	1	Cyrus: What the fuck is that? Dennis: I think it's a giant cock and someone's riding it like a cowboy. Terry: Is that you, Cyrus? Cyrus: Can't you fucking read, Terry?! That's my name with an arrow pointing at it!
+tv-tpb	life	tv-quote	edgy	1	Donny: WHAT IN THE FUCK?! Donny: FUCK OFF WITH THE GUNS!! Donny: WELL DON'T FUCKIN' STOP ON MY ACCOUNT!
+tv-tpb	life	tv-quote	general	0	Ricky: I got stung by one of those bumble-cocksuckers! Do you have any suave? Lucy: Salve?
+tv-tpb	life	tv-quote	general	0	Ricky: That's nothing, Julian, me and my old man made 70 bucks from recycling last week. Bubbles: 70 bucks each? Ricky: No, 30 bucks each. Bubbles: (to Ray) 30 bucks each? Ray, that doesn't add up. Ray: Moving on, Bud...
+tv-tpb	life	tv-quote	edgy	1	Randy: Why don't you go pave your cave, you fuckin caveman. Sam: What the fuck did you just call me? Barb: Well... you are a caveman, Sam. Randy: Yeah! A fucking caveman! Sam: YOU PAY ME NOW, BURGER BOY!!
+tv-tpb	life	tv-quote	edgy	1	Trevor: Hey guys! I found a mushroom that looks like a cock!
+tv-tpb	life	tv-quote	general	0	Trevor: Mr Lahey, Julian's out here lifting weights with his shirt off! He wants you to come out and have a few drinks with him!
+tv-tpb	life	tv-quote	edgy	1	Bubbles: Ray...rippin' the plumbin' outta your walls for liquor money...IS fucked!
+tv-tpb	life	tv-quote	edgy	1	Barb: So that's $176.92, now would you like me to give it to you, or should I give it directly to your drug dealer? Randy: Look, you guys have a good time frig-dancin'. And Barb, your scalloped potatoes are FUCKED. Lahey: They're fantastic, Barb.
+tv-tpb	life	tv-quote	general	0	Jacob: Baaaaaaaaaaam!! Phil: Peanut butter and jaaaaaaaaaaam!!!
+tv-tpb	life	tv-quote	edgy	1	[Phil burps loudly] Ray: Ahh fuck sakes Phil!!!!! Bubbles: Ricky I got onion ring fragments on me, get them off! Ricky: I'm not touching those things! Bubbles: GET THEM OFF!
+tv-tpb	life	tv-quote	edgy	1	Ricky: Yeah, I mean I'm not college but you guys got books and stuff to see that this is obviously a little fucky.
+tv-tpb	life	tv-quote	general	0	Bubbles: They're ladies of the evening. Ray: Friends of the road, buddy.
+tv-tpb	life	tv-quote	edgy	1	Ricky: Oh man, are they ever getting fucked over.
+tv-tpb	life	tv-quote	edgy	1	[to family getting car searched at the US - Canada border] Ricky:You're supposed to throw your dope away before you get to the border! Ya fucked up!! Ricky:[Barks like a dog to border patrol dogs] Shut the fuck up!!
+tv-tpb	life	tv-quote	general	0	Ricky: It's survival of the fitness boys.
+tv-tpb	life	tv-quote	general	0	Bubbles: Boys, my legs are all jankity-janked.
+tv-tpb	life	tv-quote	edgy	1	Ricky: What do the fuck do them clothes them doin' there?
+tv-tpb	life	tv-quote	edgy	1	Phil: HOW 'BOUT YOU, FOUR-EYES!? Bubbles: Fuckin'... Did you just call me four-eyes?! You big... Mustard Tiger!
+tv-tpb	life	tv-quote	general	0	Bubbles: He looks like he ate Philadelphia.
+tv-tpb	life	tv-quote	general	0	Bubbles: (Sarcastically speaking) Oh, nice job there, son of the mustard tiger! Thomas: My dad is not a mustard tiger! Bubbles: Oh, OK!
+tv-tpb	life	tv-quote	general	0	Lahey: Barb, maybe you should lay off the alcohol just for a couple.
+tv-tpb	life	tv-quote	general	0	Barb: Don't you think? Do you think, Jim? Because you know what? I'm gonna be totally honest with you and it's...it's a bit ironic, but since you stopped drinking you are not half as much fun!
+tv-tpb	life	tv-quote	general	0	Lahey: Barb...I'm doing my best here.
+tv-tpb	life	tv-quote	general	0	Barb: Jim, I wish you'd start drinkin' again!
+tv-tpb	life	tv-quote	general	0	Ricky: Well it's quite a...step up in the world from bangin' Randy and Lahey to bangin' Julian, isn't it? Bubbles: That's a weird thought, Ricky.
+tv-tpb	life	quip	general	0	"It's water under the fridge"
+tv-tpb	life	tv-quote	general	0	"Lucy is banging cops which is no big deal, I guess. I don't run Lucy. She's for to be her own woman"
+tv-tpb	life	quip	general	0	"Lucy might have a problem, but what Lucy doesn't know won't learn her."
+tv-tpb	life	tv-quote	general	0	"Get me two bags of chips: Dressed All Over, and Zesty Mordant".
+tv-tpb	life	tv-quote	general	0	"Yeah, get me some ja-LAP-ano chips"
+tv-tpb	life	quip	general	0	"Worst case Ontario..."
+tv-tpb	life	quip	general	0	"It's basically Peach'n'Cake"
+tv-tpb	life	quip	general	0	"Denial and Error..."
+tv-tpb	life	quip	general	0	"Make my words" *
+tv-tpb	life	tv-quote	general	0	"Hey Bubs, are you watching that documentary on Saskatchewans?"*
+tv-tpb	life	tv-quote	general	0	"Thank you, Your Majesty."
+tv-tpb	life	tv-quote	general	0	"I'm trying to try here, Sarah."
+tv-tpb	life	quip	general	0	"Who's playing the pianio?"
+tv-tpb	life	quip	edgy	1	"Make like a tree and fuck off."
+tv-tpb	life	quip	edgy	1	"I'm not the kind of person to say atodaso, but you know what? Atodaso, I-fucking-atodaso."
+tv-tpb	life	quip	general	0	"It was golfing flames, flames just golfing, golfing."
+tv-tpb	life	quip	general	0	"It's a Catch-23 situation."
+tv-tpb	life	tv-quote	general	0	"Well, play that Diane Sawyer song, then."
+tv-tpb	life	tv-quote	general	0	"Looks like a tropical earthquake blew through here."
+tv-tpb	life	quip	general	0	"We can get 2 birds stoned at once."
+tv-tpb	life	quip	general	0	"Why do you look like Indianapolis Jones?"
+tv-tpb	life	quip	edgy	1	"He passed with flying fucking carpets."
+tv-tpb	life	quip	general	0	"It doesn't take rocket appliances."
+tv-tpb	life	tv-quote	general	0	"Trinity's at the age where it's gorilla see gorilla do."
+tv-tpb	society	quip	general	0	"Do you got a search warranty for that?" *
+tv-tpb	life	quip	edgy	1	"I must be fire retarded or something."
+tv-tpb	life	pun	general	0	"I'm not a pezmist, I'm an optometrist.
+tv-tpb	life	tv-quote	general	0	"These plates got me from Tuscany, Arizona to Kentville, Nova Scotia."
+tv-tpb	love	tv-quote	general	0	"I'll drive you back to the park, Lucy, but there is probably a pretty good chance that it might be over between us"
+tv-tpb	arts	tv-quote	general	0	"If my dad and Julian and Bubbles hadn't had been out all night getting lap-dances and getting drunk, the whole thing could have been preventative".
+tv-tpb	life	quip	edgy	1	"To be honest with you, I fucking hate bagminten."
+tv-tpb	life	tv-quote	edgy	1	"Breaker, Breaker, come in earth. This is Rocketship 27, some aliens fucked over the carbinator in engine number four, we are going to try to refuckulate it and land on Juniper".
+tv-tpb	life	quip	general	0	"That's not a ladybug. It's a cannerpillar.
+tv-tpb	life	quip	general	0	"...how to get Buhurbon stains out of Kahayki pants"
+tv-tpb	life	quip	general	0	"One man's garbage is another man person's good ungarbage".
+tv-tpb	food	quip	general	0	"Au gratin"
+tv-tpb	life	quip	general	0	"I-surance" *
+tv-tpb	life	quip	general	0	"Swallow my prize"
+tv-tpb	life	quip	general	0	"Neither here, there, or everywhere"
+tv-tpb	life	tv-quote	general	0	"Boys, let's make toast"
+tv-tpb	life	tv-quote	general	0	"There's no lurches in there, Bubbles, is there?"
+tv-tpb	life	tv-quote	general	0	"I know what you're doing, Lahey, you're trying to fill my feet."
+tv-tpb	family	quip	general	0	"You gotta remember, every kid goes through phrases."
+tv-tpb	life	tv-quote	general	0	"What Julian don't grow won't burn him".
+tv-tpb	life	quip	general	0	"Nice decnals!"
+tv-tpb	life	quip	general	0	"I'm just stretched out!" *
+tv-tpb	life	quip	general	0	"I don't need your cherry trees." *
+tv-tpb	life	tv-quote	general	0	"What if he has radies?"
+tv-tpb	work-money	quip	general	0	"Supply and command."
+tv-tpb	life	quip	general	0	"What comes around is all around"
+tv-tpb	society	quip	general	0	"What, do you own space? No. Nay-suh does."
+tv-tpb	life	aphorism	general	0	"Do unto others as you do unto you."
+tv-tpb	life	quip	general	0	"One day I will go somewhere that is hot, like Majaica or the Dromedary Republic"
+tv-tpb	life	tv-quote	general	0	"Trinity made a life-ing thing basically out of this chicken. Started with a little eggy thing, and heated it up under these incu-baker things, and it...it was bornt."
+tv-tpb	life	quip	general	0	"We'll split 50/50/50."
+tv-tpb	life	quip	general	0	"Well, I'd like for you two to come with us, but apparently it's clear to see who makes the pants here."
+tv-tpb	life	tv-quote	general	0	"I hate to have to give you an ultimarium"
+tv-tpb	life	tv-quote	edgy	1	"It's me or Gumby and Fuckio "
+tv-tpb	life	tv-quote	edgy	1	"Raykins! That's what they are, Julian, fuckin' raykins!"
+tv-tpb	life	tv-quote	general	0	"I'm not working for J-Roc, that's against my vice principals"
+tv-tpb	food	tv-quote	edgy	1	"Bubbles, I don't want any rich peopleman's food, I want some fuckin' meat that's cooked."
+tv-tpb	life	quip	general	0	"It's survival of the fitness, boys."
+tv-tpb	life	quip	general	0	"If Randy thinks he's smartener than me, he's wrong." *
+tv-tpb	life	quip	general	0	"You gotta do illegal things once in a while, and then maturinate into a better person."
+tv-tpb	life	quip	general	0	"Your thoughts might be better than mine, but I have thoughts going around in my head too, about...different thinkings...about brain things that you can use and...doing different things."
+tv-tpb	food	quip	general	0	"Sweet empowered chicken things"
+tv-tpb	life	insult	edgy	1	"Take a shower for fuck's sake! You look like a fuckin' hobolo!"
+tv-tpb	life	insult	edgy	1	"Why don't you fuck off and go get some hypo-suction!"
+tv-tpb	life	quip	general	0	"It was my mother's mating name."
+tv-tpb	life	tv-quote	edgy	1	"Holy shit, you got us a lemon-zine?"
+tv-tpb	family	tv-quote	general	0	"Randy bornt my baby."
+tv-tpb	life	tv-quote	general	0	"Lucy, I will make you have a eternity test".
+tv-tpb	life	tv-quote	general	0	"He's gettin' all frustated."
+tv-tpb	life	tv-quote	edgy	1	"You can go to college and get your little Pf.D, or whatever the fuck it's called!"
+tv-tpb	life	quip	general	0	"Child reports"
+tv-tpb	life	tv-quote	edgy	1	"Get us the fuckin' land papers A.S.A.T!"
+tv-tpb	life	quip	edgy	1	"I'm fucked over from being electromecuted!"
+tv-tpb	life	tv-quote	general	0	"Those them cigarettes in there is our lifes!"
+tv-tpb	life	quip	general	0	"...it's distraculating my case."
+tv-tpb	society	quip	general	0	"Amernicans!"
+tv-tpb	life	quip	general	0	"I have responsibles now..."
+tv-tpb	life	tv-quote	general	0	"Well, now we gotta go to the library and get a book on horficulture."
+tv-tpb	life	quip	general	0	"I self-learned myself."
+tv-tpb	life	tv-quote	general	0	Lahey: "Ready for a little B & E Randy?" Randy: "Bacon'n' Eggs?" Lahey: "Evidence gathering."
+tv-tpb	life	aphorism	edgy	1	"When you plant shit-seeds, you get shit-weeds."
+tv-tpb	life	tv-quote	edgy	1	"Birds of a shitfeather flock together, Randy."
+tv-tpb	life	tv-quote	edgy	1	"We're in the eye of a shiticane here, Julian, and Ricky's a low-shit system!"
+tv-tpb	life	quip	edgy	1	"Shit-storm troopers"
+tv-tpb	life	quip	edgy	1	"The shit-apple doesn't fall far from the shit-tree"
+tv-tpb	life	quip	edgy	1	"Captain Shittacular"
+tv-tpb	life	quip	edgy	1	"I'm watching you like a shithawk"
+tv-tpb	life	tv-quote	edgy	1	"We're sailing into a shit-typhoon Randy, we'd better haul in the jib before it gets covered in shit."
+tv-tpb	life	quip	edgy	1	"When you're getting pelted with shitballs, deputy, you gotta get a shit-bat."
+tv-tpb	life	tv-quote	edgy	1	"Randy, the shit pool is getting full. We better strain it before it overflows and causes a shitslide that could cover this entire community. I will not have a Pompeiian catastrophe happening in Sunnyvale."
+tv-tpb	life	tv-quote	edgy	1	"How dare you involve my daughter in your hemisphere of shit?"
+tv-tpb	life	tv-quote	edgy	1	"Your shit-goose is cooked, Ricky"
+tv-tpb	life	aphorism	edgy	1	"Shit-apples never fall far from the shit-tree"
+tv-tpb	life	quip	edgy	1	"He's about to enter the shit-tornado to Oz."
+tv-tpb	life	tv-quote	edgy	1	"Do you know what a shit-rope is Julian? It's a rope covered in shit that criminals try to cling to. Y'see, the shit acts like grease, and the harder you tighten your grip, the more you slide down it."
+tv-tpb	life	quip	edgy	1	"A shit-leopard can't change its spots."
+tv-tpb	life	tv-quote	edgy	1	"We need more shit puppets for our play, Randy, and we need angry shit puppets but they aren't mad at us. Shit puppets only get angry at other shit puppets"
+tv-tpb	life	tv-quote	edgy	1	Randy: "Cops and dope don't mix, do they Mr. Lahey?" Lahey: "Like shit and strawberry shortcake Randy."
+tv-tpb	life	tv-quote	edgy	1	"I live by the golden rule: if you don't cross my shitline I won't cross yours. But when Ray told everybody in the park that I was drinking again, he crossed the goddamn shitline."
+tv-tpb	life	tv-quote	edgy	1	"Do you feel that, Randy, the way the shit clings to the air? Shit Blizzard."
+tv-tpb	life	quip	edgy	1	"Never Cry Shitwolf."
+tv-tpb	life	tv-quote	edgy	1	"Did you see that Randy, Goddamn shitapple driving the shitmobile. Nobody else in this park gives a fuck, why should I?
+tv-tpb	life	tv-quote	edgy	1	Lahey: -"You know what's at work here, it's shit tectonics, when two shit plates strike and come together under incredible pressure, do you know what happens, Bubbles?" Bubbles: - "What?" Lahey: - "A shitquake"
+tv-tpb	life	tv-quote	edgy	1	"Yes I used to drink, Randy, but I got the shitmonkey off my back for good."
+tv-tpb	life	tv-quote	edgy	1	"You just opened Pandora's Shitbox, Ray"
+tv-tpb	life	tv-quote	edgy	1	"You know what you get when two shit-tectonic plates collide? Shitquakes, Julian. Shitquakes."
+tv-tpb	life	quip	edgy	1	"The ole shit liner is coming to port, and I'll be there to tie her up."
+tv-tpb	life	tv-quote	edgy	1	"Tic Toc, Shit clock's tickin' Rick."
+tv-tpb	life	tv-quote	edgy	1	"We got the key to shitty city, Ran, and Julian's the muscular mayor."
+tv-tpb	life	quip	edgy	1	"You boys have loaded up a hair-trigger, double barrelled shitmachinegun, and the barrel's pointing right at your own heads".
+tv-tpb	nature	tv-quote	edgy	1	"Shit flowers, Randy. From a distance they look like ordinary flowers, but when you get right down and stick your nose in them you realize they're shit flowers, and there's a whole fucking bouquet down there right in front of Ray's trailer."
+tv-tpb	life	tv-quote	edgy	1	Lahey: "Shit moths, Randy."
+tv-tpb	life	tv-quote	edgy	1	Randy: "Shit moths?"
+tv-tpb	life	tv-quote	general	0	Randy: "Is that you or the liquor speaking, Mr Lahey?"
+tv-tpb	life	tv-quote	general	0	"I am the liquor."
+tv-tpb	life	tv-quote	general	0	"Hey Sexian"
+tv-tpb	life	tv-quote	general	0	"This place is a dump. You have my permission to do whatever you want, any time any place, and you don't have to listen to Pilsbandy Doughboy or Team Sexy"
+tv-tpb	life	tv-quote	edgy	1	"I'd like to see that Red Blue Green cocksucker put one of those together fucking duct taping it."
+tv-tpb	life	tv-quote	general	0	"Dino. Did you call Fred and Barney too? How about Mr. Slate?"
+tv-tpb	life	dark	edgy	1	"I won't tell anyone you have splinters in your lips if you don't tell anyone I have a wooden cock."
+tv-tpb	life	tv-quote	edgy	1	"Randy: Does that thing really launch, Bubbles? Bubbles: Does the Tin Man have a sheet-metal cock?"
+tv-tpb	life	tv-quote	edgy	1	"Julian, what's a shit hawk? Is it some kind of shitty bird that swoops down and puts poop on you?"
+tv-tpb	life	tv-quote	edgy	1	"Ricky, what happened to your fucking eyes? You look like Alice Cooper?"
+tv-tpb	life	tv-quote	edgy	1	"I'm not giving anyone a fucking R!"
+tv-tpb	society	tv-quote	edgy	1	"Ricky, those laws are there to protect kids, not so goofballs like you can put them in the car with no door on it, and drive around the fuckin' neighbourhood stealin' barbecues!"
+tv-tpb	life	quip	edgy	1	"This cart is fucked!"
+tv-tpb	life	quip	general	0	"Can I come out now? I think I have a leech on my bird."
+tv-tpb	life	tv-quote	general	0	"Julian, we're both baked. That's why were probably not making any sense."
+tv-tpb	life	tv-quote	general	0	"No, he's just a really big kitty, and he's baked!"
+tv-tpb	life	tv-quote	edgy	1	"Holy fuck boys, this shed is like a fucking palace! Indoor plumbing , satellite tv, 400 channels, anything I wanna watch, it's right there, space for my kitties, Mobile phone, new technology , this is the best fucking shed there ever was!"
+tv-tpb	life	tv-quote	general	0	"Here, Cory-Trevor, Cory-Trevor!"
+tv-tpb	life	tv-quote	edgy	1	Hampton: "Can you read, my son?" Bubbles: "Well, that depends, can you go fuck yourself?"
+tv-tpb	life	tv-quote	general	0	Trevor: "Julian, this looks like a pirate gun." Bubbles: "Well Trevor, I guess that makes you Long John Dickweed, then."
+tv-tpb	life	tv-quote	edgy	1	"Green Bastard, from parts unknown" .
+tv-tpb	life	tv-quote	edgy	1	"Lahey, can you please get the flyin' fuck out of our way!"
+tv-tpb	life	quip	edgy	1	"COCK-SUCKER!"
+tv-tpb	life	tv-quote	general	0	"There's a note pinned to a tree! Diddly-dee!"
+tv-tpb	life	tv-quote	edgy	1	"How many did you drive into that big fuckin cheeseburger-locker?"
+tv-tpb	life	quip	edgy	1	"Holy sweet flying fuck!"
+tv-tpb	life	tv-quote	edgy	1	"There's 2 things mafukas gonna know about J-to-the-ROC: I spin more rhymes than a lazy Susan, and I'm innocent until mah guilt is proven! Peace! Representin' Sunnyvale, straight-the-fuck-up."
+tv-tpb	life	quip	general	0	"Why don't you run along, Gut Cassidy and the Sundance Cheeseburger. Don't look into my eyes like I got candy for you."
+tv-tpb	life	tv-quote	general	0	"Only wacksuckas like Cory and Trevor steal gas...and deal dope.
+tv-tpb	family	tv-quote	general	0	"Yo Julian, I'm going to be a daddy. Not once but two times dawg, two times."
+tv-tpb	life	tv-quote	general	0	"You know what I'm sayin'?"
+tv-tpb	life	tv-quote	general	0	"Rayyyyy - Kojak's got a wig on, RAYYY!"
+tv-tpb	life	quip	general	0	"So why don't you move it along, you Rico-Suave-lookin' mafucka, cuz you ain't beatin' nobody."
+tv-tpb	life	tv-quote	general	0	"You mean we can't go on with the game cuz some mafucka can't go to Canadian Mafacka and get a new orange mafucka for $2.99? That's wack, Jules."
+tv-tpb	life	tv-quote	edgy	1	"Yo, it's Rocky and Bullma'fucker."
+tv-tpb	life	tv-quote	general	0	"J-Roc an' da Rock-Pile ALL UP IN DIS' MA' !"
+tv-tpb	life	tv-quote	general	0	"Naw, man, I don't play guns, mafucka."
+tv-tpb	life	quip	general	0	"We ain't down with killin', we down with chillin'. Peace!"
+tv-tpb	life	tv-quote	general	0	"The day J-ROC loses his flow, is the day the hair on Jim Lahey's bald head grow!"
+tv-tpb	life	tv-quote	edgy	1	"That's the fuckin' law bitch from the grocery store y'man, who you pointin' at, skeleton?"
+tv-tpb	life	quip	general	0	"This is BULL-ISH!"
+tv-tpb	life	quip	general	0	"I can't even breathe up in this piece!"
+tv-tpb	life	tv-quote	general	0	"Oh what, you ain't pregnant with a bucketa chicken?"
+tv-tpb	life	tv-quote	general	0	"What you talkin' 'bout, you inflatable Elvis?"
+tv-tpb	life	tv-quote	general	0	"Oh, no, you di'n't just call me Jamie!"
+tv-tpb	food	tv-quote	general	0	"I hear chicken. I hear cola fizz, and mustard and relish coagulating together with french fries and onion rings, but you know what? I don't hear a heart."
+tv-tpb	life	quip	general	0	"Carpe Dizem!"
+tv-tpb	life	quip	general	0	"Pound that in your word-hole and tell me that ain't the birth of Christ."

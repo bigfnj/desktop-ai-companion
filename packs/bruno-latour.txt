@@ -1,0 +1,11 @@
+bruno-latour	society	wisdom	general	0	Change the instruments and you will change the entire social theory that goes with them ~ Bruno Latour
+bruno-latour	tech	wisdom	general	0	I have sought to offer humanists a detailed analysis of a technology sufficiently magnificent and spiritual to convince them that the machines by which they are surrounded are cultural artifacts worthy of their attention and respect. ~ Bruno Latour
+bruno-latour	science	quip	general	0	If one looks at the works of Newton to Einstein, they were never scientists in the way modernity understands the term. ~ Bruno Latour
+bruno-latour	society	wisdom	general	0	India is a reservoir of alternative interpretations of what the global is, and these ways of viewing the world need to be exposed. ~ Bruno Latour
+bruno-latour	life	quip	general	0	My kingdom for a more embodied body ~ Bruno Latour
+bruno-latour	science	wisdom	general	0	Reality is what resists. ~ Bruno Latour
+bruno-latour	science	wisdom	general	0	Scientists are very much entangled in their culture and this culture is not pristine, untouched by other cultures and practices. ~ Bruno Latour
+bruno-latour	society	wisdom	general	0	The composition of a common world would be the definition of politics. ~ Bruno Latour
+bruno-latour	science	wisdom	general	0	The only shibboleth the West has is science. It is the premise of modernity and it defines itself as a rationality capable of, indeed requiring separation from politics, religion and really, society. Modernisation is to work towards this. ~ Bruno Latour
+bruno-latour	science	wisdom	general	0	The world is not a solid continent of facts sprinkled by a few lakes of uncertainties, but a vast ocean of uncertainties speckled by a few islands of calibrated and stabilized forms ~ Bruno Latour
+bruno-latour	faith	quip	general	0	You who are on the inside, don't condemn my lack of faith too quickly; you who are on the outside, don't be too quick to mock my overcredulity; you who are indifferent, don't be too quick to wax ironic about my perpetual hesitations. ~ Bruno Latour

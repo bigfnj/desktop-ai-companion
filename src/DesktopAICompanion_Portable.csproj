@@ -1,0 +1,304 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- .NET 10 (LTS) WinForms, framework-dependent, x64-only (ONNX native runtime is arch-specific and
+       build.ps1 always builds x64). Converted from the classic net48 project; product identity/version
+       still come from ProductVersion.props via the WriteCodeFragment targets below (GenerateAssemblyInfo
+       stays off so there is one source of truth). Compile/EmbeddedResource/None/Content are listed
+       explicitly (EnableDefaultItems=false) so src\legacy and Tools are never pulled in by globbing. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- WPF is enabled alongside WinForms (both in-box on net10-windows) for the S5 module-manager /
+         options window; the pet itself stays WinForms. The WPF window is shown from the WinForms UI thread. -->
+    <UseWPF>true</UseWPF>
+    <RootNamespace>DesktopAICompanion</RootNamespace>
+    <AssemblyName>DesktopAICompanion</AssemblyName>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <!-- x64-only, framework-dependent. Pinning the RID (SelfContained=false keeps it FDD, no bundled
+         runtime) flattens package native assets — e.g. onnxruntime.dll — into the
+         output root instead of a runtimes\win-x64\native subfolder, which the flat leaf-name payload
+         manifest (runtime-files.txt) + ZIP + WiX generator require. -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <ApplicationIcon>icon.ico</ApplicationIcon>
+    <ApplicationManifest>Properties\app.manifest</ApplicationManifest>
+    <SignAssembly>false</SignAssembly>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <RestoreLockedMode Condition="'$(RestoreLockedMode)' == '' and '$(CI)' == 'true'">true</RestoreLockedMode>
+    <!-- Keep the flat bin\<Config>\x64 layout build.ps1 + packaging expect (no TFM/RID subfolder). -->
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <!-- WFDEV006: the dev-only debug right-click menu still uses the legacy ContextMenu/MenuItem
+         (kept for behavior parity during the migration; modernize to ContextMenuStrip later). -->
+    <NoWarn>$(NoWarn);WFDEV006</NoWarn>
+  </PropertyGroup>
+
+  <!-- Conditioned on Configuration ALONE, deliberately. These groups used to also test $(Platform), which
+       meant a plain `dotnet build` (no -p:Platform=x64) silently lost DefineConstants: without PORTABLE the
+       #if PORTABLE block in Program.cs drops out and the build fails with ~20 unrelated-looking CS errors.
+       The platform dimension carried no information anyway (Platforms, PlatformTarget and RuntimeIdentifier
+       are all pinned to x64 unconditionally above), so dropping it lets a cold clone build the way CI does. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <OutputPath>..\build\DesktopAICompanionPortable\bin\Debug\x64\</OutputPath>
+    <IntermediateOutputPath>..\build\DesktopAICompanion\obj\Debug\x64\</IntermediateOutputPath>
+    <DefineConstants>TRACE;DEBUG;PORTABLE</DefineConstants>
+    <DebugType>full</DebugType>
+    <DebugSymbols>true</DebugSymbols>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <OutputPath>..\build\DesktopAICompanionPortable\bin\Release\x64\</OutputPath>
+    <IntermediateOutputPath>..\build\DesktopAICompanion\obj\Release\x64\</IntermediateOutputPath>
+    <DefineConstants>TRACE;PORTABLE</DefineConstants>
+    <Optimize>true</Optimize>
+    <!-- Release symbols are not distributed; no PDB keeps the runtime location-independent. -->
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+
+  <!-- Runtime NuGet dependencies. The net48 in-box shims (System.Buffers/Memory/ValueTuple/
+       Threading.Tasks.Extensions/Numerics.Vectors/Runtime.CompilerServices.Unsafe/Security.*/
+       Win32.Registry/Bcl.AsyncInterfaces/IO.Pipelines/Text.Json/Text.Encodings.Web) and the net48
+       compiler + reference-assembly packages are dropped: they are provided by the .NET 10 shared
+       framework / Windows Desktop framework. System.Drawing.Common, System.Configuration.Configuration-
+       Manager, and System.Security.Cryptography.ProtectedData (DPAPI) are all provided by the
+       net10-windows Windows Desktop framework too (the SDK prunes them; NU1510 confirms). Only these
+       genuinely-external packages remain. -->
+  <!-- DesktopAICompanion.exe apphost + DesktopAICompanion.dll are framework-dependent (require the .NET 10 Desktop runtime). -->
+  <ItemGroup>
+    <!-- ONNX moved to the Fortunes module (S3d): the smart fortune engine (Embedder/SmartFortunes) +
+         onnxruntime + the bge-small model now live in modules/Fortunes. The base no longer references ONNX. -->
+
+    <!-- NAudio is a base dependency again as of B1 (host-owned audio output, AudioOutput.cs). It left in S2
+         on the premise that no pet shipped audio; every bundled pet does. Sub-packages we use: NAudio.Core
+         (Mp3FileReaderBase + the mixer), NAudio.WinMM (ACM MP3 decode via the OS codec), and NAudio.Dmo
+         (DirectSoundOut = the device-selectable output, B1.5). No Asio/Wasapi/WinForms, and no shipped
+         native binary. WASAPI was rejected: its package needs a Win10-versioned TFM that drags a ~25 MB
+         Windows SDK projection into the payload. NAudio 3 preview (net9+, Span-based) since the base is
+         net10; verified decoding a real pet MP3 + enumerating devices on net10. -->
+    <PackageReference Include="NAudio.Core" Version="3.0.0-preview.6" />
+    <PackageReference Include="NAudio.WinMM" Version="3.0.0-preview.6" />
+    <PackageReference Include="NAudio.Dmo" Version="3.0.0-preview.6" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The plugin ABI. Ships beside the exe so module DLLs bind to the same DesktopAICompanion.Contracts. -->
+    <ProjectReference Include="DesktopAICompanion.Contracts\DesktopAICompanion.Contracts.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="dotNet\Animations.cs" />
+    <Compile Include="dotNet\AnimationReachability.cs" />
+    <Compile Include="dotNet\AudioOutput.cs" />
+    <Compile Include="dotNet\ContextMenus.cs" />
+    <Compile Include="dotNet\AppLifetime.cs" />
+    <Compile Include="dotNet\TrayPromotion.cs" />
+    <Compile Include="dotNet\FactoryReset.cs" />
+    <Compile Include="dotNet\CompanionCatalog.cs" />
+    <Compile Include="dotNet\AppUpdateCheck.cs" />
+    <Compile Include="dotNet\CompanionFreshness.cs" />
+    <Compile Include="dotNet\CompanionTypeRegistry.cs" />
+    <Compile Include="dotNet\StartupRegistration.cs" />
+    <Compile Include="Portable\Options\OptionsController.cs" />
+    <Compile Include="Portable\Wpf\OptionsWindow.cs" />
+    <Compile Include="Portable\Wpf\OptionsShell.cs" />
+    <Compile Include="Portable\Wpf\WpfTheme.cs" />
+    <Compile Include="Portable\Wpf\AboutWindow.cs" />
+    <Compile Include="Portable\Wpf\CompanionsPaneControl.cs" />
+    <Compile Include="Portable\Wpf\ModulesPaneControl.cs" />
+    <Compile Include="Portable\Wpf\CompanionBlurbs.cs" />
+    <Compile Include="dotNet\ProcessIcon.cs" />
+    <Compile Include="LocalData\AnimationXML.cs" />
+    <Compile Include="Portable\WebLinks.cs" />
+    <Compile Include="Portable\AppPaths.cs" />
+    <Compile Include="Portable\AppSettingsStore.cs" />
+    <Compile Include="Portable\JsonRead.cs" />
+    <Compile Include="Portable\LocalData.cs" />
+    <Compile Include="Properties\Resources.Designer.cs">
+      <AutoGen>True</AutoGen>
+      <DesignTime>True</DesignTime>
+      <DependentUpon>Resources.resx</DependentUpon>
+    </Compile>
+    <Compile Include="dotNet\StartUp.cs" />
+    <Compile Include="dotNet\RuntimeGeometry.cs" />
+    <Compile Include="dotNet\SpriteBounds.cs" />
+    <Compile Include="dotNet\FullscreenScan.cs" />
+    <Compile Include="dotNet\WindowTheme.cs" />
+    <Compile Include="dotNet\FormSpeech.cs" />
+    <Compile Include="dotNet\Ai\ActiveWindow.cs" />
+    <Compile Include="dotNet\Ai\FortunePackLoadPolicy.cs" />
+    <!-- The base fortune engine (FortuneProvider.cs + FortuneFileImporter.cs) moved to modules/Fortunes;
+         only FortunePackLoadPolicy remains here, consumed by RemoteCatalog for catalog pack bounds. -->
+    <Compile Include="dotNet\Ai\PokeReactions.cs" />
+    <Compile Include="dotNet\Ai\HotkeyListener.cs" />
+    <Compile Include="dotNet\SecureDownload.cs" />
+    <Compile Include="dotNet\RemoteCatalog.cs" />
+    <Compile Include="dotNet\SafeExpression.cs" />
+    <Compile Include="dotNet\CompanionXmlValidator.cs" />
+    <Compile Include="dotNet\AudioOutputSelfTest.cs" />
+    <Compile Include="dotNet\SecuritySelfTest.cs" />
+    <Compile Include="dotNet\FormCompanion.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="dotNet\FormCompanion.Designer.cs">
+      <DependentUpon>FormCompanion.cs</DependentUpon>
+    </Compile>
+    <Compile Include="dotNet\FormDebug.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="dotNet\FormDebug.Designer.cs">
+      <DependentUpon>FormDebug.cs</DependentUpon>
+    </Compile>
+    <Compile Include="dotNet\Program.cs" />
+    <Compile Include="Properties\AssemblyInfoPortable.cs" />
+    <Compile Include="Properties\Settings1.Designer.cs">
+      <AutoGen>True</AutoGen>
+      <DesignTimeSharedInput>True</DesignTimeSharedInput>
+      <DependentUpon>Settings.settings</DependentUpon>
+    </Compile>
+    <Compile Include="Settings.cs" />
+    <Compile Include="Tools\XmlToDot.cs" />
+    <Compile Include="dotNet\Xml.cs" />
+    <Compile Include="dotNet\CompanionThumbnails.cs" />
+    <Compile Include="dotNet\RuntimeHardeningSelfTest.cs" />
+    <Compile Include="dotNet\WpfOptionsSelfTest.cs" />
+    <Compile Include="dotNet\Plugins\ModuleHost.cs" />
+    <Compile Include="dotNet\Plugins\ModuleHostRequirement.cs" />
+    <Compile Include="dotNet\Plugins\ModuleUpdateScan.cs" />
+    <Compile Include="dotNet\Plugins\PendingModuleRemovals.cs" />
+    <Compile Include="dotNet\Plugins\PendingModuleUpdates.cs" />
+    <Compile Include="dotNet\Plugins\ModuleConventionSelfTest.cs" />
+    <Compile Include="dotNet\Plugins\SelfTestScratch.cs" />
+    <Compile Include="dotNet\Plugins\ModuleHostSelfTest.cs" />
+    <Compile Include="dotNet\Plugins\CompanionHost.cs" />
+    <Compile Include="dotNet\Plugins\FortunesModuleSelfTest.cs" />
+    <Compile Include="dotNet\Plugins\FortunesEngineSelfTest.cs" />
+    <Compile Include="dotNet\Plugins\AiBrainModuleSelfTest.cs" />
+    <Compile Include="dotNet\Plugins\PetStudioModuleSelfTest.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="dotNet\FormCompanion.resx">
+      <DependentUpon>FormCompanion.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="dotNet\FormDebug.resx">
+      <DependentUpon>FormDebug.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Properties\Resources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <SubType>Designer</SubType>
+      <LastGenOutput>Resources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+    <!-- fortunes.txt + the classifier-parity TSV moved to modules/Fortunes with the fortune engine;
+         the base no longer embeds or reads them. -->
+    <EmbeddedResource Include="Resources\pet-thumbnails.zip" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Properties\app.manifest">
+      <SubType>Designer</SubType>
+    </None>
+    <None Include="Properties\Settings.settings">
+      <SubType>Designer</SubType>
+      <Generator>SettingsSingleFileGenerator</Generator>
+      <LastGenOutput>Settings1.Designer.cs</LastGenOutput>
+    </None>
+    <None Include="Resources\animations.xsd">
+      <SubType>Designer</SubType>
+    </None>
+    <None Include="Resources\animations.xml">
+      <SubType>Designer</SubType>
+    </None>
+    <None Include="Images\install.png" />
+    <None Include="Images\option.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="esheep.png.ico" />
+    <Content Include="icon.ico" />
+    <Content Include="Images\exit.png" />
+    <Content Include="Images\help.png" />
+    <Content Include="Images\about.png" />
+    <Content Include="Images\esheep.png" />
+    <!-- The bge-small smart-fortunes model moved to the Fortunes module (S3d), beside Fortunes.dll. -->
+    <Content Include="..\LICENSE">
+      <Link>LICENSE.txt</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\THIRD_PARTY_NOTICES.md">
+      <Link>THIRD_PARTY_NOTICES.md</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\PRIVACY.md">
+      <Link>PRIVACY.md</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\SUPPORT.md">
+      <Link>SUPPORT.md</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="..\PROVENANCE.md">
+      <Link>PROVENANCE.md</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- NAudio is a base dependency again as of B1 (host-owned audio); ship its license in the base root.
+         The Sound module still carries its own copy until B4 retires it. -->
+    <Content Include="..\packaging\licenses\NAUDIO_LICENSE.txt"
+             Condition="Exists('..\packaging\licenses\NAUDIO_LICENSE.txt')">
+      <Link>NAUDIO_LICENSE.txt</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- ONNX runtime licenses now ship with the Fortunes module (they moved with the engine, S3d).
+         Newtonsoft.Json was dropped in favor of the in-box System.Text.Json (post-S5c cleanup), so no
+         Newtonsoft license ships in the base any more. -->
+  </ItemGroup>
+
+  <Target Name="ValidateDesktopAICompanionProductIdentity" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(DesktopAICompanionProductName)' == '' or '$(DesktopAICompanionPublisher)' == '' or '$(DesktopAICompanionVersion)' == '' or '$(DesktopAICompanionAssemblyVersion)' == ''"
+           Text="ProductVersion.props is missing or incomplete. Product identity and version metadata cannot be generated." />
+  </Target>
+  <Target Name="GenerateDesktopAICompanionProductInfo" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <_DesktopAICompanionProductInfoFile>$(IntermediateOutputPath)DesktopAICompanion.ProductInfo.g.cs</_DesktopAICompanionProductInfoFile>
+    </PropertyGroup>
+    <ItemGroup>
+      <_DesktopAICompanionAssemblyAttribute Include="System.Reflection.AssemblyTitleAttribute">
+        <_Parameter1>$(DesktopAICompanionProductName)</_Parameter1>
+      </_DesktopAICompanionAssemblyAttribute>
+      <_DesktopAICompanionAssemblyAttribute Include="System.Reflection.AssemblyDescriptionAttribute">
+        <_Parameter1>$(DesktopAICompanionDescription)</_Parameter1>
+      </_DesktopAICompanionAssemblyAttribute>
+      <_DesktopAICompanionAssemblyAttribute Include="System.Reflection.AssemblyCompanyAttribute">
+        <_Parameter1>$(DesktopAICompanionPublisher)</_Parameter1>
+      </_DesktopAICompanionAssemblyAttribute>
+      <_DesktopAICompanionAssemblyAttribute Include="System.Reflection.AssemblyProductAttribute">
+        <_Parameter1>$(DesktopAICompanionProductName)</_Parameter1>
+      </_DesktopAICompanionAssemblyAttribute>
+      <_DesktopAICompanionAssemblyAttribute Include="System.Reflection.AssemblyCopyrightAttribute">
+        <_Parameter1>$(DesktopAICompanionCopyright)</_Parameter1>
+      </_DesktopAICompanionAssemblyAttribute>
+      <_DesktopAICompanionAssemblyAttribute Include="System.Reflection.AssemblyVersionAttribute">
+        <_Parameter1>$(DesktopAICompanionAssemblyVersion)</_Parameter1>
+      </_DesktopAICompanionAssemblyAttribute>
+      <_DesktopAICompanionAssemblyAttribute Include="System.Reflection.AssemblyFileVersionAttribute">
+        <_Parameter1>$(DesktopAICompanionAssemblyVersion)</_Parameter1>
+      </_DesktopAICompanionAssemblyAttribute>
+      <_DesktopAICompanionAssemblyAttribute Include="System.Reflection.AssemblyInformationalVersionAttribute">
+        <_Parameter1>$(DesktopAICompanionVersion)</_Parameter1>
+      </_DesktopAICompanionAssemblyAttribute>
+    </ItemGroup>
+    <WriteCodeFragment Language="C#"
+                       OutputFile="$(_DesktopAICompanionProductInfoFile)"
+                       AssemblyAttributes="@(_DesktopAICompanionAssemblyAttribute)" />
+    <ItemGroup>
+      <Compile Include="$(_DesktopAICompanionProductInfoFile)" />
+    </ItemGroup>
+  </Target>
+
+</Project>

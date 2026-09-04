@@ -1,0 +1,342 @@
+tv-archer	life	tv-quote	general	0	Archer: I have to go. But if I find one single dog hair when I get back, I'll rub...sand...in your dead little eyes. Woodhouse: Very good, sir. Archer: [pause] I also need you to go buy sand. Woodhouse: Yes, sir. Archer: I don't know if they grade it, but... coarse.
+tv-archer	life	tv-quote	general	0	Archer: [to Pam] I'll throw these doughnuts on the ground so you can pretend they're marbles and you're a hungry hungry... [Pam abruptly shuts the door on Archer] ...hungry hippo.
+tv-archer	life	tv-quote	general	0	Archer: Johnny Bench called.
+tv-archer	life	tv-quote	general	0	Malory: [noticing doughnuts scattered across the floor] Oh, for heaven's sake... do you want ants? Because that's how you get ants!
+tv-archer	life	tv-quote	general	0	Archer: Oh, I'm crazy? Cyril, you're the one who killed a perfectly good hooker.
+tv-archer	society	tv-quote	general	0	Malory: Immigrants! That's how they do, you know. Just drive around listening to raps and shooting all the jobs.
+tv-archer	life	tv-quote	general	0	Archer: Oh my God, you killed a hooker! Cyril: Call girl! She was a call girl! Archer: No, Cyril, when they're dead, they're just hookers!
+tv-archer	life	tv-quote	general	0	Cyril: Will I get to learn karate? Archer: Karate?! The Dane Cook of martial arts?! No. ISIS agents use Krav Maga.
+tv-archer	life	tv-quote	edgy	1	Cheryl: Hey, Pam, check this out. [Pam looks at computer] Pam: Holy shit snacks! Malory: We have snacks?!
+tv-archer	life	tv-quote	general	0	Pam: Holy hell, what happened to you? Malory: Scatterbrain Jane...
+tv-archer	life	tv-quote	general	0	Lana: Hey, Jane! [pulls out a switch blade] Gettin' a snack? [Later] Lana: Hey, Jane! [pulls out a switch blade] Gettin' a tampon?
+tv-archer	life	tv-quote	general	0	Cyril: Oh, I think we're pretty diverse. Lana: Ha! Please... Archer: What? You're black... ish... Lana: "ISH?" Archer: Well, what's the word for it, Lana? You freaked out when I said "Quadroon!" Lana: Imagine that! Archer: You imagine it! Malory: Both of you, imagine shutting up!
+tv-archer	work-money	tv-quote	general	0	[Archer is hammering some paper into a shredder using a stapler] Lana: What are you doing? Archer: Uh, none-of-your-business-ing. And what kind of spy agency skimps on a freaking shredder?
+tv-archer	life	tv-quote	general	0	Cyril: Yeah, she's kind of weird that way. Conway: Yeah, she's kind of weird a bunch of ways.
+tv-archer	life	tv-quote	general	0	Pam: And don't go starting rumors about Conway boning your mother. [Archer throws up] Pam: You get any of that in the trashcan? Archer: No. I missed on purpose.
+tv-archer	life	tv-quote	general	0	Archer: Lana, call Kenny Loggins... 'cuz you're in the Danger Zone.
+tv-archer	life	tv-quote	edgy	1	[Lana slaps Archer] Lana: I want you to listen to me. Archer: Then unperforate my eardrum. Lana: Un... head up your ass.
+tv-archer	life	tv-quote	edgy	1	[Archer and Conway are hugging after they completed their mission. Conway stabs Archer in the back] Archer: Conway? Conway: Yeah, buddy. Archer: Are there more bad guys behind me? Conway: Nope. Archer: You dick.
+tv-archer	life	tv-quote	general	0	Conway: You haven't seen the last of Conway Stern... Which is not my real name.
+tv-archer	life	tv-quote	nsfw	1	Malory: And I don't want another one of your sullen whores using my medicine cabinet like a Pez dispenser.
+tv-archer	life	tv-quote	general	0	Archer: You said no dates. Malory: I said no such thing. Archer: Well, your mouth did. Malory: Well, your mouth better get over there and make Torvald happy! Archer: Um, phrasing?
+tv-archer	life	tv-quote	general	0	Malory: [to Archer] Regale him with tales of ISIS exploits. Take his mind off Lana's huge Johnny Benchian fingers. Lana: Could we get off my fingers? Cyril: Yeah, they are pretty big. Lana: First time I've heard you complain.
+tv-archer	food	tv-quote	general	0	Archer: All I've had today is, like, six gummy bears and some scotch.
+tv-archer	life	tv-quote	general	0	Woodhouse: [as everyone wonders what to with the bodies of Utne & Elke] I shall fetch a rug!
+tv-archer	life	tv-quote	general	0	Malory: But they were blanks! Weren't they? Archer: Only if the back of his skull picked that exact moment to explode outwards.
+tv-archer	life	tv-quote	general	0	Cyril: [carrying Torvald's body] I should be carrying her. Archer: [carrying Elke's body] Cyril, I paid her, I get to carry her corpse.
+tv-archer	life	tv-quote	general	0	Cheryl: Oh, I thought we were laughing at the dead people we set on fire.
+tv-archer	society	tv-quote	general	0	Mallory: Oh, all Hispanics look roguish.
+tv-archer	life	tv-quote	general	0	Archer: [Wearing only a towel and baseball catcher's mask] WOODHOUSE! Do we have any lube? Like at this point even some olive oil would [finds his mother in the living room] help me get that drawer unstuck.
+tv-archer	life	tv-quote	general	0	Mallory: And don't even get me started on Miss Gillette. [Meanwhile, at the office] Gillette: [To Pam and Cheryl] She has never liked me. But someday I'm gonna write a book about this place. Mhm, a real smackaroonie.
+tv-archer	life	quip	general	0	Charles: Oh my god, you like... sneeze glitter.
+tv-archer	society	tv-quote	general	0	Charles: What? Normal as opposed to gay? Rudy: Implying that gay is abnormal? Archer: Not abnormal, just... gay!
+tv-archer	life	tv-quote	general	0	Charles: Yeah. Latino men, you take the bad with the good.
+tv-archer	society	tv-quote	general	0	Charles: Oh my god, yes. Those NAZI uniforms? Rudy: Hugo Boss! Charles: Shut up! Rudy: Swear to god.
+tv-archer	life	tv-quote	general	0	Woodhouse: Sir, that stolen lemur bit one of your prostitutes right in the face and she says she can't go to hospital because she's, quote, "tripping balls."
+tv-archer	life	tv-quote	general	0	Archer: Jesus, Krieger, you're still taping bum fights? Krieger: No, now I'm into something... darker.
+tv-archer	life	tv-quote	general	0	Archer: Way the Christ out in the Everglades burying some Dominican guy's rooster! Charles: Fun! Wha - Oh, you mean literally.
+tv-archer	life	tv-quote	edgy	1	Ramón: Mamá always said, "Ramón, un hombre real debe saber cocinar." ["A real man should know how to cook"] Archer: Mine always said, "Sterling, come in here and check me for lumps." Holy shit, was that out loud?
+tv-archer	life	tv-quote	general	0	Woodhouse: From the looks of it, and not to mention the lemur, I would hazard he's taking a personal day.
+tv-archer	life	tv-quote	general	0	Woodhouse: Sir, the lemur bit one of the schoolgirls and she says she cannot go to the hospital because she is, quote, "tripping balls".
+tv-archer	life	tv-quote	general	0	Woodhouse: I'm afraid the lemur got into the pudding cups. Archer: Yeah, like I told you he would! You idiot!
+tv-archer	life	tv-quote	general	0	Charles: We bought those for him and if you throw them off the roof I will fly to New York and fling acid in your face.
+tv-archer	life	tv-quote	edgy	1	Archer: Out macho a gay guy? Oh my stars! Charles: Hmm, or you could be a sarcastic bitch your whole life.
+tv-archer	life	tv-quote	general	0	Charles: Okay, we're off to get our scrotums waxed!
+tv-archer	life	tv-quote	general	0	Archer: Yeah? Well, I'm dangerous and I'm going to win and GAY SEX!
+tv-archer	life	tv-quote	general	0	Archer: So, are you two even really gay!? Charles: As big ol' tangerines, yes.
+tv-archer	life	tv-quote	general	0	Archer: How do you say "The Hulk" in Spanish? Ramone: "El Hulk". Archer: Gay. Ramone: What? We don't have a word for "Hulk". Archer: Do you have a word for "gay"? Ramone: Gay. Archer: Gayer! Jesus, Spanish! Our jobs aren't enough; now you gotta take our words?
+tv-archer	life	tv-quote	general	0	Archer: [Stifling laughter] Woodhouse: he's all tied up somewhere, sc-scared and alone. PROBABLY DEHYDRATED!
+tv-archer	life	tv-quote	nsfw	1	Archer: Cyril, c'mon. Worst case scenario, her cover got blown and Skorpio's raping her senseless before he chops her battered corpse up into fish food. [Everyone gasps] Archer: What? I said worst case.
+tv-archer	love	tv-quote	general	0	Cyril: I moved in with my last girlfriend after four weeks! Lana: What are you? A lesbian? Pam: Why, would you be into that? Just curious... which was an odd word choice right there... and am I talking out loud...?
+tv-archer	life	tv-quote	general	0	Pam: And that's the reason I never have sex with my coworkers. That... and no one ever lets me. Krieger: I've had good results with ether.
+tv-archer	life	tv-quote	general	0	Krieger: Every single noun and verb in that sentence totally arouses me. Pam: And I'm so open to that.
+tv-archer	work-money	tv-quote	edgy	1	Krieger: These corporate bag munchers owe me $630 for my GODDAMN FLEX ACCOUNT.
+tv-archer	love	tv-quote	general	0	Malory: But even though Cyril may be clingy... Lana: Oh, Saran Wrap could take a lesson.
+tv-archer	life	tv-quote	general	0	Archer: [After being distracted by Lana in her underwear] Right, because you walked into Strippers Discount Warehouse and said, 'Help me showcase my intellect'!
+tv-archer	life	tv-quote	general	0	Malory: Oh, shut up. And Cyril? Very eager to know why you're still here. Lana: He was just- Cyril: -just helping Lana get settled! Archer: Trust me, Cyril, she already settled.
+tv-archer	life	tv-quote	general	0	Archer: Lana. Lana! LANA!!! Lana: WHAT?!? Archer: Danger Zone.
+tv-archer	love	tv-quote	general	0	Lana: Cyril is already freaked out enough about us sharing this shoebox without you air-drying your unkempt bush. Archer: Unkempt bush!? You're one to talk. Lana: My vulva is smoother than a veal cutlet!
+tv-archer	life	tv-quote	general	0	Lana: What would you say if I told you your mother made a phony bomb threat just to get a free ride on a blimp? Archer: I'd say that's fairly classic her.
+tv-archer	life	tv-quote	general	0	Lana: CAP-tain LAM-mers! Archer: Nice read, Velma.
+tv-archer	life	tv-quote	general	0	Pam: Wow, you are just a dog in a manger. Cheryl: I don't know what that means, Pam. I didn't grow up on a cheese farm. Pam: Oh, for the - It's called a dairy.
+tv-archer	life	tv-quote	edgy	1	[Lana finds Archer running away from the bomb] Lana: Where the fuck are you going?! Archer: To get my turtleneck! I'm not diffusing a bomb in this.
+tv-archer	work-money	tv-quote	general	0	Captain Lammers: The stock price could only go up, they said. Well guess what? Archer: Uh... it didn't?
+tv-archer	life	tv-quote	general	0	Cyril: [Wearing a small purple robe] Help me, Archer! I think I'm losing it here! Archer: Yeah, what gave it away, my mothers ro-WHY ARE YOU IN MY MOTHER'S ROBE?! Cyril: I can explain this! Archer: I don't think I want you to.
+tv-archer	society	tv-quote	general	0	Archer: There's your bomber: Beardsley McTurbanhead.
+tv-archer	life	tv-quote	edgy	1	Pam: God damn it! We're moving! Cheryl: I know! Pam: What happened to half an hour?! Cheryl: I lied!
+tv-archer	life	tv-quote	general	0	Lana: What are you doing back there? Archer: I don't know! Lana: What, are you just hitting random keys? Archer: Well, obviously!
+tv-archer	life	tv-quote	general	0	Lana: [To Malory] So as you can see, we are completely unprepared for this mission! Archer: [Wearing night-vision goggles and holding a shovel] Unless it involves night-shoveling.
+tv-archer	life	tv-quote	general	0	Archer: Cyril. Cyril! CYRIL! Cyril: What?! Archer: I'm rescuing Lana, as usual! Cyril: Hey, shut up!
+tv-archer	life	tv-quote	general	0	Cheryl: I love that you know how to do that. Krieger: And I love that I have an erection... that doesn't involve homeless people.
+tv-archer	life	tv-quote	edgy	1	Pam: Holy shit, you geeks are badass.
+tv-archer	life	tv-quote	edgy	1	Lana: We'll never catch him in this thing! Archer: Maybe you should've thought about that before you blew the damn drop! Lana: I blew jack shit! Archer: Name dropper.
+tv-archer	life	tv-quote	general	0	Archer: ODIN doesn't beat Sterling Archer! Only Sterling Archer beats... [He trails off as he realizes he's lost the target.] Lana: Do you wanna finish that thought? Archer: Do you wanna shut your big, fat, negative-wordsy mouth?!
+tv-archer	life	tv-quote	general	0	Lana: No! Baby, I am putting you in the corner.
+tv-archer	life	tv-quote	general	0	Lana: Telex. You got one in here? Archer: Why? So you can smash that too? Lana: No. Archer: [Talking over Lana] Because I'm pretty sure I'm financially responsible for the furnishings!
+tv-archer	family	tv-quote	general	0	Archer: Mother burned me? Lana: Apparently. Archer: Oh, my god, that's classic her. Lana: You're both classic her.
+tv-archer	life	tv-quote	general	0	Pam: Looks like Jonestown in here. Malory: Yes, Pam, get me some poison, because I am already dead inside. Pam: Too dead inside to read good news? Malory: Is it my obituary? Pam: Well, it's not that good.
+tv-archer	life	tv-quote	general	0	Malory: And? Pam: And... Malory: And are you going to loom over me all day, like some sort of... henge?
+tv-archer	life	tv-quote	general	0	Archer: [To Lana] Oh, OK! Then I guess just pout!
+tv-archer	love	tv-quote	general	0	Cyril: You've cheated on Lana plenty. Archer: Yeah, but with starlets, models. Oh, and one time, two actual princesses. Pam: Two at the same time? Archer: Yeah. They were sisters. Pam: Sploosh!
+tv-archer	life	tv-quote	general	0	Archer: You just destroyed my innocence! Mallory: Oh, please! That Brazilian au pair did that when you were 13. Archer: 12!
+tv-archer	life	tv-quote	general	0	Major Jackov: [Discussing his plan to kidnap Archer] Turn him into, how you say, vole? Russian Soldier: I think you mean mole. Major Jackov: Ah? Russian Soldier: Mole. Vole is also rodent but more closely related to lemming.
+tv-archer	life	tv-quote	general	0	Krieger: [as his mechanical robot hand chokes Cheryl] Oh, God! Sorry! [He shuts the hand off] Cheryl: What are you doing?! Krieger: I thought you said "start slacking off." Cheryl: Not "slacking off"!
+tv-archer	life	tv-quote	general	0	Archer: Hey! Kidnappers! Super not in the mood for this right now!
+tv-archer	love	tv-quote	general	0	Cyril: Why are you even here? Ray: Hello... [holding up number to bid on sex with Lana] Cyril: But you're gay! Ray: Girl, please, nobody's that gay.
+tv-archer	life	tv-quote	general	0	Archer: I know, right? Totally McQueen!!
+tv-archer	life	tv-quote	general	0	Archer: You seriously have to get out of here before the cops come... Or wait, what do you have in Switzerland? Some kind of pikemen?
+tv-archer	society	tv-quote	general	0	Anka: I'm from Germany, where the age of consent is 14. Archer: What is it, the Alabama of Europe? Anka: In many ways, yes.
+tv-archer	society	tv-quote	edgy	1	Archer: Fuck you, Switzerland.
+tv-archer	life	tv-quote	edgy	1	Lana: Was that before or after you got caught fondling a teenager? Archer: Well, obviously before; after was all gendarmes and dick stitches.
+tv-archer	life	tv-quote	edgy	1	Archer: I saved her life! Go ask that dick I set on fire.
+tv-archer	life	tv-quote	edgy	1	Anka: Are you insane?! Archer: No. Just incredibly pissed off!
+tv-archer	life	tv-quote	general	0	Anka: That's no fun, then you don't get to squirt that hot white cream all over your face! Archer: Why aren't you with Gillette?!
+tv-archer	life	tv-quote	general	0	Cheryl: Trust me, you can't control a person's heart. Krieger: You can with a little thing I call a deep cycle marine battery. [pause] Or LSD. Cheryl: Is that what you've been giving me? Krieger: ...Yes. Cheryl: I just thought they were breath strips!
+tv-archer	life	tv-quote	edgy	1	Barry: ...So don't try to do anything stupid. Archer: I don't have to try [pause] Shit, whatever. Move. [walks away]
+tv-archer	life	tv-quote	general	0	Cyril: These are from a doctor! Cheryl: So? Krieger's a doctor. Cyril: Not the medical kind! Krieger: Not even the other kind, technically.
+tv-archer	tech	tv-quote	general	0	[Krieger demonstrates the mind control chip in a rabbit] Archer: Freaky! Krieger: You wanna know what's freaky? Guess what I already named that bunny. Archer: Rabbert Klein? Krieger: Wow. That's... actually better. Archer: It's all yours.
+tv-archer	tech	tv-quote	general	0	Archer: [talking about a mind control chip placed in a rabbit] Can you put it in a person's brain? Krieger: [pause] It'd suffocate... Archer: Not the rabbit, idiot; the chip. Krieger: Oh, yes. Absolutely. Archer: Without killing the person? Krieger: Oh. [pause] Maybe?
+tv-archer	life	tv-quote	general	0	Archer: Cyril, better pill up; you're assisting Krieger with the surgery. Cyril: Why me? Archer: You're good at math. Cyril: How's that supposed to help? Archer: Can't hurt.
+tv-archer	life	tv-quote	edgy	1	Trexler: Barry, you ass, for the love of all that's green take me and Rabbert to the lettuce store.
+tv-archer	life	tv-quote	general	0	Archer: Hey, you idiots wanna hear my plan or not? [Silence] Alright... Suggestions. Cyril: About what? Archer: What are we talking about... Stopping my mother from selling ISIS to ODIN! Cyril: You said you had a plan. Archer: My plan is to crowdsource a plan!
+tv-archer	life	tv-quote	general	0	Archer: I feel terrible. Malory: That's because those ODIN ghouls drained a fifth of your blood! Archer: Oh, hey, speaking of fifth... Malory: A drink's the last thing you need!
+tv-archer	life	tv-quote	general	0	[Archer is throwing all Woodhouse's shoes off the balcony] Archer: Because I told you to buy Lemon Curd! Now what am I going to spread on my toast, Your tears?!
+tv-archer	life	tv-quote	general	0	Krieger: Have you ever thought about having children? Cheryl: Sometimes I think I'd like to adopt a little baby. [Pause] So I could abandon it at a mall. Krieger: That answers my follow up question.
+tv-archer	life	tv-quote	general	0	[Cyril is unconscious in the bathroom] Pam: Cyril. Hey, you awake? [Undoing her belt and dropping her skirt] 'Cause this is about to get weird.
+tv-archer	life	tv-quote	general	0	Lana: Pam! Get off Cyril! Pam: [Coming out of the bathroom] I was trying to get him off, Buttinski!
+tv-archer	life	tv-quote	general	0	Archer: Thank you, certified air boat mechanic!
+tv-archer	life	tv-quote	general	0	Archer: WOOOHOOOOOOO!!! THIS MUST BE WHAT IT'S LIKE TO HAVE SEX WITH ME! Lana: HOW CAN AN AIR BOAT BE SELFISH?!
+tv-archer	life	tv-quote	general	0	Archer: Burt Reynolds is my spirit guide! Lana: Did you say "man crush"? Archer: No, I'm pretty sure it was "shut up!"
+tv-archer	life	tv-quote	general	0	Cyril: For god's sake, Pam! Have you no sense of decency? That bathroom's like a... a war crime. Pam: Don't blame me, it's those new low-flow toilets! With the old ones, you could flush a dachshund puppy. [Pause] I mean, not that you would.
+tv-archer	life	tv-quote	general	0	Josh Gray: Lana, I really like your new hairdo. Lana: Well, if you like the collar, you're gonna love the cuffs...
+tv-archer	love	tv-quote	general	0	Archer: That's just great. She gets dinner and Dixieland and laid. And I get mosquitoes and no beer and... not laid. How could this get any... [alligator surfaces and growls] LET ME FINISH... worse. You ruined it. You ruined the moment.
+tv-archer	life	tv-quote	general	0	Archer: You realise you're in huge trouble? Woodhouse: Yes, sir. Archer: And now I have to spend my first Friday off in forever devising some bizzare punishment for you? Woodhouse: Yes, sir. Archer: So don't be surprised if you end up eating a whole bunch of... spiderwebs.
+tv-archer	life	tv-quote	general	0	Archer: He might have a tiny hangover...
+tv-archer	life	tv-quote	general	0	Archer: You want me to take a baby to a murder? Malory: Wherever, just out of here. I have no more love left to give today. Archer: Yeah and what is it? Two-Thirty?
+tv-archer	food	tv-quote	edgy	1	Reggie: You scoundrel. Is that brandy? Woodhouse: Oh no sir, just water. Reggie: Water? Oh, never touched the stuff. Fish fuck in it.
+tv-archer	work-money	tv-quote	general	0	Reggie: Good God, man, are you hourly?
+tv-archer	life	tv-quote	edgy	1	Lana: SO GO ALREADY! Bag with which one douches.
+tv-archer	life	tv-quote	general	0	Archer: Render the salad unto Caesar!
+tv-archer	life	tv-quote	general	0	Pam: Frickin' head's poundin', I'm sweatin' booze and my mouth's killin' me! Cheryl: You're the one who stuffed four pool balls in it. Pam: Personal best! Lana: Your mother must be SO proud.
+tv-archer	life	tv-quote	general	0	Lana: [To Archer] What's up with your mother? Archer: What comes after infuriated?
+tv-archer	life	tv-quote	general	0	Cyril: So how about I take a look at it? I'm sure I could kill that pesky ol' worm. Lana: How? You gonna disappoint it to death?
+tv-archer	society	tv-quote	general	0	Cheryl: And now we're on the brink of World War Two. Pam: Three. Cheryl: It's not a competition, Pam!
+tv-archer	life	tv-quote	general	0	Archer: It's like it's made out of Wolverine's bones.
+tv-archer	love	tv-quote	general	0	Archer: Krieger, whose virtual girlfriend is so real that the state of New York is allowing him to legally marry her!
+tv-archer	life	tv-quote	general	0	Malory: So how's this going? Dr. Krieger: Not great.
+tv-archer	life	tv-quote	general	0	Cheryl: Who am I, Elisha Otis?
+tv-archer	arts	tv-quote	edgy	1	Archer: Get me drunk enough and I might have sex with you. Pam: Really? Archer: No! Its a catch-22. The amount of alcohol it would take would literally kill me! Pam: Dick. Archer: But I do want to see how many pool balls you can fit in your mouth. Pam: My record is three.
+tv-archer	tech	tv-quote	general	0	Archer: Who am I, Alan Turing?
+tv-archer	life	tv-quote	general	0	Archer: [Spotting Spelvin's bikini-clad Asian ninja bodyguards] I'm suddenly much less angry.
+tv-archer	life	tv-quote	edgy	1	[Archer is disarmed and wounded by Spelvin's bikini-clad Asian ninja bodyguards] Archer: Damn it, Cyril! You said they were sexy! Cyril: Ninjas are sexy!
+tv-archer	life	tv-quote	general	0	Archer: Am I getting some signals?
+tv-archer	love	tv-quote	general	0	Archer: Come back to me, I can do better.
+tv-archer	life	tv-quote	general	0	Archer: Come, Kriegerbots, avenge your fallen comrade! What voice is that? Is that from Bullwinkle?
+tv-archer	life	tv-quote	general	0	Rona: Lana, hush! If you sit quietly, the toxin should wear off in, like, four hours. But if you struggle, your heart could... Archer: [Bursting in with his gun drawn] Freeze!
+tv-archer	life	tv-quote	general	0	Russian Soldier: [Patting the voice-changing gadget] Is my new favourite device of ever.
+tv-archer	work-money	tv-quote	general	0	Malory: Pam, those quarterly reports better be on my desk when I walk in there! Pam: Ummm... Are you walking in there right now?
+tv-archer	life	tv-quote	general	0	[Malory has revealed she may have breast cancer] Krieger: My entire laboratory is at your disposal. Malory: [Sarcastically] Thanks. I'll let you know if I need a hybrid pig-boy. Krieger: A What?! I don't have one of those! [Cut to a shot of Krieger killing 'Pigley'] ... Anymore.
+tv-archer	life	tv-quote	general	0	[Archer is standing over what appears to be a partly-dismantled nuclear warhead. It's emitting a green glow] Archer: Wait, seriously don't open it? Ray: [via Com link] Yes! Archer: Oh. I thought you were being sarcastic.
+tv-archer	life	tv-quote	general	0	Archer: [Holding a radioactive vial] Looking for this? Or maybe the lead container I probably should've kept it in?
+tv-archer	life	tv-quote	general	0	Archer: Yup, Stage Two breast cancer. Yeah, I mean it's not as bad as stage three or four. But, obviously not as good as no cancer.
+tv-archer	life	tv-quote	general	0	Archer: [To Woodhouse] Macrobiotic food. Find out what that is and start cooking it.
+tv-archer	life	tv-quote	general	0	Mallory: [seriously drunk without eating all day] If I don't get something to eat, I'm literally going to die.
+tv-archer	life	tv-quote	general	0	Cyril: I spent last night in the tombs, getting worked over by the cops! Ray: Fun! ... Oh, you mean literally.
+tv-archer	life	tv-quote	general	0	Cheryl: [In the waiting room] Oh my god! how much Cancer was in him? This is so boring and forever-taking.
+tv-archer	life	tv-quote	nsfw	1	Archer: Wow, what a pussy. I could barely even keep up, he was spilling the beans so fast. Lana: Well, you threatened to shove a knife up his dick hole. Which, again, ick. Archer: Well excuse me, Lana. It's a rampage.
+tv-archer	life	tv-quote	general	0	Archer: Don't you worry, Ruth... I'm gonna make them pay for it. Malory: What are you - ? Sterling, No! You're not well. What are you going to do? Archer: Cry havoc and let slip the hogs of war! Lana: Dogs of war... Archer: Whatever farm animal of war, Lana! Shut up!
+tv-archer	life	tv-quote	general	0	Archer: What have I been doing? Lana: Chain-smoking joints the size of tampons! Archer: Ew! Lana: Figure of speech. Archer: Still, though. Lana: Are you not rampaging? I thought you were rampaging.
+tv-archer	society	tv-quote	edgy	1	Cheryl: I spent, like, every summer there listening to my creepy great-grandmother bitch about Abraham Lincoln. Apparently slavery was pretty awesome. Malory: Prove it. Archer: What's to prove? It's free labor.
+tv-archer	life	tv-quote	general	0	Malory: Why would anyone want to kidnap you? Cheryl: Because my last name isn't Gimple, like it says on my W-4. It's Tunt. Archer: Tum again?
+tv-archer	life	tv-quote	edgy	1	Lana: [looking out the window of Cheryl's mansion] Is... that... Cheryl: [rolling her eyes] Yesss... Lana: The Roosevelt Mansion?! Cheryl: Total shitbox, they're weird.
+tv-archer	life	tv-quote	general	0	[A kidnapper punches Pam in the face] Pam: Who taught you how to punch? [Spits] Your husband?
+tv-archer	arts	tv-quote	general	0	[Archer is talking to the kidnappers] Archer: How long do I need to keep them on? Ray: Two minutes. Lana: What?! Archer: What happened to thirty seconds?! Ray: Uh, your mother's budget priorities?!
+tv-archer	life	tv-quote	general	0	Kidnapper: You idiots! This isn't Cheryl Tunt! Pam: That's what I've been tryin' to tell ya. Between this little gal's love-taps - [Kidnapper hits Pam in the face] Seriously, maybe see if your daddy'll give you a roll of nickels.
+tv-archer	life	tv-quote	edgy	1	Pam: Screw them! Especially Cheryl; I hope you kidnap the shit out of her.
+tv-archer	life	tv-quote	general	0	Cheryl: It's crazy stupid boring in here! Archer: Well, now you know how Babou feels. Cheryl: ...Crepuscular?
+tv-archer	life	tv-quote	nsfw	1	Kidnapper: Thanks for getting us inside, Pam. [beat] Someone shoot her. Pam: Oh, OK, then good luck with all the biometric scanners. Unless you wanna cut off my fingers and scoop out my retinas. [Pause] Oh, don't be dicks!
+tv-archer	life	tv-quote	general	0	[Pam's using a retina scanner] Kidnapper: Would you hurry up?! Pam: Hey, I'm not the one smashed my eyes into eggplants! Nutsack!
+tv-archer	life	tv-quote	nsfw	1	Cheryl: I didn't kidnap myself, he did! [points at Cyril] Cyril: Who, me?! No! No, I've been up here the whole time, having some phone sex! Just jackin' it...on the telephone. Archer: Um, does internet porn know you're cheating on it?
+tv-archer	life	tv-quote	general	0	[Archer is behind Cheryl, who is screaming] Archer: Shut up! That vest is bullet-proof! Cheryl: Oh. [gets shot in the arm] OW! Archer: But it is, y'know, a vest.
+tv-archer	life	tv-quote	general	0	Malory: I don't care if it's a Wehrmacht reunion party, this isn't my first Grand Prix you know.
+tv-archer	life	tv-quote	nsfw	1	Malory: Oh don't worry. He may be a vain, selfish, lying, and quite possibly alcoholic man-whore, but gambling is one vice Sterling doesn't have. Archer: Uh, I guess it's cause he's doing all that other awesome stuff, thanks mother.
+tv-archer	life	tv-quote	general	0	Malory: Why isn't there a metal briefcase full of bearer-bonds handcuffed to your drinking arm?! Archer: Uh, [Raises his glass] pretty sure you just answered your own question.
+tv-archer	life	tv-quote	general	0	Lana: Why would she pay four millions dollars for unverified information? Ray: Well, either she's getting Alzheimer's... Archer: Hey. Ray: Or it's another sex-tape. Archer: HEY! [pause] Actually, that would not surprise me.
+tv-archer	life	tv-quote	general	0	[repeatedly] Various: Benoit... Archer: Balls.
+tv-archer	life	tv-quote	general	0	Archer: Lana, what are you mad at me for? Mother took your 401(k). All I did was foolishly gamble it all away. Ray: ...He does have a point.
+tv-archer	life	tv-quote	general	0	, Benoit: Impossible, madam: all my bellhops have been taken prisoner by the Wehrmacht.
+tv-archer	life	tv-quote	general	0	Archer: There's a zoo here?
+tv-archer	life	tv-quote	nsfw	1	Pam: ...And some blow jobs... I mean, printers.
+tv-archer	life	tv-quote	general	0	Archer: He's headed for the coast road! Ray: Thanks Captain Obvious!
+tv-archer	life	tv-quote	general	0	Lana: What the hell are you doing?! Archer: Shooting at his tires so he loses control and drives off the cliff! Lana: With the bearer bonds! Archer: Yes, Lana, with the... Dammit!
+tv-archer	life	tv-quote	general	0	Benoit: I can't see, you fool; get off! Archer: I am getting off, I love this.
+tv-archer	life	tv-quote	edgy	1	Pilot: [sigh] What an asshole...
+tv-archer	life	quip	edgy	1	Russian: What an asshole...
+tv-archer	life	tv-quote	general	0	Malory: And then I put whipped cream over everything and you know where this goes...
+tv-archer	life	tv-quote	general	0	Lana: Undercover? Malory: Of course undercover! Lana: As what? Russia's only black woman?
+tv-archer	love	tv-quote	general	0	Malory: You're still together? Barry: Ex-fiance, thats what I meant to say. Malory: Well, then it wasn't meant to be. Barry: [nervous chuckle] I don't even know... how to respond to that.
+tv-archer	life	tv-quote	general	0	Barry: Lesson one - Archer: Don't "lesson one" me, Barry.
+tv-archer	life	tv-quote	general	0	Barry: According to ODIN's guy in the KGB. Which, as a real agency, we have. Malory: We've got guys in the KGB too, smarty. Barry: Yeah. So I hear. Malory: How did... Pam! Pam: [From outside office] I'm still not eavesdropping!
+tv-archer	society	tv-quote	general	0	Archer: Piece of - ! How are you a super power!?
+tv-archer	life	tv-quote	edgy	1	Archer: Oh that is bullshit! Who would break into this shit hole!?
+tv-archer	life	tv-quote	edgy	1	Russian: Come on, we don't have all night. Archer: Yeah right, like you've got plans. Russian: Goodbye, Mr. Archer. Archer: Hey. Fuck you, you douche bag.
+tv-archer	life	tv-quote	general	0	Archer: [sounding like Cyril] Hello... Malory: What in the name of prepaid venereal disease do you think you're doing? Archer: I... uh... Katya: Darling, I know she is old, but you allow such talk from your secretary?
+tv-archer	life	tv-quote	general	0	Malory: And don't you want to freshen up after your long ride? Archer: Phrasing, Mother!
+tv-archer	life	tv-quote	general	0	Dr. Krieger: Almost as cool as my van.
+tv-archer	life	quip	general	0	Russian: If I tell you all at once, your head might explode... Along with comb over.
+tv-archer	life	tv-quote	general	0	Archer: It's ok, it was just cancer sex.
+tv-archer	tech	tv-quote	general	0	Archer: So you! [Smack] Can you hack into the KGB servers? Bilbo: pfft... Does one ring rule them all?
+tv-archer	life	tv-quote	general	0	Ray: For God's sake woman, are you hearing yourself? He's your son, not a... Lana: Ray, she got him to quit drinking... Ray: [Lifts guns] So what's the plan?
+tv-archer	society	tv-quote	general	0	Archer: Wait, does Canada even have a spy agency? Katya: Yes, but... Archer: Wha - why? Haha, it's Canada.
+tv-archer	life	tv-quote	general	0	Major Jackov: So, Comrade Bionic Barry, can you solve my Kasnova problem? Barry: Yeah, probably. If I knew and/or cared what that was. But since I don't and/or do not, I'm going to kill and/or murder Sterling Archer.
+tv-archer	life	tv-quote	nsfw	1	Malory: I swear, if any one saw me in this awful van. Lana: How could they with this illegal ass window tint. Dude, this van is like, rolling probable cause. Malory: So all ashore from the S.S. Date Rape. Ray: Toot toot.
+tv-archer	life	tv-quote	general	0	Archer: Is anybody hit? Not really the explosive climax I thought it was gonna be. Ray: Is nobody gonna touch that? Seriously?
+tv-archer	life	tv-quote	general	0	Ray: Yeah, it is the first thing they'd do. It's like, counter-intelligence 101.
+tv-archer	faith	tv-quote	general	0	Ray: How 'bout a disgraced former minister. Long story, kinda boring, but I am still licensed by the state to perform marriages, the irony of which is not lost on me.
+tv-archer	life	tv-quote	general	0	Archer: [To Barry] How are you not dead? Barry: The Russians turned me into the unholy abomination of metal fused with flesh that now stands before you.
+tv-archer	life	tv-quote	general	0	Archer: [While being choked by Barry] Wow, Barry, you're like super-strong! Barry: Yeah, did I mention I'm a cyborg?
+tv-archer	life	tv-quote	general	0	Barry: What part of "I'm a cyborg" are you people still not getting? Archer: The core concept, I guess.
+tv-archer	arts	tv-quote	edgy	1	Barry: YEAH! One for three off the roof, Bitch! WOO!
+tv-archer	life	tv-quote	general	0	Malory: FOR THREE MONTHS! Sterling has been missing for three months and you idiots have not been able to find him! Ray: Well, name-calling is not going to get us- [Malory lets out a long sentence full of profanity, all covered by a long *Bleep*]...anywhere.
+tv-archer	life	tv-quote	nsfw	1	Pam: What a hunk Cheryl: Total sploosh. Lana: Yeah, gotta give him a sploosh. Ray: And whatever my equivalent of sploosh is. Which I guess is just sploosh. Only with semen.
+tv-archer	life	tv-quote	general	0	Archer: So excuse me for needing some time to grieve. Rip: By tending bar and banging newly weds? Archer: Apparently that's my grieving process.
+tv-archer	society	tv-quote	edgy	1	Archer: A ruse? Hi, it's the 1930s. Can we have our words and clothes and shitty airplane back? Rip: Let's go, kid. Archer: Call you back, 1930s. And, hey, watch out for that Adolf Hitler. He's a bad egg.
+tv-archer	life	tv-quote	general	0	Malory: But if the emergency beacon is going off -- oh my God, their plane crashed! Cheryl: (gasps) I said that would happen and it did! What if I have psycho-kinetic powers?! Pam: I dunno, just try to only use em for good. Cheryl: ....no.
+tv-archer	life	tv-quote	general	0	Pirate Captain: What a hell, dumb guy?
+tv-archer	life	tv-quote	general	0	Rip: You just killed like ten pirates. Archer: Wow, if the five year old me knew that, he'd get a huge boner.
+tv-archer	life	tv-quote	general	0	Archer: Noah, I'm half drunk and slathered in every bodily fluid there is... so yeah... this is about as Pirate Kingy as I'm going to get so brief away... Noah... Good Morning.
+tv-archer	life	tv-quote	general	0	Lana: What's your blood type? Archer: How should I know? Lana: How could you NOT know? Archer: Who am I, Karl Landsteiner?
+tv-archer	life	tv-quote	nsfw	1	[Archer's team have just lost a pub quiz, thanks to Pam] Archer: Your exact words, Pam: "Dr. Charles Drew or I will eat a bag of dicks"! Pam: [Belch] Bring 'em!
+tv-archer	life	tv-quote	general	0	Bucky: You will never make it to the helicopter. My men will cut you down like dogs! Archer: Thanks, Human Shield.
+tv-archer	life	tv-quote	edgy	1	Lana: (while shooting at pirates) AAAHHHH!!!!! GET SOME, YOU SONS OF BITCHES! SUCK IT!
+tv-archer	life	tv-quote	general	0	Cheryl: BUUUURT REYNOLDS! IS ON LINE ONNNNNEEEE!!!!...for you, for some reason.
+tv-archer	life	tv-quote	general	0	[Pam and Cheryl are looking at pictures of Burt Reynolds online] Pam: I swear to god, you could drown a toddler in my panties right now! ... Not that you would.
+tv-archer	life	tv-quote	general	0	Malory: [To Cheryl] I swear, if you throw that computer on the floor one more time, you'll wake up in a mental ward with total amnesia under someone else's name! Pam: That's actually kinda scary. Cheryl: Nah. Wouldn't be the first time.
+tv-archer	life	tv-quote	general	0	Burt Reynolds: That's not your car? Archer: Yeah. What? Burt Reynolds: Nothing... I just didn't know they sold those to men. Archer: Sure, laugh it up, Burt. Burt Reynolds: I am.
+tv-archer	life	tv-quote	nsfw	1	Cheryl: That Burt Reynolds is so freaking awesome! Archer: Yeah, he... kinda is. Pam: After this, I am going to go home, watch Hooper and masturbate until my fingers bleed. [Cheryl and Archer stare at her] Cheryl: Just tape them up!
+tv-archer	life	tv-quote	general	0	Ray: You're taking me out of the field? Malory: Well, unless we need someone to go undercover as a shopping cart...
+tv-archer	work-money	tv-quote	edgy	1	Malory: If you were in my tax bracket, you wouldn't be shouting such socialist propaganda. Archer: Or wearing such shitty clothes.
+tv-archer	life	tv-quote	general	0	Archer: [On Cyril being a field agent] The last time I tried to train him resulted in a dead hooker in my trunk! Cyril: There was no dead hooker. Archer: There easily could have been!
+tv-archer	life	tv-quote	general	0	Archer: Well, look on the bright side. Lana: Which is? Archer: Which is what? Lana: You just said look on the bright side. Archer: It's a figure of speech.
+tv-archer	life	tv-quote	general	0	Lana: You're looking for Predator, aren't you? Archer: ...Yes. Lana: [sighs] Couple things. A, he's invisible. Archer: Not totally, he has a tell-tale shimmer.
+tv-archer	life	tv-quote	edgy	1	Cheryl: [vomiting in a toilet] Oh, my God. I'm gonna die in a toilet stall, just like the gypsy said! Pam: Damn that Krieger! Nazi clone bastard!
+tv-archer	life	tv-quote	general	0	Calzado: Tomorrow I will be hunting the most dangerous game in the world. Archer: Jai alai?
+tv-archer	life	tv-quote	general	0	Lana: [As she and Archer try to run away] Go, go, go - [Archer grabs her shirt and pulls her back to the ground as he runs away] AH! Are you really that selfish?! Archer: Apparently!
+tv-archer	life	tv-quote	edgy	1	Archer: AGH! Eat a dick, jungle!
+tv-archer	life	tv-quote	general	0	Archer: For a second there I thought you were a crocodile on a three wheeler. Calzado: Crocodiles on a three wheeler? Archer: Right, how scary would that be?
+tv-archer	life	tv-quote	edgy	1	Calzado: What the hell, damn guy?!
+tv-archer	life	tv-quote	general	0	Archer: Speaking of excellence, did you hear we met a tiger? But... he was murdered.
+tv-archer	life	tv-quote	general	0	Archer: I've always wanted to fight on top of a moving train. Bilko: Well, if I know my boys, you might get your chance, big guy. Archer: Thanks, Freddy Foreshadowing.
+tv-archer	society	tv-quote	general	0	Cheryl: My great-grandfather was nuts for skating. That and the Klan.
+tv-archer	life	tv-quote	general	0	Malory: Have the porter bring me a cobb salad. Lana: Before or after we capture the dangerous terrorist? Malory: Before.
+tv-archer	life	tv-quote	general	0	Archer: I'm looking for a terrorist and an ocelot!
+tv-archer	society	tv-quote	edgy	1	Kenny Bilko: [on the phone] Alright boys, these ISIS bastards are serious, they just shot a black guy. [waits for a response] I know right?! Welcome to America!
+tv-archer	life	tv-quote	edgy	1	Archer: Get 'em up, Dudley Douche-bag!
+tv-archer	life	tv-quote	general	0	Lana: Please tell me that's a smoke grenade. Archer: Okay... it's not though.
+tv-archer	nature	tv-quote	general	0	Archer: [Describing an ocelot's paw-prints] They look just like a house-cat's, but bigger and awesomer.
+tv-archer	life	tv-quote	general	0	Archer: Paging Doctor Boy, Doctor Birthday Boy!
+tv-archer	life	tv-quote	general	0	Archer: Does no one seriously know what today is? Pam: Tuesday? Cheryl: The rapture?
+tv-archer	life	tv-quote	general	0	Archer: [staring at his back-lit, in-car minibar] It's like looking into the face of God.
+tv-archer	life	tv-quote	general	0	Pam: Well go on, give your mom a hug. Malory: Oh, I don't think that's... Archer: [interrupting] Possible. Malory: What? Lana: Ugh, he's got an erection. Archer: It's this Corinthian leather!
+tv-archer	life	tv-quote	general	0	Lana: How much did Dodge kick in? Malory: Not as much as you'd think.
+tv-archer	life	tv-quote	general	0	Archer: Black, powerful, sexy. Like if Ron O'Neal was a car.
+tv-archer	life	tv-quote	edgy	1	Malory: Who taught you to drive? Cheryl: This guy I know called my dead father. Malory: Oh... I... Cheryl: Yeah, I bet you feel like a dick.
+tv-archer	life	tv-quote	general	0	Malory: That was for Pearl Harbor!
+tv-archer	life	tv-quote	edgy	1	Archer: I have a question, Mother. Why does this chair have no seat... and WHAT... IS IN HIS ASS?!
+tv-archer	life	tv-quote	edgy	1	Archer: Mother! What is in his ass?! Malory: Oh, please. Don't act like you've never seen a "marital aid" before. Archer: Not in a dead prime minister's ass! Malory: And you can stop repeating that! We've established where it is!
+tv-archer	food	tv-quote	general	0	Lana: So, we've got a dead Italian prime minister in the living room which - Archer: Sucks, because I bet he knew how to make sauce.
+tv-archer	food	tv-quote	general	0	Malory: So once again you're left with the classic Irish man's dilemma, do I eat the potato now or let it ferment so I can drink it later?
+tv-archer	life	tv-quote	general	0	Archer: What is your problem with the Irish? Malory: You mean besides not being on our side in World War II? Archer: Yeah, besides that. Wait, seriously? They were Nazis? Lana: No! Archer: Well, they're not Japanese... Lana: Neutral!
+tv-archer	life	tv-quote	general	0	Krieger: I need access to a two-inch drain, hot water, three GFCI outlets - this bathroom should do nicely - and a pot of coffee just like I like my women: black, bitter, preferably fair trade.
+tv-archer	life	tv-quote	general	0	Archer: You got a potato? Malory: What is this? Christmas? And is Krieger... hard at work? Archer: He literally might be, yes. Lana: Ew.
+tv-archer	life	tv-quote	general	0	Lana: Somebody's trying to frame Malory for murdering the Prime Minister of Italy. Cheryl: Oooo, I bet it's that wicked king!
+tv-archer	life	tv-quote	general	0	Cyril: I hate all of you so much. Ray: No one cares, Figgis. You're only here to round out the numbers.
+tv-archer	life	tv-quote	general	0	Malory: But Krieger, wait. The bathroom, the body, how did you - Krieger: [puts his finger over Malory's mouth] Shh shh shh shh shh shh shh. You don't want to know. But you do probably want to go wash your lips now.
+tv-archer	life	tv-quote	general	0	Archer: The truth is that your seemingly effeminate brother is, in fact, a highly trained secret agent. Randy: [Sarcastically] Yeah, and I'm... something equally hard to believe is true.
+tv-archer	life	tv-quote	general	0	Archer: I feel sick. What's happening? Do I have cancer again? Ray: You drank too much! Archer: That's a thing?
+tv-archer	life	tv-quote	general	0	Ray: I'm coming out. Archer: Ha ha, phrasing.
+tv-archer	life	tv-quote	general	0	[Repeated line, said by many different characters] Question: Is that the truth? Response: ...Mostly.
+tv-archer	faith	tv-quote	general	0	Archer: For I am a sinner in the hands of an angry God. Bloody Mary, full of vodka, blessed are you among cocktails. Pray for me now and at the hour of my death, which I hope is soon. Amen.
+tv-archer	life	tv-quote	general	0	Major Jackov: Et tu, Brute?! Russian Soldier: Et me, buddy.
+tv-archer	life	tv-quote	edgy	1	Cheryl: It has to be your place. Mine totally reeks of ocelot piss.
+tv-archer	love	tv-quote	general	0	Archer: If anyone found out, I'd literally die of shame. Pam: And how do you think that makes me feel?! Archer: I don't care, Pam! [Pause] Having said that, would you please come into this dirty toilet stall and have sex with me? Pam: Oh, alright.
+tv-archer	life	tv-quote	general	0	Pam: This time really get in there. All you've been doing is giving one side hell.
+tv-archer	life	tv-quote	general	0	Archer: Who hunts dogs? Cheryl: Orientals, duh!
+tv-archer	life	tv-quote	general	0	Archer: Where did you learn all that stuff? Pam: You know I grew up on a farm, right? Archer: Really hoping that's not relevant.
+tv-archer	life	tv-quote	general	0	Archer: And instead of doing my job, I was here... Half-drunk and having amazing sex. Pam: Well, I wouldn't say "amazing." [Archer looks at her] C'mon, you were pushing rope!
+tv-archer	life	tv-quote	general	0	Krieger: I'm not a... serial killer! Archer: Wait, why did you emphasize "serial"?
+tv-archer	life	tv-quote	general	0	Pam: It's Bearclaw Monday!
+tv-archer	life	tv-quote	general	0	Archer: [To Cyborg-Katya] That's your original skin, right? Krieger: [Under a cough] Hobo. Archer: What? Krieger: ...Yes?
+tv-archer	life	tv-quote	general	0	[Archer and Cyborg-Katya are in bed. Cyborg-Katya's eyes are glowing red] Archer: Can you close your eyes? It feels like I'm banging tail-lights on a country road.
+tv-archer	life	tv-quote	general	0	Lana: If you want to know why Archer is Archer, you need to go back in time and have a threesome with Oedipus and Sigmund Freud!
+tv-archer	arts	tv-quote	general	0	[Archer has drunk an entire bottle of scotch] Cyril: That was a gift to my grandfather! From Frank! SINATRA! Archer: Which makes me feel even more terrible, since I'm going to puke it back up in five - [burps] one minutes...
+tv-archer	life	tv-quote	general	0	Mallory: What, were they [Barry and Katya] having sex? Lana: I think so. Mallory: Called it!
+tv-archer	life	tv-quote	general	0	Lana: I know that sucked... Archer: Vacuum Cleaner puns?! Really?!
+tv-archer	life	tv-quote	general	0	Archer: Barry Cheryl: Polo Archer: Will you shut up! Cheryl: (grunt) Polo Archer: Uhh! I say all sides by idiots
+tv-archer	life	tv-quote	general	0	Krieger: Uhhh ... SMOKEBOMB! [runs away]
+tv-archer	life	tv-quote	edgy	1	[Archer holding baseball mitt up, as ball slowly floats back to him] Archer: Fuck you, space.
+tv-archer	life	tv-quote	general	0	Archer: Happy, Cyril?! You just destroyed Alderaan!
+tv-archer	life	tv-quote	general	0	Archer: Are you trying to get my mother into the Million-Mile-High Club?
+tv-archer	life	tv-quote	general	0	Drake: Are the restraints really necessary? Kellogg: Archer broke both Wu's arms. While shouting "Woo!" Archer: Happy accident.
+tv-archer	life	tv-quote	general	0	Kellogg: What's taking so long?! Horizon Drone: Couple things. One, I didn't invent whatever this door's made of, which is apparently some alloy of adamantium and mithril. And two, not really liking your tone!
+tv-archer	life	tv-quote	general	0	Barry: [singing] Flying into space. To shoot the dickbag... In his face!
+tv-archer	tech	tv-quote	general	0	Drake: I DARE YOU TO SAY "DWARVEN TECHNOLOGY"
+tv-archer	life	tv-quote	general	0	Cyril: I think I got 'em. Did I get 'em? Lana: You did. You got those two guys, who were just minding their own business... Ooh! And also the one remaining person who could fly us back to Earth! Archer: A black astronaut, Cyril! That's like killing a unicorn!
+tv-archer	life	tv-quote	general	0	Pam: Holy crapsnack, is this gonn - Archer: Don't, don't you say it.
+tv-archer	life	tv-quote	general	0	Pam: Worse, I was going to say worse. Archer: What, really? Pam: Yes.
+tv-archer	life	tv-quote	general	0	Carol: Jesus Christ, could you PLEASE think of somebody other than yourself for once in your life?! Lana: And that's her talking.
+tv-archer	life	tv-quote	general	0	Pam: Speaking of, you see the bulge on that towel boy? Man, if I was you, I'd be in this spa 25/8. Cheryl: Yeah, but then I wouldn't get to hang out with everybody at work. Pam: You hate everybody at work. Cheryl: I know. It's the only thing that gets me out of bed every morning.
+tv-archer	life	tv-quote	general	0	Lana: I want it on record that I think this is a terrible plan. Malory: Duly noted and disregarded. And I expect you to be totally convincing. Lana: As the damsel in distress? Have you ever met a woman less damsely? Malory: ...Pam.
+tv-archer	food	tv-quote	general	0	Archer: Sour Mix? In a Margarita? What is this, Auschwitz?
+tv-archer	life	tv-quote	general	0	Malory: I'm off for a seaweed wrap. Ray: [Under his breath] I didn't know they made sushi with dried clams.
+tv-archer	life	tv-quote	general	0	Malory: Oh, Ron, thank you for coming so quickly. Pam: Phrasing! First! Boom!
+tv-archer	work-money	tv-quote	general	0	Pam: This is Rodney, he's the new... whatever... Gun Librarian. Rodney: Armoury Supervisor!
+tv-archer	life	tv-quote	general	0	[Cyril activates a laser alarm] Lana: How could you not see that?! Cyril: Because, I only have two eyes and they were both busy looking for hunters! Lana: [Referring to Cyril's bright orange snow clothes] Why, is it "pumpkin season"?! Cyril: [Gasps] Is that a thing?
+tv-archer	life	tv-quote	general	0	Archer: [Seeing Cyril's orange snow clothes on the ground] Okay, so...really don't know what to make of that. Unless...[Looks around] Wait, no, no. Get it out of your head. Predator only hunts in tropical jungles...I assume...and desperately hope.
+tv-archer	life	tv-quote	general	0	Archer: Ray's gonna be a cyborg over my dead body! Or preferably his! [Pause] But somebody's!
+tv-archer	life	tv-quote	general	0	Archer: Jesus Christ, how many times do I have to apologize for that? Cheryl: Once would be nice! Archer: Hmm... No.
+tv-archer	tech	tv-quote	edgy	1	Archer: Are you going to open the damn door? Rodney: Only if you give me that weapon. Archer: Do you honestly want to live through the Rise of the Machines?! Which you won't, because no one will?! Rodney: Uh - Archer: It was rhetorical!
+tv-archer	life	tv-quote	nsfw	1	Cyril: Why is your instinctive response to run toward explosions? Lana: Ummm... Because... I'm not a giant pussy! Cyril: And yet, somehow, incredibly single.
+tv-archer	life	tv-quote	edgy	1	Archer: Thank you... What was your name again? Rodney: Rodney. Archer: Thank you. Asshole.
+tv-archer	life	tv-quote	general	0	Ron:...Which is why Ron Cadillac is opting out. And also why Ron Cadillac is going to swing by Montreal on his way home. Because Ron Cadillac is FREAKING EPIC!
+tv-archer	life	tv-quote	general	0	Pam: My cooch has cobwebs!
+tv-archer	life	tv-quote	edgy	1	Archer: Damn you tinitus, you're a cruel mistress!
+tv-archer	life	tv-quote	general	0	Archer: Since certain people around here may not see how brilliant my plan is, they're gonna need to be... Pam: Convinced? Archer: I'm sorry, did you say 'incapacitated'?
+tv-archer	life	tv-quote	edgy	1	Lana: [Climbing into air vent] Holy shit, there really are nerve gas canisters up here. [Beat] I though that was a joke.
+tv-archer	life	tv-quote	general	0	Lana: I want it officially on record that I am strongly opposed to this mission. Mallory: [Laughs] What record?
+tv-archer	life	tv-quote	edgy	1	Archer: [To Ray] You're shitting me! Bionic legs and you lift with your back?!
+tv-archer	life	tv-quote	general	0	Archer: Cyril, if you call ISIS: I will literally, LITERALLY murder you! I'd rather die than sit through another one of Lana's I Told You So 's
+tv-archer	life	tv-quote	general	0	Archer: [Stranded in the desert] Unless I'm hallucinating, there's a Land Cruiser over there flipping his high-beams at us. Cyril & Ray: You're hallucinating. Archer: Oh. Well, the good news is we don't have to worry about these alligators... that's not actually good news, is it?
+tv-archer	work-money	tv-quote	general	0	Archer: He's a Master Chef! Which, turns out, is not nearly as gay a job as I thought it was. I mean, it's no secret agent, but it's way above architect.
+tv-archer	life	tv-quote	general	0	Lance Casteau: Remember when I said you could've been a great chef? Archer: Yes. Lance: Every morning I make two cooks like you in the toilet.
+tv-archer	life	tv-quote	general	0	Lana: [To Cyril] Would you man up, Kimmy Kevlar?!
+tv-archer	life	tv-quote	general	0	Cheryl: Milk comes from Mexicans? Oh my God, what's cereal made from?!
+tv-archer	life	tv-quote	general	0	Malory: Swear to God, you people make me want to pump nerve gas through the vents. Krieger: [over loudspeaker] Just say the word.
+tv-archer	life	tv-quote	general	0	Malory: [To Bilbo] Clean the impending massive heart attack out of your ears!
+tv-archer	family	tv-quote	general	0	Cyril: God, were you raised in a barn? Pam: No. I just slept out there a lot.
+tv-archer	life	tv-quote	general	0	Archer: Go online and check your bank account. Lana: Now? When I'm suction-cupped on a window thirty stories above the ground? Archer: Yeah! You should have five bars. Lana: Okay so, it's gonna sound like I'm hanging up? But - [hangs up]
+tv-archer	life	tv-quote	general	0	Cyril: Suppressing Fiiiireeeee-Extinquisherrrrr! Archer: Is that... Lana: Cyril?! Cyril: Lana! Lana: I'm coming, Cyril! Archer: Lana, wait! Bet that's the first time you ever said that. Right? Huh? Okay now we can go.
+tv-archer	life	tv-quote	general	0	Archer: SMOKE FIGHT! WOOOO!
+tv-archer	life	tv-quote	edgy	1	Lana: [cocking a gun] Cyril, hit the deck! Archer: Wait, why Cyril- Lana: [Shooting North Korean spies] GET SOME, YOU SONS OF BITCHES! GET SOME!
+tv-archer	life	tv-quote	general	0	Pam: Aww man, did I miss it?! Cheryl: Oh my god, the toilet!? Pam: No, Jesus! ... Although it IS clogged.
+tv-archer	life	tv-quote	general	0	Archer: Don't ruin the moment.
+tv-archer	life	tv-quote	general	0	Archer: You're missing out on all the great things that Tangiers has to offer. Lana: Name one. Archer: Cheap... Lana: [Interrupting] Apart from cheap hash and a repulsively low age of consent. Archer: Rugs?
+tv-archer	life	tv-quote	general	0	Cheryl: Ms. Archer, Lana for you, line one. Malory: I'm not here. Cheryl: [scared] Then how...
+tv-archer	life	tv-quote	edgy	1	Malory: ...and then, give me the file I asked for! Ray: Yeah, why don't I shove a broom up my ass and sweep the floor while I'm at it? Malory: What was that? Ray: Nothing! Malory: Good. Saves you the embarrassment of an incredibly homophobic remark. Cheryl: Awwwww.
+tv-archer	life	tv-quote	general	0	Archer: Lana! NOW! Lana: He said, last-wordsingly.
+tv-archer	life	tv-quote	edgy	1	[Archer pulls up in a Bubble Car] Lana: Are you shitting me?! Archer: What? It was either this or the Vespas. It's not my fault Italy's so gay!
+tv-archer	life	tv-quote	general	0	Swiss Guard: The good news is my men have apprehended Cardinal Correlli, who immediately confessed to the plot. Pam: HA-HEY! That is good news! Lana: You know how the whole the good news is thing works, right? Swiss Guard: The bad news is... Pam: Oh, right.
+tv-archer	life	tv-quote	general	0	Malory: The B-52 is on the ocean floor here at a depth of 8,000 feet - Archer: Or 1,333 fathoms. Lana: How do you know that? Archer: How do you not?
+tv-archer	life	tv-quote	general	0	Malory: ...So we're going to beat the Russians! Archer: [Sarcastically claps] Give it up, everyone. Mike Eruzione!
+tv-archer	society	tv-quote	general	0	Cheryl: [To her brother] You really spent your entire inheritance on... the poors?
+tv-archer	life	tv-quote	general	0	Cpt. Murphy: I'll be waiting for you. Lana: Was that... Did he sound like... Do you think this is some kind of a trap? Archer: What? No, Idon't think it's a trap! Although I never do. [Beat] And it very often is.
+tv-archer	life	tv-quote	edgy	1	Lana: We're from ISIS. Cpt. Murphy: Jesus Christ, no wonder this all went tits-up.
+tv-archer	life	tv-quote	general	0	Ray: LANA! Would you hurry up? Lana: Said the guy apparently too busy counting his bionic legs to help.
+tv-archer	life	tv-quote	general	0	Malory: Amphetamines?! Pam: Right? And I know it sounds crazy, but I like them as much as cocaine!
+tv-archer	life	tv-quote	edgy	1	Krieger: [seeing the Yakuza at the door on a monitor] Hey, so, did somebody order Chinese? Malory They're Japanese, you idiot! Krieger: [to his virtual girlfriend] Oh, for... I don't get all pissy every time you mistake a Dutchman for a Swede! Either time that happened!
+tv-archer	life	tv-quote	general	0	Lana: Okay, listen up, there are way too many windows and doors to cover, so we need to concentrate on chokepoints. [Cheryl excitedly laughs] Not that kind of chokepoints.
+tv-archer	life	tv-quote	general	0	Ron: Next time, remind me to get shot in the head. Archer: Ron, next time, get shot in the head.
+tv-archer	life	tv-quote	general	0	Cheryl: [as Pam carries her off] This is only somewhat like that old Gypsy woman said!
+tv-archer	life	tv-quote	nsfw	1	Cyril: How do you not know the different kinds of porn? Archer: Because I have sex with actual women, Cyril! My girlfriend's not equal parts the Internet, a tube of Kentucky jelly, self-loathing and a sock
+tv-archer	life	tv-quote	general	0	Cyril: What do crocodiles eat? Archer: EVERYTHING! THEY EAT EVERYTHING! And fear is their bacon bits!
+tv-archer	life	tv-quote	general	0	Archer: Goddammit, how are we not doing "phrasing"?!

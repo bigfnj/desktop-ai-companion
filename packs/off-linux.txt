@@ -1,0 +1,7 @@
+off-linux	tech	quip	general	0	A word to the wise: a credentials dicksize war is usually a bad idea on the net.
+off-linux	tech	joke	general	0	What's this script do? unzip ; touch ; finger ; mount ; gasp ; yes ; umount ; sleep Hint for the answer: not everything is computer-oriented. Sometimes you're in a sleeping bag, camping out with your girlfriend. -- Contributed by Frans van der Zande
+off-linux	tech	quip	edgy	1	printk("ufs_read_super: fucking Sun blows me\n"); -- /usr/src/linux/fs/ufs/ufs_super.c
+off-linux	tech	insult	edgy	1	KDE == (see GayDE) Kool Desktop Environment - Make X Window look like winbloze... What a fucking great idea! The developers of this have a mental sickness, please avoid this product -> see GNOME. -- Jakes on #Debian
+off-linux	life	quip	general	0	'Mounting' is used for three things: climbing on a horse, linking in a hard disk unit in data systems, and, well, mounting during sex.
+off-linux	tech	quip	edgy	1	This is a scsi driver, scraes the shit out of me, therefore I tapdanced and wrote a unix clone around it (C) by linus -- Somewhere in the kernel tree
+off-linux	tech	quip	edgy	1	> No manual is ever necessary. May I politely interject here: BULLSHIT. That's the biggest Apple lie of all! -- Discussion in comp.os.linux.misc on the intuitiveness of interfaces

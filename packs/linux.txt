@@ -1,0 +1,346 @@
+linux	tech	quip	general	0	"How do you pronounce SunOS?" "Just like you hear it, with a big SOS" -- dedicated to Roland Kaltefleiter
+linux	tech	quip	general	0	finlandia:~> apropos win win: nothing appropriate.
+linux	tech	joke	general	0	C:\> WIN Bad command or filename C:\> LOSE Loading Microsoft Windows ...
+linux	tech	quip	general	0	Linux ext2fs has been stable for a long time, now it's time to break it -- Linux-Kongress '95 in Berlin
+linux	tech	quip	general	0	The state of some commercial Un*x is more unsecure than any Linux box without a root password...
+linux	life	quip	general	0	Less is more or less more -- Y_Plentyn on #LinuxGER
+linux	tech	quip	general	0	Let's call it an accidental feature. --Larry Wall
+linux	tech	quip	general	0	......... Escape the 'Gates' of Hell `:::' ....... ...... ::: * `::. ::' ::: .:: .:.::. .:: .:: `::. :' ::: :: :: :: :: :: :::. ::: .::. .:: ::. `::::. .:' ::. ...:::.....................::' .::::..
+linux	tech	quip	general	0	Win95 is not a virus; a virus does something. -- unknown source
+linux	tech	quip	general	0	Machine Always Crashes, If Not, The Operating System Hangs (MACINTOSH) -- Topic on #Linux
+linux	tech	quip	general	0	Save yourself from the 'Gates' of hell, use Linux." -- like that one. -- The_Kind @ LinuxNet
+linux	tech	quip	general	0	I did this 'cause Linux gives me a woody. It doesn't generate revenue. -- Dave '-ddt->` Taylor, announcing DOOM for Linux
+linux	tech	quip	general	0	Feel free to contact me (flames about my english and the useless of this driver will be redirected to /dev/null, oh no, it's full...).
+linux	tech	quip	general	0	if (argc > 1 && strcmp(argv[1], "-advice") == 0) { printf("Don't Panic!\n"); exit(42); }
+linux	tech	quip	general	0	lp1 on fire -- One of the more obfuscated kernel messages
+linux	tech	quip	general	0	A Linux machine! Because a 486 is a terrible thing to waste!
+linux	tech	quip	general	0	Microsoft is not the answer. Microsoft is the question. NO (or Linux) is the answer. -- Taken from a .signature from someone from the UK, source unknown
+linux	tech	quip	general	0	In most countries selling harmful things like drugs is punishable. Then how come people can sell Microsoft software and go unpunished?
+linux	tech	joke	general	0	Fatal Error: Found [MS-Windows] System -> Repartitioning Disk for Linux... (By cbbrown@io.org, Christopher Browne)
+linux	tech	quip	general	0	Windows without the X is like making love without a partner.
+linux	tech	quip	general	0	Sex, Drugs & Linux Rules
+linux	tech	quip	general	0	win-nt from the people who invented edlin.
+linux	faith	observation	general	0	Apples have meant trouble since eden.
+linux	tech	quip	general	0	Linux, the way to get rid of boot viruses
+linux	tech	quip	general	0	We are MicroSoft. You will be assimilated. Resistance is futile. -- Attributed to B.G., Gill Bates
+linux	tech	quip	general	0	Avoid the Gates of Hell. Use Linux -- Unknown source
+linux	tech	quip	general	0	Linux! Guerrilla UNIX Development Venimus, Vidimus, Dolavimus.
+linux	tech	quip	general	0	----==-- _ / / \ ---==---(_)__ __ ____ __ / / /\ \ --==---/ / _ \/ // /\ \/ / / /_/\ \ \ -=====/_/_//_/\_,_/ /_/\_\ /______\ \ \ A proud member of TeamLinux \_________\/ -- CHaley (HAC), haley@unm.edu, ch008cth@pi.lanl.gov)
+linux	tech	joke	general	0	"Who is General Failure and why is he reading my hard disk?" Microsoft spel chekar vor sail, worgs grate !!
+linux	tech	quip	general	0	/* * Oops. The kernel tried to access some bad page. We'll have to * terminate things with extreme prejudice. */ die_if_kernel("Oops", regs, error_code); -- From linux/arch/i386/mm/fault.c
+linux	tech	quip	general	0	Linux: because a PC is a terrible thing to waste -- ksh@cis.ufl.edu put this on Tshirts in '93
+linux	tech	quip	general	0	Linux: the choice of a GNU generation -- ksh@cis.ufl.edu put this on Tshirts in '93
+linux	tech	quip	general	0	There are two types of Linux developers - those who can spell, and those who can't. There is a constant pitched battle between the two. -- From one of the post-1.1.54 kernel update messages posted to c.o.l.a
+linux	tech	quip	general	0	When you say "I wrote a program that crashed Windows", people just stare at you blankly and say "Hey, I got those with the system, *for free*".
+linux	tech	quip	general	0	We come to bury DOS, not to praise it.
+linux	tech	quip	general	0	Be warned that typing \fBkillall \fIname\fP may not have the desired effect on non-Linux systems, especially when done by a privileged user. -- From the killall manual page
+linux	tech	observation	general	0	Note that if I can get you to "su and say" something just by asking, you have a very serious security problem on your system and you should look into it.
+linux	tech	quip	general	0	How should I know if it works? That's what beta testers are for. I only coded it. -- Attributed to Linus Torvalds, somewhere in a posting
+linux	tech	quip	general	0	I develop for Linux for a living, I used to develop for DOS. Going from DOS to Linux is like trading a glider for an F117.
+linux	life	quip	general	0	Absolutely nothing should be concluded from these figures except that no conclusion can be drawn from them.
+linux	tech	quip	general	0	If the future navigation system [for interactive networked services on the NII] looks like something from Microsoft, it will never work. -- Chairman of Walt Disney Television & Telecommunications
+linux	tech	quip	general	0	Problem solving under Linux has never been the circus that it is under AIX.
+linux	tech	observation	general	0	I don't know why, but first C programs tend to look a lot worse than first programs in any other language (maybe except for fortran, but then I suspect all fortran programs look like `firsts')
+linux	tech	quip	general	0	On a normal ascii line, the only safe condition to detect is a 'BREAK' - everything else having been assigned functions by Gnu EMACS.
+linux	tech	quip	general	0	By golly, I'm beginning to think Linux really *is* the best thing since sliced bread.
+linux	tech	quip	general	0	I'd crawl over an acre of 'Visual This++' and 'Integrated Development That' to get to gcc, Emacs, and gdb. Thank you.
+linux	tech	quip	general	0	Oh, I've seen copies [of Linux Journal] around the terminal room at The Labs.
+linux	tech	quip	general	0	If you want to travel around the world and be invited to speak at a lot of different places, just write a Unix operating system.
+linux	life	quip	general	0	...and scantily clad females, of course. Who cares if it's below zero outside.
+linux	tech	quip	general	0	...you might as well skip the Xmas celebration completely, and instead sit in front of your linux computer playing with the all-new-and-improved linux kernel version.
+linux	tech	quip	general	0	Besides, I think Slackware sounds better than 'Microsoft,' don't you?
+linux	tech	quip	general	0	And the next time you consider complaining that running Lucid Emacs 19.05 via NFS from a remote Linux machine in Paraguay doesn't seem to get the background colors right, you'll know who to thank.
+linux	tech	quip	general	0	Are Linux users lemmings collectively jumping off of the cliff of reliable, well-engineered commercial software?
+linux	faith	quip	general	0	Even more amazing was the realization that God has Internet access. I wonder if He has a full newsfeed?
+linux	tech	observation	general	0	I once witnessed a long-winded, month-long flamewar over the use of mice vs. trackballs... It was very silly.
+linux	tech	quip	general	0	Linux poses a real challenge for those with a taste for late-night hacking (and/or conversations with God).
+linux	tech	quip	general	0	What you end up with, after running an operating system concept through these many marketing coffee filters, is something not unlike plain hot water.
+linux	tech	wisdom	general	0	...Deep Hack Mode -- that mysterious and frightening state of consciousness where Mortal Users fear to tread.
+linux	tech	quip	general	0	...Unix, MS-DOS, and Windows NT (also known as the Good, the Bad, and the Ugly).
+linux	tech	quip	general	0	...very few phenomena can pull someone out of Deep Hack Mode, with two noted exceptions: being struck by lightning, or worse, your *computer* being struck by lightning.
+linux	tech	quip	general	0	..you could spend *all day* customizing the title bar. Believe me. I speak from experience.
+linux	tech	joke	general	0	[In 'Doctor' mode], I spent a good ten minutes telling Emacs what I thought of it. (The response was, 'Perhaps you could try to be less abusive.')
+linux	tech	quip	general	0	I would rather spend 10 hours reading someone else's source code than 10 minutes listening to Musak waiting for technical support which isn't.
+linux	tech	quip	general	0	...[Linux's] capacity to talk via any medium except smoke signals.
+linux	tech	quip	general	0	Whip me. Beat me. Make me maintain AIX.
+linux	tech	quip	general	0	Your job is being a professor and researcher: That's one hell of a good excuse for some of the brain-damages of minix.
+linux	tech	quip	general	0	I still maintain the point that designing a monolithic kernel in 1991 is a fundamental error. Be thankful you are not my student. You would not get a high grade for such a design :-)
+linux	tech	quip	general	0	We use Linux for all our mission-critical applications. Having the source code means that we are not held hostage by anyone's support department.
+linux	tech	quip	general	0	Linux is obsolete
+linux	tech	quip	general	0	Dijkstra probably hates me.
+linux	tech	quip	general	0	And 1.1.81 is officially BugFree(tm), so if you receive any bug-reports on it, you know they are just evil lies.
+linux	tech	quip	general	0	We are Pentium of Borg. Division is futile. You will be approximated. -- seen in someone's .signature
+linux	tech	quip	general	0	Linux: the operating system with a CLUE... Command Line User Environment. -- seen in a posting in comp.software.testing
+linux	tech	quip	general	0	quit When the quit statement is read, the bc processor is terminated, regardless of where the quit state- ment is found. For example, "if (0 == 1) quit" will cause bc to terminate. -- seen in the manpage for "bc". Note the "if" statement's logic
+linux	life	quip	general	0	Sic transit discus mundi
+linux	tech	quip	general	0	Sigh. I like to think it's just the Linux people who want to be on the "leading edge" so bad they walk right off the precipice.
+linux	tech	quip	general	0	We all know Linux is great... it does infinite loops in 5 seconds. - Linus Torvalds about the superiority of Linux on the Amsterdam Linux Symposium
+linux	tech	quip	general	0	Waving away a cloud of smoke, I look up, and am blinded by a bright, white light. It's God. No, not Richard Stallman, or Linus Torvalds, but God. In a booming voice, He says: "THIS IS A SIGN. USE LINUX, THE FREE UNIX SYSTEM FOR THE 386.
+linux	tech	quip	general	0	The chat program is in public domain. This is not the GNU public license. If it breaks then you get to keep both pieces. -- Copyright notice for the chat program
+linux	tech	quip	general	0	Manchmal stehe nachts auf und installier's mir einfach... -- H0arry @ IRC
+linux	tech	quip	general	0	We are using Linux daily to UP our productivity - so UP yours! -- Adapted from Pat Paulsen by Joe Sloan
+linux	tech	quip	general	0	But what can you do with it? -- ubiquitous cry from Linux-user partner -- (Submitted by Andy Pearce, ajp@hpopd.pwd.hp.com)
+linux	tech	quip	general	0	DOS: n., A small annoying boot virus that causes random spontaneous system crashes, usually just before saving a massive project. Easily cured by UNIX. See also MS-DOS, IBM-DOS, DR-DOS.
+linux	tech	quip	general	0	MSDOS didn't get as bad as it is overnight -- it took over ten years of careful development. -- dmeggins@aix1.uottawa.ca
+linux	tech	quip	general	0	LILO, you've got me on my knees!
+linux	tech	quip	general	0	I've run DOOM more in the last few days than I have the last few months. I just love debugging ;-)
+linux	tech	quip	general	0	Now I know someone out there is going to claim, "Well then, UNIX is intuitive, because you only need to learn 5000 commands, and then everything else follows from that! Har har har!"
+linux	tech	quip	general	0	How do I type "for i in *.dvi do xdvi $i done" in a GUI? -- Discussion in comp.os.linux.misc on the intuitiveness of interfaces
+linux	tech	quip	general	0	>Ever heard of .cshrc? That's a city in Bosnia. Right? -- Discussion in comp.os.linux.misc on the intuitiveness of commands
+linux	tech	quip	general	0	Not me, guy. I read the Bash man page each day like a Jehovah's Witness reads the Bible. No wait, the Bash man page IS the bible. Excuse me... -- More on confusing aliases, taken from comp.os.linux.misc
+linux	tech	quip	general	0	On the Internet, no one knows you're using Windows NT -- Submitted by Ramiro Estrugo, restrugo@fateware.com
+linux	tech	quip	general	0	> I'm an idiot.. At least this [bug] took about 5 minutes to find.. Disquieting ...
+linux	tech	quip	general	0	> I'm an idiot.. At least this [bug] took about 5 minutes to find.. We need to find some new terms to describe the rest of us mere mortals then.
+linux	tech	quip	general	0	> I'm an idiot.. At least this [bug] took about 5 minutes to find.. Surely, Linus is talking about the kind of idiocy that others aspire to :-).
+linux	life	quip	general	0	Never make any mistaeks.
+linux	tech	quip	general	0	+#if defined(__alpha__) && defined(CONFIG_PCI) + /* + * The meaning of life, the universe, and everything. Plus + * this makes the year come out right. + */ + year -= 42; +#endif -- From the patch for 1.3.2: (kernel/time.c), submitted by Marcus Meissner
+linux	tech	quip	general	0	As usual, this being a 1.3.x release, I haven't even compiled this kernel yet. So if it works, you should be doubly impressed.
+linux	life	quip	general	0	People disagree with me. I just ignore them.
+linux	tech	quip	general	0	It's now the GNU Emacs of all terminal emulators.
+linux	tech	quip	general	0	Audience: What will become of Linux when the Hurd is ready? Eric Youngdale: Err... is Richard Stallman here? -- From the Linux conference in spring '95, Berlin
+linux	tech	quip	general	0	Linux: The OS people choose without $200,000,000 of persuasion.
+linux	tech	quip	general	0	The memory management on the PowerPC can be used to frighten small children.
+linux	tech	quip	general	0	... faster BogoMIPS calculations (yes, it now boots 2 seconds faster than it used to: we're considering changing the name from "Linux" to "InstaBOOT"
+linux	tech	quip	general	0	... of course, this probably only happens for tcsh which uses wait4(), which is why I never saw it. Serves people who use that abomination right 8^)
+linux	tech	quip	general	0	It's a bird.. It's a plane.. No, it's KernelMan, faster than a speeding bullet, to your rescue. Doing new kernel versions in under 5 seconds flat..
+linux	tech	quip	general	0	Eh, that's it, I guess. No 300 million dollar unveiling event for this kernel, I'm afraid, but you're still supposed to think of this as the "happening of the century" (at least until the next kernel comes along).
+linux	tech	quip	general	0	Oh, and this is another kernel in that great and venerable "BugFree(tm)" series of kernels. So be not afraid of bugs, but go out in the streets and deliver this message of joy to the masses.
+linux	tech	aphorism	general	0	Never trust an operating system you don't have sources for. ;-) -- Unknown source
+linux	tech	quip	general	0	> Linux is not user-friendly. It _is_ user-friendly. It is not ignorant-friendly and idiot-friendly. -- Seen somewhere on the net
+linux	tech	quip	general	0	Keep me informed on the behaviour of this kernel.. As the "BugFree(tm)" series didn't turn out too well, I'm starting a new series called the "ItWorksForMe(tm)" series, of which this new kernel is yet another shining example.
+linux	tech	quip	general	0	Seriously, the way I did this was by using a special /sbin/loader binary with debugging hooks that I made ("dd" is your friend: binary editors are for wimps).
+linux	tech	quip	general	0	(I tried to get some documentation out of Digital on this, but as far as I can tell even _they_ don't have it ;-)
+linux	tech	quip	general	0	Q: Why shouldn't I simply delete the stuff I never use, it's just taking up space? A: This question is in the category of Famous Last Words..
+linux	tech	joke	general	0	Q: What's the big deal about rm, I have been deleting stuff for years? And never lost anything.. oops! A: ...
+linux	tech	quip	general	0	Linux is addictive, I'm hooked!
+linux	tech	quip	general	0	panic("Foooooooood fight!"); -- In the kernel source aha1542.c, after detecting a bad segment list
+linux	tech	quip	general	0	Footnotes are for things you believe don't really belong in LDP manuals, but want to include anyway.
+linux	tech	quip	general	0	Ok, I'm just uploading the new version of the kernel, v1.3.33, also known as "the buggiest kernel ever".
+linux	tech	quip	general	0	Go not unto the Usenet for advice, for you will be told both yea and nay (and quite a few things that just have nothing at all to do with the question). -- seen in a .sig somewhere
+linux	tech	quip	general	0	Those who don't understand Linux are doomed to reinvent it, poorly. -- unidentified source
+linux	tech	quip	general	0	Look, I'm about to buy me a double barreled sawed off shotgun and show Linus what I think about backspace and delete not working. -- some anonymous .signature
+linux	tech	quip	general	0	We apologize for the inconvenience, but we'd still like yout to test out this kernel.
+linux	tech	quip	general	0	The new Linux anthem will be "He's an idiot, but he's ok", as performed by Monthy Python. You'd better start practicing.
+linux	tech	quip	general	0	How do you power off this machine? -- Linus, when upgrading linux.cs.helsinki.fi, and after using the machine for several months
+linux	tech	quip	general	0	Excusing bad programming is a shooting offence, no matter _what_ the circumstances.
+linux	tech	quip	general	0	Linus? Whose that? -- clueless newbie on #Linux
+linux	tech	quip	general	0	N: Phil Lewis E: beans@bucket.ualr.edu D: Promised to send money if I would put his name in the source tree. S: PO Box 371 S: North Little Rock, Arkansas 72115 S: US -- /usr/src/linux/CREDITS
+linux	tech	quip	general	0	> You know you are "there" when you are known by your first name, and > are recognized. > Lemmie see, there is Madonna, and Linus, and ..... help me out here! Bill ? ;-) -- From some postings on comp.os.linux.misc
+linux	tech	quip	general	0	Whoa...I did a 'zcat /vmlinuz > /dev/audio' and I think I heard God... -- mikecd on #Linux
+linux	tech	quip	general	0	MS-DOS, you can't live with it, you can live without it. -- from Lars Wirzenius' .sig
+linux	tech	quip	general	0	.. I used to get in more fights with SCO than I did my girlfriend, but now, thanks to Linux, she has more than happily accepted her place back at number one antagonist in my life..
+linux	tech	quip	general	0	I mean, well, if it were not for Linux I might be roaming the streets looking for drugs or prostitutes or something. Hannu and Linus have my highest admiration (apple polishing mode off).
+linux	tech	quip	general	0	"Linux was made by foreign terrorists to take money from true US companies like Microsoft." - Some AOL'er. "To this end we dedicate ourselves..." -Don -- From the sig of "Don", don@cs.byu.edu
+linux	tech	observation	general	0	> Is there any hope for me? Am I just thick? Does anyone remember the > Rubiks Cube, it was easier! I found that the Rubiks cube and Linux are alike. Looks real confusing until you read the right book. :-) -- seen on c.o.l.misc, about the "Linux Learning Curve"
+linux	tech	quip	general	0	> I've hacked the Xaw3d library to give you a Win95 like interface and it > is named Xaw95. You can replace your Xaw3d library. Oh God, this is so disgusting! -- seen on c.o.l.development.apps, about the "Win95 look-alike"
+linux	tech	quip	general	0	> I get the following error messages at bootup, could anyone tell me > what they mean? > fcntl_setlk() called by process 51 (lpd) with broken flock() emulation They mean that you have not read the documentation when upgrading the kernel. -- seen on c.o.l.misc
+linux	tech	quip	general	0	Only wimps use tape backup: _real_ men just upload their important stuff on ftp, and let the rest of the world mirror it ;)
+linux	tech	quip	general	0	One of the things that hamper Linux's climb to world domination is the shortage of bad Computer Role Playing Games, or CRaPGs. No operating system can be considered respectable without one.
+linux	tech	quip	general	0	The game, anoraks.2.0.0.tgz, will be available from sunsite until somebody responsible notices it and deletes it, and shortly from ftp.mee.tcd.ie/pub/Brian, though they don't know that yet.
+linux	tech	quip	general	0	'Ooohh.. "FreeBSD is faster over loopback, when compared to Linux over the wire". Film at 11.'
+linux	tech	joke	general	0	Q: Would you like to see the WINE list? A: What's on it, anything expensive? Q: No, just Solitaire and MineSweeper for now, but the WINE is free.
+linux	tech	quip	general	0	So in the future, one 'client' at a time or you'll be spending CPU time with lots of little 'child processes'.
+linux	tech	quip	general	0	We should start referring to processes which run in the background by their correct technical name... paenguins.
+linux	tech	quip	general	0	We can use symlinks of course... syslogd would be a symlink to syslogp and ftpd and ircd would be linked to ftpp and ircp... and of course the point-to-point protocal paenguin.
+linux	life	quip	general	0	This is a logical analogy too... anyone who's been around, knows the world is run by paenguins. Always a paenguin behind the curtain, really getting things done. And paenguins in politics--who can deny it?
+linux	tech	quip	general	0	Linux: Where Don't We Want To Go Today? -- Submitted by Pancrazio De Mauro, paraphrasing some well-known sales talk
+linux	tech	quip	general	0	The most important design issue... is the fact that Linux is supposed to be fun...
+linux	tech	quip	general	0	In short, at least give the penguin a fair viewing. If you still don't like it, that's ok: that's why I'm boss. I simply know better than you do. -- Linus "what, me arrogant?" Torvalds, on c.o.l.advocacy
+linux	tech	joke	general	0	<SomeLamer> what's the difference between chattr and chmod? <SomeGuru> SomeLamer: man chattr > 1; man chmod > 2; diff -u 1 2 | less -- Seen on #linux on irc
+linux	tech	quip	general	0	The linuX Files -- The Source is Out There. -- Sent in by Craig S. Bell, goat@aracnet.com
+linux	tech	quip	general	0	If Bill Gates is the Devil then Linus Torvalds must be the Messiah. -- Unknown source
+linux	tech	quip	general	0	Vini, vidi, Linux! -- Unknown source
+linux	tech	quip	general	0	Checking host system type... i586-unknown-linux configure: error: sorry, this is the gnu os, not linux -- Topic on #Linux
+linux	tech	observation	general	0	It's easy to get on the internet and forget you have a life -- Topic on #LinuxGER
+linux	tech	quip	general	0	To kick or not to kick... -- Somewhere on IRC, inspired by Shakespeare
+linux	tech	quip	general	0	Linux - Where do you want to fly today? -- Unknown source
+linux	tech	quip	general	0	The easiest way to get the root password is to become system admin. -- Unknown source
+linux	tech	quip	general	0	The good thing about standards is that there are so many to choose from.
+linux	tech	quip	general	0	The primary difference [...] is that the Java program will reliably and obviously crash, whereas the C Program will do something obscure
+linux	tech	quip	general	0	LOAD "LINUX",8,1 -- Topic on #LinuxGER
+linux	tech	verse	general	0	Old MacLinus had a stack/l-i-n-u-x/and on this stack he had a trace/l-i-n-u-x with an Oops-Oops here and an Oops-Oops there here an Oops, there an Oops, everywhere an Oops-Oops. -- tjimenez@site.gmu.edu, linux.dev.kernel
+linux	tech	quip	general	0	Not only Guinness - Linux is good for you, too. -- Banzai on IRC
+linux	tech	quip	general	0	> NE-2000 clone. Pentium optimizing gcc (pentium gcc pl8 I think). ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Build a kernel with the proper gcc. Reports with a non standard compiler are useless.
+linux	tech	quip	general	0	BTW: I have a better name for the software .... Microsoft Internet Exploder.
+linux	tech	joke	general	0	Well, since MS can't be sure of the username of someone downloading things, they are going to play it safe and have everything downloaded and executed by Explorer as suid root. That way, it will run on ANY system anywhere. :)
+linux	tech	quip	general	0	If you really want pure ASCII, save it as text... or browse it with your favorite browser...
+linux	tech	quip	general	0	Sorry for mailing this article, I've obviously made a typo (168!=186) that's the price for being up all night and doing some "quick" checks before you go to bed ....
+linux	tech	fact	general	0	Just to remind everyone. Today, Sept 17, is Linux's 5th birthday. So happy birthday to all on the list. Thanks go out to Linus and all the other hard-working maintainers for 5 wonderful fast paced years!
+linux	life	observation	general	0	Exporting beer from Finnland doesn't seem to be that much of a hassle, as the Lenigrad Cowboys brought a lot of their brew to the concerts in Austria.
+linux	work-money	observation	general	0	Beeping is cute, if you are in the office ;)
+linux	tech	pun	general	0	> Where in the US is Linus? He was in the "Promise Land".
+linux	tech	quip	general	0	> Yeah, Linus is in the US. > > His source trees are in Finland. OK, someone give him access -fast- ...... ;-) -- babydr@nwrain.net, because of problems with the kernel
+linux	tech	joke	general	0	Subject: Linux box finds it hard to wake up in the morning I've heard of dogs being like their owners, but Linux boxen?
+linux	tech	quip	general	0	*** PUBLIC flooding detected from erikyyy <lewnie> THAT's an erik, pholx.... ;) -- Seen on #LinuxGER
+linux	tech	quip	general	0	I've no idea when Linus is going to release 2.0.24, but if he takes too long Im going to release a 2.0.24unoff and he can sound off all he likes.
+linux	tech	quip	general	0	All the existing 2.0.x kernels are too buggy for 2.1.x to be the main goal.
+linux	tech	quip	general	0	martin@bdsi.com (no longer valid - where are you now, Martin?) -- from /usr/src/linux/drivers/cdrom/mcd.c
+linux	tech	quip	general	0	[...] or some clown changed the chips on a board and not its name. (Don't laugh! Look at the SMC etherpower for that.) -- from /usr/src/linux/MAINTAINERS
+linux	tech	quip	general	0	REST: P: Linus Torvalds S: Buried alive in email -- from /usr/src/linux/MAINTAINERS
+linux	tech	pun	general	0	Why use Windows, when you can have air conditioning? Why use Windows, when you can leave through the door?
+linux	tech	quip	general	0	Netscape is not a newsreader, and probably never shall be.
+linux	tech	quip	general	0	I think it's time to remove Qt and Qt-derived applications from the distribution. By distributing it, we only encourage authors to create restrictive licenses.
+linux	tech	quip	general	0	If someone can point me to a good and _FREE_ backup software that keeps track of which files get stored on which tape, we can change to it.
+linux	life	observation	general	0	Whoa, first contact! [...] Welcome, from the people of Terra (Sol III). We extend our hands in friendship, and sincerely hope you shall do the same with your hand-equivelents.
+linux	tech	quip	general	0	> Whoa, first contact! Nope, 'fraid not, Linux is still primarily used on planet Earth, I'm afraid. Our friend here sent a message in Russian (KOI8-R encoding).
+linux	tech	dark	general	0	1648 files (84%) out of the files that I mirror disappeared. Since my delete threshold was set at 90%, all those files are now missing from my hard drive. It's going to take a loooong time to fetch those again via 14.4kbps!
+linux	tech	quip	general	0	> What is the status of Linux' Unicode implementation. Will Linux > be prepared for the first contact? We have full klingon console support just in case
+linux	tech	insult	general	0	"You, sir, are nothing but a pathetically lame salesdroid! I fart in your general direction!" -- Randseed on #Linux
+linux	tech	quip	general	0	* Jes wonders why so many people in here uses fooZZZZZ and foo_sleeping nicks <peter> Jes: Because they are sleeping? -- Seen on #Linux
+linux	tech	quip	general	0	* gb notes that fdisk thinks his cdrom can store one terabyte -- Seen on #Linux
+linux	life	quip	general	0	Check it out, send me comments, and dance joyously in the streets
+linux	tech	quip	general	0	Sex dumps core (Sex is a Simple editor for X11) -- Seen on debian bugtracking
+linux	tech	quip	general	0	I tried the clone syscall on me, but it didn't work.
+linux	tech	quip	general	0	- long f_ffree; /* free file nodes in fs */ + long f_ffree; /* freie Dateiknoten im Dateisystem */ -- Seen in a translation
+linux	tech	quip	general	0	* Phaedrus wishes he could get a machine that consists of Sparc IO, Alpha Processors and sleek design of an SGI <pp> And intel prices -- Seen on #Linux
+linux	tech	quip	general	0	* This is complicated. Has to do with interrupts. Thus, I am * scared witless. Therefore I refuse to write this function. :-P -- From the maclinux patch
+linux	tech	quip	general	0	Yes I have a Machintosh, please don't scream at me.
+linux	tech	quip	general	0	<miguel> any new sendmail hole I have to fix before going on vacations? -- Seen on #Linux
+linux	tech	quip	general	0	AUTHOR FvwmAuto just appeared one day, nobody knows how. -- FvwmAuto(1x)
+linux	tech	quip	general	0	<lilo> Fairlight: udp is the light margarine of tcp/ip transport protocols :) -- Seen on #Linux
+linux	tech	quip	general	0	I don't even know if it makes sense at all :) This is an experimental patch for an experimental kernel :))
+linux	tech	quip	general	0	Linux - Das System fuer schlaue Maedchen ;) -- banshee
+linux	tech	quip	general	0	If loving linux is wrong, I don't wanna be right. -- Topic for #LinuxGER
+linux	tech	quip	general	0	>>> FreeOS is an english-centric name Have you all been stuck in email, or have any of you tried *pronouncing* that? free-oh-ess? free-ows? fritos? :-)
+linux	tech	quip	general	0	The documentation is in Japanese. Good luck. -- Rich $alz
+linux	tech	quip	general	0	People are going to scream bloody murder about that. -- Seen on linux-kernel
+linux	tech	quip	general	0	> 1. is qmail as secure as they say? Depends on what they were saying, but most likely yes. -- Seen on debian-devel
+linux	work-money	quip	general	0	NEVER RESPOND TO CRITICAL PRESS. IT IS A GAME YOU CAN ONLY LOSE, AND IT MAKES US LOOK BAD.
+linux	tech	quip	general	0	A feature is nothing more than a bug with seniority. -- Unknown source
+linux	work-money	pun	general	0	If a 'train station' is where a train stops, what's a 'workstation'?
+linux	tech	quip	general	0	"We don't do a new version to fix bugs." - Bill Gates "The new version - it's not there to fix bugs." - Bill Gates -- Retranslated from Focus 43/1995, pp. 206-212
+linux	tech	quip	general	0	The POP3 server service depends on the SMTP server service, which failed to start because of the following error: The operation completed successfully.
+linux	tech	quip	general	0	Software is like sex; it's better when it's free.
+linux	tech	quip	general	0	oh okay. my mistake. Yafcot:atj(*), mark * Yet another fool coming over this: according to joey -- mark@mail.novare.net
+linux	life	observation	general	0	Sorry. I just realized this sentance makes no sense :)
+linux	tech	dark	general	0	Stopping Apache webserver...sleeping...starting again... apache: dl-version.c:189: _dl_check_map_versions: Assertion `needed != ((void *)0)' failed noooooooooooooooooooooooooooo -- netgod on #Debian at LISC
+linux	tech	quip	general	0	Make it idiot-proof, and someone will breed a better idiot.
+linux	tech	quip	general	0	#Debian makes me feel all warm and fuzzy inside. :) -- HippieGuy on #Debian
+linux	tech	quip	general	0	ECRC hat keine lynx komp. seiten, sowas MUSS ja pleite gehen ;-)= -- Getty on #LinuxGER
+linux	faith	quip	general	0	Uh... deity is a word, and diety isn't. Or is it supposed to be one of those recursive acronyms? Diety Is Excellent To You. Deity Eats Icecream That's Yellow. Diety Is Eloping To Yokohama. I'll stop now.
+linux	life	pun	general	0	Why are there always boycotts? Shouldn't there be girlcotts too? -- argon on #Linux
+linux	tech	quip	general	0	<sct> Anyone want the new supermount? :) <klogd> whats new about it <sct> klogd: It cleans whiter than white. :) -- Seen on #Linux
+linux	life	quip	general	0	Und die Tastaturabrdücke auf Ihrer Wange unterstreichen seeeeeehr vorteilhaft ihr unterschütterliches Vertrauen in die moderene Technologie
+linux	tech	quip	general	0	- DDD no longer requires the librx library. Consequently, librx errors can no more cause DDD to crash.
+linux	life	fact	general	0	snafu = Situation Normal All F%$*ed up
+linux	tech	quip	general	0	It's computer hardware, of course it's worth having <g> -- Espy on #Debian
+linux	tech	quip	general	0	Alan E. Davis: Some files at llug.sep.bnl.gov/pub/debian/Incoming are stamped on 10 January 1998. As I write, nowhere on Earth is it now 10 January. Craig Sanders: That just proves how advanced debian is, doesn't it :-) -- debian-devel
+linux	tech	quip	general	0	Computers are like air conditioners. Both stop working, if you open windows.
+linux	tech	quip	general	0	I am NOT a kludge! I am a computer! -- tts
+linux	life	quip	general	0	<Joey> gorgo: *lol* <gorgo> joey: what's so funny? :) <Culus> shh, joey is losing all sanity from lack of sleep <Culus> 'yes joey, very funny' <Culus> Humor him :> -- Seen on #Debian
+linux	tech	quip	general	0	* SynrG notes that the number of configuration questions to answer in sendmail is NON-TRIVIAL -- Seen on #Debian
+linux	life	quip	general	0	My apologies if I sound angry. I feel like I'm talking to a void.
+linux	tech	quip	general	0	RIP is irrelevant. Spoofing is futile. Your routes will be aggregated.
+linux	tech	quip	general	0	After 14 non-maintainer releases, I'm the S-Lang non-maintainer.
+linux	tech	quip	general	0	BREAKFAST.COM Halted... Cereal Port Not Responding.
+linux	tech	quip	general	0	* JHM wonders what Joey did to earn "I'd just like to say, for the record, that Joey rules." -- Seen on #Debian
+linux	tech	quip	general	0	Steal my cash, car and TV - but leave the computer!
+linux	tech	quip	general	0	The only really good reason I can think to not release specs is embarrassment on just how crappy some hardware out there is, or just how buggy it is.
+linux	tech	quip	general	0	> Alan Cox wrote: [..] No I didn't. Someone else wrote that. Please keep attributions straight. -- From linux-kernel
+linux	tech	quip	general	0	Do people like check the Debian website every 5 minutes to check it hasn't morphed into another one? Not that I'm one to talk, but some people seriously need to get a life -- james on #Debian
+linux	tech	quip	general	0	... Linux und seine Programme sind damit so etwas wie ein real existierender Sozialismus der besseren Art ...
+linux	tech	quip	general	0	* james would be more impressed if netgod's magic powers could stop the splits in the first place... * netgod notes debian developers are notoriously hard to impress -- Seen on #Debian
+linux	tech	observation	general	0	* Joey should not write changelog entries at 5:30am <Joey> * DFSC Free cgi library <Joey> What's that? DFSC? <jim> Debian Free Software mroooooCows -- Seen on #Debian
+linux	tech	quip	general	0	<posix> this guy _is_ crazy <stargazer> posix: from the looks of Enlightenment he's on LSD <posix> LSD is nothing compared to what this guy's on.. -- Seen on #Unix
+linux	tech	quip	general	0	On Netscape GPLing their browser: ``How can you trust a browser that ANYONE can hack? For the secure choice, choose Microsoft.'' -- <oryx@pobox.com> in a comment on slashdot.org
+linux	life	quip	general	0	Turn right here. No! NO! The OTHER right!
+linux	tech	observation	general	0	#define FALSE 0 /* This is the naked Truth */ #define TRUE 1 /* and this is the Light */ -- mailto.c
+linux	tech	joke	general	0	<Stealth> How do I bind a computer to an NIS server? <Joey> Use a rope? -- Seen on #Debian
+linux	tech	verse	general	0	Does biff in bo work coz it biffin doesn't beep an if biff in bo is broke then biff in bo I will delete I've tried biff in bo with 'y' I've tried biff in bo with '-y' no biffin output does it show so poor wee biff is gonna go.
+linux	tech	quip	general	0	Real Men don't make backups. They upload it via ftp and let the world mirror it.
+linux	nature	verse	general	0	One tree to rule them all, One tree to find them, One tree to bring them all, and to itself bind them.
+linux	tech	quip	general	0	As I currently don't have a floppy drive in my computer, I'd like to make an `emergency cdrom' ;)
+linux	tech	quip	general	0	Alan Cox wrote: >> On any procmail new enough not to be full of security holes you set >Brain on, Imeant majordomo of course 8) You got me worried there for a brief (very brief) moment :-).
+linux	tech	quip	general	0	<grin> seen jhm <dpkg> jhm is Sarek, and jhm is on the channel right now! * JHM wonders why dpkg remembers that particular nick. <grin> dpkg: Sarek? ermm, sure, and I am Khan -- Seen on #Debian
+linux	tech	quip	general	0	<igor> Hah! we have 2 Johnie Ingrams in the channel :) <igor> Hey all btw :)
+linux	tech	quip	general	0	I just uploaded xtoolplaces-1.6. It fixes all bugs but one: It still coredumps instead of doing something useful. The upstream author's e-mail address bounces, Redhat doesn't provide it and I never used it.
+linux	tech	tv-quote	general	0	<Culus> aIIIIIIIIIII!!!!!!!!!!!!!!!11 <Culus> MY LIGHT JUST DIED <Culus> I AM SO SAD <Culus> I'm blind! I'm blind! <dark> Light? <dark> Turn all your xterms to black-on-white :) Plenty of light that way. -- Seen on #Debian
+linux	tech	quip	general	0	| |-sshd---tcsh-+-dpkg-buildpacka---rules---sh---make---make---sh ---make---sh---make---sh---make---sh---make---sh---make -- While packaging XFree86 for Debian GNU/Linux
+linux	tech	quip	general	0	/* * Please skip to the bottom of this file if you ate lunch recently * -- Alan */ -- from Linux kernel pre-2.1.91-1
+linux	tech	quip	general	0	#if _FP_W_TYPE_SIZE < 64 #error "Only stud muffins allowed, schmuck." #endif -- linux/arch/sparc64/quad.c
+linux	tech	quip	general	0	#if _FP_W_TYPE_SIZE < 32 #error "Here's a nickel kid. Go buy yourself a real computer." #endif -- linux/arch/sparc64/double.h
+linux	tech	joke	general	0	<dark> eat Depends: cook | eat-out. But eat-out is non-free so that's out. And cook Recommends: clean-pans. -- Seen on #Debian
+linux	tech	joke	general	0	* Linux Viruscan..... Windows 95 found. Remove it? (Y/y) -- Unknown source
+linux	tech	quip	general	0	<sel> need help: my first packet to my provider gets lost :-( <netgod> sel: don't send the first one, start with #2 * netgod is kidding
+linux	tech	quip	general	0	These download files are in Microsoft Word 6.0 format. After unzipping, these files can be viewed in any text editor, including all versions of Microsoft Word, WordPad, and Microsoft Word Viewer
+linux	tech	quip	general	0	Ooh, mommy, mommy, what I have now doesn't work in this extremely unlikely circumstance, so I'll just throw it away and write something completely new.
+linux	tech	quip	general	0	#ifdef __SMP__ #error "Me no hablo Alpha SMP" #else #define irq_enter(cpu, irq) (++local_irq_count[cpu]) #define irq_exit(cpu, irq) (--local_irq_count[cpu]) #endif -- from kernel 2.1.90, arch/alpha/kernel/irc.c
+linux	tech	joke	general	0	Linus Torvalds: > This is the special Easter release of linux, more mundanely called 1.3.84 Winfried Truemper: > Umh, oh. What do you mean by "special easter release"?. Will it quit > working today and rise on easter?
+linux	tech	observation	general	0	I never thought that I'd see the day where Netscape is free software and X11 is proprietary. We live in interesting times.
+linux	tech	quip	general	0	Because I don't need to worry about finances I can ignore Microsoft and take over the (computing) world from the grassroots.
+linux	tech	quip	general	0	/* * Buddy system. Hairy. You really aren't expected to understand this * */ -- From /usr/src/linux/mm/page_alloc.cA
+linux	life	quip	general	0	baz bat bamus batis bant.
+linux	tech	quip	general	0	Just go ahead and write your own multitasking multiuser os! Worked for me all the times.
+linux	family	observation	general	0	I've seen people with new children before, they go from ultra happy to looking like something out of a zombie film in about a week.
+linux	tech	quip	general	0	I expect that no one has objections. However, if I'd only add these entries to the list because `I think it's the right thing to do', I'd get a lot of flames afterwards :)
+linux	tech	observation	general	0	Various documentation updates and bugfixes (the best way to know that a stable kernel is approaching is to notice that somebody starts to spellcheck the kernel - it has so far never failed)
+linux	tech	quip	general	0	You will not censor me through bug terrorism.
+linux	life	quip	general	0	<doogie> Thinking is dangerous. It leads to ideas. -- Seen on #Debian
+linux	tech	quip	general	0	<james> Are we going to make an emacs out of apt? APT - Debian in a program. It even does your laundry -- Seen on #Debian
+linux	tech	quip	general	0	<joost> Do you mean to say that I can read mail with vi too? ;-) <Joey> Didn't you know that? <Joey> :r /var/spool/mail/jk -- debian-mentors
+linux	tech	quip	general	0	Charles Briscoe-Smith <cpbs@debian.org>: After all, the gzip package is called `gzip', not `libz-bin'... James Troup <troup@debian.org>: Uh, probably because the gzip binary doesn't come from the non-existent libz package or the existent zlib package. -- debian-bugs-dist
+linux	tech	quip	general	0	Debian is like Suse with yast turned off, just better. :)
+linux	life	quip	general	0	The truth is not free. It's that simple. If you change the truth, it is no longer true - so the truth is not free!
+linux	tech	quip	general	0	The problem here (as someon else stated) is that when multiple dists use the same package format it only gives a "false sense of compatibility".
+linux	tech	quip	general	0	*** Rince is wagner@schizo.DAINet.de (We have Joey, we have Fun, we have Linux on a Sun) -- Seen on #Debian
+linux	tech	quip	general	0	The most effective has probably been Linux/8086 - that was a joke that got out of hand. So far out of hand in fact its almost approaching usability because other folks thought it worth doing - Alistair Riddoch especially.
+linux	tech	quip	general	0	The only other people who might benefit from Linux8086 would be owners of PDP/11's and other roomsized computers from the same era.
+linux	tech	quip	general	0	Ha. I say let them try -- even vi+perl couldn't match the power of an editor which is, after all, its own OS. ;-)
+linux	tech	quip	general	0	Being overloaded is the sign of a true Debian maintainer. -- JHM on #Debian
+linux	tech	tv-quote	general	0	<alaint> joey--very clever !!! <alaint> joey--no wonder that Debian is a good distrib with coder like you -- Seen on #Debian (referring to my RAID article for the LJ)
+linux	life	joke	general	0	There are 3 kinds of people: those who can count & those who can't. -- Unknown source
+linux	tech	quip	general	0	Despite the best efforts of a quantum bigfoot drive (yes I know everyone told me they suck, now I know they were right) 2.1.109ac1 is now available
+linux	tech	observation	general	0	<dark> Turns out that grep returns error code 1 when there are no matches. I KNEW that. Why did it take me half an hour? -- Seen on #Debian
+linux	tech	quip	general	0	It's simply unbelievable how much energy and creativity people have invested into creating contradictory, bogus and stupid licenses...
+linux	tech	observation	general	0	<Overfiend> partycle: I seriously do need a vacation from this package. I actually had a DREAM about introducing a stupid new bug into xbase-preinst last night. That's a Bad Sign. -- Seen on #Debian shortly before the release of Debian 2.0
+linux	tech	quip	general	0	<dark> Looks like the channel is back to normal :) <jim> You mean it's not scrolling faster than anyone can read? :) -- Seen on #Debian after the release of Debian 2.0
+linux	tech	quip	general	0	Alex Buell: Or how about a Penguin logo painted in really really trippy colours, and emblazoned with the word LSD. :o) Geert Uytterhoeven: We already had that one, but unfortunately Russell King fixed that nasty palette bug in drivers/video/fbcon.c :-) -- linux-kernel
+linux	tech	quip	general	0	Writing non-free software is not an ethically legitimate activity, so if people who do this run into trouble, that's good! All businesses based on non-free software ought to fail, and the sooner the better.
+linux	tech	observation	general	0	Außerdem noch [..] die Distribution für Puristen, denen technische Eleganz und Qualität und philosophisch reine Lehre der `freien Software' über totale Einfachheit geht (Debian) und viele mehr.
+linux	tech	quip	general	0	No, that's wrong too. Now there's a race condition between the rm and the mv. Hmm, I need more coffee.
+linux	tech	quip	general	0	Microsoft DNS service terminates abnormally when it receives a response to a DNS query that was never made. Fix Information: Run your DNS service on a different platform. -- bugtraq
+linux	tech	observation	general	0	I am amazed that no-one's based a commercial distribution on Debian yet - it is by far the most solid UNIX-like OS I've ever installed, and I've played with HP/UX, Solaris, FreeBSD, BSDi, and SCO (not to mention OS/2, Novell, Win95/NT)
+linux	tech	quip	general	0	Jim> http://www.novare.net/~eam/kaffe/ Joey> ^ Joey> And now we all learn how to write Ean's name and the URL is complete. Jim> Hah! I noticed that the instead I sent it, and I tried to hit ^g, but I was too slow. :-) --- debian-devel
+linux	tech	quip	general	0	Die TeX-Artikel [..] aber doch inzwischen wohl nicht mehr an den Fingern zweier Hände abzählbar (außer vielleicht von Informatikern, die bekanntlich mit den Fingern bis 1023 zählen können.
+linux	tech	quip	general	0	And Bruce is effectively building BruceIX
+linux	tech	quip	general	0	<Culus-> I will be known as Ian Black, Ean can be Ian Red, Netgod Ian Blue, Che gets Ian Yellow, CQ is Ian Purple and Joey is Ian Indigo -- Some #Debian channel
+linux	tech	quip	general	0	When a float occurs on the same page as the start of a supertabular you can expect unexpected results. -- Documentation of supertabular.sty
+linux	tech	quip	general	0	From: Ean Schuessler <ean@novare.net> The unrecognized minister of propaganda, E
+linux	tech	quip	general	0	* liw prefers not to have Linus run Debian, because then /me would have to run Red Hat, just to keep the power balance :) -- #Debian
+linux	tech	tv-quote	general	0	<\\swing> and if we're playing old distributions... whatever happened to Yggdrasil? :) <joost> \\swing: everybody who tried to pronounce it got their tongue in a knot and choked -- #Debian
+linux	tech	quip	general	0	I'm telling you that the kernel is stable not because it's a kernel, but because I refuse to listen to arguments like this.
+linux	life	insult	general	0	> Tut mir Leid, Jost, aber Du bist ein unertraeglicher Troll. Was soll das? Du *beleidigst* die Trolle! -- de.comp.os.unix.linux.misc
+linux	tech	observation	general	0	Wenn also die KDE-Arbeit nochmal gemacht wird bei GNOME, hat das die Entwicklungszeit für ein freies Desktop-System verkürzt. Hast Du auch irgendwo die passende Algebra zu der Rechnung?
+linux	tech	quip	general	0	* dpkg ponders: 'C++' should have been called 'D' -- #Debian
+linux	tech	quip	general	0	<rm_-rf_> The real value of KDE is that they inspired and push the development of GNOME :-) -- #Debian
+linux	tech	tv-quote	general	0	* dpkg hands stu a huge glass of vbeer * Joey takes the beer from stu, you're too young ;) * Cylord takes the beer from Joey, you're too drunk. * Cylord gives the beer to muggles. -- #Debian, celebrating the 5th anniversary
+linux	tech	observation	general	0	<stu> Stupid nick highlighting <stu> Whenever someone starts with "stupid" it highlights the nick. Hmm. -- #Debian
+linux	tech	tv-quote	general	0	<netgod> And once Diziet/CQ make the formal announcment that LSA sucks, we can even reduce the Crisis Level rating and move on to linuxfoundation.org. -- #Debian
+linux	life	quip	general	0	* LG loves czech girls. <vincent> LG: do they have additional interesting "features" other girls don't have? ;) -- #Debian
+linux	tech	quip	general	0	The first is to ensure your partner understands that nature has root privileges - nature doesn't have to make sense.
+linux	tech	quip	general	0	As to house maintenance, does it involve problem solfing? If so, your hacker can safely be left to deall with the panning (for the musement value, if nothering ese).
+linux	tech	quip	general	0	Remember: While root can do most everything, there are certain privileges that only a partner can grant.
+linux	tech	tv-quote	general	0	<Skyhook> Where is 'bavaria' proper? I thought it was austria. -- Seen on #Linux
+linux	tech	observation	general	0	Day X+4 months: Microsoft ships NT 5.0 for Intel.with a big media event on TV. IBM begins to ship Debian 4.6 as the standard OS on all machines from mainframe to PC and announces the move on Slashdot.
+linux	life	quip	general	0	How many chunks could checkchunk check if checkchunk could check chunks?
+linux	tech	quip	general	0	Q: How does a Unix guru have sex? A: unzip;strip;touch;finger;mount;fsck;more;yes;umount;sleep -- unknown source
+linux	tech	quip	general	0	Someone on IRC was very sad about the uptime of his machine wrapping from 497 days to 0. -- linux-kernel
+linux	tech	quip	general	0	<doogie> netgod: 8:42pm is not late. <netgod> doogie: its 2:42am in Joeyland -- #Debian
+linux	tech	wisdom	general	0	We knew from experience that the essence of communal computing, as supplied by remote-access, time-shared machines, is not just to type programs into a terminal instead of a keypunch, but to encourage close communication.
+linux	tech	quip	general	0	Could somebody drag the Irix team kicking and screaming into the 1980's, please? I realize it might be quite painful for them, but maybe you could buy them a disco tape, so they'd feel a little bit more at home. -- Linus "Stayin' alive, stayin' alive" Torvalds
+linux	life	quip	general	0	> <magical +3 sigh of hyperbole deflection> The branden dodges your magical sigh. The branden attacks you with a slew of words! The branden misses!
+linux	tech	quip	general	0	Emacs is a nice operating system, but what it lacks, in order to compete with Linux, is a good text editor. - based on https://en.wikiquote.org/wiki/Emacs
+linux	tech	quip	general	0	Who wants to remember that escape-x-alt-control-left shift-b puts you into super-edit-debug-compile mode? -- Discussion in comp.os.linux.misc on the intuitiveness of commands, especially Emacs.
+linux	tech	quip	general	0	I've heard a Jew and a Muslim argue in a Damascus cafe with less passion than the emacs wars."
+linux	tech	quip	general	0	World domination. Fast
+linux	tech	observation	general	0	Actually, typing random strings in the Finder does the equivalent of filename completion. -- Discussion in comp.os.linux.misc on the intuitiveness of commands: file completion vs. the Mac Finder.
+linux	tech	quip	general	0	Anyone who thinks UNIX is intuitive should be forced to write 5000 lines of code using nothing but vi or emacs. AAAAACK! (Discussion in comp.os.linux.misc on the intuitiveness of commands, especially Emacs.)
+linux	faith	quip	general	0	It's God. No, not Richard Stallman, or Linus Torvalds, but God.
+linux	tech	quip	general	0	There are no threads in a.b.p.erotica, so there's no gain in using a threaded news reader. -- Unknown source
+linux	tech	quip	general	0	Running Windows on a Pentium is like having a brand new Porsche but only be able to drive backwards with the handbrake on. -- Unknown source
+linux	tech	quip	general	0	The nice thing about Windows is - It does not just crash, it displays a dialog box and lets you press 'OK' first.
+linux	tech	quip	general	0	What's this script do? unzip ; touch ; finger ; mount ; gasp ; yes ; umount ; sleep Hint for the answer: not everything is computer-oriented. Sometimes you're in a sleeping bag, camping out. -- (Contributed by Frans van der Zande.)
+linux	tech	quip	general	0	Linux: Because Software Problems Should Not Cost Money. -- Shlomi Fish -- https://www.shlomifish.org/art/linux_banner/
+linux	life	tv-quote	general	0	You know who's dumb? It's me. I'm dumb. I couldn't eject the tape. Because there was no tape. And I was looking at the slot cover.
+linux	tech	quip	general	0	Did I test the above macro? Don't be silly. All my code works on first try. Except when it doesn't.
+linux	tech	quip	general	0	If I wanted made-up random crap and hallucinations, I'd ask ChatGPT, not my filesystem.

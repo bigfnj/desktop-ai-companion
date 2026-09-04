@@ -1,0 +1,487 @@
+platitudes	life	wisdom	general	0	(1) Everything depends. (2) Nothing is always. (3) Everything is sometimes.
+platitudes	life	wisdom	general	0	A beginning is the time for taking the most delicate care that balances are correct.
+platitudes	nature	quip	general	0	A bird in the bush usually has a friend in there with him.
+platitudes	life	aphorism	general	0	A bird in the hand is worth two in the bush.
+platitudes	work-money	aphorism	general	0	A bird in the hand is worth what it will bring.
+platitudes	life	quip	general	0	A bird in the hand makes it awfully hard to blow your nose.
+platitudes	life	wisdom	general	0	A certain amount of opposition is a help, not a hindrance. Kites rise against the wind, not with it.
+platitudes	nature	observation	general	0	A chicken is an egg's way of producing more eggs.
+platitudes	life	quip	general	0	A chronic disposition to inquiry deprives domestic felines of vital qualities.
+platitudes	life	wisdom	general	0	A clever prophet makes sure of the event first.
+platitudes	life	quip	general	0	A closed mouth gathers no foot.
+platitudes	life	quip	general	0	A couch is as good as a chair.
+platitudes	food	quip	general	0	A day without orange juice is like a day without orange juice.
+platitudes	life	quip	general	0	A day without sunshine is like a day without Anita Bryant.
+platitudes	life	observation	general	0	A day without sunshine is like a day without orange juice.
+platitudes	life	quip	general	0	A day without sunshine is like night.
+platitudes	life	aphorism	general	0	A dead man cannot bite.
+platitudes	life	pun	general	0	A farmer is a man outstanding in his field.
+platitudes	life	pun	general	0	A farmer with extremely prolific hens posted the following sign. "Free Chickens. Our Coop Runneth Over."
+platitudes	life	pun	general	0	A father gave his teen-age daughter an untrained pedigreed pup for her birthday. An hour later, when wandering through the house, he found her looking at a puddle in the center of the kitchen. "My pup," she murmured sadly, "runneth over."
+platitudes	work-money	quip	general	0	A fool and his money are soon popular.
+platitudes	work-money	aphorism	general	0	A fool and your money are soon partners.
+platitudes	life	aphorism	general	0	A fool must now and then be right by chance.
+platitudes	life	aphorism	general	0	A foolish consistency is the hobgoblin of little minds.
+platitudes	life	quip	general	0	A friend in need is a pest indeed.
+platitudes	food	aphorism	general	0	A full belly makes a dull brain.
+platitudes	life	joke	general	0	A girl spent a couple hours on the phone talking to her two best friends, Maureen Jones, and Maureen Brown. When asked by her father why she had been on the phone so long, she responded "I heard a funny story today and I've been telling it to the Maureens."
+platitudes	life	quip	general	0	A gleekzorp without a tornpee is like a quop without a fertsneet (sort of).
+platitudes	life	wisdom	general	0	A good memory does not equal pale ink.
+platitudes	life	wisdom	general	0	A good name lost is seldom regained. When character is gone, all is gone, and one of the richest jewels of life is lost forever.
+platitudes	life	aphorism	general	0	A good plan today is better than a perfect plan tomorrow.
+platitudes	work-money	aphorism	general	0	A good reputation is more valuable than money.
+platitudes	life	quip	general	0	A good scapegoat is hard to find. A guilty conscience is the mother of invention.
+platitudes	life	aphorism	general	0	A handful of friends is worth more than a wagon of gold.
+platitudes	life	aphorism	general	0	A handful of patience is worth more than a bushel of brains.
+platitudes	life	aphorism	general	0	A hermit is a deserter from the army of humanity.
+platitudes	life	quip	general	0	A homeowner's reach should exceed his grasp, or what's a weekend for?
+platitudes	nature	pun	general	0	A horse breeder has his young colts bottle-fed after they're three days old. He heard that a foal and his mummy are soon parted.
+platitudes	life	observation	general	0	A hundred thousand lemmings can't be wrong!
+platitudes	work-money	quip	general	0	A journey of a thousand miles begins with a cash advance.
+platitudes	life	aphorism	general	0	A journey of a thousand miles must begin with a single step.
+platitudes	life	aphorism	general	0	A journey of a thousand miles starts under one's feet.
+platitudes	life	quip	general	0	A king's castle is his home.
+platitudes	life	pun	general	0	A lie in time saves nine.
+platitudes	life	quip	general	0	A lie is an abomination unto the Lord and a very present help in time of trouble.
+platitudes	life	wisdom	general	0	A likely impossibility is always preferable to an unconvincing possibility.
+platitudes	life	aphorism	general	0	A little experience often upsets a lot of theory.
+platitudes	life	quip	general	0	A little inaccuracy saves a world of explanation.
+platitudes	life	quip	general	0	A little inaccuracy sometimes saves tons of explanation.
+platitudes	life	wisdom	general	0	A lost ounce of gold may be found, a lost moment of time never.
+platitudes	life	wisdom	general	0	A man gazing at the stars is proverbially at the mercy of the puddles in the road.
+platitudes	nature	wisdom	general	0	A man who carries a cat by its tail learns something he can learn in no other way.
+platitudes	life	quip	general	0	A man with one watch knows what time it is. A man with two watches is never quite sure.
+platitudes	faith	pun	general	0	A man's best friend is his dogma.
+platitudes	life	aphorism	general	0	A man's house is his castle.
+platitudes	life	pun	general	0	A man's house is his hassle.
+platitudes	life	quip	general	0	A mind is a wonderful thing to waste.
+platitudes	life	quip	general	0	A mushroom cloud has no silver lining.
+platitudes	work-money	pun	general	0	A penny saved has not been spent.
+platitudes	work-money	quip	general	0	A penny saved is ridiculous.
+platitudes	life	aphorism	general	0	A pipe gives a wise man time to think and a fool something to stick in his mouth.
+platitudes	life	aphorism	general	0	A place for everything and everything in its place.
+platitudes	life	wisdom	general	0	A platitude is simply a truth repeated till people get tired of hearing it.
+platitudes	life	wisdom	general	0	A plethora of individuals with expertise in culinary techniques contaminate the potable concoction produced by steeping certain edible nutriments.
+platitudes	life	aphorism	general	0	A plucked goose doesn't lay golden eggs.
+platitudes	life	aphorism	general	0	A pound of salt will not sweeten a single cup of tea.
+platitudes	science	joke	general	0	"A radioactive cat has eighteen half-lives."
+platitudes	life	quip	general	0	A rolling stone gathers momentum.
+platitudes	life	aphorism	general	0	A rolling stone gathers no moss.
+platitudes	life	quip	general	0	A shortcut is the longest distance between two points.
+platitudes	life	aphorism	general	0	A sinking ship gathers no moss.
+platitudes	life	aphorism	general	0	A Smith & Wesson beats four aces.
+platitudes	nature	aphorism	general	0	A snake lurks in the grass.
+platitudes	faith	aphorism	general	0	A soft answer turneth away wrath; but grievous words stir up anger. -- Proverbs 15:1
+platitudes	life	quip	general	0	A soft drink turneth away company.
+platitudes	arts	pun	general	0	A song in time is worth a dime.
+platitudes	life	aphorism	general	0	A stitch in time saves nine.
+platitudes	life	aphorism	general	0	A violent man will die a violent death.
+platitudes	life	pun	general	0	A watched clock never boils.
+platitudes	life	aphorism	general	0	A wise man can see more from a mountain top than a fool can from the bottom of a well.
+platitudes	life	aphorism	general	0	A wise man can see more from the bottom of a well than a fool can from a mountain top.
+platitudes	life	aphorism	general	0	A wise person makes his own decisions, a weak one obeys public opinion. -- Chinese proverb
+platitudes	life	quip	general	0	A witty saying proves nothing, but saying something pointless gets people's attention.
+platitudes	life	aphorism	general	0	A witty saying proves nothing.
+platitudes	life	aphorism	general	0	A word to the wise is enough.
+platitudes	nature	aphorism	general	0	Above all else -- sky.
+platitudes	life	wisdom	general	0	Above all things, reverence yourself.
+platitudes	love	aphorism	general	0	Absence makes the heart forget.
+platitudes	love	pun	general	0	Absence makes the heart go wander.
+platitudes	love	quip	general	0	Absence makes the heart grow fonder -- of somebody else.
+platitudes	love	aphorism	general	0	Absence makes the heart grow fonder.
+platitudes	love	quip	general	0	Absence makes the heart grow frantic.
+platitudes	tech	quip	general	0	Absolutum obsoletum. (If it works, it's out of date.)
+platitudes	life	aphorism	general	0	Ad astra per aspera. [To the stars by aspiration.]
+platitudes	life	aphorism	general	0	Adde parvum parvo manus acervus erit. [Add little to little and there will be a big pile.]
+platitudes	life	aphorism	general	0	Advice from an old carpenter: measure twice, saw once.
+platitudes	life	aphorism	general	0	After the game the king and the pawn go in the same box. -- Italian proverb
+platitudes	life	aphorism	general	0	Age and treachery will always overcome youth and skill.
+platitudes	life	aphorism	general	0	Age before beauty; and pearls before swine.
+platitudes	life	uplifting	general	0	Aim for the moon. If you miss, you may hit a star.
+platitudes	life	aphorism	general	0	Ain't no right way to do a wrong thing.
+platitudes	life	quip	general	0	Alas, I am dying beyond my means.
+platitudes	love	dark	general	0	Alimony is the high cost of leaving.
+platitudes	life	aphorism	general	0	All a man needs out of life is a place to sit 'n' spit in the fire.
+platitudes	life	aphorism	general	0	All articles that coruscate with resplendence are not truly auriferous.
+platitudes	life	aphorism	general	0	All I kin say is when you finds yo'self wanderin' in a peach orchard, ya don't go lookin' for rutabagas.
+platitudes	love	quip	general	0	All is fear in love and war.
+platitudes	life	aphorism	general	0	All is well that ends well.
+platitudes	science	quip	general	0	All that glitters has a high refractive index.
+platitudes	life	aphorism	general	0	All that glitters is not gold; all that wander are not lost.
+platitudes	life	quip	general	0	All things are possible, except for skiing through a revolving door.
+platitudes	life	dark	general	0	All things being equal, you are bound to lose.
+platitudes	life	quip	general	0	All true wisdom is found on T-shirts.
+platitudes	life	quip	general	0	All's well that ends.
+platitudes	arts	wisdom	general	0	An aphorism is never exactly true; it is either a half-truth or one-and-a-half truths.
+platitudes	life	observation	general	0	An apple a day makes 365 apples a year.
+platitudes	life	observation	general	0	An apple every eight hours will keep three doctors away.
+platitudes	life	quip	general	0	An idle mind is worth two in the bush.
+platitudes	life	wisdom	general	0	An ounce of clear truth is worth a pound of obfuscation.
+platitudes	life	quip	general	0	An ounce of hypocrisy is worth a pound of ambition.
+platitudes	family	aphorism	general	0	An ounce of mother is worth a ton of priest. -- Spanish proverb
+platitudes	life	aphorism	general	0	"An ounce of prevention is worth a pound of purge."
+platitudes	faith	aphorism	general	0	And tomorrow will be like today, only more so. -- Isaiah 56:12, New Standard Version
+platitudes	life	wisdom	general	0	Answer a fool according to his folly, lest he be wise in his own conceit.
+platitudes	life	quip	general	0	Any philosophy that can be put "in a nutshell" belongs there.
+platitudes	life	wisdom	general	0	Any road followed to its end leads precisely nowhere. Climb the mountain just a little to test it's a mountain. From the top of the mountain, you cannot see the mountain.
+platitudes	life	quip	general	0	Anything is possible on paper.
+platitudes	life	quip	general	0	Anything is possible, unless it's not.
+platitudes	life	aphorism	general	0	Anything that is worth doing has been done frequently. Things hitherto undone should be given, I suspect, a wide berth.
+platitudes	life	aphorism	general	0	Anything worth doing is worth overdoing.
+platitudes	life	aphorism	general	0	As well look for a needle in a bottle of hay.
+platitudes	life	pun	general	0	Ask not for whom the Bell tolls, and you will pay only the station-to-station rate.
+platitudes	life	observation	general	0	Ask not for whom the telephone bell tolls... if thou art in the bathtub, it tolls for thee.
+platitudes	life	pun	general	0	Avoid cliches like the plague. They're a dime a dozen.
+platitudes	life	aphorism	general	0	Be both a speaker of words and a doer of deeds.
+platitudes	life	quip	general	0	Be sure to evaluate the bird-hand/bush ratio.
+platitudes	life	aphorism	general	0	Beggars should be no choosers.
+platitudes	life	quip	general	0	Better dead than mellow.
+platitudes	life	wisdom	general	0	Better hope you get what you want before you stop wanting it.
+platitudes	life	aphorism	general	0	Better late than never.
+platitudes	life	aphorism	general	0	Better living a beggar than buried an emperor.
+platitudes	work-money	pun	general	0	Better to be nouveau than never to have been riche at all.
+platitudes	life	aphorism	general	0	Better to light one candle than to curse the darkness. -- motto of the Christopher Society
+platitudes	life	aphorism	general	0	Better tried by twelve than carried by six.
+platitudes	life	wisdom	general	0	Beware of friends who are false and deceitful.
+platitudes	tech	pun	general	0	Beware of geeks bearing graft.
+platitudes	faith	aphorism	general	0	Call on God, but row away from the rocks. -- Indian proverb
+platitudes	family	aphorism	general	0	Charity begins at home.
+platitudes	work-money	aphorism	general	0	Cheap things are of no value, valuable things are not cheap.
+platitudes	faith	quip	general	0	Cleanliness becomes more important when godliness is unlikely.
+platitudes	life	quip	general	0	Cleanliness is next to impossible.
+platitudes	life	quip	general	0	Cogito cogito ergo cogito sum -- "I think that I think, therefore I think that I am."
+platitudes	nature	quip	general	0	Curiosity killed the cat, but satisfaction brought her back.
+platitudes	life	aphorism	general	0	Desist from enumerating your fowl prior to their emergence from the shell.
+platitudes	life	aphorism	general	0	Do not count your chickens before they are hatched.
+platitudes	life	quip	general	0	Do unto others before they undo you.
+platitudes	life	wisdom	general	0	Do, or do not; there is no try.
+platitudes	life	aphorism	general	0	Doing gets it done.
+platitudes	life	quip	general	0	Don't get even -- get odd!
+platitudes	life	aphorism	general	0	Don't get mad, get even.
+platitudes	work-money	quip	general	0	Don't get mad, get interest.
+platitudes	life	wisdom	general	0	Don't put off for tomorrow what you can do today because if you enjoy it today, you can do it again tomorrow.
+platitudes	life	quip	general	0	Eschew obfuscation.
+platitudes	life	aphorism	general	0	Every path has its puddle.
+platitudes	life	quip	general	0	Every silver lining has a cloud around it.
+platitudes	life	aphorism	general	0	Every solution breeds new problems.
+platitudes	life	aphorism	general	0	Expedience is the best teacher.
+platitudes	life	aphorism	general	0	Experience is a good teacher, but she sends in terrific bills.
+platitudes	love	quip	general	0	Familiarity breeds attempt.
+platitudes	life	aphorism	general	0	Flattery will get you everywhere.
+platitudes	life	quip	general	0	Flee at once, all is discovered.
+platitudes	life	aphorism	general	0	For fools rush in where angels fear to tread.
+platitudes	life	aphorism	general	0	Forgive and forget.
+platitudes	love	aphorism	general	0	Fortune and love befriend the bold.
+platitudes	life	aphorism	general	0	Fortune favors the lucky.
+platitudes	work-money	quip	general	0	Fortune finishes the great quotations, #12 Those who can, do. Those who can't, write the instructions.
+platitudes	life	quip	general	0	Fortune finishes the great quotations, #3 Birds of a feather flock to a newly washed car.
+platitudes	life	quip	general	0	Fortune finishes the great quotations, #9 A word to the wise is often enough to start an argument.
+platitudes	life	quip	general	0	Freedom from incrustation of grime is contiguous to rectitude.
+platitudes	arts	wisdom	general	0	Genius is pain.
+platitudes	life	aphorism	general	0	Given sufficient time, what you put off doing today will get done by itself.
+platitudes	faith	wisdom	general	0	God gave man two ears and one tongue so that we listen twice as much as we speak. -- Based on https://en.wikiquote.org/wiki/Zeno_of_Citium
+platitudes	life	uplifting	general	0	Happiness adds and multiplies as we divide it with others.
+platitudes	life	aphorism	general	0	Happiness is the greatest good.
+platitudes	life	aphorism	general	0	Haste makes waste.
+platitudes	life	uplifting	general	0	Have a nice day!
+platitudes	life	quip	general	0	Have a nice diurnal anomaly.
+platitudes	life	quip	general	0	Have an adequate day.
+platitudes	life	aphorism	general	0	He that bringeth a present, findeth the door open. -- Scottish proverb.
+platitudes	life	aphorism	general	0	He who fears the unknown may one day flee from his own backside.
+platitudes	life	aphorism	general	0	He who fights and runs away lives to fight another day.
+platitudes	life	aphorism	general	0	He who foresees calamities suffers them twice over.
+platitudes	life	quip	general	0	He who has a shady past knows that nice guys finish last.
+platitudes	life	aphorism	general	0	He who has imagination without learning has wings but no feet.
+platitudes	life	wisdom	general	0	He who has the courage to laugh is almost as much a master of the world as he who is ready to die.
+platitudes	life	aphorism	general	0	He who hates vices hates mankind.
+platitudes	life	aphorism	general	0	He who hesitates is last.
+platitudes	life	aphorism	general	0	He who hesitates is sometimes saved.
+platitudes	life	dark	general	0	He who laughs has not yet heard the bad news.
+platitudes	life	quip	general	0	He who laughs last -- missed the punch line.
+platitudes	life	quip	general	0	He who laughs last didn't get the joke.
+platitudes	life	dark	general	0	He who laughs last hasn't been told the terrible truth.
+platitudes	work-money	quip	general	0	He who laughs last is probably your boss.
+platitudes	life	quip	general	0	He who laughs last usually had to have joke explained.
+platitudes	life	aphorism	general	0	He who laughs, lasts.
+platitudes	life	wisdom	general	0	He who lives without folly is less wise than he believes.
+platitudes	life	dark	general	0	He who makes a beast of himself gets rid of the pain of being a man.
+platitudes	life	quip	general	0	Honesty is the best policy, but insanity is a better defense.
+platitudes	life	aphorism	general	0	Honesty's the best policy.
+platitudes	society	aphorism	general	0	Honi soit qui mal y pense. [Evil to him who evil thinks.] -- Motto of the Order of the Garter (est. Edward III)
+platitudes	life	quip	general	0	How sharper than a hound's tooth it is to have a thankless serpent.
+platitudes	life	quip	general	0	How you look depends on where you go.
+platitudes	life	aphorism	general	0	I am a man: nothing human is alien to me.
+platitudes	life	quip	general	0	I doubt, therefore I might be.
+platitudes	life	aphorism	general	0	I know on which side my bread is buttered.
+platitudes	life	quip	general	0	I think, therefore I am... I think.
+platitudes	life	quip	general	0	I'll turn over a new leaf.
+platitudes	life	wisdom	general	0	If a fool persists in his folly he shall become wise.
+platitudes	life	aphorism	general	0	If anything can go wrong, it will.
+platitudes	life	quip	general	0	If at first you do succeed, try to hide your astonishment.
+platitudes	life	quip	general	0	If at first you don't succeed, destroy all evidence that you tried.
+platitudes	life	quip	general	0	If at first you don't succeed, quit; don't be a nut about success.
+platitudes	life	quip	general	0	If at first you don't succeed, redefine success.
+platitudes	life	aphorism	general	0	If at first you don't succeed, try, try again.
+platitudes	life	quip	general	0	If at first you don't succeed, you're doing about average.
+platitudes	life	uplifting	general	0	If happiness is in your destiny, you need not be in a hurry. -- Chinese proverb
+platitudes	life	aphorism	general	0	If I cannot bend Heaven, I shall move Hell.
+platitudes	life	aphorism	general	0	If in doubt, mumble.
+platitudes	life	aphorism	general	0	If it ain't broke, don't fix it.
+platitudes	life	uplifting	general	0	If it heals good, say it.
+platitudes	life	quip	general	0	If the shoe fits, it's ugly.
+platitudes	nature	quip	general	0	If the thunder don't get you, then the lightning will.
+platitudes	life	aphorism	general	0	If there is no wind, row. -- Polish proverb
+platitudes	life	quip	general	0	If two wrongs don't make a right, try three.
+platitudes	life	aphorism	general	0	If wishes were horses, then beggars would be thieves.
+platitudes	life	wisdom	general	0	If you wish to be happy for one hour, get drunk. If you wish to be happy for three days, get married. If you wish to be happy for a month, kill your pig and eat it. If you wish to be happy forever, learn to fish.
+platitudes	life	aphorism	general	0	If you wish to succeed, consult three old people.
+platitudes	life	aphorism	general	0	If you would keep a secret from an enemy, tell it not to a friend.
+platitudes	faith	aphorism	general	0	In charity there is no excess.
+platitudes	life	quip	general	0	In God we trust; all else we walk through.
+platitudes	life	aphorism	general	0	In this world, nothing is certain but death and taxes.
+platitudes	work-money	aphorism	general	0	Inspiration without perspiration is usually sterile.
+platitudes	life	wisdom	general	0	Integrity has no need for rules.
+platitudes	life	quip	general	0	It doesn't matter whether you win or lose -- until you lose.
+platitudes	life	aphorism	general	0	It is a poor judge who cannot award a prize.
+platitudes	life	wisdom	general	0	It is a profitable thing, if one is wise, to seem foolish.
+platitudes	life	quip	general	0	It is annoying to be honest to no purpose.
+platitudes	life	quip	general	0	It is bad luck to be superstitious.
+platitudes	love	pun	general	0	It is better to have loved a short man than never to have loved a tall.
+platitudes	love	quip	general	0	It is better to have loved and lost -- much better.
+platitudes	love	quip	general	0	It is better to have loved and lost than just to have lost.
+platitudes	life	wisdom	general	0	It is better to wear out than to rust out.
+platitudes	life	wisdom	general	0	It is common sense to take a method and try it. If it fails, admit it frankly and try another. But above all, try something.
+platitudes	life	aphorism	general	0	It is sweet to let the mind unbend on occasion.
+platitudes	life	aphorism	general	0	It is the quality rather than the quantity that matters.
+platitudes	arts	wisdom	general	0	It is when I struggle to be brief that I become obscure.
+platitudes	life	wisdom	general	0	It is wise to keep in mind that neither success nor failure is ever final.
+platitudes	life	aphorism	general	0	It is your concern when your neighbor's wall is on fire.
+platitudes	life	aphorism	general	0	It's always darkest just before it gets pitch black.
+platitudes	life	dark	general	0	It's always darkest just before the lights go out.
+platitudes	life	aphorism	general	0	It's better to burn out than it is to rust.
+platitudes	life	aphorism	general	0	It's better to burn out than to fade away.
+platitudes	life	aphorism	general	0	It's later than you think.
+platitudes	life	quip	general	0	It's not whether you win or lose, it's how you place the blame.
+platitudes	life	quip	general	0	It's the thought, if any, that counts!
+platitudes	life	uplifting	general	0	Keep on keepin' on.
+platitudes	life	quip	general	0	Keep the phase, baby.
+platitudes	life	aphorism	general	0	Kites rise highest against the wind -- not with it.
+platitudes	life	aphorism	general	0	Knowledge is power.
+platitudes	life	wisdom	general	0	Knowledge without common sense is folly.
+platitudes	life	quip	general	0	Laugh and the world laughs with you, snore and you sleep alone.
+platitudes	life	quip	general	0	Laugh and the world thinks you're an idiot.
+platitudes	life	quip	general	0	Laugh at your problems; everybody else does.
+platitudes	life	aphorism	general	0	Laugh when you can; cry when you must.
+platitudes	life	dark	general	0	Laugh, and the world ignores you. Crying doesn't help either.
+platitudes	life	aphorism	general	0	Leave no stone unturned.
+platitudes	life	aphorism	general	0	Left to themselves, things tend to go from bad to worse.
+platitudes	life	aphorism	general	0	Let sleeping dogs lie.
+platitudes	life	wisdom	general	0	Let your conscience be your guide.
+platitudes	life	dark	general	0	Life is one long struggle in the dark.
+platitudes	life	quip	general	0	"Life is too important to take seriously."
+platitudes	life	quip	general	0	Life is too short to be taken seriously.
+platitudes	life	aphorism	general	0	Look before you leap.
+platitudes	life	aphorism	general	0	Look ere ye leap.
+platitudes	life	wisdom	general	0	Man is the measure of all things.
+platitudes	life	wisdom	general	0	Mankind is poised midway between the gods and the beasts.
+platitudes	life	wisdom	general	0	Many are called, few are chosen. Fewer still get to do the choosing.
+platitudes	life	quip	general	0	Many are called, few volunteer.
+platitudes	life	aphorism	general	0	Many are cold, but few are frozen.
+platitudes	life	aphorism	general	0	Many hands make light work.
+platitudes	life	uplifting	general	0	May you have warm words on a cold evening, a full moon on a dark night, and a smooth road all the way to your door.
+platitudes	life	aphorism	general	0	May you live in interesting times. -- Chinese proverb
+platitudes	life	wisdom	general	0	Men freely believe that what they wish to desire.
+platitudes	life	quip	general	0	Misery loves company, but company does not reciprocate.
+platitudes	life	dark	general	0	Misery no longer loves company. Nowadays it insists on it.
+platitudes	life	aphorism	general	0	Misfortunes arrive on wings and leave on foot.
+platitudes	life	quip	general	0	Mistakes are often the stepping stones to utter failure.
+platitudes	life	quip	general	0	Mistrust first impulses; they are always right.
+platitudes	life	aphorism	general	0	Moderation in all things.
+platitudes	life	quip	general	0	Moderation is a fatal thing. Nothing succeeds like excess.
+platitudes	family	quip	general	0	Mother is the invention of necessity.
+platitudes	life	aphorism	general	0	Mum's the word.
+platitudes	life	aphorism	general	0	Necessity has no law.
+platitudes	life	aphorism	general	0	Necessity hath no law.
+platitudes	life	pun	general	0	Necessity is a mother.
+platitudes	life	aphorism	general	0	Never do today what you can put off until tomorrow.
+platitudes	life	aphorism	general	0	Never look a gift horse in the mouth.
+platitudes	life	aphorism	general	0	Never promise more than you can perform.
+platitudes	life	aphorism	general	0	Never put off till tomorrow what you can avoid all together.
+platitudes	life	aphorism	general	0	Never put off until tomorrow what you can do the day after.
+platitudes	love	dark	general	0	Nice guys don't finish nice.
+platitudes	life	quip	general	0	Nice guys finish last, but we get to sleep in.
+platitudes	life	aphorism	general	0	Nice guys finish last.
+platitudes	life	quip	general	0	Nice guys get sick.
+platitudes	life	uplifting	general	0	No act of kindness, no matter how small, is ever wasted.
+platitudes	life	wisdom	general	0	No evil can happen to a good man.
+platitudes	life	wisdom	general	0	No excellent soul is exempt from a mixture of madness.
+platitudes	life	aphorism	general	0	No good deed goes unpunished.
+platitudes	life	aphorism	general	0	None love the bearer of bad news.
+platitudes	life	wisdom	general	0	Not everything worth doing is worth doing well.
+platitudes	life	wisdom	general	0	Nothing endures but change.
+platitudes	life	wisdom	general	0	Nothing ever becomes real till it is experienced -- even a proverb is no proverb to you till your life has illustrated it.
+platitudes	arts	wisdom	general	0	Nullum magnum ingenium sine mixtura dementiae fuit. [There is no great genius without some touch of madness.]
+platitudes	life	quip	general	0	Often things ARE as bad as they seem!
+platitudes	life	wisdom	general	0	Once a word has been allowed to escape, it cannot be recalled.
+platitudes	life	wisdom	general	0	Once harm has been done, even a fool understands it.
+platitudes	life	aphorism	general	0	One good turn asketh another.
+platitudes	life	aphorism	general	0	One good turn deserves another.
+platitudes	life	quip	general	0	One good turn usually gets most of the blanket.
+platitudes	life	pun	general	0	One man's Mede is another man's Persian.
+platitudes	arts	aphorism	general	0	One picture is worth more than ten thousand words. -- Chinese proverb
+platitudes	life	pun	general	0	Oppernockity tunes but once.
+platitudes	life	aphorism	general	0	Out of sight is out of mind.
+platitudes	life	aphorism	general	0	Patience is the best remedy for every trouble.
+platitudes	life	aphorism	general	0	Pauca sed matura. [Few but excellent.]
+platitudes	arts	wisdom	general	0	Pereant, inquit, qui ante nos nostra dixerunt. [Confound those who have said our remarks before us.] or [May they perish who have expressed our bright ideas before us.]
+platitudes	faith	quip	general	0	Pity the meek, for they shall inherit the earth.
+platitudes	life	aphorism	general	0	Plus ca change, plus c'est la meme chose. [The more things change, the more they remain the same.]
+platitudes	life	aphorism	general	0	Practice yourself what you preach.
+platitudes	life	aphorism	general	0	Praise the sea; on shore remain.
+platitudes	faith	aphorism	general	0	Pray to God, but keep rowing to shore.
+platitudes	love	quip	general	0	Prosperity makes friends, adversity tries them.
+platitudes	life	quip	general	0	Quidquid latine dictum sit, altum videtur. [Whatever is said in Latin sounds profound.]
+platitudes	life	wisdom	general	0	Remembering is for those who have forgotten. -- Chinese proverb
+platitudes	life	observation	general	0	Removing the straw that broke the camel's back does not necessarily allow the camel to walk again.
+platitudes	life	aphorism	general	0	Rome was not built in one day.
+platitudes	society	quip	general	0	Rome wasn't burnt in a day.
+platitudes	life	aphorism	general	0	Rotten wood cannot be carved.
+platitudes	life	aphorism	general	0	Scintillation is not always identification for an auric substance.
+platitudes	life	aphorism	general	0	Seek simplicity -- and distrust it.
+platitudes	life	wisdom	general	0	Seize the day, put no trust in the morrow!
+platitudes	life	aphorism	general	0	Set the cart before the horse.
+platitudes	life	wisdom	general	0	Si jeunesse savait, si vieillesse pouvait. [If youth but knew, if old age but could.]
+platitudes	life	pun	general	0	Sic transit gloria Monday!
+platitudes	life	wisdom	general	0	Sic transit gloria mundi. [So passes away the glory of this world.] -- Thomas a Kempis
+platitudes	life	pun	general	0	Sic Transit Gloria Thursdi.
+platitudes	life	quip	general	0	Small change can often be found under seat cushions. -- One of Lazarus Long's most penetrating insights
+platitudes	life	aphorism	general	0	Small is beautiful.
+platitudes	life	uplifting	general	0	Stop searching forever. Happiness is just next to you.
+platitudes	life	dark	general	0	Stop searching forever. Happiness is unattainable.
+platitudes	life	joke	general	0	Stop searching. Happiness is right next to you. Now, if they'd only take a bath ...
+platitudes	nature	verse	general	0	Sweet April showers do spring May flowers.
+platitudes	life	quip	general	0	The coast was clear.
+platitudes	life	aphorism	general	0	The course of true anything never does run smooth.
+platitudes	life	aphorism	general	0	The descent to Hades is the same from every place.
+platitudes	life	pun	general	0	The early worm gets the bird.
+platitudes	nature	quip	general	0	The early worm gets the late bird.
+platitudes	society	aphorism	general	0	The ends justify the means. -- after Matthew Prior
+platitudes	love	wisdom	general	0	The greatest love is a mother's, then a dog's, then a sweetheart's. -- Polish proverb
+platitudes	life	wisdom	general	0	The life which is unexamined is not worth living.
+platitudes	life	dark	general	0	The light at the end of the tunnel is the headlight of an approaching train.
+platitudes	life	dark	general	0	The light at the end of the tunnel may be an oncoming dragon.
+platitudes	life	aphorism	general	0	The man who runs may fight again.
+platitudes	life	wisdom	general	0	The man who sees, on New Year's day, Mount Fuji, a hawk, and an eggplant is forever blessed.
+platitudes	life	quip	general	0	The meek will inherit the earth -- if that's OK with you.
+platitudes	life	aphorism	general	0	The more the merrier.
+platitudes	life	dark	general	0	The more things change, the more they stay insane.
+platitudes	life	quip	general	0	The more things change, the more they'll never be the same again.
+platitudes	life	aphorism	general	0	The only certainty is that nothing is certain.
+platitudes	life	aphorism	general	0	The only constant is change.
+platitudes	life	wisdom	general	0	The only problem with seeing too much is that it makes you insane.
+platitudes	life	wisdom	general	0	The only reward of virtue is virtue.
+platitudes	life	aphorism	general	0	"The porcupine with the sharpest quills gets stuck on a tree more often."
+platitudes	food	aphorism	general	0	The proof of the pudding is in the eating.
+platitudes	life	aphorism	general	0	The reverse side also has a reverse side. -- Japanese proverb
+platitudes	life	dark	general	0	The road to Hades is easy to travel.
+platitudes	life	aphorism	general	0	The superfluous is very necessary.
+platitudes	science	quip	general	0	The temperature of the aqueous content of an unremittingly ogled culinary vessel will not achieve 100 degrees on the Celsius scale.
+platitudes	life	aphorism	general	0	The worst is enemy of the bad.
+platitudes	life	quip	general	0	There are more things in heaven and earth than any place else.
+platitudes	life	aphorism	general	0	There are more ways of killing a cat than choking her with cream.
+platitudes	life	wisdom	general	0	There is no fool to the old fool.
+platitudes	life	aphorism	general	0	There is no grief which time does not lessen and soften.
+platitudes	life	wisdom	general	0	There is no proverb that is not true.
+platitudes	life	quip	general	0	There's an old proverb that says just about whatever you want it to.
+platitudes	life	wisdom	general	0	There's no heavier burden than a great potential.
+platitudes	faith	quip	general	0	There's no such thing as an original sin.
+platitudes	life	pun	general	0	There's no time like the pleasant.
+platitudes	life	quip	general	0	Things are more like they are today than they ever were before.
+platitudes	life	quip	general	0	Things are more like they used to be than they are now.
+platitudes	life	aphorism	general	0	Things are not always what they seem.
+platitudes	life	dark	general	0	Things fall apart; the centre cannot hold.
+platitudes	life	aphorism	general	0	Thou hast seen nothing yet.
+platitudes	life	aphorism	general	0	Three may keep a secret, if two of them are dead.
+platitudes	life	aphorism	general	0	Time and tide wait for no man.
+platitudes	life	aphorism	general	0	Time as he grows old teaches all things.
+platitudes	life	pun	general	0	Time flies like an arrow. Fruit flies like a banana.
+platitudes	life	aphorism	general	0	Time goes, you say? Ah no! Time stays, *we* go.
+platitudes	life	quip	general	0	Time sure flies when you don't know what you're doing.
+platitudes	life	aphorism	general	0	To add insult to injury.
+platitudes	life	quip	general	0	To err is human, but I can REALLY foul things up.
+platitudes	life	quip	general	0	To err is human, but when the eraser wears out before the pencil, you're overdoing it a little.
+platitudes	work-money	quip	general	0	To err is human, to forgive is against company policy.
+platitudes	life	quip	general	0	To err is human, to forgive unusual.
+platitudes	life	pun	general	0	To err is human, to purr feline. To err is human, two curs canine. To err is human, to moo bovine.
+platitudes	life	aphorism	general	0	To err is human, to repent, divine, to persist, devilish.
+platitudes	life	quip	general	0	To err is human. To blame someone else for your mistakes is even more human.
+platitudes	life	quip	general	0	To err is human; to admit it, a blunder.
+platitudes	life	quip	general	0	To err is human; to forgive is simply not our policy.
+platitudes	life	quip	general	0	To err is humor.
+platitudes	life	quip	general	0	To every Ph.D. there is an equal and opposite Ph.D.
+platitudes	life	aphorism	general	0	Treat your friend as if he might become an enemy.
+platitudes	faith	aphorism	general	0	Trust in Allah, but tie your camel. -- Arabian proverb
+platitudes	life	quip	general	0	Truth can wait; he's used to it.
+platitudes	faith	wisdom	general	0	Turn the other cheek.
+platitudes	life	aphorism	general	0	Two heads are better than one.
+platitudes	life	quip	general	0	Two heads are more numerous than one.
+platitudes	life	quip	general	0	Two is company, three is an orgy.
+platitudes	life	dark	general	0	Two wrongs are only the beginning.
+platitudes	life	quip	general	0	Two wrongs don't make a right, but they make a good excuse.
+platitudes	life	quip	general	0	Two wrongs don't make a right, but three lefts do.
+platitudes	faith	quip	general	0	Walking on water wasn't built in a day.
+platitudes	life	wisdom	general	0	We are what we are.
+platitudes	life	wisdom	general	0	We are what we pretend to be.
+platitudes	life	dark	general	0	We have seen the light at the end of the tunnel, and it's out.
+platitudes	life	aphorism	general	0	Well begun is half done.
+platitudes	life	quip	general	0	What fools these morals be!
+platitudes	life	quip	general	0	What fools these mortals be.
+platitudes	life	wisdom	general	0	What one believes to be true either is true or becomes true.
+platitudes	life	aphorism	general	0	What one fool can do, another can.
+platitudes	life	wisdom	general	0	What we wish, that we readily believe.
+platitudes	life	quip	general	0	What you don't know can hurt you, only you won't know it.
+platitudes	life	quip	general	0	What you don't know won't help you much either.
+platitudes	society	aphorism	general	0	Whatever it is, I fear Greeks even when they bring gifts.
+platitudes	life	uplifting	general	0	When in doubt, follow your heart.
+platitudes	tech	aphorism	general	0	When in doubt, use brute force.
+platitudes	life	quip	general	0	When nothing can possibly go wrong, it will.
+platitudes	nature	aphorism	general	0	When the ax entered the forest, the trees said, "The handle is one of us!" -- Turkish proverb
+platitudes	life	aphorism	general	0	When the blind lead the blind they will both fall over the cliff. -- Chinese proverb
+platitudes	life	observation	general	0	When the going gets tough, everyone leaves.
+platitudes	life	quip	general	0	When the going gets tough, the tough go shopping.
+platitudes	life	quip	general	0	When the going gets weird, the weird turn pro.
+platitudes	life	aphorism	general	0	When the only tool you have is a hammer, every problem starts to look like a nail.
+platitudes	life	aphorism	general	0	When the sun shineth, make hay.
+platitudes	life	aphorism	general	0	When we talk of tomorrow, the gods laugh.
+platitudes	life	aphorism	general	0	When you are at Rome live in the Roman style; when you are elsewhere live as they live elsewhere.
+platitudes	life	aphorism	general	0	When you are in it up to your ears, keep your mouth shut.
+platitudes	life	wisdom	general	0	When you have eliminated the impossible, whatever remains, however improbable, must be the truth.
+platitudes	life	quip	general	0	Where there are visible vapors, having their prevenance in ignited carbonaceous materials, there is conflagration.
+platitudes	life	wisdom	general	0	Where there is much light there is also much shadow.
+platitudes	life	aphorism	general	0	While there's life, there's hope.
+platitudes	life	dark	general	0	Whom the gods wish to destroy they first call promising.
+platitudes	faith	wisdom	general	0	Whom the mad would destroy, first they make Gods.
+platitudes	life	wisdom	general	0	Without fools there would be no wisdom.
+platitudes	life	aphorism	general	0	Words are the voice of the heart.
+platitudes	life	quip	general	0	Words can never express what words can never express.
+platitudes	life	aphorism	general	0	Words have a longer life than deeds.
+platitudes	life	quip	general	0	Would ye both eat your cake and have your cake?
+platitudes	life	aphorism	general	0	You buttered your bread, now lie in it.
+platitudes	life	pun	general	0	You can drive a horse to water, but a pencil must be lead.
+platitudes	life	quip	general	0	You can fool some of the people all of the time, and all of the people some of the time, but you can make a fool of yourself anytime.
+platitudes	family	quip	general	0	You can fool some of the people all of the time, and all of the people some of the time, but you can never fool your Mom.
+platitudes	society	quip	general	0	You can fool some of the people some of the time, and some of the people all of the time, and that is sufficient.
+platitudes	life	wisdom	general	0	You can get everything in life you want, if you will help enough other people get what they want.
+platitudes	life	dark	general	0	You can get much further with a kind word and a gun than you can with a kind word alone.
+platitudes	work-money	quip	general	0	You can go anywhere you want if you look serious and carry a clipboard.
+platitudes	society	quip	general	0	You can make it illegal, but you can't make it unpopular.
+platitudes	life	aphorism	general	0	You can move the world with an idea, but you have to think of it first.
+platitudes	life	aphorism	general	0	You can never do just one thing.
+platitudes	life	aphorism	general	0	You can't break eggs without making an omelet.
+platitudes	life	quip	general	0	You can't judge a book by the way it wears its hair.
+platitudes	life	aphorism	general	0	You cannot see the wood for the trees.
+platitudes	life	aphorism	general	0	You get what you pay for.
+platitudes	life	aphorism	general	0	You k'n hide de fier, but w'at you gwine do wid de smoke?
+platitudes	arts	quip	general	0	"MOKE DAT YIGARETTE" -- "The Last Coin", James P. Blaylock
+platitudes	life	wisdom	general	0	You may be marching to the beat of a different drummer, but you're still in the parade.
+platitudes	life	tv-quote	general	0	"World conquerors sometimes become fools, but fools never become world conquerors." -- "The Outer Limits: The Invisibles"

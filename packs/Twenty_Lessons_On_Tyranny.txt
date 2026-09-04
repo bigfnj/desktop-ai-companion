@@ -1,0 +1,19 @@
+Twenty_Lessons_On_Tyranny	society	wisdom	general	0	1. Do not obey in advance. ~ Timothy Snyder
+Twenty_Lessons_On_Tyranny	society	wisdom	general	0	10. Believe in truth. ~ Timothy Snyder
+Twenty_Lessons_On_Tyranny	life	quip	general	0	11. Investigate. ~ Timothy Snyder
+Twenty_Lessons_On_Tyranny	society	aphorism	general	0	12. Make eye contact and small talk. ~ Timothy Snyder
+Twenty_Lessons_On_Tyranny	society	wisdom	general	0	13. Practice corporeal politics. ~ Timothy Snyder
+Twenty_Lessons_On_Tyranny	society	wisdom	general	0	14. Establish a private life. ~ Timothy Snyder %% 15. Contribute to good causes. ~ Timothy Snyder
+Twenty_Lessons_On_Tyranny	society	wisdom	general	0	16. Learn from peers in other countries. ~ Timothy Snyder
+Twenty_Lessons_On_Tyranny	society	wisdom	general	0	17. Listen for dangerous words. ~ Timothy Snyder
+Twenty_Lessons_On_Tyranny	life	wisdom	general	0	18. Be calm when the unthinkable arrives. ~ Timothy Snyder
+Twenty_Lessons_On_Tyranny	society	wisdom	general	0	19. Be a patriot. ~ Timothy Snyder
+Twenty_Lessons_On_Tyranny	society	wisdom	general	0	2. Defend institutions. ~ Timothy Snyder
+Twenty_Lessons_On_Tyranny	life	aphorism	general	0	20. Be as courageous as you can. ~ Timothy Snyder
+Twenty_Lessons_On_Tyranny	society	wisdom	general	0	3. Beware the one-party state. ~ Timothy Snyder
+Twenty_Lessons_On_Tyranny	society	wisdom	general	0	4. Take responsibility for the face of the world. ~ Timothy Snyder
+Twenty_Lessons_On_Tyranny	work-money	aphorism	general	0	5. Remember professional ethics. ~ Timothy Snyder
+Twenty_Lessons_On_Tyranny	society	aphorism	general	0	6. Be wary of paramilitaries. ~ Timothy Snyder
+Twenty_Lessons_On_Tyranny	society	aphorism	general	0	7. Be reflective if you must be armed. ~ Timothy Snyder
+Twenty_Lessons_On_Tyranny	life	aphorism	general	0	8. Stand out. Someone has to. ~ Timothy Snyder
+Twenty_Lessons_On_Tyranny	society	wisdom	general	0	9. Be kind to our language. ~ Timothy Snyder

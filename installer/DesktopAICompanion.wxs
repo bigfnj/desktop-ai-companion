@@ -1,0 +1,300 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Per-user, x64 MSI for Desktop AI Companion.
+
+  ProductName, Manufacturer, ProductVersion, RepositoryUrl, UpgradeCode, and
+  RegistryRoot are supplied by build-installer.ps1. RuntimeComponents is generated
+  from packaging/runtime-files.txt, so ZIP and MSI payloads cannot silently diverge.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+
+  <Package Name="$(var.ProductName)"
+           Manufacturer="$(var.Manufacturer)"
+           Version="$(var.ProductVersion)"
+           UpgradeCode="$(var.UpgradeCode)"
+           Scope="perUser"
+           InstallerVersion="500"
+           Compressed="yes">
+
+    <!-- afterInstallInitialize: remove the previous version's files BEFORE the new payload is laid down, so an
+         upgrade never writes the new files over the old (possibly loaded) ones in place — the cause of the
+         "Error writing to file ...Contracts.dll" (1304) modal when the old app was still running. Stays
+         strictly inside InstallInitialize < RemoveExistingProducts < InstallFinalize (Test-MsiUpgradeSchedule). -->
+    <!-- AllowSameVersionUpgrades: a rebuilt SAME version (distinct ProductCode via the content-derived
+         seed in Normalize-MsiDeterminism.ps1) replaces the prior install instead of hitting Windows
+         Installer error 1638. Releases always bump the version, so this only affects reinstalling a rebuilt
+         same version; it makes the Upgrade VersionMax inclusive, which trips ICE61 (suppressed in build-installer.ps1). -->
+    <MajorUpgrade Schedule="afterInstallInitialize"
+                  AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of $(var.ProductName) is already installed." />
+    <!--
+      Close a running DesktopAICompanion before the installer costs files, instead of stopping on "The setup was
+      unable to automatically close all requested applications."
+
+      Restart Manager already tries this and fails. Measured on a real install: the app answers
+      WM_QUERYENDSESSION in 27ms and then keeps running, 9 windows and 28 threads still up 32 seconds later,
+      because WinForms hangs its session-end handling off a hidden broadcast window that lands on a
+      BACKGROUND thread (no forms) while every form lives on the UI thread. Worse than a prompt: RM closes
+      the windows it can reach, so the user is left with pets on the desktop, no tray icon, and no way to
+      quit. A bare build with no modules configured does not reproduce it, which is why it read as an
+      installer fault rather than an ordering one in the app.
+
+      TerminateProcess="1": ask politely first via CloseMessage, then kill. The app persists settings when
+      they change rather than at exit, so there is no unsaved state a graceful close would flush. Without
+      the fallback this inherits exactly the hang described above.
+
+      RebootPrompt="no": never turn a pet app into a reboot request.
+    -->
+    <util:CloseApplication Id="CloseRunningDesktopAICompanion"
+                           Target="DesktopAICompanion.exe"
+                           CloseMessage="yes"
+                           TerminateProcess="1"
+                           RebootPrompt="no"
+                           Property="DESKTOP_AI_COMPANION_WAS_RUNNING" />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Product icon (installer + Programs & Features) = the sheep, not the app exe's red emblem. -->
+    <Icon Id="SheepIcon.ico" SourceFile="sheep.ico" />
+    <Property Id="ARPPRODUCTICON" Value="SheepIcon.ico" />
+    <Property Id="ARPHELPLINK" Value="$(var.RepositoryUrl)" />
+    <Property Id="ARPURLINFOABOUT" Value="$(var.RepositoryUrl)" />
+    <!--
+      The public test-only directory properties are unset in production, preserving
+      the normal Desktop and Start Menu destinations. The isolated lifecycle harness
+      supplies them on every maintenance operation so it cannot overwrite a user's
+      existing shortcuts. Registry key paths are similarly redirected by overriding
+      the production-default DESKTOP_AI_COMPANION_REGISTRYROOT property.
+    -->
+    <Property Id="DESKTOP_AI_COMPANION_REGISTRYROOT"
+              Value="$(var.RegistryRoot)"
+              Secure="yes" />
+    <Property Id="DESKTOP_AI_COMPANION_ISOLATED_LIFECYCLE_CAPABILITY" Value="1" />
+    <Property Id="INSTALLFOLDER" Secure="yes" />
+    <Property Id="DESKTOP_AI_COMPANION_TEST_DESKTOPFOLDER" Secure="yes" />
+    <Property Id="DESKTOP_AI_COMPANION_TEST_STARTMENUFOLDER" Secure="yes" />
+    <!--
+      Repair is OFFERED, and forced to actually repair.
+
+      It used to be suppressed with ARPNOREPAIR=1, on the grounds that every component's KeyPath is an HKCU
+      registry value (ICE38 requires that for anything installing into the user profile, which is all 18 of
+      ours), so Windows Installer cannot infer from a KeyPath that a payload FILE has gone missing. That is
+      true, but it is an argument about ARP INFERRING a broken install, not about whether a repair works once
+      asked for. The result was a greyed-out button reading "cannot be repaired" and no working alternative
+      offered anywhere.
+
+      REINSTALLMODE=amus makes an invoked repair force-copy every file (a) regardless of version, and restore
+      machine registry (m), user registry (u) and shortcuts (s). Without the `a` the default `omus` would
+      only replace a file that is MISSING or older, so a file that exists but is corrupt at the same version
+      would be left exactly as it was: a repair that reports success and fixes nothing, which is the
+      failure the old suppression was worried about.
+
+      REINSTALLMODE is only consulted when REINSTALL is set, so a first install and a major upgrade are
+      unaffected.
+
+      ARPNOMODIFY stays: there really is one feature, so "no independently selectable features" is honest.
+    -->
+    <Property Id="REINSTALLMODE" Value="amus" />
+    <!--
+      No runtime launch condition. This is a framework-dependent .NET 10 app: the MSI installs
+      regardless, and the apphost (DesktopAICompanion.exe) prompts to install the .NET Desktop runtime on
+      first launch if it is missing. (Replaces the old .NET Framework 4.8 NDP registry gate.)
+    -->
+    <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]"
+                 After="CostFinalize" Sequence="execute" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="$(var.ProductName)" />
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="AppMenuFolder" Name="$(var.ProductName)" />
+    </StandardDirectory>
+    <StandardDirectory Id="DesktopFolder" />
+    <SetDirectory Id="DesktopFolder"
+                  Value="[DESKTOP_AI_COMPANION_TEST_DESKTOPFOLDER]"
+                  Condition="DESKTOP_AI_COMPANION_TEST_DESKTOPFOLDER"
+                  Sequence="both" />
+    <SetDirectory Id="AppMenuFolder"
+                  Value="[DESKTOP_AI_COMPANION_TEST_STARTMENUFOLDER]"
+                  Condition="DESKTOP_AI_COMPANION_TEST_STARTMENUFOLDER"
+                  Sequence="both" />
+
+    <!--
+      Per-user profile components use HKCU registry key paths (ICE38). RemoveFolder
+      rows cover every application-created profile directory (ICE64) without
+      deleting %LOCALAPPDATA%\Programs when another application still uses it.
+    -->
+    <Component Id="CmpInstallFolderState" Directory="INSTALLFOLDER"
+               Guid="$(var.InstallFolderStateComponentGuid)">
+      <!--
+        The release upgrade gate seeds this historical tombstone after installing
+        the hash-pinned N-1 MSI. Its removal proves that the current package's
+        install transaction actively cleans an obsolete install-root file.
+      -->
+      <RemoveFile Id="RemoveObsoleteUpgradeProbe"
+                  Name="DesktopAICompanion.obsolete-upgrade-probe"
+                  On="install" />
+      <RemoveFolder Id="RemoveInstallFolder" On="uninstall" />
+      <RemoveFolder Id="RemoveProgramsFolderWhenEmpty" Directory="ProgramsFolder" On="uninstall" />
+      <RegistryValue Root="HKCU" Key="[DESKTOP_AI_COMPANION_REGISTRYROOT]"
+                     Name="InstallFolder" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+    </Component>
+
+    <Component Id="CmpStartMenuFolderState" Directory="AppMenuFolder"
+               Guid="$(var.StartMenuFolderStateComponentGuid)">
+      <RemoveFolder Id="RemoveAppMenuFolder" On="uninstall" />
+      <RegistryValue Root="HKCU" Key="[DESKTOP_AI_COMPANION_REGISTRYROOT]"
+                     Name="StartMenuFolder" Type="string" Value="[AppMenuFolder]" KeyPath="yes" />
+    </Component>
+
+    <Feature Id="Main" Title="$(var.ProductName)" Level="1">
+      <ComponentGroupRef Id="RuntimeComponents" />
+      <ComponentRef Id="CmpInstallFolderState" />
+      <ComponentRef Id="CmpStartMenuFolderState" />
+    </Feature>
+
+    <!--
+      "Clear all settings and modules": a fresh start, for someone whose install is in a state they would
+      rather not debug.
+
+      UNSET by default, deliberately, and NOT Value="0". An MSI checkbox is checked whenever its property
+      holds a NON-EMPTY value, so Value="0" would tick the box and arm a destructive option by default.
+      Secure="yes" so it also works unattended: msiexec /i DesktopAICompanion-AI-Edition.msi CLEANINSTALL=1
+    -->
+    <Property Id="CLEANINSTALL" Secure="yes" />
+
+    <!--
+      The APP does the deleting, not the installer. What counts as "this app's data" is decided at runtime by
+      AppPaths (an override, a portable layout beside the exe, or the installed profile directory) and it
+      lives in TWO places: %LOCALAPPDATA%\DesktopAICompanion and <install>\modules. Re-deriving that in WiX would be
+      a second definition, free to drift from the first. See src\dotNet\FactoryReset.cs, which also refuses to
+      empty anything that looks like a profile or system folder.
+
+      After InstallFiles so the exe it runs is the NEW one and is guaranteed to exist. On a fresh install
+      there is no older exe to call, and on an upgrade the old one is already gone (RemoveExistingProducts is
+      scheduled afterInstallInitialize). Deferred because an immediate action in the execute sequence runs
+      while the script is being BUILT, which is before any file has been written.
+
+      Impersonate="yes": this is a perUser package and the data is under the installing user's profile.
+      Return="ignore": a file locked by something else must not roll back an otherwise good install. The app
+      reports per-item failures and carries on, and the user can clear the rest by hand.
+    -->
+    <CustomAction Id="ClearUserDataOnInstall"
+                  FileRef="DesktopAICompanionExe"
+                  ExeCommand="--factory-reset"
+                  Execute="deferred"
+                  Impersonate="yes"
+                  Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="ClearUserDataOnInstall" After="InstallFiles"
+              Condition='CLEANINSTALL = "1" AND NOT REMOVE' />
+    </InstallExecuteSequence>
+
+    <!--
+      Launch the pet when setup finishes, ticked by default. Installing a desktop pet and then being left with
+      an empty desktop is a strange place to stop.
+
+      The checkbox lives on the stock ExitDialog, which already carries an OptionalCheckBox bound to
+      WIXUI_EXITDIALOGOPTIONALCHECKBOX and captioned from WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT: no new dialog.
+      A value of "1" makes it render TICKED, which is the same MSI rule that makes CLEANINSTALL deliberately
+      valueless just above. Here the default is the safe direction, so the rule works in our favour.
+
+      Immediate, not deferred: the action runs when Finish is clicked, after InstallFinalize, so there is no
+      install script left to defer into. Impersonated so the pet belongs to the user rather than to the
+      installer, and asyncNoWait so setup closes immediately instead of waiting on a process that runs until
+      the user quits it. NOT Installed keeps it off maintenance and uninstall runs.
+    -->
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch $(var.ProductName)" />
+    <CustomAction Id="LaunchDesktopAICompanion"
+                  FileRef="DesktopAICompanionExe"
+                  ExeCommand=""
+                  Execute="immediate"
+                  Impersonate="yes"
+                  Return="asyncNoWait" />
+
+    <ui:WixUI Id="WixUI_Minimal" />
+
+    <UI>
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchDesktopAICompanion"
+               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+
+      <!--
+        Its own dialog rather than a checkbox grafted onto WelcomeEulaDlg. WelcomeEulaDlg's Install button
+        already publishes EndDialog/Return at ordering 2, and MSI leaves the relative order of two rows
+        sharing an ordering unspecified, so inserting a NewDialog beside it would work or not depending on
+        row order in the table. Shown from the UI SEQUENCE instead, which leaves the stock dialog's events
+        untouched entirely.
+      -->
+      <Dialog Id="DesktopAICompanionResetDlg" Width="370" Height="270" Title="[ProductName] Setup">
+        <!--
+          Stock WelcomeEulaDlg/PrepareDlg geometry: the same full-dialog WixUI_Bmp_Dialog background at
+          0,0,370,234 with content inset from x=130. Not a banner.
+
+          PrepareDlg (UI sequence 49) is shown while costing runs and is then replaced by whatever dialog
+          comes next. In the stock flow that is the licence page, which carries the identical background, so
+          the swap is invisible. A banner-styled page here made that hand-off read as the licence flashing up
+          and vanishing. Matching the background makes it one continuous dialog again.
+        -->
+        <Control Id="DialogBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="234" TabSkip="no"
+                 Text="WixUI_Bmp_Dialog" />
+        <Control Id="Title" Type="Text" X="130" Y="6" Width="225" Height="30" Transparent="yes" NoPrefix="yes"
+                 Text="{\WixUI_Font_Title}Start fresh?" />
+        <Control Id="Description" Type="Text" X="130" Y="36" Width="225" Height="24" Transparent="yes" NoPrefix="yes"
+                 Text="Choose this only if you want to discard your current setup." />
+
+        <Control Id="CleanCheckBox" Type="CheckBox" X="130" Y="70" Width="226" Height="26"
+                 Property="CLEANINSTALL" CheckBoxValue="1"
+                 Text="C&amp;lear all settings and modules" />
+        <Control Id="Explanation" Type="Text" X="130" Y="102" Width="226" Height="86" NoPrefix="yes"
+                 Text="Installs as if brand new. Leave it unticked to keep everything. Ticking it deletes your settings, your downloaded pets and fortunes, every installed module and its configuration, and any saved AI or calendar setup, and then installs a clean copy. Your notes and files elsewhere on the computer are not touched. This cannot be undone." />
+        <Control Id="Warning" Type="Text" X="130" Y="192" Width="226" Height="34" NoPrefix="yes"
+                 Text="If you are not sure, leave it unticked. You can always clear things later; you cannot get them back afterwards." />
+
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <!-- No Back: this is the first page of the sequence, and a sequenced dialog cannot NewDialog
+             its way back to one. Next returns control to the UI sequence, which then shows the licence. -->
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes"
+                 Text="!(loc.WixUINext)">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes"
+                 Text="Cancel">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!--
+        SCHEDULED in the UI sequence, not chained off WelcomeEulaDlg's Install button.
+
+        The obvious approach is a NewDialog published on that button, and it silently does nothing:
+        MSI runs a control's events in Ordering order and stops at the first one that CLOSES the dialog,
+        and WixUI_Minimal already publishes "EndDialog Return" there at Ordering=2. A NewDialog at any
+        higher ordering is unreachable, so the page never appears and the install just proceeds. The
+        sibling runas-helper project shipped that bug for several releases before catching it against a
+        built MSI's ControlEvent table; this is the corrected shape, verified the same way.
+
+        1294 is the free slot. The surrounding entries are MigrateFeatureStates (1200), WelcomeDlg (1295,
+        patch-only), WelcomeEulaDlg (1296), ResumeDlg (1297), MaintenanceWelcomeDlg (1298) and ProgressDlg
+        (1299): which is why pinning 1298 instead squeezes the stock dialogs out of their own numbering
+        and fails the build with WIX0179.
+
+        Asking before the licence page keeps the button labels honest (Next here, Install there) and means
+        nothing has been decided when the question is asked. A sequenced dialog's "EndDialog Return" hands
+        control back to this sequence rather than ending it, so the licence page still follows.
+      -->
+      <InstallUISequence>
+        <Show Dialog="DesktopAICompanionResetDlg" Sequence="1294" Condition="NOT Installed" />
+      </InstallUISequence>
+    </UI>
+
+    <WixVariable Id="WixUILicenseRtf" Value="license.rtf" />
+    <!-- Welcome/Finish sidebar art: the pet pasture (blue sky, clouds, green hill). 493x312 24-bit BMP. -->
+    <WixVariable Id="WixUIDialogBmp" Value="dialog.bmp" />
+    <!-- Interior/progress dialog top banner: sheep on the right, left clear for the title. 493x58 24-bit BMP. -->
+    <WixVariable Id="WixUIBannerBmp" Value="banner.bmp" />
+  </Package>
+</Wix>

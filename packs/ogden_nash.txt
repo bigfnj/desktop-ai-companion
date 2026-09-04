@@ -1,0 +1,49 @@
+ogden_nash	life	wisdom	general	0	'Reflection on Ingenuity' Here's a good rule of thumb: Too clever is dumb.
+ogden_nash	nature	verse	general	0	'The Cow' The cow is of the bovine ilk; One end is moo, the other, milk
+ogden_nash	life	verse	general	0	'The Eel' I don't mind eels Except as meals And the way they feels.
+ogden_nash	nature	verse	general	0	'The Guppy' Whales have calves, Cats have kittens, Bears have cubs, Bats have bittens, Swans have cygnets, Seals have puppies, But guppies just have little guppies.
+ogden_nash	nature	verse	general	0	'The Octopus' Tell me, O Octopus, I begs, Is those things arms, or is they legs? I marvel at thee, Octopus If I were thou, I'd call me Us.
+ogden_nash	nature	verse	general	0	'The Ostrich' The ostrich roams the great Sahara. Its mouth is wide, its neck is narra. It has such long and lofty legs, I'm glad it sits to lay its eggs.
+ogden_nash	food	verse	general	0	'The Pig' The pig, if I am not mistaken, Supplies us sausage, ham and bacon, Let others say his heart is big-- I call it stupid of the pig.
+ogden_nash	nature	quip	general	0	A door is what a dog is perpetually on the wrong side of.
+ogden_nash	family	quip	general	0	A family is a unit composed not only of children but of men, women, an occasional animal, and the common cold.
+ogden_nash	life	pun	general	0	Candy is dandy but liquor is quicker.
+ogden_nash	work-money	quip	general	0	Certainly there are things in life that money can't buy, but it's very funny - Did you ever try buying them without money?
+ogden_nash	family	observation	general	0	Children aren't happy with nothing to ignore, and that's what parents were created for.
+ogden_nash	society	quip	general	0	Commitments the voters don't know about can't hurt you.
+ogden_nash	life	quip	general	0	Do you think my mind is maturing late, or simply rotted early?
+ogden_nash	society	quip	general	0	Every Englishman is convinced of one thing, viz.: That to be an Englishman is to belong to the most exclusive club there is.
+ogden_nash	life	quip	general	0	Every New Year is the direct descendant, isn't it, of a long line of proven criminals?
+ogden_nash	life	aphorism	general	0	Happiness is having a scratch for every itch.
+ogden_nash	love	verse	general	0	I claim there ain't Another Saint As great as Valentine.
+ogden_nash	society	quip	general	0	I do not like to get the news, because there has never been an era when so many things were going so right for so many of the wrong persons.
+ogden_nash	love	quip	general	0	I have an idea that the phrase 'weaker sex' was coined by some woman to disarm the man she was preparing to overwhelm.
+ogden_nash	life	verse	general	0	I hope my tongue in prune juice smothers, If I belittle dogs and mothers.
+ogden_nash	life	wisdom	general	0	I think remorse ought to stop biting the consciences that feed it.
+ogden_nash	nature	verse	general	0	I think that I shall never see a billboard lovely as a tree.
+ogden_nash	nature	verse	general	0	I think that I shall never see a billboard lovely as a tree. Perhaps, unless the billboards fall, I'll never see a tree at all.
+ogden_nash	work-money	verse	general	0	I would live all my life in nonchalance and insouciance, Were it not for making a living, which is rather a nouciance.
+ogden_nash	work-money	quip	general	0	If you don't want to work you have to work to earn enough money so that you won't have to work.
+ogden_nash	life	dark	general	0	Life is not having been told that the man has just waxed the floor.
+ogden_nash	love	observation	general	0	Marriage is the alliance of two people, one of whom never remembers birthdays and the other who never forgets them.
+ogden_nash	life	observation	general	0	Middle age is when you're sitting at home on a Saturday night and the telephone rings and you hope it isn't for you.
+ogden_nash	life	observation	general	0	Middle age is when you've met so many people that every new person you meet reminds you of someone else.
+ogden_nash	life	wisdom	general	0	No, you never get any fun out of the things you haven't done.
+ogden_nash	family	observation	general	0	Oh, what a tangled web do parents weave when they think that their children are naive.
+ogden_nash	life	quip	general	0	One man's remorse is another man's reminiscence.
+ogden_nash	family	quip	general	0	Parents were invented to make children happy by giving them something to ignore.
+ogden_nash	life	wisdom	general	0	People who have what they want are fond of telling people who haven't what they want that they really don't want it.
+ogden_nash	work-money	observation	general	0	People who work sitting down get paid more than people who work standing up.
+ogden_nash	work-money	quip	general	0	Professional men, they have no cares; whatever happens, they get theirs.
+ogden_nash	society	quip	general	0	Progress might have been alright once, but it has gone on too long.
+ogden_nash	life	quip	general	0	Remorse is a violent dyspepsia of the mind.
+ogden_nash	work-money	quip	general	0	Some debts are fun when you are acquiring them, but none are fun when you set about retiring them.
+ogden_nash	life	observation	general	0	The bed is a bundle of paradoxes: we go to it with reluctance, yet we quit it with regret; we make up our minds every night to leave it early, but we make up our bodies every morning to keep it late.
+ogden_nash	life	wisdom	general	0	The most exciting happiness is the happiness generated by forces beyond your control.
+ogden_nash	life	quip	general	0	The only people who should really sin are the people who can sin and grin.
+ogden_nash	nature	quip	general	0	The trouble with a kitten is that eventually it becomes a cat.
+ogden_nash	life	observation	general	0	There are people who are very resourceful, at being remorseful, and who apparently feel that the best way to make friends is to do something terrible and then make amends.
+ogden_nash	life	wisdom	general	0	There is only one way to achieve happiness on this terrestrial ball, and that is to have either a clear conscience or none at all.
+ogden_nash	love	aphorism	general	0	To keep your marriage brimming, With love in the loving cup, Whenever you're wrong, admit it; Whenever you're right, shut up.
+ogden_nash	life	wisdom	general	0	Too clever is dumb.
+ogden_nash	life	quip	general	0	Women would rather be right than reasonable.

@@ -1,0 +1,373 @@
+Rousseau	life	quip	general	0	!.. - - !.. . . Jean-Jacques Rousseau, Confessions
+Rousseau	life	quip	general	0	, , , , . Jean-Jacques Rousseau, Discourse on the Origin of Inequality
+Rousseau	life	observation	general	0	, , , , Jean-Jacques Rousseau
+Rousseau	life	quip	general	0	, , , Jean-Jacques Rousseau, Reveries of the Solitary Walker
+Rousseau	life	observation	general	0	, Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	quip	general	0	.. . . .. .. Jean-Jacques Rousseau, Discourse on the Sciences and Arts (1st Discourse) and Polemics
+Rousseau	society	wisdom	general	0	...in respect of riches, no citizen shall ever be wealthy enough to buy another, and none poor enough to be forced to sell himself. Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	A born king is a very rare being. Jean-Jacques Rousseau, The Social Contract
+Rousseau	life	wisdom	general	0	A falsidade tem uma infinidade de combinaes, mas a verdade s tem um modo de ser Jean-Jacques Rousseau
+Rousseau	society	wisdom	general	0	A people who never misused the powers of government would never misuse independence, and a people which always governed itself well would not need to be governed. Jean Jaques Rousseau
+Rousseau	life	wisdom	general	0	A putea s spun c n-am nceput s simt c triesc dect atunci cnd m privii ca un om mort. Jean-Jacques Rousseau, Confessions
+Rousseau	society	wisdom	general	0	A taste for ostentation is rarely associated in the same souls with a taste for honesty Jean-Jacques Rousseau
+Rousseau	life	aphorism	general	0	A vontade fala, ainda quando a natureza se cala. Jean-Jacques Rousseau
+Rousseau	life	dark	general	0	Absolute silence leads to sadness. It is the image of death. Rousseau
+Rousseau	love	quip	general	0	Ah,' thought the king sadly, shrugging his shoulders, "I see clearly that if one has a crazy wife, one cannot avoid being a fool.' ("Queen Fantasque") Jean-Jacques Rousseau, Spells of Enchantment: The Wondrous Fairy Tales of Western Culture
+Rousseau	life	wisdom	general	0	Al igual que el cuerpo, el espritu tiene necesidades. Las de aqul constituyen los fundamentos de la sociedad, las de ste son su recreo. Mientras Jean-Jacques Rousseau, Discurso sobre las ciencias y las artes
+Rousseau	arts	wisdom	general	0	Al leer cada autor, me impuse la obligacin de seguir el curso de sus ideas sin mezclar en ello las mas ni las de otro alguno y sin discutir con l. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	wisdom	general	0	Alas, it is when we are beginning to leave this mortal body that it most offends us! Jean-Jacques Rousseau
+Rousseau	life	wisdom	general	0	All my misfortunes come of having thought too well of my fellows. Jean-Jacques Rousseau
+Rousseau	life	wisdom	general	0	All of my misfortunes come from having thought too well of my fellows Jean-Jacques Rousseau
+Rousseau	life	wisdom	general	0	All wickedness comes from weakness. The child is wicked only because he is weak. Make him strong; he will be good. He who could do everything would never do harm. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	society	wisdom	general	0	Amaba tan entraablemente su patria, que jams quiso dudar de que fuese tambin la ma por temor de perder la ocasin de hablar de ella. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	science	wisdom	general	0	Among the many short cuts to science, we badly need someone to teach us the art of learning with difficulty. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	life	wisdom	general	0	Aprovechemos el contento de espritu cuando acude. Guardmonos de alejarlo por nuestra culpa, pero no hagamos proyectos para encadenarlo, pues que tales proyectos son puras locuras. Jean-Jacques Rousseau, Reveries of the Solitary Walker
+Rousseau	family	dark	general	0	As she put it, she knew of nothing so ravishing as having a child whom she could whip whenever she was in a bad mood. ("The Queen Fantasque") Jean-Jacques Rousseau, Spells of Enchantment: The Wondrous Fairy Tales of Western Culture
+Rousseau	society	wisdom	general	0	As soon as any man says of the affairs of the State "What does it matter to me?" the State may be given up for lost. Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	Bu ortaka zgrlk insan yaradlnn bir sonucudur. Jean-Jacques Rousseau, Toplumsal Szleme veya Siyasal Hukukun Prensipleri
+Rousseau	society	wisdom	general	0	But in some great souls, who consider themselves as citizens of the world, and forcing the imaginary barriers that separate people from people... Jean-Jacques Rousseau, Discourse on the Origin of Inequality
+Rousseau	society	wisdom	general	0	Bylece, devleri ve karlar szlemeyi yapan taraflar karlkl olarak yardmlamaya zorlar ve ayn insanlarn bu iki ilikiye bal btn karlarn bu ilikiye gre birletirmeye almalar gerekir. Jean-Jacques Rousseau, Toplumsal Szleme veya Siyasal Hukukun Prensipleri
+Rousseau	work-money	wisdom	general	0	Ce n'taient pas des intrigues de femmes qu'il lui fallait, c'taient des entreprises faire et diriger. Elle tait ne pour les grandes affaires. Jean-Jacques Rousseau, uvres compltes - 93 titres
+Rousseau	family	wisdom	general	0	Childhood has its own way of seeing, thinking, and feeling, and nothing is more foolish than to try to substitute ours for theirs. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	society	aphorism	general	0	Civilization is a hopeless race to discover remedies for the evils it produces. Rousseau
+Rousseau	life	wisdom	general	0	Con tan contadas causas de males, el hombre, en el estado natural, apenas tiene necesidad de remedio y menos de medicina. Jean-Jacques Rousseau, Discurso sobre el origen de la desigualdad entre los hombres
+Rousseau	life	wisdom	general	0	Cuando cada cual tiene su quehacer, nadie habla sino cuando tiene algo que decir; pero cuando no se hace nada, es forzoso estar hablando siempre; y he ah la ms incmoda y peligrosa de todas las sujeciones. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	quip	general	0	Cuando me he fijado en algunas pginas de un autor que debe ser ledo con atencin, mi espritu le abandona y se cierne en los espacios. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	society	wisdom	general	0	Dad dinero, y pronto tendris cadenas Jean-Jacques Rousseau
+Rousseau	life	quip	general	0	Daha iyi deilim belki, ama en azndan bakaym. Jean-Jacques Rousseau
+Rousseau	life	wisdom	general	0	Dans cet ge heureux o rien ne marquait les heures, rien n'obligeait les compter, le temps n'avait d'autre mesure que l'amusement et l'ennui. Jean-Jacques Rousseau, uvres compltes - 93 titres
+Rousseau	society	wisdom	general	0	Dans tout pays qui se dpeuple, l'tat tend sa ruine ; et le pays qui peuple le plus, ft-il le plus pauvre, est infailliblement le mieux gouvern. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	life	wisdom	general	0	Das einzige Mittel, den Irrtum zu vermeiden, ist die Unwissenheit. Jean-Jacques Rousseau
+Rousseau	life	wisdom	general	0	De manera que toda esta superioridad de sabidura que me otorga el orculo se reduce nicamente a estar convencido completamente de que ignoro todo lo que no s. Jean-Jacques Rousseau, Discurso sobre las ciencias y las artes
+Rousseau	love	wisdom	general	0	Desear no es querer. Se desea lo que se sabe que no dura. Se quiere lo que se sabe que es eterno Rousseau
+Rousseau	life	wisdom	general	0	Di solito si ottiene con tutta sicurezza e assai presto ci che non si ha fretta di ottenere. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	society	wisdom	general	0	Die Freiheit des Menschen liegt nicht darin, dass er tun kann, was er will, sondern dass er nicht tun muss, was er nicht will. Jean-Jacques Rousseau
+Rousseau	faith	wisdom	general	0	Doubt with regard to what we ought to know is a condition too violent for the human mind; it cannot long be endured; in spite of itself the mind decides one way or another, and it prefers to be deceived rather than to believe nothing. Jean-Jacques Rousseau, Emile
+Rousseau	life	wisdom	general	0	E greu s ai o gndire nobil atunci cnd gndeti doar pentru a tri. Spre a putea, spre a ndrzni s spui lucruri mari, trebuie s nu fii legat de succes.
+Rousseau	life	wisdom	general	0	Ecartons donc de mon esprit tous les penibles objets dont Je m'occuperais aussi doulouresement qu'inutilement... Les rverie du promeneur solitaire J.J. Rousseau Rousseau
+Rousseau	love	wisdom	general	0	El gusto del placer exista todava, mas la pasin haba desaparecido. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	society	wisdom	general	0	El hombre ha nacido libre y en todas partes se halla encadenado. Rousseau Jean-Jacques 1712-1778 Jean-Jacques
+Rousseau	society	wisdom	general	0	El hombre ha nacido libre y por doquiera se encuentra sujeto con cadenas. Rousseau
+Rousseau	society	wisdom	general	0	El hombre ha nacido libre, y en todas partes se halla entre cadenas. Jean-Jacques Rousseau, El Contrato Social
+Rousseau	life	wisdom	general	0	El juego no es ms que un recurso de las personas que se fastidian. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	wisdom	general	0	El que tales distinciones se hallen o no en los libros, no quita que se hagan en el corazn de todo hombre de buena fe consigo mismo, que no quiere permitir nada que su conciencia pueda reprocharle. Jean-Jacques Rousseau
+Rousseau	life	wisdom	general	0	El verdadero objeto de mis confesiones es hacer comprender exactamente mi interior en todas las situaciones. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	wisdom	general	0	En vrit, je ne songeais gure faire ni comme les autres ni autrement qu'eux. Je dsirais sincrement de faire ce qui tait bien. Jean-Jacques Rousseau, uvres compltes - 93 titres
+Rousseau	society	wisdom	general	0	Enemigo de cuanto lleva el nombre de partido, faccin o cbala, jams he esperado nada bueno de las personas que a ellos pertenecen. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	society	wisdom	general	0	Es la humanidad pura la que me da cobijo. Jean-Jacques Rousseau
+Rousseau	love	wisdom	general	0	Esta idea me caus horror, tom la firme resolucin de combatirme y vencerme a m mismo, si desgraciadamente se apoderaba de m esta inclinacin. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	wisdom	general	0	Estas cadenas no me parecieron, sin embargo, muy pesadas, en tanto en cuanto, ignorado por el pblico, viv en la oscuridad. Jean-Jacques Rousseau, Reveries of the Solitary Walker
+Rousseau	life	wisdom	general	0	Este favor del pblico, de ningn modo buscado, y para un autor desconocido, me inspir la primera confianza verdadera en mi capacidad, de que haba dudado hasta entonces, a pesar del sentimiento interno. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	wisdom	general	0	Even if philosophers were in a position to discover truth, who among them would be interested in it? Each knows well that his system is not better founded than the others; but he supports it because it is his. Jean-Jacques Rousseau
+Rousseau	society	wisdom	general	0	Even the soberest judged it requisite to sacrifice one part of their liberty to ensure the other, as a man, dangerously wounded in any of his limbs, readily parts with it to save the rest of his body. Jean-Jacques Rousseau, Discourse on the Origin of Inequality
+Rousseau	arts	observation	general	0	Every artists wants to be applauded
+Rousseau	society	wisdom	general	0	Every man having been born free and master of himself, no one else may under any pretext whatever subject him without his consent. To assert that the son of a slave is born a slave is to assert that he is not born a man. Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	aphorism	general	0	Every person has a right to risk their own life for the preservation of it.
+Rousseau	life	wisdom	general	0	Everything is good as it comes from the hands of the Maker of the world, but degenerates once it gets into the hands of man Jean-Jaques Rousseau
+Rousseau	life	wisdom	general	0	Fakat aramzda u ayrm var ki bu adamlar bir ey bilmedikleri halde her eyi bildiklerini sanyorlar; bense bir ey bilmemekle beraber hi olmazsa bilmediimden phe etmiyorum. Jean-Jacques Rousseau, Discourse on the Sciences and Arts (1st Discourse) and Polemics
+Rousseau	life	wisdom	general	0	Falsehood has an infinity of combinations, but truth has only one mode of being. Rousseau Jean - Jacques
+Rousseau	life	quip	general	0	Figurbanse que yo poda escribir por oficio, como los dems literatos, cuando jams he sabido escribir sino movido por la pasin, Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	work-money	aphorism	general	0	Finance is a slave's word. Jean-Jacques Rousseau
+Rousseau	life	wisdom	general	0	For if men needed speech in order to learn to think, they had a still greater need for knowing how to think in order to discover the art of speaking" - Rousseau Rousseau Jean - Jacques
+Rousseau	society	wisdom	general	0	For the State, in relation to its members, is master of all their goods by the social contract, which, within the State, is the basis of all rights; Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	Force is a physical power; I do not see how its effects could produce morality. To yield to force is an act of necessity, not of will; it is at best an act of prudence. In what sense can it be a moral duty? Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	From the first moment of life, men ought to begin learning to deserve to live; and, as at the instant of birth we partake of the rights of citizenship, that instant ought to be the beginning of the exercise of our duty. Jean-Jaques Rousseau
+Rousseau	society	wisdom	general	0	From this it follows that, the larger the State, the less the liberty. Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	G maddesel bir eydir. Bundan nasl bir ahlak kabilir, bilmem. Gce boyun emek, bir istem ii deil, bir zorunluluk; olsa olsa bir saknt iidir. Ne bakmdan dev olabilir bu? Jean-Jacques Rousseau, Toplumsal Szleme veya Siyasal Hukukun Prensipleri
+Rousseau	life	aphorism	general	0	Gambling is only the resource of those who do not know what to do with themselves
+Rousseau	life	quip	general	0	Girls should learn that so much finery is only put on to hide defects, and that the triumph of beauty is to shine by itself.
+Rousseau	life	wisdom	general	0	Gnralement, les gens qui savant peu parlent becoup, et les gens qui savant beaucoup parlent peu. Jean-Jacques Rousseau
+Rousseau	faith	wisdom	general	0	God makes all things good; man meddles with them and they become evil. Jean-Jacques Rousseau, Emile
+Rousseau	life	quip	general	0	Hallando en cada enfermedad sntomas de la ma, crea tenerlas todas y contraje una ms cruel de que me conceptuaba libre: el anhelo de curar; y es una enfermedad difcil de evitar cuando se leen libros de medicina. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	aphorism	general	0	Happiness is a good bank account, a good cook, and a good digestion.
+Rousseau	life	wisdom	general	0	Happiness requires three things, a good bank account, a good cook, and good digestion. Jean-Jacques Rousseau
+Rousseau	food	quip	general	0	Happiness: a good bank account, a good cook and a good digestion.
+Rousseau	society	wisdom	general	0	Happy am I, for every time I meditate on governments, I always find new reasons in my inquiries for loving my own country. Jean-Jacques Rousseau, The Social Contract
+Rousseau	life	wisdom	general	0	Hasta entonces me haba hablado de m solo, como a un nio; desde aquel momento empez a tratarme como a un hombre, y me habl de s misma. Me Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	love	wisdom	general	0	Hatred, as well as love, renders its votaries credulous. Jean-Jacques Rousseau, Confessions
+Rousseau	life	wisdom	general	0	Hay ms: el verdadero placer no se describe; slo se siente, y tanto ms cuanto menos puede describirse, porque no resulta de un conjunto de hechos sino de un estado permanente. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	society	wisdom	general	0	Hay un hombre de fuerza superior a la ma, y adems bastante depravado, bastante perezoso, bastante feroz para obligarme a proveer a su subsistencia mientras l permanece ocioso? Jean-Jacques Rousseau, Discurso sobre el origen de la desigualdad entre los hombres
+Rousseau	society	wisdom	general	0	He aqu cmo el lujo, la disolucin y la esclavitud han sido en todo tiempo el castigo a los esfuerzos orgullosos que hemos hecho para salir de la feliz ignorancia donde nos haba situado la sabidura eterna. El Jean-Jacques Rousseau, Discurso sobre las ciencias y las artes
+Rousseau	society	wisdom	general	0	He aqu lo que oblig en todos los tiempos a los padres de la nacin a recurrir a la intervencin del cielo, (...) a fin de que los pueblos obedeciesen con libertad y llevasen dcilmente el yugo de la felicidad pblica. Jean-Jacques Rousseau, The Social Contract
+Rousseau	life	wisdom	general	0	He visto que para obrar el bien con placer era preciso que actuase libremente, sin coaccin, y que para privarme de toda la dulzura de una buena obra bastaba con que se convirtiera en un deber para m. Jean-Jacques Rousseau, Reveries of the Solitary Walker
+Rousseau	life	wisdom	general	0	He was freer and less constrained in the womb; he has gained nothing by birth. Jean-Jacques Rousseau, The Works of Jean-Jacques Rousseau: The Social Contract, Confessions, Emile, and Other Essays
+Rousseau	life	quip	general	0	He who blushes is already guilty. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	society	wisdom	general	0	He who wills the end wills the means also, Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	He who wills the end, wills the means also, and the means must involve some risks, and even some losses. Jean-Jacques Rousseau
+Rousseau	society	wisdom	general	0	Het is heel moeilijk iemand tot gehoorzaamheid te brengen die niet zlf zoekt te bevelen. Ook met het handigste beleid slaagt men er niet in mensen te onderwerpen die slechts vrij willen zijn. Jean-Jacques Rousseau, Discourse on the Origin of Inequality
+Rousseau	society	wisdom	general	0	Hkmdar ya da yasac olsaydm, ne demek gerektiini syleyip vaktimi bouna harcamaz, ya yapacam yapar ya da susardm. Jean-Jacques Rousseau, Toplumsal Szleme veya Siyasal Hukukun Prensipleri
+Rousseau	life	wisdom	general	0	How could I become wicked, when I had nothing but examples of gentleness before my eyes, and none around me but the best people in the world? Jean-Jacques Rousseau
+Rousseau	society	wisdom	general	0	How have a hundred men who wish for a master the right to vote on behalf of ten who do not? The law of majority voting is itself something established by convention, and presupposes unanimity, on one occasion at least. 6. Jean-Jacques Rousseau, The Social Contract
+Rousseau	science	wisdom	general	0	How many centuries must have elapsed before men reached the point of seeing any other fire than that in the sky? Jean-Jacques Rousseau, Discourse on the Origin of Inequality
+Rousseau	arts	wisdom	general	0	However great a man's natural talent may be, the act of writing cannot be learned all at once. Jean-Jacques Rousseau
+Rousseau	arts	wisdom	general	0	However great a man's natural talent may be, the art of writing cannot be learned all at once. Jean-Jaeques Rousseau Jean-Jaeques Rousseau
+Rousseau	life	wisdom	general	0	I am a hundred times happier in my solitude than I could be if I lived among them. Jean-Jacques Rousseau, Reveries of the Solitary Walker
+Rousseau	life	wisdom	general	0	I am not made like any of those I have seen. I venture to believe that I am not made like any of those who are in existence. If I am not better, at least I am different.
+Rousseau	faith	wisdom	general	0	I believed in childhood by authority, in youth by sentiment, in my mature years by reason; now I believe because I have always believed. Jean-Jacques Rousseau, The Social Contract & Other Later Political Writings
+Rousseau	family	wisdom	general	0	I cannot repeat too often that to control the child one must often control oneself. Jean-Jacques Rousseau, The Works of Jean-Jacques Rousseau: The Social Contract, Confessions, Emile, and Other Essays
+Rousseau	life	wisdom	general	0	I do not know the art of being clear to those who do not want to be attentive. Jean-Jacques Rousseau, The Basic Political Writings
+Rousseau	life	quip	general	0	I don't know how this lively and dumb scene would have ended , or how long I might have remained immoveable in this ridiculous and delightful situation , had we not been interrupted.
+Rousseau	nature	wisdom	general	0	I feel an indescribable ecstasy and delirium in melting, as it were, into the system of being, in identifying myself with the whole of nature.. Jean Jacques Rosseau
+Rousseau	arts	quip	general	0	I hate books; they only teach us to talk about things we know nothing about. Jean-Jacques Rousseau
+Rousseau	society	wisdom	general	0	I have never thought, for my part, that man's freedom consists in his being able to do whatever he wills, but that he should not, by any human power, be forced to do what is against his will. Jean-Jacques Rousseau, Reveries of the Solitary Walker
+Rousseau	life	quip	general	0	I may be no better, but at least I am different. Jean-Jacques Rousseau
+Rousseau	faith	wisdom	general	0	I perceive God everywhere in His works. I sense Him in me; I see Him all around me. Rousseau Jean - Jacques
+Rousseau	society	wisdom	general	0	I prefer liberty with danger than peace with slavery. Jean-Jacques Rousseau
+Rousseau	faith	wisdom	general	0	I say to myself: "Who are you to measure infinite power? Rousseau Jean-Jacques
+Rousseau	life	wisdom	general	0	I would rather be a man of paradoxes than a man of prejudices. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	life	wisdom	general	0	I would rather be exposed to all their torments than be obliged to think about them in order to protect myself from their attacks. Jean-Jacques Rousseau, The Reveries of the Solitary Walker, Botanical Writings, and Letter to Franquieres
+Rousseau	society	wisdom	general	0	IN order to discover the rules of society best suited to nations, a superior intelligence beholding all the passions of men without experiencing any of them would be needed. Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	If force compels obedience, there is no need to invoke a duty to obey, and if force ceases to compel obedience, there is no longer any obligation. Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	If he who has control of men ought not to control the laws, then he who controls the laws ought not control men: otherwise his laws would minister to his passions.. Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	If then the people promises simply to obey, by that very act it dissolves itself and loses what makes it a people; the moment a master exists, there is no longer a Sovereign, and from that moment the body politic has ceased to exist. Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	If there were a nation of Gods, it would govern itself democratically. A government so perfect is not suited to men. Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	If we assume man has been corrupted by an artificial civilization, what is the natural state? the state of nature from which he has been removed? imagine, wandering up and down the forest without industry, without speech, and without home. Rousseau, Jean-Jacques
+Rousseau	life	wisdom	general	0	Il a un esprit universel, non par les lumires, mais par la facult d'en acqurir ; un esprit ouvert, intelligent, prt tout, et, comme dit Montaigne, sinon instruit, du moins instruisable. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	life	wisdom	general	0	Il amortit beaucoup mon admiration pour la grandeur, en me prouvant que ceux qui dominaient les autres n'taient ni plus sages ni plus heureux qu'eux. Jean-Jacques Rousseau, uvres compltes - 93 titres
+Rousseau	society	wisdom	general	0	Ils travaillaient pour instruire les autres, mais non pas pour s'clairer au-dedans. Jean-Jacques Rousseau
+Rousseau	life	wisdom	general	0	Ils tudiaient la nature humaine pour en pouvoir parler savamment, mais non pour se connatre; ils travaillaient pour instruire les autres, mais non pour s'clairer en dedans. Jean-Jacques Rousseau, Reveries of the Solitary Walker
+Rousseau	society	wisdom	general	0	In a well governed state, there are few punishments, not because there are many pardons, but because criminals are rare; it is when a state is in decay that the multitude of crimes is a guarantee of impunity. Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	In any real democracy, magistracy isnt a benefitits a burdensome responsibility that cant fairly be imposed on one individual rather than another Rousseau Jean-Jacques
+Rousseau	society	wisdom	general	0	In instinct alone, man had everything he needed in order to live in the state of nature; in a cultivated reason, he has only what he needs to live in society. Jean-Jacques Rousseau, Discourse on the Origin of Inequality
+Rousseau	life	wisdom	general	0	In order not to find me in contradiction with myself, I should be allowed enough time to explain myself Jean-Jacques Rousseau
+Rousseau	society	wisdom	general	0	In the strict sense of the term, a true democracy has never existed, and never will exist. It is against natural order that the great number should govern and that the few should be governed.
+Rousseau	society	wisdom	general	0	In truth, laws are always useful to those with possessions and harmful to those who have nothing; from which it follows that the social state is advantageous to men only when all possess something and none has too much. Jean-Jacques Rousseau, The Social Contract
+Rousseau	life	wisdom	general	0	It frequently happens that a villainous action does not torment us the instant we commit it, but on recollection, and sometimes even after a number of years have elapsed, for the remembrance of crimes is not to be extinguished. Jean-Jacques Rousseau
+Rousseau	society	wisdom	general	0	It is a great evil for a Chief of a nation to be born the enemy of the freedom whose defender he should be. Jean-Jacques Rousseau, The Social Contract & Other Later Political Writings
+Rousseau	life	wisdom	general	0	It is as if my heart and my brain did not belong to the same person. Feelings come quicker than lightning and fill my soul, but they bring me no illumination; they burn me and dazzle me. Jean-Jacques Rousseau, Confessions
+Rousseau	life	wisdom	general	0	It is difficult for an education in which the heart is involved to remain forever lost. Jean-Jacques Rousseau, Discourse on the Origin of Inequality
+Rousseau	society	wisdom	general	0	It is easier to conquer than to administer. With enough leverage, a finger could overturn the world; but to support the world, one must have the shoulders of Hercules. Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	It is in order not to become victim of an assassin that we consent to die if we become assassins.
+Rousseau	society	wisdom	general	0	It is pity in which the state of nature takes the place of laws, morals and virtues, with the added advantage that no one there is tempted to disobey its gentle voice. Jean-Jacques Rousseau, Discourse on the Origin of Inequality
+Rousseau	work-money	wisdom	general	0	It is too difficult to think nobly when one only thinks to get a living. Jean Jaques Rousseau
+Rousseau	work-money	wisdom	general	0	It is too difficult to think nobly when one thinks only of earning a living. Jean-Jacques Rousseau , Confessions
+Rousseau	food	quip	general	0	J'aime manger, sans tre avide: je suis sensuel, et non pas gourmand. Jean-Jacques Rousseau, uvres compltes - 93 titres
+Rousseau	life	observation	general	0	J'arrive Turin sans habits, sans argent, sans linge, et laissant trs exactement mon seul mrite tout l'honneur de la fortune que j'allais faire. Jean-Jacques Rousseau, uvres compltes - 93 titres
+Rousseau	life	wisdom	general	0	Jaime mieux tre homme paradoxes quhomme prjudgs. Jean-Jacques Rousseau
+Rousseau	love	wisdom	general	0	Jamais passions ne furent en mme temps plus vives et plus pures que les miennes, jamais amour ne fut plus tendre, plus vrai, plus dsintress. Jean-Jacques Rousseau, uvres compltes - 93 titres
+Rousseau	life	wisdom	general	0	Jams he podido tolerar ese cmulo insignificante y tonto de las conversaciones ordinarias; mas las tiles y slidas siempre me han causado un gran placer y nunca las he rehusado. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	wisdom	general	0	Je me drobais de toute ma force des situations qui me donnassent un intrt contraire l'intrt d'un autre homme, et par consquent un dsir secret, quoique involontaire, du mal de cet homme-l. Jean-Jacques Rousseau, uvres compltes - 93 titres
+Rousseau	science	observation	general	0	Je ne dispute donc pas que la mdecine ne soit utile quelques hommes, mais je dis quelle est funeste au genre humain. Jean-Jacques Rousseau, mile, ou De l'ducation
+Rousseau	work-money	wisdom	general	0	Je suis moins tent de l'argent que des choses, parce qu'entre l'argent et la possession dsire il y a toujours un intermdiaire; au lieu qu'entre la chose mme et sa jouissance il n'y en a point. Jean-Jacques Rousseau, uvres compltes - 93 titres
+Rousseau	life	wisdom	general	0	Je trouvais que voler et tre battu allaient ensemble, et constituaient en quelque sorte un tat, Jean-Jacques Rousseau, uvres compltes - 93 titres
+Rousseau	society	fact	general	0	Jean-Jacques Rousseau 1712 1778
+Rousseau	life	wisdom	general	0	L'adversit sans doute est un grand matre, mais il fait payer cher ses leons, et souvent le profit qu'on en retire ne vaut pas le prix qu'elles ont cot. Jean-Jacques Rousseau, rveries du promeneur solitaire, Les
+Rousseau	work-money	wisdom	general	0	L'argent qu'on possde est l'instrument de la libert; celui qu'on pourchasse est celui de la servitude. Jean-Jacques Rousseau, uvres compltes - 93 titres
+Rousseau	society	wisdom	general	0	L'homme est n libre, et partout il est dans les fers. Jean-Jacques Rousseau, The Social Contract
+Rousseau	life	wisdom	general	0	L'homme vraiment libre ne veut que ce qu'il peut, et fait ce qu'il lui plat. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	life	wisdom	general	0	L'indpendance que je croyais avoir acquise tait le seul sentiment qui m'affectait. Libre et matre de moi-mme, je croyais pouvoir tout faire, atteindre tout: je n'avais qu' m'lancer pour m'lever et voler dans les airs. Jean-Jacques Rousseau, uvres compltes - 93 titres
+Rousseau	life	wisdom	general	0	La espada gasta la vaina, dice el proverbio. He aqu mi historia. He vivido de mis pasiones y mis pasiones me han matado. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	society	aphorism	general	0	La force a fait les premiers esclaves, leur lchet les a perptus. Jean-Jacques Rousseau, The Social Contract
+Rousseau	life	wisdom	general	0	La integridad de un hombre de bien es siempre antiptica a los malvados. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	wisdom	general	0	La jeunesse est le temps d'tudier la sagesse; la vieillesse est le temps de la pratiquer. Jean-Jacques Rousseau, rveries du promeneur solitaire, Les
+Rousseau	arts	wisdom	general	0	La lectura de las desgracias imaginarias de Cleveland, ardorosamente hecha y frecuentemente interrumpida, creo que me hizo ms dao que las propias. Haba Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	wisdom	general	0	La libert n'est dans aucune forme de gouvernement, elle est dans le coeur de l'homme libre ; il la porte partout avec lui. L'homme vil porte partout la servitude. L'un serait esclave Genve, et l'autre libre Paris. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	society	wisdom	general	0	La libert n'tant pas un fruit de tous les climats n'est pas la porte de tous les peuples. Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	La loi de la pluralit des suffrages est elle-mme un tablissement de convention, et suppose au moins une fois l'unanimit. Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	La sociedad pervierte al ser humano. Rousseau
+Rousseau	life	wisdom	general	0	La tyrannie de mon matre finit par me rendre insupportable le travail que j'aurais aim, et par me donner des vices que j'aurais has, Jean-Jacques Rousseau, uvres compltes - 93 titres
+Rousseau	life	wisdom	general	0	La vertu ne nous cote que par notre faute, et si nous voulions tre toujours sages, rarement aurions-nous besoin d'tre vertueux. Jean-Jacques Rousseau, uvres compltes - 93 titres
+Rousseau	life	wisdom	general	0	La vida ambulante es la que mejor me conviene. Ir de camino con buen tiempo, por un pas hermoso, sin llevar prisa, y tener un objeto agradable por trmino del viaje, he ah, de todos los modos de vivir, el que ms me agrada. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	wisdom	general	0	Las distracciones de mis diarios paseos se han llenado a menudo de encantadoras contemplaciones cuyo recuerdo me lastimo de haber perdido. Fijar por medio de la escritura las que an me vengan a la mente; gozar cada vez que las relea. Jean-Jacques Rousseau
+Rousseau	arts	wisdom	general	0	Las peras de Rameau empezaban a meter ruido y dieron a conocer sus obras tericas, que, habiendo permanecido ignoradas, posean muy pocos. Por casualidad o hablar de su Tratado de la armona, Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	society	wisdom	general	0	Laws are always useful to those who possess and vexatious to those who have nothing. Rousseau
+Rousseau	society	wisdom	general	0	Le plus fort n'est jamais assez fort pour tre toujours le matre, s'il ne transforme sa force en droit et l'obissance en devoir. Jean-Jacques Rousseau, The Social Contract
+Rousseau	faith	quip	general	0	Le plus lent promettre est toujours le plus fidle tenir. Jean-Jacques Rousseau
+Rousseau	work-money	wisdom	general	0	Les gens qui passent exactement la vie entire travailler pour vivre n'ont d'autre ide que celle de leur travail ou de leur intrt, et tout leur esprit semble tre au bout de leurs bras. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	food	fact	general	0	Les paysannes mangent moins de viande et plus de lgumes que les femmes de la ville ; et ce rgime vgtal parat plus favorable que contraire elles et leurs enfants. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	society	wisdom	general	0	Les villes sont le gouffre de l'espce humaine. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	society	wisdom	general	0	Liberty is like rich food and strong wine: the strong natures accustomed to them thrive and grow even stronger on them; but they deplete, inebriate and destroy the weak.
+Rousseau	society	wisdom	general	0	Liberty may be gained, but can never be recovered." (Bk2:8) Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	Los antiguos polticos hablaban continuamente de buenas costumbres y de virtud; los nuestros no hablan sino de comercio y de dinero. Uno Jean-Jacques Rousseau, Discurso sobre las ciencias y las artes
+Rousseau	society	wisdom	general	0	Los hombres son perversos; seran peores an si hubieran tenido la desgracia de nacer sabiendo. Jean-Jacques Rousseau, Discurso sobre las ciencias y las artes
+Rousseau	society	wisdom	general	0	Los lmites de lo posible en las cosas morales son ms estrechos de lo que pensamos; nuestras debilidades, nuestros vicios, nuestros prejuicios son lo que restringen Jean-Jacques Rousseau, The Social Contract
+Rousseau	love	wisdom	general	0	Love, known to the person by whom it is inspired, becomes more bearable. Jean-Jacques Rousseau
+Rousseau	love	wisdom	general	0	Luai femeia cea mai cuminte, cea mai neleapt, cea mai puin stpnit de simuri; crima cea mai de neiertat pe care un brbat, cruia chiar dac i d prea puin atenie, poate s o svreasc fa de ea, este de a putea s o aib i a nu o face.
+Rousseau	society	wisdom	general	0	MAN is born free; and everywhere he is in chains. One thinks himself the master of others, and still remains a greater slave than they. Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	Man is born free but today everywhere he is in chains. Jean-Jacques Rousseau
+Rousseau	society	wisdom	general	0	Man is born free, and everywhere he is in chains. Jean-Jacques Rousseau
+Rousseau	society	wisdom	general	0	Man is born free, and everywhere he is in chains. One man thinks himself the master of others, but remains more of a slave than they are. Jean-Jacques Rousseau
+Rousseau	society	wisdom	general	0	Man is born free, and everywhere he is in chains. One man thinks himself the master of others, but remains more of a slave than they are."
+Rousseau	society	wisdom	general	0	Man is born free, but is everywhere in chains. Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	Man was born free, and he is everywhere in chains. Those who think themselves the masters of others are indeed greater slaves than they. Jean-Jacques Rousseau
+Rousseau	life	quip	general	0	Mancando le qualit morali di misura precisa, se anche ci fosse l'accordo sul segno, come ci potrebbe essere sulla valutazione?
+Rousseau	society	wisdom	general	0	Mans first language, the most universal, the most energetic and the only language he needed before it was necessary to persuade men assembled together, is the cry of nature. Jean-Jacques Rousseau, Discourse on the Origin of Inequality
+Rousseau	society	wisdom	general	0	Mans first law is to watch over his own preservation; his first care he owes to himself; and as soon as he reaches the age of reason, he becomes the only judge of the best means to preserve himself; he becomes his own master. Jean-Jacques Rousseau, The Social Contract
+Rousseau	arts	wisdom	general	0	Me pregunt si haba copiado msica alguna vez. Respondle que a menudo, y era la verdad: el mejor modo como poda aprenderla era copindola. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	wisdom	general	0	Mi talento consista en saber decir a los hombres verdades tiles, pero duras, con bastante valor y energa; Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	wisdom	general	0	More than half of my life is past; I have left only the time I need for turning the rest of it to account and for effacing my errors by my virtues. Rousseau, Jean-Jacques
+Rousseau	life	dark	general	0	My birth was my first misfortune.
+Rousseau	life	wisdom	general	0	My love for imaginary objects and my facility in lending myself to them ended by disillusioning me with everything around me, and determined that love of solitude which I have retained ever since that time. Jean-Jacques Rousseau, The Confessions
+Rousseau	society	wisdom	general	0	Nada hay que influya ms sobre mi corazn que un acto de valor hecho a propsito, en favor del dbil injustamente oprimido. En Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	wisdom	general	0	Nada manifiesta tanto las verdaderas inclinaciones de un hombre como las clases de relaciones que contrae '. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	wisdom	general	0	Nature made me happy and good, and if I am otherwise, it is society's fault. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	life	wisdom	general	0	Nature never deceives us; it is always we who deceive ourselves. Jean-Jacques Rousseau
+Rousseau	life	wisdom	general	0	Ne dtruisons point les instruments du bonheur parce que les mchants s'en servent quelquefois nuire. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	love	wisdom	general	0	Ne veut-on pas au moins apprendre de l'objet qu'on aime si l'on est aim? Jean-Jacques Rousseau, uvres compltes - 93 titres
+Rousseau	society	wisdom	general	0	Niemand kmmert sich mehr um die Wirklichkeit; alle setzen ihr Wesen in den Schein. Als Sklaven und Narren ihrer Eigenliebe leben sie dahin, nicht um zu leben, sondern um andere glauben zu machen, sie htten gelebt. Jean-Jacques Rousseau
+Rousseau	life	wisdom	general	0	Nikdy jsem nemyslil, e svoboda lovka by zleela v tom, aby dlal, co chce, nbr sp, aby nikdy nedlal, co nechce, a to je svoboda, j jsem se vdy dovolval, asto ji zachovval a pro kterou jsem byl nejvce svm vrstevnkm k pohoren Jean-Jacques Rousseau
+Rousseau	life	wisdom	general	0	No deis a vuestros alumnos lecciones verbales de ninguna clase, puesto que slo deben recibirlas de la experiencia; tampoco Jean-Jacques Rousseau, Emilio o de la Educacion
+Rousseau	life	wisdom	general	0	No hay da que no recuerde con gozo y ternura aquel nico y breve tiempo de mi vida en que fui plenamente yo, sin mezcla y sin traba, y en que puedo realmente decir que he vivido. Jean-Jacques Rousseau, Reveries of the Solitary Walker
+Rousseau	life	wisdom	general	0	No one cares for reality, everyone stakes his essence on illusion. Slaves and dupes of their self-love, men live not in order to live but to make other believe they have lived! Jean-Jacques Rousseau, Rousseau, Judge of Jean-Jacques: Dialogues
+Rousseau	science	wisdom	general	0	No s muy bien qu clase de jerga cientfica, ms despreciable an que la ignorancia, haba usurpado el nombre a la sabidura y para impedir su vuelta le pona obstculos casi insalvables. Se Jean-Jacques Rousseau, Discurso sobre las ciencias y las artes
+Rousseau	life	wisdom	general	0	No saba emplear con ellos ms que tres medios intiles siempre y frecuentemente perniciosos con los nios: el sentimiento, los razonamientos y el enojo. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	wisdom	general	0	No se deben dar preceptos, sino hacer de manera que los encuentre el alumno. Jean-Jacques Rousseau, Emilio o de la Educacion
+Rousseau	love	wisdom	general	0	Non, il n'y a point de jouissances pareilles celles que peut donner une honnte femme qu'on aime; tout est faveur auprs d'elle. Jean-Jacques Rousseau, uvres compltes - 93 titres
+Rousseau	society	wisdom	general	0	Nothing on this earth is worth buying at the price of human blood.
+Rousseau	society	wisdom	general	0	Nulle socit ne peut exister sans change, nul change sans mesure commune, et nulle mesure commune sans galit. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	life	verse	general	0	O tcere desvrit te ndeamn la tristee, e ca o icoan a morii. Jean-Jacques Rousseau, Confesiuni III
+Rousseau	faith	wisdom	general	0	Objektif bakmdan, ezilenlerin teselli olarak bir Tanr'ya inanmalar, halk ynlarn mcadeleden uzaklatrmaktan baka bir sonu vermez. Jean-Jacques Rousseau, Discourse on the Origin of Inequality
+Rousseau	life	wisdom	general	0	Oh, man! Live your own life and no longer be wretched! Rousseau Jean-Jacques
+Rousseau	life	wisdom	general	0	On obtient trs srement et trs vite ce qu'on n'est pas press d'obtenir. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	faith	wisdom	general	0	On sent, je crois, qu'avoir de la religion, pour un enfant, et mme pour un homme, c'est suivre celle o il est n. Quelquefois on en te; rarement on y ajoute; la foi dogmatique est un fruit de l'ducation. Jean-Jacques Rousseau, uvres compltes - 93 titres
+Rousseau	society	wisdom	general	0	On the other hand, nothing would have been so miserable as savage man, dazzled by enlightenment, tormented by passions, and reasoning about a state different from his own. Jean-Jacques Rousseau, Discourse on the Origin of Inequality
+Rousseau	society	wisdom	general	0	Once you teach people to say what they do not understand, it is easy enough to get them to say anything you like. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	life	wisdom	general	0	One advantage resulting from good actions is that they elevate the soul to a disposition of attempting still better; for such is human weakness, that we must place among our good deeds an abstinence from those crimes we are tempted to commit. Jean-Jacques Rousseau
+Rousseau	food	wisdom	general	0	One does not drink. One gives a kiss to his glass, and the wine returns a caress to you. Jean-Jacques Rousseau
+Rousseau	life	quip	general	0	Or, rather, let us be more simple and less vain. Rousseau Jean-Jacques
+Rousseau	life	wisdom	general	0	Our sweetest existence is relative and collective and our true self is not entirely in us. Such is mans constitution in this life that he never succeeds in truly enjoying himself without the help of other people. Jean-Jacques Rousseau
+Rousseau	life	wisdom	general	0	Our will is always for our own good, but we do not always see what that is; the people is never corrupted, but it is often deceived..." (Bk2:3) Jean-Jacques Rousseau, The Social Contract
+Rousseau	life	aphorism	general	0	Patience is bitter, but its fruit is sweet. Jean-Jacques Rousseau
+Rousseau	life	wisdom	general	0	People who know little are usually great talkers, while men who know much say little.
+Rousseau	society	wisdom	general	0	Perch l'impulso del solo appetito schiavit, e l'obbedienza alla legge che noi stessi ci siamo dati libert.
+Rousseau	life	wisdom	general	0	Pero la indolencia, el descuido y las dilaciones en los pequeos deberes que tena que llenar, me han hecho ms dao que los grandes vicios. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	arts	observation	general	0	Personas de reconocida integridad colocadas en situaciones difciles, maridos engaados> mujeres seducidas, partos clandestinos, he aqu los asuntos ms comunes; y el que ms enriqueca la Casa de Expsitos era siempre el ms aplaudido. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	wisdom	general	0	Plants are shaped by cultivation , and men by education . Rousseau
+Rousseau	life	wisdom	general	0	Plus le corps est faible, plus il commande ; plus il est fort, plus il obit. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	society	wisdom	general	0	Poblad igualmente el territorio, extended por todas partes los mismos derechos, llevad a todas ellas la abundancia y la vida; y de este modo el Estado llegar a ser al mismo tiempo el ms fuerte y el mejor gobernado de todos. Jean-Jacques Rousseau, The Social Contract
+Rousseau	life	wisdom	general	0	Puede decirse muy bien que no empec a vivir hasta que me tuve por muerto. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	wisdom	general	0	Qu'il voie par ses yeux, qu'il sente par son coeur ; qu'aucune autorit ne le gouverne, hors celle de sa propre raison. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	life	wisdom	general	0	Quit thy childhood, my friend, and wake up! Jean-Jacques Rousseau
+Rousseau	life	wisdom	general	0	Rapproche ces contrastes, aime la nature, mprise l'opinion, et connais l'homme. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	society	wisdom	general	0	Renoncer sa libert c'est renoncer sa qualit d'homme Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	Renoncer sa libert c'est renoncer sa qualit d'homme, aux droits de l'humanit, mme ses devoirs. Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	Renunciar a la libertad es renunciar a la condicin de hombre. Rousseau Jean-Jacques 1712-1778 Jean-Jacques, The Social Contract
+Rousseau	family	wisdom	general	0	Respetad a la infancia y no os deis prisa en juzgarla ni para el bien ni para el mal. Dejad Jean-Jacques Rousseau, Emilio o de la Educacion
+Rousseau	family	wisdom	general	0	S que hay que ocupar a los nios en algo y que la ociosidad es para ellos el peligro ms temible. Jean-Jacques Rousseau, Discurso sobre las ciencias y las artes
+Rousseau	nature	wisdom	general	0	Savage man, once he has eaten, is at peace with all of nature and the friend of all his fellow humans. Is Jean-Jacques Rousseau, The Major Political Writings of Jean-Jacques Rousseau: The Two "Discourses" and the "Social Contract"
+Rousseau	life	wisdom	general	0	Sent antes de pensar: tal es el destino comn de la humanidad, que yo experiment ms que nadie. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	love	quip	general	0	She was dull, unattractive, couldn't tell the time, count money or tie her own shoe laces... But I loved her Jean-Jacques Rousseau
+Rousseau	family	wisdom	general	0	Si algn progreso he hecho en el conocimiento del corazn humano, fue el placer que tena en ver y observar a los nios lo que me vali tal conocimiento. Jean-Jacques Rousseau, Reveries of the Solitary Walker
+Rousseau	arts	wisdom	general	0	Si hay que permitir a ciertos hombres el librarse al estudio de las ciencias y de las artes, es a aquellos que tengan fuerzas para andar solos en su busca y para adelantarlas. A Jean-Jacques Rousseau, Discurso sobre las ciencias y las artes
+Rousseau	life	wisdom	general	0	Si hubiese sabido desprenderme del yugo de la amistad, como del de la opinin, hubiera logrado completamente mi objeto, quiz el ms grande, o a lo menos el ms til para la virtud, que jams mortal alguno haya concebido; Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	society	wisdom	general	0	Si queremos formar una institucin duradera, no pensemos en hacerla eterna Jean-Jacques Rousseau, The Social Contract
+Rousseau	life	quip	general	0	Singular efecto de la gran conexin de caracteres! Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	wisdom	general	0	Singur, n-am cunoscut niciodat plictiseala, chiar atunci cnd nu fceam nimic: imaginaia mea, umplnd toate golurile, era ea singur de ajuns spre a m ine ocupat.
+Rousseau	faith	wisdom	general	0	So finally we tumble into the abyss, we ask God why he has made us so feeble. But, in spite of ourselves, He replies through our consciences: 'I have made you too feeble to climb out of the pit, because i made you strong enough not to fall in. Jean-Jacques Rousseau, Confessions
+Rousseau	life	wisdom	general	0	So much good my persecutors have done me by recklessly pouring out all the shafts of their hatred. They have deprived themselves of any power over me and henceforward I can laugh at them. It Jean-Jacques Rousseau, Reveries of the Solitary Walker
+Rousseau	society	wisdom	general	0	Social man lives always outside himself; he knows how to live only in the opinion of others, it is, so to speak, from their judgement alone that he derives the sense of his own existence. Jean-Jacques Rousseau, Discourse on the Origin of Inequality
+Rousseau	life	wisdom	general	0	Sors de l'enfance, ami, reville-toi! Jean-Jacques Rousseau
+Rousseau	life	wisdom	general	0	Suffer, die, or get better; but whatever you do, live while you are alive. Jean-Jacques Rousseau, Emile
+Rousseau	society	wisdom	general	0	Terimi tam anlam ile ele alrsak, hakiki demokrasi hi bir zaman mevcut olmad gibi bundan sonra da olmayacaktr. ok saydakilerin az saydakileri idaresi tabii nizama aykrdr. Jean-Jacques Rousseau
+Rousseau	life	wisdom	general	0	The "sociable" man, always outside himself, is capable of living only in the opinions of others and, so to speak, derives the sentiment of his own existence solely from their judgment. Jean-Jacques Rousseau
+Rousseau	society	wisdom	general	0	The Abbe de Saint-Pierre suggested an association of all the states of Europe to maintain perpetual peace among themselves. Is this association practicable, and supposing that it were established, would it be likely to last? Jean-Jacques Rousseau, Emile or On Education
+Rousseau	life	wisdom	general	0	The bounds of human possibility are not as confining as we think they are; they are made to seem to be tight by our weaknesses, our vices, our prejudices that confine them. Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	The first man who, having enclosed a piece of ground, bethought himself of saying 'this is mine', and found people simple enough to believe him, was the real founder of civil society. Jean-Jacques Rousseau, Discourse on the Origin of Inequality
+Rousseau	society	wisdom	general	0	The first man, who, after enclosing a piece of ground, took it into his head to say, "This is mine," and found people simple enough to believe him, was the true founder of civil society. Jean-Jacques Rousseau, Discourse on the Origin of Inequality
+Rousseau	life	wisdom	general	0	The first sentiment of man was that of his existence, his first care that of preserving it. Jean-Jacques Rousseau, Discourse on the Origin of Inequality
+Rousseau	society	wisdom	general	0	The former breathes only peace and liberty; he desires only to live and be free from labor; even the ataraxia of the Stoic falls far short of his profound indifference to every other object. Jean-Jacques Rousseau
+Rousseau	life	wisdom	general	0	The good man can be proud of his virtue because it is his. But of what is the intelligent man proud? Jean-Jacques Rousseau, Emile or On Education
+Rousseau	life	wisdom	general	0	The great secret of education is to use exercise of mind and body as relaxation one to the other. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	society	wisdom	general	0	The imagination which causes so many ravages among us, never speaks to the heart of savages" Pt.1, 41 Rousseau, Discours sur l'origine et les fondements de l'ingalit parmi les hommes
+Rousseau	work-money	wisdom	general	0	The money which a man possesses is the instrument of freedom; that which we eagerly pursue is the instrument of slavery. Therefore I hold fast to that which I have, and desire nothing. Jean-Jacques Rousseau, Confessions
+Rousseau	society	wisdom	general	0	The more ingenious our apparatus, the coarser and more unskillful are our senses. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	life	wisdom	general	0	The only moral lesson which is suited for a child--the most important lesson for every time of life--is this: 'Never hurt anybody. Rousseau, Emile or On Education
+Rousseau	society	wisdom	general	0	The people of England regards itself as free; but it is grossly mistaken; it is free only during the election of members of parliament. As soon as they are elected, slavery overtakes it, and it is nothing. Jean-Jacques Rousseau, The Social Contract
+Rousseau	life	wisdom	general	0	The person who has lived the most is not the one with the most years but the one with the richest experiences. Jean-Jacques Rousseau
+Rousseau	life	wisdom	general	0	The real world has its limits; the imaginary world is infinite. Unable to enlarge the one, let us restrict the other, for it is from the difference between the two alone that are born all the pains which make us truly unhappy. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	life	wisdom	general	0	The story of human nature is a fair romance. Am I to blame if it is not found elsewhere? I am trying to write the history of mankind. If my book is a romance, the fault lies with those who deprave mankind. Jean-Jacques Rousseau
+Rousseau	society	wisdom	general	0	The strongest is never strong enough to be always the master, unless he transforms strength into right, and obedience into duty
+Rousseau	society	wisdom	general	0	The strongest is never strong enough to be always the master, unless he transforms strength into right, and obedience into duty. Jean-Jacques Rousseau, On the Social Contract
+Rousseau	life	wisdom	general	0	The truth brings no man a fortune Jean-Jacques Rousseau, The Social Contract
+Rousseau	life	aphorism	general	0	The truth brings no man a fortune.
+Rousseau	arts	wisdom	general	0	The wisest writers devote themselves to what a man ought to know, without asking what a child is capable of learning. Jean-Jacques Rousseau, Emile
+Rousseau	life	wisdom	general	0	The world of reality has its limits,the world of imagination is boundless. Jean-Jacques Rousseau
+Rousseau	family	wisdom	general	0	The worst education is to leave him floating between his will and yours, and to dispute endlessly between you and him as to which of the two will be the master. Jean-Jacques Rousseau
+Rousseau	life	wisdom	general	0	There are times when I am so unlike myself that I might be taken for someone else of an entirely opposite character. Jean-Jacques Rousseau, Confessions
+Rousseau	life	wisdom	general	0	There is no evildoer who could not be made good for something.
+Rousseau	society	wisdom	general	0	There is no subjection so perfect as that which keeps the appearance of freedom. Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	There is not a single ill-doer who could not be turned to some good. The State has no right to put to death, even for the sake of making an example, any one whom it can leave alive without danger. Jean-Jacques Rousseau, The Social Contract
+Rousseau	life	wisdom	general	0	There is nothing better than the encouragement of a good friend. Jean-Jacques Rousseau
+Rousseau	life	wisdom	general	0	There is peace in dungeons, but is that enough to make dungeons desirable? Jean-Jacques Rousseau, The Social Contract
+Rousseau	life	wisdom	general	0	Those that are most slow in making a promise are the most faithful in the performance of it. Jean-Jacques Rousseau
+Rousseau	faith	wisdom	general	0	Those who distinguish civil from theological intolerance are, to my mind, mistaken Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	Those who think themselves the masters of others are indeed greater slaves than they. Jean-Jacques Rousseau
+Rousseau	society	wisdom	general	0	To be driven by our appetites alone is slavery, while to obey a law that we have imposed on ourselves is freedom. Jean-Jacques Rousseau
+Rousseau	society	wisdom	general	0	To be sane in a world of madman is in itself madness. Jean-Jacques Rousseau
+Rousseau	society	wisdom	general	0	To decide that the son of a slave is born a slave is to decide that he is not born a man. Jean-Jacques Rousseau, The Social Contract
+Rousseau	life	wisdom	general	0	To do is to be. Jean-Jacques Rousseau
+Rousseau	family	wisdom	general	0	To endure is the first thing that a child ought to learn, and that which he will have the most need to know. Jean-Jacques Rousseau
+Rousseau	life	wisdom	general	0	To live is not merely to breathe; it is to act; it is to make use of our organs, senses, faculties - of all those parts of ourselves which give us the feeling of existence. Jean-Jacques Rousseau
+Rousseau	life	wisdom	general	0	To live is not to breathe but to act. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	society	wisdom	general	0	To renounce freedom is to renounce one's humanity, one's rights as a man and equally one's duties. Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	To renounce liberty is to renounce being a man, to surrender the rights of humanity and even its duties. Jean-Jacques Rousseau, The Social Contract
+Rousseau	love	wisdom	general	0	To write a good love letter, you ought to begin without knowing what you mean to say, and to finish without knowing what you have written. Jean Jacques Rosseau
+Rousseau	love	wisdom	general	0	To write a love letter, you have to start, without knowing, what you want to say, and end, without knowing what you have said. Jean-Jaques Rousseau
+Rousseau	faith	wisdom	general	0	Tout est bien sortant des mains de l'Auteur des choses, tout dgnre entre les mains de l'homme. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	society	dark	general	0	Toute ducation des femmes doit tre relative aux hommes (...) La femme est fait pour cder l'homme et pour supporter ses injustices. Rousseau
+Rousseau	society	wisdom	general	0	Trn ht, ta c th ni rng, trong tnh trng vn minh, con ngi cn th c thm t do lun l m ch c n mi bin con ngi thnh ch nhn ch thc ca chnh mnh, bi v chiu theo dc vng l n l, v tun hnh lut l do chnh mnh t ra l c c t do. Jean-Jacques Rousseau, The Social Contract
+Rousseau	life	wisdom	general	0	Trust your heart rather than your head.
+Rousseau	life	wisdom	general	0	Truth is an homage that the good man pays to his own dignity. Jean-Jacques Rousseau, Reveries of the Solitary Walker
+Rousseau	faith	wisdom	general	0	Tutto bene quando esce dalle mani dell'Autore delle cose, tutto degenera fra le mani dell'uomo. Jean-Jacques Rousseau
+Rousseau	nature	wisdom	general	0	Un da, habindome desviado a propsito para contemplar ms de cerca un paisaje admirable, me extasi de tal modo y di tantas vueltas en derredor que al fin me perd completamente. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	wisdom	general	0	Unii m vor gsi caraghios, seme: puin mi pas! Trebuie s tiu a nfrunta rsul i ocara, cu condiia s nu le merit. Jean-Jacques Rousseau, Confesiuni II
+Rousseau	life	wisdom	general	0	Virtue is a state of war, and to live in it means one always has some battle to wage against oneself. Jean-Jacques Rousseau
+Rousseau	life	wisdom	general	0	Virtue is a state of war, and to live in it we have always to combat with ourselves. Jean-Jacques Rousseau
+Rousseau	family	wisdom	general	0	We are born weak, we need strength; helpless, we need aid; foolish, we need reason. All that we lack at birth, all that we need when we come to man's estate, is the gift of education.
+Rousseau	family	wisdom	general	0	We cannot teach children the danger of lying to men without feeling as men, the greater danger of lying to children. Jean-Jacques Rousseau
+Rousseau	society	wisdom	general	0	We must powder our wigs; that is why so many poor people have no bread. Jean-Jacques Rousseau
+Rousseau	life	wisdom	general	0	We seek knowledge only because we desire enjoyment, and it is impossible to conceive why a person who has neither desires nor fears would take the trouble to reason. Jean-Jacques Rousseau, Discourse on the Origin of Inequality
+Rousseau	society	wisdom	general	0	We should not, with Warburton, conclude from this that politics and religion have among us a common object, but that, in the first periods of nations, the one is used as an instrument for the other. Jean-Jacques Rousseau, The Social Contract
+Rousseau	love	wisdom	general	0	Wees minnaar van een ziel. Jean-Jacques Rousseau, Julie, or the New Heloise
+Rousseau	work-money	wisdom	general	0	Well, the truth is no road to fortune, and the populace doesnt give out ambassadorships, university chairs, or pensions. Rousseau Jean-Jacques
+Rousseau	life	wisdom	general	0	What good is it looking for our happiness in the opinion of others if we can find it in ourselves?
+Rousseau	life	wisdom	general	0	What good is it to seek our happiness in the opinion of others if we cannot find it in ourselves?
+Rousseau	society	wisdom	general	0	What good would it be to possess the whole universe if one were its only survivor? Jean-Jacques Rousseau, A Lasting Peace Through the Federation of Europe and the State of War
+Rousseau	life	wisdom	general	0	What wisdom can you find greater than kindness.
+Rousseau	life	quip	general	0	When I stay in one Place, I can hardly think at all; my body had to be on the move to set my mind going." Jean-Jacques Rousseau. ROUSSEAU
+Rousseau	life	wisdom	general	0	When one has suffered or fears suffering, one pities those who suffer; but when one is suffering, one pities only oneself. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	love	wisdom	general	0	Whether the woman shares the man's passion or not, whether she is willing or unwilling to satisfy it, she always repulses him and defends herself, though not always with the same vigour, and therefore not always with the same success. Jean-Jacques Rousseau, Emile or On Education
+Rousseau	life	wisdom	general	0	Why should we build our happiness on the opinons of others, when we can find it in our own hearts? Jean-Jacques Rousseau, The Social Contract and Discourses
+Rousseau	society	wisdom	general	0	You will never be free as long as there remains one Russian soldier in Poland and your freedom will always be threatened as long as Russia interferes in your affairs. Jean-Jacques Rousseau, Considerations On The Government Of Poland
+Rousseau	life	wisdom	general	0	[...] eu tiam c n faa mpritorului adevratelor bunuri cel mai potrivit mijloc de a le cpta pe acelea de care aveam nevoie este mai puin de a le cere, ct de a le merita. Jean-Jacques Rousseau, Confessions
+Rousseau	life	dark	general	0	[T]he man who meditates is a depraved animal. Jean-Jacques Rousseau
+Rousseau	society	wisdom	general	0	[T]he mere impulse of appetite is slavery, while obedience to a law which we prescribe to ourselves is liberty. Jean-Jacques Rousseau, The Social Contract
+Rousseau	arts	wisdom	general	0	[When under stress I thought of] the books I had read [and applied] them to myself. I [imagined I was] one of the characters [and soon found myself] in made-up circumstances which were most agreeable to my inclinations. Jean-Jacques Rousseau
+Rousseau	life	wisdom	general	0	aunque estas personas no sepan nada, todas creen saber algo. Mientras que yo, si no s nada, al menos no tengo esa duda. De Jean-Jacques Rousseau, Discurso sobre las ciencias y las artes
+Rousseau	arts	wisdom	general	0	aunque nazca uno con algn talento, el arte de escribir no se aprende repentinamente. Remit Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	wisdom	general	0	c'est que si chaque homme pouvait lire dans les curs de tous les autres, il y aurait plus de gens qui voudraient descendre que de ceux qui voudraient monter. Jean-Jacques Rousseau, uvres compltes - 93 titres
+Rousseau	life	wisdom	general	0	dulce y tranquila, en cuanto de m dependiese. Hallndome solo jams he conocido el fastidio, aun no teniendo absolutamente nada que hacer: mi imaginacin, llenando todo vaco, es bastante por s sola para ocuparme. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	society	wisdom	general	0	he ah las pruebas funestas de que la mayor parte de nuestros males son obra nuestra, Jean-Jacques Rousseau, Discurso sobre el origen de la desigualdad entre los hombre
+Rousseau	life	wisdom	general	0	hice mayores progresos en otro arte ms til: el de contentarme con mi suerte y no desear otra ms brillante, para la que empezaba a sentir que no haba nacido. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	fact	general	0	ichthyophagous. Jean-Jacques Rousseau, Discourse on the Origin of Inequality
+Rousseau	society	wisdom	general	0	il soit toujours prt sacrifier le gouvernement au peuple et non le peuple au gouvernement. Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	jamais Etat ne fut fond que la religion ne lui servt de base Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	l'impulsion du seul apptit est esclavage, et l'obissance la loi qu'on s'est prescrite est libert. Jean-Jacques Rousseau, The Social Contract
+Rousseau	life	wisdom	general	0	la conscience du coupable vengerait assez l'innocent. Sa prdiction n'a pas t vaine; elle ne cesse pas un seul jour de s'accomplir. Jean-Jacques Rousseau, uvres compltes - 93 titres
+Rousseau	society	wisdom	general	0	la frquence des supplices est toujours un signe de faiblesse ou de paresse dans le gouvernement. Il n'y a point de mchant qu'on ne pt rendre bon quelque chose. Jean-Jacques Rousseau, The Social Contract
+Rousseau	life	wisdom	general	0	lo misterioso me inquieta siempre, es harto contrario a mi carcter, abierto hasta la imprudencia. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	wisdom	general	0	mas a la sazn contaba treinta aos y me hallaba en Pars, donde no puede vivirse sin contar con algo. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	wisdom	general	0	mas tambin con la satisfaccin interior, que experimentaba por vez primera, de poder decirme: Merezco mi propia estimacin; s preferir mi deber a mi placer. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	wisdom	general	0	me repeta este proverbio provinciano, algo menos exacto en Pars, que el que bien canta y bien danza trabaja mucho y no avanza. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	wisdom	general	0	mi trabajo desigual y sin arte tan pronto era sublime como trivial, como debe serio el de cualquiera que slo posee arranques de genio y no se halla sostenido por la ciencia. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	love	wisdom	general	0	nada enlaza tanto los corazones como llorar juntos. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	arts	wisdom	general	0	ni acerca de un libro si es til, sino si est bien escrito. Las Jean-Jacques Rousseau, Discurso sobre las ciencias y las artes
+Rousseau	society	aphorism	general	0	no puede liberarse cuando el resorte civil se ha gastado. Jean-Jacques Rousseau, The Social Contract
+Rousseau	life	wisdom	general	0	nsann zgrl; istei her eyi yapabilmesinde deil, istemedii hibir eyi yapmak zorunda olmamasndadr. Jean-Jacques Rousseau
+Rousseau	society	wisdom	general	0	nunca har mal alguno a otro hombre, ni aun a cualquier ser sensible, salvo el legtimo caso en que, hallndose comprometida su propia conservacin, se vea forzado a darse a s mismo la preferencia. Jean-Jacques Rousseau, Discurso sobre el origen de la desigualdad entre los hombres
+Rousseau	life	quip	general	0	on ne connat d'o est un homme qu'aprs qu'il a parl. Jean-Jacques Rousseau, uvres compltes - 93 titres
+Rousseau	society	aphorism	general	0	on peut acqurir la libert; mais on ne la recouvre jamais Jean-Jacques Rousseau, The Social Contract
+Rousseau	love	aphorism	general	0	pero no ha dejado de quererme sino al dejar de existir; nuestra amistad slo ha terminado con su vida. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	society	wisdom	general	0	pour rgner; c'est une science qu'on ne possde jamais moins qu'aprs l'avoir trop apprise, et qu'on acquiert mieux en obissant qu'en commandant. Jean-Jacques Rousseau, The Social Contract
+Rousseau	society	wisdom	general	0	prendre le terme dans la rigueur de l'acception, il n'a jamais exist de vritable dmocratie, et il n'en existera jamais. Jean-Jacques Rousseau, The Social Contract
+Rousseau	life	wisdom	general	0	resolv no ligarme a nadie sino conservar mi independencia sacando partido de mis conocimientos, cuyo valor comenzaba a conocer al fin y que hasta entonces haba juzgado con harta modestia. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	society	wisdom	general	0	si l'opposition des intrts particuliers a rendu ncessaire l'tablissement des socits, c'est l'accord de ces mmes intrts qui l'a rendu possible. Jean-Jacques Rousseau, The Social Contract
+Rousseau	life	wisdom	general	0	so true it is that pleasure does not depend on extravagance, and that joy is as readily purchased by pence as pounds. Jean-Jacques Rousseau, The Reveries of the Solitary Walker
+Rousseau	society	wisdom	general	0	the despot assures his subjects civil tranquillity. Jean-Jacques Rousseau, On the Social Contract
+Rousseau	life	wisdom	general	0	veo un animal menos fuerte que unos, menos gil que otros, pero, en conjunto, el ms ventajosamente organizado de todos; Jean-Jacques Rousseau, Discurso sobre el origen de la desigualdad entre los hombres
+Rousseau	life	wisdom	general	0	viva en tan grato sosiego distribuyendo el tiempo entre mi trabajo, mi instruccin y mis placeres, Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	quip	general	0	y del placer de los bellos conocimientos que me propona adquirir; pues para mi era como si ya los poseyese, o mejor dicho, era ms todava, porque el gusto de aprender entraba por mucho en mi felicidad. Es Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	life	wisdom	general	0	y yo me adapto tan fcilmente a un mtodo de vida, cuando es voluntario, que slo hubiera deseado que ste durase siempre. Jean-Jacques Rousseau, LAS CONFESIONES
+Rousseau	society	wisdom	general	0	yleyse keyfe bal bir ynetimin yasal bir ynetim olabilmesi iin, halkn onu kabul etmeye ya da etmemeye yetkisi olmaldr. Ancak o zaman ynetim keyfe bal olmaktan kar. Jean-Jacques Rousseau, Toplumsal Szleme veya Siyasal Hukukun Prensipleri
+Rousseau	society	wisdom	general	0	you are undone if you once forget that the fruits of the earth belong to us al, and that the earth itself belongs to nobody
+Rousseau	society	wisdom	general	0	you are undone if you once forget that the fruits of the earth belong to us all, and that the earth itself belongs to nobody

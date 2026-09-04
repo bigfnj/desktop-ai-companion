@@ -1,0 +1,153 @@
+tv-moralorel	faith	tv-quote	general	0	Orel: Behave Shapey, we're going to church! Shapey: Shut up!
+tv-moralorel	faith	tv-quote	general	0	Orel: You know, Doughy, Reverend Putty's sermon today sure made me think. Doughy: But Orel, you know you're not supposed to think when it comes to God and faith!
+tv-moralorel	family	tv-quote	general	0	Doughy: Hey Orel, wanna come over to my house and play? Orel: Can I, mom? Bloberta: Alright, but don't take any rides from strangers Orel: Why? Clay and Bloberta: Because you're in your good Sunday suit!
+tv-moralorel	life	tv-quote	general	0	Orel and Doughy are walking through the cemetery Doughy: It's always so pretty. Do you think it's because dead people make good fertilizer? Orel: Hmmmmm...maybe
+tv-moralorel	life	tv-quote	general	0	Orel: Gosh, you sure were right, dad Clay: Well, I guess that's why they call me dad...and not mom
+tv-moralorel	faith	tv-quote	general	0	Doughy: Hey Orel, what did you put for number 3 on the science test? Orel: Jesus. Doughty: Oh, of course!
+tv-moralorel	life	tv-quote	general	0	Principal Fakey: Orel, there are some things that are burned so deep into a person's subconscious that you forget just why they're there. You only know that they've scarred you in such a horrible and personal way that they must be right.
+tv-moralorel	life	tv-quote	general	0	Clay: Why.......I mean, yes?
+tv-moralorel	life	tv-quote	general	0	Orel: This is jive! Clay: Orel! I think you and I have a date...in my study!
+tv-moralorel	life	tv-quote	general	0	Rev. Putty: Friends, I look around this town and my heart breaks. But it's not the kind of heartbreak I get when a woman rejects me.
+tv-moralorel	life	tv-quote	general	0	Mr Figgurelli: Hey, how about working here? I can use an underage delivery boy that I can pay whatever I want.
+tv-moralorel	society	tv-quote	general	0	Clay: Selling crack is a very lucrative business right now. People love it!
+tv-moralorel	life	tv-quote	general	0	Bloberta: Orel, that pig died for you to eat, not peck
+tv-moralorel	work-money	tv-quote	general	0	Clay: Stinking dead-end job... Bloberta: Hello, sweetheart Clay: [Cheerfully] hi, honey!
+tv-moralorel	life	tv-quote	general	0	Principal Fakey: This is the proudest day in Diorama Elementary history. Never has the elimination of the Arts from the budget been so triumphantly justified.
+tv-moralorel	life	tv-quote	general	0	Orel: Miss Sculptham, I have a question Agnes Sculptham: You heard the bell, Orel. No more learning today...
+tv-moralorel	life	tv-quote	general	0	Coach Stopframe: Clay, it's Danielle!
+tv-moralorel	family	tv-quote	general	0	Orel: What's the best way to find out what your wife needs to be happy? Clay: Well, I guess the best way to find out what any woman needs to read what other men think women need
+tv-moralorel	family	tv-quote	general	0	Clay: Son, imagine my disappointment when I got a call from the hospital, and found you weren't sick or injured.
+tv-moralorel	faith	tv-quote	general	0	Clay: Remember, Orel: foul smells attract Satan. Bloberta: And we certainly don't want him near our toothbrushes.
+tv-moralorel	faith	tv-quote	general	0	Clay: Well, sure, there's a little bit of God in all of us, just not enough to do any good.
+tv-moralorel	faith	tv-quote	general	0	Clay: I'm surprised at you, Orel; you know that only God and the government can decide who lives and who dies.
+tv-moralorel	life	tv-quote	general	0	Nurse Bendy: Look, I'm busy, just help yourself. Orel: Help myself to the sick? Nurse Bendy: Yeah; believe me, you can't go anywhere around without knocking one of THOSE over.
+tv-moralorel	life	tv-quote	general	0	Man: [On a stretcher] where are you taking me now? Paramedic: First, to Saint Martin's hospital for the broken neck; and then to State County Prison for the broken law.
+tv-moralorel	faith	tv-quote	general	0	Orel: Gee, the Lord sure woks in mysterious ways! Reverend Putty: He's not mysterious, Orel; He works in one way. Give Him the opportunity...and He's gonna get ya!
+tv-moralorel	life	tv-quote	general	0	Orel: I'm never gonna be scared by tonight if I don't kill someone [Walks away sadly] Doughy: Poor Orel. [Looks up to the sky] what is wrong with you?!
+tv-moralorel	life	tv-quote	general	0	Orel: Sorry to interrupt your dinner, Reverend. Reverend Putty: Company isn't an interruption, Orel. Just an occasional reminder of my involuntary solitude...
+tv-moralorel	faith	tv-quote	general	0	Clay:Your friendship and loyalty to Joe led you to hurting other people. Orel: Yeah...those boys in the forest... Clay: No, I'm talking about your three real friends: Doughy, Tommy and the rest!
+tv-moralorel	life	verse	general	0	Singer: My grandma fell off of the rooftop Oh, granny, you got some bad luck. But what she said when she fell on her head, She yelled out an ear-splitting "Ffffffollow Jesus, have faith in the Lord, "Praise his name and receieve your reward"
+tv-moralorel	life	tv-quote	general	0	Clay: So you see, friendship is a complicated headache, but it's ultimately worth it.
+tv-moralorel	food	tv-quote	general	0	Clay: Hey, Reverend, wouldn't "devilled egg" make much more sense than "omlette" for Judas? [Pause] Rev. Putty: No.
+tv-moralorel	life	tv-quote	general	0	Clay: Now let's go drink dinner. Orel: Don't you mean eat dinner? Clay: ........................Yeah
+tv-moralorel	family	tv-quote	general	0	Doughy: Hey Orel, instead of throwing rocks at my dad's car, how about playing with me, Tommy and him?
+tv-moralorel	family	tv-quote	general	0	Clay: Orel, you know the rule: Don't upset your brother until your dad has had his first highball.
+tv-moralorel	faith	tv-quote	general	0	Clay: No buts, young man. You need to behave more like an adult around here. Orel: But I'm only twelve. Clay: That's no excuse, why your own personal hero Jesus was very mature at your age. Orel: He was? Clay: Of course! At age twelve, he was already proving the Jews wrong.
+tv-moralorel	life	tv-quote	general	0	Doughy: Gee why are we sneaking' around this tavern Orel? Orel: Because Doughy I need to observe maturity and I figure there is no more mature place than... (Gets cut off by two guys stumbling out of the tavern fighting over whether football or hockey is better)
+tv-moralorel	life	tv-quote	general	0	Doughy: Gosh Principal Fakey is kissing Nurse Blinkless. I don't understand - isn't he married to Mrs. Fakey? Orel: Don't question your elders, Doughy. Principal Fakey is in his 50's - he must know the best. We just don't understand yet.
+tv-moralorel	life	tv-quote	general	0	Officer Papermouth: Don't get me wrong being alone is great. It's just that I don't know what to do with my money. Bartender: Oh I can think of a few things honey. Officer Papermouth: That's what I'm saying! I'll give you money!
+tv-moralorel	life	tv-quote	general	0	Bloberta: Have a good day at school, dear! Orel: Ehh, have a good day yourself... Bloberta: Hmm... Now where have I seen that behavior before? Have a good day at work dear! Clay: Ehh, have a good day yourself...
+tv-moralorel	life	tv-quote	general	0	Clay: Orel, drinking on a daily basis is not the only way to be an adult.
+tv-moralorel	life	tv-quote	general	0	Clay: You'd better get to bed, boys. Santa's coming, and he knows that kids who stay up late are jerks
+tv-moralorel	faith	tv-quote	general	0	Orel: Boy, God. This sure didn't turn out to be the best Christmas ever. But You still have two minutes left... and I have faith in You. [Orel looks up to the sky as the camera is pulled back and Orel becomes smaller and smaller. The episode ends]
+tv-moralorel	life	tv-quote	general	0	While talking with Bloberta about Shapey Clay: He doesn't even look anything like me...WHO'S BEEN INSIDE YOU?!
+tv-moralorel	faith	tv-quote	general	0	Reverend Putty: We we're all made in God's image. Now what does that phrase REALLY mean? I mean, if an ugly, fat lady is made in God's image, then how can a stuck-up, pretty lady also be made in God's image?
+tv-moralorel	life	tv-quote	general	0	Billy Figgurelli: Dad, can't I play just this once? Sal Figgurelli: No prob, Billy. But be home by three. We have to wash all the not-three-o'clock parts of the clock!
+tv-moralorel	society	tv-quote	general	0	Mr Christein: Figgurelli, I hear the townspeople are all into this segregation mishegus. Oy, it reminds me of when King Herod got spilchiche because of our Lord and savior Sal Figgurelli: Huh? Mr Christein: You know. It starts with the stereotyping and ends with the kaputz?
+tv-moralorel	faith	tv-quote	general	0	Doughy: Playing is fun. What should we play? Orel: let's play church! Boys: Church? Orel: Yeah! Joe: How about "dodge glass?" [Throws broken bottle at Billy Figgurelli, who bleeds] You cut your hand with the glass, just like I wanted you too!
+tv-moralorel	life	tv-quote	general	0	Sal Figgurelli: Come on, everyone, in the attic! They'll never find us up here. Oh, Suzie, start writing in this [Hands over a diary] Suzie Figgurelli: Why, daddy? Sal Figgurelli: It's good, you know, for when you're dead!
+tv-moralorel	faith	tv-quote	general	0	Christstein Kids: Dreidel, dreidel, dreidel, Jesus made it out of clay. Dreidel, dreidel dreidel, then made water into wine.
+tv-moralorel	faith	tv-quote	general	0	Orel: You sure do work hard, Mr. Figgurelli Sal Figgurelli: There's three things we Figgurelli's do: we work hard, we love God, and we wish there was a third thing
+tv-moralorel	faith	tv-quote	general	0	Orel: Hey, dad, want to play catch with me? Clay: Has gravity gone away, Orel? Orel: No, sir. Clay: Then don't ask me to take away the place ofsomething that the good Lord has already provided for you. Orel: Okay...
+tv-moralorel	life	tv-quote	general	0	Orel: [Holding the dog] Mom, look what I found. Bloberta: Orel, you know that living animals aren't supposed to be around the delicious ones. Orel: I want to keep him as a pet Bloberta: Nonsense, you already have Shapey
+tv-moralorel	faith	tv-quote	general	0	Doughy: Come on, Orel, we don't wanna be late for Bible Youth Fun Club. You know how intolerant they can all be
+tv-moralorel	life	tv-quote	general	0	Clay: Now hand him over to Doctor Potterswheel, he has a shot waiting for him that'll be virtually painless; right, doc? Doctor Potterswheel: Well, i'm no vet; but, then again, i'm only gonna kill it
+tv-moralorel	nature	tv-quote	general	0	Orel: Gee, dad, does he have to die? Clay: With all that love being spread everywhere, this dog is dangerous
+tv-moralorel	nature	tv-quote	general	0	Bloberta: Animals have no souls whatsoever. That's what makes it tasty when we eat and drink them
+tv-moralorel	faith	tv-quote	general	0	Coach Stopframe: Lord in heaven, have him call me. (Flips cross on wall upside down) Coach Stopframe: Satan in hell, make him call me.
+tv-moralorel	work-money	tv-quote	general	0	Bloberta: My, you're working late Clay: Stinking-- Bloberta: Dead end job, uh-huh.
+tv-moralorel	faith	tv-quote	general	0	Doughy: Wow, Orel, you're the best detective ever! Orel: No, Doughy, the best detective of all was King Solomon. He cleverly deduced that a mother never wants her baby cut in half Doughy: Oh yeah, that was some caper!
+tv-moralorel	life	tv-quote	general	0	Doughy: Hey, Orel, what did you get for number 7 on the anatomy test? Orel: Evil Doughy: Oh, of course!
+tv-moralorel	life	tv-quote	general	0	Bloberta: [Whilst scrubbing the floor] Bad dirt. Naughty, naughty dirt
+tv-moralorel	faith	tv-quote	general	0	Orel: Reverend Putty, I can find out who stole that money for you. Doughy: For that nickel. Reverend Putty: Fine, have it. I guess I'm gonna have to rely on the ol' personality tonight.
+tv-moralorel	life	tv-quote	general	0	Doughy: Hi 'ya Joe. How much did you put in the tray this week? Joe: Nothin'. I don't have any stupid money. (Joe walks away; looks at the tray and smirks) Orel: Poor kid.
+tv-moralorel	life	tv-quote	general	0	Joe: [Carrying donation tray] Stupid walking around on my dumb feet!
+tv-moralorel	faith	tv-quote	general	0	Reverend Putty: Are you telling me that this is it? A nickel? Joe: Um, well, somebody stole the money. Reverend Putty: Stole?! But my whole sermon was abou-- Doesn't anyobdy lis-- That's God's money! I was counting on some getting lucky cash for tonight.
+tv-moralorel	life	tv-quote	general	0	Orel: Your birthday? Why didn't you say anything, Miss Censordoll? Miss Censordoll: I prefer not to annually celebrate the emergence of my unclad body through such an unsavory passage as my mothers womb
+tv-moralorel	society	tv-quote	general	0	[Censordoll twitches uncontrollably and writes "MOVIE TOO LONG AND BORING, DISTRACTS AUDIENCE INTO WHORING!" onto the blank picket sign] Miss Censordoll: Of course! That God, even he makes me feel inferior
+tv-moralorel	life	tv-quote	general	0	Miss Censordoll: We shouldn't tolerate evil just because it's convenient
+tv-moralorel	life	tv-quote	general	0	Orel: What'cha doing, Farmer Phoney-Crops? Phoney-Crops: Just gettin' ahead on labellin' these plums, Orel Orel: Neat! I didn't know that was part of a farmer's job Phoney-Crops: Son, brand-namin' is more important than waterin'!
+tv-moralorel	faith	tv-quote	general	0	Doughy: Is sin radioactive? Rev. Putty: Yes. That's why it's dangerous to get it near your groin. Doughy: Yikes!
+tv-moralorel	faith	tv-quote	general	0	Orel: Mom, God is perfect, right? Bloberta: Yes. He's the most handsome, understanding and...satisfying man a woman could ever ask for.
+tv-moralorel	life	tv-quote	general	0	Principal Fakey: Quite frankly, Mr and Mrs Littler; your son, Tommy, scored very low on his IQ test Mr Littler: I don't understand, he's always studying Principal Fakey: Studying never helps in IQ tests. That's why they're the perfect measurement for how stupid he is
+tv-moralorel	faith	tv-quote	general	0	Reverend Putty: Now this is not to say that the pious life is completely devoid of joy. Oh, there's lot of great stuff! There's platonic friendship, nice weather, the thrill of a good night's sleep....uh....just to name a few.
+tv-moralorel	life	tv-quote	general	0	Bloberta: How do I look? Clay: [Very bluntly] Like you always do.
+tv-moralorel	faith	tv-quote	general	0	Orel: Why'd they have to leave, dad? Clay: Because they don't believe in God the right way. We simply can't mix with their kind, it's dangerous. Orel: But I like Christina Clay: Well, why not try being afraid of her instead?
+tv-moralorel	life	tv-quote	general	0	Bloberta: Welcome to Moralton Poppet Posabule: What a lovely home. May I see your detergents? Bloberta: I thought you'd never ask!
+tv-moralorel	life	tv-quote	general	0	[At the table, Orel is looking at Christina] Clay: Say, she's kinda cute, eh, son? Orel: She sure is! And Christina's such a nice name Clay: Of course! That's because of what it means. It means "Tiny, little, female Christ"
+tv-moralorel	life	tv-quote	general	0	Clay: In this cold, cynical, free-thinking, lonely world you've made, it's somewhat expected when new friendships are welcomed with open hearts.
+tv-moralorel	faith	tv-quote	general	0	[After what happened at dinner with the Posabules] Bloberta: I feel sorry for them. Don't they want to go to heaven? Clay: People like them never do.
+tv-moralorel	life	tv-quote	general	0	Nurse Bendy has put Dr. Chosenberg to sleep and he is shown smiling Orel: Hey, he's looking better already Dr. Potterswheel: Sure! In the hospital business, Orel, you'll find that all patients really need is to shut up.
+tv-moralorel	family	tv-quote	general	0	Mr Figgurelli: Hi, Orel, what can I do for you? Orel: Hi, Mr Figgurelli, my dad needs a new belt Mr Figgurelli: Wore the new one out already, huh? Orel: Yeah...learning is hard sometimes
+tv-moralorel	faith	tv-quote	general	0	Rev. Putty: Let's just cut the reverend stuff, okay? Stephanie: What would you prefer? Pastor? Minister? Brother? Rod? Rev. Putty: How about Father? Stephanie: Sounds a little too Catholic, doesn't it? Rev. Putty: You're right. Better make it Dad.
+tv-moralorel	life	tv-quote	general	0	Principal Fakey: Well, hello, Nurse Bendy! I have a special student with me that I'd like you to check for lice [Begins laughing and unzipping his pants until hearing the door opening, zips his pants back up and turns his attention to Orel]
+tv-moralorel	faith	tv-quote	general	0	Principal Fakey: Orel, I think you know who makes the rules for praying Orel: Oh, of course [Looks up into the sky] Principal Fakey: Yes, a bunch of random guys.
+tv-moralorel	faith	wisdom	general	0	Buddha: Thousands of candles can be lit from a single candle and the life of that candle will not be shortened
+tv-moralorel	life	tv-quote	general	0	Principal Fakey: You're our ringer, Orel, remember that. Not to put the pressure on you, but to put all of the pressures completely on your head.
+tv-moralorel	family	tv-quote	general	0	Reverend Putty: Uh, look, just try not to think about it. Not a sight out of mind Principal Fakey: That is easy to say Reverend Putty: You can do it. Distract yourself. Giver your wife a baby, that'll make you feel like a good husband. Just pretend.
+tv-moralorel	faith	tv-quote	general	0	Principal Fakey: Reverend, please! I didn't come to the repressional to talk about my sins!
+tv-moralorel	life	tv-quote	general	0	[Block Posabule comes running into the study and smashes some glasses] Block: Yay! Break! Clay: Orel! Look what you let in [Hits Block with a fly-squatter] Skat Shapey! Shoo shoo! Orel: Dad, that's not Shap-- Clay: What's up son?
+tv-moralorel	faith	verse	general	0	Turn the Other Cheek (Original) You've got to turn the other cheek; turn the other cheek. Show the world how strong you are by simply acting weak. Inherit all the world someday 'cuz you will be so meek. Show them just how meek when you turn the other cheek
+tv-moralorel	faith	verse	general	0	Then they'll turn the other cheek; they'll turn the other cheek. They'll learn about the Bible with your whole new violent streak. It's the one-two punch that teaches them that they should keep it meek. They'll be up Heaven's Creek when they turn their other cheek.
+tv-moralorel	family	tv-quote	general	0	Clay: Orel, you know you shouldn't upset your mother by coming home with dirty clothes, because then, your mother talks to your father, and no-one wants that
+tv-moralorel	life	tv-quote	general	0	Bloberta: Just look at Orel's shirt. It's the fourth time this week, Clay, it's getting worrysome [Clay does not respond] Bloberta: I can't be doing laundry everyday! [Clay, again, does not respond] Bloberta: I'll have to double my detergent budget Clay: What? This is serious!
+tv-moralorel	life	tv-quote	general	0	[After Mr Cartsen reads a ghost story] Doughy: Orel, I think I just earned my scaredy badge
+tv-moralorel	life	tv-quote	general	0	[While hiking, Orel and Doughy discover the "missing link" in a block of ice] Orel: Wow look, it's the fictional missing link from the ghost book Doughy: Say, that should take care of our coincidence badges!
+tv-moralorel	faith	tv-quote	general	0	Florence Papermouth: Ooo, look, it says faith, how fun for a cookie! Reverend Putty: It's not a library, ma'am
+tv-moralorel	family	tv-quote	general	0	[After the missing link causes a rampage at the church bake-sale] Bloberta: Orel, this European man cannot be your friend; you know full well to not trust a foreigner.
+tv-moralorel	family	tv-quote	general	0	Orel: Gee, Doughy, your parents really do love you after all. They give you money and they don't ever want anything in return, not even you.
+tv-moralorel	life	tv-quote	general	0	Doughy: Boy Orel, I sure do have a great life! Always getting to do what I want and never having to worry about getting germs from hugging my parents or anything
+tv-moralorel	love	tv-quote	general	0	Doughy: If I get you all of these things, THEN can we go steady? Miss Sculptham: Well, Doughy, if you get all these things plus other things, then that equals "maybe"
+tv-moralorel	faith	tv-quote	general	0	Mr Christein: Crooning? What the mishegus is this 'crooning?' Mrs Christein: It's like "canting", but without the no Jesus
+tv-moralorel	faith	tv-quote	general	0	Orel: Gosh, I just got to get that part, I was born to play Jesus. Doughy: Gee, Orel who else would even be as half as good as you?
+tv-moralorel	arts	quip	general	0	After hearing Junior Christein's beautiful, angelic singing Dale Armature: Oh my god...I AM A GOOD WRITER!!!
+tv-moralorel	faith	tv-quote	general	0	Orel: I think there's something wrong with Reverend Putty Doughy: Why? Is someone c-c-chasing him?
+tv-moralorel	faith	tv-quote	general	0	Doughy: I don't know about this, Orel. Everyone says that Sinville is where unclean people go to have filthy things done to their tarnished little dirties
+tv-moralorel	faith	tv-quote	general	0	Orel: Gee Doughy; I never dreamed that Christian men could be this good at doing God's work Doughy: I wonder why Christian women aren't as enthusiastic Orel: Well, saving souls is obviously a man's job
+tv-moralorel	faith	tv-quote	general	0	Orel: Dad, do you know any sinners? Clay: Well, there's one guy who works with me at my dead-end job Orel: How does he sin? Clay: Every now and then, he forgets to capitalize God's name in legal documents
+tv-moralorel	faith	tv-quote	general	0	Orel: Hey, maybe I could become a heathen just long enough for Reverend Putty to come and save me! That'd make God happy Clay: Sorry pal. Until your eighteen, your soul belongs to us
+tv-moralorel	life	tv-quote	general	0	Daniel Stopframe: Nah, your better when you drink Clay: Oh, Danielle, I missed your little face!
+tv-moralorel	life	tv-quote	general	0	Orel: I don't know if many of you are familiar with the process of stop-motion animation [The audience gasps in horror]
+tv-moralorel	life	tv-quote	general	0	Doughy: [As a snake-like belt] come here, Orel, while your pulling your pants up from my spanking! Doctor Potterswheel: Is this boy's dad molesting him? Clay: What?!
+tv-moralorel	faith	tv-quote	general	0	Doughy:[As Clay] Hey there, Orel, you don't have to hurry. God doesn't mind if we show up drunk and or late to church
+tv-moralorel	life	tv-quote	general	0	Joe: [As Clay] Hi, I'm Clay Puppington, and I'm drinking "stupid juice". And boy, does it work! Right, Jesus? [As a Jesus figurine] Yeah, I'm Jesus, and I think you're stupid!
+tv-moralorel	faith	tv-quote	general	0	Orel: Gee, Joe completely changed the meaning of everything I wrote Doughy: Gosh Orel, that's too bad Orel: I guess some things get misinterpreted Doughy: Like what? Orel: Hmm...not sure [Scratches his head with the Bible]
+tv-moralorel	life	tv-quote	general	0	Clay: You have done nothing but whine and complain like a lady in a flowery, sissy skirt and attractive high heels about my drinking since we got here! Orel: (Half crying) It's because you become a bad person when you drink!!
+tv-moralorel	life	tv-quote	general	0	Orel: Dad! Are you okay? Clay: Am I okay?! You have shot one thing this whole trip-- count 'em: one thing, and it's two of my last bottles of liquor!!!
+tv-moralorel	life	tv-quote	general	0	Clay: Orel! What have you done?! Orel: I got shot...by you Clay: You sure did! You gotta learn to be more careful, son
+tv-moralorel	life	tv-quote	general	0	[Clay has just shot Orel, and drank all of his rubbing alcohol] Orel: I hate you. Clay: [utterly flippant] Hate away, sister. Hate away.
+tv-moralorel	life	tv-quote	general	0	After trying to get Shapey back from the Posabule family, Bloberta has ended up with both Shapey and Block, who bond quickly. Shapey and Block: Mine! Shapey: Cake? Block: Cake! Shapey: Yummy? Block: Yummy! Shapey: Mine? Both: Mine! [They laugh happilly]
+tv-moralorel	life	tv-quote	general	0	[phone rings in Nohammer's Hardware] Don Nohammer: Nohammer's Hardware? [bothered] Yes, we have hammers! [slaps his head in frustration] No, it's just my name!
+tv-moralorel	faith	tv-quote	general	0	Clay: Nighty-night Orel. All us well behaved little boys like me and Shapey and your mom have to get up early for church tomorrow.
+tv-moralorel	life	tv-quote	general	0	Doctor Potterswheel: Its not healthy to be dead that long
+tv-moralorel	life	tv-quote	general	0	[Orel opens his eyes after dying for the third time] Nurse Bendy: Well, at least his eyes are alive.
+tv-moralorel	life	tv-quote	general	0	[After Orel's second death] Clay: Orel, these near-death experiences are getting a little tiresome...and expensive. Now, I don't want to have to sign another one of your death certificates!
+tv-moralorel	faith	tv-quote	general	0	[After Orel wakes up for the first time] Doctor Potterswheel: It's a miracle! Clay: A miracle? So it's free? Doctor Potterswheel: Well, gauze is expensive. Clay: Knew it...
+tv-moralorel	faith	tv-quote	general	0	Clay: Wait a minute! you're asking me to take responsibility for what Orel does? Rev. Putty: I know it's a tall order. Clay: 90% of the time, I'm not even responsible for my own action! Principal Fakey: What if you quit drinking? Clay: (mockingly) Yeah, what if?
+tv-moralorel	life	tv-quote	general	0	Miss Sculptham: Yes, everyone is innocent until they reach the seductively dangerous age of eighteen or over
+tv-moralorel	life	tv-quote	general	0	Miss Sculptham: Look, I teach school, which has nothing to do with life, so don't pin this on me!
+tv-moralorel	life	tv-quote	general	0	(After being told about "the children's crusade") Orel: Did the children's crusade really work? Miss Sculptham: of course they probably did, how dare you question things when I don't!
+tv-moralorel	faith	tv-quote	general	0	Reverend Putty: Do you know what babies mean to God? That's right: job security
+tv-moralorel	life	tv-quote	general	0	Miss Censordoll: I am not "Holier-than-thou", Mother. But I am Holier than you.
+tv-moralorel	life	tv-quote	general	0	Orel: Where did you learn to shoot like that, Doughy? Doughy: I don't know. I guess you juts have to act like nobody cares; like, nothing you ever do really means anything to anybody. You know, like you're totally invisible
+tv-moralorel	family	tv-quote	general	0	Joe: Um...are you my mom? Nurse Bendy: What? Who told you that? Joe: Some dummy... Nurse Bendy: How can I be your mom? I've never even hit you!
+tv-moralorel	love	tv-quote	general	0	Orel: Mom, why did you marry dad? Bloberta: Oh wellll... Why not?
+tv-moralorel	life	tv-quote	general	0	Arthur: Now can you please pass me the ketchup that you killed your mother with?
+tv-moralorel	love	verse	general	0	Closeface There's a blurry girl at the end of my nose Her name is Closeface And when she backs away, I don't know where she goes That crazy Closeface
+tv-moralorel	love	verse	general	0	She's really different, but she's kind of like you But her eyes are bigger and there's not always two If it ever was not Closeface, I would be so scared
+tv-moralorel	arts	verse	general	0	There's a dirty girl and she whispers to me. Closeface, where is that Closeface I don't know how much she weighs, but she's as big as I can see Closeface, got to be Closeface
+tv-moralorel	love	verse	general	0	I think she thinks that I'm a perfect match Cause I'm just her type when we are attached And when she backs away, you are always right there
+tv-moralorel	life	tv-quote	general	0	Dotty: Florence, pull yourself together; it's embarrassing enough to be your friend! Florence: Dottie...we are not friends.
+tv-moralorel	life	tv-quote	general	0	Dotty: I just don't know where I put it all. Do you? Florence: No, I don't know where you put it all. Dotty: I meant you. Where do you put it? Florence: Yes...I know where I...put it all...
+tv-moralorel	family	tv-quote	general	0	Florence: These are my zebras. Rev. Putty: Oh, boy... Florence: Do you like them? Rev. Putty: Uh, Florence... Florence: I've been collecting them since I was seven. Rev. Putty: That's sad-- I mean nice.
+tv-moralorel	faith	tv-quote	general	0	Rev. Putty: [Having sex with Florence] Oh god, oh god, oh god-- Dotty!! Oh, god, what have I done? Florence: It's okay, I understand. Rev. Putty: No, that's not what I'm talking about...
+tv-moralorel	love	tv-quote	general	0	Dotty: It's so dark in here, and cold. Oh well, I'll just go and get myself another husband. Oh god, this is so humiliating. Florence: No! Dotty: Please, Florence. You left Roger, not the other way around. You got to do the humiliating, I didn't.
+tv-moralorel	life	tv-quote	general	0	Clay: [Banging on the window] Come on! Dolly: Hi, Clay. Clay: What is it? A holiday, Dolly? Dolly: Easter good enough for you? Clay: Oh... Right...
+tv-moralorel	work-money	tv-quote	general	0	Clay: Don't look at me like that. I'm very responsible. Dolly: Usually. Clay: Dolly, if I go to work, today...I'm gonna kill someone.
+tv-moralorel	life	tv-quote	general	0	[After everyone has left the bar] Clay: With all you people as role models, no wonder my son is...sensitive...
+tv-moralorel	family	tv-quote	general	0	Shapey: Mommy? Bloberta: Not now, Shapey. No milk. Shapey: When I'm thirsty, it feels how I feel when I'm alone. Orel: Gosh. Things sure have changed around here.
+tv-moralorel	society	tv-quote	general	0	Clay: For you see, people don't always say what's on their minds. Orel: They don't? That's silly. Clay: Don't ever call it silly, son. Not saying what's on our mind is what this country is based on.
+tv-moralorel	life	tv-quote	general	0	Orel: Officer Papermouth, I think it's about time you started forcing people into not buying sinful, disgusting eggs. Officer Papermouth: Sorry, Orel, but I can only employ police brutality when it's officially against the law.
+tv-moralorel	life	tv-quote	general	0	Orel: Mister Mayor, I have a sugges- Clay: Orel? Orel: Dad?! Clay: What are you doing here? Orel: You're the mayor? Clay: Yeah, don't remind me. Stinking dead-end job...
+tv-moralorel	family	tv-quote	general	0	Orel: Dad? Clay: [To the stuffed bear] And another thing, growlie, always honor thy father. That Commandment wasn't even lost, so there's no excuse not to remember it.
+tv-moralorel	life	tv-quote	general	0	Rev. Putty: [Playing solitaire] Aha! Beat you again, Nobody!

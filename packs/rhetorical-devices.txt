@@ -1,0 +1,159 @@
+rhetorical-devices	arts	fact	general	0	acatalectic having complete or full number of syllables in a poetic line
+rhetorical-devices	arts	fact	general	0	accismus in rhetoric, pretending to refuse something
+rhetorical-devices	life	fact	general	0	adynaton rhetorical use of a nearly impossible situation for emphasis
+rhetorical-devices	arts	fact	general	0	agnomination rhetorical use of similar-sounding words for effect
+rhetorical-devices	life	fact	general	0	alogism illogical statement
+rhetorical-devices	life	fact	general	0	anacoenosis rhetorical questioning of hearers or opponents for opinions on a matter
+rhetorical-devices	life	fact	general	0	anacoluthon moving to new topic of discussion before finishing current one
+rhetorical-devices	arts	fact	general	0	anadiplosis repeating last word of clause at beginning of next clause
+rhetorical-devices	life	fact	general	0	analepsis repetition of a word or phrase for emphasis; pleonasm
+rhetorical-devices	arts	fact	general	0	anaphora repetition of a word at beginning of successive phrases for emphasis
+rhetorical-devices	life	fact	general	0	anastrophe reversing or inverting word order as rhetorical device
+rhetorical-devices	arts	fact	general	0	antanaclasis repetition of key word of phrase as a play on words
+rhetorical-devices	arts	fact	general	0	anthorism counter-definition; redefinition of opponent's term for rhetorical effect
+rhetorical-devices	life	fact	general	0	anthypophora refuting an objection using a contrary inference
+rhetorical-devices	life	fact	general	0	anticlimax expression whose last part is decreased in effect from the prior part
+rhetorical-devices	arts	fact	general	0	antimetabole figure in which words or phrases are repeated but in inverse order
+rhetorical-devices	arts	fact	general	0	antimetathesis inversion of the parts of an antithesis
+rhetorical-devices	life	fact	general	0	antiphrasis use of words in a sense opposite to literal
+rhetorical-devices	arts	fact	general	0	antistrophe repetition of words in reverse order
+rhetorical-devices	arts	fact	general	0	antistrophon turning of opponent's own argument against them
+rhetorical-devices	arts	fact	general	0	antithesis contrast of ideas by means of parallel arrangement of words or clauses
+rhetorical-devices	arts	fact	general	0	antonomasia use of descriptive phrase or epithet instead of proper name
+rhetorical-devices	life	fact	general	0	aparithmesis rhetorical answer to a proposition
+rhetorical-devices	arts	fact	general	0	apodosis main concluding clause in a conditional sentence
+rhetorical-devices	life	fact	general	0	apophasis saying something by stating that you will not mention it
+rhetorical-devices	life	fact	general	0	aposiopesis suddenly stopping in the middle of a speech for emphasis
+rhetorical-devices	arts	fact	general	0	apostrophe addressing of a personified thing rhetorically
+rhetorical-devices	arts	fact	general	0	asteism refined irony
+rhetorical-devices	life	fact	general	0	asyndeton rhetorical device of omitting conjunctions
+rhetorical-devices	life	fact	general	0	atticism expression characterized by conciseness and elegance
+rhetorical-devices	life	fact	general	0	auxesis increase in size; hyperbole or augmentation of meaning
+rhetorical-devices	arts	quip	general	0	bathos appearance of the commonplace in elevated matter for rhetorical effect
+rhetorical-devices	arts	fact	general	0	catastasis introductory part of speech where narrator introduces subject
+rhetorical-devices	arts	fact	general	0	chiasmus contrast by parallelism in reverse order
+rhetorical-devices	life	fact	general	0	climax gradual increase in force of rhetorical expressions or drama of a performance
+rhetorical-devices	life	fact	general	0	consecution logical sequence or progression of an argument
+rhetorical-devices	arts	fact	general	0	diacope rhetorical separation of a compound word by a third word; tmesis
+rhetorical-devices	arts	fact	general	0	diallage device in which many arguments brought upon one point
+rhetorical-devices	arts	fact	general	0	diallelus circular argument
+rhetorical-devices	life	fact	general	0	dialogism rhetorical discussion in form of an imaginary dialogue
+rhetorical-devices	arts	fact	general	0	diaporesis rhetorical expression of uncertainty of which of two options to adopt
+rhetorical-devices	life	fact	general	0	diasyrm rhetorical device of condemning through faint praise
+rhetorical-devices	life	fact	general	0	diatyposis rhetorically vivid and clear description of a subject
+rhetorical-devices	life	fact	general	0	dicaeology defending oneself in argument by claiming justification
+rhetorical-devices	life	fact	general	0	dilemma in rhetoric, forcing a choice between two equally unfavourable choices
+rhetorical-devices	life	fact	general	0	dilogy intentional ambiguousness
+rhetorical-devices	arts	fact	general	0	dinumeration numbering of rhetorical points one by one
+rhetorical-devices	arts	fact	general	0	ecbole digression
+rhetorical-devices	life	fact	general	0	echolalia echo-like repetition of another's words
+rhetorical-devices	life	quip	general	0	echopraxia echo-like repetition of another's actions
+rhetorical-devices	life	quip	general	0	ecphasis explicit declaration or interpretation
+rhetorical-devices	life	fact	general	0	ecphonesis rhetorical exclamation
+rhetorical-devices	arts	fact	general	0	ecphrasis plain interpretation of a thing
+rhetorical-devices	arts	fact	general	0	ekphrasis description of a work of art as rhetorical exercise
+rhetorical-devices	life	fact	general	0	enantiosis ironic expression of idea by refuting its contrary
+rhetorical-devices	life	fact	general	0	enthymeme rhetorical suppression or omission of a premise
+rhetorical-devices	arts	fact	general	0	epanadiplosis sentence which begins and ends with same word
+rhetorical-devices	arts	fact	general	0	epanalepsis repetition
+rhetorical-devices	life	fact	general	0	epanaphora repetition of same word at beginning of multiple phrases or sentences
+rhetorical-devices	arts	fact	general	0	epanastrophe device where end of one sentence is repeated as beginning of next
+rhetorical-devices	arts	fact	general	0	epanodos recapitulation of chief points in a discourse after digression
+rhetorical-devices	arts	fact	general	0	epanorthosis retraction of statement in order to intensify it
+rhetorical-devices	arts	fact	general	0	epexegesis addition of words to make the sense more clear
+rhetorical-devices	arts	fact	general	0	epibole device of beginning several clauses with same word
+rhetorical-devices	arts	fact	general	0	epilogue rhetorical conclusion or summary
+rhetorical-devices	life	fact	general	0	epiphonema exclamation, finishing phrase or reflection
+rhetorical-devices	arts	fact	general	0	epiphora rhetorical repetition of a word at the end of several sentences
+rhetorical-devices	arts	fact	general	0	epiplexis persuasion through stylized but severe criticism of opponent
+rhetorical-devices	life	fact	general	0	epiploce use of multiple entwined points in succession in an argument
+rhetorical-devices	arts	fact	general	0	epistrophe ending of successive clauses with the same word
+rhetorical-devices	arts	fact	general	0	epitrope rhetorical but ironic granting of permission to an opponent to do something
+rhetorical-devices	life	fact	general	0	epizeuxis immediate repetition of a word for emphasis
+rhetorical-devices	arts	fact	general	0	erotesis rhetorical questioning
+rhetorical-devices	life	quip	general	0	ethopoeia delineation of the character of someone or something
+rhetorical-devices	arts	fact	general	0	euphemism rhetorical use of a pleasant or favourable form in place of a harsh one
+rhetorical-devices	arts	fact	general	0	exergasia remaining on one point of argument while gradually fleshing it out
+rhetorical-devices	life	fact	general	0	gemination doubling of a consonant sound; in rhetoric, repetition of a word or phrase
+rhetorical-devices	arts	fact	general	0	hendiadys expression of adjective and noun as two adjectives
+rhetorical-devices	life	fact	general	0	heterosis use of one form of a noun or pronoun in place of another for rhetorical effect
+rhetorical-devices	arts	fact	general	0	homeoteleuton the use or occurrence of similar word endings
+rhetorical-devices	arts	fact	general	0	homoeoptoton use of series of words sharing the same verb or noun inflections
+rhetorical-devices	arts	fact	general	0	hypallage figure in which relations between words are changed
+rhetorical-devices	arts	fact	general	0	hyperbaton rhetorical device in which word order is reversed
+rhetorical-devices	arts	fact	general	0	hyperbole impression by extravagant exaggeration
+rhetorical-devices	arts	fact	general	0	hypercatalectic having an extra syllable on the end of a line of verse
+rhetorical-devices	life	fact	general	0	hypobole anticipating and refuting objections to an argument
+rhetorical-devices	arts	fact	general	0	hypophora statement of an opponent's probable but as yet unstated objection
+rhetorical-devices	life	fact	general	0	hypostrophe return to primary argument after digression
+rhetorical-devices	arts	fact	general	0	hypotyposis vivid description of a scene
+rhetorical-devices	life	quip	general	0	hysteron proteron in rhetoric, putting first what normally comes last
+rhetorical-devices	arts	fact	general	0	ischiorrhogic of an iambic line, having spondees in the second, fourth or sixth place
+rhetorical-devices	arts	fact	general	0	lemma preliminary proposition, theme, argument or headword
+rhetorical-devices	arts	fact	general	0	litotes understatement by affirming using negation of the contrary
+rhetorical-devices	arts	fact	general	0	macrology much talk with little to say; redundancy; pleonasm
+rhetorical-devices	arts	fact	general	0	meiosis understatement of size or importance for rhetorical effect
+rhetorical-devices	arts	fact	general	0	merism rhetorical device of contrasting two parts of a whole
+rhetorical-devices	arts	fact	general	0	mesozeugma placement of a word referring to two different clauses between them
+rhetorical-devices	arts	fact	general	0	metabasis transition; transfer; in rhetoric, movement from one topic to another
+rhetorical-devices	life	fact	general	0	metalepsis metonymy of a double or indirect kind
+rhetorical-devices	arts	fact	general	0	metaphor figurative transfer of qualities from one object or event to another
+rhetorical-devices	arts	fact	general	0	metaphrase turning of prose into verse or vice versa
+rhetorical-devices	life	fact	general	0	metastasis removal from one place to another; rapid transition in argument
+rhetorical-devices	arts	fact	general	0	metonymy figurative use of word to name an attribute of its subject
+rhetorical-devices	life	fact	general	0	mimesis rhetorical imitation of another's words or mannerisms
+rhetorical-devices	arts	fact	general	0	mycterism sneering; rhetorical sarcasm or irony
+rhetorical-devices	arts	fact	general	0	noema stating something obscurely, forcing listeners to work it out
+rhetorical-devices	arts	fact	general	0	oxymoron figure of speech combining contradictory terms
+rhetorical-devices	arts	fact	general	0	palillogy repetition of a word or word or phrase
+rhetorical-devices	arts	fact	general	0	parabola rhetorical use of simile or metaphor
+rhetorical-devices	life	fact	general	0	paradiastole description of an unfavourable quality through a favourable synonym
+rhetorical-devices	life	fact	general	0	paradigma rhetorical comparison by resemblance to another thing
+rhetorical-devices	arts	fact	general	0	paraenesis rhetorical expression of advice or warning
+rhetorical-devices	arts	fact	general	0	paragram play on words in which letters are changed
+rhetorical-devices	life	fact	general	0	paralipsis fixing attention on subject by pretending to neglect it
+rhetorical-devices	arts	fact	general	0	paranomasia rhetorical art of punning
+rhetorical-devices	arts	fact	general	0	parathesis apposition; compounding of words without change
+rhetorical-devices	arts	fact	general	0	parecbasis rhetorical digression or deviation from expected topic
+rhetorical-devices	arts	fact	general	0	paregmenon repetition of a word or its cognates in a series of words
+rhetorical-devices	arts	fact	general	0	parembole insertion of something related to the subject into a phrase
+rhetorical-devices	arts	fact	general	0	paremptosis insertion of something related to the subject into a phrase
+rhetorical-devices	life	fact	general	0	parison even balance of elements in a sentence
+rhetorical-devices	arts	fact	general	0	paroemia proverb or adage used in argumentation
+rhetorical-devices	arts	fact	general	0	paromoion starting statement with several words starting with the same letter
+rhetorical-devices	life	fact	general	0	paromologia partial admission of opponent's argument to strengthen one's final position
+rhetorical-devices	life	fact	general	0	parrhesia asking forgiveness in advance for frank or bold speech
+rhetorical-devices	arts	fact	general	0	pathopoeia excitation of passion by rhetoric or poetry
+rhetorical-devices	life	fact	general	0	periergia use of elevated style to discuss a trivial matter
+rhetorical-devices	life	fact	general	0	periphrasis circumlocution; round-about expression
+rhetorical-devices	life	fact	general	0	perissology verbiage; pleonasm
+rhetorical-devices	life	quip	general	0	pleonasm redundancy; use of more words than necessary
+rhetorical-devices	arts	fact	general	0	ploce repetition of word in more expressive sense for emphasis
+rhetorical-devices	arts	fact	general	0	polyptoton repetition of word in same sentence with multiple inflectional endings
+rhetorical-devices	arts	fact	general	0	polysyndeton rhetorical device of repeating conjunction for emphasis
+rhetorical-devices	life	fact	general	0	preterition passing over or omission; drawing attention to a thing by claiming to omit it
+rhetorical-devices	life	fact	general	0	procatalepsis anticipating and answering an opponent's objections
+rhetorical-devices	arts	fact	general	0	prolepsis anticipation; device where objections are anticipated
+rhetorical-devices	life	fact	general	0	pronomination description of a thing by its qualities rather than its proper name
+rhetorical-devices	arts	fact	general	0	prosopopoeia personification; representation of absent person as speaking
+rhetorical-devices	arts	fact	general	0	protasis first clause in a conditional expression; introductory part of a play
+rhetorical-devices	arts	fact	general	0	prothysteron putting last what normally comes first in an expression or argument
+rhetorical-devices	life	fact	general	0	protozeugma zeugma in which word referring to two clauses is placed before both of them
+rhetorical-devices	life	fact	general	0	schesis deriding opponent's argument by referring to his way of thought
+rhetorical-devices	life	fact	general	0	simile comparison of two things
+rhetorical-devices	life	fact	general	0	sorites string of statements where end of one is subject of next
+rhetorical-devices	life	fact	general	0	superjection exaggeration; hyperbole
+rhetorical-devices	life	fact	general	0	syllepsis figure where word related to two others differently
+rhetorical-devices	life	fact	general	0	syllogism argument in which two premises lead to a logical conclusion
+rhetorical-devices	life	fact	general	0	symploce repetition of word at start of one and end of next clause
+rhetorical-devices	life	quip	general	0	synchoresis concession made for the sake of more effective retort
+rhetorical-devices	arts	fact	general	0	synchysis confusion of meaning due to unusual arrangement
+rhetorical-devices	arts	fact	general	0	syncrisis comparison of diverse or contradictory things
+rhetorical-devices	arts	fact	general	0	syndeton phrase whose parts are joined by a conjunction
+rhetorical-devices	life	fact	general	0	synecdoche part used to refer to whole or vice versa
+rhetorical-devices	arts	fact	general	0	synoeciosis rhetorical figure of coupling opposites
+rhetorical-devices	arts	fact	general	0	tapinosis use of degrading or diminutive diction regarding a topic
+rhetorical-devices	life	fact	general	0	tmesis separation of word into parts by an intervening word
+rhetorical-devices	arts	fact	general	0	trope any figure of speech; figurative language
+rhetorical-devices	arts	fact	general	0	tuism apostrophe; reference to or regard to a second person
+rhetorical-devices	life	fact	general	0	zeugma use of a word to modify two or more words in different ways

@@ -1,0 +1,253 @@
+redgreen	food	joke	general	0	"Vegetarian" is an old Indian word meaning "I don't hunt so good."
+redgreen	work-money	quip	general	0	**Quantity** we've got - - it's when I mention the word QUALITY that the room gets awfully quiet!
+redgreen	life	quip	general	0	All it takes is a little imagination, some mechanical ability, and neighbors who mind their own business.
+redgreen	life	quip	general	0	And men, remember, if the women don't find you handsome, they should at least find you handy.
+redgreen	life	quip	general	0	And the best part is, Junior doesn't need a license to fly it. Apparently, it qualifies as a 'manned kite'. Or a 'manned lightning rod'; we'll see.
+redgreen	life	tv-quote	general	0	And to the rest of you, thanks for watching. On behalf of myself and Harold and the whole gang up here at Possum Lodge... keep your stick on the ice.
+redgreen	life	tv-quote	general	0	And to think we made this out of old rear ends. Actually, you can tell.
+redgreen	life	quip	general	0	As you get older, you realize you can't always get what you want, but if you try sometimes, you can get yet another financial setback.
+redgreen	life	quip	general	0	Be generous with the duct tape, you know; spare the duct tape, spoil the job.
+redgreen	life	quip	general	0	Be the best you can be... considering.
+redgreen	life	quip	general	0	Big, big week up at the lodge this week.
+redgreen	food	tv-quote	general	0	But Uncle Red, you cannot make a fine quality lager using Kool-Aid technology!
+redgreen	life	tv-quote	general	0	Buzz Sherwood: How old are you, Red? Red Green: 47. Harold Green: You're 56! Red Green: I'm 52. Harold Green: Gotcha! [Pumps his arms in victory] Oh, oh, oh! Yeah!
+redgreen	life	tv-quote	general	0	Canada - - vast... beautiful... unspoiled... [sounds of tires screeching, and the Possum Van abruptly appears and races by in front of the camera, shattering the scene's peaceful tranquility] UNTIL the Red Green Show!
+redgreen	life	tv-quote	general	0	Dalton Humphrey: Hail, Caesar! Red Green: What the HAIL are you doing, Dalton?
+redgreen	life	tv-quote	general	0	Dalton Humphrey: How deep is the deepest part of the ocean? Mike? Mike Hamar: Uh, twelve thousand miles. Dalton Humphrey: You're high. Mike Hamar: No, I'm just nervous.
+redgreen	life	tv-quote	general	0	Dalton Humphrey: It's very dangerous to handle something if you don't know where it's been! Red Green: Oh, really? Is that why Anne-Marie never holds your hand?
+redgreen	life	tv-quote	general	0	Dalton Humphrey: Red, I need to talk to you. Red Green: What explosion? I didn't hear anything.
+redgreen	life	tv-quote	general	0	Dalton Humphrey: [eagerly] Come on over here and let me show you how the internet works, Red! Red Green: [in a tone of weary disinterest] Yeah, yeah, I already know - - dubya-dubya-dubya-dot-sit-on-your-BUTT-for-twelve-hours-a-day-dot-com!
+redgreen	life	tv-quote	general	0	Dalton Humphrey: [hearing the squeal of the possum, just moments after having accidentally blown up Red's computer by screwing a plum into the fusebox] Meeting time. Red Green: Yeah, you go ahead, Mr. Gates - - I'll be down in a minute.
+redgreen	life	tv-quote	general	0	Dalton Humphries: Never say to a woman that anything she does is silly. Red Green: Otherwise, she might mention that spice rack you built her. Dalton Humphries: Or that new fishing hat. Red Green: Or that silly lodge you joined.
+redgreen	family	tv-quote	general	0	Dalton Humphries: Well, your dad taught you about the birds and the bees, didn't he? Red Green: No, he just gave me a book by Mickey Spillane called "Kiss Me Deadly" and he said this is what married people do. I thought he meant shoot each other and have car chases.
+redgreen	life	tv-quote	general	0	Dalton Humphries: What about you, Red? Is there anything you can do to set a world record? Red Green: Well, I could, but that's kind of between Bernice and I. I'm pretty sure they don't have that category. Winston Rothschild: [looking at the book] Oh, no, snoring is in here.
+redgreen	life	tv-quote	general	0	Dalton Humphries: Why don't you just call a tow truck? Red Green: A tow truck? That's a hundred bucks, Dalton. I can replace the van for 75.
+redgreen	life	tv-quote	general	0	Dalton Humphries: [showing Red a bouquet of flowers for show's return] I went to a lot of trouble to get these. Cemetery gates were locked when I got there.
+redgreen	life	quip	general	0	Does he speak Latin or did he just have his teeth out?
+redgreen	life	quip	general	0	Don't adjust your set... the show's supposed to look like this.
+redgreen	life	quip	general	0	Don't you just hate it when you come home from a hard day at the track and your wife hasn't shoveled the driveway? Next thing you know, not only is your car in the garage, but so is the door.
+redgreen	food	quip	general	0	Eating meat is like having kids - the less you know about it, the more likely you are to go ahead.
+redgreen	life	dark	general	0	Ever notice that fast-burning fuse looks exactly the same as slow-burning fuse? I didn't...
+redgreen	life	observation	general	0	Every mall has three things the same: clothes, stores and benches for the husbands to sit on.
+redgreen	life	tv-quote	general	0	Garth Harble here, animal control, reminding you that wild animals can smell fear. Of course, if it smells bad enough, why, they won't eat you. Hey, I'm alive.
+redgreen	arts	tv-quote	general	0	Hap Shaughnessy: I don't want to brag, but no less an actor than Charlton Heston told me that I could really act. Red Green: Well, he said that with a straight face, so I'm convinced.
+redgreen	life	tv-quote	general	0	Hap Shaughnessy: It's too bad. I can see me wrestling the great white shark, or riding the great white whale. Red Green: Or telling the great white lie.
+redgreen	life	tv-quote	general	0	Hap Shaughnessy: My spirit was floating above the ground, and my body was lying flat on the pavement. I could SEE I was lying there. Red Green: Oh, Hap - EVERYBODY can see you're lying there!
+redgreen	life	tv-quote	general	0	Hap Shaughnessy: So yeah, there is an afterlife waiting for us, and it's FULL. Red Green: Yeah, but unfortunately, the afterlife is full of the same stuff THIS one is!
+redgreen	nature	tv-quote	general	0	Harold Green: Badgers sleep in holes in the ground. How did one get in Old Man Sedgwick's pants? Red Green: Old Man Sedgwick was sleeping in a hole in the ground.
+redgreen	life	tv-quote	general	0	Harold Green: But you know... truth be told... I, uh... well, I missed... um... I missed... you know... everybody. Red Green: Did you miss ME, Harold? Harold Green: Well, did you miss ME? Red Green: I wasn't even SHOOTIN' at ya, Harold!
+redgreen	life	tv-quote	general	0	Harold Green: How can you stand there and say things that don't have a shred of truth to them? Red Green: Well, that's something that married people just do, Harold. [Red turns to the camera and waves] Red Green: Except us, Bernice!
+redgreen	life	tv-quote	general	0	Harold Green: How much did you pay for the Possum Van? Red Green: Nothing, Harold. That was a gift from my parents for graduating from public school. That way, I wouldn't have to borrow my dad's car to drive to junior high.
+redgreen	love	tv-quote	general	0	Harold Green: I asked Bonnie to marry me. Red Green: That's the dumbest thing I've ever heard, Harold. Harold Green: Well, she said yes. Red Green: I stand corrected!
+redgreen	life	tv-quote	general	0	Harold Green: I cannot believe Old Man Sedgwick still drinks to excess. He should start acting his age. Red Green: If Old Man Sedgwick acted his age, he'd be ten years dead.
+redgreen	society	tv-quote	general	0	Harold Green: I cannot believe the government continues to pay politicians after they die. Red Green: Well, it's so hard for them to tell, Harold.
+redgreen	life	tv-quote	general	0	Harold Green: I don't want any judgments or anything, but I think your plan is flawed, badly flawed, like "Rescue 911"-type flawed. Red Green: Well, Harold, if we're gonna have to start comparing things with flaws in them, I don't think you're going to have a very nice day.
+redgreen	life	tv-quote	general	0	Harold Green: I'm writing an episode of "The Outer Limits". Red Green: Harold, you *are* an episode of "The Outer Limits".
+redgreen	work-money	tv-quote	general	0	Harold Green: Or you could pick a job without a mandatory retirement age. Like a politician. Red Green: Or a car thief.
+redgreen	life	tv-quote	general	0	Harold Green: So, are you ready to be responsible for a messed-up social misfit who performs senseless acts? Red Green: I'm pretty much used to THAT, actually.
+redgreen	life	tv-quote	general	0	Harold Green: Tell them about Flinty McClintock parking his car on his neighbor's roof. Red Green: That was an accident, Harold. Harold Green: Not when it's on the roof. When it's in the living room or the kitchen, maybe.
+redgreen	life	tv-quote	general	0	Harold Green: Tonight's contestant is Mr. Winston Rothchilds of Rothchild's Sewage and Septic Sucking Services. Winston Rothschild: Where our motto is: If your eyes are stinging, my phone should be ringing.
+redgreen	life	tv-quote	general	0	Harold Green: Tonight's contestant is Mr. Winston Rothschild of Rothschild's Sewage and Septic Sucking Services. Winston Rothschild: Where our motto is, "Service with a smile - even on hot days."
+redgreen	life	tv-quote	general	0	Harold Green: Uncle Red will be right back with his extra terrestrials. Red Green: Hey wait a minute! I have the same number of terrestrials as everybody else.
+redgreen	life	tv-quote	general	0	Harold Green: We're never gonna be able to fake this to those government people! They'll see right off that we're not for real! Red Green: Oh, come on, Harold - - they're from the Tax Department! They've never been to church, either!
+redgreen	life	tv-quote	general	0	Harold Green: Well, I am very proud of you guys, Uncle Red! It makes a sensitive-hearted vegetarian like me feel so good to hear something like that. Red Green: Don't make it worse, Harold.
+redgreen	life	tv-quote	general	0	Harold Green: Well, you know what I think... Red Green: It doesn't matter what you think, Harold. If you were married, you'd know that.
+redgreen	life	tv-quote	general	0	Harold Green: [still wearing the sanitary mask and latex gloves from having helped deliver a baby] Meeting time, Uncle Red. Red Green: Yeah, you go ahead, Doctor Strange-Glove - - I'll be down in a minute.
+redgreen	life	quip	general	0	Harold and I are gonna try and have some "quiet time", but he keeps talking!
+redgreen	life	quip	general	0	Having a groovy pajama party - bring all your Abba albums.
+redgreen	life	quip	general	0	Hello, this is Winston Rothschild reminding you: "Your sewage is our bread and butter."
+redgreen	life	quip	general	0	I can't be sleeping on my own television show - that's YOUR job.
+redgreen	life	quip	general	0	I don't want to argue with anyone larger than my van.
+redgreen	life	quip	general	0	I figure that any device that can KEEP A DOG IN can also be used to KEEP A GOOF OUT. Besides - - this unit is far too CRUEL to be used on any ANIMAL, anyway!
+redgreen	life	quip	general	0	I find fruit preserves are kinda like neckties. They're something ya get for Christmas from people who either don't like you or are too cheap to buy ya a real gift.
+redgreen	family	quip	general	0	I haven't had this much fun since my dad wore his rude t-shirt to parent-teacher night!
+redgreen	work-money	quip	general	0	I lay in that cave for half a day, unconscious. When my boss Leo found out, he docked me four hours pay.
+redgreen	life	quip	general	0	I like to listen to the sound of my own heart when I'm... jogging away from things.
+redgreen	love	quip	general	0	I realize now that it's not enough that I *go* shopping with my wife - I have to *want* to go shopping with my wife. Which is why I've signed up for ACTING LESSONS.
+redgreen	arts	quip	general	0	I thought "Chariots of Fire" was a remake of "Ben Hur" with flame throwers.
+redgreen	tech	quip	general	0	I'll tell you something, if you want to make sense out of this program, you got to give it your undivided attention.
+redgreen	life	tv-quote	general	0	I'm Ranger Gord... what year is it?
+redgreen	nature	observation	general	0	If a person could find a better way to kill bugs, they would not only get rich, they'd probably get a lot more dates.
+redgreen	life	quip	general	0	If at first you don't succeed, switch to power tools.
+redgreen	life	quip	general	0	If it ain't broke, you're not trying!
+redgreen	life	quip	general	0	If life gives you lemons, throw 'em into a quart of vodka.
+redgreen	life	joke	general	0	If my dog had eaten as much homework as I said he did, he'd be passing firelogs!
+redgreen	life	tv-quote	general	0	If my wife Bernice is watching, I'll be coming straight home after the meeting, and I learned today that you cannot change an ugly thing by hiding it. But I'm still not going to shave my beard off.
+redgreen	love	quip	general	0	If my wife is watching, I'll be coming straight home after the meeting... and all this lawyer stuff has got me thinkin', maybe later tonight, if you present me with your briefs, I'll recommend a merger.
+redgreen	love	quip	general	0	If my wife is watching, I'll be coming straight home and I'm bringing another bunch of flowers tonight. I do this a few times a year 'cause I'm really not too sure when our anniversary is and this way, everybody wins.
+redgreen	love	quip	general	0	If repetition wasn't a good thing, why would people get married?
+redgreen	life	dark	general	0	If the time ever comes when the world turns its back on something just because it's old and useless... well, that'll be a sad day for me and most of my fans.
+redgreen	life	quip	general	0	If the women don't find you handsome, they should at least find you handy.
+redgreen	life	observation	general	0	If we're gonna have to start comparing things with flaws in them, I don't think you're going to have a very nice day.
+redgreen	life	quip	general	0	If you can't be with the plane you love, love the plane you're with.
+redgreen	life	quip	general	0	If you can't stay young, you can at least stay immature.
+redgreen	life	joke	general	0	If you're a pilot, you can use the roads and highways to steer your plane. Just remember, stay in the passing lane, or the motorists really yell at you.
+redgreen	love	quip	general	0	If your wife's having a good time and you're not, you're still having a better time than if you're having a good time and she's not.
+redgreen	life	quip	general	0	In fact, everybody changed...except me.
+redgreen	love	quip	general	0	It doesn't matter what you think, Harold. If you were married, you'd know that.
+redgreen	science	fact	general	0	It is physically impossible to drink a five-gallon pail full of water while lying down.
+redgreen	work-money	quip	general	0	It's okay to give a little as long as you get a lot. That's called free trade.
+redgreen	life	quip	general	0	Keep your stick on the ice.
+redgreen	life	quip	general	0	Learn from my mistakes - someone should.
+redgreen	food	quip	general	0	Mama always said life was like a box of chocolates... SO PIG OUT! Hahahahahahaha!
+redgreen	life	quip	general	0	Maybe it's time to replace the words "Watch this," with phrases that are more suited to your current physical condition. Phrases like "Where are my glasses?" or "Where are my other glasses?" or the ever-popular "Honey, I swear it must've been the dog."
+redgreen	love	quip	general	0	Men are like gas, they take up the space available.
+redgreen	love	observation	general	0	Men who need glasses sometimes make passes at women who are already their wives.
+redgreen	life	tv-quote	general	0	Mike Hamar: I was thinking about regrets the other day. Do you have any regrets, Mr. Green? Red Green: Well, not so far, but this conversation has potential.
+redgreen	life	tv-quote	general	0	Mike Hamar: It's all set. It's all done. That popcorn's in there for life. Er, 25 to life. Red Green: Well, he would know.
+redgreen	family	tv-quote	general	0	Mike Hamar: My parents had their eighth anniversary when my youngest brother was 23.
+redgreen	faith	quip	general	0	Mike Hamar: One of my dads used to say, "Do unto others before someone does it to you." He said that's in the Bible. Red Green: Not in the King James version... but maybe the JESSE James version.
+redgreen	life	tv-quote	general	0	Mike Hamar: This armor's great! I can handle anything with this stuff on! Red Green: Except rain.
+redgreen	family	quip	general	0	My dad used to tell me that a man's home is his castle. He also told me to learn Esperanto and buy an amphibious car. My dad was wrong. The only time a man's home is his castle is when the queen is out at the mall.
+redgreen	work-money	pun	general	0	Nothing bugs a handyman more than a stripper that works too slow.
+redgreen	life	quip	general	0	Now, I know a lot of you teenagers don't like to hear advice, but communication is an important part of life. And besides, who cares what *you* think?
+redgreen	life	quip	general	0	Now, this is only temporary - unless it works.
+redgreen	work-money	tv-quote	general	0	Oh, yeah, and maybe I should've been born a millionaire. It's always money with you, isn't it, Harold? You need a tank moved, you pay someone. You need a roof reshingled, you pay someone. You need underwear, you pay someone. I just don't work that way, Harold.
+redgreen	life	quip	general	0	Old man Sedgwick says, if anybody finds a black-and-white cat that answers to the name 'Screech', would they please keep it?
+redgreen	life	observation	general	0	One man's junk is another man's antique and if someone thinks rust and dust turns trash into cash, who am I to argue? These people are a lot smarter than we are.
+redgreen	health-body	quip	general	0	One way to lessen the chance of a heart attack is to change your diet, or maybe take up an exercise program... but hey! WHO ARE WE KIDDIN'? Eh?
+redgreen	life	quip	general	0	Procrastination is like being intimate. The best things come at the end.
+redgreen	life	quip	general	0	Quando, Omni, Flunkus, Moritadi.
+redgreen	life	quip	general	0	Quando, Omni, Flunkus, Moritadi. Sit down.
+redgreen	life	quip	general	0	Quando, Omni, Flunkus, Moritadi. [translation: if all else fails, play dead]
+redgreen	life	tv-quote	general	0	Ranger Gord: Hello, men. I'm Ranger Gord, and I'm -... Harold Green: Uh-uh-uh - - no last names; that's a basic rule here. Ranger Gord: Hello, my name is Ranger, and I'm a man.
+redgreen	life	tv-quote	general	0	Ranger Gord: Here's a new joke I just made up: "Knock, knock." "Who's there?" "No one." "No one who?" "No one. Just no one. Ever."
+redgreen	nature	tv-quote	general	0	Ranger Gord: Many people have died at the end of a snake. Many people have died at the end of a rope. Think about it. Red Green: Just remember, snakes are just as afraid of you as we are of Ranger Gord.
+redgreen	life	tv-quote	general	0	Ranger Gord: Ranger Gord presents - Ranger Gord in: Ranger Gord's Educational Films. Written, drawn, animated, and voiced by: Ranger Gord. Starring Ranger Gord!
+redgreen	life	tv-quote	general	0	Ranger Gord: Who am I kidding? No one ever gets lost out here. Red Green: I don't know, Gord. You seem pretty out there to me.
+redgreen	life	tv-quote	general	0	Red Green: "Quando Omni Flunkus Terra Retreatum"? Harold Green: Yes... it means, "When all else fails, hide under a rock". Red Green: Okay, then -- you wait here, and I'll go get a ROCK!
+redgreen	life	tv-quote	general	0	Red Green: And it's no good to write "THIS END UP" on the package - that only means that THEY will decide how THIS ENDS UP!
+redgreen	life	tv-quote	general	0	Red Green: And now the doctor says he'd like for me to lose some weight. Well, I'D like for HIM to DROP DEAD! But I've got another solution -- it's not as violent, but it IS dishonest, so it's got that going for it.
+redgreen	life	tv-quote	general	0	Red Green: Apparently the water in Possum Lake has just been declared okay for human consumption. Harold Green: Really? I wouldn't drink it. Red Green: So what? I said *human* consumption.
+redgreen	life	tv-quote	general	0	Red Green: Boy there's a bunch of advantages when you own your own highway. Harold Green: Uncle Red, you do not own the highway. Red Green: Well, I drive like I do.
+redgreen	work-money	tv-quote	general	0	Red Green: But what I can't understand, Harold, is why they'd want to hire someone like you. I applied for that job, you know. Harold Green: Yeah, I know - a lot of you guys did. That REALLY HELPED me get the job - thanks.
+redgreen	work-money	tv-quote	general	0	Red Green: Harold, you have a woman boss? Harold Green: So? So do you! Aunt Bernice! Red Green: Harold, that's different. Harold Green: [smugly] Yeah, I know - I get paid!
+redgreen	life	tv-quote	general	0	Red Green: Harold, you want the truth? Harold Green: Yes! Red Green: You want the truth? Harold Green: I want the truth! Red Green: I can't handle the truth!
+redgreen	society	quip	general	0	Red Green: Have you seen these toy trains where, when they run into something, they just turn around and head off in another direction? Kinda like politicians at a press conference?
+redgreen	life	tv-quote	general	0	Red Green: Having used my lawn-mower handle for this project means that I'll no longer be able to cut my lawn -- but I'll get over it!
+redgreen	life	tv-quote	general	0	Red Green: How did you learn so much about money? Harold Green: I watch that show "Traders."
+redgreen	life	tv-quote	general	0	Red Green: How's it coming with my van, Dale? Dale: All finished, Mr. Green. I put a drop of oil on your horn relay. Your horn was sticking. Red Green: Yeah, I know. I LIKE it sticking. That way I can let morons know what I think of them, and still keep both hands on the wheel.
+redgreen	life	tv-quote	general	0	Red Green: I graduated at age 20. Harold Green: I didn't know you went past high school, Uncle Red. Red Green: Sure, I did, Harold -- I went past the high school on the way to the Lodge!
+redgreen	life	tv-quote	general	0	Red Green: I guess crime doesn't pay, huh, Mike? Mike Hamar: Not the way I do it.
+redgreen	life	tv-quote	general	0	Red Green: I'll tell you - - NOBODY wants to HARK when they hear THIS "Harold" angel sing!
+redgreen	arts	tv-quote	general	0	Red Green: If it weren't for modern art, we wouldn't have the singing bass, the black-velvet paintings, or the "I'M WITH STUPID" t-shirts. Would you really want to live in a world like that, Harold? Harold Green: Yes...! Actually, I would!
+redgreen	life	tv-quote	general	0	Red Green: Oh, Harold... nobody in his RIGHT MIND would give YOU driving lessons. Harold Green: Oh, you will? Oh, THANK you!
+redgreen	life	tv-quote	general	0	Red Green: Stay tuned to find out how the treasure hunt turned out.Harold Green: Big hint... we're still doing the show.
+redgreen	life	tv-quote	general	0	Red Green: This week we have Winston Rothschild of Rothschild's Sewage and Septic Sucking Services. Winston Rothschild: "No tank too big, no tank too small, teacup or cesspool, we suck 'em all."
+redgreen	life	tv-quote	general	0	Red Green: We learned that everything has its place. Mine is here, Harold's is over there, and Moose's barber kit's is at the bottom of the lake.
+redgreen	life	tv-quote	general	0	Red Green: Well, I'm not gonna be calling the U.S. Air Force, Harold. What do I say? We've got a missile? They take that as a threat, we're in real trouble. Harold Green: Well, then, contact the Canadian Air Force. Red Green: Harold, it's after six; he's gone home.
+redgreen	life	tv-quote	general	0	Red Green: Well, it looks like somebody was PAID OFF here. Mike Hamar: Oh, no -- they wouldn't take a bribe. I-I wouldn't THINK --!
+redgreen	nature	tv-quote	general	0	Red Green: What animal are you hunting, Reg? Reg Hunter: Well, it's an animal that makes a sound like this: Awooooo! Red Green: Yes, but what kind of animal is that? Reg Hunter: I dunno, but I betcha I can put a bullet in it.
+redgreen	life	tv-quote	general	0	Red Green: Where did we go wrong with you, Harold? Harold Green: Well, it was all those years of not getting the respect I deserved. Red Green: You got what you deserved, it just wasn't respect, that's all.
+redgreen	love	tv-quote	general	0	Red Green: You can't be forgetting your wedding anniversary, Dalton. Dalton Humphries: Yeah, it's kind of ironic when the second dumbest think you ever did was to forget the dumbest thing you ever did.
+redgreen	family	tv-quote	general	0	Red Green: You must have a ton of regrets. Mike Hamar: Well, only one: children. I regret not having any children. Dalton Humphrey: Yeah, I feel exactly the same way. Or did you say you regret *not* having children?
+redgreen	life	tv-quote	general	0	Red Green: You're never too old to learn things. Harold Green: Are you ever too old to listen? You never listen, so I guess the answer is yes on that one.
+redgreen	life	tv-quote	general	0	Red Green: You're only limited by your own imagination, and the laws in your area.
+redgreen	life	tv-quote	general	0	Red Green: [Mike and Dalton are warning Red about the impending hurricane] We don't get hurricanes here. We're too far from the ocean, okay? We get a fair bit of wind, but that's because we're so close to Port Asbestos, and it SUCKS!
+redgreen	life	tv-quote	general	0	Red Green: [Seeing Harold in a neckbrace] Did you hurt your neck, Harold, or have you been going to Don Cherry's tailor?
+redgreen	life	tv-quote	general	0	Red Green: [Walter is about to lift up a refrigerator] Walter is a young fella. He doesn't have a girlfriend, so he has power.
+redgreen	life	tv-quote	general	0	Red Green: [reciting the Man's Prayer along with the other lodge members] I'm a man, but I can change, if I have to, I guess. Dalton Humphrey: Or get an upgrade! ... Computer talk.
+redgreen	life	tv-quote	general	0	Red Green: [trying to unscrew a jar of nitroglycerin] It would work better if that finger wasn't missing. Edgar Montrose: Oh, it's not missing, Red. I know exactly where it is. It's back up at the quarry, still pointing at the "no smoking" sign.
+redgreen	science	tv-quote	general	0	Red: I could be a great astronomer, Harold! Harold: (to audience) He's always been good at staring off into space, so...
+redgreen	life	tv-quote	general	0	Red: I either have a plan, or I'm an idiot. Harold: That's good. 'Cause usually you have a plan and you're an idiot.
+redgreen	work-money	tv-quote	general	0	Red: Isn't this great? We've got no overhead! Harold: You've got no inhead!
+redgreen	life	tv-quote	general	0	Red: Why do you have such a negative attitude towards the festive season, though? Dalton: Gee, you should come by my house Christmas morning. Then yule see.
+redgreen	life	uplifting	general	0	Remember, I'm pulling for ya. We're all in this together!
+redgreen	life	quip	general	0	Remember, you may have to grow old, but you don't have to mature.
+redgreen	love	tv-quote	general	0	She's marrying you for the exact opposite reason you're marrying her: she thinks you'll change. She thinks you'll change, for the BETTER. Things don't get better as they get older. Look at your truck. Look at your roof. Look in the MIRROR!
+redgreen	life	quip	general	0	So I guess the moral here is "Never connect a used fuel pump from a Russian rocket missile to a large deciduous tree."
+redgreen	work-money	quip	general	0	So don't ever think that an ATM card like this is like a bottomless pit of cash that just lets you spend whatever you want... for that, you need this...A credit card!
+redgreen	life	quip	general	0	So get yourself some training, and if that doesn't work out, well, just tell any prospective employer that you do everything that Red Green says, and that'll PROVE that you're certifiable!
+redgreen	life	quip	general	0	So if my wife is watching, I'll be coming straight home after the meeting, and I learned today that the best way to control anger is to be the boss. Of course, you knew that all along, didn't you?
+redgreen	life	quip	general	0	So if my wife is watching, I'll be coming straight home after the meeting, and yes, I know it's the computer age, but let's not forget about personal interaction. When I get home, I want to show you that I'm user-friendly.
+redgreen	life	quip	general	0	Some men look at a problem like this and try to find a solution. I prefer to figure out whose fault it is and let them take care of it.
+redgreen	life	quip	general	0	Sound ingenious? Sound incredible? Sound impossible? Who cares? I'm not listening.
+redgreen	life	tv-quote	general	0	The Man's Prayer: I'm a man, but I can change, if I have to, I guess.
+redgreen	life	tv-quote	general	0	The Possum Lodge Pledge: Quando, Omni, Flunkus, Moritadi.
+redgreen	life	tv-quote	general	0	The Red Green Show is kind of like the flu; not everybody gets it.
+redgreen	tech	quip	general	0	The enemy is at the gates - - heck, the enemy may even be NAMED "Gates"!
+redgreen	life	quip	general	0	The gas siphon - you'd probably use this at the mall while your wife is inside shopping.
+redgreen	life	quip	general	0	The handyman's secret weapon - duct tape.
+redgreen	life	quip	general	0	The only thing Junior Singleton reads cover to cover is a matchbook.
+redgreen	life	quip	general	0	The tire iron - it's a simple tool but it's a useful tool. Rather like my brother-in-law.
+redgreen	life	joke	general	0	There -- now do you feel better about your bald spot? Me, neither!
+redgreen	work-money	quip	general	0	There are two kinds of people: those who do things and those who write manuals.
+redgreen	life	quip	general	0	There is a historical significance to party boats, going back to um, Cleopatra and um, Moses, and um the crew of the Exxon-Valdez.
+redgreen	life	quip	general	0	There's only two things that excite a man, expensive toys and real expensive toys.
+redgreen	life	quip	general	0	They say necessity is the mother of invention. Don't know who the father is; probably remorse.
+redgreen	life	quip	general	0	Things don't get better as they get older. Look at your truck. Look at your roof. Look in the MIRROR!
+redgreen	work-money	quip	general	0	Things just aren't that important. You know what? It's the money you make *selling* things that's important.
+redgreen	life	quip	general	0	This is only temporary, unless it works.
+redgreen	food	quip	general	0	Two things you need at a bar is ice and water; water for mixing drinks and ice to drop into people's shorts and into their hats, depending on where their hangover is.
+redgreen	life	tv-quote	general	0	Vehicles don't belong in the Middle Ages anyway. Except maybe for Buster's Edsel.
+redgreen	life	dark	general	0	We had a He man contest up here at the lodge with first prize being a truss.
+redgreen	life	quip	general	0	We have a condom machine at school. It's always broken, but it's fun to think about.
+redgreen	life	quip	general	0	We now come to the part of the show called "If it ain't broke, you're not trying!"
+redgreen	life	quip	general	0	We now have a drive-thru window to serve all your live bait needs. But we've had to go to containers; people feel just a bit skittish about driving through a school zone with a lap full of frogs.
+redgreen	life	tv-quote	general	0	Welcome to "Harold's Handy Crafts" where crafty hands make handy crafts!
+redgreen	life	tv-quote	general	0	Welcome to Possum Creek. Where men are men... and Harold here is my nephew.
+redgreen	love	quip	general	0	Well, it's been an hour since Harold went to tell Bonnie that they should start seeing less of each other.... Probably by now they're seeing ALL of each other! THERE'S a scary visual!
+redgreen	life	dark	general	0	Well, we may have lost Eddie as cook, but there is a DOWNSIDE, too.
+redgreen	life	aphorism	general	0	When all else fails, use more duct tape!
+redgreen	life	quip	general	0	When the going gets tough, switch to power tools.
+redgreen	life	tv-quote	general	0	Where there's smoke, there's fire; where there's fire, there's Ranger Gord; where there's Ranger Gord, there's... nothing...
+redgreen	life	quip	general	0	Why don't you put your money where your mouth is. Or do you have that much money?
+redgreen	life	tv-quote	general	0	Winston Rothschild here for Rothschild's Sewage and Septic Sucking Services, where we put the P.U. in pump!
+redgreen	life	verse	general	0	Winston Rothschild here from Rothschild's Sewage and Septic Sucking Services, with a lesson for you: "There once was a man from Turkey, whose septics were plugged up and murky. They blamed it on lead from the pipes in the bed when the culprit was too much beef jerky."
+redgreen	life	tv-quote	general	0	Winston Rothschild, III: I need an heir! Red Green: You already have an air. What you need is a shower!
+redgreen	life	tv-quote	general	0	Winston Rothschild: Do you notice a difference in your reply as compared to ours? Red Green: Yeah -- I didn't LIE!
+redgreen	work-money	tv-quote	general	0	Winston Rothschild: I've made up all these advertising fliers for my sewage business, and so I want to find the best way to use them. Red Green: [offhandedly] Just toss 'em in the trash can, like everybody else does!
+redgreen	life	tv-quote	general	0	Winston Rothschild: That really stinks! Your attitude SUCKS! Red Green: Well, your TRUCK does BOTH OF THOSE, Winston.
+redgreen	life	quip	general	0	Ya know, I think it was Sir Isaac Newton-John who once said, "Whatever comes down must go up -- IF ya got enough water-pressure!"
+redgreen	society	quip	general	0	Ya know, when I was a kid playing street-hockey with my friends, and a car came along, we all CLEARED OUT -- 'cause we didn't wanna feel guilty about holdin' up traffic. But kids today DON'T FEEL GUILTY ABOUT ANYTHING! I blame the YOUNG OFFENDERS ACT.
+redgreen	life	quip	general	0	Yeah, I think we should just take that right to bed, see how it creases the sheets.
+redgreen	tech	quip	general	0	You ever see one of these? It's called a GPS, which stands for - well, who cares? Point is, this thing uses satellites to tell you where you are, which means that every man can have a five-hundred-dollar reason not to ask for directions.
+redgreen	life	quip	general	0	You know me, safety forced.
+redgreen	work-money	quip	general	0	You know, contrary to popular folklore, bats will not suck the blood out of your body. That's your boss' job.
+redgreen	work-money	quip	general	0	You know, it's not what you make, it's what you spend there. It's not what you pay, it's what you buy.
+redgreen	life	quip	general	0	You may think that your handsome youthful looks are behind you, but the people who are standing back there may not share that opinion!
+redgreen	life	tv-quote	general	0	You need a tank moved, you pay someone. You need a roof reshingled, you pay someone. You need underwear, you pay someone. I just don't work that way, Harold.
+redgreen	life	tv-quote	general	0	You should get on with the next segment, I think; it's more interesting than this. This is boring. This is as bad as a PBS subscription drive; that's how bad this is. Next segment's interesting, though.
+redgreen	life	tv-quote	general	0	You think 'Fear Factor' is gross? I eat with these hands!
+redgreen	life	tv-quote	general	0	You're watching "The Red Green Show" and nobody can stop you.
+redgreen	life	quip	general	0	You're wrong about what gives people zits, and you're wrong about what makes teenagers go blind.
+redgreen	life	quip	general	0	Your wife left you? Blow up the stove. Otherwise you'll start cooking for yourself and that's dangerous.
+redgreen	life	quip	general	0	[Being dangerous is] what gets the juices flowing -- the adrenaline, the testosterone, the hydrogen peroxide...
+redgreen	life	tv-quote	general	0	[Red and Harold enter the Lodge after Harold was driving with Red] Red Green: Well, that wasn't so bad, Harold. Old Lady Benkman yelled a lot, but I think those shrubs were already dead.
+redgreen	life	tv-quote	general	0	[The Possum Lodge Word Game: "hand"] Red Green: You and your wife go out for a walk and you hold... Dalton Humphries: My temper. Red Green: No, she's feeling romantic so she takes your... Dalton Humphries: Wallet?
+redgreen	life	tv-quote	general	0	[The Possum Lodge Word Game: Manners] Red Green: When somebody belches at the dinner table that's a sign of bad...? Dougie Franklin: Burritos. Red Green: When you belch at the dinner table, your mom says mind your...? Dougie Franklin: Spray?
+redgreen	life	tv-quote	general	0	[The Possum Lodge Word Game] Harold: Mr. Dalton Humphrey, you have 30 seconds to get Uncle Red to say this word- [giggles nervously, too embarrassed to say the word himself, but does point to it on the card] and go! Dalton Humphrey: [coughs and clears throat] Red: Sex?
+redgreen	life	tv-quote	general	0	[The Possum Lodge Word Game] Red: Let's say your wife is planning a fancy dinner-- Dalton Humphrey: KFC!
+redgreen	life	tv-quote	general	0	[The Possum Lodge Word Game] Red: The building you were in when you were married. Bob Steuyvesant: Motel 6.
+redgreen	family	tv-quote	general	0	[The Possum Lodge Word Game] Red: This is a family member, Mike; the man who slept with your mother. Mike: Could you be a little more specific? Red: If your wife had kids, you would be...? Mike: Long gone. Red: Aha! Just like your...? Mike: Father.
+redgreen	life	tv-quote	general	0	[The Possum Lodge Word Game] Red: This is an animated character whose name is Donald... Dalton Humphrey: Trump?
+redgreen	life	tv-quote	general	0	[The Possum Lodge Word Game] Red: This is something you play at parties... Edgar: Spin the grenade!
+redgreen	food	tv-quote	general	0	[The Possum Lodge Word Game] Red: This is what normal people drink. Ranger Gord: Beer. Red: Um, OK, but this has no taste to it. Ranger Gord: American beer?
+redgreen	life	tv-quote	general	0	[The Possum Lodge Word Game] Red: What word comes to mind when you think of bone china or crystal? Edgar Montrose: Oops!
+redgreen	life	tv-quote	general	0	[The Possum Lodge Word Game] Red: Younger than 20; older than 12. Dalton Humphrey: Shoplifter?
+redgreen	life	tv-quote	general	0	[The revised Men Anonymous pledge.] I'm a man...but I changed...if I had to...Oh well.
+redgreen	nature	verse	general	0	[a poem called "Tiny Shoots"] Tiny shoots come out of the ground. Crocuses, tulips and daffodils rise to a height of 2 1/2 inches and are frozen in time, not by a late frost, but by a dirty lawnmower.
+redgreen	nature	tv-quote	general	0	[a spitting cobra is preparing to attack] Ed Frid: He's getting ready to spit! Red Green: Ohh, so am I! Or, or, or, or, or did you say spit?
+redgreen	nature	verse	general	0	[poem] It is spring. Tadpoles swim in a stagnant pond, surrounded by floating lilies and water snakes. You're tempted to destroy their world with men and equipment, to dry up the swamp and kill the animals. But what the heck? You don't go down in the basement that often anyway.
+redgreen	life	verse	general	0	[poem] It is summer. In the shade of an apple tree, you relax with a mint julep or nine. Summer is no time for stress. You casually forget your aunt's birthday. She thanks you.
+redgreen	life	verse	general	0	[poem] It is winter. Cousin Jerry was lying in the snow making snow angels. Along came the snowplow. Now Cousin Jerry is making REAL angels.
+redgreen	life	verse	general	0	[poem] It is winter. We hitched the horse up to the sleigh, like Grandfather used to do. Over hills and through the dells we'd glide for an hour or two. And soon my ears are brittle and my mouth is frozen shut. My eyes are locked wide open and all I see is the horse's butt.
+redgreen	life	tv-quote	general	0	[singing] Bacon drippings! Bacon drippings! Bacon drippings, bacon! If you want to call your song 'Bacon Drippings' I'm sorry; it's been taken.
+redgreen	life	tv-quote	general	0	[singing] Fingers are handy, you must understand You can do more things with your fingers than you can count on one hand Work with them, point with them, pick with them, scratch But if you give a big guy the finger, you may not get it back.
+redgreen	nature	tv-quote	general	0	[singing] Hoein' every hayfield and puttin' them in bales Pickin' all the peapods and puttin' them in pails It's time to reap the harvest; we're goin' as fast as we can Tryin' to get the crops in before the farmer that owns this place comes out and starts shootin' at us.
+redgreen	life	verse	general	0	[singing] I loved her on the rooftop but she didn't like my flashin' she threw my heart in the down spout, and now I drink a lot, and drive trucks.
+redgreen	life	dark	general	0	[singing] My butterfly collection gives me so much pride My butterfly collection makes me warm inside The monarchs, blues and yellows; these are beauties, man oh man Come see my butterfly collection - they're all wedged in the grille of my van.
+redgreen	life	verse	general	0	[singing] Oh, I have one whisker on the end of my nose And the more I shave it, the more it grows I waxed it and stretched it until it was 40 inches long And then it was hit by lightning and I was forced to rethink the whole project.
+redgreen	life	verse	general	0	[singing] Oh, I know a guy with a car named Sue, he was the butt of many jokes He had named his car after his wife, 'Cause it's hard to start and it smokes.
+redgreen	life	verse	general	0	[singing] Oh, a horse with a horn is called a unicorn A horse with stripes is called a zebra A horse with wings is called Pegasus And a horse with a broken leg is called glue.
+redgreen	science	tv-quote	general	0	[singing] Oh, hats off to my science teachers They were absolutely right after all 'Cause I just threw a fridge off my roof And cold air definitely falls.
+redgreen	nature	verse	general	0	[singing] Oh, the mountain is high and the valley is low It's the laws of Nature that make it so If the valley is high and the mountain is low You're either upside down or drunk or both.
+redgreen	life	verse	general	0	[singing] Oh, there's a hole in my tent and the water's coming in. It's rainin' on my hat, and it's drippin' on my chin. Always remember camping lesson number one. If there're bugs in your tent, don't shoot 'em with a gun.
+redgreen	life	verse	general	0	[singing] Oh, you never see a vampire with a full grown beard But a vampire can't see his reflection So a lack of facial hair is unbelievably weird 'Cause you'd think shaving would be out of the question.
+redgreen	life	joke	general	0	[singing] Oh, your hands are connected to your arms, your arms are connected to your shoulders, your shoulders are connected to your body, your body is connected to your head. Oh, your head is connected to... nothing... and that explains a lot.
+redgreen	life	verse	general	0	[singing] Sometimes I get to thinkin' About all the mistakes I've made All the people I've hurt And all the bills I haven't paid Sometimes I get to thinkin' I should change and get on the ball... But then I turn on the ol' TV and I don't get to thinkin' at all.
+redgreen	life	verse	general	0	[singing] The elbow is throbbing, from the strength of the force The shoulder is separated, it may get a divorce The wrist is all numb, and the fingers are swollen And if this outboard doesn't start on the very next pull, she's goin' into the lake.
+redgreen	arts	tv-quote	general	0	[singing] Tougher than iron, not one ounce of fat All sinew and muscle, and blacker than black... I guess I burned the steaks again.
+redgreen	life	verse	general	0	[singing] When you feel like a toad on the highway of life and everyone seems like a steel-belted radial when you're lyin' there squished in an assortment of bodily fluids at least you left your mark.
+redgreen	life	verse	general	0	[singing] When you wish upon a star Make sure it's not our own sun 'Cause wishing on our sun isn't much fun Unless your wish is to burn out your retinas.
+redgreen	arts	tv-quote	general	0	preparing to saw into the bellows of the old accordion] If there are any MUSIC LOVERS out there - - you're WELCOME!

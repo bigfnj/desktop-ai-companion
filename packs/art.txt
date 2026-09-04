@@ -1,0 +1,395 @@
+art	arts	quip	general	0	A "critic" is a man who creates nothing and thereby feels qualified to judge the work of creative men. There is logic in this; he is unbiased -- he hates all creative people equally.
+art	society	quip	general	0	A celebrity is a person who is known for his well-knownness.
+art	arts	wisdom	general	0	A copy of the universe is not what is required of art; one of the damned things is ample.
+art	arts	wisdom	general	0	A critic is a bundle of biases held loosely together by a sense of taste.
+art	arts	pun	general	0	A diva who specializes in risque arias is an off-coloratura soprano.
+art	arts	quip	general	0	A drama critic is a person who surprises a playwright by informing him what he meant.
+art	arts	quip	general	0	A fool-proof method for sculpting an elephant: first, get a huge block of marble; then you chip away everything that doesn't look like an elephant.
+art	arts	joke	general	0	A hard-luck actor who appeared in one colossal disaster after another finally got a break, a broken leg to be exact. Someone pointed out that it's the first time the poor fellow's been in the same cast for more than a week.
+art	arts	quip	general	0	A man paints with his brains and not with his hands.
+art	arts	pun	general	0	A musical reviewer admitted he always praised the first show of a new theatrical season. "Who am I to stone the first cast?"
+art	arts	quip	general	0	A poet who reads his verse in public may have other nasty habits.
+art	arts	observation	general	0	A sequel is an admission that you've been reduced to imitating yourself.
+art	life	pun	general	0	A shy teenage boy finally worked up the nerve to give a gift to Madonna, a young puppy. It hitched its waggin' to a star.
+art	work-money	quip	general	0	A team effort is a lot of people doing what I say.
+art	arts	quip	general	0	A true artist will let his wife starve, his children go barefoot, his mother drudge for his living at seventy, sooner than work at anything but his art.
+art	arts	quip	general	0	A writer is congenitally unable to tell the truth and that is why we call what he writes fiction.
+art	life	wisdom	general	0	A yawn is a silent shout.
+art	arts	quip	general	0	Acting is an art which consists of keeping the audience from coughing.
+art	arts	quip	general	0	Acting is not very hard. The most important things are to be able to laugh and cry. If I have to cry, I think of my sex life. And if I have to laugh, well, I think of my sex life.
+art	life	quip	general	0	Actors will happen even in the best-regulated families.
+art	life	quip	general	0	Actresses will happen in the best regulated families.
+art	arts	quip	general	0	Adding sound to movies would be like putting lipstick on the Venus de Milo. -- actress Mary Pickford, 1925
+art	life	wisdom	general	0	Adhere to your own act, and congratulate yourself if you have done something strange and extravagant, and broken the monotony of a decorous age.
+art	arts	quip	general	0	After a few boring years, socially meaningful rock 'n' roll died out. It was replaced by disco, which offers no guidance to any form of life more advanced than the lichen family.
+art	life	quip	general	0	Alex Haley was adopted!
+art	arts	wisdom	general	0	All art is but imitation of nature.
+art	arts	quip	general	0	An actor's a guy who if you ain't talkin' about him, ain't listening.
+art	arts	wisdom	general	0	An artist should be fit for the best society and keep out of it.
+art	arts	quip	general	0	Any fool can paint a picture, but it takes a wise person to be able to sell it.
+art	life	tv-quote	general	0	"Are you police officers?" "No, ma'am. We're musicians."
+art	arts	aphorism	general	0	Art is a jealous mistress.
+art	arts	wisdom	general	0	Art is a lie which makes us realize the truth.
+art	arts	quip	general	0	Art is anything you can get away with.
+art	arts	aphorism	general	0	Art is either plagiarism or revolution.
+art	arts	aphorism	general	0	Art is Nature speeded up and God slowed down.
+art	arts	wisdom	general	0	Art is the tree of life. Science is the tree of death.
+art	arts	pun	general	0	As a goatherd learns his trade by goat, so a writer learns his trade by wrote.
+art	arts	quip	general	0	Asking a working writer what he thinks about critics is like asking a lamp-post how it feels about dogs.
+art	arts	quip	general	0	Authors (and perhaps columnists) eventually rise to the top of whatever depths they were once able to plumb.
+art	arts	quip	general	0	Authors are easy to get on with -- if you're fond of children.
+art	arts	quip	general	0	Badges? We ain't got no badges! We don't need no badges. I don't have to show you any stinkin' badges! -- "The Treasure of the Sierra Madre"
+art	life	wisdom	general	0	Be regular and orderly in your life, so that you may be violent and original in your work.
+art	life	pun	general	0	Being a mime means never having to say you're sorry.
+art	life	tv-quote	general	0	"Being disintegrated makes me ve-ry an-gry!" <huff, huff>
+art	life	quip	general	0	Ben, why didn't you tell me?
+art	life	insult	general	0	"Benson, you are so free of the ravages of intelligence"
+art	life	quip	general	0	BS: You remind me of a man. B: What man? BS: The man with the power. B: What power? BS: The power of voodoo. B: Voodoo? BS: You do. B: Do what? BS: Remind me of a man. B: What man? BS: The man with the power...
+art	arts	observation	general	0	Burnt Sienna. That's the best thing that ever happened to Crayolas.
+art	life	observation	general	0	But if you wish at once to do nothing and to be respectable nowadays, the best pretext is to be at work on some profound study.
+art	arts	quip	general	0	But you shall not escape my iambics.
+art	arts	quip	general	0	Can't act. Slightly bald. Also dances. -- RKO executive, reacting to Fred Astaire's screen test. Cerf/Navasky, "The Experts Speak"
+art	arts	quip	general	0	Classical music is the kind we keep thinking will turn into a tune.
+art	life	joke	general	0	Darth Vader sleeps with a Teddywookie.
+art	life	tv-quote	general	0	Darth Vader! Only you would be so bold!
+art	society	joke	general	0	Did you know that the voice tapes easily identify the Russian pilot that shot down the Korean jet? At one point he definitely states: "Natasha! First we shoot jet, then we go after moose and squirrel." -- ihuxw!tommyo
+art	arts	quip	general	0	Disco is to music what Etch-A-Sketch is to art.
+art	life	quip	general	0	Don't everyone thank me at once!
+art	life	quip	general	0	Dustin Farnum: Why, yesterday, I had the audience glued to their seats! Oliver Herford: Wonderful! Wonderful! Clever of you to think of it!
+art	arts	aphorism	general	0	Dying is easy. Comedy is difficult.
+art	life	quip	general	0	E.T. GO HOME!!! (And take your Smurfs with you.)
+art	arts	quip	general	0	Ed Sullivan will be around as long as someone else has talent.
+art	life	quip	general	0	Eeny, Meeny, Jelly Beanie, the spirits are about to speak!
+art	arts	tv-quote	general	0	Elwood: What kind of music do you get here ma'am? Barmaid: Why, we get both kinds of music, Country and Western.
+art	life	quip	general	0	Ever get the feeling that the world's on tape and one of the reels is missing?
+art	life	wisdom	general	0	Everyone is in the best seat.
+art	life	quip	general	0	Fame lost its appeal for me when I went into a public restroom and an autograph seeker handed me a pen and paper under the stall door.
+art	life	tv-quote	general	0	Fast ship? You mean you've never heard of the Millennium Falcon?
+art	life	quip	general	0	"First things first -- but not necessarily in that order"
+art	life	quip	general	0	Fools rush in -- and get the best seats in the house.
+art	life	tv-quote	general	0	For the next hour, WE will control all that you see and hear.
+art	life	quip	general	0	Forms follow function, and often obliterate it.
+art	arts	quip	general	0	FORTUNE DISCUSSES THE OBSCURE FILMS: #3 MIRACLE ON 42ND STREET: Santa Claus, in the off season, follows his heart's desire and tries to make it big on Broadway. Santa sings and dances his way into your heart.
+art	arts	quip	general	0	FORTUNE DISCUSSES THE OBSCURE FILMS: #9 THE PARKING PROBLEM IN PARIS: Jean-Luc Godard, 1971, 7 hours 18 min. Godard's meditation on the topic has been described as everything from "timeless" to "endless." (Remade by Gene Wilder as NO PLACE TO PARK.)
+art	life	fact	general	0	FORTUNE'S FUN FACTS TO KNOW AND TELL: #37 Can you name the seven seas? Antarctic, Arctic, North Atlantic, South Atlantic, Indian, North Pacific, South Pacific. Can you name the seven dwarfs from Snow White? Doc, Dopey, Sneezy, Happy, Grumpy, Sleepy and Bashful.
+art	arts	pun	general	0	Fremen add life to spice!
+art	arts	quip	general	0	FROM THE DESK OF Dorothy Gale Auntie Em: Hate you. Hate Kansas. Taking the dog. Dorothy
+art	society	quip	general	0	Gauls! We have nothing to fear; except perhaps that the sky may fall on our heads tomorrow. But as we all know, tomorrow never comes!!
+art	life	tv-quote	general	0	Go ahead... make my day.
+art	arts	wisdom	general	0	God help the troubadour who tries to be a star. The more that you try to find success, the more that you will fail.
+art	life	aphorism	general	0	God save us from a bad neighbor and a beginner on the fiddle.
+art	life	quip	general	0	Good night, Mrs. Calabash, wherever you are.
+art	life	tv-quote	general	0	Governor Tarkin. I should have expected to find you holding Vader's leash. I thought I recognized your foul stench when I was brought on board.
+art	life	tv-quote	general	0	GREAT MOMENTS IN AMERICAN HISTORY (#1): On November 13, Felix Unger was asked to remove himself from his place of residence.
+art	life	tv-quote	general	0	Grig (the navigator): ... so you see, it's just the two of us against the entire space armada. Alex (the gunner): What?!? Grig: I've always wanted to fight a desperate battle against overwhelming odds. Alex: It'll be a slaughter! Grig: That's the spirit!
+art	life	insult	general	0	H. L. Mencken suffers from the hallucination that he is H. L. Mencken -- there is no cure for a disease of that magnitude.
+art	life	tv-quote	general	0	"Hawk, we're going to die." "Never say die... and certainly never say we." -- M*A*S*H
+art	arts	quip	general	0	He played the king as if afraid someone else would play the ace.
+art	life	quip	general	0	He was a fiddler, and consequently a rogue.
+art	life	quip	general	0	"Hello," he lied.
+art	life	tv-quote	general	0	Hello. Jim Rockford's machine, this is Larry Doheny's machine. Will you please have your master call my master at his convenience? Thank you. Thank you. Thank you. Thank you. Thank you. Thank you. -- "The Rockford Files"
+art	work-money	tv-quote	general	0	Hi Jimbo. Dennis. Really appreciate the help on the income tax. You wanna help on the audit now? -- "The Rockford Files"
+art	arts	quip	general	0	Hollywood is where if you don't have happiness you send out for it.
+art	arts	tv-quote	general	0	Holy Dilemma! Is this the end for the Caped Crusader and the Boy Wonder? Will the Joker and the Riddler have the last laugh? Tune in again tomorrow: same Bat-time, same Bat-channel!
+art	arts	quip	general	0	How wonderful opera would be if there were no singers.
+art	life	pun	general	0	Hummingbirds never remember the words to songs.
+art	life	joke	general	0	Humpty Dumpty was pushed.
+art	life	wisdom	general	0	I accept chaos. I am not sure whether it accepts me. I know some people are terrified of the bomb. But then some people are terrified to be seen carrying a modern screen magazine. Experience teaches us that silence terrifies people the most.
+art	life	quip	general	0	I always had a repulsive need to be something more than human.
+art	arts	wisdom	general	0	I believe that the moment is near when by a procedure of active paranoiac thought, it will be possible to systematize confusion and contribute to the total discrediting of the world of reality.
+art	arts	quip	general	0	I can't understand why a person will take a year or two to write a novel when he can easily buy one for a few dollars.
+art	life	quip	general	0	I didn't do it! Nobody saw me do it! Can't prove anything!
+art	arts	dark	general	0	I didn't like the play, but I saw it under adverse conditions. The curtain was up.
+art	arts	quip	general	0	I don't know anything about music. In my line you don't have to.
+art	life	wisdom	general	0	I dread success. To have succeeded is to have finished one's business on earth, like the male spider, who is killed by the female the moment he has succeeded in his courtship. I like a state of continual becoming, with a goal in front and not behind.
+art	arts	dark	general	0	I had another dream the other day about music critics. They were small and rodent-like with padlocked ears, as if they had stepped out of a painting by Goya.
+art	life	quip	general	0	I have a very strange feeling about this...
+art	arts	quip	general	0	"I have come up with a sure-fire concept for a hit television show, which would be called `A Live Celebrity Gets Eaten by a Shark'."
+art	life	observation	general	0	I have had my television aerials removed. It's the moral equivalent of a prostate operation.
+art	life	insult	general	0	I have more humility in my little finger than you have in your whole BODY! -- from "Cerebus" #82
+art	love	quip	general	0	I knew her before she was a virgin.
+art	life	quip	general	0	I never failed to convince an audience that the best thing they could do was to go away.
+art	life	quip	general	0	I never made a mistake in my life. I thought I did once, but I was wrong.
+art	life	quip	general	0	I often quote myself; it adds spice to my conversation.
+art	arts	wisdom	general	0	I recognize terror as the finest emotion and so I will try to terrorize the reader. But if I find that I cannot terrify, I will try to horrify, and if I find that I cannot horrify, I'll go for the gross-out.
+art	arts	quip	general	0	I remember Ulysses well... Left one day for the post office to mail a letter, met a blonde named Circe on the streetcar, and didn't come back for 20 years.
+art	arts	quip	general	0	I saw Lassie. It took me four shows to figure out why the hairy kid never spoke. I mean, he could roll over and all that, but did that deserve a series?
+art	life	quip	general	0	I stick my neck out for nobody.
+art	family	quip	general	0	I stopped believing in Santa Claus when I was six. Mother took me to see him in a department store and he asked for my autograph.
+art	life	tv-quote	general	0	I suggest a new strategy, Artoo: let the Wookie win.
+art	life	tv-quote	general	0	"I suppose you expect me to talk." "No, Mr. Bond. I expect you to die."
+art	life	quip	general	0	I think we're in trouble.
+art	life	quip	general	0	I think... I think it's in my basement... Let me go upstairs and check.
+art	arts	quip	general	0	I truly wish I could be a great surgeon or philosopher or author or anything constructive, but in all honesty I'd rather turn up my amplifier full blast and drown myself in the noise.
+art	life	quip	general	0	I used to be disgusted, now I find I'm just amused.
+art	life	quip	general	0	I watch television because you don't know what it will do if you leave it in the room alone.
+art	work-money	aphorism	general	0	I went into the business for the money, and the art grew out of it. If people are disillusioned by that remark, I can't help it. It's the truth.
+art	arts	joke	general	0	I went to a Grateful Dead Concert and they played for SEVEN hours. Great song.
+art	life	quip	general	0	I WISH I HAD A KRYPTONITE CROSS, because then you could keep both Dracula and Superman away.
+art	life	quip	general	0	I wish there was a knob on the TV to turn up the intelligence. There's a knob called "brightness", but it doesn't seem to work.
+art	life	tv-quote	general	0	I'd just as soon kiss a Wookie.
+art	arts	pun	general	0	I'll be Grateful when they're Dead.
+art	life	dark	general	0	I'll never get off this planet.
+art	arts	quip	general	0	I'm a Hollywood writer; so I put on a sports jacket and take off my brain.
+art	love	quip	general	0	I'm not a real movie star -- I've still got the same wife I started out with twenty-eight years ago.
+art	life	quip	general	0	I've got a very bad feeling about this.
+art	arts	dark	general	0	If *I* had a hammer, there'd be no more folk singers.
+art	life	quip	general	0	If all the world's a stage, I want to operate the trap door.
+art	arts	quip	general	0	If Beethoven's Seventh Symphony is not by some means abridged, it will soon fall into disuse.
+art	life	quip	general	0	If dolphins are so smart, why did Flipper work for television?
+art	faith	quip	general	0	If God didn't mean for us to juggle, tennis balls wouldn't come three to a can.
+art	faith	quip	general	0	If God had intended Man to Watch TV, He would have given him Rabbit Ears.
+art	life	quip	general	0	If I had any humility I would be perfect.
+art	life	quip	general	0	If I had done everything I'm credited with, I'd be speaking to you from a laboratory jar at Harvard.
+art	society	quip	general	0	If I have to lay an egg for my country, I'll do it.
+art	arts	pun	general	0	If it ain't baroque, don't phiques it.
+art	life	quip	general	0	If life is a stage, I want some better lighting.
+art	life	dark	general	0	If you are of the opinion that the contemplation of suicide is sufficient evidence of a poetic nature, do not forget that actions speak louder than words.
+art	arts	quip	general	0	If you have to ask what jazz is, you'll never know.
+art	life	dark	general	0	If you lose a son you can always get another, but there's only one Maltese Falcon.
+art	life	quip	general	0	If you think the pen is mightier than the sword, the next time someone pulls out a sword I'd like to see you get up there with your Bic.
+art	arts	quip	general	0	If you want to get rich from writing, write the sort of thing that's read by persons who move their lips when the're reading to themselves.
+art	arts	quip	general	0	Imitation is the sincerest form of television.
+art	arts	aphorism	general	0	Immature artists imitate, mature artists steal.
+art	arts	aphorism	general	0	Immature poets imitate, mature poets steal.
+art	love	quip	general	0	In Hollywood, all marriages are happy. It's trying to live together afterwards that causes the problems.
+art	arts	quip	general	0	In Hollywood, if you don't have happiness, you send out for it.
+art	life	quip	general	0	In just seven days, I can make you a man!
+art	life	observation	general	0	In my experience, if you have to keep the lavatory door shut by extending your left leg, it's modern architecture.
+art	life	quip	general	0	In Oz, never say "krizzle kroo" to a Woozy.
+art	life	observation	general	0	In the force if Yoda's so strong, construct a sentence with words in the proper order then why can't he?
+art	arts	quip	general	0	It is a sobering thought that when Mozart was my age, he had been dead for two years.
+art	arts	quip	general	0	It is difficult to produce a television documentary that is both incisive and probing when every twelve minutes one is interrupted by twelve dancing rabbits singing about toilet paper.
+art	arts	observation	general	0	It is up to us to produce better-quality movies.
+art	life	quip	general	0	It just doesn't seem right to go over the river and through the woods to Grandmother's condo.
+art	life	tv-quote	general	0	It looks like it's up to me to save our skins. Get into that garbage chute, flyboy!
+art	society	aphorism	general	0	It proves what they say, give the public what they want to see and they'll come out for it.
+art	arts	quip	general	0	It took me fifteen years to discover that I had no talent for writing, but I couldn't give it up because by that time I was too famous.
+art	arts	dark	general	0	It was a book to kill time for those who liked it better dead.
+art	life	tv-quote	general	0	It'll be just like Beggars' Canyon back home.
+art	life	quip	general	0	It's all right letting yourself go as long as you can let yourself back.
+art	arts	observation	general	0	It's clever, but is it art?
+art	life	wisdom	general	0	It's difficult to see the picture when you are inside the frame.
+art	arts	quip	general	0	It's from Casablanca. I've been waiting all my life to use that line.
+art	life	uplifting	general	0	"It's kind of fun to do the impossible."
+art	life	quip	general	0	It's more than magnificent -- it's mediocre.
+art	life	tv-quote	general	0	It's not easy, being green.
+art	life	quip	general	0	It's not the valleys in life I dread so much as the dips.
+art	arts	quip	general	0	James Joyce -- an essentially private man who wished his total indifference to public notice to be universally recognized.
+art	arts	observation	general	0	James McNeill Whistler's (painter of "Whistler's Mother") failure in his West Point chemistry examination once provoked him to remark in later life, "If silicon had been a gas, I should have been a major general."
+art	life	tv-quote	general	0	Jim, it's Grace at the bank. I checked your Christmas Club account. You don't have five-hundred dollars. You have fifty. Sorry, computer foul-up! -- "The Rockford Files"
+art	life	tv-quote	general	0	Jim, it's Jack. I'm at the airport. I'm going to Tokyo and wanna pay you the five-hundred I owe you. Catch you next year when I get back! -- "The Rockford Files"
+art	life	tv-quote	general	0	Jim, this is Janelle. I'm flying tonight, so I can't make our date, and I gotta find a safe place for Daffy. He loves you, Jim! It's only two days, and you'll see. Great Danes are no problem! -- "The Rockford Files"
+art	life	tv-quote	general	0	Jim, this is Matty down at Ralph's and Mark's. Some guy named Angel Martin just ran up a fifty buck bar tab. And now he wants to charge it to you. You gonna pay it? -- "The Rockford Files"
+art	faith	pun	general	0	JOHN PAUL ELECTED POPE!! (George and Ringo miffed.)
+art	life	quip	general	0	Just because you like my stuff doesn't mean I owe you anything.
+art	life	tv-quote	general	0	Just close your eyes, tap your heels together three times, and think to yourself, `There's no place like home.'
+art	life	quip	general	0	Just once, I wish we would encounter an alien menace that wasn't immune to bullets.
+art	arts	quip	general	0	Lay off the muses, it's a very tough dollar.
+art	arts	quip	general	0	Lensmen eat Jedi for breakfast.
+art	life	wisdom	general	0	Life is like arriving late for a movie, having to figure out what was going on without bothering everybody with a lot of questions, and then being unexpectedly called away before you find out how it ends.
+art	life	tv-quote	general	0	Linus: Hi! I thought it was you. I've been watching you from way off... You're looking great! Snoopy: That's nice to know. The secret of life is to look good at a distance.
+art	life	tv-quote	general	0	Linus: I guess it's wrong always to be worrying about tomorrow. Maybe we should think only about today. Charlie Brown: No, that's giving up. I'm still hoping that yesterday will get better.
+art	life	dark	general	0	Live fast, die young, and leave a good looking corpse.
+art	life	tv-quote	general	0	Live from New York ... It's Saturday Night!
+art	love	pun	general	0	Love thy neighbor, tune thy piano.
+art	life	tv-quote	general	0	Lucy: Dance, dance, dance. That is all you ever do. Can't you be serious for once? Snoopy: She is right! I think I had better think of the more important things in life! (pause) Tomorrow!!
+art	arts	quip	general	0	Luke, I'm yer father, eh. Come over to the dark side, you hoser.
+art	life	tv-quote	general	0	Maj. Bloodnok: Seagoon, you're a coward! Seagoon: Only in the holiday season. Maj. Bloodnok: Ah, another Noel Coward!
+art	life	tv-quote	general	0	Mandrell: "You know what I think?" Doctor: "Ah, ah that's a catch question. With a brain your size you don't think, right?"
+art	life	quip	general	0	Many of the characters are fools and they are always playing tricks on me and treating me badly.
+art	life	quip	general	0	Maryel brought her bat into Exit once and started whacking people on the dance floor. Now everyone's doing it. It's called grand slam dancing.
+art	life	quip	general	0	Mate, this parrot wouldn't VOOM if you put four million volts through it!
+art	life	joke	general	0	"Microwave oven? Whaddya mean, it's a microwave oven? I've been watching Channel 4 on the thing for two weeks."
+art	life	tv-quote	general	0	Might as well be frank, monsieur. It would take a miracle to get you out of Casablanca and the Germans have outlawed miracles.
+art	life	tv-quote	general	0	Mike: "The Fourth Dimension is a shambles?" Bernie: "Nobody ever empties the ashtrays. People are SO inconsiderate."
+art	life	quip	general	0	Minnie Mouse is a slow maze learner.
+art	arts	observation	general	0	Modern art is what happens when painters stop looking at girls and persuade themselves that they have a better idea.
+art	life	tv-quote	general	0	Mos Eisley Spaceport; you will never find a more wretched hive of scum and villainy...
+art	life	tv-quote	general	0	Mr. Rockford, this is the Thomas Crown School of Dance and Contemporary Etiquette. We aren't going to call again! Now you want these free lessons or what? -- "The Rockford Files"
+art	life	tv-quote	general	0	Mr. Rockford? Miss Collins from the Bureau of Licenses. We got your renewal before the extended deadline but not your check. I'm sorry but at midnight you're no longer licensed as an investigator. -- "The Rockford Files"
+art	life	tv-quote	general	0	Mr. Rockford? This is Betty Joe Withers. I got four shirts of yours from the Bo Peep Cleaners by mistake. I don't know why they gave me men's shirts but they're going back. -- "The Rockford Files"
+art	life	tv-quote	general	0	Mr. Rockford? You don't know me, but I'd like to hire you. Could you call me at... My name is... uh... Never mind, forget it! -- "The Rockford Files"
+art	life	quip	general	0	My advice to you, my violent friend, is to seek out gold and sit on it.
+art	life	quip	general	0	"My life is a soap opera, but who has the rights?"
+art	life	quip	general	0	My tears stuck in their little ducts, refusing to be jerked.
+art	arts	fact	general	0	No Civil War picture ever made a nickel. -- MGM executive Irving Thalberg to Louis B. Mayer about film rights to "Gone With the Wind". Cerf/Navasky, "The Experts Speak"
+art	life	wisdom	general	0	No house should ever be on any hill or on anything. It should be of the hill, belonging to it.
+art	arts	quip	general	0	No poet or novelist wishes he was the only one who ever lived, but most of them wish they were the only one alive, and quite a number fondly believe their wish has been granted.
+art	arts	wisdom	general	0	No two persons ever read the same book.
+art	life	quip	general	0	"No, `Eureka' is Greek for `This bath is too hot.'"
+art	life	quip	general	0	Nobody can be exactly like me. Sometimes even I have trouble doing it.
+art	life	tv-quote	general	0	NOBODY EXPECTS THE SPANISH INQUISITION!
+art	arts	wisdom	general	0	No one ever built a statue to a critic.
+art	life	aphorism	general	0	Not all who own a harp are harpers.
+art	life	tv-quote	general	0	Oh Dad! We're ALL Devo!
+art	life	tv-quote	general	0	Oh, Aunty Em, it's so good to be home!
+art	life	joke	general	0	Old MacDonald had an agricultural real estate tax abatement.
+art	arts	pun	general	0	Old musicians never die, they just decompose.
+art	life	wisdom	general	0	Once, I read that a man be never stronger than when he truly realizes how weak he is.
+art	life	quip	general	0	One big pile is better than two little piles.
+art	society	quip	general	0	Oprah Winfrey has an incredible talent for getting the weirdest people to talk to. And you just HAVE to watch it. "Blind, masochistic minority, crippled, depressed, government latrine diggers, and the women who love them too much on the next Oprah Winfrey."
+art	society	pun	general	0	Penn's aunts made great apple pies at low prices. No one else in town could compete with the pie rates of Penn's aunts.
+art	arts	observation	general	0	People in general do not willingly read if they have anything else to amuse them.
+art	arts	observation	general	0	Perhaps no person can be a poet, or even enjoy poetry without a certain unsoundness of mind.
+art	society	observation	general	0	Plato, by the way, wanted to banish all poets from his proposed Utopia because they were liars. The truth was that Plato knew philosophers couldn't compete successfully with poets.
+art	arts	quip	general	0	Playing an unamplified electric guitar is like strumming on a picnic table.
+art	life	observation	general	0	Please, won't somebody tell me what diddie-wa-diddie means?
+art	life	quip	general	0	Prizes are for children.
+art	life	quip	general	0	Public use of any portable music system is a virtually guaranteed indicator of sociopathic tendencies.
+art	arts	quip	general	0	Publishing a volume of verse is like dropping a rose petal down the Grand Canyon and waiting for the echo.
+art	arts	quip	general	0	Pure drivel tends to drive ordinary drivel off the TV screen.
+art	life	tv-quote	general	0	Rascal, am I? Take THAT!
+art	arts	quip	general	0	Rembrandt is not to be compared in the painting of character with our extraordinarily gifted English artist, Mr. Rippingille.
+art	arts	quip	general	0	"Rembrandt's first name was Beauregard, which is why he never used it."
+art	arts	wisdom	general	0	Satire is tragedy plus time.
+art	arts	quip	general	0	Satire is what closes in New Haven.
+art	arts	quip	general	0	Satire is what closes Saturday night.
+art	arts	verse	general	0	'Scuse me, while I kiss the sky!
+art	life	quip	general	0	She ran the gamut of emotions from 'A' to 'B'.
+art	arts	joke	general	0	"She said, `I know you ... you cannot sing'. I said, `That's nothing, you should hear me play piano.'"
+art	arts	quip	general	0	She was good at playing abstract confusion in the same way a midget is good at being short.
+art	life	tv-quote	general	0	Shhh... be vewy, vewy, quiet! I'm hunting wabbits...
+art	arts	quip	general	0	Show business is just like high school, except you get paid.
+art	science	quip	general	0	Sir, it's very possible this asteroid is not stable.
+art	arts	quip	general	0	Skill without imagination is craftsmanship and gives us many useful objects such as wickerwork picnic baskets. Imagination without skill gives us modern art.
+art	life	tv-quote	general	0	Smile! You're on Candid Camera.
+art	life	quip	general	0	Snakes. Why did it have to be snakes?
+art	life	aphorism	general	0	Snoopy: No problem is so big that it can't be run away from.
+art	life	quip	general	0	Some men who fear that they are playing second fiddle aren't in the band at all.
+art	arts	quip	general	0	Some performers on television appear to be horrible people, but when you finally get to know them in person, they turn out to be even worse.
+art	work-money	quip	general	0	"Spare no expense to save money on this one."
+art	life	tv-quote	general	0	"Surely you can't be serious." "I am serious, and stop calling me Shirley." -- "Airplane"
+art	arts	aphorism	general	0	Talking about music is like dancing about architecture.
+art	arts	quip	general	0	Tallulah Bankhead barged down the Nile last night as Cleopatra and sank.
+art	arts	quip	general	0	Television -- the longest amateur night in history.
+art	society	quip	general	0	Television has brought back murder into the home -- where it belongs.
+art	life	quip	general	0	Television has proved that people will look at anything rather than each other.
+art	arts	quip	general	0	Television is a medium because anything well done is rare. -- attributed to both Fred Allen and Ernie Kovacs
+art	arts	quip	general	0	Television is now so desperately hungry for material that it is scraping the top of the barrel.
+art	arts	quip	general	0	Ten years of rejection slips is nature's way of telling you to stop writing.
+art	arts	quip	general	0	That's no moon...
+art	arts	quip	general	0	The Angels want to wear my red shoes.
+art	arts	quip	general	0	The best definition of a gentleman is a man who can play the accordion -- but doesn't.
+art	life	quip	general	0	The cable TV sex channels don't expand our horizons, don't make us better people, and don't come in clearly enough.
+art	arts	quip	general	0	The covers of this book are too far apart. -- Book review by Ambrose Bierce.
+art	arts	observation	general	0	The difference between waltzes and disco is mostly one of volume.
+art	life	observation	general	0	The faster we go, the rounder we get.
+art	life	quip	general	0	The first thing I do in the morning is brush my teeth and sharpen my tongue.
+art	arts	quip	general	0	The Great Movie Posters: An AVALANCHE of KILLER WORMS! -- Squirm (1976) Most Movies Live Less Than Two Hours. This Is One of Everlasting Torment! -- The New House on the Left (1977) WE ARE GOING TO EAT YOU! -- Zombie (1980) It's not human and it's got an axe.
+art	arts	quip	general	0	The Hollywood tradition I like best is called "sucking up to the stars."
+art	life	quip	general	0	The horror... the horror!
+art	life	observation	general	0	The human animal differs from the lesser primates in his passion for lists of "Ten Best".
+art	life	quip	general	0	The human brain is a wonderful thing. It starts working the moment you are born, and never stops until you stand up to speak in public.
+art	science	quip	general	0	"The human brain is like an enormous fish -- it is flat and slimy and has gills through which it can see."
+art	arts	quip	general	0	The key to building a superstar is to keep their mouth shut. To reveal an artist to the people can be to destroy him. It isn't to anyone's advantage to see the truth.
+art	society	quip	general	0	The last vestiges of the old Republic have been swept away.
+art	life	quip	general	0	The mome rath isn't born that could outgrabe me.
+art	society	quip	general	0	The old complaint that mass culture is designed for eleven-year-olds is of course a shameful canard. The key age has traditionally been more like fourteen.
+art	arts	quip	general	0	The older I grow, the less important the comma becomes. Let the reader catch his own breath.
+art	arts	quip	general	0	The only "ism" Hollywood believes in is plagiarism.
+art	arts	quip	general	0	The only real advantage to punk music is that nobody can whistle it.
+art	arts	quip	general	0	The plot was designed in a light vein that somehow became varicose.
+art	arts	quip	general	0	The profession of book writing makes horse racing seem like a solid, stable business.
+art	life	tv-quote	general	0	The Ranger isn't gonna like it, Yogi.
+art	life	quip	general	0	The real trouble with reality is that there's no background music.
+art	life	tv-quote	general	0	The story you are about to hear is true. Only the names have been changed to protect the innocent.
+art	arts	quip	general	0	The streets were dark with something more than night.
+art	life	wisdom	general	0	The sun never sets on those who ride into it.
+art	arts	observation	general	0	The trouble with superheros is what to do between phone booths.
+art	arts	quip	general	0	The typewriting machine, when played with expression, is no more annoying than the piano when played by a sister or near relation.
+art	life	quip	general	0	The ultimate game show will be the one where somebody gets killed at the end.
+art	life	observation	general	0	The world has many unintentionally cruel mechanisms that are not designed for people who walk on their hands.
+art	arts	wisdom	general	0	There are three reasons for becoming a writer: the first is that you need the money; the second that you have something to say that you think the world should know; the third is that you can't think what to do with the long winter evenings.
+art	arts	quip	general	0	There are three rules for writing a novel. Unfortunately, no one knows what they are.
+art	arts	quip	general	0	There are two ways of disliking art. One is to dislike it. The other is to like it rationally.
+art	arts	quip	general	0	There are two ways of disliking poetry; one way is to dislike it, the other is to read Pope.
+art	arts	quip	general	0	There is much Obi-Wan did not tell you.
+art	arts	quip	general	0	There is nothing wrong with writing ... as long as it is done in private and you wash your hands afterward.
+art	life	quip	general	0	There is only one thing in the world worse than being talked about, and that is not being talked about.
+art	arts	quip	general	0	There's nothing remarkable about it. All one has to do is hit the right keys at the right time and the instrument plays itself.
+art	arts	quip	general	0	There's nothing to writing. All you do is sit at a typewriter and open a vein.
+art	tech	wisdom	general	0	There's something the technicians need to learn from the artists. If it isn't aesthetically pleasing, it's probably wrong.
+art	life	quip	general	0	There's such a thing as too much point on a pencil.
+art	faith	tv-quote	general	0	They can't stop us... we're on a mission from God!
+art	life	pun	general	0	This door is baroquen, please wiggle Handel. (If I wiggle Handel, will it wiggle Bach?) -- Found on a door in the MSU music building
+art	life	tv-quote	general	0	This is the LAST time I take travel suggestions from Ray Bradbury!
+art	life	tv-quote	general	0	This is the Baron. Angel Martin tells me you buy information. Ok, meet me at one a.m. behind the bus depot, bring five-hundred dollars and come alone. I'm serious! -- "The Rockford Files"
+art	arts	quip	general	0	This novel is not to be tossed lightly aside, but to be hurled with great force.
+art	life	quip	general	0	This unit... must... survive.
+art	life	quip	general	0	This wasn't just plain terrible, this was fancy terrible. This was terrible with raisins in it.
+art	life	joke	general	0	Three actors, Tom, Fred, and Cec, wanted to do the jousting scene from Don Quixote for a local TV show. "I'll play the title role," proposed Tom. "Fred can portray Sancho Panza, and Cecil B. De Mille."
+art	arts	wisdom	general	0	Three hours a day will produce as much as a man ought to write.
+art	life	wisdom	general	0	To be is to do. -- I. Kant To do is to be.
+art	life	quip	general	0	Today you'll start getting heavy metal radio on your dentures.
+art	life	tv-quote	general	0	Today's thrilling story has been brought to you by Mushies, the great new cereal that gets soggy even without milk or cream. Join us soon for more spectacular adventure starring... Tippy, the Wonder Dog!
+art	arts	quip	general	0	"Today, of course, it is considered very poor taste to use the F-word except in major motion pictures."
+art	life	tv-quote	general	0	Traveling through hyperspace isn't like dusting crops, boy.
+art	life	aphorism	general	0	Trifles make perfection, and perfection is no trifle.
+art	life	quip	general	0	"Truth is stranger than fiction, because fiction has to make sense."
+art	arts	quip	general	0	TV is chewing gum for the eyes.
+art	arts	quip	general	0	Unprovided with original learning, unformed in the habits of thinking, unskilled in the arts of composition, I resolved to write a book.
+art	life	quip	general	0	Use an accordion. Go to jail.
+art	nature	aphorism	general	0	Use what talents you possess: the woods would be very silent if no birds sang there except those that sang best.
+art	arts	quip	general	0	Very few people do anything creative after the age of thirty-five. The reason is that very few people do anything creative before the age of thirty-five.
+art	life	dark	general	0	Watch all-night Donna Reed reruns until your mind resembles oatmeal.
+art	life	tv-quote	general	0	Watch your mouth, kid, or you'll find yourself floating home.
+art	arts	quip	general	0	We don't like their sound. Groups of guitars are on the way out.
+art	arts	wisdom	general	0	We have art that we do not die of the truth.
+art	arts	dark	general	0	We'll be recording at the Paradise Friday night. Live, on the Death label.
+art	arts	observation	general	0	We'll know that rock is dead when you have to get a degree to work in it.
+art	work-money	quip	general	0	We're only in it for the volume.
+art	arts	quip	general	0	"Well, if you can't believe what you read in a comic book, what *can* you believe?!"
+art	life	quip	general	0	"Well, it's garish, ugly, and derelicts have used it for a toilet. The rides are dilapidated to the point of being lethal, and could easily maim or kill innocent little children." "Oh, so you don't like it?" "Don't like it? I'm CRAZY for it."
+art	arts	tv-quote	general	0	"Well, that was a piece of cake, eh K-9?" "Piece of cake, Master? Radial slice of baked confection ... coefficient of relevance to Key of Time: zero."
+art	life	quip	general	0	Wharbat darbid yarbou sarbay?
+art	arts	quip	general	0	What a bonanza! An unknown beginner to be directed by Lubitsch, in a script by Wilder and Brackett, and to play with Paramount's two superstars, Gary Cooper and Claudette Colbert, and to be beaten up by both of them!
+art	arts	quip	general	0	What an artist dies with me!
+art	work-money	quip	general	0	What an author likes to write most is his signature on the back of a cheque.
+art	arts	observation	general	0	"What are you watching?" "I don't know." "Well, what's happening?" "I'm not sure... I think the guy in the hat did something terrible." "Why are you watching it?" "You're so analytical. Sometimes you just have to let art flow over you."
+art	life	joke	general	0	What did you bring that book I didn't want to be read to out of about Down Under up for?
+art	life	wisdom	general	0	"What do you do when your real life exceeds your wildest fantasies?" "You keep it to yourself."
+art	life	quip	general	0	What ever happened to happily ever after?
+art	arts	wisdom	general	0	What garlic is to food, insanity is to art.
+art	arts	wisdom	general	0	What no spouse of a writer can ever understand is that a writer is working when he's staring out the window.
+art	life	dark	general	0	"What was the worst thing you've ever done?" "I won't tell you that, but I'll tell you the worst thing that ever happened to me... the most dreadful thing."
+art	life	quip	general	0	When all else fails, try Kate Smith.
+art	life	quip	general	0	When confronted by a difficult problem, you can solve it more easily by reducing it to the question, "How would the Lone Ranger handle this?"
+art	arts	wisdom	general	0	When in doubt, have a man come through the door with a gun in his hand.
+art	arts	observation	general	0	When one woman was asked how long she had been going to symphony concerts, she paused to calculate and replied, "Forty-seven years -- and I find I mind it less and less."
+art	life	quip	general	0	Where is John Carson now that we need him?
+art	arts	pun	general	0	Whistler's mother is off her rocker.
+art	society	fact	general	0	Who is D.B. Cooper, and where is he now?
+art	arts	quip	general	0	Who is John Galt?
+art	life	quip	general	0	Who is W.O. Baker, and why is he saying those terrible things about me?
+art	life	quip	general	0	Who was that masked man?
+art	life	tv-quote	general	0	Who's on first?
+art	life	tv-quote	general	0	Who's scruffy-looking?
+art	life	quip	general	0	Why am I so soft in the middle when the rest of my life is so hard?
+art	arts	quip	general	0	"Why are we importing all these highbrow plays like `Amadeus'? I could have told you Mozart was a jerk for nothing."
+art	life	wisdom	general	0	Why are you doing this to me? Because knowledge is torture, and there must be awareness before there is change.
+art	life	joke	general	0	Why do we have two eyes? To watch 3-D movies with.
+art	life	quip	general	0	Why you say you no bunny rabbit when you have little powder-puff tail?
+art	arts	quip	general	0	Working with Julie Andrews is like getting hit over the head with a valentine.
+art	life	quip	general	0	Worth seeing? Yes, but not worth going to see.
+art	life	quip	general	0	Would it help if I got out and pushed?
+art	arts	aphorism	general	0	Writing about music is like dancing about architecture.
+art	arts	quip	general	0	Writing free verse is like playing tennis with the net down.
+art	life	quip	general	0	Yeah, that's me, Tracer Bullet. I've got eight slugs in me. One's lead, the rest bourbon. The drink packs a wallop, and I pack a revolver. I'm a private eye. -- "Calvin & Hobbes"
+art	life	insult	general	0	Yevtushenko has... an ego that can crack crystal at a distance of twenty feet.
+art	life	quip	general	0	"You boys lookin' for trouble?" "Sure. Whaddya got?"
+art	life	tv-quote	general	0	You're all clear now, kid. Now blow this thing so we can all go home.
+art	arts	quip	general	0	"You've got to have a gimmick if your band sucks."
+art	life	tv-quote	general	0	Zero Mostel: That's it baby! When you got it, flaunt it! Flaunt it!
+art	life	quip	general	0	Naked children have never played in _our_ fountains, and I.M. Pei will never be happy on Route 66. -- "Learning from Las Vegas", Robert Venturi, Denise Scott Brown, and Steven Izenour
+art	life	quip	general	0	Sometimes I get the feeling that there are orgies going on all over New York City, and somebody says, "Let's call Desmond," and somebody else says, "Why bother? He's probably home reading the Encyclopedia Britannica."
+art	arts	quip	general	0	Rap music is just computerised crap. I listen to Top of the Pops and after three songs I feel like killing someone.
+art	arts	observation	general	0	I'm not sure how much writing happened. You know, let's play E minor and A for an hour or two. Oh, that sounds all right, that'll take up five minutes.
+art	tech	quip	general	0	Somebody set up us the bomb. -- Cut scene from the game "Zero Wing" -- https://en.wikipedia.org/wiki/All_your_base_are_belong_to_us
+art	tech	quip	general	0	All your base are belong to us. -- Cut scene from the game "Zero Wing" -- https://en.wikipedia.org/wiki/All_your_base_are_belong_to_us
+art	tech	quip	general	0	You have no chance to survive make your time. -- Cut scene from the game "Zero Wing" -- https://en.wikipedia.org/wiki/All_your_base_are_belong_to_us
+art	tech	quip	general	0	Move 'ZIG'. -- Cut scene from the game "Zero Wing" -- https://en.wikipedia.org/wiki/All_your_base_are_belong_to_us
+art	tech	quip	general	0	For great justice. -- Cut scene from the game "Zero Wing" -- https://en.wikipedia.org/wiki/All_your_base_are_belong_to_us
+art	arts	quip	general	0	One does not simply walk into Mordor. -- Boromir in the Lord of the Rings: The Fellowship of the Rings 2001 film -- ( Made popular by snowcloned image macros. ) -- https://knowyourmeme.com/memes/one-does-not-simply-walk-into-mordor
+art	life	observation	general	0	This is hilarious. First, people say how many actresses in Hollywood look too anorexic, and now they are criticizing me for looking too normal. -- Jennifer Lawrence (Unsourced) -- (I guess some people will always complain. -- Ed.)
+art	faith	quip	general	0	If God were a villain - he'd be me. -- Benedict in https://en.wikiquote.org/wiki/Last_Action_Hero

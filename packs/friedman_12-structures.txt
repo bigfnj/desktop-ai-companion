@@ -1,0 +1,7 @@
+friedman_12-structures	arts	quip	general	0	Alchemical Theater Assemble four elements. Place the elements. Act upon the elements. 1992 Oslo, Norway ~ Ken Friedman
+friedman_12-structures	arts	quip	general	0	Centre Piece Imagine a life. Live it. 2003 Torna Haellestad, Sweden ~ Ken Friedman
+friedman_12-structures	arts	quip	general	0	Ordinary Objects Place things on the floor. 1970 Santa Barbara, California ~ Ken Friedman
+friedman_12-structures	arts	observation	general	0	Precinct Construct a rough slab, cube, or table of natural stone or wood. On the table, people may place hand-made models or objects in wood or clay. 1991 Minneapolis, Minnesota ~ Ken Friedman
+friedman_12-structures	arts	quip	general	0	Rock Placement Move large rocks to an area. 1967 San Diego, California ~ Ken Friedman
+friedman_12-structures	arts	quip	general	0	Water Table Set a full formal table with full service for four. All service is white porcelain or clear glass. Fill all objects, utensils, etc., with water. 1971 Syracuse, New York ~ Ken Friedman
+friedman_12-structures	arts	quip	general	0	Woolen Goods Observe an unexplained silence. 1973 Tucson, Arizona ~ Ken Friedman

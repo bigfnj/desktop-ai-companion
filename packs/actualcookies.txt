@@ -1,0 +1,71 @@
+actualcookies	life	uplifting	general	0	A comfort zone is a magical place where nothing ever grows.
+actualcookies	life	uplifting	general	0	Act boldly and unseen forces will come to your aid.
+actualcookies	life	wisdom	general	0	All that we are is a result of what we have thought.
+actualcookies	life	uplifting	general	0	All the answers you need are right there in front of you!
+actualcookies	life	wisdom	general	0	All the effort you are making will ultimately pay off.
+actualcookies	life	uplifting	general	0	All the little things will add to a happy journey.
+actualcookies	work-money	uplifting	general	0	All your hard work will soon pay off.
+actualcookies	life	uplifting	general	0	All your sorrows will vanish.
+actualcookies	life	uplifting	general	0	Although it feels like a roller coaster now, life will calm down.
+actualcookies	food	quip	general	0	Always finish what you start especially if you're at a buffet.
+actualcookies	food	quip	general	0	Always go the extra mile, because you don't know if the next one has dim sum.
+actualcookies	life	aphorism	general	0	Always look ahead to reach your goals, only look down when you have stepped on something along the way.
+actualcookies	life	uplifting	general	0	An important person will offer you support.
+actualcookies	work-money	wisdom	general	0	An investment in knowledge always pays the best interest.
+actualcookies	life	wisdom	general	0	An investment in yourself will pay dividends for the rest of your life.
+actualcookies	life	quip	general	0	An old wish will come true.
+actualcookies	life	uplifting	general	0	An unexpected check or fortune will arrive today.
+actualcookies	life	quip	general	0	An unexpected event will bring you riches.
+actualcookies	life	wisdom	general	0	An upset is an opportunity to see the truth.
+actualcookies	work-money	aphorism	general	0	Any job, big or small; do it right, or not at all.
+actualcookies	life	uplifting	general	0	Any rough times are behind you.
+actualcookies	life	wisdom	general	0	Anyone can memorize things, but the important thing is to understand.
+actualcookies	life	aphorism	general	0	Ask advice, but use your own common sense.
+actualcookies	life	quip	general	0	Ask yourself this question: \"Is my attitude worth catching?\"
+actualcookies	life	uplifting	general	0	Attitude is a little thing that makes a BIG difference.
+actualcookies	life	wisdom	general	0	Balance life with a little sweet & sour.
+actualcookies	life	wisdom	general	0	Before you wonder \"Am I doing things right,\" ask \"Am I doing the right things?\"
+actualcookies	life	aphorism	general	0	Behavior is a mirror in which everyone shows his own image.
+actualcookies	life	uplifting	general	0	Believe in your abilities, confidence will lead you on.
+actualcookies	life	aphorism	general	0	Better ask twice than lose yourself once.
+actualcookies	work-money	quip	general	0	Business is a lot like playing tennis; if you don't serve well, you lose.
+actualcookies	work-money	aphorism	general	0	Buy things because you need them, not because they are on sale.
+actualcookies	life	uplifting	general	0	Call an old friend today.
+actualcookies	life	aphorism	general	0	Common sense is instinct. Enough of it is genius.
+actualcookies	life	uplifting	general	0	Creative energy is up - capitalize on it.
+actualcookies	life	aphorism	general	0	Curiosity kills boredom. Nothing can kill curiosity.
+actualcookies	life	wisdom	general	0	Don't fret. All your friends will be able to zig whenever you zag.
+actualcookies	life	uplifting	general	0	Don't get so caught up in the daily grind that you never find any time to enjoy yourself.
+actualcookies	life	aphorism	general	0	Don't put all your eggs in one basket.
+actualcookies	life	wisdom	general	0	Don't repay a kindness, pass it on.
+actualcookies	life	wisdom	general	0	Don't scrap everything! See what you can salvage.
+actualcookies	food	pun	general	0	Eat, drink and be merry, for tomorrow you may diet.
+actualcookies	life	uplifting	general	0	Everything you are against weakens you. Everything you are for empowers you.
+actualcookies	life	aphorism	general	0	Examine the situation before you act impulsively.
+actualcookies	life	uplifting	general	0	Expect a change for the better.
+actualcookies	life	uplifting	general	0	Expect great things, and great things will come.
+actualcookies	life	aphorism	general	0	Failure is the tuition you pay for success.
+actualcookies	life	uplifting	general	0	Fight for it. You will come out on the top.
+actualcookies	life	quip	general	0	Financial hardship in your life is coming to an end!
+actualcookies	life	uplifting	general	0	Follow the advice of your heart.
+actualcookies	life	wisdom	general	0	Follow the middle path. Neither extreme will make you happy.
+actualcookies	arts	wisdom	general	0	Genius is eternal patience.
+actualcookies	life	wisdom	general	0	Give yourself a break before you breakdown.
+actualcookies	life	uplifting	general	0	Go confidently in the direction of your dreams.
+actualcookies	life	uplifting	general	0	Go take a rest; you deserve it.
+actualcookies	life	aphorism	general	0	Happiness is enjoying what you got. Never from what you want.
+actualcookies	life	wisdom	general	0	Happiness is not a reward, it's a consequence.
+actualcookies	life	uplifting	general	0	Ideas you believe are absurd ultimately lead to success!
+actualcookies	life	aphorism	general	0	If a man has common sense, he has all the sense there is.
+actualcookies	life	wisdom	general	0	If a true sense of value is to be yours it must come through service.
+actualcookies	life	quip	general	0	If absolute can be defined, then absolute is not absolute anymore.
+actualcookies	life	wisdom	general	0	If you bite the hand that feeds you, it won't taste as good as the food you were fed.
+actualcookies	life	aphorism	general	0	If you don't fight for what you want, don't cry for what you lost.
+actualcookies	life	uplifting	general	0	Imagine your ideals, then make them real.
+actualcookies	life	uplifting	general	0	Inspiration within is waiting for you. It's time to go deep.
+actualcookies	food	quip	general	0	Money can't buy you happiness, but it can get you take out.
+actualcookies	work-money	quip	general	0	Nothing is impossible. Except Monday mornings.
+actualcookies	life	quip	general	0	Patience is a virtue, unless you're at the DMV.
+actualcookies	life	aphorism	general	0	Take your time today so you won't walk in mud.
+actualcookies	life	aphorism	general	0	When opportunity knocks make sure you don't have your head-phones on.
+actualcookies	life	quip	general	0	You are not illiterate.

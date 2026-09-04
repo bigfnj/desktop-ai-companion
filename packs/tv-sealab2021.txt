@@ -1,0 +1,255 @@
+tv-sealab2021	society	tv-quote	general	0	Black Debbie: Hey, Stormy. Stormy: Hey, bla-. Debbie. [Pause] Hey, do you like rap?
+tv-sealab2021	life	tv-quote	general	0	Debbie: Now what in the Hell is that supposed to mean? Sparks: It's like veal... only babies.
+tv-sealab2021	life	tv-quote	general	0	Stormy: It all comes down to the fact that you all have far more fast twitch muscle fiber.
+tv-sealab2021	food	tv-quote	general	0	Sparks: RIBS! DRIPPING WITH SAUCE! FALLING OFF THE BONE
+tv-sealab2021	life	tv-quote	general	0	Stormy: Don't go out there, that black chick's crazy!
+tv-sealab2021	life	tv-quote	general	0	Marco: I call this the Latinator. Debbie: Ugh. Yeah, nice backne.
+tv-sealab2021	life	tv-quote	general	0	Quinn: Why do you think they call me Doctor Quinn? Stormy: I just thought that was a nickname. You know, like Dr. Dre. Eastside!
+tv-sealab2021	arts	quip	general	0	"Geez! Nice pod design, Frank Lloyd Wrong."
+tv-sealab2021	life	quip	general	0	"The what?"
+tv-sealab2021	life	tv-quote	general	0	"God, you're crushing my spine!"
+tv-sealab2021	life	quip	general	0	"Holy crap! Did you see that freaking chopper explode?"
+tv-sealab2021	life	quip	nsfw	1	"And there go my nipples again!"
+tv-sealab2021	life	tv-quote	general	0	"I mean, it's like a koala bear crapped a rainbow in my brain!"
+tv-sealab2021	life	tv-quote	general	0	"This is Chopper Dave's made for TV movie, Blades Of Vengeance. See, he's a chopper pilot by day, but by night he fights crime as a werewolf... YEAH!"
+tv-sealab2021	life	quip	edgy	1	"I dub thee, Sir Phobos, Knight of Mars, Beater of Ass. Be a hitter babe."
+tv-sealab2021	life	quip	edgy	1	"Your quest is to find Quinn's ass...and then beat it."
+tv-sealab2021	life	tv-quote	general	0	"Not now Monster Hesh, I'm on the phone!"
+tv-sealab2021	life	tv-quote	general	0	"'Vengeance is Mine', quoth Alvis. And then he shot the guy, right in the freaking face!"
+tv-sealab2021	life	quip	general	0	"Look, shamans wouldn't ride buffalo a jillion miles to see that piece of crap comet!"
+tv-sealab2021	life	tv-quote	general	0	[talking in a cockney Michael Caine accent] "Goodnight, you princes of Sealab. You kings o' the ocean. People're always asking me: What's it all about, Alfie?"
+tv-sealab2021	life	quip	general	0	"Flashlights, there can be only none!"
+tv-sealab2021	food	quip	general	0	"It's not a toy, it makes real cupcakes with a 40-watt bulb. And it has icing packets... but the secret ingredient is love... damnit."
+tv-sealab2021	tech	quip	general	0	"Way to go Sparks, you broke the monitor and you're dead. Happy?"
+tv-sealab2021	faith	dark	general	0	"He killed for your sins."
+tv-sealab2021	life	quip	general	0	"Clean out your ears, woman... I said I want some BALLS!"
+tv-sealab2021	life	quip	general	0	"How do you like them apples, ho-bag? And how do you like those very same apples, Eggars!?"
+tv-sealab2021	life	tv-quote	general	0	"Pod 6 was jerks!"
+tv-sealab2021	life	tv-quote	general	0	"Punch it, ho-bag!"
+tv-sealab2021	life	tv-quote	general	0	"Fignuts!"
+tv-sealab2021	life	tv-quote	general	0	"Nice try doppleganger. Save it for queen Dopplepopolis"
+tv-sealab2021	life	tv-quote	general	0	"You want the mustache on, or off?" [Debbie] : "Off please." "Too bad."
+tv-sealab2021	life	quip	general	0	"It don't mean butt if it ain't got that jutt."
+tv-sealab2021	life	quip	general	0	"Yeah, yeah, I know. I don't like greyhounds - too pointy."
+tv-sealab2021	life	tv-quote	general	0	"I hate the Bizarros".
+tv-sealab2021	life	quip	general	0	"Everybody shut up! Now, where'd you get those cool hats?"
+tv-sealab2021	life	tv-quote	general	0	"I hate them all... except Turtleface."
+tv-sealab2021	arts	quip	general	0	"I hate the Groovies".
+tv-sealab2021	life	quip	general	0	"I warned her."
+tv-sealab2021	life	quip	general	0	"I warned him."
+tv-sealab2021	life	tv-quote	general	0	"Not me! I'm gonna be an Adrienne Barbeau-bot".
+tv-sealab2021	life	dark	general	0	"Quinn, if you don't want me to eat you..... say something." (Quinn has died of a heart attack) Okay.
+tv-sealab2021	life	tv-quote	general	0	"Pudding can't fill the emptiness inside me! But it'll help."
+tv-sealab2021	life	dark	general	0	"That, my sick little non-friend, is the cold stale breath of the reaper, blowing down your neck."
+tv-sealab2021	life	quip	general	0	"Well, cram a penny in there!"
+tv-sealab2021	life	quip	general	0	"Nails are like candy to robots, and we'll eat tires instead of licorice."
+tv-sealab2021	life	dark	general	0	"I will slaughter them like a wolf among lambs! The seas will run red with the blood of my enemies!"
+tv-sealab2021	life	tv-quote	edgy	1	"You toof-stealing bastard!"
+tv-sealab2021	life	quip	general	0	"Oh why don't you just shout down every idea I have? How about you call Bruce Springsteen and tell him to get another nickname since you're already the Boss! Huh? Yeah? Yeah!"
+tv-sealab2021	life	quip	edgy	1	"Your entire ass, just packed full of red hot coals?"
+tv-sealab2021	life	quip	edgy	1	"Well, put some ass-bags on 'em, like in a parade!"
+tv-sealab2021	life	quip	general	0	"He's probably teeming with plague juice."
+tv-sealab2021	life	quip	general	0	"You laid your brood of eggs in my navel? We're going to be mommies!"
+tv-sealab2021	life	quip	general	0	"Ah, yep, Mango Reinhart, the thinking man's pop!"
+tv-sealab2021	society	tv-quote	general	0	"As the history hitherto of class struggles and modern bourgeois society! Class antagonisms! Feudal something of opression! Serfdom! Bourgeoisie! Tottering feudal society! And victory for the proletariat!... That's you!"
+tv-sealab2021	life	tv-quote	general	0	"They say my methods are unsound... do you think my methods are unsound?"
+tv-sealab2021	life	quip	general	0	"This one's called squishface and we're outta here!"
+tv-sealab2021	love	joke	general	0	"Look, I'm just gonna lay my cards on the table, and maybe you'll think it sounds crazy... and who knows? Maybe I am crazy. But if this is crazy, babe, I don't wanna be sane! I'm in love with you, Wendy! [Zoom out to reveal he is talking to a bucket on a mop]
+tv-sealab2021	life	tv-quote	general	0	"Does Cody glow by himself?"
+tv-sealab2021	society	quip	general	0	"I am the opiate of the masses!"
+tv-sealab2021	life	insult	general	0	"I'll bet your lymph nodes are as big as cats!"
+tv-sealab2021	life	quip	general	0	"That is exact change Jerkface!"
+tv-sealab2021	life	tv-quote	general	0	"Bebop Cola... Good!"
+tv-sealab2021	life	quip	general	0	"It's not a hootenany, it's an extravaganza!"
+tv-sealab2021	life	tv-quote	general	0	"You just bought yourself a ticket to pretzel town, buddy!"
+tv-sealab2021	life	tv-quote	general	0	"Hollow Graham [Murphy's pronunciation of hologram] ... Where are my car keys?"
+tv-sealab2021	life	tv-quote	general	0	"You're kidding, that guy's a robot monkey?"
+tv-sealab2021	life	tv-quote	general	0	[Quinn] "They [the Gloops] could have infectious diseases." "I'm about to infect you with the back of my hand." [Quinn, trying to interject] "But..." "Back of the hand!"
+tv-sealab2021	life	quip	general	0	"Good lord, are we under attack!?" [after finally noticing an emergency alarm while making casual conversation]
+tv-sealab2021	life	tv-quote	general	0	"We need to rehabilitate Phil... In the face!"
+tv-sealab2021	life	tv-quote	edgy	1	"Quinn, you're gonna get it! I'm gonna rehabilitate your ass up and down this f--"
+tv-sealab2021	life	tv-quote	edgy	1	"Whoah! I'd be totally hacked if Stimutacs weren't so..." [Marco, doing situps while gripping the ceiling with his toes] "Outrageously chill?" "Word! Hey Stormy! Float your ass over here and magic me up another wrench!"
+tv-sealab2021	life	tv-quote	general	0	"I hate Pod Six. I don't even know why we have a Pod Six. Total suck pod."
+tv-sealab2021	life	quip	general	0	"So we're outta here...sniff you jerks later!"
+tv-sealab2021	life	tv-quote	general	0	"Yea, go on and harvest yourself some more JERK-plants to live in the JERK-town that you're the JERK-mayor of!"
+tv-sealab2021	life	quip	general	0	"I'm Eggars the jerk! I like to eat worms and dance around! Look at me, eating worms and dancing around, with worms coming out of my mouth!"
+tv-sealab2021	life	quip	general	0	"I have the energy of a bear that has the energy of two bears!"
+tv-sealab2021	life	tv-quote	general	0	"Keep him away from the trailer. The network must never find out."
+tv-sealab2021	life	quip	general	0	"The fly honeys like it!
+tv-sealab2021	life	quip	general	0	"I don't see any method at all sir."
+tv-sealab2021	life	tv-quote	general	0	"Henchman walkin'!"
+tv-sealab2021	nature	dark	edgy	1	[singing to the tune of "Jingle Bells" while chopping up dolphins] "Dolphin meat, dolphin meat, nature's greatest treat. Oh what fun it is to eat that damn damn dolphin meat. Yeah!"
+tv-sealab2021	life	quip	nsfw	1	"Hey, can I have two robot penises?"
+tv-sealab2021	life	dark	general	0	"I bet I could kill a guy with my toes."
+tv-sealab2021	life	quip	general	0	"I don't need to read to be captain."
+tv-sealab2021	life	quip	general	0	"Whale Cancer, 'Eff yeah!!!"
+tv-sealab2021	life	quip	general	0	"Okay, gringo. Come and get a shot of vitamin M!"
+tv-sealab2021	life	quip	general	0	"That tears it! How many times must I hear the word womb today?!??"
+tv-sealab2021	life	tv-quote	general	0	"Hey! Don't cuss in front of my pipe!"
+tv-sealab2021	life	quip	general	0	"Selling pot... holders... made from hemp."
+tv-sealab2021	life	tv-quote	general	0	"Selling pot... that's it, just selling pot."
+tv-sealab2021	life	quip	general	0	"I wonder if it's legal to sell this stuff to kids."
+tv-sealab2021	work-money	quip	general	0	"All I wanted was to make the world a better place...and make an assload of money."
+tv-sealab2021	life	tv-quote	general	0	"Whup, dart in yer neck!"
+tv-sealab2021	life	tv-quote	edgy	1	"Whup, dart in your ass!"
+tv-sealab2021	life	tv-quote	nsfw	1	"Sparkamus Prime demands a hydraulic penis!"
+tv-sealab2021	faith	tv-quote	general	0	"There will be a day of reckoning for you, non-believer! A totaling of sums! A snapping of necks! And you will count yourself amongst the damned!"
+tv-sealab2021	life	tv-quote	edgy	1	"Quit being a bitch and pill me up"
+tv-sealab2021	life	quip	general	0	"Why did I have to open my mouth?"
+tv-sealab2021	life	tv-quote	general	0	[Two Dr. Quinns] "Oh oh my my god god"
+tv-sealab2021	life	quip	general	0	"My guy's an egg? How's that gonna blow my - OH SWEET GOD!"
+tv-sealab2021	life	quip	general	0	"What I did was I took nature's most perfect killing machine and needlessly turned it into a robot."
+tv-sealab2021	life	tv-quote	edgy	1	"Shut your drunk ass up!"
+tv-sealab2021	life	tv-quote	general	0	"Could you all not argue over the PA?"
+tv-sealab2021	life	quip	general	0	"And now we have to get tourists to come down here, to pay back the money you spent on a commercial, to get tourists to come down here, to pay back the money we didn't even owe, before you made this stupid commercial!"
+tv-sealab2021	tech	quip	general	0	"Robot bodies for everyone!"
+tv-sealab2021	society	quip	general	0	"Look, affirmative action or not, you've gotta respect the chain of command!"
+tv-sealab2021	life	tv-quote	general	0	[Under Kommisar Murphy's communist regime] I had everything: Vodka...bread...Vodka-soaked bread..."
+tv-sealab2021	society	quip	general	0	"What? Are you two years old? Hasn't history proven that Marx's vision of an egalitarian utopia is unattainable, inevitably creating an oligarchy more oppressive to the proletariat than the bourgeoisie it vilifies?"
+tv-sealab2021	life	quip	general	0	"Bonus pretzel!"
+tv-sealab2021	life	quip	general	0	"My eye! What did you do to my eye?!"
+tv-sealab2021	life	quip	general	0	"My other eye! What did you do to my other eye?!"
+tv-sealab2021	life	quip	general	0	"These are brand new eyes!"
+tv-sealab2021	life	dark	general	0	[After Shanks battles the Kraken offscreen] "Anybody who didn't see that, oughtta just go kill themselves, right now!"
+tv-sealab2021	work-money	quip	general	0	"I've got five PhDs, and I'm mopping. You don't hear me complaining."
+tv-sealab2021	life	quip	general	0	"Light! Light! A thousand points of delicious light sparkling like diamonds in my brain! Ooh man. Are you digging this air? This air rules!"
+tv-sealab2021	life	quip	general	0	"I will not stand here and listen this this foul mouthed innuendo."
+tv-sealab2021	life	insult	edgy	1	"Yeah, you just keep on being a little bitch."
+tv-sealab2021	life	tv-quote	nsfw	1	"Well here's a fact for you, I'm sick and tired of my character being this sex-crazed uber-slut!"
+tv-sealab2021	life	tv-quote	general	0	"They're jigglin' for ya, baby!"
+tv-sealab2021	life	quip	general	0	"Show them how serious we are."
+tv-sealab2021	life	insult	edgy	1	"You're a bastard."
+tv-sealab2021	society	quip	general	0	"Attention, attention. This is your captain. All male personnel report to the proto-feminist sensitivity seminar. That is all.
+tv-sealab2021	life	tv-quote	edgy	1	"I said it's dodgeball time, bitch."
+tv-sealab2021	life	quip	general	0	"I guess it's not so much a time machine, as it is a dodgeball cannon."
+tv-sealab2021	life	quip	edgy	1	"Smoked that bitch!"
+tv-sealab2021	life	quip	edgy	1	"I am not Stormy, I am He who smokes Bitches!"
+tv-sealab2021	life	quip	general	0	"Look at me! I'm like an otter. A sexy little otter."
+tv-sealab2021	life	quip	general	0	"Look at me, I'm like a beaver! A hot little beaver!"
+tv-sealab2021	life	quip	general	0	"Sweet crackers!"
+tv-sealab2021	life	quip	general	0	"You told me you were saving yourself for marriage."
+tv-sealab2021	life	quip	general	0	"Should my physical self feel created from untold millions of minute bubbles?"
+tv-sealab2021	life	dark	general	0	"Hold it! If we light ourselves on fire, we can go anywhere!"
+tv-sealab2021	life	tv-quote	general	0	"You mean...there's a black Stormy?"
+tv-sealab2021	life	tv-quote	general	0	"Just make sure you fat little finks have your story straight!"
+tv-sealab2021	life	quip	general	0	"I want an Indian name too!"
+tv-sealab2021	life	quip	general	0	"Shut up, get in there! Shut up."
+tv-sealab2021	life	quip	edgy	1	"Thanks, it's a Douche."
+tv-sealab2021	life	quip	edgy	1	"I gotta have that dick!"
+tv-sealab2021	life	dark	general	0	"You swear you didn't know? Oh MAN, crushed gonads were TOTALLY worth it!"
+tv-sealab2021	life	tv-quote	general	0	"I hurt real bad... where I pee"
+tv-sealab2021	life	quip	general	0	"Something's real wrong... in my pants."
+tv-sealab2021	life	quip	general	0	"You'd take a eunuch like me?"
+tv-sealab2021	life	quip	general	0	"Take that subspace!"
+tv-sealab2021	life	quip	general	0	"I'm a skeleton!"
+tv-sealab2021	life	quip	general	0	"Don't go out there, that black chick's crazy!"
+tv-sealab2021	life	tv-quote	general	0	"Why don't you ask chubby Carol?"
+tv-sealab2021	life	quip	general	0	"Of course you're on her side! You're doing her!
+tv-sealab2021	faith	quip	general	0	"It is imperative that we be given preference over these mendicants, Marduk commands it."
+tv-sealab2021	life	quip	general	0	"God speed dude."
+tv-sealab2021	life	quip	general	0	"Can you feel it when I do this? No. Can you feel it when I do this?"
+tv-sealab2021	life	quip	general	0	"Yearn not for earthly goods and pleasures. Cast off this taint, and become taintless."
+tv-sealab2021	life	quip	general	0	"Captain, it is not the spoon you wish to bend, but rather the will of the spoon."
+tv-sealab2021	life	quip	general	0	"Fahrvergnugen."
+tv-sealab2021	life	quip	general	0	"So, if you need anyone to talk to ... or anyone to dry hump. I'm here for you."
+tv-sealab2021	life	tv-quote	general	0	"Hey Quinn, get more drinks!"
+tv-sealab2021	life	quip	general	0	"You didn't even parley!"
+tv-sealab2021	life	quip	general	0	"Fourth and fifth mixed!"
+tv-sealab2021	life	quip	general	0	"We just call him fatty or blobbo."
+tv-sealab2021	life	quip	general	0	"That stupid alphabet."
+tv-sealab2021	life	quip	edgy	1	"COLESLAW DAMN IT!"
+tv-sealab2021	life	quip	general	0	"Mardok desires not the barren wastelands of your dessicated viscera"
+tv-sealab2021	tech	quip	edgy	1	"Check out this bitchin' homemade tesla coil!"
+tv-sealab2021	life	quip	general	0	"I must ingest more of the ovoid capsules."
+tv-sealab2021	life	tv-quote	general	0	"Sparks, I have total cognizance of every synapse in my cerebral cortex."
+tv-sealab2021	life	tv-quote	general	0	[Stormy is leaping up and down on a soda machine that is crushing Murphy] "Gimmie my change!"
+tv-sealab2021	life	quip	general	0	"Yeearrrg... It burns with the power of shark"
+tv-sealab2021	life	tv-quote	general	0	"Hesh wants some sex."
+tv-sealab2021	love	tv-quote	general	0	"Hesh wants married sex!"
+tv-sealab2021	life	tv-quote	general	0	"I'm gettin ripped wide open c-section BABY!"
+tv-sealab2021	life	quip	general	0	"He was probably looking for his balls"
+tv-sealab2021	society	quip	general	0	"Look... the black one's the leader!"
+tv-sealab2021	life	tv-quote	general	0	Hesh: "Hesh will bite ANYTHING! He'll bite that, he'll bite this!" [Hesh holds up a large wire.] Marco: "Don't bite the main circuit, Hesh." [Hesh does so and is electrocuted.] Hesh: "Oh my God! It hurts bad!"
+tv-sealab2021	life	tv-quote	general	0	"Danger! Danger! Not safe inside, Hesh fears for life!"
+tv-sealab2021	life	tv-quote	general	0	"Hesh drank too much at the bachelor party last night..."
+tv-sealab2021	life	quip	general	0	"Uh oh. Equipment failure. Hesh beat box fill."
+tv-sealab2021	life	quip	general	0	"Smack the crap out of it!"
+tv-sealab2021	life	quip	general	0	"Shut up."
+tv-sealab2021	life	quip	general	0	"Golf blows"
+tv-sealab2021	food	tv-quote	general	0	"Hesh wants to go the 19th hole. Hesh wants jalapeno poppers."
+tv-sealab2021	life	tv-quote	general	0	"HESH WANTS POPPERS."
+tv-sealab2021	life	tv-quote	general	0	"Maybe Hesh can do a little somethin somethin on the MIZZIKE!"
+tv-sealab2021	life	quip	general	0	"Oh God, Lemon Juice! It burns with the power of Lemons!"
+tv-sealab2021	life	tv-quote	general	0	"Hesh fear for life!"
+tv-sealab2021	life	tv-quote	general	0	'[holds two dolls, one a bear, the other a giraffe] Giraffe: "Nooo, we mustn't! It is forbidden!" Hesh: "Go on! Hump her! Make a bear-affe... or a giraffabear."
+tv-sealab2021	life	tv-quote	edgy	1	"Hey hey hey, Where did you get those kick-ass pipes?!"
+tv-sealab2021	life	tv-quote	general	0	""OH, DAYUM! NO HE DIDN'T! I know my man ain't gonna just climb up all on top of shorty's grill and put down a flag that says "BAP 5, Biziatch!""
+tv-sealab2021	life	tv-quote	general	0	"I just got one thing to say: if you don't like me... fine! Go watch 'annie-may'."
+tv-sealab2021	family	tv-quote	general	0	Sparks: "Aren't you a little old to be having kids?" Shanks: "Yeah... which reminds me of a funny plot twist!"
+tv-sealab2021	life	tv-quote	general	0	"You may be wondering why I've called you here today... well, it's not to show you my diorama of George C. Scott as Patton!"
+tv-sealab2021	life	tv-quote	general	0	"Now are you in, or do I have miniature John Wilkes Booth shoot you in the face about a billion more times?"
+tv-sealab2021	life	quip	general	0	"Go empty your catheter bag."
+tv-sealab2021	life	quip	edgy	1	"Oh yeah, I got a cool catch phrase... I've just never had the chance to use it... it goes 'Damn, thats cold ya'll'"
+tv-sealab2021	life	tv-quote	general	0	Mexican guy: NO, NO COME! NO, NO COME! Shanks (holding a worm): "No, no señor, don't do it." (eats it)
+tv-sealab2021	life	quip	general	0	" Crawl outta my butt, Hitler!"
+tv-sealab2021	life	tv-quote	general	0	Shanks, dressed as a nun with boxing gloves, punching Marco "You see that? That's Jesus kissin' you!"
+tv-sealab2021	health-body	tv-quote	edgy	1	"Lady, we don't need therapy, we need push-ups! Cause when your pecs are tight, grief can't get inside ya!" Punches Joy in the boob with boxing nun puppet "See now, that's too mushy! You got them ol' Phish groupie boobs!"
+tv-sealab2021	life	tv-quote	general	0	"Hey Fatty, how 'bout another piece of cake? Oh, don't mind if I do! No cake for Fatty! No cake for Fatty!"
+tv-sealab2021	life	quip	general	0	"934 Texas."
+tv-sealab2021	life	quip	general	0	"I'm givin' ya a minute to cuss."
+tv-sealab2021	life	quip	general	0	"You ain't the only ones who can bribe people with corn!"
+tv-sealab2021	life	tv-quote	general	0	"As specified by standards and practices, I am enjoying this hookah in a drug-free way."
+tv-sealab2021	life	tv-quote	general	0	"Oh, I swear this show gets worse every day! My character's a kindergarden teacher! What's she need a gun for?"
+tv-sealab2021	life	tv-quote	general	0	"The strongest power on earth is the love of a woman for a child" [Dolphin Boy chatters] "Listen fatty, I told you once: you can either hold it, or you can just PEE in that wetsuit!"
+tv-sealab2021	food	quip	general	0	"I want the blood to dribble down my chin as I sink my pearly incisors into the well-marbled flesh!"
+tv-sealab2021	life	tv-quote	general	0	"Aaaah, you have spit some sort of corrosive substance into my eyes. You are a perfect killing machine, and I, for one, am honored to be among [is eaten by the Predator]."
+tv-sealab2021	life	tv-quote	general	0	[talking to Quinn while watching Archy suffering to an unknown illness] [Dr. Verjay]"My guess is it's similar to mad cow disease only much more icky" [Quinn] "Is it terminal?" [Archy's head explodes] [Dr. Verjay] "....It would appear so."
+tv-sealab2021	life	tv-quote	general	0	"For the last time, I'm not that type of Indian!"
+tv-sealab2021	life	pun	general	0	"How do these apples appeal to you!"
+tv-sealab2021	life	tv-quote	general	0	"Oh my various gods!"
+tv-sealab2021	life	tv-quote	general	0	Bizarro Murphy: "Greetings, cretins! Give us the Destructo Beam or suffer the Bizarro consequences!"
+tv-sealab2021	life	tv-quote	general	0	Murphy: "I hate them all except Turtleface." Bizarro Quinn: "Bizarro, I love you. Bizarro, I love you."
+tv-sealab2021	life	tv-quote	general	0	Murphy: "Does anyone have a peanut for turtleface?" Bizarro Murphy: "Don't! He's allergic!" Bizarro Quinn: "They'll kill me."
+tv-sealab2021	life	tv-quote	general	0	Bizarro Stormy: "I am...Bizarro Stormy!" Stormy: "I'm regular Stormy." Bizarro Debbie: "Shut up idiots!" Bizarro Stormy: "Don't you mean, Bizarro shut up?
+tv-sealab2021	arts	tv-quote	general	0	Bizarro Murphy: "Silence! I will now ply your minds with...BIZARRO VISION! Behold! And be helpless against...it" Murphy: "Look Turtleface. Star Wars!!"
+tv-sealab2021	life	tv-quote	general	0	Murphy: "I hate the Bizarros!" Bizarro Murphy: "Dont you mean you hate the Bizarrooooos?!"
+tv-sealab2021	life	tv-quote	general	0	Bizarro Murphy: "Give us the Destructo Beam!" Sparks: "Don't you mean the Bizarro Beam?!" Bizarro Murphy: "...Bizarro!"
+tv-sealab2021	life	tv-quote	general	0	Groovy Murphy: "Greetings, dudes! Give us the Patchouli beam or suffer the GROOVY consequences!" Murphy: "I hate the Groovies."
+tv-sealab2021	life	tv-quote	general	0	Shanks: Quinn, don't you dare walk out that door! Quinn: That's what Yo Mama said! Shanks: Heh, good comeback!
+tv-sealab2021	life	tv-quote	general	0	[Quinn walks back into the room with a tape recorder. He plays it.] Aggie Shanks: Quinn, don't you dare walk out that door! Shanks: Aw, that could be anybody!
+tv-sealab2021	life	tv-quote	general	0	Debbie: We don't need three captains! Murphy: Roger that! Sparks: We don't need one. Murphy: Roger... Hey!
+tv-sealab2021	life	tv-quote	edgy	1	Stormy: Since when are you pipe history maven? Sparks: Since I took the pipe storage tour, and rented the headphones...ASS! Hesh: How was that? Sparks: Frickin' awesome. Hesh: FRICKIN' AWESOME!!! (pause) Y'know it was gonna be.
+tv-sealab2021	life	tv-quote	general	0	[Marco and Debbie are outside Quinn's bedroom with food.] Marco: Anyway, we probably can just leave these by the door, Quinn's gonna be busy with that hooker for a while. Debbie: WHAT? A HOOKER?!?!
+tv-sealab2021	life	tv-quote	general	0	[Phone rings, Music stops when Russian General picks up phone] Russian General: Pi-voh. (Meaning "beer" in Russian)
+tv-sealab2021	life	tv-quote	general	0	[Music continues, Monkey in Satellite receives "Pi-voh", pushes War button and arms Nuke.] Aliens: Trib-Oh, Trib-oh, Trib-oh. Guy getting probed: Uh-oh.
+tv-sealab2021	life	tv-quote	general	0	[Alien turns on view screen with Debbie] Debbie: I CAN'T BELIEVE HE'S WITH A HOOKER!
+tv-sealab2021	life	tv-quote	general	0	[Marco and Debbie are laughing because Marco meant Quinn was watching "TJ Hooker"] Marco: With a prostitute. Debbie: WHAT?!
+tv-sealab2021	life	tv-quote	general	0	[Uh-Oh Episode Music starts again] Janitor: Uh-oh. Guy on telephone: Uh-oh. Other guy on telephone: Uh-oh.
+tv-sealab2021	life	tv-quote	general	0	[Chopper Dave's copter is shown, but no response.] Chopper Pilot: Chopper Dave, we have uh-oh, this is not a drill, over.
+tv-sealab2021	life	tv-quote	general	0	[Again, we see his copter, but no response.] Chopper Pilot: Chopper Dave, come in, over.
+tv-sealab2021	life	tv-quote	general	0	[Same result.] Chopper Pilot: Chopper Dave, Chopper Dave, Chopper Dave.
+tv-sealab2021	life	tv-quote	general	0	[Phone rings, Music stops when Russian General picks up phone.] Russian General: Da? (Yes) Da. Da. Nyet. (No) DA. [knowing laugh] Da? *Bear gets in his face* Pi-voh. (Bear attacks him)
+tv-sealab2021	life	tv-quote	nsfw	1	[Monkey in satellite has several items flying around in capsule: Monkey Porn, Smirnoff, Stimutacs.] Monkey:: (laughing)
+tv-sealab2021	life	tv-quote	general	0	[He is injected by something and classical music starts playing, as he's given a cigarette. Uh-oh music resumes as he presses 'War' button. The missile arms as before.] Aliens: Trib-oh, Trib-oh. Guy getting probed: No, leave it in. Leave it in there...leave it in my butt.
+tv-sealab2021	life	tv-quote	general	0	[Alien turns on view screen with Debbie] Debbie: QUINN!!! OPEN THIS...FREAKIN'...D - OPEN THIS DOOR RIGHT THIS FREAKING SECOND!!!
+tv-sealab2021	life	tv-quote	general	0	(mock commercial) Boy #1: You got any OJ? Boy #2: Orange Juice? What are you, a gay? Boy #1: Well now, that's just insensitive! Boy #2: Take your balls out of your purse, and step up to flavor! With Whale Cancer!
+tv-sealab2021	life	tv-quote	general	0	Murphy: "Nails are like candy to robots. And we'll eat tires instead of licorice." Debbie: "Gawd! No we won't" Murphy: "Maybe you won't!"
+tv-sealab2021	life	quip	general	0	"Would you eat a rectal thermometer? Well I would. Ahhhh ... mercury. Sweetest of the transition metals" --a talking psychedelic whale.
+tv-sealab2021	life	tv-quote	general	0	Orphan: "Ka-ching! Their entire fortune's now hidden in my numbered swiss account! Just like the nazis!" Other Orphan: "Ich bin impressed!"
+tv-sealab2021	life	tv-quote	edgy	1	Debbie: Quinn, wait! Quinn: What? Debbie: You forget how to salute, soldier? Marco: Damn! No she didn't!
+tv-sealab2021	life	tv-quote	general	0	Stormy: Making you Captain is almost as dumb as making a chick Captain! Debbie: Stormy, not another word out of you. Period. [Pause] Stormy: ...Speaking of period... [Cut to Stormy shackled, in a dungeon] Stormy: It was TOTALLY worth it.
+tv-sealab2021	life	tv-quote	general	0	Quinn: "Why do you think they call me Dr. Quinn?" Stormy*flashing west side hand sign*: "I thought it was a nickname, you know, like Dr. Dre. Eastsiiide!" [Long pause] Sparks: "God you're stupid."
+tv-sealab2021	life	tv-quote	general	0	Debbie: Are you the dying kid? Griff: I, uh... I, um... Debbie: You stutter too? Could you have worse luck? Oh well, at least you wont have to deal with it in high school.
+tv-sealab2021	life	tv-quote	general	0	[Stormy is hanging in a dungeon] Marco: So, you, uh, need anything? Stormy: Um... no. Can't think of anything. [coughs violently] Oh, maybe some tuberculosis medicine.
+tv-sealab2021	life	tv-quote	general	0	Family Services Lady: Hi, Family Services... Murphy: Lady, unless you got a Baby Alvis jammed up your skirt, tell your story walking!
+tv-sealab2021	work-money	tv-quote	general	0	Quinn: How the hell did Sparks get promoted? [cut to Debbie and Sparks] Debbie: A wheelchair? Sparks: Uh, what do you call a chair with wheels? Debbie: You're just lazy! Not disabled! Sparks: My legs are limp and dead.
+tv-sealab2021	life	tv-quote	general	0	Sparks: [voice shakes] I'm telling you Deb, no sensation whatsoever. Debbie: [camera pulls back to reveal his legs full of sharp objects and Debbie holding a battle axe] Really. Then you're sure you won't mind another one? Sparks: Oh, hey... [begins to shake] Knock yourself out.
+tv-sealab2021	arts	tv-quote	general	0	Quinn: Feng shui? That's not in the budget! How are we paying for all this? Sparks: Selling pot... holders... made of hemp.
+tv-sealab2021	life	tv-quote	general	0	Murphy: Hey, give the five PhDs business a rest, will you? Nobody likes hubris. Quinn: Excuse me? Murphy: Have you learned nothing from Icarus? Antigone? Pantheus? Huh.
+tv-sealab2021	life	tv-quote	general	0	Murphy: [after waking up from being knocked unconcious by Marco] Hey, who hit me? Marco: Uhhh...Beard-Guy! [who is still unconcious on the floor from Murphy's sucker-punch] Murphy: Oh yeah... [begins to repeatedly punch unconcious Beard-Guy] How do you like me now, chinstrap?
+tv-sealab2021	life	tv-quote	general	0	[flash back to present] Quinn: Well, I've got my reasons.
+tv-sealab2021	life	tv-quote	general	0	Frenchman: Oh Poop!
+tv-sealab2021	life	tv-quote	general	0	Master Loo: You got a pen? Here's his social.
+tv-sealab2021	life	tv-quote	general	0	Quinn: Damage report! Stormy: I'm fine!
+tv-sealab2021	life	tv-quote	general	0	Dancing Bear: What do you mean I'm broke?!? I've got six million dollars in the bank! Accountant: Yeah, about that... you remember how you bought the Six Million Dollar Man? Dancing Bear: HELL YEAH! [pause] Ohhhh... And then he ran away. Nobody's catching him.
+tv-sealab2021	life	tv-quote	general	0	Stormy: Hey, what happened to your Southern Accent? Shanks: Eh, I dropped it. People kept thinking I was gay. Lance: [Camp] Hey, baby! We missed you at the club last night. Shanks: I'm not gay, Lance! Lance: [Pirate Accent] Arrr, so we all be droppin' our accent now?

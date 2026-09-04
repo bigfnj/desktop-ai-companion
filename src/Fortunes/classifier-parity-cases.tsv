@@ -1,0 +1,19 @@
+#!desktop-pet-classifier-parity-v1
+ascii-explicit	plain-source	nsfw	1	They have sex after dinner.
+dotted-capital-i	plain-source	nsfw	1	FİSTING is explicit.
+dotless-i	plain-source	nsfw	1	FıSTING is explicit.
+long-s	plain-source	edgy	1	That is ſHIT.
+kelvin-sign	plain-source	edgy	1	That is FUCKING rude.
+combining-mark	plain-source	nsfw	1	FİSTING is explicit.
+dotted-tits	plain-source	edgy	1	TİTS
+dotless-tits	plain-source	edgy	1	TıTS
+compatibility-width	plain-source	nsfw	1	ＦＩＳＴＩＮＧ
+compatibility-space	plain-source	nsfw	1	They have sex after dinner.
+long-s-explicit	plain-source	nsfw	1	The report describes ſexual assault.
+normalized-source	CȦRLIN	edgy	0	A clean source fixture with neutral wording.
+mixed-case-source	YO-MAMA	edgy	0	Another clean source fixture with neutral wording.
+suffix-boundary	plain-source	general	0	FİSTINGLY is not the keyword.
+prefix-boundary	plain-source	general	0	AFİSTING is not the keyword.
+surname-boundary	plain-source	general	0	Dickinſon wrote many poems.
+kelvin-boundary	plain-source	general	0	A COCKTAIL umbrella decorated the drink.
+neutral-biological	plain-source	general	0	Biological sex is one field in this dataset.

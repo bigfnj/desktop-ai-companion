@@ -1,0 +1,47 @@
+pets	nature	quip	general	0	A door is what a dog is perpetually on the wrong side of.
+pets	life	observation	general	0	About the only thing on a farm that has an easy time is the dog.
+pets	nature	quip	general	0	All intelligent species own cats.
+pets	tech	quip	general	0	Anyone who considers protocol unimportant has never dealt with a cat.
+pets	arts	tv-quote	general	0	"Anything else you wish to draw to my attention, Mr. Holmes ?" "The curious incident of the stable dog in the nighttime." "But the dog did nothing in the nighttime." "That was the curious incident."
+pets	life	aphorism	general	0	Auribus teneo lupum. [I hold a wolf by the ears.] [Boy, it *sounds* good. But what does it *mean*?]
+pets	nature	pun	general	0	Breeding rabbits is a hare raising experience.
+pets	nature	wisdom	general	0	Cats are intended to teach us that not everything in nature has a function.
+pets	nature	observation	general	0	Cats are smarter than dogs. You can't make eight cats pull a sled through the snow.
+pets	nature	verse	general	0	Cats, no less liquid than their shadows, offer no angles to the wind.
+pets	nature	quip	general	0	Chihuahuas drive me crazy. I can't stand anything that shivers when it's warm.
+pets	tech	quip	general	0	"Contrary to popular belief, penguins are not the salvation of modern technology. Neither do they throw parties for the urban proletariat."
+pets	life	observation	general	0	Did you ever walk into a room and forget why you walked in? I think that's how dogs spend their lives.
+pets	science	pun	general	0	Does the name Pavlov ring a bell?
+pets	nature	observation	general	0	Dogs just don't seem to be able to tell the difference between important people and the rest of us.
+pets	life	quip	general	0	For a man to truly understand rejection, he must first be ignored by a cat.
+pets	life	joke	general	0	Hi! You have reached 555-0129. None of us are here to answer the phone and the cat doesn't have opposing thumbs, so his messages are illegible. Please leave your name and message after the beep...<BEL>
+pets	nature	quip	general	0	I loathe people who keep dogs. They are cowards who haven't got the guts to bite people themselves.
+pets	nature	quip	general	0	I love dogs, but I hate Chihuahuas. A Chihuahua isn't a dog. It's a rat with a thyroid problem.
+pets	life	observation	general	0	If a can of Alpo costs 38 cents, would it cost $2.50 in Dog Dollars?
+pets	nature	joke	general	0	If anyone has seen my dog, please contact me at x2883 as soon as possible. We're offering a substantial reward. He's a sable collie, with three legs, blind in his left eye, is missing part of his right ear and the tip of his tail. He's been recently fixed. Answers to "Lucky".
+pets	life	quip	general	0	If you are a police dog, where's your badge?
+pets	life	joke	general	0	"If you don't want your dog to have bad breath, do what I do: Pour a little Lavoris in the toilet."
+pets	nature	quip	general	0	In the eyes of my dog, I'm a man.
+pets	life	dark	general	0	It is not a good omen when goldfish commit suicide.
+pets	life	quip	general	0	It was Penguin lust... at its ugliest.
+pets	life	dark	general	0	It's no use crying over spilt milk -- it only makes it salty for the cat.
+pets	nature	quip	general	0	Lost: gray and white female cat. Answers to electric can opener.
+pets	nature	aphorism	general	0	Never try to outstubborn a cat.
+pets	nature	quip	general	0	No animal should ever jump on the dining room furniture unless absolutely certain he can hold his own in conversation.
+pets	life	quip	general	0	No one can feel as helpless as the owner of a sick goldfish.
+pets	life	quip	general	0	PENGUINICITY!!
+pets	nature	pun	general	0	Raising pet electric eels is gaining a lot of current popularity.
+pets	life	pun	general	0	"Shelter," what a nice name for for a place where you polish your cat.
+pets	arts	wisdom	general	0	Some books are to be tasted, others to be swallowed, and some few to be chewed and digested.
+pets	life	observation	general	0	Sometimes when I get up in the morning, I feel very peculiar. I feel like I've just got to bite a cat! I feel like if I don't bite a cat before sundown, I'll go crazy! But then I just take a deep breath and forget about it. That's what is known as real maturity.
+pets	life	joke	general	0	Speaking of purchasing a dog, never buy a watchdog that's on sale. After all, everyone knows a bargain dog never bites!
+pets	nature	observation	general	0	The difference between dogs and cats is that dogs come when they're called. Cats take a message and get back to you.
+pets	nature	quip	general	0	The main problem I have with cats is, they're not dogs.
+pets	life	observation	general	0	The only time a dog gets complimented is when he doesn't do anything.
+pets	nature	quip	general	0	There are many intelligent species in the universe, and they all own cats.
+pets	life	aphorism	general	0	There's no use in having a dog and doing your own barking.
+pets	life	pun	general	0	To err is human, To purr feline.
+pets	nature	observation	general	0	When man calls an animal "vicious", he usually means that it will attempt to defend itself when he tries to kill it.
+pets	life	observation	general	0	When the fog came in on little cat feet last night, it left these little muddy paw prints on the hood of my car.
+pets	nature	aphorism	general	0	Who loves me will also love my dog.
+pets	life	quip	general	0	With a rubber duck, one's never alone. -- "The Hitchhiker's Guide to the Galaxy"
