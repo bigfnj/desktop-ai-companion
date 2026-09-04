@@ -99,6 +99,7 @@
     <Compile Include="dotNet\ContextMenus.cs" />
     <Compile Include="dotNet\AppLifetime.cs" />
     <Compile Include="dotNet\TrayPromotion.cs" />
+    <Compile Include="dotNet\DiagnosticLog.cs" />
     <Compile Include="dotNet\FactoryReset.cs" />
     <Compile Include="dotNet\CompanionCatalog.cs" />
     <Compile Include="dotNet\AppUpdateCheck.cs" />

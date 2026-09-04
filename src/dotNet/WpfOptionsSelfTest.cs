@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -54,6 +54,67 @@ namespace DesktopAICompanion
                     foreach (var f in prefs.Schema)
                         if (f != null && f.Id == "speech") keptOthers = true;
                 ok &= Check(sb, "...without removing anything else from Preferences", keptOthers);
+
+                // --- diagnostic-log pane ---
+                // The category and module toggles are GENERATED, and the settings store them INVERTED
+                // (muted, so absent means log everything). That inversion is the part that breaks silently:
+                // get it backwards and a fresh install logs nothing while every checkbox reads ticked.
+                var diagIds = new System.Collections.Generic.List<string>();
+                foreach (var f in prefs.Schema)
+                    if (f != null && f.Id != null && f.Id.StartsWith("diag", StringComparison.Ordinal))
+                        diagIds.Add(f.Id);
+                ok &= Check(sb, "the pane offers the log switch and both rotation settings",
+                    diagIds.Contains("diagLog") && diagIds.Contains("diagLogKb") && diagIds.Contains("diagLogKeep"));
+                // One per LogCategory, generated from the enum, so a new category cannot be forgotten here.
+                int categoryFields = 0;
+                foreach (var f in prefs.Schema)
+                    if (f != null && f.Id != null && f.Id.StartsWith("diagCat_", StringComparison.Ordinal))
+                        categoryFields++;
+                ok &= Check(sb, "one toggle per LogCategory, generated from the enum",
+                    categoryFields == Enum.GetValues(typeof(LogCategory)).Length);
+
+                // Polarity, both directions, against the pure helper rather than the Load dictionary: Load
+                // needs a LocalData this headless self-test does not have, so asserting through it would
+                // test "settings are absent" and pass for the wrong reason.
+                ok &= Check(sb, "a category absent from the muted list reads as ON",
+                    DesktopAICompanion.Wpf.OptionsShell.IsCategoryLogged("", LogCategory.Tray));
+                ok &= Check(sb, "Animation defaults to OFF (it is per-frame churn)",
+                    !DesktopAICompanion.Wpf.OptionsShell.IsCategoryLogged("", LogCategory.Animation));
+                ok &= Check(sb, "a muted category reads as OFF",
+                    !DesktopAICompanion.Wpf.OptionsShell.IsCategoryLogged("Tray", LogCategory.Tray));
+                ok &= Check(sb, "Animation opted back in reads as ON",
+                    DesktopAICompanion.Wpf.OptionsShell.IsCategoryLogged("-Animation", LogCategory.Animation));
+                ok &= Check(sb, "a module absent from the muted list reads as ON",
+                    DesktopAICompanion.Wpf.OptionsShell.IsModuleLogged("", "aibrain"));
+                ok &= Check(sb, "a muted module reads as OFF",
+                    !DesktopAICompanion.Wpf.OptionsShell.IsModuleLogged("aibrain", "aibrain"));
+
+                // And the log itself must honour the muted list it is handed. Empty list first: that is a
+                // fresh install, where everything must be recorded EXCEPT the per-frame animation churn --
+                // the one default that is not "absent means on", so it is the one that can silently drift.
+                DiagnosticLog.Configure(true, 512, 2, "", "");
+                ok &= Check(sb, "an empty muted list records an ordinary category",
+                    DiagnosticLog.IsEnabled(LogCategory.Tray, null));
+                ok &= Check(sb, "...but Animation is still muted by default",
+                    !DiagnosticLog.IsEnabled(LogCategory.Animation, null));
+                DiagnosticLog.Configure(true, 512, 2, "Tray", "");
+                ok &= Check(sb, "a muted category stops being recorded",
+                    !DiagnosticLog.IsEnabled(LogCategory.Tray, null));
+                ok &= Check(sb, "...while the others still are",
+                    DiagnosticLog.IsEnabled(LogCategory.App, null));
+                DiagnosticLog.Configure(true, 512, 2, "-Animation", "");
+                ok &= Check(sb, "Animation can be opted back IN without inverting the whole list",
+                    DiagnosticLog.IsEnabled(LogCategory.Animation, null));
+                DiagnosticLog.Configure(true, 512, 2, "", "aibrain");
+                ok &= Check(sb, "a muted module's own lines stop being recorded",
+                    !DiagnosticLog.IsEnabled(LogCategory.Modules, "aibrain"));
+                ok &= Check(sb, "...while another module's are kept",
+                    DiagnosticLog.IsEnabled(LogCategory.Modules, "fortunes"));
+                DiagnosticLog.Configure(false, 512, 2, "", "");
+                ok &= Check(sb, "the master switch turns everything off",
+                    !DiagnosticLog.IsEnabled(LogCategory.App, null));
+                // Leave it as the user would have it, so a later self-test in this process still logs.
+                DiagnosticLog.Configure(true, 512, 2, "", "");
                 ok &= Check(sb, "collect includes the host Companions pane, alphabetized into the tail",
                     panes != null && panes.Count >= 3 && panes[2] != null && panes[2].Title == "Companions" && !panes[2].HasApply);
 

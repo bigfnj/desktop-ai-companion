@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.CompilerServices;
@@ -649,7 +649,12 @@ namespace DesktopAICompanion.Plugins
             try
             {
                 string id = string.IsNullOrWhiteSpace(moduleId) ? "module" : moduleId.Trim();
-                StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info, "[" + id + "] " + message);
+                // Log with the module id EXPLICIT rather than letting the file re-parse it out of the
+                // "[id] " prefix. This is the single choke point every module's IHost.Log passes through,
+                // so it is the one place that knows the id for certain -- which is what makes "log only the
+                // module I am working on" exact instead of a guess at a prefix.
+                DiagnosticLog.Write(LogCategory.Modules, "info", id, "[" + id + "] " + message);
+                StartUp.AddDebugInfoWindowOnly(StartUp.DEBUG_TYPE.info, "[" + id + "] " + message);
             }
             catch { }
         }

@@ -98,6 +98,17 @@ namespace DesktopAICompanion
                 }
                 catch (Exception) { } // probably thread error.
             }
+            // Say what actually happened, every run. A missing tray icon leaves the app running but
+            // unreachable, and the one investigation into that had NO evidence to work from: this method
+            // logged only on the failure branch, so a run where SetIcon "succeeded" and the icon still did
+            // not appear looked identical to a run that never got here. These three facts separate the
+            // cases -- did we set an icon, is the control marked visible, and which name did the shell get.
+            StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info,
+                "tray icon set: success=" + success +
+                " icon=" + (ni.Icon != null) +
+                " visible=" + ni.Visible +
+                " text='" + (ni.Text ?? "") + "'");
+
             // The icon is registered with the shell by this point (successfully or via the fallback above),
             // so its Windows 11 notification-area entry now exists and can be lifted out of the hidden-icons
             // flyout. Fire-and-forget: nothing about the pet depends on the outcome.

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
@@ -214,9 +214,29 @@ namespace DesktopAICompanion
             }
             try
             {
+                // Rotate the diagnostic log before anything worth recording happens, and only once this
+                // instance owns a slot, for the same reason the settings load waits: a rejected third
+                // launch must not touch application data, including this.
+                DiagnosticLog.Start();
+
                 // Load/migrate mutable settings only after this instance owns a cross-session
                 // slot, so a rejected third launch cannot write application data.
                 MyData = new LocalData();
+
+                // Apply the user's logging choices as soon as settings exist. Start() above already opened
+                // the file with defaults, deliberately: the lines written between launch and this point are
+                // the ones that explain a settings-load failure, and they would be lost if logging waited
+                // for the settings that failed to load.
+                try
+                {
+                    DiagnosticLog.Configure(
+                        MyData.GetDiagnosticLog(),
+                        MyData.GetDiagnosticLogMaxKilobytes(),
+                        MyData.GetDiagnosticLogKeep(),
+                        MyData.GetDiagnosticLogMutedCategories(),
+                        MyData.GetDiagnosticLogMutedModules());
+                }
+                catch (Exception) { }
                 if (!string.IsNullOrWhiteSpace(MyData.SettingsWarning))
                 {
                     MessageBox.Show(

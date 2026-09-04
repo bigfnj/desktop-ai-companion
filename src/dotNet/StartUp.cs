@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -1394,7 +1394,27 @@ namespace DesktopAICompanion
             /// </summary>
             /// <param name="type">See <see cref="StartUp.DEBUG_TYPE"/> for the possible values. </param>
             /// <param name="text">Text to show in the dialog window.</param>
+        /// <summary>
+        /// The debug window only, with no file write. Used by the one caller that has already logged with a
+        /// module id of its own -- CompanionHost.Log -- so a module's line is recorded once, tagged with the
+        /// id, rather than twice with the second copy losing the tag and dodging the per-module filter.
+        /// </summary>
+        public static void AddDebugInfoWindowOnly(DEBUG_TYPE type, string text)
+        {
+            ShowInDebugWindow(type, text);
+        }
+
         public static void AddDebugInfo(DEBUG_TYPE type, string text)
+        {
+            // To the FILE first and UNCONDITIONALLY, then to the window. The window half returns early when
+            // nobody held SHIFT at launch, which used to be the whole method -- so every one of these calls
+            // was discarded on an ordinary run and a fault that needed explaining left no trace at all. The
+            // window is the live view; the log is the record. Nothing may return between here and the write.
+            DiagnosticLog.Write(DiagnosticLog.Infer(text), type.ToString(), null, text);
+            ShowInDebugWindow(type, text);
+        }
+
+        private static void ShowInDebugWindow(DEBUG_TYPE type, string text)
         {
             FormDebug target;
             lock (debugLock) target = debug;

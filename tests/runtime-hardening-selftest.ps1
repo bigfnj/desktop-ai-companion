@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     # Accepted for CI compatibility but unused: this script now performs only source-text invariant
     # checks (it reads .cs files, no assembly load). The reflection/runtime half moved in-process to
@@ -310,8 +310,16 @@ Assert-True (
 # Options are only set at construction is the frozen case above.
 $optionsShellSource = Get-Content -LiteralPath (
     Join-Path $repoRoot 'src\Portable\Wpf\OptionsShell.cs') -Raw
+# CONTAINMENT, not distance. This was a regex with a 4000-character budget between "Load = delegate" and
+# "speakerField.Options =", which is a proxy for "inside the Load body" that stops being true the moment
+# anything else is added to that body -- as adding the diagnostic-log fields did. It then fails against
+# correct code, which is the worst kind of check: it trains you to widen the number rather than read it.
+# Load runs before Save in this initializer, so "between the two" is the real relationship.
+$loadAt    = $optionsShellSource.IndexOf('Load = delegate')
+$saveAt    = $optionsShellSource.IndexOf('Save = delegate', [Math]::Max($loadAt, 0))
+$optionsAt = $optionsShellSource.IndexOf('speakerField.Options =', [Math]::Max($loadAt, 0))
 Assert-True (
-    $optionsShellSource -match '(?s)Load = delegate[\s\S]{0,4000}?BuildSpeakerOptions\([\s\S]{0,400}?speakerField\.Options ='
+    $loadAt -ge 0 -and $saveAt -gt $loadAt -and $optionsAt -gt $loadAt -and $optionsAt -lt $saveAt
 ) 'the speaker dropdown refreshes its options inside Load, not only at construction'
 
 # The host-level fullscreen answer must come from the scan the PETS already run, not a second detector.
@@ -510,6 +518,58 @@ Assert-True (
     # an omission someone later fixes by adding the property.
     (Get-Content -LiteralPath (Join-Path $repoRoot 'SUPPORT.md') -Raw) -match '/l\*v'
 ) 'SUPPORT.md tells a user how to produce an installer log on demand'
+
+# The debug stream must reach a FILE, not only the debug window. AddDebugInfo returns early when that
+# window is closed, so on an ordinary run all 57 call sites were discarded -- which is why an intermittent
+# missing tray icon left no evidence at all and cost a whole investigation. The window is the live view;
+# the log is the record, and the record is the half that exists when nobody predicted the fault.
+$startUpText = Remove-LineComments $startUpSource
+$diagSource = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'src\dotNet\DiagnosticLog.cs') -Raw)
+$addDebugBody = Get-MethodBody $startUpText 'public static void AddDebugInfo(' @(
+    "`n        private ", "`n        public ", "`n        internal ")
+$writeAt  = $addDebugBody.IndexOf('DiagnosticLog.Write(')
+$windowAt = $addDebugBody.IndexOf('ShowInDebugWindow(')
+$returnAt = $addDebugBody.IndexOf('return')
+Assert-True (
+    # ORDER and UNREACHABILITY, not presence. The window half returns early when no debug window is open, so
+    # a DiagnosticLog.Write placed after it is dead on exactly the runs that need it -- while still reading
+    # as correctly wired. Asserting three things: the write happens, it happens before the window hand-off,
+    # and no return precedes it. The third is what stops a future guard clause quietly re-creating the bug.
+    $writeAt -ge 0 -and $windowAt -gt $writeAt -and ($returnAt -lt 0 -or $returnAt -gt $writeAt)
+) 'AddDebugInfo writes to the log first, with nothing able to return before it'
+$settingsSource = Get-Content -LiteralPath (
+    Join-Path $repoRoot 'src\Portable\AppSettingsStore.cs') -Raw
+Assert-True (
+    # The property that matters is "the previous run survives a restart", because a missing tray icon leaves
+    # the app unreachable and the first reaction is to restart it -- destroying the only record. That is now
+    # expressed as N-file rotation with a default of 2, so BOTH halves are asserted: the rotation shifts
+    # files rather than truncating, and the shipped default keeps more than just the current one.
+    $diagSource -match 'File\.Move\(Current\(i - 1\), Current\(i\)\)' -and
+    $settingsSource -match 'DiagnosticLogKeep = ([2-9]|[1-9][0-9])\s*,'
+) 'the diagnostic log rotates and keeps at least the previous run by default'
+$diagWriteBody = Get-MethodBody $diagSource 'internal static void Write(' @(
+    "`n        private ", "`n        public ", "`n        internal ")
+Assert-True (
+    # Write must DELEGATE its filtering to IsEnabled rather than repeat it. Both once carried the same three
+    # checks, and because the self-tests can only reach IsEnabled, deleting the per-module check inside Write
+    # left every assertion green while muted modules kept writing -- a mutation proved exactly that. So this
+    # asserts the delegation exists AND that no private copy of the state has grown back beside it. The
+    # directory check is the one thing Write is allowed to decide alone: it is about the file, not the policy.
+    $diagWriteBody -match 'IsEnabled\(category, moduleId\)' -and
+    $diagWriteBody -notmatch '_mutedCategories' -and
+    $diagWriteBody -notmatch '_mutedModules' -and
+    $diagWriteBody -notmatch '_enabled'
+) 'DiagnosticLog.Write filters through IsEnabled and keeps no second copy of the rules'
+Assert-True (
+    # The tray path must say what happened on EVERY run, not only when it fails. A run where SetIcon
+    # succeeded and the icon still never appeared was previously indistinguishable from one that never
+    # reached the call at all.
+    # Read inline rather than reusing $processIconSource: that is defined further down the file, and under
+    # Set-StrictMode a forward reference throws rather than evaluating to empty.
+    (Remove-LineComments (Get-Content -LiteralPath (
+        Join-Path $repoRoot 'src\dotNet\ProcessIcon.cs') -Raw)) -match 'tray icon set: success='
+) 'SetIcon records its outcome whether or not it succeeded'
 
 # Every tray surface that holds only a pet ID must resolve it through DisplayNameForId, which reads the
 # pet's own header. DisplayName(id, null) has no catalog name to consult and falls through to the prettified

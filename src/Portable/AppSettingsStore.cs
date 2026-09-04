@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -205,6 +205,32 @@ namespace DesktopAICompanion
         [JsonPropertyName("companionUpdateStaleIds"), JsonPropertyOrder(41)]
         public string PetUpdateStaleIds;
 
+        // Nullable, absent-reads-as-ON, for the same reason as the update checks above: the log is the only
+        // record of a fault nobody predicted, so a doc written before this field existed must keep logging
+        // rather than silently stop. Turning it OFF is a deliberate act, and the pane says what is recorded.
+        [JsonPropertyName("diagnosticLog"), JsonPropertyOrder(42)]
+        public bool? DiagnosticLog;
+
+        // Kilobytes, not megabytes: the useful content is one launch's worth of startup lines, and a cap
+        // small enough to attach to an issue is worth more than one that holds a week of history.
+        [JsonPropertyName("diagnosticLogMaxKilobytes"), JsonPropertyOrder(43)]
+        public int DiagnosticLogMaxKilobytes;
+
+        // How many files to keep, current included. Two means "this run and the one before", which is the
+        // minimum that survives the reflex of restarting an app whose tray icon vanished.
+        [JsonPropertyName("diagnosticLogKeep"), JsonPropertyOrder(44)]
+        public int DiagnosticLogKeep;
+
+        // "Modules;Tray", categories NOT to record. Muted rather than enabled so that absent means
+        // everything, which is what a fresh install should mean.
+        [JsonPropertyName("diagnosticLogMutedCategories"), JsonPropertyOrder(45)]
+        public string DiagnosticLogMutedCategories;
+
+        // "aibrain;fortunes", module ids whose own log lines are dropped. Same polarity and same reason:
+        // absent means every module is recorded, so a module author gets output without configuring first.
+        [JsonPropertyName("diagnosticLogMutedModules"), JsonPropertyOrder(46)]
+        public string DiagnosticLogMutedModules;
+
         // Keep in sync with CompanionCatalog.BuiltInPetId (which AppSettingsStore can't reference — it compiles
         // into the SecureDownload-free CoreTests set).
         internal const string DefaultActivePetId = "eSheep";
@@ -255,6 +281,11 @@ namespace DesktopAICompanion
                 PetUpdateCheck = true,
                 PetUpdateLastCheckUtc = "",
                 PetUpdateStaleIds = "",
+                DiagnosticLog = true,
+                DiagnosticLogMaxKilobytes = 512,
+                DiagnosticLogKeep = 2,
+                DiagnosticLogMutedCategories = "",
+                DiagnosticLogMutedModules = "",
                 TriggerSpeech = new List<TriggerSpeechEntry>()
             };
         }
@@ -1063,6 +1094,16 @@ namespace DesktopAICompanion
                 target.PetUpdateLastCheckUtc = current.PetUpdateLastCheckUtc;
             if (all || !string.Equals(current.PetUpdateStaleIds, baseline.PetUpdateStaleIds, StringComparison.Ordinal))
                 target.PetUpdateStaleIds = current.PetUpdateStaleIds;
+            if (all || current.DiagnosticLog != baseline.DiagnosticLog)
+                target.DiagnosticLog = current.DiagnosticLog;
+            if (all || current.DiagnosticLogMaxKilobytes != baseline.DiagnosticLogMaxKilobytes)
+                target.DiagnosticLogMaxKilobytes = current.DiagnosticLogMaxKilobytes;
+            if (all || current.DiagnosticLogKeep != baseline.DiagnosticLogKeep)
+                target.DiagnosticLogKeep = current.DiagnosticLogKeep;
+            if (all || !string.Equals(current.DiagnosticLogMutedCategories, baseline.DiagnosticLogMutedCategories, StringComparison.Ordinal))
+                target.DiagnosticLogMutedCategories = current.DiagnosticLogMutedCategories;
+            if (all || !string.Equals(current.DiagnosticLogMutedModules, baseline.DiagnosticLogMutedModules, StringComparison.Ordinal))
+                target.DiagnosticLogMutedModules = current.DiagnosticLogMutedModules;
             if (all || !AppSettingsDocument.TriggerSpeechEqual(current.TriggerSpeech, baseline.TriggerSpeech))
                 target.TriggerSpeech = AppSettingsDocument.CloneTriggerSpeech(current.TriggerSpeech);
         }
@@ -1125,6 +1166,11 @@ namespace DesktopAICompanion
                 PetUpdateCheck = source.PetUpdateCheck,
                 PetUpdateLastCheckUtc = source.PetUpdateLastCheckUtc,
                 PetUpdateStaleIds = source.PetUpdateStaleIds,
+                DiagnosticLog = source.DiagnosticLog,
+                DiagnosticLogMaxKilobytes = source.DiagnosticLogMaxKilobytes,
+                DiagnosticLogKeep = source.DiagnosticLogKeep,
+                DiagnosticLogMutedCategories = source.DiagnosticLogMutedCategories,
+                DiagnosticLogMutedModules = source.DiagnosticLogMutedModules,
                 TriggerSpeech = AppSettingsDocument.CloneTriggerSpeech(source.TriggerSpeech),
                 ExtensionData = extension
             };

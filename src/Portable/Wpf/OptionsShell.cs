@@ -1,6 +1,7 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using DesktopAICompanion.Modules;
 
 namespace DesktopAICompanion.Wpf
@@ -84,6 +85,141 @@ namespace DesktopAICompanion.Wpf
         /// screen while the rest vanished.
         /// </summary>
         private const string DropSettingsGroup = "Fortune / insight drop";
+
+        private const string DiagnosticsGroup = "Diagnostic log";
+        private const string DiagnosticsCategoryGroup = "Diagnostic log — what to record";
+        private const string DiagnosticsModuleGroup = "Diagnostic log — which modules";
+        private const string CategoryFieldPrefix = "diagCat_";
+        private const string ModuleFieldPrefix = "diagMod_";
+
+        /// <summary>
+        /// Field id -> category, one per LogCategory. GENERATED from the enum rather than written out, so a
+        /// new category cannot be added to the code and forgotten in the pane: the two would then disagree
+        /// silently, and the symptom would be a category nobody can turn off.
+        /// </summary>
+        private static IEnumerable<KeyValuePair<string, DesktopAICompanion.LogCategory>> DiagnosticCategoryFieldIds()
+        {
+            foreach (DesktopAICompanion.LogCategory c in
+                     Enum.GetValues(typeof(DesktopAICompanion.LogCategory)))
+                yield return new KeyValuePair<string, DesktopAICompanion.LogCategory>(
+                    CategoryFieldPrefix + c.ToString(), c);
+        }
+
+        /// <summary>
+        /// Field id -> module id, one per LOADED module. Generated for the same reason and one more: the
+        /// set of installed modules changes at runtime, so a hand-written list would offer toggles for
+        /// modules that are gone and none for the one just installed -- which is exactly the module someone
+        /// is debugging when they come looking for this pane.
+        /// </summary>
+        private static IEnumerable<KeyValuePair<string, string>> DiagnosticModuleFieldIds()
+        {
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            IReadOnlyList<DesktopAICompanion.Modules.IModule> loaded = null;
+            try { loaded = Program.Mainthread != null ? Program.Mainthread.LoadedModules : null; }
+            catch (Exception) { loaded = null; }
+            if (loaded == null) yield break;
+            foreach (var m in loaded)
+            {
+                if (m == null || m.Info == null) continue;
+                string id = (m.Info.Id ?? "").Trim();
+                if (id.Length == 0 || !seen.Add(id)) continue;
+                yield return new KeyValuePair<string, string>(ModuleFieldPrefix + id, id);
+            }
+        }
+
+        private static List<SettingField> BuildDiagnosticCategoryFields()
+        {
+            var fields = new List<SettingField>();
+            foreach (var pair in DiagnosticCategoryFieldIds())
+                fields.Add(new SettingField
+                {
+                    Id = pair.Key,
+                    Label = DescribeCategory(pair.Value),
+                    Kind = SettingKind.Bool,
+                    Group = DiagnosticsCategoryGroup,
+                });
+            return fields;
+        }
+
+        private static List<SettingField> BuildDiagnosticModuleFields()
+        {
+            var fields = new List<SettingField>();
+            foreach (var pair in DiagnosticModuleFieldIds())
+                fields.Add(new SettingField
+                {
+                    Id = pair.Key,
+                    Label = pair.Value,
+                    Kind = SettingKind.Bool,
+                    Group = DiagnosticsModuleGroup,
+                });
+            return fields;
+        }
+
+        private static string DescribeCategory(DesktopAICompanion.LogCategory c)
+        {
+            switch (c)
+            {
+                case DesktopAICompanion.LogCategory.App:        return "App (launch, settings, updates)";
+                case DesktopAICompanion.LogCategory.Companions: return "Companions (spawn, reload, library)";
+                case DesktopAICompanion.LogCategory.Modules:    return "Modules (load, init, their own messages)";
+                case DesktopAICompanion.LogCategory.Tray:       return "Tray icon";
+                case DesktopAICompanion.LogCategory.Network:    return "Network (catalog, downloads)";
+                case DesktopAICompanion.LogCategory.Audio:      return "Audio";
+                case DesktopAICompanion.LogCategory.Animation:  return "Animation (very noisy — for skin authors)";
+                default:                                        return c.ToString();
+            }
+        }
+
+        /// <summary>UI polarity: a category absent from the muted list is logged. Animation is the one that
+        /// defaults off, and "explicitly on" is stored as a leading '-' so both directions round-trip.</summary>
+        internal static bool IsCategoryLogged(string muted, DesktopAICompanion.LogCategory c)
+        {
+            string name = c.ToString();
+            foreach (string raw in (muted ?? "").Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string t = raw.Trim();
+                if (t.StartsWith("-", StringComparison.Ordinal) &&
+                    string.Equals(t.Substring(1), name, StringComparison.OrdinalIgnoreCase)) return true;
+                if (string.Equals(t, name, StringComparison.OrdinalIgnoreCase)) return false;
+            }
+            return c != DesktopAICompanion.LogCategory.Animation;
+        }
+
+        internal static bool IsModuleLogged(string muted, string moduleId)
+        {
+            foreach (string raw in (muted ?? "").Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries))
+                if (string.Equals(raw.Trim(), moduleId, StringComparison.OrdinalIgnoreCase)) return false;
+            return true;
+        }
+
+        private static string CollectMutedCategories(IReadOnlyDictionary<string, string> values)
+        {
+            var parts = new List<string>();
+            foreach (var pair in DiagnosticCategoryFieldIds())
+            {
+                string v;
+                if (!values.TryGetValue(pair.Key, out v)) continue;
+                bool on;
+                if (!bool.TryParse(v, out on)) continue;
+                bool defaultOn = pair.Value != DesktopAICompanion.LogCategory.Animation;
+                if (!on) parts.Add(pair.Value.ToString());
+                else if (!defaultOn) parts.Add("-" + pair.Value.ToString());
+            }
+            return string.Join(";", parts.ToArray());
+        }
+
+        private static string CollectMutedModules(IReadOnlyDictionary<string, string> values)
+        {
+            var parts = new List<string>();
+            foreach (var pair in DiagnosticModuleFieldIds())
+            {
+                string v;
+                if (!values.TryGetValue(pair.Key, out v)) continue;
+                bool on;
+                if (bool.TryParse(v, out on) && !on) parts.Add(pair.Value);
+            }
+            return string.Join(";", parts.ToArray());
+        }
 
         /// <summary>
         /// Drop the random-drop settings when nothing is listening for a drop tick.
@@ -199,7 +335,10 @@ namespace DesktopAICompanion.Wpf
                     // Hourly rather than weekly, deliberately: missing a new app version for an hour matters
                     // because a user restarts expecting to be told, whereas content updates are not urgent.
                     new SettingField { Id = "appUpdateCheck", Label = "Check weekly for a new app version (tells you; never installs on its own)", Kind = SettingKind.Bool, Group = "Modules" },
-                }),
+                    new SettingField { Id = "diagLog", Label = "Write a diagnostic log (launch, modules, tray, errors \u2014 no message text)", Kind = SettingKind.Bool, Group = DiagnosticsGroup },
+                    new SettingField { Id = "diagLogKb", Label = "\u2026maximum size of each log (KB)", Kind = SettingKind.Int, Min = 16, Max = 65536, Group = DiagnosticsGroup },
+                    new SettingField { Id = "diagLogKeep", Label = "\u2026how many to keep (the previous one survives a restart)", Kind = SettingKind.Int, Min = 1, Max = 20, Group = DiagnosticsGroup },
+                }).Concat(BuildDiagnosticCategoryFields()).Concat(BuildDiagnosticModuleFields()).ToList(),
                 Load = delegate
                 {
                     var d = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -240,6 +379,18 @@ namespace DesktopAICompanion.Wpf
                         d["monthlyModuleUpdateCheck"] = data.GetMonthlyModuleUpdateCheck() ? "true" : "false";
                         d["companionUpdateCheck"] = data.GetPetUpdateCheck() ? "true" : "false";
                         d["appUpdateCheck"] = data.GetAppUpdateCheck() ? "true" : "false";
+                        d["diagLog"] = data.GetDiagnosticLog() ? "true" : "false";
+                        d["diagLogKb"] = data.GetDiagnosticLogMaxKilobytes().ToString(CultureInfo.InvariantCulture);
+                        d["diagLogKeep"] = data.GetDiagnosticLogKeep().ToString(CultureInfo.InvariantCulture);
+                        // Positive in the UI, muted in the model: a category absent from the muted list is
+                        // shown ticked. Animation is the one that defaults OFF, and the model expresses
+                        // "explicitly on" as a leading '-', so both directions round-trip.
+                        foreach (var pair in DiagnosticCategoryFieldIds())
+                            d[pair.Key] = IsCategoryLogged(data.GetDiagnosticLogMutedCategories(), pair.Value)
+                                ? "true" : "false";
+                        foreach (var pair in DiagnosticModuleFieldIds())
+                            d[pair.Key] = IsModuleLogged(data.GetDiagnosticLogMutedModules(), pair.Value)
+                                ? "true" : "false";
 
                         // Rebuild the speaker list from the pets on screen RIGHT NOW and refresh the field's
                         // Options in place. Safe because Build() calls this before it reads Schema; if that
@@ -290,6 +441,22 @@ namespace DesktopAICompanion.Wpf
                     if (values.TryGetValue("monthlyModuleUpdateCheck", out s) && bool.TryParse(s, out b)) ok &= data.SetMonthlyModuleUpdateCheck(b);
                     if (values.TryGetValue("companionUpdateCheck", out s) && bool.TryParse(s, out b)) ok &= data.SetPetUpdateCheck(b);
                     if (values.TryGetValue("appUpdateCheck", out s) && bool.TryParse(s, out b)) ok &= data.SetAppUpdateCheck(b);
+                    if (values.TryGetValue("diagLog", out s) && bool.TryParse(s, out b)) data.SetDiagnosticLog(b);
+                    if (values.TryGetValue("diagLogKb", out s) && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out n))
+                        data.SetDiagnosticLogMaxKilobytes(n);
+                    if (values.TryGetValue("diagLogKeep", out s) && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out n))
+                        data.SetDiagnosticLogKeep(n);
+                    data.SetDiagnosticLogMutedCategories(CollectMutedCategories(values));
+                    data.SetDiagnosticLogMutedModules(CollectMutedModules(values));
+                    // Apply immediately rather than at the next launch. The thing most often being
+                    // diagnosed IS a launch, so "change the setting, reproduce, read the log" has to work
+                    // without a restart in between.
+                    DesktopAICompanion.DiagnosticLog.Configure(
+                        data.GetDiagnosticLog(),
+                        data.GetDiagnosticLogMaxKilobytes(),
+                        data.GetDiagnosticLogKeep(),
+                        data.GetDiagnosticLogMutedCategories(),
+                        data.GetDiagnosticLogMutedModules());
                     if (values.TryGetValue("defaultSpeakingCompanion", out s))
                     {
                         string chosenType;

@@ -24,6 +24,41 @@ Open a GitHub issue at https://github.com/bigfnj/desktop-ai-companion/issues wit
 - expected and actual behavior; and
 - relevant redacted logs or screenshots.
 
+## Application logs
+
+Desktop AI Companion keeps a rolling diagnostic log of what it did during startup and while running. It
+is on by default, because the faults worth reporting are the ones nobody saw coming, and a log you have
+to switch on first is never on when it matters.
+
+Where it lives:
+
+| Install type | Path |
+| --- | --- |
+| MSI | `%LOCALAPPDATA%\DesktopAICompanion\diagnostics.log` |
+| Portable ZIP | `data\diagnostics.log`, beside the executable |
+
+The previous run is kept as `diagnostics.1.log`. That matters more than it sounds: a fault that leaves
+the app running but unreachable, such as a missing notification-area icon, makes restarting the obvious
+first move, and the restart is what would otherwise destroy the only record of it.
+
+Everything is under Preferences, in the Diagnostic log group:
+
+- turn logging off entirely;
+- cap the current file, in kilobytes, defaulting to 512;
+- choose how many files to keep, defaulting to 2, meaning this run and the one before;
+- pick which parts of the app are recorded, by category; and
+- pick which installed modules are recorded, one checkbox each.
+
+Every category is on by default except Animation, which is per-frame movement churn. Leave it off unless
+you are building a companion skin, since it repeats for as long as the app runs and would fill the cap
+long before you got to read anything else.
+
+Turning off every module you are not working on is the point of the per-module list: a module author
+debugging one module gets that module's output and nothing else.
+
+Review the log before attaching it to an issue. It records companion names, module identifiers and file
+paths, which means it contains your Windows user name at minimum.
+
 ## Installer problems
 
 The installer writes no log of its own, on purpose. An MSI can be told to log every run by carrying the

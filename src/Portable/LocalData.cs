@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -674,6 +674,90 @@ namespace DesktopAICompanion
         public DateTimeOffset GetPetUpdateLastCheckUtc()
         {
             lock (_sync) return ParseStamp(_settings.PetUpdateLastCheckUtc);
+        }
+
+        // --- diagnostic log -------------------------------------------------------------------------
+        // Absent reads as ON, matching the update checks: a doc written before these existed must keep
+        // logging rather than silently stop, because the log is the only record of an unpredicted fault.
+
+        /// <summary>Whether the diagnostic log is written at all. Absent means yes.</summary>
+        public bool GetDiagnosticLog()
+        {
+            lock (_sync) return _settings.DiagnosticLog ?? true;
+        }
+
+        public bool SetDiagnosticLog(bool value)
+        {
+            return Update(
+                delegate { return (_settings.DiagnosticLog ?? true) != value; },
+                delegate { _settings.DiagnosticLog = value; });
+        }
+
+        /// <summary>Cap per file, in KB. Clamped on read so a hand-edited settings file cannot ask for a
+        /// zero-byte log (which silently records nothing) or a gigabyte one.</summary>
+        public int GetDiagnosticLogMaxKilobytes()
+        {
+            lock (_sync)
+            {
+                int v = _settings.DiagnosticLogMaxKilobytes;
+                if (v <= 0) return 512;
+                return Math.Min(65536, Math.Max(16, v));
+            }
+        }
+
+        public bool SetDiagnosticLogMaxKilobytes(int value)
+        {
+            int v = Math.Min(65536, Math.Max(16, value));
+            return Update(
+                delegate { return _settings.DiagnosticLogMaxKilobytes != v; },
+                delegate { _settings.DiagnosticLogMaxKilobytes = v; });
+        }
+
+        /// <summary>How many files to keep, current included. Two survives the restart reflex.</summary>
+        public int GetDiagnosticLogKeep()
+        {
+            lock (_sync)
+            {
+                int v = _settings.DiagnosticLogKeep;
+                if (v <= 0) return 2;
+                return Math.Min(20, Math.Max(1, v));
+            }
+        }
+
+        public bool SetDiagnosticLogKeep(int value)
+        {
+            int v = Math.Min(20, Math.Max(1, value));
+            return Update(
+                delegate { return _settings.DiagnosticLogKeep != v; },
+                delegate { _settings.DiagnosticLogKeep = v; });
+        }
+
+        /// <summary>Categories NOT recorded, "Modules;Tray". "" means everything.</summary>
+        public string GetDiagnosticLogMutedCategories()
+        {
+            lock (_sync) return _settings.DiagnosticLogMutedCategories ?? "";
+        }
+
+        public bool SetDiagnosticLogMutedCategories(string value)
+        {
+            string v = Clamp(value);
+            return Update(
+                delegate { return !string.Equals(_settings.DiagnosticLogMutedCategories, v, StringComparison.Ordinal); },
+                delegate { _settings.DiagnosticLogMutedCategories = v; });
+        }
+
+        /// <summary>Module ids whose own lines are dropped, "aibrain;fortunes". "" means every module.</summary>
+        public string GetDiagnosticLogMutedModules()
+        {
+            lock (_sync) return _settings.DiagnosticLogMutedModules ?? "";
+        }
+
+        public bool SetDiagnosticLogMutedModules(string value)
+        {
+            string v = Clamp(value);
+            return Update(
+                delegate { return !string.Equals(_settings.DiagnosticLogMutedModules, v, StringComparison.Ordinal); },
+                delegate { _settings.DiagnosticLogMutedModules = v; });
         }
 
         /// <summary>The catalog pets whose installed copy is stale, "id;id". "" when none.</summary>
