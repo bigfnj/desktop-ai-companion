@@ -216,6 +216,23 @@ Run the MSI **over a running app** — that is the path that used to fail.
       notices at all.
 - [ ] **I3. Turn the check off.** No network call, footer shows the plain version.
 
+## L. Diagnostic log (3 min)
+
+The log is on by default, so L1 needs nothing switched on first. Installed copies write to
+`%LOCALAPPDATA%\DesktopAICompanion\`; a portable copy writes to `data\` beside the executable.
+
+- [ ] **L1. A launch leaves a record.** `diagnostics.log` exists and its first line names the product and
+      version. A `tray icon set: success=...` line is present whether or not the icon appeared, which is the
+      whole reason this exists.
+- [ ] **L2. Animation is absent.** No per-frame movement lines, with the companion walking around. Tick
+      Animation in Preferences and they start appearing without a restart.
+- [ ] **L3. The previous run survives a restart.** Restart the app; the launch you just inspected is now in
+      `diagnostics.1.log`. This is the case that matters: the natural reaction to a fault is a restart.
+- [ ] **L4. Untick one module.** That module's lines stop; the others keep going.
+- [ ] **L5. Untick the master switch.** The file stops growing. Tick it back on and it resumes.
+- [ ] **L6. Set the cap to its minimum and let it fill.** Rotation happens at the cap rather than the file
+      growing without bound, and the keep count is respected rather than leaving older files behind.
+
 ## J. Housekeeping (2 min)
 
 - [ ] **J1. `%TEMP%` is not filling up.** Run this after a session and expect a small number, not hundreds:
