@@ -298,8 +298,8 @@
                            "name":  "Capybara",
                            "author":  "shimeji.org",
                            "url":  "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-capybara-albino/animations.xml",
-                           "sha256":  "0b5e9063319aa95811a49bbaa8eba63a50a6340081e4187ee18a0ef43631fda2",
-                           "bytes":  375689
+                           "sha256":  "3c1173e32de1ee5363ac6a527cd88790c6390aff64f446e17dfeae20d28bee27",
+                           "bytes":  410728
                        },
                        {
                            "id":  "shimeji-cyn",
@@ -370,8 +370,8 @@
                            "name":  "Serial Designation J",
                            "author":  "shimejis.xyz",
                            "url":  "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-serial-designation-j/animations.xml",
-                           "sha256":  "2d8dd23b210ef5fc7cb99cd4d6a3b1b83bf8b0af291500453130d9056993c43c",
-                           "bytes":  2533625
+                           "sha256":  "7aea73021fdbce492ce454035c39153ede988c9c9a234d32e4288cfc511d0052",
+                           "bytes":  2533560
                        },
                        {
                            "id":  "shimeji-south-park-cartman",
@@ -386,8 +386,8 @@
                            "name":  "Uzi Doorman",
                            "author":  "Kilkakon and Polar Summit",
                            "url":  "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-uzi-doorman-ef5c7d/animations.xml",
-                           "sha256":  "699242ee1c7a30e709dac4921dedbacab09fd5a97f224bc8d57204def95b6331",
-                           "bytes":  1969160
+                           "sha256":  "a8f0b240b291b4349fd9e3df5800cf0146795c3cae5e03901d999a2d44860727",
+                           "bytes":  1969095
                        },
                        {
                            "id":  "shimeji-vocaloid-gakupo",
@@ -2283,8 +2283,8 @@
                         "desc":  "Check a companion\u0027s animations.xml before you use it: what the host would reject, which animations can never play, and how it actually looks running on your desktop. Edit the XML in place, watch any animation\u0027s real sprite frames, preview the companion temporarily on your desktop, then install it.",
                         "version":  "1.0.0",
                         "url":  "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/petstudio.zip",
-                        "sha256":  "06aaecd718d4e436db6530821d823e0fd0ac7cc14e3383ff05aecba8b83dcd93",
-                        "bytes":  360432,
+                        "sha256":  "d3d9ab6be4b8378c4f9f6642ed008685d4e78cc098df35124bee6e07ea612088",
+                        "bytes":  360530,
                         "permissions":  "Companions, Storage"
                     },
                     {
