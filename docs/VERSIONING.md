@@ -1,4 +1,4 @@
-# Versioning
+﻿# Versioning
 
 Three numbers, deliberately independent. This file exists because the scheme was consistent in practice but
 written down nowhere, so it had to be reverse-engineered from the source to answer "what are we doing?".
@@ -44,8 +44,9 @@ Also on `ModuleInfo`: the oldest host the module will load on. The loader refuse
 
 Bump it **only when the module actually calls an ABI member that host introduced** — not on every host
 release, or a module stops working on hosts that could have run it perfectly well. Current values are a
-history of exactly that: Blinking LED asks for 1.4.0, Companion Studio 1.8.0 (`TryReadTypeXml`), Reminder and
-Remembrance 1.9.0.
+history of exactly that. The 1.0.0 rebase flattened it: every module now asks for `1.0.0`, because a
+mandatory clean install means no host older than that exists to refuse them. The history restarts from
+here, so the next module to call a newly introduced member is the first to raise its floor again.
 
 **Sequencing:** publish a module only AFTER the host release its `MinHostVersion` names has shipped, or the
 catalog offers users a module their host correctly refuses.

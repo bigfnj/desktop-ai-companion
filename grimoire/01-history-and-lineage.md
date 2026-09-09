@@ -1,4 +1,4 @@
-# 01 — History &amp; Lineage
+﻿# 01 — History &amp; Lineage
 
 The origin story of the sheep, the engine, and this fork — with confidence flags where the record is
 thin. Web sources are cited inline; in-repo evidence is cited as file paths.
@@ -114,7 +114,7 @@ implementation detail. (License and embed details: [04 — Ecosystem](04-upstrea
 
 ## 4. This repository: the "AI Edition" fork
 
-This repo (`D:\.claude\projects\desktopPet`) is **`bigfnj/desktop-ai-companion`**, a fork of
+This repo is **`bigfnj/desktop-ai-companion`**, a fork of
 `Adrianotiger/desktopPet` (`upstream` remote = Adrianotiger, never pushed to; `origin` = bigfnj — see
 [`handoff.md`](../handoff.md)). Its thesis, stated in [`Readme.md`](../Readme.md) and
 [`BACKLOG.md`](../BACKLOG.md) began with a purely additive local-LLM concept. The implemented product

@@ -332,7 +332,7 @@ namespace DesktopAICompanion.Wpf
                     // nobody sees; the label is the part the user reads.
                     new SettingField { Id = "monthlyModuleUpdateCheck", Label = "Check weekly for module updates (tells you; never installs on its own)", Kind = SettingKind.Bool, Group = "Modules" },
                     new SettingField { Id = "companionUpdateCheck", Label = "Check weekly for companion updates (tells you; never installs on its own)", Kind = SettingKind.Bool, Group = "Modules" },
-                    // Hourly rather than weekly, deliberately: missing a new app version for an hour matters
+                    // Weekly, same as the other two. This was hourly, on the reasoning that missing a new
                     // because a user restarts expecting to be told, whereas content updates are not urgent.
                     new SettingField { Id = "appUpdateCheck", Label = "Check weekly for a new app version (tells you; never installs on its own)", Kind = SettingKind.Bool, Group = "Modules" },
                     new SettingField { Id = "diagLog", Label = "Write a diagnostic log (launch, modules, tray, errors \u2014 no message text)", Kind = SettingKind.Bool, Group = DiagnosticsGroup },

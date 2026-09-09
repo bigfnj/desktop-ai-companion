@@ -175,10 +175,24 @@ HANDOFF_*
 *.jks
 *.key
 *.snk
+*.p8
+*.keystore
+*.pkcs12
 .netrc
 _netrc
+.npmrc
+.yarnrc
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
 secrets.json
+secrets/
+credentials.json
+credential*.json
 appsettings.*.local.json
+# Suffix form as well as the dotfile: ".env" and ".env.*" above do not match "local.env".
+*.env
 
 # Portable app runtime settings store
 DesktopPet.config

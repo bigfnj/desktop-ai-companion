@@ -1,15 +1,112 @@
-# desktopPet AI Edition — Session Handoff
+﻿# Desktop AI Companion — Session Handoff
 
-> Working notes for picking this up later. Last updated: **2026-09-03** (eighth session).
-> Fork of Adrianotiger/desktopPet. Clone it wherever you like -- nothing here depends on the
-> checkout path, and this file is public, so no machine paths go in it.
-> `origin` = **git@github.com:bigfnj/desktop-ai-companion.git** (`upstream` = Adrianotiger — never push there).
-> Also read the persistent memory note `project-desktoppet` in the auto-memory index (has the fine detail).
+> Working notes for picking this up later. Last updated: **2026-09-09** (ninth session).
+> Fork of Adrianotiger/desktopPet, though no longer a GitHub fork: the repo was recreated fresh for
+> 1.0.0. Clone it wherever you like -- nothing here depends on the checkout path, and this file is
+> public, so no machine paths go in it.
+> `origin` = **git@github.com:bigfnj/desktop-ai-companion.git**. There is **no `upstream` remote** any more.
+> Also read the persistent memory note `project_desktoppet` in the auto-memory index (has the fine detail).
 > Feature backlog: **[`BACKLOG.md`](BACKLOG.md)**.
 
 ---
 
-## START HERE (2026-09-03) — v1.9.16 cut, one tray bug fixed from the v1.9.15 smoke report
+## START HERE (2026-09-09) — 1.0.0 is BUILT AND UNTAGGED, blocked on one smoke-test section
+
+`master` at `36cf424` plus this session's docs pass. **Gate green: 154 source invariants, 16 self-tests
+with no skips, 0 build warnings.** CI green on every push.
+
+### The one thing standing between here and the tag
+
+**SMOKETEST.md section C (multiple monitors)** has not been walked, and **L2** needs re-checking. Everything
+else in the smoke test has passed, including a real uninstall/reinstall (J3) and the installer section (K).
+Do not tag `v1.0.0` until C passes: monitor pinning is the area with three separate shipped regressions
+behind it (v1.9.11 twice, v1.9.12), so it is the last place to assume.
+
+L2 needs redoing because the build the maintainer tested had a **broken log classifier** (below), so
+"no animation lines appear" passed for the wrong reason. Walk it against a current MSI.
+
+After C and L2: `docs/1.0.0-RENAME-PLAN.md` Phase 5 is the tag procedure, and Phase 6 deletes the old
+`bigfnj/desktopPet` repo. Both still unchecked.
+
+### What landed this session
+
+**A user-controllable diagnostic log** (`src/dotNet/DiagnosticLog.cs`, Preferences group, `SUPPORT.md`
+section). On by default, rotating, previous run kept. Built because an intermittent missing tray icon left
+no evidence at all: `AddDebugInfo` discarded every line unless the SHIFT-at-launch debug window happened to
+be open. Keeping the previous run is the whole point — the reaction to a fault is a restart, and the
+restart is what destroyed the record.
+
+**The converter's reachability floor was the "uzi never climbs the wall" bug.** `ApplyMinimumShare` raised
+every hub edge to at least 1.5% of the pool with nothing bounding the aggregate, and the cost is
+`spokes * 1.5%` — 30% at 20 spokes, **94.5% at 63**. Uzi had 58 of 63 edges pinned at the floor, so the
+frequency ordering was gone and locomotion sat at 11.1% against 30-37% for smaller skins. It therefore
+rarely reached a wall at all; the climb odds themselves were always fine. Now a budget:
+`min(HubMinimumSharePercent, HubFloorBudgetPercent / spokeCount)`, 35%, crossover at 23 spokes, so 24 of 31
+converted companions are byte-identical and needed no republish.
+
+**Converted-pet format version rebased to 1.0**, chain and corpus together (pre-1.0 became 0.1-0.8, all 31
+companions restamped). Also dropped the `" (converted)"` title suffix, and About now labels a converted
+pet's version row **"Converter format:"** because that number is a migration gate, not the character's
+version.
+
+### Read these before touching the converter
+
+Three traps, each of which cost real time this session and is recorded in the code:
+
+1. **Do not make the hub curve linear.** `PetEmitter.HubWeightFromFrequency` carries the measurement table.
+   The concavity argument is persuasive and wrong: linear overshoots locomotion by 10-18 points on every
+   skin measured, where `sqrt` sits within a couple of points. The summing it damps is correct.
+2. **Do not renumber only the current format stamp.** `1.0` was the oldest format and what `reweight`
+   gates on; a fresh conversion stamped 1.0 gets curved twice. Measured on hornet: locomotion 31.9% ->
+   20.8%, hub pool 664 -> 375. The whole chain has to move together, and it already has.
+3. **Ground truth for "how much does this skin walk" is share of animation PLAYS**, with composite
+   behaviours resolved to the leaves they actually run. Two other metrics were tried first and both were
+   wrong: counting behaviours by NAME credits `WalkRightAndSit` wholly to walking, and reading whichever
+   `conf` a bundle ships first silently reads the shared BASE conf — which made six unrelated companions
+   measure an identical 22.5% and nearly had six skins re-converted from a generic conf, collapsing 22 hub
+   spokes to 6.
+
+`tests/shimeji-behaviour-soak.py` is the tool for this. It models what `Animations.cs` does rather than
+what the XML appears to say: `<next probability>` values are weights normalised over **eligible** edges (a
+border block summing to 5 is not "a 5% chance"), a border fires only when a move would **cross** it, and
+`turn` negates x velocities.
+
+### Standing gotchas, both of which bit twice
+
+**PetStudio source-links `ShimejiConvert.Engine`.** Any change to `PetEmitter.cs` makes
+`modules-dist/petstudio.zip` stale, and `Test-ModulePublishFreshness` will fail the gate for it. The order
+is forced: build, re-zip via `New-ModulePublish.ps1`, **commit the zip**, then regenerate the catalog —
+because the catalog hashes the committed blob, not the working tree.
+
+**The converter emits CRLF and `.gitattributes` normalises to LF.** So immediately after committing
+companion XML, the working tree and the committed blob differ. Refresh the working tree from the blob
+before regenerating the catalog, or the recorded hashes describe a file nobody will ever download. This is
+the same defect shape that left three companion downloads unverifiable during the repo move.
+
+**A mutation harness must verify its baseline is green first.** `tests/mutate-diagnostics.py` reported
+20/20 FIRED against a red baseline this session: one already-failing assertion made every mutation "fail"
+with the expected string sitting right there in the output. It now refuses to run otherwise.
+
+### Known and accepted, do not re-investigate
+
+The installer's licence page has an **inert Back button**, so ticking "clear all settings" and changing
+your mind means Cancel and re-launch. The full reasoning is in `installer/DesktopAICompanion.wxs` beside
+the `InstallUISequence`, including the measured failure: moving the reset page after the licence fails
+**WIX0179** because WiX assigns unique sequence numbers itself and 1296-1299 is full. 1294 is the only
+slot. The remaining route is copying `WelcomeEulaDlg` out of the WiX wixlib, judged not worth it.
+
+### Docs debt left deliberately
+
+This session corrected `Readme.md`, `PRIVACY.md` (it claimed one monthly check; there are three weekly
+ones, and it did not disclose the diagnostic log at all), `docs/VERSIONING.md` and the `BACKLOG.md` header.
+Still stale and filed rather than fixed: `REMEMBRANCE-PLAN.md` (ABI 1.9.0 references — probably retire it
+to `docs/`), `Companions/README.md` (points at a `PetTester` project that no longer exists), roughly ten
+superseded `BACKLOG.md` items whose *content* is right but whose version numbers are pre-rebase, and
+`grimoire/03-companion-xml-format.md` still saying "desktopPet pet".
+
+---
+
+## Previous START HERE (2026-09-03) — v1.9.16 cut, one tray bug fixed from the v1.9.15 smoke report
 
 **The v1.9.15 smoke report came back with one defect:** on a fresh install the companion appeared with no tray
 icon. `v1.9.16` fixes it and is tagged. Tree clean, gate green, both soaks pass.

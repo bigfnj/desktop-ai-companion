@@ -285,6 +285,27 @@
         Asking before the licence page keeps the button labels honest (Next here, Install there) and means
         nothing has been decided when the question is asked. A sequenced dialog's "EndDialog Return" hands
         control back to this sequence rather than ending it, so the licence page still follows.
+
+        ACCEPTED CONSEQUENCE: the licence page's Back button is inert, so someone who ticks the box and then
+        changes their mind has to Cancel and re-launch. That was reported as a bug and investigated; it is a
+        known cost of this shape, not an oversight. Every cheap fix is blocked:
+
+          * Enabling the stock Back is not supported from outside the dialog. <Publish> writes ControlEvent
+            rows only, and WelcomeEulaDlg's Back carries no EnableCondition to satisfy. The built MSI's
+            ControlCondition table has rows for Install and InstallNoShield and none for Back, and the
+            control ships Attributes=1 (visible, not enabled). It is a placeholder, because in stock
+            WixUI_Minimal that page is the FIRST one and Back has nowhere to go.
+          * Chaining off WelcomeEulaDlg's Install button does nothing, for the ordering reason above.
+          * MOVING THIS PAGE AFTER THE LICENCE FAILS. Tested at Sequence 1297, on the theory that
+            InstallUISequence keys on Action rather than Sequence and our "NOT Installed" condition is
+            mutually exclusive with ResumeDlg's. MSI would allow it; WiX will not. It assigns unique sequence
+            numbers itself and errors WIX0179 for ResumeDlg, WelcomeEulaDlg and WelcomeDlg at once, because
+            1296-1299 is full. So 1294 is not merely the free slot, it is the ONLY slot.
+
+        The one remaining route is copying WelcomeEulaDlg out of the WiX UI wixlib into a dialog of our own,
+        which means owning the licence text, the Print action, the accept-checkbox gating, the disk-space
+        branches and both elevation-shield button variants. Judged not worth it against "Cancel and
+        re-launch" in a rare case, on the one component whose failures no automated check here catches.
       -->
       <InstallUISequence>
         <Show Dialog="DesktopAICompanionResetDlg" Sequence="1294" Condition="NOT Installed" />

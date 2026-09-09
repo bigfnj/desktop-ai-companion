@@ -1,8 +1,8 @@
-<p align="center">
+﻿<p align="center">
   <img src="docs/images/showcase.png" alt="A pasture of DesktopAICompanion companions under a blue sky" width="640">
 </p>
 
-# 🐑 desktopPet — AI Edition
+# 🐑 Desktop AI Companion
 
 **A desktop companion that actually pays attention.** A little sheep (or a fox, or Pikachu, or whatever you
 drop in) walks across your screen, climbs your windows, naps on the taskbar, and pipes up with a fitting
@@ -147,7 +147,7 @@ previews the companion on your real desktop without installing or saving it.
 
 It also **imports Shimeji skins**. Point it at a skin folder or a `.zip`, in either the classic desktop
 format (an `actions.xml`/`behaviours.xml` config plus PNG sprites) or the newer Android bundle format
-(a JSON manifest plus WebP sprites), and it converts the skin to a desktopPet pet, maps its behaviours
+(a JSON manifest plus WebP sprites), and it converts the skin to a Desktop AI Companion companion, maps its behaviours
 onto the app's own action model, keeps the artwork's per-pixel transparency, shows an honest report of
 what could not be carried over, then previews and installs it.
 
@@ -223,7 +223,7 @@ added. The tray dialogs also follow your **Windows light/dark theme**.
 
 Each GitHub release provides two Windows x64 artifacts:
 
-- **`DesktopAICompanion-AI-Edition.msi`** — a per-user installer (no admin).
+- **`DesktopAICompanion.msi`** — a per-user installer (no admin).
 - **`DesktopAICompanion-Portable.zip`** — unzip anywhere and run `DesktopAICompanion.exe`.
 
 Either way you get the whole thing (sheep + fortunes + smart model + AI runtime) with **no downloads
@@ -319,7 +319,7 @@ bathtub escape. Every companion's exact moves and odds live in its `animations.x
 
 Requires the **.NET 10 SDK** — exactly 10.0.302, pinned in [`global.json`](global.json) with
 `rollForward: disable` so a different patch fails fast instead of quietly building something untested.
-All twelve projects target `net10.0-windows`. MSI builds also require WiX 5.0.2.
+All fifteen projects target `net10.0-windows`. MSI builds also require WiX 5.0.2.
 
 ```powershell
 .\tests\run-gate.ps1                                        # the one that matters: build + CoreTests +
@@ -330,7 +330,7 @@ dotnet build .\tests\DesktopAICompanion.CoreTests\DesktopAICompanion.CoreTests.c
 .\tests\DesktopAICompanion.CoreTests\bin\Release\DesktopAICompanion.CoreTests.exe
 $wix = Join-Path $env:TEMP 'DesktopAICompanion-WiX-5.0.2'
 .\packaging\Install-LockedWixToolchain.ps1 -PackageRoot $wix -GlobalExtension
-.\installer\build-installer.ps1 -Config Release             # -> dist\DesktopAICompanion-AI-Edition.msi
+.\installer\build-installer.ps1 -Config Release             # -> dist\DesktopAICompanion.msi
 ```
 
 - `build.ps1` never terminates a running app; if `DesktopAICompanion.exe` is locked, close it and retry. It

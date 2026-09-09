@@ -1,6 +1,6 @@
-# Desktop AI Companion privacy
+﻿# Desktop AI Companion privacy
 
-Last updated: 2026-08-14
+Last updated: 2026-09-09
 
 DesktopAICompanion does not include advertising, analytics, crash reporting, or telemetry. Fortunes and
 smart-fortune matching run locally. The optional AI brain is disabled by default.
@@ -19,15 +19,17 @@ DesktopAICompanion sends data only when a network feature is used:
 - Optional companion or fortune-pack downloads contact the source shown in the application. Trusted
   fortune-pack downloads are commit-pinned and integrity-checked; entries without documented
   redistribution approval are not downloadable.
-- **Once a month**, DesktopAICompanion fetches the project's own content catalog to see whether an installed
-  module has a newer build published, and tells you if one does. This is the only request the
-  application makes without being asked, so it is worth being precise about: it is a plain HTTPS GET
-  of a public file from the project's repository, it sends no identifiers, settings, or usage data of
-  any kind, and it downloads or installs nothing — updating stays a button you click. It runs at most
-  once per calendar month, is skipped entirely when no module is installed, and is not performed at
-  all on a freshly installed copy (the first check falls in the following month). Turn it off with
-  **Settings → Preferences → Modules → "Check for module updates monthly"**; with it off, the
-  application makes no unprompted network request whatsoever.
+- **At most once a week**, DesktopAICompanion fetches the project's own content catalog to see whether a
+  newer build has been published, and tells you if one has. There are **three** such checks — one for
+  installed modules, one for installed companions, and one for the application itself — and they are the
+  only requests the application makes without being asked, so it is worth being precise about them. Each
+  is a plain HTTPS GET of a public file from the project's repository, sends no identifiers, settings, or
+  usage data of any kind, and downloads or installs nothing: updating stays a button you click. The module
+  check is skipped entirely when no module is installed. Turn each off under
+  **Settings → Preferences → Modules**, where they read *"Check weekly for module updates"*,
+  *"Check weekly for companion updates"* and *"Check weekly for a new app version"* — each adding
+  "(tells you; never installs on its own)". With all three off, the application makes no unprompted
+  network request whatsoever.
 - A companion author can supply an About link in the companion XML. DesktopAICompanion never opens that link
   automatically; only selecting the link asks the default browser to open the companion-supplied
   destination. The intended application policy is to accept only absolute HTTPS About links.
@@ -53,8 +55,14 @@ drive-relative, and current-drive-rooted overrides are rejected or ignored. Data
 - application and AI settings;
 - a rolling conversation history, only when memory is enabled;
 - downloaded or user-supplied fortune files;
-- local smart-fortune vector caches; and
-- catalog/cache data.
+- local smart-fortune vector caches;
+- catalog/cache data; and
+- a rolling diagnostic log, on by default, kept as `diagnostics.log` plus the previous run.
+  It records what the application did during startup and while running: companion names, module
+  identifiers, and file paths, which means it contains your Windows user name. It never leaves the
+  machine on its own. Turn it off, cap its size, or choose what is recorded under
+  **Preferences -> Diagnostic log**; see [`SUPPORT.md`](SUPPORT.md) for where the file lives and what
+  to review before attaching it to a bug report.
 
 Older versions used `%APPDATA%\DesktopAICompanion`; a current version may migrate supported files from that
 location. API keys are encrypted at rest with Windows DPAPI for the current Windows user. DPAPI

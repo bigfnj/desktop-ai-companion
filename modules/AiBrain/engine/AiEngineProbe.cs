@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -66,7 +66,11 @@ namespace DesktopAICompanion.AiBrainModule
                 s.Provider = "openai";
                 s.OpenAiBaseUrl = "https://api.openai.com/v1";
                 string setError;
-                bool keyStored = s.TrySetApiKey("sk-probe-secret-1234567890", out setError);
+                // Deliberately NOT shaped like a real key. TrySetApiKey validates only length, so the
+                // value is arbitrary and only has to survive the encrypt/reload round trip below -- and
+                // an "sk-..." literal in a public repo is the one string here that trips a secret
+                // scanner and makes a human stop and check whether a key leaked.
+                bool keyStored = s.TrySetApiKey("DPAPI-ROUNDTRIP-FIXTURE-not-a-real-key", out setError);
                 bool saved = s.Save();
                 ok &= Check(sb, "settings save (atomic write + cross-session lock) succeeds", saved);
 
@@ -76,7 +80,7 @@ namespace DesktopAICompanion.AiBrainModule
                 {
                     // DPAPI encrypted the key on Save; reload must decrypt it back to plaintext.
                     ok &= Check(sb, "DPAPI API key round-trips (encrypt->save->reload->decrypt) in-module",
-                        string.Equals(reloaded.ApiKey, "sk-probe-secret-1234567890", StringComparison.Ordinal));
+                        string.Equals(reloaded.ApiKey, "DPAPI-ROUNDTRIP-FIXTURE-not-a-real-key", StringComparison.Ordinal));
                 }
                 else
                 {

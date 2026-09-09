@@ -1,14 +1,48 @@
-# AI Desktop Companion — Backlog
+﻿# Desktop AI Companion — Backlog
 
 > Fork of Adrianotiger/desktopPet. The original physics experience is preserved, while compatibility,
 > correctness, validation, and security fixes do modify engine files where required.
 
 ---
 
+## ▶ Open: post-1.0.0 docs debt (filed 2026-09-09)
+
+Audited after the 1.0.0 rebase. Corrected already: `Readme.md` (old product name in the H1, wrong MSI
+filename twice, project count), `PRIVACY.md` (it described **one monthly** catalog check when there are
+**three weekly** ones, and did not disclose the diagnostic log at all — the log records companion names,
+module ids and file paths, so it contains the Windows user name), `docs/VERSIONING.md` (every
+`MinHostVersion` was rebased to 1.0.0, so the "current values" example was wrong), and the header of this
+file.
+
+Still stale, in rough value order:
+
+- **`REMEMBRANCE-PLAN.md`** — "Host ABI 1.9.0", "cut the host 1.9.0 release". A completed plan doc; either
+  correct it or retire it to `docs/` as an archive alongside the other pre-1.0.0 records.
+- **`Companions/README.md`** — instructs the reader to run `build\PetTester\...\PetTester.exe` against
+  `.\Pets\your-pet\animations.xml`. `PetTester` is not a tracked project, and the directory is
+  `Companions/`. The `localxml=` argument it also mentions IS still valid.
+- **`grimoire/03-companion-xml-format.md`** — still "every desktopPet pet is a single...".
+- **~10 items in this file** whose content is correct but whose version numbers predate the rebase: the
+  converter format chain (0.1-0.8 now, not 1.0-1.8) at the `reweight`/`dedupe`/`undirect`/`rejump`
+  descriptions, "host v1.9.0 released", the app update check described as hourly, and the "only unprompted
+  network request" claim (there are three). Also one superseded DONE block describing the module update
+  check as monthly, which the weekly check replaced.
+- **`SMOKETEST.md`** — no row for the dropped `" (converted)"` title suffix or the About
+  "Converter format:" label. A gap rather than an error; the file is otherwise current at 73 checks in
+  twelve sections.
+
+None of this blocks the v1.0.0 tag. It is recorded because a doc that is confidently wrong costs more than
+one that is missing, and because `PRIVACY.md` being wrong about network behaviour was the kind of thing
+worth catching before a public release rather than after.
+
+---
+
 ## ▶ Current major work — .NET 10 + plugin re-architecture (2026-08-06)
 
-The active effort is **not** in the feature list below. Two things, both now **released** — the public line
-reached **v1.2.3 (2026-08-12)**, and modules ship separately through the in-app catalog at **1.1.1**:
+The active effort is **not** in the feature list below. Two things, both now **released** — though note
+the version numbers in this document are pre-1.0.0 history: the product was rebased to **1.0.0** in a
+fresh repository on 2026-09-04, and all six catalog modules were rebased to **1.0.0** with it. Any
+`1.x` or `1.9.x` number below describes what happened at the time, not what is current:
 
 1. **`.NET 4.8 → .NET 10 (LTS)` migration — DONE, on `master`** (v1.1.0, framework-dependent, behavior parity).
 2. **Plugin re-architecture (streams S1–S7) — IN PROGRESS** — turn the monolith into a **plugin host**; each
