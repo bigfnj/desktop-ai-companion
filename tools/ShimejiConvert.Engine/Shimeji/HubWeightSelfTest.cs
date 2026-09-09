@@ -28,7 +28,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 if (!condition) ok = false;
             };
 
-            sb.AppendLine("hub-weight self-test: damping curve + minimum-share floor");
+            sb.AppendLine("hub-weight self-test: damping curve + budgeted minimum-share floor");
 
             // ---- the curve ----
             check("a frequency of 0 stays at the baseline",
@@ -48,6 +48,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             check("the curve never decreases as frequency rises", monotonic);
 
             // Damped: the shipped spread was 326x. Same inputs must now land far closer together.
+            //
+            // A LINEAR CURVE WAS TRIED HERE AND REVERTED, with assertions that the curve preserves a
+            // category's frequency MASS. Do not re-add them. Measured against ground truth -- share of
+            // animation PLAYS, resolving a composite behaviour to the leaves it actually runs -- linear
+            // overshoots locomotion by 10 to 18 points on every skin measured, where sqrt sits within a
+            // couple of points on most. The full table and the two ways the metric was got wrong first are
+            // recorded on PetEmitter.HubWeightFromFrequency. The residual error was the reachability
+            // FLOOR's, not the curve's, and is asserted further down.
             int low = PetEmitter.HubWeightFromFrequency(0);
             int high = PetEmitter.HubWeightFromFrequency(1100);
             check("a 1100-vs-0 frequency spread damps to under 40x", high < low * 40);
@@ -93,13 +101,50 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             PetEmitter.ApplyMinimumShare(zeros, -1, PetEmitter.HubMinimumSharePercent);
             check("null, empty and all-zero weight sets are handled", true);
 
-            // A set so large that the floor cannot be satisfied for everyone (100 options at 1.5% needs 150%)
-            // must terminate rather than spin. It converges to an even split, which is the only sane answer.
+            // ---- THE FLOOR MUST NOT EAT THE ORDERING ----
+            // This used to assert only that a large set TERMINATED, and called the resulting even split
+            // "the only sane answer". Terminating is not the job. A flat 1.5% per spoke costs
+            // spokeCount * 1.5%, so at 63 spokes it demands 94.5% of the pool and the frequency curve is
+            // left with nothing to say -- which is how uzi, the most expressively animated skin in the
+            // library, ended up with 11.1% of its hub weight on locomotion against 30-37% for the small
+            // skins, and stopped reaching the wall and ceiling animations it ships art for.
+            //
+            // So the property under test is that a busy action stays BUSY at any spoke count.
+            var budgeted = new List<int>();
+            for (int i = 0; i < 63; i++) budgeted.Add(PetEmitter.HubWeightFromFrequency(i < 5 ? 1100 : 0));
+            var beforeFloor = new List<int>(budgeted);
+            PetEmitter.ApplyMinimumShare(budgeted, -1, PetEmitter.HubMinimumSharePercent);
+            double bTotal = budgeted.Sum();
+            double busyShare = budgeted.Take(5).Sum() * 100.0 / bTotal;
+            check("at 63 spokes the floor leaves the busy actions clearly ahead",
+                budgeted[0] >= budgeted[62] * 3);
+            check("...and they still hold a meaningful share of the pool", busyShare >= 20.0);
+            // The budget is a TARGET, not an identity, and asserting equality here fails: `need` is an
+            // integer ceiling of a fraction of the pool, so at 63 spokes a 0.556% target lands on 0.617%
+            // and the tail consumes 38.3% rather than 35%. Rounding up is the right direction (a spoke
+            // must never round to zero), so the property worth pinning is the one the budget exists to
+            // buy: most of the pool is still free for the frequency curve to use. It was 5.5% free before.
+            double floorConsumes = (budgeted.Count - 1) * (budgeted.Min() * 100.0 / bTotal);
+            check("...while leaving most of the pool free for the frequency curve",
+                floorConsumes <= 45.0);
+            check("the floor still only raises weights at 63 spokes",
+                !budgeted.Where((w, i) => w < beforeFloor[i]).Any());
+            check("every spoke is still reachable, just on a smaller floor",
+                budgeted.Min() > 0);
+
+            // The budget is per-pool, so a small hub is untouched and needs no republish.
+            check("at or below the crossover the requested floor is unchanged",
+                Math.Abs(PetEmitter.EffectiveMinimumSharePercent(20, PetEmitter.HubMinimumSharePercent)
+                         - PetEmitter.HubMinimumSharePercent) < 1e-9);
+            check("above the crossover the floor shrinks instead of the ordering dying",
+                PetEmitter.EffectiveMinimumSharePercent(63, PetEmitter.HubMinimumSharePercent)
+                    < PetEmitter.HubMinimumSharePercent);
+
+            // A set so large the budget itself is thin must still terminate rather than spin.
             var tooMany = new List<int>();
-            for (int i = 0; i < 100; i++) tooMany.Add(i + 1);
+            for (int i = 0; i < 400; i++) tooMany.Add(i + 1);
             PetEmitter.ApplyMinimumShare(tooMany, -1, PetEmitter.HubMinimumSharePercent);
-            check("an unsatisfiable floor terminates and evens out",
-                tooMany.Max() - tooMany.Min() <= tooMany.Max());
+            check("an enormous spoke set terminates", tooMany.Count == 400 && tooMany.Min() > 0);
 
             check("the version marker advanced past the flat-weight one",
                 !string.Equals(PetEmitter.ConvertedFormatVersion, PetEmitter.ConvertedFormatVersionFlatWeights, StringComparison.Ordinal));
@@ -107,5 +152,6 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             detail = sb.ToString().TrimEnd();
             return ok;
         }
+
     }
 }

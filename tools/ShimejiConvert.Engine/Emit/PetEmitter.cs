@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
@@ -1473,6 +1473,44 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         /// <summary>Smallest share of the hub's pool any single spoke may have, as a percentage.</summary>
         public const double HubMinimumSharePercent = 1.5;
 
+        /// <summary>
+        /// Total share of the hub's pool the reachability floor is allowed to consume, across ALL spokes.
+        ///
+        /// This exists because a flat per-spoke floor silently eats the whole pool on a richly animated
+        /// skin: the cost is spokeCount * HubMinimumSharePercent, so 1.5% each is 30% at 20 spokes and
+        /// 94.5% at 63. Past roughly 40 spokes there is nothing left for the frequency curve to say
+        /// anything with, and ApplyMinimumShare converges to a near-uniform split -- which is exactly what
+        /// HubWeightFromFrequency's square root was chosen to AVOID. Two passes with opposite goals, and
+        /// the floor won.
+        ///
+        /// MEASURED, not theorised. Of 30 converted companions, six had the ordering erased: uzi at 63
+        /// spokes was down to 11.1% locomotion weight against 30-37% for the small skins, and its wall and
+        /// ceiling animations -- which it ships art for -- played about half as often as its peers'.
+        ///
+        /// 35% puts the crossover at 35/1.5 = 23 spokes, so every skin at or below that is byte-identical
+        /// and needs no republish. Above it the floor shrinks rather than the ordering dying.
+        ///
+        /// NO FORMAT-VERSION BUMP FOR THIS ONE, deliberately, against the convention above. Those versions
+        /// mark emitter behaviour that a MIGRATION later had to repair, and gate that migration. This defect
+        /// cannot be migrated: a floored weight has already lost the frequency it came from, so the only
+        /// repair is re-conversion from the source skin. The seven affected companions were re-converted, and
+        /// a new number would then mean "emitted while the floor was flat" while sitting on 24 files whose
+        /// output the fix does not change and for which no migration will ever exist.
+        /// </summary>
+        public const double HubFloorBudgetPercent = 35.0;
+
+        /// <summary>
+        /// The floor actually applied to a pool of <paramref name="spokeCount"/> spokes: the requested
+        /// per-spoke share, or the budget split evenly, whichever is smaller. Never returns zero for a
+        /// positive request, because a spoke on a zero floor is one the pet can never reach -- reachability
+        /// is the reason the floor exists at all, and only its SIZE is negotiable.
+        /// </summary>
+        public static double EffectiveMinimumSharePercent(int spokeCount, double requestedPercent)
+        {
+            if (requestedPercent <= 0 || spokeCount <= 0) return requestedPercent;
+            return Math.Min(requestedPercent, HubFloorBudgetPercent / spokeCount);
+        }
+
         /// <summary>Damping applied to a source frequency before it becomes a weight.</summary>
         private const double HubFrequencyScale = 3.0;
 
@@ -1484,6 +1522,28 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         /// stayed at the baseline of 4 -- a 326x spread nobody chose, which fell out of the summing. Taking the
         /// root keeps the ORDERING (a character that walks a lot still walks a lot) while collapsing the range
         /// to roughly 10-25x, and the minimum-share pass then bounds the tail.
+        ///
+        /// A LINEAR CURVE WAS TRIED AND IS WORSE. Do not "fix" the concavity again without re-reading this.
+        /// The argument for linear is seductive: sqrt is concave, so splitting a fixed frequency mass across
+        /// more spokes yields more total weight, and a skin's idle poses outnumber its locomotion. Measured
+        /// against ground truth, though, linear overshoots badly and sqrt is close:
+        ///
+        ///     skin        spokes   SOURCE   sqrt (shipped)   linear
+        ///     uzi             63    21.4%            11.1%    36.2%
+        ///     serial-des-J    59    24.1%            12.1%    34.2%
+        ///     cyn             43    22.0%            21.4%    37.5%
+        ///     kinitopet       37    22.4%            24.5%    40.9%
+        ///     ralsei          37    28.6%            30.2%    42.3%
+        ///     capybara        43    28.8%            18.6%    39.2%
+        ///
+        /// GROUND TRUTH here means share of animation PLAYS: a behaviour worth N resolving to Walk and Sit
+        /// produces N walks and N sits, so both leaves take the full N. Two earlier attempts at this metric
+        /// were wrong and each flattered a different answer -- counting behaviours by NAME credits
+        /// "WalkRightAndSit" wholly to walking, and reading whichever conf a bundle happened to ship first
+        /// silently read the shared BASE conf, which is why six unrelated companions all measured an
+        /// identical 22.5%. The summing this curve damps is therefore CORRECT, and the residual error
+        /// belonged to the reachability floor: see HubFloorBudgetPercent. Budgeting that floor moved uzi from
+        /// 11.1% to 21.5% against a true 21.4%, with this curve left alone.
         ///
         /// Public because the reweight migration must apply the identical curve to already-emitted pets; two
         /// implementations of this would drift, exactly as two copies of the walk-time budget would.
@@ -1507,13 +1567,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         public static void ApplyMinimumShare(IList<int> weights, int excludeIndex, double minimumPercent)
         {
             if (weights == null || weights.Count == 0 || minimumPercent <= 0) return;
+            // Budget the floor here rather than at the call sites: both the emitter and the reweight
+            // migration call this, and the codebase's own rule is that two copies of one policy drift.
+            double floorPercent = EffectiveMinimumSharePercent(weights.Count, minimumPercent);
             for (int pass = 0; pass < 64; pass++)
             {
                 long total = 0;
                 for (int i = 0; i < weights.Count; i++) total += weights[i];
                 if (total <= 0) return;
 
-                int need = (int)Math.Ceiling(total * minimumPercent / 100.0);
+                int need = (int)Math.Ceiling(total * floorPercent / 100.0);
                 bool changed = false;
                 for (int i = 0; i < weights.Count; i++)
                 {
