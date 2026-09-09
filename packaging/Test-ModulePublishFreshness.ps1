@@ -321,3 +321,57 @@ if ($stale.Count -gt 0) {
 }
 
 Write-Host "All $($ids.Count) published module payload(s) are current with their source."
+
+# ---------------------------------------------------------------------------------------------------
+# CONTENT check, not a recency check. Everything above compares COMMIT ORDER: is the zip's commit newer
+# than the commits touching its sources. That is blind to a zip built from stale bits and committed
+# afterwards, which is exactly what shipped: fortunes.zip was committed FIVE SECONDS after the commit
+# that fixed the pack grouping, so every recency test called it current, while the DLL inside it had
+# been built before the fix and was short by seven pack-to-collection mappings. The user saw them land
+# in the fallback "More packs" group -- a regression that had already been fixed in the repo.
+#
+# Generalising this to every embedded resource means reading .NET manifest resources properly, which is
+# more machinery than it is worth here. collections.json is checked because it is the one that broke,
+# it is small, and it is pure data the emitter copies verbatim, so a substring search over the DLL is
+# sufficient and cannot false-negative: if the current bytes are absent, the zip is stale.
+$collectionsPath = Join-Path $repoRoot 'packs\collections.json'
+$fortunesZip = Join-Path $repoRoot 'modules-dist\fortunes.zip'
+if ((Test-Path -LiteralPath $collectionsPath) -and (Test-Path -LiteralPath $fortunesZip)) {
+    $expected = (Get-Content -LiteralPath $collectionsPath -Raw | ConvertFrom-Json)
+    $expectedPairs = [System.Collections.Generic.List[string]]::new()
+    foreach ($c in $expected.collections) {
+        foreach ($s in $c.sources) { $expectedPairs.Add("$($c.name)`t$s") }
+    }
+
+    $scratch = Join-Path ([IO.Path]::GetTempPath()) ("dp-freshness-" + [Guid]::NewGuid().ToString('N'))
+    try {
+        Expand-Archive -LiteralPath $fortunesZip -DestinationPath $scratch -Force
+        $dll = Get-ChildItem $scratch -Recurse -Filter 'Fortunes.dll' | Select-Object -First 1
+        if (-not $dll) { throw "fortunes.zip contains no Fortunes.dll to inspect." }
+        $shipped = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($dll.FullName))
+
+        $missing = [System.Collections.Generic.List[string]]::new()
+        foreach ($c in $expected.collections) {
+            foreach ($s in $c.sources) {
+                # The emitter writes the sources array verbatim, so each id appears as a quoted literal.
+                if ($shipped.IndexOf('"' + $s + '"', [StringComparison]::Ordinal) -lt 0) {
+                    $missing.Add("$($c.name) / $s")
+                }
+            }
+        }
+        if ($missing.Count -gt 0) {
+            Write-Host ''
+            foreach ($m in $missing | Select-Object -First 12) { Write-Host "  missing from the shipped DLL: $m" }
+            if ($missing.Count -gt 12) { Write-Host "  ... and $($missing.Count - 12) more" }
+            throw ("modules-dist/fortunes.zip was built before the current packs/collections.json: " +
+                   "$($missing.Count) of $($expectedPairs.Count) pack-to-collection mappings are absent " +
+                   "from the shipped Fortunes.dll. Those packs fall into the fallback 'More packs' group " +
+                   "for every user. REBUILD the module (New-ModulePublish.ps1 WITHOUT -SkipBuild) rather " +
+                   "than re-zipping, then commit the zip and regenerate the catalog.")
+        }
+        Write-Host "fortunes.zip embeds all $($expectedPairs.Count) current pack-to-collection mappings."
+    }
+    finally {
+        Remove-Item $scratch -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
