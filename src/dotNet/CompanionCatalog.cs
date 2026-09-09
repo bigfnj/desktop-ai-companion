@@ -177,6 +177,11 @@ namespace DesktopAICompanion
                 if (string.IsNullOrWhiteSpace(name))
                 {
                     name = Between(head, "<title>", "</title>");
+                    // LEGACY. The converter no longer appends this -- it decorated a title the Author line
+                    // already explained, and stripping it here to get a usable label is what proved it was
+                    // noise. Kept because a skin someone converted with an older Companion Studio still
+                    // carries it on their disk, and the same reasoning that keeps AppPaths.LegacySettingsFiles
+                    // around applies: a reader costs one comparison, a wrong display name is visible forever.
                     const string suffix = " (converted)";
                     if (!string.IsNullOrWhiteSpace(name) && name.EndsWith(suffix, StringComparison.Ordinal))
                         name = name.Substring(0, name.Length - suffix.Length);

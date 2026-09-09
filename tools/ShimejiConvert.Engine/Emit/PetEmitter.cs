@@ -1777,12 +1777,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             return new HeaderNode
             {
                 Author = ConvertedAuthor,
-                Title = skinName + " (converted)",
+                // NO " (converted)" suffix. It told the reader nothing they wanted -- the Author line
+                // already says the skin was converted -- and the app was stripping it straight back off in
+                // CompanionCatalog.ReadHeaderName to get a usable label, which is the tell that it was
+                // decoration rather than information.
+                Title = skinName,
                 Petname = petname,
                 // Not decoration: the reweight migration recovers a source frequency as (weight -
                 // HubBaseWeight), which only holds for a pet emitted BEFORE the damped curve. It therefore
-                // rewrites 1.0 -> 1.1 and skips anything already at 1.1, and new conversions start at 1.1 so
-                // they are never re-curved. Bump this if the hub weighting ever changes shape again.
+                // rewrites 0.1 -> 0.2 and skips anything already at 0.2, and new conversions start at the
+                // current format so they are never re-curved. Bump this if the hub weighting changes shape.
                 Version = ConvertedFormatVersion,
                 Info = "Converted from a Shimeji skin by ShimejiConvert. Behaviour is approximated; see the import report for what was simplified or dropped.",
                 Application = "1",

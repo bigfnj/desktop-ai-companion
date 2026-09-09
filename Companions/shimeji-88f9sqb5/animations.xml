@@ -2,7 +2,7 @@
 <animations xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns="https://esheep.petrucci.ch/">
   <header>
     <author>Converted from a Shimeji skin</author>
-    <title>skeleton Halloween (converted)</title>
+    <title>skeleton Halloween</title>
     <petname>skeleton Halloween</petname>
     <version>1.0</version>
     <info>Converted from a Shimeji skin by ShimejiConvert. Behaviour is approximated; see the import report for what was simplified or dropped.</info>

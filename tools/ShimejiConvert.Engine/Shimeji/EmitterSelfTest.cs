@@ -74,6 +74,25 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     failures.Add("emitted pet has unreachable animations: " + (r.Graph == null ? "(no graph)" : string.Join(",", r.Graph.Unreachable)));
                 if (!r.Accepted) failures.Add("result not accepted (valid+roundtrip+reachable)");
 
+                // The header must carry the character's name UNDECORATED. Title used to be
+                // skinName + " (converted)", which said nothing the Author line does not already say, and
+                // CompanionCatalog.ReadHeaderName stripped it straight back off to get a usable label.
+                // Asserting EQUALITY with the skin name rather than the absence of a suffix, because
+                // "does not end with (converted)" would also pass for a title that had picked up some other
+                // decoration, and the property wanted is that the name arrives untouched.
+                if (r.Root == null || r.Root.Header == null)
+                    failures.Add("emitted pet has no header to check");
+                else
+                {
+                    if (r.Root.Header.Title != "TestSkin")
+                        failures.Add("header title should be the bare skin name, got '" + (r.Root.Header.Title ?? "(null)") + "'");
+                    if (r.Root.Header.Petname != "TestSkin")
+                        failures.Add("header petname should be the bare skin name, got '" + (r.Root.Header.Petname ?? "(null)") + "'");
+                    // Provenance still has to be stated, just in the field that is for it.
+                    if (r.Root.Header.Author != PetEmitter.ConvertedAuthor)
+                        failures.Add("header author should name the converter, got '" + (r.Root.Header.Author ?? "(null)") + "'");
+                }
+
                 // Guard the invisible-pet bug: a spawn that places the pet fully off-screen horizontally and
                 // routes to a stationary animation leaves it invisible. Evaluate each spawn's X against a
                 // fake 1920-wide screen and require the pet to land within the horizontal bounds. (Y may be
