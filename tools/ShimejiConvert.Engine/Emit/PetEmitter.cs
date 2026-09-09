@@ -1413,53 +1413,67 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         public const string ConvertedAuthor = "Converted from a Shimeji skin";
 
         /// <summary>Header version stamped by the CURRENT emitter. See BuildHeader for why it matters.</summary>
-        // 1.0 flat hub weights -> 1.1 damped+floored weights -> 1.2 adds the ceiling region -> 1.3 gives the
-        // jump a solved arc, a descent and a landing -> 1.4 lets a climb CROSS the wall in one sequence, so
-        // the ceiling is reachable at all -> 1.5 shortened EVERY rest to ~1.2s (which over-corrected: it also
-        // cut the performances you want to watch) -> 1.6 splits the dwell by role: the hub is brief so the pet
-        // does not loiter, performances linger 9-12s -> 1.7 drops sprite cells that are byte-identical to
+        //
+        // REBASED TO 1.0 alongside the product's own 1.0.0, and the whole chain moved down with it so the
+        // pre-1.0 history became 0.1 through 0.8. Renumbering only the CURRENT stamp is what would have been
+        // unsafe: "1.0" was already the oldest format, the one `reweight` gates on, so a fresh conversion
+        // stamped 1.0 would have been mistaken for a pre-damping pet, had its frequencies recovered from
+        // weights that are already curved and floored, and been curved a second time. Measured on hornet:
+        // locomotion 31.9% -> 20.8% and the hub pool 664 -> 375. Moving the entire chain has no such
+        // collision, and the migrations are dev-side CLI verbs the app never runs, so nothing on a user's
+        // machine depends on these strings.
+        //
+        // History, in the new numbering:
+        // 0.1 flat hub weights -> 0.2 damped+floored weights -> 0.3 adds the ceiling region -> 0.4 gives the
+        // jump a solved arc, a descent and a landing -> 0.5 lets a climb CROSS the wall in one sequence, so
+        // the ceiling is reachable at all -> 0.6 shortened EVERY rest to ~1.2s (which over-corrected: it also
+        // cut the performances you want to watch) -> 0.7 splits the dwell by role: the hub is brief so the pet
+        // does not loiter, performances linger 9-12s -> 0.8 drops sprite cells that are byte-identical to
         // another cell, which the sheet builder used to keep because it deduped by image NAME and two source
-        // files can hold the same picture -> 1.8 drops the _left/_right suffix from an action name, because a
+        // files can hold the same picture -> 1.0 drops the _left/_right suffix from an action name, because a
         // converted pet mirrors its whole sheet on `<action>flip</action>` and every animation therefore
-        // plays in both directions. Each migration rewrites exactly one version and skips the rest, which is
-        // what makes a run idempotent.
-        public const string ConvertedFormatVersion = "1.8";
+        // plays in both directions, AND budgets the reachability floor (see HubFloorBudgetPercent). Each
+        // migration rewrites exactly one version and skips the rest, which is what makes a run idempotent.
+        //
+        // This alignment is a point in time, not a property: the next format change makes this 1.1 while the
+        // product moves independently. The number is a migration gate, not a release version.
+        public const string ConvertedFormatVersion = "1.0";
 
         /// <summary>The version emitted before the hub weighting was damped and floored; what the reweight
         /// migration looks for.</summary>
-        public const string ConvertedFormatVersionFlatWeights = "1.0";
+        public const string ConvertedFormatVersionFlatWeights = "0.1";
 
         /// <summary>What the reweight migration STAMPS, which is its own version rather than whatever the
         /// emitter is currently on. It fixes the hub weights and nothing else, so stamping the latest would
         /// claim the ceiling and the jump arc for a pet that has neither, and every later migration gates on
         /// an exact version and would then skip it.</summary>
-        public const string ConvertedFormatVersionDampedWeights = "1.1";
+        public const string ConvertedFormatVersionDampedWeights = "0.2";
 
         /// <summary>The version emitted while a jump was the source's own velocities clamped into a bounded
         /// arc, before the arc was solved for a height; what the `rejump` migration looks for.</summary>
-        public const string ConvertedFormatVersionLooseJumps = "1.2";
+        public const string ConvertedFormatVersionLooseJumps = "0.3";
 
         /// <summary>The version emitted while a wall climb was budgeted by TIME, so it covered ~32px and then
         /// rolled a 34% chance of letting go; what the `reclimb` migration looks for.</summary>
-        public const string ConvertedFormatVersionShortClimbs = "1.3";
+        public const string ConvertedFormatVersionShortClimbs = "0.4";
 
         /// <summary>The version emitted while a rest held ~9s and single-frame poses held 10s, so a pet stood
         /// idle 79% of the time; what the `restdwell` migration looks for.</summary>
-        public const string ConvertedFormatVersionLongRests = "1.4";
+        public const string ConvertedFormatVersionLongRests = "0.5";
 
         /// <summary>The version emitted while EVERY rest was ~1.2s, cutting the performances short; what the
         /// `restsplit` migration looks for, to restore long performances while keeping the hub brief.</summary>
-        public const string ConvertedFormatVersionFlatRests = "1.5";
+        public const string ConvertedFormatVersionFlatRests = "0.6";
 
         /// <summary>The version emitted while the sheet could hold two byte-identical cells, because
         /// <see cref="Shimeji.SpriteSheetBuilder"/> deduped poses by image NAME and a skin can ship the same
         /// picture under several filenames; what the `dedupe` migration looks for.</summary>
-        public const string ConvertedFormatVersionDuplicateCells = "1.6";
+        public const string ConvertedFormatVersionDuplicateCells = "0.7";
 
         /// <summary>The version emitted while an action still carried a `_left` / `_right` suffix taken
         /// verbatim from the source skin, which reads as a restriction the pet does not have; what the
         /// `undirect` migration looks for.</summary>
-        public const string ConvertedFormatVersionDirectionalNames = "1.7";
+        public const string ConvertedFormatVersionDirectionalNames = "0.8";
 
         /// <summary>Per-step travel a crossing surface pose is given. Public for the migration.</summary>
         public static int SurfaceStepPx { get { return SurfacePxPerStep; } }

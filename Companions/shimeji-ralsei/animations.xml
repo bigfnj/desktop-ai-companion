@@ -1,10 +1,10 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <animations xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns="https://esheep.petrucci.ch/">
   <header>
     <author>Converted from a Shimeji skin</author>
     <title>Ralsei (converted)</title>
     <petname>Ralsei</petname>
-    <version>1.7</version>
+    <version>1.0</version>
     <info>Converted from a Shimeji skin by ShimejiConvert. Behaviour is approximated; see the import report for what was simplified or dropped.</info>
     <application>1</application>
     <icon>AAABAAEAMDAAAAEAIACUBQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAwAAAAMAgGAAAAVwL5hwAAAAFzUkdCAK7OHOkAAAAEZ0FNQQAAsY8L/GEFAAAACXBIWXMAAA7DAAAOwwHHb6hkAAAFKUlEQVRoQ+3XfVRMeRgH8N/qxK6K1ctEmFRKtpomSkqtRK2XXkYv7FJC7Iu3jWUXUXRssjbMGKGJiZq25iCTsrSVVkdZWyNKkg2tLZQiele+e+7NcXL/3LPHnT/u55x7ztzn3uc5zzN35t7fJYTD4XA4HA6Hw+FwOBzO/2kUIeSjAftD3sQ038dDh/rMsLLuJoT4DQh7uFlY9VkYGS0ZENM4g3i6uqJY/6C2lW4eRfpa2nt4PJ7S2Ng4jRBiFu7irtwbsPAV38AghBCixUzWBKZrPGZ1vzogAyHkmWTDpt6nz5/jcVMjloeHnyOEJDftFmPHPBF1XMhM1gSjvprqDijPQRa1Ew9y84H6x6A8a2lBUlISutMyETXHjxrAhpnMOmNC5u1fENKHlx1ARzegygXSVUB5JfCqlx4E3T2Qx/0E/iDtUGY+62z4pqV43Njf6BudJaXoeliP1wODz1rhbmt3n5nPti8zs1SddIO9gCQnFWaeDpAlHoMyNR0TXO0Qe0YGdPZficKiIuoutZlZhE1RFeobqO15ioTqC9geuQ32E21x+Y4aZU/uwsneAZFbtkJ6MxsVnfWof/CQ+h9ImUXYtOWP4hI87W1HfGM+dRFwfK8U8ddOQ1yVjUO7fqa/+fjmS3jU04q71TXUAPuYRdi05cqVK3STpzPSISs4iV9aylDUcgdl7XU42XgVycXpUKTI6XNuV1dr3AAxFRUVdHMrFoXgYoEKp+4X0/svm5+jqLUGl9UFCAsIpmMNDQ3UAEeZRdg0VywWN1PN1f1Vh8wlUpxNUGCHZDci42PQ0dSBnNBDqCqtpAeQy+VthJCFzCKsGmnEy+h68YJuELJHwILfIed/i/shZ4C1N4AjT+hDrzs6YWv9SR4zn3U2fjOXzJ7k0FeuKoBachGwLwRmqgHHErR5Z0GRkoK05BMIcZsOKy/XDcx81kRHRw9yXR8WqOtg1mqvbYpyOwUkhssRauGDZZY+WDreHyLHueC5C6EzgU/99sETWHU5rVq0NFgZzP6iLjAtzmash2PfYKIFudUGwPM6YmzDobN6KoYFCTFkhjkEx1bCJycOghBfegBq47tNxmxppBuz3nvnn7pLaOQuwLgPDAHXC7hnLoVlqCdGBzq/bdbAwRyBtYlwjVqBYaON6dhYVwfMSYj2ZNZ774KV0YOFKwPXjTAZ2WpvJoBw4iR8djEG3r/FQIdviCH6uphxajNEVVL45MXBYqYLPhyu124fHhAZFL9+4FsbuwYP17ss+CYY05LWw++mBAF3DtONf6r4DgE1R+B34wDm5MXCJSIMOjzDW8x8NunpjTSMtftiXvus4z/A/6YEvur98P0zHqKKgxBVSunPvmX74KfeD6+UrRCG+XfrmfAkhJARzGJsMBlhNqbU+nNviG4dxPzbCRBV9jf+7nYQ86ukCKg5DNtwX+hbjrtNCLFgFmOLPiFEZOBkedfua39My9gIgWIdHBURcEqLgCB1LVyUGyGMCIah84Raok0WU88+ZhFNQN3Xv5/iKOxZ4+EFn6nO8HZ2wprpXnB3ngyipbVbU1/o3xGTKH6BlpcoLMhF1nkV0NwGSUoidfscyjxXs0wZP8Zu2fzVmSWFXdS65/z1q8gozqfXQLnl1+C4KmgTcTa3ZKZpBj4ZtS1ZWltaV9O/oANwtuQSTuRlv90v/+cefkw/1kCczKyY6ewbS0x2pcn+ll3Kxh5VKsS/KrH6UGzk4r3bVx3IyaBjR/OzEHcquYm4mFoz0/+rfwH/FRY5neHoPgAAAABJRU5ErkJggg==</icon>
