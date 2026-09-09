@@ -173,8 +173,8 @@ Run the MSI **over a running app** — that is the path that used to fail.
 
 - [ ] **F1. Every pane opens without throwing.** Click through all of them.
 - [ ] **F2. Change a value, Apply, close, reopen.** It persisted.
-- [ ] **F3. The footer shows the version.** `v1.9.13` when current.
-- [ ] **F4. When an update exists, the footer reads `1.9.13 → 1.9.14` and is clickable**, opening the
+- [ ] **F3. The footer shows the version.** `v1.0.0` when current.
+- [ ] **F4. When an update exists, the footer reads `1.0.0 → 1.0.1` and is clickable**, opening the
       GitHub releases page.
 
 ## G. Companions pane (4 min)
@@ -237,8 +237,13 @@ The log is on by default, so L1 needs nothing switched on first. Installed copie
 
 - [ ] **J1. `%TEMP%` is not filling up.** Run this after a session and expect a small number, not hundreds:
       ```powershell
-      (Get-ChildItem $env:TEMP -Filter 'dp-*' -Directory).Count
+      Get-ChildItem $env:TEMP -Filter 'dp-*' | Measure-Object -Sum Length |
+        Select-Object Count, @{n='MB';e={[math]::Round($_.Sum/1MB,1)}}
       ```
+      > **Do not put `-Directory` back on that line.** It was there originally, and it counted only
+      > directories while the actual leak was *files*: the pin-probe self-test left three per run and had
+      > accumulated 354 of them, 122 MB, while this row kept reporting a clean result. Count both, and
+      > report the size, because the count alone hid it too.
 - [ ] **J2. After an ABI change only.** The installed `DesktopAICompanion.Contracts.dll` FileVersion matches the new
       product version. Windows Installer skips refreshing a file whose version did not change, so an ABI
       change shipped without a `ProductVersion.props` bump installs a stale DLL and every module fails to

@@ -7,6 +7,5 @@
 /installer/ @bigfnj
 /ProductVersion.props @bigfnj
 /src/packages.lock.json @bigfnj
-/Tools/PetTester/packages.lock.json @bigfnj
-/tests/DesktopPet.CoreTests/packages.lock.json @bigfnj
+/tests/DesktopAICompanion.CoreTests/packages.lock.json @bigfnj
 /THIRD_PARTY_NOTICES.md @bigfnj

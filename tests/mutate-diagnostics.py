@@ -110,6 +110,39 @@ CASES = [
      "                if (_mutedCategories.Contains(category)) return;",
      "gate", "keeps no second copy of the rules"),
 
+    # The classifier. None of this was covered until a real log was read, so these cases exist to prove
+    # the new assertions actually bite rather than restating the prefix table back to itself.
+    ("the level column exactly equals the longest level name again", DIAG,
+     'level ?? "info").PadRight(9)', 'level ?? "info").PadRight(7)',
+     "gate", "level column is wider than the longest level name"),
+
+    ("sound staging falls back to App", DIAG,
+     '            new KeyValuePair<string, LogCategory>("adding sound", LogCategory.Audio),\n',
+     "",
+     "wpf", "sound staging is Audio, not App"),
+
+    ("animation dead-ends fall back to App", DIAG,
+     '            new KeyValuePair<string, LogCategory>("no next animation", LogCategory.Animation),\n',
+     "",
+     "wpf", "a dead-end in the animation graph is Animation"),
+
+    ("child teardown falls back to App", DIAG,
+     '            new KeyValuePair<string, LogCategory>("removing child", LogCategory.Animation),\n',
+     "",
+     "wpf", "with Animation muted, animation churn is genuinely not recorded"),
+
+    ("companion spawn falls back to App", DIAG,
+     '            new KeyValuePair<string, LogCategory>("new pet", LogCategory.Companions),\n',
+     "",
+     "wpf", "spawning a companion is Companions, not App"),
+
+    # The near-miss, in the other direction: a load failure swept into the muted Animation bucket
+    # disappears exactly when someone needs it.
+    ("a companion with no animations gets muted along with the churn", DIAG,
+     '            new KeyValuePair<string, LogCategory>("no animations for", LogCategory.Companions),',
+     '            new KeyValuePair<string, LogCategory>("no animations for", LogCategory.Animation),',
+     "wpf", "a companion that has no animations still reports itself"),
+
     ("the master switch does nothing", DIAG,
      "                if (!_enabled) return false;\n"
      "                if (_mutedCategories.Contains(category)) return false;",
@@ -159,6 +192,24 @@ def main():
     def restore():
         for rel, text in baseline.items():
             io.open(os.path.join(ROOT, rel), "w", encoding="utf-8-sig", newline="").write(text)
+
+    # BASELINE MUST BE GREEN FIRST. Without this the whole run is worthless: if a check is already
+    # failing before anything is mutated, every mutation "fails" too, the expected assertion is sitting
+    # right there in the output, and all N cases report FIRED. That happened -- 20/20 was reported
+    # against a red baseline, and only the gate caught it afterwards. A mutation test can only measure
+    # the DIFFERENCE a mutation makes, so the starting point has to be known-good.
+    checkers = set(c[4] for c in cases)
+    for checker in sorted(checkers):
+        ok, text = (run_gate() if checker == "gate" else run_wpf())
+        if not ok:
+            failing = [ln.strip() for ln in text.splitlines()
+                       if ln[:1] and not ln[:1].isspace() and not ln.startswith("+")
+                       and not ln.startswith("RESULT=")
+                       and ("FAIL" in ln or "MISSING" in ln or ln.rstrip().endswith("failed."))]
+            print("\nBASELINE NOT GREEN for '%s' -- refusing to run. Fix this first:" % checker)
+            for ln in failing[:10] or [str(text)[:400]]:
+                print("   " + ln)
+            return 2
 
     results = []
     try:

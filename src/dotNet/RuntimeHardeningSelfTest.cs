@@ -704,10 +704,11 @@ namespace DesktopAICompanion
                 // A pin to an unplugged display must read as UNPINNED, or the pet would be hidden for ever on
                 // a monitor that no longer exists -- a setting that makes a pet disappear permanently is worse
                 // than one that is ignored.
+                string pinProbePath = Path.Combine(
+                    Path.GetTempPath(), "dp-pinprobe-selftest-" + Guid.NewGuid().ToString("N") + ".json");
+                try
                 {
-                    var store = new AppSettingsStore(
-                        Path.Combine(Path.GetTempPath(), "dp-pinprobe-selftest-" + Guid.NewGuid().ToString("N") + ".json"),
-                        new string[0]);
+                    var store = new AppSettingsStore(pinProbePath, new string[0]);
                     var d = new LocalData(store);
 
                     Check("pin: a pet is unpinned by default", d.GetPetMonitor("hornet", 2) == -1);
@@ -726,6 +727,15 @@ namespace DesktopAICompanion
                     d.SetPetMonitor("hornet", 0);
                     d.SetPetMonitor("hornet", 1);
                     Check("pin: re-pinning replaces rather than duplicating", d.GetPetMonitor("hornet", 2) == 1);
+                }
+                finally
+                {
+                    // The store writes a .bak and a .lock beside the file, so all three have to go. Without
+                    // this the gate left 3 files in %TEMP% on EVERY run: 118 runs had accumulated 354 files
+                    // before anyone looked. Best-effort, because a self-test that fails on tidy-up would be
+                    // reporting a problem it just caused itself.
+                    foreach (string leftover in new[] { pinProbePath, pinProbePath + ".bak", pinProbePath + ".lock" })
+                        try { if (File.Exists(leftover)) File.Delete(leftover); } catch (Exception) { }
                 }
 
                 // ---- PET DISPLAY NAMES ----

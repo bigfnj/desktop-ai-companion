@@ -156,8 +156,12 @@ namespace DesktopAICompanion
                     var info = new FileInfo(path);
                     if (info.Exists && info.Length >= _maxBytes) RotateNoLock();
 
+                    // PadRight(9), not (7). The longest DEBUG_TYPE name is "warning", which is exactly 7
+                    // characters, so a 7-wide column padded it to nothing and the real log read
+                    // "warningApp" with the level welded to the category. Column widths have to exceed
+                    // the longest value, not equal it.
                     string line = DateTime.Now.ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture) +
-                                  "  " + (level ?? "info").PadRight(7) +
+                                  "  " + (level ?? "info").PadRight(9) +
                                   category.ToString().PadRight(11) +
                                   (text ?? "") + Environment.NewLine;
                     File.AppendAllText(path, line, Encoding.UTF8);
@@ -240,29 +244,88 @@ namespace DesktopAICompanion
         }
 
         /// <summary>
-        /// Which category a legacy AddDebugInfo line belongs to, from its text. The 57 existing call sites
-        /// pass no category and rewriting them all would be churn for no behavioural gain, so the prefixes
-        /// the codebase already uses are read instead. Anything unrecognised is App, which is the safe
+        /// Ordered prefix map, checked top to bottom, first match wins. Built by reading the actual
+        /// AddDebugInfo literals in this codebase rather than by guessing at shapes -- the first version of
+        /// this method was guessed, and on a real startup it put 43 of 53 lines in App, including all 35
+        /// sound-staging lines and every animation-graph line. Order matters where prefixes overlap, which
+        /// is why this is a list and not a dictionary.
+        /// </summary>
+        private static readonly KeyValuePair<string, LogCategory>[] Prefixes = new[]
+        {
+            // Explicit tags first: a caller that already said which subsystem it is wins outright.
+            new KeyValuePair<string, LogCategory>("[module]", LogCategory.Modules),
+            new KeyValuePair<string, LogCategory>("[companions]", LogCategory.Companions),
+            new KeyValuePair<string, LogCategory>("[pets]", LogCategory.Companions),
+            new KeyValuePair<string, LogCategory>("tray icon", LogCategory.Tray),
+            new KeyValuePair<string, LogCategory>("module host init failed", LogCategory.Modules),
+            new KeyValuePair<string, LogCategory>("drop triggers init failed", LogCategory.Modules),
+
+            // Audio. "adding sound" is the single noisiest line at startup -- 35 of them on this machine --
+            // and the original contains-check for "audio"/"sound device" matched none of them.
+            new KeyValuePair<string, LogCategory>("adding sound", LogCategory.Audio),
+            new KeyValuePair<string, LogCategory>("can't open sound", LogCategory.Audio),
+
+            // Animation churn. This block is load-bearing: Animation is muted by default, so anything that
+            // belongs here and is not listed gets logged anyway under App, and the mute silently fails to
+            // suppress the thing it exists to suppress.
+            //
+            // "no animations for this pet" is deliberately NOT here -- see the Companions block. It reads
+            // like animation churn and is actually a load failure the user has to be able to see.
+            new KeyValuePair<string, LogCategory>("new animation", LogCategory.Animation),
+            new KeyValuePair<string, LogCategory>("animation is over", LogCategory.Animation),
+            new KeyValuePair<string, LogCategory>("adding animation", LogCategory.Animation),
+            new KeyValuePair<string, LogCategory>("unable to add animation", LogCategory.Animation),
+            new KeyValuePair<string, LogCategory>("no next animation", LogCategory.Animation),
+            new KeyValuePair<string, LogCategory>("adding spawn", LogCategory.Animation),
+            new KeyValuePair<string, LogCategory>("adding child", LogCategory.Animation),
+            new KeyValuePair<string, LogCategory>("removing child", LogCategory.Animation),
+            new KeyValuePair<string, LogCategory>("border detected", LogCategory.Animation),
+            new KeyValuePair<string, LogCategory>("gravity detected", LogCategory.Animation),
+
+            // Companion lifecycle. Includes the failures that LOOK like animation churn but must stay
+            // visible with Animation muted, because they explain a companion that never appeared.
+            new KeyValuePair<string, LogCategory>("no animations for", LogCategory.Companions),
+            new KeyValuePair<string, LogCategory>("new pet", LogCategory.Companions),
+            new KeyValuePair<string, LogCategory>("pet '", LogCategory.Companions),
+            new KeyValuePair<string, LogCategory>("preview pet", LogCategory.Companions),
+            new KeyValuePair<string, LogCategory>("max pets reached", LogCategory.Companions),
+            new KeyValuePair<string, LogCategory>("kill one sheep", LogCategory.Companions),
+            new KeyValuePair<string, LogCategory>("killing all sheeps", LogCategory.Companions),
+            new KeyValuePair<string, LogCategory>("synchronize sheeps", LogCategory.Companions),
+            new KeyValuePair<string, LogCategory>("top most all sheeps", LogCategory.Companions),
+            new KeyValuePair<string, LogCategory>("load new xml", LogCategory.Companions),
+            new KeyValuePair<string, LogCategory>("spawn probabilities", LogCategory.Companions),
+            new KeyValuePair<string, LogCategory>("no eligible positive-probability", LogCategory.Companions),
+        };
+
+        /// <summary>
+        /// Checked after <see cref="Prefixes"/>, matched ANYWHERE in the line. This exists because several
+        /// call sites interpolate a value before the words -- "304 shared frames ready" leads with the
+        /// count -- so no prefix can ever match them. That is not hypothetical: "shared frames" was put in
+        /// the prefix table first and the assertion for it failed on the very next run.
+        /// </summary>
+        private static readonly KeyValuePair<string, LogCategory>[] Anywhere = new[]
+        {
+            new KeyValuePair<string, LogCategory>("shared frames", LogCategory.Animation),
+            new KeyValuePair<string, LogCategory>("audio", LogCategory.Audio),
+            new KeyValuePair<string, LogCategory>("sound device", LogCategory.Audio),
+            new KeyValuePair<string, LogCategory>("catalog", LogCategory.Network),
+            new KeyValuePair<string, LogCategory>("download", LogCategory.Network),
+        };
+
+        /// <summary>
+        /// Which category a legacy AddDebugInfo line belongs to, from its text. The call sites pass no
+        /// category and rewriting them all would be churn for no behavioural gain, so the wording the
+        /// codebase already uses is read instead. Anything unrecognised is App, which is the safe
         /// direction: an uncategorised line is still recorded.
         /// </summary>
         internal static LogCategory Infer(string text)
         {
             if (string.IsNullOrEmpty(text)) return LogCategory.App;
-            if (text.StartsWith("[module]", StringComparison.OrdinalIgnoreCase)) return LogCategory.Modules;
-            if (text.StartsWith("tray icon", StringComparison.OrdinalIgnoreCase)) return LogCategory.Tray;
-            if (text.StartsWith("[companions]", StringComparison.OrdinalIgnoreCase) ||
-                text.StartsWith("[pets]", StringComparison.OrdinalIgnoreCase)) return LogCategory.Companions;
-            if (text.StartsWith("new animation", StringComparison.OrdinalIgnoreCase) ||
-                text.StartsWith("animation is over", StringComparison.OrdinalIgnoreCase) ||
-                text.StartsWith("adding animation", StringComparison.OrdinalIgnoreCase) ||
-                text.StartsWith("adding spawn", StringComparison.OrdinalIgnoreCase) ||
-                text.StartsWith("adding child", StringComparison.OrdinalIgnoreCase) ||
-                text.StartsWith("border detected", StringComparison.OrdinalIgnoreCase) ||
-                text.StartsWith("gravity detected", StringComparison.OrdinalIgnoreCase)) return LogCategory.Animation;
-            if (text.IndexOf("audio", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                text.IndexOf("sound device", StringComparison.OrdinalIgnoreCase) >= 0) return LogCategory.Audio;
-            if (text.IndexOf("catalog", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                text.IndexOf("download", StringComparison.OrdinalIgnoreCase) >= 0) return LogCategory.Network;
+            foreach (KeyValuePair<string, LogCategory> entry in Prefixes)
+                if (text.StartsWith(entry.Key, StringComparison.OrdinalIgnoreCase)) return entry.Value;
+            foreach (KeyValuePair<string, LogCategory> entry in Anywhere)
+                if (text.IndexOf(entry.Key, StringComparison.OrdinalIgnoreCase) >= 0) return entry.Value;
             return LogCategory.App;
         }
 

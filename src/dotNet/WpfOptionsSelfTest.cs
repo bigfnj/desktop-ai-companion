@@ -113,6 +113,41 @@ namespace DesktopAICompanion
                 DiagnosticLog.Configure(false, 512, 2, "", "");
                 ok &= Check(sb, "the master switch turns everything off",
                     !DiagnosticLog.IsEnabled(LogCategory.App, null));
+                // --- the CLASSIFIER, which had no coverage at all until a real log was read ---
+                // The filter above was mutation-tested to death and every case fired, while Infer() was
+                // quietly putting 43 of 53 lines from an actual startup into App -- including all 35
+                // sound-staging lines and every animation-graph line. Testing the filter proves nothing
+                // about the routing. These are the VERBATIM strings from that log, so the measurement that
+                // found the bug is the thing standing guard over it.
+                ok &= Check(sb, "sound staging is Audio, not App",
+                    DiagnosticLog.Infer("adding sound (ani.61)") == LogCategory.Audio);
+                ok &= Check(sb, "a dead-end in the animation graph is Animation",
+                    DiagnosticLog.Infer("no next animation found") == LogCategory.Animation);
+                ok &= Check(sb, "child teardown is Animation, matching child setup",
+                    DiagnosticLog.Infer("removing child") == LogCategory.Animation);
+                ok &= Check(sb, "frame staging is Animation",
+                    DiagnosticLog.Infer("304 shared frames ready") == LogCategory.Animation);
+                ok &= Check(sb, "spawning a companion is Companions, not App",
+                    DiagnosticLog.Infer("new pet...") == LogCategory.Companions);
+                ok &= Check(sb, "the tray outcome line is still Tray",
+                    DiagnosticLog.Infer("tray icon set: success=True") == LogCategory.Tray);
+                ok &= Check(sb, "a module line is still Modules",
+                    DiagnosticLog.Infer("[module] module loaded: aibrain 1.0.0") == LogCategory.Modules);
+                ok &= Check(sb, "an unrecognised line still lands in App rather than vanishing",
+                    DiagnosticLog.Infer("init application...") == LogCategory.App);
+
+                // THE END-TO-END PROPERTY, and the one that was actually broken. Animation is muted by
+                // default; if churn is classified as App it gets written anyway, so the mute silently fails
+                // to suppress the only thing it exists for and the cap still evicts the startup record.
+                DiagnosticLog.Configure(true, 512, 2, "", "");
+                ok &= Check(sb, "with Animation muted, animation churn is genuinely not recorded",
+                    !DiagnosticLog.IsEnabled(DiagnosticLog.Infer("no next animation found"), null) &&
+                    !DiagnosticLog.IsEnabled(DiagnosticLog.Infer("removing child"), null));
+                // ...and the near-miss that must NOT be swept up with it: this one reads like animation
+                // churn but explains a companion that never appeared, so muting Animation must not hide it.
+                ok &= Check(sb, "...but a companion that has no animations still reports itself",
+                    DiagnosticLog.IsEnabled(DiagnosticLog.Infer("No animations for this pet"), null));
+
                 // Leave it as the user would have it, so a later self-test in this process still logs.
                 DiagnosticLog.Configure(true, 512, 2, "", "");
                 ok &= Check(sb, "collect includes the host Companions pane, alphabetized into the tail",

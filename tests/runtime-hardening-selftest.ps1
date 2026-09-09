@@ -561,6 +561,18 @@ Assert-True (
     $diagWriteBody -notmatch '_mutedModules' -and
     $diagWriteBody -notmatch '_enabled'
 ) 'DiagnosticLog.Write filters through IsEnabled and keeps no second copy of the rules'
+$levelEnumBody = [regex]::Match($startUpText, 'enum DEBUG_TYPE\s*\{(?<b>[^}]*)\}').Groups['b'].Value
+$longestLevel = ([regex]::Matches($levelEnumBody, '(?m)^\s*(\w+)\s*=\s*\d+') |
+    ForEach-Object { $_.Groups[1].Value.Length } | Measure-Object -Maximum).Maximum
+$levelPadWidth = [int] [regex]::Match(
+    $diagSource, 'level \?\? "info"\)\.PadRight\((?<n>\d+)\)').Groups['n'].Value
+Assert-True (
+    # Derived from the enum, not hard-coded: the level column has to be WIDER than the longest level name,
+    # not equal to it. It was PadRight(7) against a 7-character "warning", so every warning in a real log
+    # came out as "warningApp" with the level welded to the category. Comparing the two numbers is the only
+    # form of this check that survives someone adding a longer DEBUG_TYPE later.
+    $longestLevel -gt 0 -and $levelPadWidth -gt $longestLevel
+) 'the diagnostic log level column is wider than the longest level name'
 Assert-True (
     # The tray path must say what happened on EVERY run, not only when it fails. A run where SetIcon
     # succeeded and the icon still never appeared was previously indistinguishable from one that never

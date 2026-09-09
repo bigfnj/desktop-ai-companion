@@ -26,9 +26,14 @@ Underneath, it is built two ways on purpose:
   the app"** picks which, offered from the companions actually on screen; anything a companion says about *itself* (a
   poke, a landing) still belongs to that companion.
 - **🔔 It tells you about updates without nagging.** At launch — and again when you open Preferences — it
-  checks whether a newer version exists, at most once an hour. Notify-only: nothing downloads or installs
+  checks whether a newer version exists, at most once a week. Notify-only: nothing downloads or installs
   itself. The version in the corner of Preferences becomes a link to the releases page. Switch it off in
   **Preferences → Modules**.
+- **🩺 When something goes wrong, there's a record.** A rolling diagnostic log is written from launch
+  onward, and the previous run is kept — because the natural reaction to a fault is to restart, and the
+  restart is what would otherwise destroy the evidence. **Preferences → Diagnostic log** turns it off, caps
+  its size, and picks what gets recorded, per area and per installed module, so a module author can log one
+  module and nothing else. See [`SUPPORT.md`](SUPPORT.md) for where the file lives.
 
 > Fork of [Adrianotiger/desktopPet](https://github.com/Adrianotiger/desktopPet); the original animation
 > engine remains, with compatibility, correctness, and security fixes alongside the new fortune, AI, and
@@ -181,7 +186,7 @@ loopback), transcribes it **offline** with a local Whisper (whisper.cpp), names 
 snapshots after 72 hours while keeping the transcript and the calendar attendee roster. Everything stays on
 the machine. It needs a local Whisper set up (a `whisper-cli.exe` plus a model), and it records only from the
 machine's own console session — a Remote Desktop session presents no real microphone or speakers. Requires
-the v1.9.0 (or newer) host.
+the v1.0.0 (or newer) host.
 
 ### 💡 Blinking LED (optional module, new)
 
@@ -249,9 +254,8 @@ required** to run. The builds are **unsigned** — verify them against `SHA256SU
   any screen* rather than promising traversal.
 - **Updates find you.** Opening **Options → Modules** or **Options → Companions** already shows what has a newer
   version — no button press. A weekly background check writes down what it found, so the pane renders the
-  answer instantly and offline, and refreshes itself on open. The app's own version check stays hourly,
-  because missing a new app version for an hour is the case that actually matters. All three are notify-only
-  and each can be switched off in Preferences.
+  answer instantly and offline, and refreshes itself on open. The app's own check runs on the same weekly
+  schedule as the other two. All three are notify-only and each can be switched off in Preferences.
 - **Updating a companion you are looking at just works.** If a skin you have on screen gets an update, those companions
   are closed and respawned on the new definition. The default companion is the exception and says so: its live
   copy lives in your settings rather than the companion folder, so it asks you to restart.

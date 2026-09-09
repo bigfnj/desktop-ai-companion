@@ -166,13 +166,17 @@ SESSION_*
 HANDOFF_*
 
 # Secrets. Nothing of the sort is tracked today and the app keeps real keys DPAPI-encrypted under
-# %LOCALAPPDATA%\DesktopPet, well outside this tree -- these patterns exist so a stray local file
-# cannot become a commit.
+# %LOCALAPPDATA%\DesktopAICompanion, well outside this tree -- these patterns exist so a stray local
+# file cannot become a commit.
 .env
 .env.*
 *.pem
 *.p12
 *.jks
+*.key
+*.snk
+.netrc
+_netrc
 secrets.json
 appsettings.*.local.json
 
