@@ -583,6 +583,31 @@ Assert-True (
         Join-Path $repoRoot 'src\dotNet\ProcessIcon.cs') -Raw)) -match 'tray icon set: success='
 ) 'SetIcon records its outcome whether or not it succeeded'
 
+# The converted-author string is DUPLICATED across two assemblies that cannot reference each other: the
+# converter stamps it (PetEmitter.ConvertedAuthor) and the app reads it back to decide whether a pet's
+# <version> is the author's own or the converter's format number. If the two ever drift, nothing throws --
+# IsConvertedAuthor just quietly returns false for every pet and the About dialog goes back to calling a
+# migration gate "Version:". Compare the LITERALS, extracted from both files, rather than trusting that
+# whoever edits one remembers the other.
+$emitterAuthor = ([regex]::Match(
+    (Get-Content -LiteralPath (Join-Path $repoRoot 'tools\ShimejiConvert.Engine\Emit\PetEmitter.cs') -Raw),
+    'ConvertedAuthor\s*=\s*"([^"]+)"')).Groups[1].Value
+$appAuthor = ([regex]::Match(
+    (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\CompanionCatalog.cs') -Raw),
+    'ConvertedAuthor\s*=\s*"([^"]+)"')).Groups[1].Value
+Assert-True (
+    $emitterAuthor.Length -gt 0 -and $appAuthor.Length -gt 0 -and $emitterAuthor -ceq $appAuthor
+) 'the app and the converter agree on the converted-author string, character for character'
+
+$aboutSource = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'src\Portable\Wpf\AboutWindow.cs') -Raw)
+Assert-True (
+    # CONDITION, not presence: the row has to be chosen by provenance. Asserting only that the string
+    # "Converter format:" appears would still pass if someone hard-coded it for every pet, which would
+    # mislabel the hand-authored sheep whose <version> really is the author's own.
+    $aboutSource -match 'IsConvertedAuthor\(author\)\s*\?\s*"Converter format:"\s*:\s*"Version:"'
+) 'the About card labels the version row by provenance, not unconditionally'
+
 # Every tray surface that holds only a pet ID must resolve it through DisplayNameForId, which reads the
 # pet's own header. DisplayName(id, null) has no catalog name to consult and falls through to the prettified
 # folder id, so "Remove a pet" and "Pet Speech" read "Shimeji 3x56f4pl" while "Add a pet" -- which enumerates

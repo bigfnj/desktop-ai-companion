@@ -739,6 +739,33 @@ namespace DesktopAICompanion
                 }
 
                 // ---- PET DISPLAY NAMES ----
+                // ---- CONVERTED vs HAND-AUTHORED PROVENANCE ----
+                // Decides how About labels the header's <version>: a hand-authored pet's is the author's own
+                // (the shipped sheep range over 0.1, 0.3, 1.2.3 and 8.0), a converted one's is the
+                // converter's output-format number. A source invariant pins the label to this predicate, so
+                // this is the half that proves the predicate answers correctly -- using the real author
+                // strings the shipped corpus actually carries, not invented ones.
+                Check("provenance: the converter's own author string reads as converted",
+                    CompanionCatalog.IsConvertedAuthor(CompanionCatalog.ConvertedAuthor));
+                Check("provenance: a shipped hand-authored pet does NOT",
+                    !CompanionCatalog.IsConvertedAuthor("Adriano") &&
+                    !CompanionCatalog.IsConvertedAuthor("Michelle!"));
+                Check("provenance: a missing or blank author is not converted",
+                    !CompanionCatalog.IsConvertedAuthor(null) &&
+                    !CompanionCatalog.IsConvertedAuthor("") &&
+                    !CompanionCatalog.IsConvertedAuthor("   "));
+                // Tolerant at READ time on purpose: a hand-edited or re-serialised header can pick up
+                // padding or a case change, and mislabelling one row is a better outcome than a crash or a
+                // silent false. The GATE compares the two source literals case-sensitively; this does not.
+                Check("provenance: padding and casing in the header are tolerated",
+                    CompanionCatalog.IsConvertedAuthor("  Converted from a Shimeji skin  ") &&
+                    CompanionCatalog.IsConvertedAuthor("converted from a shimeji SKIN"));
+                // A near-miss must NOT match, or every pet mentioning a conversion in its author line
+                // would lose its real version label.
+                Check("provenance: a merely similar author string does not match",
+                    !CompanionCatalog.IsConvertedAuthor("Converted from a Shimeji skin by hand") &&
+                    !CompanionCatalog.IsConvertedAuthor("Shimeji skin"));
+
                 // A pet id must never reach the user. The tray holds only ids, so it resolves them through
                 // DisplayNameForId; the trap is that the generic fallback TITLE-CASES a folder id, which
                 // turns the built-in into "ESheep" and a converted skin into "Shimeji 3x56f4pl".

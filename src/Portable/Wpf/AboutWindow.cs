@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Text;
 using System.Windows;
 using System.Windows.Controls;
@@ -130,7 +130,15 @@ namespace DesktopAICompanion.Wpf
             var inner = new StackPanel();
             inner.Children.Add(LabeledRow("Author:", author));
             inner.Children.Add(LabeledRow("Title:", title));
-            inner.Children.Add(LabeledRow("Version:", version));
+            // "Version:" is only honest for a hand-authored pet, where the header carries the author's own
+            // version. For a converted skin it is the CONVERTER's output-format number -- a migration gate,
+            // bumped whenever the emitter changes shape -- and calling that the companion's version invites
+            // exactly the reading it got: that it should track the product's version. It happens to read 1.0
+            // today because the format chain was rebased alongside 1.0.0, and it will diverge again at the
+            // next format change, so the label has to say what the number actually is.
+            inner.Children.Add(LabeledRow(
+                DesktopAICompanion.CompanionCatalog.IsConvertedAuthor(author) ? "Converter format:" : "Version:",
+                version));
             inner.Children.Add(new TextBlock { Text = "Info:", FontWeight = FontWeights.Bold, Margin = new Thickness(0, 6, 0, 2) });
 
             var infoBlock = new TextBlock { TextWrapping = TextWrapping.Wrap };

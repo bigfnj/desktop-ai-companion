@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -23,6 +23,29 @@ namespace DesktopAICompanion
         }
 
         internal const int MaximumPetXmlBytes = 12 * 1024 * 1024;   // matches AppSettingsDocument.MaximumXmlBytes
+
+        /// <summary>
+        /// The <c>&lt;author&gt;</c> every converted skin carries, so a converted companion can be told
+        /// apart from a hand-authored one by its header alone.
+        ///
+        /// Duplicated from <c>PetEmitter.ConvertedAuthor</c> because the converter is a separate tool the app
+        /// does not reference. A gate invariant asserts the two literals stay identical, which is the same
+        /// treatment every other cross-assembly string in this repo gets -- the alternative, two copies free
+        /// to drift, would silently turn the check below into "always false".
+        /// </summary>
+        internal const string ConvertedAuthor = "Converted from a Shimeji skin";
+
+        /// <summary>
+        /// Whether a pet header's author says a converter produced it. Used to label the header's
+        /// <c>&lt;version&gt;</c> honestly: for a hand-authored pet that field is the author's own version
+        /// (the shipped sheep range over 0.1, 0.3, 1.2.3 and 8.0), but for a converted one it is the
+        /// CONVERTER's output-format number and means nothing to whoever is reading it.
+        /// </summary>
+        internal static bool IsConvertedAuthor(string author)
+        {
+            return author != null &&
+                   author.Trim().Equals(ConvertedAuthor, StringComparison.OrdinalIgnoreCase);
+        }
 
         // Explicit id for the built-in default pet (the embedded eSheep). Distinct from "" which means
         // "whatever pet is currently active" — a card/tray "Add" must add the specific pet it names,
