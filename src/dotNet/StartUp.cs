@@ -355,6 +355,20 @@ namespace DesktopAICompanion
             }
         }
 
+        /// <summary>
+        /// Remove the notification-area icon right now, for a session end.
+        ///
+        /// Restart Manager force-terminates an app that does not exit inside its deadline, and a
+        /// terminated process never sends NIM_DELETE, so the shell is left holding a slot for a dead
+        /// owner. Disposing the icon here is the one thing that MUST happen before the process goes, and
+        /// it is the same first action KillSheeps takes -- without the second of death animations that
+        /// would blow the deadline.
+        /// </summary>
+        internal void RemoveTrayIconForSessionEnd()
+        {
+            if (pi != null) pi.Dispose();
+        }
+
         internal bool RefreshTrayIconForResourceChurn()
         {
             if (!Program.ResourceChurnSelfTestActive ||

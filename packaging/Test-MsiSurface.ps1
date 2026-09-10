@@ -144,6 +144,14 @@ Assert-MsiTrue ($launchAction.Count -eq 1 -and ([int]$launchAction[0][0] -band 1
 $launchPublish = Get-MsiRows "SELECT ``Condition`` FROM ``ControlEvent`` WHERE ``Dialog_`` = 'ExitDialog' AND ``Argument`` = 'LaunchDesktopAICompanion'" 1
 Assert-MsiTrue ($launchPublish.Count -eq 1 -and $launchPublish[0][0] -match 'WIXUI_EXITDIALOGOPTIONALCHECKBOX') (
     'launching is conditioned on the checkbox, so unticking it means what it says')
+# The launch must survive a REPAIR and must NOT happen on uninstall. It used to be gated on
+# "NOT Installed", which is true for any maintenance run, so a repair closed the running app via Restart
+# Manager and then never brought it back -- reported twice by the maintainer. REMOVE="ALL" is set only on
+# uninstall, so keying on that restores the repair launch while still never running a deleted exe.
+Assert-MsiTrue ($launchPublish[0][0] -notmatch 'NOT\s+Installed') (
+    'the launch is not gated on NOT Installed, so a repair still relaunches the pet')
+Assert-MsiTrue ($launchPublish[0][0] -match 'REMOVE') (
+    'the launch is suppressed on uninstall, so it never runs an exe it just deleted')
 
 # ---- repair must be offered, and must actually repair -------------------------------------------------
 # Two halves, and offering it WITHOUT the second is worse than not offering it at all: the stock maintenance

@@ -155,6 +155,64 @@ msiexec-launched start accepted the icon first try. The fix is deliberately mech
 verifies and repairs regardless of why the shell refused, which is why it worked here without the
 cause being known.
 
+#### The INSTALLER side, fixed in 1.1.3 (2026-09-10) -- and it was never WM_CLOSE
+
+Testing 1.1.2 on a real upgrade surfaced a second, separate symptom the maintainer had seen before:
+
+> "The setup was unable to automatically close all requested applications." ... "it appears to hang when
+> its done, but eventually closes."
+
+**The 1.1.0 belt aimed at the wrong message.** An MSI verbose log settles who closes the app during an
+install:
+
+```
+13:52:23.379  RESTART MANAGER: Will attempt to shut down and restart applications in no UI modes.
+13:52:23.534  RESTART MANAGER: Successfully shut down all applications that held files in use.
+13:52:24.079  Doing action: Wix4CloseApplications_X64      <- WiX runs half a second LATER
+```
+
+**Restart Manager gets there first**, and RM speaks the SESSION-END protocol
+(`WM_QUERYENDSESSION` / `WM_ENDSESSION`) -- never `WM_CLOSE`. So the `util:CloseApplication` belt added
+in 1.1.0 was listening for a message no installer sends, and the app was always force-killed by
+`TerminateProcess`. Its self-test passed throughout, because it proved the WIRING (send WM_CLOSE, get an
+orderly exit) and never that the installer would send that message.
+
+The backlog already had the other half of the answer and it went unused: WinForms *does* answer
+`WM_QUERYENDSESSION`, but on a hidden broadcast window on a BACKGROUND thread that owns no forms, so it
+agrees and nothing shuts down. The `TaskbarWatcher` is top-level and on the UI thread, which is why the
+message can be acted on there.
+
+**Two rounds were needed, and the first was wrong in an instructive way.** Handling
+`WM_QUERYENDSESSION` by answering TRUE and waiting for `WM_ENDSESSION` produced this, measured on a real
+repair:
+
+```
+14:08:47.298  session end queried (installer or shutdown); agreeing to close
+              ... and nothing further. WM_ENDSESSION never arrived.
+```
+
+RM took "yes" as an undertaking to exit, waited, and terminated the process. **Answering yes and then
+doing nothing is worse than never answering**, because RM believes it has an agreement, and that wait is
+exactly the "hang" the maintainer described. The app now exits on the QUERY, posted through the UI
+synchronization context so the answer reaches RM before the message loop stops. Measured after:
+
+```
+14:14:02.822  session end queried (installer or shutdown); agreeing to close
+14:14:02.823  session end: removing the tray icon and exiting immediately
+```
+
+One millisecond apart; a direct probe measured the whole exit at **0.29s**, with the tray icon gone
+afterwards, i.e. `NIM_DELETE` sent rather than a slot left behind. Deliberately NOT `KillSheeps(true)`:
+that path lingers about a second for the farewell animations, which is charming when the user chose to
+quit and fatal against RM's deadline.
+
+**A repair now relaunches the pet.** Reported twice: "the sheep again did not re-launch after a repair".
+The launch was gated on `NOT Installed`, true for any maintenance run, and a repair is the case where it
+matters most -- RM closes the app so the files can be replaced, so the old condition left the user with
+no companion, no tray icon, and nothing to show the repair had finished: strictly worse off than before
+they started. Now gated on `REMOVE<>"ALL"`, which still never launches an exe it has just deleted. Two
+surface assertions pin both halves.
+
 #### The two 1.1.0 belts, kept -- but they are NOT what fixes this
 
 Written for the refuted terminate-path theory, and retained because each covers a real case this

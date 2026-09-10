@@ -66,7 +66,11 @@ namespace DesktopAICompanion
             // owned by the same thread that pumps the icon's messages.
             if (taskbarWatcher == null)
             {
-                try { taskbarWatcher = new TaskbarWatcher(ReassertIcon, RequestOrderlyExit); }
+                try
+                {
+                    taskbarWatcher = new TaskbarWatcher(
+                        ReassertIcon, RequestOrderlyExit, RequestSessionEndExit);
+                }
                 catch (Exception ex)
                 {
                     // The icon still works; only the recovery belt is missing. Say which.
@@ -336,8 +340,38 @@ namespace DesktopAICompanion
         }
 
         /// <summary>
-        /// A hidden TOP-LEVEL window that receives the shell's "TaskbarCreated" broadcast and an
-        /// external WM_CLOSE.
+        /// Shut down IMMEDIATELY for a session end, skipping the farewell animations.
+        ///
+        /// Distinct from RequestOrderlyExit on purpose. That path calls KillSheeps(true), which
+        /// deliberately lingers about a second so the companions can play a death animation -- lovely when
+        /// the user chose to quit, and fatal here: Restart Manager gives an app a short window to go and
+        /// force-terminates anything still running, and a terminated process never sends its NIM_DELETE,
+        /// which is what leaves a dead icon behind in the tray.
+        ///
+        /// So the icon is disposed FIRST (that is the NIM_DELETE), then the message loop is ended. No
+        /// animation, no timers, nothing that can take longer than the deadline.
+        /// </summary>
+        private static void RequestSessionEndExit()
+        {
+            StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info,
+                "session end: removing the tray icon and exiting immediately");
+            StartUp main = Program.Mainthread;
+            try
+            {
+                // Dispose the icon before anything else can fail. Everything after this is best effort.
+                if (main != null) main.RemoveTrayIconForSessionEnd();
+            }
+            catch (Exception ex)
+            {
+                StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.error,
+                    "session end: tray icon removal failed: " + ex.GetType().Name);
+            }
+            try { Application.Exit(); } catch { }
+        }
+
+        /// <summary>
+        /// A hidden TOP-LEVEL window that receives the shell's "TaskbarCreated" broadcast, a session-end
+        /// request, and an external WM_CLOSE.
         ///
         /// Top-level on purpose: the shell posts TaskbarCreated with HWND_BROADCAST, which reaches
         /// top-level windows ONLY -- a message-only (HWND_MESSAGE) window is never sent it, which is the
@@ -347,13 +381,27 @@ namespace DesktopAICompanion
         private sealed class TaskbarWatcher : NativeWindow, IDisposable
         {
             private const int WsExToolWindow = 0x00000080;
+            private const int WsVisible = 0x10000000;
             private const int WmClose = 0x0010;
+            private const int WmQueryEndSession = 0x0011;
+            private const int WmEndSession = 0x0016;
             private readonly int _taskbarCreated;
             private readonly Action _onTaskbarCreated;
             private readonly Action _onCloseRequested;
+            private readonly Action _onSessionEnd;
+            private readonly System.Threading.SynchronizationContext _ui =
+                System.Threading.SynchronizationContext.Current;
+            private bool _sessionEndStarted;
 
             internal TaskbarWatcher(Action onTaskbarCreated, Action onCloseRequested)
-                : this(onTaskbarCreated, onCloseRequested, NativeRegisterWindowMessage("TaskbarCreated"))
+                : this(onTaskbarCreated, onCloseRequested, null,
+                       NativeRegisterWindowMessage("TaskbarCreated"))
+            {
+            }
+
+            internal TaskbarWatcher(Action onTaskbarCreated, Action onCloseRequested, Action onSessionEnd)
+                : this(onTaskbarCreated, onCloseRequested, onSessionEnd,
+                       NativeRegisterWindowMessage("TaskbarCreated"))
             {
             }
 
@@ -363,19 +411,37 @@ namespace DesktopAICompanion
             /// guard survived every assertion until the id could be injected, which made the guard
             /// unverifiable defensive code rather than tested behaviour.
             /// </summary>
-            internal TaskbarWatcher(Action onTaskbarCreated, Action onCloseRequested, int messageId)
+            internal TaskbarWatcher(Action onTaskbarCreated, Action onCloseRequested, Action onSessionEnd,
+                int messageId)
             {
                 _onTaskbarCreated = onTaskbarCreated;
                 _onCloseRequested = onCloseRequested;
+                _onSessionEnd = onSessionEnd;
                 _taskbarCreated = messageId;
                 var p = new CreateParams
                 {
                     Caption = "DesktopAICompanionTrayWatcher",
-                    X = 0,
-                    Y = 0,
+                    // Parked far off the virtual desktop. Windows refuses a 0x0 window and silently
+                    // enlarged this to 16x16 at (0,0), the top-left corner of the primary display, where
+                    // an unpainted window can show as an artifact. POSITION is what keeps it unseen, not
+                    // size, and that is what the self-test asserts.
+                    X = -32000,
+                    Y = -32000,
                     Width = 0,
                     Height = 0,
-                    Style = 0,                 // not WS_VISIBLE, and not WS_CHILD
+                    // WS_VISIBLE, and it is load-bearing. Measured 2026-09-10 on a real upgrade:
+                    // with this window invisible, the installer's util:CloseApplication never delivered
+                    // WM_CLOSE to it -- the app logged no shutdown at all, Restart Manager reported "unable
+                    // to automatically close all requested applications", and TerminateProcess killed the
+                    // process. So the close request only reaches windows the enumeration considers visible.
+                    //
+                    // Imperceptible regardless: 0x0 pixels has nothing to paint, and WS_EX_TOOLWINDOW keeps
+                    // it out of the taskbar and Alt-Tab. Asserted below by SIZE and style rather than by
+                    // IsWindowVisible, because "cannot be seen" is the property that matters and
+                    // "not visible to the window manager" was the thing breaking the fix.
+                    //
+                    // Not WS_CHILD: HWND_BROADCAST (TaskbarCreated) reaches top-level windows only.
+                    Style = WsVisible,
                     ExStyle = WsExToolWindow,
                 };
                 CreateHandle(p);
@@ -388,6 +454,48 @@ namespace DesktopAICompanion
                 if (_taskbarCreated != 0 && m.Msg == _taskbarCreated && _onTaskbarCreated != null)
                 {
                     try { _onTaskbarCreated(); } catch { }
+                }
+                else if (m.Msg == WmQueryEndSession)
+                {
+                    // Restart Manager asks this before an install replaces our files, and answering it is
+                    // what decides whether the user sees "setup was unable to automatically close all
+                    // requested applications". Measured from an MSI verbose log 2026-09-10: RM shuts the
+                    // app down at T+0.15s, a full HALF SECOND before WiX's util:CloseApplication runs at
+                    // T+0.70s -- so RM, not the WiX action, is what closes the app during an install, and
+                    // RM speaks the SESSION-END protocol, never WM_CLOSE. The WM_CLOSE handler below was
+                    // therefore waiting for a message no installer sends.
+                    //
+                    // WinForms does answer this already, but on a hidden broadcast window living on a
+                    // BACKGROUND thread that owns no forms, so it says "yes" and nothing shuts down. This
+                    // window is top-level and on the UI THREAD, which is why the message lands here where
+                    // it can be acted on.
+                    StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info,
+                        "session end queried (installer or shutdown); agreeing to close");
+                    m.Result = (IntPtr)1;   // yes, we can close
+
+                    // ...and then actually close, rather than waiting for WM_ENDSESSION.
+                    //
+                    // Measured on a real interactive repair 2026-09-10: this query arrived and was
+                    // answered, and WM_ENDSESSION NEVER FOLLOWED. Restart Manager took "yes" to mean the
+                    // app would now exit under its own steam, waited, and force-terminated it -- which the
+                    // maintainer saw as the installer hanging at the end before closing. Answering yes and
+                    // then doing nothing is worse than not answering at all, because RM believes it has an
+                    // agreement.
+                    //
+                    // POSTED, not called inline: the answer above has to be returned to RM before the
+                    // message loop shuts down, and exiting inside the handler never lets that happen.
+                    StartSessionEndExit();
+                    return;
+                }
+                else if (m.Msg == WmEndSession)
+                {
+                    // wParam == 0 means the session end was cancelled; only a non-zero value is a real
+                    // instruction to go.
+                    // Still handled, for the case where RM (or a real logoff) does follow through, and
+                    // idempotent because the query above will usually have started this already.
+                    if (m.WParam != IntPtr.Zero) StartSessionEndExit();
+                    m.Result = IntPtr.Zero;
+                    return;
                 }
                 else if (m.Msg == WmClose && _onCloseRequested != null)
                 {
@@ -408,6 +516,22 @@ namespace DesktopAICompanion
                     return;   // handled: do not let DefWindowProc destroy the window mid-shutdown
                 }
                 base.WndProc(ref m);
+            }
+
+            /// <summary>
+            /// Begin the session-end exit exactly once, on the UI thread, without blocking the message
+            /// being handled. Idempotent: WM_QUERYENDSESSION and WM_ENDSESSION can both ask.
+            /// </summary>
+            private void StartSessionEndExit()
+            {
+                if (_sessionEndStarted || _onSessionEnd == null) return;
+                _sessionEndStarted = true;
+                Action exit = _onSessionEnd;
+                System.Threading.SynchronizationContext ui = _ui;
+                if (ui != null)
+                    ui.Post(delegate { try { exit(); } catch { } }, null);
+                else
+                    try { exit(); } catch { }
             }
 
             public void Dispose()
@@ -435,12 +559,22 @@ namespace DesktopAICompanion
             bool ok = true;
             int taskbarFired = 0;
             int closeFired = 0;
+            int sessionEndFired = 0;
             TaskbarWatcher watcher = null;
+            // Install a real WinForms synchronization context for the duration. Without one,
+            // SynchronizationContext.Current is null (there is no Application.Run here), the watcher falls
+            // back to invoking the exit inline, and the "posted, not inline" property -- the one that lets
+            // RM receive its answer before the loop stops -- could not be tested at all.
+            System.Threading.SynchronizationContext previousContext =
+                System.Threading.SynchronizationContext.Current;
+            System.Threading.SynchronizationContext.SetSynchronizationContext(
+                new WindowsFormsSynchronizationContext());
             try
             {
                 watcher = new TaskbarWatcher(
                     delegate { taskbarFired++; },
-                    delegate { closeFired++; });
+                    delegate { closeFired++; },
+                    delegate { sessionEndFired++; });
 
                 ok &= TrayAssert(report, "watcher has a window handle", watcher.Handle != IntPtr.Zero);
 
@@ -450,10 +584,31 @@ namespace DesktopAICompanion
                     NativeGetParent(watcher.Handle) == IntPtr.Zero);
                 const int GwlStyle = -16;
                 const int WsChild = 0x40000000;
-                const int WsVisible = 0x10000000;
                 int style = NativeGetWindowLong(watcher.Handle, GwlStyle);
                 ok &= TrayAssert(report, "watcher window is not a child window", (style & WsChild) == 0);
-                ok &= TrayAssert(report, "watcher window is not visible", (style & WsVisible) == 0);
+
+                // Deliberately NOT "is not visible" any more. That assertion passed while the fix it was
+                // guarding silently did nothing: an invisible window never receives the installer's
+                // WM_CLOSE. What must hold is that the user cannot SEE it, which is a matter of size and
+                // of being a tool window, so those are what get checked.
+                const int WsExToolWindowCheck = 0x00000080;
+                const int GwlExStyle = -20;
+                int exStyle = NativeGetWindowLong(watcher.Handle, GwlExStyle);
+                ok &= TrayAssert(report, "watcher window is a tool window (never in taskbar or Alt-Tab)",
+                    (exStyle & WsExToolWindowCheck) != 0);
+                // Windows will not honour a 0x0 window (it became 16x16), so the guarantee is
+                // POSITION: the window must not intersect the virtual desktop at all. Checked against the
+                // real multi-monitor bounds rather than a hardcoded coordinate.
+                NativeRect rect;
+                bool gotRect = NativeGetWindowRect(watcher.Handle, out rect);
+                System.Drawing.Rectangle virtualScreen = SystemInformation.VirtualScreen;
+                var watcherBounds = new System.Drawing.Rectangle(
+                    rect.Left, rect.Top,
+                    Math.Max(0, rect.Right - rect.Left),
+                    Math.Max(0, rect.Bottom - rect.Top));
+                ok &= TrayAssert(report,
+                    "watcher window sits off the virtual desktop, so it cannot be seen",
+                    gotRect && !virtualScreen.IntersectsWith(watcherBounds));
 
                 int registered = NativeRegisterWindowMessage2("TaskbarCreated");
                 ok &= TrayAssert(report, "TaskbarCreated registers a usable message id", registered != 0);
@@ -466,7 +621,49 @@ namespace DesktopAICompanion
                 NativeSendMessage(watcher.Handle, 0x0000, IntPtr.Zero, IntPtr.Zero);
                 ok &= TrayAssert(report, "WM_NULL does not trigger a re-add", taskbarFired == 1);
 
-                // WM_CLOSE is what the MSI's util:CloseApplication posts.
+                // --- the SESSION-END protocol, which is what an installer actually uses -----------
+                // Measured from an MSI verbose log: Restart Manager shuts the app down half a second
+                // BEFORE WiX's util:CloseApplication runs, and RM speaks WM_QUERYENDSESSION /
+                // WM_ENDSESSION -- never WM_CLOSE. The WM_CLOSE handling below was therefore waiting for
+                // a message no installer sends, which is why the maintainer still saw "setup was unable
+                // to automatically close all requested applications" on a 1.1.2 upgrade.
+                const int WmQueryEndSessionMsg = 0x0011;
+                const int WmEndSessionMsg = 0x0016;
+
+                // Must answer TRUE, or Windows treats us as refusing to close.
+                IntPtr agreed = NativeSendMessage(watcher.Handle, WmQueryEndSessionMsg,
+                    IntPtr.Zero, IntPtr.Zero);
+                ok &= TrayAssert(report, "WM_QUERYENDSESSION is answered yes", agreed != IntPtr.Zero);
+
+                // The exit must be SCHEDULED by the query, not deferred until WM_ENDSESSION. Measured on a
+                // real interactive repair: that second message never came, RM waited on an agreement we
+                // were not keeping, and force-killed the process -- the "installer hangs at the end"
+                // symptom. Posted rather than inline, so it is only observable after the loop is pumped.
+                ok &= TrayAssert(report, "the exit has not run INSIDE the message handler",
+                    sessionEndFired == 0);
+                Application.DoEvents();
+                ok &= TrayAssert(report, "answering the query schedules the exit", sessionEndFired == 1);
+
+                // Idempotent: a following WM_ENDSESSION must not exit a second time.
+                NativeSendMessage(watcher.Handle, WmEndSessionMsg, (IntPtr)1, IntPtr.Zero);
+                Application.DoEvents();
+                ok &= TrayAssert(report, "a following WM_ENDSESSION does not exit twice",
+                    sessionEndFired == 1);
+                ok &= TrayAssert(report, "session end is not confused with the tray re-add",
+                    taskbarFired == 1);
+
+                // A CANCELLED session end (wParam == 0) on a fresh watcher must not exit at all: quitting
+                // the app because Windows changed its mind would be worse than the bug.
+                using (var cancelled = new TaskbarWatcher(
+                    delegate { }, null, delegate { sessionEndFired += 100; }))
+                {
+                    NativeSendMessage(cancelled.Handle, WmEndSessionMsg, IntPtr.Zero, IntPtr.Zero);
+                    Application.DoEvents();
+                    ok &= TrayAssert(report, "a cancelled session end does NOT exit",
+                        sessionEndFired == 1);
+                }
+
+                // WM_CLOSE is still handled: it covers a manual close request, and costs nothing.
                 NativeSendMessage(watcher.Handle, WmCloseForTest, IntPtr.Zero, IntPtr.Zero);
                 ok &= TrayAssert(report, "WM_CLOSE requests the orderly exit", closeFired == 1);
                 ok &= TrayAssert(report, "WM_CLOSE does not also trigger a re-add", taskbarFired == 1);
@@ -478,7 +675,7 @@ namespace DesktopAICompanion
                 // The id-is-zero case, now reachable. RegisterWindowMessage returns 0 on failure, and a
                 // watcher that trusted it would re-add the icon on every WM_NULL -- which is routine
                 // traffic, so the tray would flicker constantly on a machine where registration failed.
-                using (var blind = new TaskbarWatcher(delegate { taskbarFired++; }, null, 0))
+                using (var blind = new TaskbarWatcher(delegate { taskbarFired++; }, null, null, 0))
                 {
                     int before = taskbarFired;
                     NativeSendMessage(blind.Handle, 0x0000, IntPtr.Zero, IntPtr.Zero);
@@ -596,6 +793,7 @@ namespace DesktopAICompanion
             finally
             {
                 if (watcher != null) { try { watcher.Dispose(); } catch { } }
+                System.Threading.SynchronizationContext.SetSynchronizationContext(previousContext);
             }
 
             report.AppendLine("RESULT=" + (ok ? "PASS" : "FAIL"));
@@ -632,6 +830,13 @@ namespace DesktopAICompanion
 
         [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
         private static extern int NativeGetWindowLong(IntPtr window, int index);
+
+        [System.Runtime.InteropServices.StructLayout(
+            System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct NativeRect { public int Left, Top, Right, Bottom; }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "GetWindowRect")]
+        private static extern bool NativeGetWindowRect(IntPtr window, out NativeRect rect);
 
         [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "SendMessageW")]
         private static extern IntPtr NativeSendMessage(IntPtr window, int message, IntPtr w, IntPtr l);
