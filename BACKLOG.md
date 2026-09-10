@@ -56,6 +56,13 @@ appear and then nothing happens, forever, with no error and no log line.
 exceptions", exactly as the method's own summary says. So a missing model is indistinguishable from
 "nothing interesting to say".
 
+**Why it "worked once".** Maintainer report, 2026-09-10: using **Refresh local models** removed
+`gemma3:4b` from the list. So the setting can hold a model that was valid when chosen and is silently
+no longer offered afterwards, which matches the observed sequence exactly (worked, changed model to
+smoke-test, changed back, never worked again). That makes the real defect broader than a bad default:
+**a saved model id is never re-validated against what the backend currently has.** A refresh that drops
+a model should say so, or clear the setting, rather than leaving it pointing at nothing.
+
 **The part that makes it undiagnosable:** `DiagnosticLog` is referenced **zero** times anywhere in
 `modules/AiBrain/`. The log added in Phase 4b to make invisible faults visible has no instrumentation in
 the one subsystem that fails by returning null on purpose.
