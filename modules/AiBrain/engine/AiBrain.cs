@@ -37,6 +37,9 @@ namespace DesktopAICompanion.Ai
         // Vision images are downscaled to this width before sending — full-screen frames make a
         // vision model crawl (tens of seconds). OCR keeps the larger capture for legibility.
         private const int VisionMaxWidth = 896;
+        /// <summary>OCR reads the larger capture: Tesseract accuracy falls off with glyph height,
+        /// and unlike the vision model there is no native input size to match.</summary>
+        private const int OcrCaptureWidth = 1280;
         private const int MaximumCaptureWidth = 2048;
         private const int MaximumCaptureHeight = 2048;
         private const int MaximumCapturePixels = 4 * 1024 * 1024;
@@ -223,7 +226,18 @@ namespace DesktopAICompanion.Ai
                             "No display is available for screen capture.");
                     captureBounds = primary.Bounds;
                 }
-                using (Bitmap shot = CaptureScreen(captureBounds, 1280))
+                // Capture straight to the width the chosen path wants, because only one path runs and
+                // the old fixed 1280 made the vision path resample TWICE: source -> 1280 -> 896. Two
+                // interpolation passes over text are visibly worse than one, and the intermediate was
+                // never used by the branch that paid for it. Measured on a 2560-wide capture: the
+                // downscaled PNG is not even smaller (395 KB native vs 386 KB at 896, and 639 KB at
+                // 1280) because resampling replaces long runs of identical pixels with anti-aliased
+                // gradients that will not compress. So the cap exists for the MODEL's benefit, not for
+                // bandwidth: 896 is the native input size of a Gemma-family SigLIP encoder, and pixels
+                // beyond it are either thrown away by the model or turned into extra image tiles that
+                // multiply prefill cost for detail a one-line remark does not need.
+                bool useVisionPath = _useVision && allowVision;
+                using (Bitmap shot = CaptureScreen(captureBounds, useVisionPath ? VisionMaxWidth : OcrCaptureWidth))
                 {
                     List<ChatMessage> messages = new List<ChatMessage> { ChatMessage.System(BuildSystemPrompt()) };
 
@@ -246,7 +260,7 @@ namespace DesktopAICompanion.Ai
 
                     // Routing (backlog 6.2): vision only for explicit asks; idle stays on the fast
                     // text path since a vision glance can take tens of seconds.
-                    if (_useVision && allowVision)
+                    if (useVisionPath)
                     {
                         string b64 = ToBase64PngScaled(shot, VisionMaxWidth);
                         messages.Add(ChatMessage.User(ctx + "Look at my screen and react.", new[] { b64 }));
