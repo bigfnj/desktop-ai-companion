@@ -6,7 +6,7 @@
       "name": "Jokes & Humour",
       "desc": "Punchlines, puns, and the comedians who deal in one-liners.",
       "vibe": "clean",
-      "license": "LicenseRef-DesktopPet-Community",
+      "license": "NOASSERTION",
       "sources": [
         "carlin",
         "chuckfacts",
@@ -31,7 +31,7 @@
       "name": "Fortunes & Wisdom",
       "desc": "The fortune-cookie register, plus philosophy and aphorism. What the feature is named after.",
       "vibe": "clean",
-      "license": "LicenseRef-DesktopPet-Community",
+      "license": "NOASSERTION",
       "sources": [
         "activists",
         "actualcookies",
@@ -70,7 +70,7 @@
       "name": "Books, Art & Language",
       "desc": "Authors, artists, poets, and play with the language itself.",
       "vibe": "clean",
-      "license": "LicenseRef-DesktopPet-Community",
+      "license": "NOASSERTION",
       "sources": [
         "anathem-glossary",
         "art",
@@ -98,7 +98,7 @@
       "name": "Screen & Stage",
       "desc": "Television and film. One category now: the per-fortune content level already separates clean from mature, so splitting it here duplicated a filter that exists.",
       "vibe": "mixed",
-      "license": "LicenseRef-DesktopPet-Community",
+      "license": "NOASSERTION",
       "sources": [
         "FerengiRulesOfAcquisition",
         "SimpsonsChalkboard",
@@ -161,7 +161,7 @@
       "name": "Tech & Hackers",
       "desc": "Computing, programming, and the culture around it.",
       "vibe": "clean",
-      "license": "LicenseRef-DesktopPet-Community",
+      "license": "NOASSERTION",
       "sources": [
         "bofh",
         "ComputerDictionary",
@@ -181,7 +181,7 @@
       "name": "Facts & Observations",
       "desc": "Things that are true, things that sound true, and noticing.",
       "vibe": "mixed",
-      "license": "LicenseRef-DesktopPet-Community",
+      "license": "NOASSERTION",
       "sources": [
         "food",
         "medicine",
@@ -200,7 +200,7 @@
       "name": "NSFW (adults only)",
       "desc": "The classic `fortune -o` set. Kept separate on purpose: this is the one grouping that is a safety boundary rather than a subject, so it should never be something you enable by accident while browsing.",
       "vibe": "nsfw",
-      "license": "LicenseRef-DesktopPet-Community",
+      "license": "NOASSERTION",
       "sources": [
         "off-art",
         "off-astrology",

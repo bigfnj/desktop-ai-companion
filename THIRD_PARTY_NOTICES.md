@@ -22,6 +22,12 @@ The repository-root MIT license applies only to original contributions whose cop
   `redistributionApproved`, `packaging/pack-rights-evidence.json`, `Test-PackRightsEvidence.ps1`) was
   retired when packs moved to the catalog. Review each pack's redistribution rights by hand and clear,
   replace, or remove uncleared sources before public distribution (see `packs/README.md`).
+  Every pack's catalog `license` field therefore reads `NOASSERTION`, the SPDX value for "no
+  determination made". It previously read `LicenseRef-DesktopPet-Community`, an identifier that named
+  the pre-rename product and whose license text does not exist anywhere in this repository or any
+  other. That was a grant asserted 165 times against material this section says is uncleared, so it
+  was removed rather than renamed: renaming it would have re-asserted the same fiction under the
+  current product's name.
 - Record the exact source revision, conversion procedure, and retained license file for
   `bge-small-en-v1.5` before distribution. Its upstream model card identifies the model as MIT, but
   the repository currently lacks a pinned provenance record for the two shipped model files.
@@ -46,9 +52,12 @@ The repository-root MIT license applies only to original contributions whose cop
   ShimejiConvert CLI and the Companion Studio module. Full text + provenance (source URL, SHA-256):
   `tools/ShimejiConvert.Engine/native/NOTICE-libwebp.txt`.
 
-The current `src/Fortunes/fortunes.txt` is 1,312,352 bytes with SHA-256
-`e7b0ec7abae7c990e919dd417025b0fe432033f3b848f74ef44363a08c9e598f`.
-This identifies the audited corpus snapshot; it does not clear any source or quotation.
+The current `src/Fortunes/fortunes.txt` is 391,646 bytes with SHA-256
+`a1c05ba2309ff554e070ea4baba0841213174e1b27152390c27e40b165bdf6cb`.
+It now carries only two sources, `fortunes` (the BSD fortune file) and `dadjokes`; the other 24 it
+used to bundle were moved to downloadable packs, which narrows what ships in the binary but does not
+change their status below. This identifies the audited corpus snapshot; it does not clear any source
+or quotation.
 
 Current bundled bytes, recorded for identification only (these hashes do not establish provenance
 or redistribution rights):
