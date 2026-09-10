@@ -34,6 +34,30 @@ would otherwise be repeated:
    upgrade hang `AppLifetime` was written for, and it is still needed on the first upgrade hop, where
    the exe being closed is the OLD one without the handler.
 
+### Released, and what shipped after the tag
+
+`v1.1.0` is tagged and released (portable ZIP, per-user MSI, two author NuGet packages,
+`SHA256SUMS.txt`). CI is green. Published modules at the end of the session: **aibrain 1.1.1**,
+**petstudio 1.0.1**, the other four at 1.0.0.
+
+Two module publishes happened AFTER the tag, and both are instructive:
+
+- **petstudio 1.0.1** exists only because it `<Compile Include>`s `src/dotNet/RuntimeGeometry.cs`. The
+  host gaining `SelectCompanionMonitor` made its published payload stale instantly and CI failed until it
+  was republished. `docs/VERSIONING.md` calls this the most common reason a module number moves; it is
+  easy to forget that a host change can oblige a module bump with no module edit at all.
+- **aibrain 1.1.1** corrects a default that was wrong all along: `TextModel` shipped as `llama3.1:8b`, a
+  model never in the measured A/B and absent from the Readme's tables, so a fresh install pointed its
+  text model at something the user probably did not have. That value was duplicated across FIVE sites,
+  which is how the Readme and the code disagreed unnoticed. If you change a default here, grep for the
+  literal: the field, `Normalize`'s fallback, the cloud-to-local demotion, the engine constructor and the
+  module's blank-model fallback all carried it, plus an assertion pinning the demotion result.
+
+**The smoke test has NOT been walked.** `docs/RELEASE-CHECKLIST.md` step 4 (SMOKETEST.md sections A-E on
+the built MSI) is still outstanding for 1.1.0. It matters more than usual this time: BUG-001's fix is
+covered by a self-test that proves the WIRING, but the end-to-end repro is "install the MSI, tick launch,
+confirm the tray icon appears", and only a real install exercises that.
+
 ### Traps this session re-learned the hard way
 
 - **A mutation harness must prove the code under test was REBUILT.** The BUG-002 harness reported 0/7
