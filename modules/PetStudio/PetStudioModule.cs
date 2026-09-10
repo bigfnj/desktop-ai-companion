@@ -24,7 +24,15 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.0.0",   // 1.0.0: rebased with the host for the Desktop AI Companion rename. Not a
+            Version = "1.0.1",   // 1.0.1: picked up a source-linked RuntimeGeometry change (the host gained
+                                 //        SelectCompanionMonitor for BUG-003(b)). This module compiles that
+                                 //        file in, so its payload went stale the moment the host changed it
+                                 //        and CI fails until it is republished -- see docs/VERSIONING.md,
+                                 //        which calls this the most common reason a module number moves.
+                                 //        MinHostVersion deliberately stays 1.0.0: nothing here calls a
+                                 //        newly introduced ABI member, and raising the floor would stop the
+                                 //        module loading on hosts that can run it perfectly well.
+                                 // 1.0.0: rebased with the host for the Desktop AI Companion rename. Not a
                                  //        rollback -- the previous line below is the higher number, and
                                  //        every module restarts its numbering here alongside the app.
                                  // 1.7.0: renamed to Companion Studio, following the host product rename to
