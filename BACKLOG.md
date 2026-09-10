@@ -213,6 +213,17 @@ no companion, no tray icon, and nothing to show the repair had finished: strictl
 they started. Now gated on `REMOVE<>"ALL"`, which still never launches an exe it has just deleted. Two
 surface assertions pin both halves.
 
+**VERIFIED END TO END on 1.1.3 (2026-09-10).** Maintainer ran a real repair: no "unable to close"
+dialog, no hang, and the pet came back on its own. The log confirms the incoming 1.1.3 instance took its
+icon on the first add (`shellHasIt=True`), and the outgoing one shut itself down cleanly one millisecond
+after agreeing to. **BUG-001 is closed**, across all four of its symptoms: the dropped tray icon, the
+retry schedule that recovered on its last attempt, the Restart Manager dialog with its hang, and the
+repair that left the user with nothing.
+
+Every one of those four was found by the maintainer running a real install, and none by a gate. The
+instrumentation is the reason each was diagnosable rather than merely reportable, and the sequence
+1.1.0 -> 1.1.3 is a record of what happens when a fix is reasoned about instead of measured.
+
 #### The two 1.1.0 belts, kept -- but they are NOT what fixes this
 
 Written for the refuted terminate-path theory, and retained because each covers a real case this
