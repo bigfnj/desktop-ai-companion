@@ -11,7 +11,7 @@
          FileVersion from this value, and a Windows Installer major upgrade SKIPS refreshing a file whose
          version did not change: shipping an ABI change without this bump installs a stale Contracts.dll
          that cannot resolve the new types (the failure 9009133 fixed). -->
-    <DesktopAICompanionVersion>1.0.0</DesktopAICompanionVersion>
+    <DesktopAICompanionVersion>1.1.0</DesktopAICompanionVersion>
     <DesktopAICompanionAssemblyVersion>1.0.0.0</DesktopAICompanionAssemblyVersion>
     <DesktopAICompanionRepositoryUrl>https://github.com/bigfnj/desktop-ai-companion</DesktopAICompanionRepositoryUrl>
     <DesktopAICompanionCopyright>Copyright (c) 2015-2026 DesktopAICompanion contributors</DesktopAICompanionCopyright>

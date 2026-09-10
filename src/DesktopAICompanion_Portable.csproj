@@ -130,6 +130,7 @@
     <Compile Include="dotNet\RuntimeGeometry.cs" />
     <Compile Include="dotNet\SpriteBounds.cs" />
     <Compile Include="dotNet\FullscreenScan.cs" />
+    <Compile Include="dotNet\DesktopWindows.cs" />
     <Compile Include="dotNet\WindowTheme.cs" />
     <Compile Include="dotNet\FormSpeech.cs" />
     <Compile Include="dotNet\Ai\ActiveWindow.cs" />

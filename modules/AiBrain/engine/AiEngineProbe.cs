@@ -50,6 +50,27 @@ namespace DesktopAICompanion.AiBrainModule
                 string normModel;
                 ok &= Check(sb, "model policy normalizes a valid id", AiModelPolicy.TryNormalize("gemma3:4b", out normModel) && normModel == "gemma3:4b");
 
+                // --- capture subject: the foreground window, or the monitor when that is a bad subject ---
+                // Pure, so the cases that matter are asserted here rather than by arranging real windows.
+                var mon = new System.Drawing.Rectangle(0, 0, 2560, 1440);
+                ok &= Check(sb, "capture: a normal window is the subject",
+                    AiBrain.ChooseCaptureBounds(new DesktopAICompanion.Modules.PixelRect(100, 80, 1200, 800), mon)
+                        == new System.Drawing.Rectangle(100, 80, 1200, 800));
+                // No foreground window at all: a zero rect must not become a zero-size capture.
+                ok &= Check(sb, "capture: no foreground window falls back to the monitor",
+                    AiBrain.ChooseCaptureBounds(default(DesktopAICompanion.Modules.PixelRect), mon) == mon);
+                ok &= Check(sb, "capture: a dialog-sized window falls back to the monitor",
+                    AiBrain.ChooseCaptureBounds(new DesktopAICompanion.Modules.PixelRect(100, 100, 300, 200), mon) == mon);
+                // A window hanging off the right edge is clamped, so the capture cannot read pixels from a
+                // neighbouring display or off the desktop entirely.
+                ok &= Check(sb, "capture: an overhanging window is clamped to the monitor",
+                    AiBrain.ChooseCaptureBounds(new DesktopAICompanion.Modules.PixelRect(2000, 100, 1200, 800), mon)
+                        == new System.Drawing.Rectangle(2000, 100, 560, 800));
+                // Almost entirely offscreen: clamping leaves too little to be a subject, so the monitor wins
+                // rather than capturing a 40px strip.
+                ok &= Check(sb, "capture: a barely-visible window falls back to the monitor",
+                    AiBrain.ChooseCaptureBounds(new DesktopAICompanion.Modules.PixelRect(2520, 100, 1200, 800), mon) == mon);
+
                 // --- backend construction (types + HttpClient load in the module ALC; no network) ---
                 try
                 {

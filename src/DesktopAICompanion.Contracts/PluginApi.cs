@@ -107,6 +107,55 @@ namespace DesktopAICompanion.Modules
         public string ProcessName { get; set; }
         public PixelRect MonitorBounds { get; set; }
         public string WindowUnderCompanion { get; set; }   // title of the window the pet is standing on (screen-zone awareness), or null
+
+        /// <summary>
+        /// Visual bounds of the foreground window (DWM extended frame, so no invisible resize border),
+        /// or a zero-size rect when there is no ordinary foreground window.
+        ///
+        /// Added in host 1.1.0 so a module can capture the WINDOW rather than the whole monitor. That is
+        /// not a micro-optimisation: a monitor capture is downscaled twice before a vision model sees it
+        /// (monitor -> 1280 -> 896), which on a 2560-wide display leaves ~6px-tall body text and is the
+        /// reason screen reactions read as if the model only saw the wallpaper. A window capture starts
+        /// from a smaller source, so far more of the text survives, and it cannot include wallpaper at
+        /// all. Zero-size means "no usable window" and the caller should fall back to
+        /// <see cref="MonitorBounds"/> rather than capturing a degenerate rect.
+        /// </summary>
+        public PixelRect ForegroundWindowBounds { get; set; }
+
+        /// <summary>
+        /// Ordinary application windows, frontmost first, across every monitor. Never null; empty when
+        /// the walk found nothing.
+        ///
+        /// Added in host 1.1.0. This is the cheap alternative to a screenshot for most of what a
+        /// companion says: "the front app is Code, and Outlook and Edge are also open on this monitor"
+        /// costs one bounded window enumeration and no inference, where the same knowledge from pixels
+        /// costs a capture, a downscale and a vision model that may not be able to read the result. It
+        /// also survives cases GDI capture does not, because it never touches the framebuffer.
+        ///
+        /// PRIVACY: titles routinely contain document names, URLs and mail subjects. This widens what a
+        /// module can see from one title to all of them, so a consumer must treat the list as personal
+        /// data: never log it, and disclose any use that leaves the machine.
+        /// </summary>
+        public IReadOnlyList<ScreenWindow> Windows { get; set; }
+    }
+
+    /// <summary>
+    /// One ordinary application window, as reported in <see cref="ScreenContext.Windows"/>.
+    /// Added in host 1.1.0.
+    /// </summary>
+    public sealed class ScreenWindow
+    {
+        public string Title { get; set; }
+        public string ProcessName { get; set; }
+        /// <summary>Visual bounds (DWM extended frame where available).</summary>
+        public PixelRect Bounds { get; set; }
+        /// <summary>Index of the monitor showing the largest share of this window, or -1 for none.
+        /// Largest-share rather than centre-containment, so a small window in a corner is still
+        /// attributed to the display it is actually on.</summary>
+        public int MonitorIndex { get; set; }
+        public bool IsForeground { get; set; }
+        /// <summary>0 is frontmost; the list is already in this order.</summary>
+        public int ZOrder { get; set; }
     }
 
     /// <summary>A tray context-menu entry contributed by a module (merged with core items by group/order).</summary>

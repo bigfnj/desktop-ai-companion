@@ -138,6 +138,11 @@ namespace DesktopAICompanion
             {
                 Environment.Exit(DesktopAICompanion.FullscreenScan.SelfTest() ? 0 : 1);
             }
+            // Window-map diagnostic: monitor assignment logic + a bounded live z-order walk.
+            if (args != null && Array.IndexOf(args, "--desktopwindows-selftest") >= 0)
+            {
+                Environment.Exit(DesktopAICompanion.DesktopWindows.SelfTest() ? 0 : 1);
+            }
             if (args != null && Array.IndexOf(args, "--catalog-selftest") >= 0)
             {
                 Environment.Exit(DesktopAICompanion.RemoteCatalogClient.SelfTest() ? 0 : 1);

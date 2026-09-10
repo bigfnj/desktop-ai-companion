@@ -64,7 +64,10 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.0.0",   // 1.0.0: rebased with the host for the Desktop AI Companion rename. Not a
+            Version = "1.1.0",   // 1.1.0: NEW: screen reactions capture the FOREGROUND WINDOW rather than the
+                                 //        whole monitor, and the prompt names what else is open. Needs host
+                                 //        1.1.0 for ScreenContext.ForegroundWindowBounds / .Windows.
+                                 // 1.0.0: rebased with the host for the Desktop AI Companion rename. Not a
                                  //        rollback -- the previous line below is the higher number, and
                                  //        every module restarts its numbering here alongside the app.
                                  // 1.4.0: NEW: "Stand down while a fullscreen app is running" -- releases the
@@ -102,7 +105,12 @@ namespace DesktopAICompanion.AiBrainModule
             // stand-down-for-a-game guard needs. Declaring it means an older host refuses this module with a
             // legible reason instead of loading it and failing at a missing member. (1.5.0 added the pet-aware
             // responders and IsCompanionAlive, which this also uses.)
-            MinHostVersion = "1.0.0",
+            // Raised to 1.1.0 because the screen-reaction path now reads
+            // ScreenContext.ForegroundWindowBounds and .Windows, both introduced by that host. This is the
+            // first module to raise its floor since the 1.0.0 rebase flattened every one of them, so it is
+            // also the first to exercise the sequencing rule: do NOT publish this to the catalog until host
+            // 1.1.0 has shipped, or the catalog offers users a module their host correctly refuses.
+            MinHostVersion = "1.1.0",
             Permissions = ModulePermissions.Speech | ModulePermissions.Animation |
                           ModulePermissions.ScreenContext | ModulePermissions.Network |
                           ModulePermissions.Hotkey | ModulePermissions.Storage,

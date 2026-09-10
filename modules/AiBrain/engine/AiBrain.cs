@@ -204,7 +204,15 @@ namespace DesktopAICompanion.Ai
                 if (captureContext != null)
                 {
                     PixelRect mb = captureContext.MonitorBounds;
-                    captureBounds = new Rectangle(mb.X, mb.Y, mb.Width, mb.Height);
+                    Rectangle monitor = new Rectangle(mb.X, mb.Y, mb.Width, mb.Height);
+                    // Prefer the foreground WINDOW over the whole monitor (host 1.1.0). A monitor
+                    // shot is downscaled twice before a vision model sees it (monitor -> 1280 ->
+                    // 896), so on a 2560-wide display body text arrives about 6px tall and the
+                    // model is guessing from colours. A window is a smaller source, so more of it
+                    // survives the same budget -- and a monitor shot is mostly NOT what the user is
+                    // looking at (wallpaper, other apps, the taskbar), which is exactly the input
+                    // that produces a remark about the wrong thing.
+                    captureBounds = ChooseCaptureBounds(captureContext.ForegroundWindowBounds, monitor);
                 }
                 else
                 {
@@ -228,6 +236,12 @@ namespace DesktopAICompanion.Ai
                     string ctx = "";
                     if (!string.IsNullOrWhiteSpace(win))     ctx += "The active window is: " + win + "\n";
                     if (!string.IsNullOrWhiteSpace(petZone)) ctx += "You are standing on the window: " + petZone.Trim() + "\n";
+                    // What else is open, frontmost first (host 1.1.0). One bounded window
+                    // enumeration, no inference, and often a better basis for a remark than the
+                    // pixels: "Code in front, Outlook and a browser behind it" is legible where 6px
+                    // text is not.
+                    string others = DescribeOtherWindows(captureContext);
+                    if (others.Length > 0) ctx += others;
                     if (ctx.Length > 0) ctx += "\n";
 
                     // Routing (backlog 6.2): vision only for explicit asks; idle stays on the fast
@@ -321,6 +335,62 @@ namespace DesktopAICompanion.Ai
         }
 
         // ---- screen capture ------------------------------------------------
+
+        /// <summary>Smallest window worth capturing on its own. Below this it is a dialog or a
+        /// tooltip, and the monitor is the more informative subject.</summary>
+        private const int MinimumWindowCaptureWidth = 320;
+        private const int MinimumWindowCaptureHeight = 240;
+
+        /// <summary>How many background applications are named to the model. Enough to set a scene, few
+        /// enough that a long tab list cannot dominate the prompt.</summary>
+        private const int MaximumOtherWindowsDescribed = 4;
+
+        /// <summary>
+        /// The foreground window when it is a sensible subject, otherwise the monitor. Pure, so the
+        /// awkward cases are testable: a zero rect (no foreground window), a rect too small to be worth
+        /// framing, and a window extending past its monitor -- clamped, so a capture cannot wander onto
+        /// a neighbouring display or off the desktop.
+        /// </summary>
+        internal static Rectangle ChooseCaptureBounds(PixelRect foreground, Rectangle monitor)
+        {
+            // One size check, on the CLAMPED rect, and deliberately not two. A first pass over the raw
+            // window looks like belt-and-braces but is dead code: Rectangle.Intersect can only shrink,
+            // so clamped is never larger than window, and anything failing the floor before clamping
+            // fails it after. A mutation that removed the pre-check survived the whole probe, which is
+            // how that was found -- the surviving mutant was equivalent, not untested.
+            var window = new Rectangle(foreground.X, foreground.Y, foreground.Width, foreground.Height);
+            Rectangle clamped = Rectangle.Intersect(window, monitor);
+            if (clamped.Width < MinimumWindowCaptureWidth ||
+                clamped.Height < MinimumWindowCaptureHeight)
+                return monitor;
+            return clamped;
+        }
+
+        /// <summary>
+        /// "Also open on this screen: outlook, msedge" for the other windows sharing the front window's
+        /// monitor. Process names rather than titles on purpose: a title is where the personal data
+        /// lives, and for "what else is open" the application is the useful part anyway.
+        /// </summary>
+        internal static string DescribeOtherWindows(ScreenContext context)
+        {
+            if (context == null || context.Windows == null || context.Windows.Count == 0) return "";
+            int frontMonitor = int.MinValue;
+            foreach (ScreenWindow w in context.Windows)
+                if (w != null && w.IsForeground) { frontMonitor = w.MonitorIndex; break; }
+
+            var names = new List<string>();
+            foreach (ScreenWindow w in context.Windows)
+            {
+                if (w == null || w.IsForeground) continue;
+                if (frontMonitor != int.MinValue && w.MonitorIndex != frontMonitor) continue;
+                if (string.IsNullOrWhiteSpace(w.ProcessName)) continue;
+                string name = w.ProcessName.Trim();
+                if (!names.Contains(name)) names.Add(name);
+                if (names.Count >= MaximumOtherWindowsDescribed) break;
+            }
+            if (names.Count == 0) return "";
+            return "Also open on this screen: " + string.Join(", ", names.ToArray()) + "\n";
+        }
 
         private static Bitmap CaptureScreen(Rectangle b, int maxWidth)
         {

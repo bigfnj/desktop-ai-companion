@@ -237,12 +237,48 @@ namespace DesktopAICompanion.Plugins
             if (p == null || p.Pet == null) return null;
             ScreenCaptureContext ctx = ActiveWindow.CaptureContext(p.Pet.CaptureScreenBounds);
             System.Drawing.Rectangle b = ctx.MonitorBounds;
+
+            // The window map (host 1.1.0). One bounded enumeration, reusing the filter set FullscreenScan
+            // proved out -- visible, un-minimised, un-cloaked, non-shell, not one of our own companions.
+            // Our own windows are excluded here for the same reason the fullscreen scan excludes them: a
+            // companion is not something the user is looking at.
+            System.Collections.Generic.HashSet<IntPtr> petHandles = null;
+            try { if (_startUp != null) petHandles = _startUp.SheepHandles(); }
+            catch { }
+            if (petHandles == null) petHandles = new System.Collections.Generic.HashSet<IntPtr>();
+
+            var windows = new System.Collections.Generic.List<ScreenWindow>();
+            PixelRect foregroundBounds = default(PixelRect);
+            try
+            {
+                foreach (DesktopWindowInfo w in DesktopWindows.Snapshot(petHandles))
+                {
+                    var rect = new PixelRect(w.Bounds.X, w.Bounds.Y, w.Bounds.Width, w.Bounds.Height);
+                    windows.Add(new ScreenWindow
+                    {
+                        Title = w.Title,
+                        ProcessName = w.ProcessName,
+                        Bounds = rect,
+                        MonitorIndex = w.MonitorIndex,
+                        IsForeground = w.IsForeground,
+                        ZOrder = w.ZOrder,
+                    });
+                    if (w.IsForeground) foregroundBounds = rect;
+                }
+            }
+            catch
+            {
+                // A module gets an empty list rather than an exception; the monitor path still works.
+            }
+
             return new ScreenContext
             {
                 WindowTitle = ctx.ActiveWindowTitle,
                 ProcessName = ActiveWindow.ProcessName(),
                 MonitorBounds = new PixelRect(b.X, b.Y, b.Width, b.Height),
                 WindowUnderCompanion = p.Pet.WindowUnderCompanion,
+                ForegroundWindowBounds = foregroundBounds,
+                Windows = windows,
             };
         }
         public void PlayAnimationAll(IReadOnlyList<string> animationCandidates) { if (_startUp != null) _startUp.PlayAnimationOnAll(animationCandidates); }
