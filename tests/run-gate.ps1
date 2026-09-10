@@ -76,6 +76,10 @@ try {
         '--aibrain-selftest'                 = 'dp-aibrain-selftest.txt'
         '--petstudio-selftest'               = 'dp-petstudio-selftest.txt'
         '--wpf-options-selftest'             = $null
+        # BUG-001's recovery wiring: the TaskbarCreated listener and the WM_CLOSE orderly exit.
+        # Both fail SILENTLY when got wrong (a message-only window is never sent the shell
+        # broadcast), so they are asserted rather than eyeballed.
+        '--traywatcher-selftest'             = $null
         '--fortunes-smart-progress-selftest' = 'dp-fortunes-smart-progress-selftest.txt'
         # Convention-based (--module-selftest=<id>): loads the module through the REAL loader and calls its
         # public static bool SelfTest(out string). Needs no host edit per module. Both of these modules

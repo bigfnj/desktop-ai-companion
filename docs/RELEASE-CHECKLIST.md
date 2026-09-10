@@ -5,9 +5,29 @@ Desktop AI Companion ships **unsigned** Windows x64 builds. To cut a release:
 1. Bump `DesktopAICompanionVersion` (and `DesktopAICompanionAssemblyVersion`) in
    [`ProductVersion.props`](../ProductVersion.props).
 2. Commit and push to `master`; confirm [`build.yml`](../.github/workflows/build.yml) is green.
+
+   **Exception, when this release is the one a module has been waiting for.** If a module's source
+   declares a `MinHostVersion` equal to the version being cut, `build.yml` **cannot** be green yet:
+   `Test-ModulePublishFreshness.ps1` fails with a version mismatch until the module is published, and the
+   "Modules are a separate publish" rule below forbids publishing it until this host release has shipped.
+   The two rules genuinely contradict each other, and the resolution is that
+   [`release.yml`](../.github/workflows/release.yml) does **not** run the freshness gate — only
+   `build.yml` does. So the working order is: push the host → tag → publish the module → CI goes green.
+   Confirm the freshness mismatch is the ONLY failure before tagging (`.	ests
+un-gate.ps1` locally),
+   because that exception is otherwise an excellent way to tag over a real break. Hit for real on
+   2026-09-10 cutting v1.1.0 with aibrain 1.1.0 waiting on it.
 3. **Run the leak soak locally** and check the growth numbers:
-   `.\tests\runtime-resource-soak.ps1` → expect `"Result": "PASS"` with `Handles`/`GdiObjects`/`UserObjects`
-   growth inside their bounds (16 each) and `PrivateBytes` under 64 MB. This is the only gate that catches an
+   `.\tests\runtime-resource-soak.ps1` → expect `"Result": "PASS"`. The figure that
+   matters is **`SettledGrowth`**, not `Growth`: `Handles`/`GdiObjects`/`UserObjects` measured after a
+   forced `GC` → `WaitForPendingFinalizers` → `GC`, compared between the first post-warm-up sample
+   and the last (bounds 16 each). `PrivateBytes` is still judged on the raw samples (under 64 MB).
+
+   Record `SettledGrowth` in the release notes, **not** `Growth`. The raw `Growth` numbers are a
+   sawtooth — `Bitmap`, `Font`, `Icon` and `Form` release their native handles only when a finalizer
+   runs — and on one unchanged build GDI came out +81, +206, −22 and −3 depending purely on run
+   length. See BUG-004 in [`BACKLOG.md`](../BACKLOG.md); the pre-1.0.0 "GDI −24" baseline in
+   [`HISTORY-pre-1.0.0.md`](HISTORY-pre-1.0.0.md) is one of those coin flips, not a target. This is the only gate that catches an
    undisposed HWND, Bitmap, Font or Icon: it drives the app from outside and watches the OS counters, so no
    in-process self-test substitutes for it. It is deliberately not in the blocking CI path (it needs a real
    window station, and growth thresholds flake on a headless runner) — run it here, or trigger the

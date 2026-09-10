@@ -15,6 +15,7 @@ namespace DesktopAICompanion
             /// </summary>
         NotifyIcon ni;
         ContextMenus menus;
+        TaskbarWatcher taskbarWatcher;
 
             /// <summary>
             /// The app's name in the notification area.
@@ -56,6 +57,20 @@ namespace DesktopAICompanion
             // Attach a context menu.
             menus = new ContextMenus();
             ni.ContextMenuStrip = menus.Create();
+
+            // Listen for the shell rebuilding its notification area, and for an outside request
+            // to close (BUG-001). Created here rather than in the constructor so the window is
+            // owned by the same thread that pumps the icon's messages.
+            if (taskbarWatcher == null)
+            {
+                try { taskbarWatcher = new TaskbarWatcher(ReassertIcon, RequestOrderlyExit); }
+                catch (Exception ex)
+                {
+                    // The icon still works; only the recovery belt is missing. Say which.
+                    StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.error,
+                        "tray watcher not created: " + ex.GetType().Name);
+                }
+            }
         }
 
             /// <summary>
@@ -153,6 +168,11 @@ namespace DesktopAICompanion
             /// </summary>
         public void Dispose()
         {
+            if (taskbarWatcher != null)
+            {
+                try { taskbarWatcher.Dispose(); } catch { }
+                taskbarWatcher = null;
+            }
             // When the application closes, this will remove the icon from the system tray immediately.
             if (ni != null)
             {
@@ -206,5 +226,304 @@ namespace DesktopAICompanion
                 Program.Mainthread.AddSheep();
             }
         }
+
+        /// <summary>
+        /// Re-add the tray icon after the shell has thrown its notification area away.
+        ///
+        /// BUG-001. Windows keeps a notification-area slot per owning window and that slot can outlive
+        /// its owner: when the app is force-killed (msiexec's TerminateProcess during an upgrade, Task
+        /// Manager, a crash) the NIM_DELETE a clean exit sends is never sent. Explorer restarting has a
+        /// comparable effect, and was equally unhandled -- TaskbarCreated was not observed ANYWHERE in
+        /// this codebase before this.
+        ///
+        /// This is the belt that does not care WHY the area went away, which is why it is worth having
+        /// alongside the WM_CLOSE fix below: it covers the crash and the Explorer restart, neither of
+        /// which an orderly-exit path can reach.
+        /// </summary>
+        private void ReassertIcon()
+        {
+            NotifyIcon icon = ni;
+            if (icon == null) return;
+            try
+            {
+                ReassertSequence(new NotifyIconVisibility(icon));
+                // A fresh shell can file a brand new registry entry, and a new entry has no IsPromoted
+                // value -- the very case PromoteOnce exists for -- so the once-per-process guard has to
+                // be lifted or the icon stays buried in the overflow flyout.
+                TrayPromotion.AllowRetry();
+                TrayPromotion.PromoteOnce(Application.ExecutablePath, icon.Text);
+                StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info, "tray icon re-added after TaskbarCreated");
+            }
+            catch (Exception ex)
+            {
+                // Never throw out of a broadcast handler: it runs on the UI pump and the shell does not
+                // care, but an escaping exception would take the app down.
+                StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.error,
+                    "tray icon re-add failed: " + ex.GetType().Name);
+            }
+        }
+
+        /// <summary>
+        /// The two operations a re-add consists of, in the order that matters.
+        ///
+        /// Visible false -> true is NIM_DELETE followed by NIM_ADD. Setting Visible = true ALONE does
+        /// nothing when WinForms already believes the icon is shown, which is exactly the state after a
+        /// shell restart: our side never changed, only the shell forgot. Split out behind a seam so that
+        /// ordering can be asserted without a real notification area -- the same reasoning that made
+        /// SetIcon's Text-before-Icon an asserted invariant rather than a comment.
+        /// </summary>
+        internal static void ReassertSequence(ITrayVisibility surface)
+        {
+            if (surface == null) return;
+            surface.SetVisible(false);
+            surface.SetVisible(true);
+        }
+
+        /// <summary>The one operation <see cref="ReassertSequence"/> needs. See it for why.</summary>
+        internal interface ITrayVisibility
+        {
+            void SetVisible(bool visible);
+        }
+
+        private sealed class NotifyIconVisibility : ITrayVisibility
+        {
+            private readonly NotifyIcon _icon;
+            internal NotifyIconVisibility(NotifyIcon icon) { _icon = icon; }
+            public void SetVisible(bool visible) { _icon.Visible = visible; }
+        }
+
+        /// <summary>
+        /// Shut down the way the tray menu does, so the notification icon is removed on the way out.
+        /// Used when something outside the app asks it to close: the installer, or a session end.
+        /// </summary>
+        private static void RequestOrderlyExit()
+        {
+            StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info,
+                "orderly exit requested by WM_CLOSE (installer or session end)");
+            StartUp main = Program.Mainthread;
+            if (main == null)
+            {
+                Application.Exit();
+                return;
+            }
+            // The same call ContextMenus.Exit_Click makes. KillSheeps disposes the tray icon as its
+            // FIRST action, which is the point: that is the NIM_DELETE the force-kill never sent.
+            main.KillSheeps(true);
+        }
+
+        /// <summary>
+        /// A hidden TOP-LEVEL window that receives the shell's "TaskbarCreated" broadcast and an
+        /// external WM_CLOSE.
+        ///
+        /// Top-level on purpose: the shell posts TaskbarCreated with HWND_BROADCAST, which reaches
+        /// top-level windows ONLY -- a message-only (HWND_MESSAGE) window is never sent it, which is the
+        /// usual way this fix gets written and silently does nothing. Kept 0x0 and WS_EX_TOOLWINDOW so
+        /// it cannot show up on screen, in the taskbar, or in Alt-Tab.
+        /// </summary>
+        private sealed class TaskbarWatcher : NativeWindow, IDisposable
+        {
+            private const int WsExToolWindow = 0x00000080;
+            private const int WmClose = 0x0010;
+            private readonly int _taskbarCreated;
+            private readonly Action _onTaskbarCreated;
+            private readonly Action _onCloseRequested;
+
+            internal TaskbarWatcher(Action onTaskbarCreated, Action onCloseRequested)
+                : this(onTaskbarCreated, onCloseRequested, NativeRegisterWindowMessage("TaskbarCreated"))
+            {
+            }
+
+            /// <summary>
+            /// Test seam: supply the message id directly. Exists so the id-is-zero branch is REACHABLE --
+            /// RegisterWindowMessage effectively never fails in practice, so a mutation removing that
+            /// guard survived every assertion until the id could be injected, which made the guard
+            /// unverifiable defensive code rather than tested behaviour.
+            /// </summary>
+            internal TaskbarWatcher(Action onTaskbarCreated, Action onCloseRequested, int messageId)
+            {
+                _onTaskbarCreated = onTaskbarCreated;
+                _onCloseRequested = onCloseRequested;
+                _taskbarCreated = messageId;
+                var p = new CreateParams
+                {
+                    Caption = "DesktopAICompanionTrayWatcher",
+                    X = 0,
+                    Y = 0,
+                    Width = 0,
+                    Height = 0,
+                    Style = 0,                 // not WS_VISIBLE, and not WS_CHILD
+                    ExStyle = WsExToolWindow,
+                };
+                CreateHandle(p);
+            }
+
+            protected override void WndProc(ref Message m)
+            {
+                // RegisterWindowMessage returns 0 on failure, and treating that as a match would fire on
+                // WM_NULL, which arrives routinely.
+                if (_taskbarCreated != 0 && m.Msg == _taskbarCreated && _onTaskbarCreated != null)
+                {
+                    try { _onTaskbarCreated(); } catch { }
+                }
+                else if (m.Msg == WmClose && _onCloseRequested != null)
+                {
+                    // BUG-001, and the half that addresses the reported repro. The MSI's
+                    // util:CloseApplication posts WM_CLOSE to the target's TOP-LEVEL windows and then
+                    // force-kills if the process has not gone. Nothing in the app turned that into a
+                    // real shutdown: WinForms answers WM_QUERYENDSESSION on a background broadcast
+                    // thread that owns no forms, so the polite request was acknowledged and ignored, the
+                    // kill always won, and the icon's NIM_DELETE was never sent.
+                    //
+                    // Routing it into the same orderly exit the tray's "Remove all companions and Close"
+                    // uses tears the icon down first, deliberately.
+                    //
+                    // This only takes effect from the version that CONTAINS it: during an upgrade the
+                    // exe being closed is the OLD one. TerminateProcess stays as the backstop for that
+                    // first hop and for a genuinely wedged process.
+                    try { _onCloseRequested(); } catch { }
+                    return;   // handled: do not let DefWindowProc destroy the window mid-shutdown
+                }
+                base.WndProc(ref m);
+            }
+
+            public void Dispose()
+            {
+                if (Handle != IntPtr.Zero) DestroyHandle();
+            }
+
+            [System.Runtime.InteropServices.DllImport(
+                "user32.dll",
+                EntryPoint = "RegisterWindowMessageW",
+                CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+            private static extern int NativeRegisterWindowMessage(string message);
+        }
+
+        /// <summary>
+        /// --traywatcher-selftest: prove the BUG-001 recovery wiring, with no tray and no installer.
+        ///
+        /// Worth asserting rather than eyeballing, because both halves fail SILENTLY when got wrong: a
+        /// message-only window compiles, runs, and simply never receives the shell broadcast, and a
+        /// mistyped message name registers a perfectly valid id that nothing will ever send.
+        /// </summary>
+        internal static bool SelfTest()
+        {
+            var report = new System.Text.StringBuilder();
+            bool ok = true;
+            int taskbarFired = 0;
+            int closeFired = 0;
+            TaskbarWatcher watcher = null;
+            try
+            {
+                watcher = new TaskbarWatcher(
+                    delegate { taskbarFired++; },
+                    delegate { closeFired++; });
+
+                ok &= TrayAssert(report, "watcher has a window handle", watcher.Handle != IntPtr.Zero);
+
+                // TOP-LEVEL, not message-only: HWND_BROADCAST never reaches an HWND_MESSAGE window, so
+                // this assertion is the difference between a working fix and one that does nothing.
+                ok &= TrayAssert(report, "watcher window is top-level (no parent)",
+                    NativeGetParent(watcher.Handle) == IntPtr.Zero);
+                const int GwlStyle = -16;
+                const int WsChild = 0x40000000;
+                const int WsVisible = 0x10000000;
+                int style = NativeGetWindowLong(watcher.Handle, GwlStyle);
+                ok &= TrayAssert(report, "watcher window is not a child window", (style & WsChild) == 0);
+                ok &= TrayAssert(report, "watcher window is not visible", (style & WsVisible) == 0);
+
+                int registered = NativeRegisterWindowMessage2("TaskbarCreated");
+                ok &= TrayAssert(report, "TaskbarCreated registers a usable message id", registered != 0);
+
+                NativeSendMessage(watcher.Handle, registered, IntPtr.Zero, IntPtr.Zero);
+                ok &= TrayAssert(report, "the shell's TaskbarCreated invokes the re-add", taskbarFired == 1);
+
+                // WM_NULL must not be mistaken for it: that is what a failed RegisterWindowMessage
+                // (which returns 0) would collide with if the id were not checked.
+                NativeSendMessage(watcher.Handle, 0x0000, IntPtr.Zero, IntPtr.Zero);
+                ok &= TrayAssert(report, "WM_NULL does not trigger a re-add", taskbarFired == 1);
+
+                // WM_CLOSE is what the MSI's util:CloseApplication posts.
+                NativeSendMessage(watcher.Handle, WmCloseForTest, IntPtr.Zero, IntPtr.Zero);
+                ok &= TrayAssert(report, "WM_CLOSE requests the orderly exit", closeFired == 1);
+                ok &= TrayAssert(report, "WM_CLOSE does not also trigger a re-add", taskbarFired == 1);
+
+                // ...and must not have destroyed the window out from under the shutdown it just began.
+                ok &= TrayAssert(report, "the watcher survives the WM_CLOSE it handled",
+                    NativeIsWindow(watcher.Handle));
+
+                // The id-is-zero case, now reachable. RegisterWindowMessage returns 0 on failure, and a
+                // watcher that trusted it would re-add the icon on every WM_NULL -- which is routine
+                // traffic, so the tray would flicker constantly on a machine where registration failed.
+                using (var blind = new TaskbarWatcher(delegate { taskbarFired++; }, null, 0))
+                {
+                    int before = taskbarFired;
+                    NativeSendMessage(blind.Handle, 0x0000, IntPtr.Zero, IntPtr.Zero);
+                    ok &= TrayAssert(report, "a failed message registration does not re-add on WM_NULL",
+                        taskbarFired == before);
+                }
+
+                // The re-add is NIM_DELETE then NIM_ADD, in that order. Asserted through the seam
+                // because Visible = true on its own is a no-op in the exact state this recovers from.
+                var recorder = new VisibilityRecorder();
+                ReassertSequence(recorder);
+                ok &= TrayAssert(report, "the re-add toggles visibility off then on",
+                    recorder.Calls.Count == 2 && recorder.Calls[0] == false && recorder.Calls[1] == true);
+                ok &= TrayAssert(report, "the re-add tolerates a missing surface",
+                    SafeReassertNull());
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                report.AppendLine("FAIL: threw " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                if (watcher != null) { try { watcher.Dispose(); } catch { } }
+            }
+
+            report.AppendLine("RESULT=" + (ok ? "PASS" : "FAIL"));
+            Console.Write(report.ToString());
+            return ok;
+        }
+
+        private const int WmCloseForTest = 0x0010;
+
+        private sealed class VisibilityRecorder : ITrayVisibility
+        {
+            internal readonly System.Collections.Generic.List<bool> Calls =
+                new System.Collections.Generic.List<bool>();
+            public void SetVisible(bool visible) { Calls.Add(visible); }
+        }
+
+        private static bool SafeReassertNull()
+        {
+            try { ReassertSequence(null); return true; }
+            catch { return false; }
+        }
+
+        private static bool TrayAssert(System.Text.StringBuilder report, string what, bool condition)
+        {
+            report.AppendLine((condition ? "PASS: " : "FAIL: ") + what);
+            return condition;
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "GetParent")]
+        private static extern IntPtr NativeGetParent(IntPtr window);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "IsWindow")]
+        private static extern bool NativeIsWindow(IntPtr window);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
+        private static extern int NativeGetWindowLong(IntPtr window, int index);
+
+        [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "SendMessageW")]
+        private static extern IntPtr NativeSendMessage(IntPtr window, int message, IntPtr w, IntPtr l);
+
+        [System.Runtime.InteropServices.DllImport(
+            "user32.dll",
+            EntryPoint = "RegisterWindowMessageW",
+            CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        private static extern int NativeRegisterWindowMessage2(string message);
+
     }
 }

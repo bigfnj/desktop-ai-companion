@@ -66,6 +66,8 @@ jobs:
               '--aibrain-selftest',
               '--petstudio-selftest',
               '--wpf-options-selftest',
+              # BUG-001: the tray recovery wiring. Needs a real window station, which the runner has.
+              '--traywatcher-selftest',
               # Cold-cache embed of a 1,500-line sample (~18s locally). Kept out of the local default
               # gate list for speed, but run here -- being merely "opt-in" is how it sat orphaned with
               # no caller at all from the S3d module move until 2026-08-12.

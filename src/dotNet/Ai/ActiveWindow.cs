@@ -114,8 +114,11 @@ namespace DesktopAICompanion.Ai
         }
 
         /// <summary>
-        /// Snapshot the foreground title and the monitor to capture from the same window handle.
-        /// If no usable foreground window exists, fall back to the monitor containing the pet.
+        /// Snapshot the foreground window's title, and the monitor the COMPANION is standing on.
+        ///
+        /// The two no longer come from the same handle, deliberately (BUG-003(b)): the title says what the
+        /// user is doing, while the monitor says where the companion is, and tying the capture to the
+        /// foreground window meant a companion on display 2 described display 1.
         /// </summary>
         public static ScreenCaptureContext CaptureContext(
             Rectangle fallbackMonitorBounds)
@@ -155,10 +158,11 @@ namespace DesktopAICompanion.Ai
                 Rectangle[] monitors = new Rectangle[screens.Length];
                 for (int index = 0; index < screens.Length; index++)
                     monitors[index] = screens[index].Bounds;
-                Rectangle selected = DesktopGeometry.SelectCaptureMonitor(
-                    foregroundBounds,
-                    fallback,
-                    monitors);
+                // BUG-003(b): the companion's OWN monitor decides what is captured, not the foreground
+                // window's. foregroundBounds is still gathered above -- it supplies the title here and
+                // ScreenContext.ForegroundWindowBounds for the capture subject -- but it no longer drags
+                // the capture onto a display the companion is not standing on.
+                Rectangle selected = DesktopGeometry.SelectCompanionMonitor(fallback, monitors);
                 return new ScreenCaptureContext(title, selected);
             }
             catch

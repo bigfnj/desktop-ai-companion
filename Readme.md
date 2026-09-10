@@ -133,6 +133,12 @@ session rather than per remark.
 | `gemma4:12b` | 7.6 GB | 52 s | 66 s | yes | correct but far too slow |
 | `moondream` | 1.7 GB | 357 ms | 30.9 s | **no** | unusable, see below |
 
+> **If a model you picked is not installed, the companion now says so** (since 1.1.0). Ollama's
+> "Refresh local models" can drop a model you had already selected, and before 1.1.0 the companion just
+> went quiet — a missing model looked exactly like having nothing to say. It now substitutes another
+> model that can do the job, or tells you once to pick one in AI Brain settings. If the backend is
+> simply offline it stays quiet, because an unreachable server is not evidence your model is missing.
+
 `moondream` is fast and tiny and still the wrong choice: it is a captioner, not an instruction
 follower. Asked for an in-character remark as JSON it returns a generic description of the image
 ("The image shows a computer screen displaying a webpage with three tabs open…"), often of things

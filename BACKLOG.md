@@ -7,7 +7,13 @@
 
 ## 🐞 Known bugs (post-1.0.0)
 
-Numbered so they can be cited. Both were found by the maintainer using the shipped build, not by a gate.
+Numbered so they can be cited. BUG-001 to BUG-003 were found by the maintainer using the shipped build,
+not by a gate; BUG-004 was found by the release checklist's own leak soak.
+
+**All four were fixed before the v1.1.0 tag (2026-09-10).** The diagnosis text is kept in full below,
+including the parts that turned out to be WRONG, because two of them were wrong in instructive ways: the
+suspected cause of BUG-003(a) was refuted by measurement, and BUG-001's mechanism was mis-attributed once
+before being traced properly. Each entry ends with what was actually changed and how it was verified.
 
 ### BUG-001 — the tray icon is missing after an MSI install that launches the app
 
@@ -68,6 +74,38 @@ applies to a race about shell state.
 `installer/DesktopAICompanion.wxs`. Two captured logs exist from consecutive runs; they are identical,
 which is itself the finding.
 
+#### ✅ FIXED 2026-09-10 — both belts, and neither needed an installer change
+
+`ProcessIcon` now owns a hidden **top-level** window (`TaskbarWatcher`) that does two things:
+
+1. **`TaskbarCreated`** — re-adds the icon when the shell rebuilds its notification area, toggling
+   `Visible` false then true (NIM_DELETE then NIM_ADD) and lifting `TrayPromotion`'s once-per-process
+   guard, because a rebuilt area can file a brand-new entry and a brand-new entry is unpromoted. This
+   covers an Explorer restart, which was a second, separate defect nothing handled.
+2. **`WM_CLOSE`** — routes into `KillSheeps(true)`, the *same* orderly exit the tray's "Remove all
+   companions and Close" uses, which disposes the icon as its first action.
+
+Point 2 is what addresses the reported repro, and it needed **no `.wxs` edit at all**: the MSI's
+`util:CloseApplication` already posts `WM_CLOSE` to the target's top-level windows, and nothing in the
+app had ever turned that into a shutdown — WinForms answers `WM_QUERYENDSESSION` on a background
+broadcast thread owning no forms, so the polite request was acknowledged and ignored and the
+`TerminateProcess` fallback always won. `TerminateProcess="1"` is deliberately **kept**: it is the
+backstop for a wedged process, and for the first upgrade hop, where the exe being closed is the OLD one
+that lacks this handler. That first-hop gap is inherent and is the reason belt 1 exists.
+
+Top-level is load-bearing and asserted: the shell posts `TaskbarCreated` with `HWND_BROADCAST`, which
+never reaches a message-only (`HWND_MESSAGE`) window — the usual way this fix gets written and silently
+does nothing.
+
+**Verified:** new `--traywatcher-selftest` (13 assertions), wired into `tests
+un-gate.ps1` and
+`build.yml`. Mutation-tested **8/8 FIRED**, including making the window a child window, misspelling the
+shell message name, removing the `id != 0` guard, dropping the `WM_CLOSE` handling, falling through to
+`DefWindowProc`, and both ways of getting the visibility toggle wrong (dropping it, and reversing it).
+Two mutations survived the first run and were real assertion gaps, not equivalent mutants: the id guard
+was unreachable until the message id became injectable, and the toggle was untested until the sequence
+was put behind a seam. Both are now covered.
+
 ### BUG-002 — the vision feature does nothing, silently, when the configured model is not installed
 
 **Repro.** Set the vision model to something not present in Ollama (the shipped default `gemma3:4b` is
@@ -110,6 +148,34 @@ purpose. See the diagnostics work item below.
 **Not a bug:** every model currently installed here (`gemma4:12b`, `gemma4:26b`, `qwen3.6:27b`,
 `mistral-small3.2:24b`) declares `vision` in `ollama show`, and `gemma4:12b` additionally declares
 `audio`. Nothing needs pulling; the default just points at a model that is not there.
+
+#### ✅ FIXED 2026-09-10 — all four items
+
+1. **The swallowed failure is logged.** `AiBrain` gained a static `LogSink` that `AiBrainModule` points
+   at `IHost.Log`, cleared on shutdown because it is a static holding a delegate over the instance. The
+   bare `catch { return null; }` still returns null — a silent companion on a broken backend is correct —
+   but now records the error CATEGORY, the model, and the endpoint **host**. Never the full URL: a base
+   URL can carry a key in its query.
+2. **The user is told, once.** `AiModelPolicy.ChooseModel` re-validates the configured id against what
+   the backend reports and returns an actionable line the companion speaks through the existing
+   `IHost.Say` — no new ABI member, so no further `MinHostVersion` bump. De-duplicated via
+   `AdvisoryOnce`, because a companion repeating "gemma3:4b isn't available" every thirty seconds would
+   be a worse bug than the one being fixed.
+3. **No more trusting a hard-coded id.** When the configured model is absent, the first backend-reported
+   model that can actually do the job is substituted. Critically, an **empty or absent** model list is
+   treated as *unknown*, not as proof of absence — otherwise every offline start would accuse a perfectly
+   good configuration. Resolution happens BEFORE the screen capture, so a request that cannot be sent no
+   longer pays for a screenshot.
+4. **`gemma4` / `gemma-4` added to `VisionModelMarkers`.**
+
+The inventory is refreshed in `PrepareAsync`, i.e. while the app is already talking to the backend, via
+an injected `ModelLister` wired to the same listing call the Options pane uses — so the pane and the
+brain can never disagree about what is installed.
+
+**Verified:** 18 new assertions in `AiEngineProbe`. Mutation-tested **7/7 FIRED**. The first run of that
+harness reported 0/7, which was a false result, not a pass: it rebuilt the HOST project while the code
+under test compiles into `AiBrain.dll`. The harness now asserts the module DLL's timestamp advanced and
+that a witness assertion label appears in the probe's report before it trusts any PASS/FAIL.
 
 ---
 
@@ -163,9 +229,165 @@ foreground-vs-companion decision, and a cheap uniformity check on the bitmap.
 the diagnostic log. Users attach it to issues. If a visual dump is needed to diagnose this, it must be a
 separate, explicit, opt-in, one-shot action that says where it wrote the file.
 
-## ▶ Open: instrument the modules, AI Brain first (filed 2026-09-10)
+#### ✅ (b) FIXED 2026-09-10 — the companion's monitor wins
+
+The maintainer picked "react to what is around me" over "react to what the user is looking at", because
+it is also the reading that makes a per-monitor watcher possible. New
+`DesktopGeometry.SelectCompanionMonitor` replaces `SelectCaptureMonitor` at the one call site in
+`ActiveWindow.CaptureContext`. The foreground window is NOT discarded: it still supplies the title and
+`ScreenContext.ForegroundWindowBounds`, so a front window that happens to be on the companion's monitor
+is still the preferred capture *subject* within it. The two decisions compose — which monitor, then which
+rect inside it — and `ChooseCaptureBounds` already falls back to the whole monitor when the window does
+not overlap it, so a front window on another display cannot drag the subject away.
+
+The companion's cached rect is still snapped through the selector rather than used verbatim: it can be
+stale after a resolution change or a display being unplugged, and capturing a rect that is no longer a
+monitor reads black.
+
+**Follow-on defect this exposed, also fixed:** `AiBrain.DescribeOtherWindows` says "Also open on this
+screen" but keyed its filter on the FOREGROUND window's `MonitorIndex`. Once capture followed the
+companion instead, the phrase and the pixels could refer to two different displays — the model was handed
+a list of windows the user could not see, next to a picture of somewhere else. Now keyed on
+`ScreenContext.MonitorBounds` by intersection. It had **no test coverage at all** before this.
+
+**Verified:** 4 new assertions in `CoreTests`, 11 in `AiEngineProbe` (including that a window TITLE never
+reaches the prompt, which was previously trusted rather than asserted). Mutation-tested **7/7 FIRED**
+across both runners.
+
+#### ✅ (a) RESOLVED 2026-09-10 — the suspected cause was WRONG, measured
+
+The leading candidate above — "GDI cannot reliably read DWM-composited content", implying a DXGI or
+`Windows.Graphics.Capture` rewrite — is **refuted**. Measured on this machine over every visible
+top-level window, comparing the product's own path (`StretchBlt` from the screen DC with
+`SRCCOPY | CAPTUREBLT`) against `PrintWindow` with `PW_RENDERFULLCONTENT`:
+
+| window | screen-DC (what we ship) | PrintWindow |
+|---|---|---|
+| Code, OUTLOOK, ONENOTE | content, 70-99 edges/kpx | content |
+| msedgewebview2, WhatsApp | **content**, 76-78 edges/kpx | content |
+| cmd | content, 122 edges/kpx | **blank** (returned false) |
+| TextInputHost | content, 74 edges/kpx | **blank** |
+| XboxPcApp, ApplicationFrameHost | content | 98% one colour |
+
+The GDI path reads GPU-composited windows perfectly; `PrintWindow` is the path that returns blank
+surfaces. **No capture-API rewrite is warranted**, and the backlog's proposed discriminator ("a browser
+will fail where Notepad succeeds") does not hold here.
+
+The most likely explanation for the original report is that (a) was **(b) in disguise**: capture followed
+the foreground window's monitor, and a monitor the user was not working on is mostly wallpaper. That is
+now fixed.
+
+Because that is an inference rather than a reproduction, the instrumentation the entry asked for was
+added anyway, so a recurrence is falsifiable instead of a matter of opinion:
+`AiBrain.UniformityPercent` reports the share of a sparse sample taken by the single most common colour,
+and the capture log line records the chosen rect, whether the window or the monitor won it, and that one
+number. Geometry and a statistic only — never pixels, never OCR text, honouring the privacy constraint
+above. 3 assertions cover it.
+
+---
+
+### BUG-004 — the leak soak's verdict was a coin flip, and it is the only gate that can catch a leak
+
+**Found 2026-09-10 by running [`RELEASE-CHECKLIST`](docs/RELEASE-CHECKLIST.md) step 3 before the v1.1.0
+tag** — the first time either soak had been run since v1.0.0. `runtime-resource-soak.ps1` failed with
+`GDI object growth exceeded the bound: 81 > 16`, and USER was over too (+57).
+
+**Not a v1.1.0 regression, mechanically confirmed.** The churn path is
+`RunResourceChurnPetCycle` + `RefreshTrayIconForResourceChurn` + `ContextMenus.RefreshSpeechMenuItem`.
+`git diff v1.0.0..HEAD -- src/` touches only `PluginApi.cs`, `DesktopWindows.cs` (new), 
+`CompanionHost.cs`, the csproj and `Program.cs` — and the entire `Program.cs` change is one early-exit
+`--desktopwindows-selftest` branch that cannot execute during a churn run. v1.0.0 shipped this too; it
+was simply never measured, because step 3 was skipped.
+
+**The real defect is the MEASUREMENT.** The gate compares the FIRST sample against the LAST, and native
+handles held by `Bitmap`/`Font`/`Icon`/`Form` finalizers are released only when the GC runs — so the
+counter is a sawtooth and the verdict depends entirely on where the last sample happened to land.
+Measured on one unchanged build:
+
+| run | raw first-vs-last GDI | verdict it produced |
+|---|---|---|
+| 30 s | **+81** | FAIL |
+| 60 s | **+206** | FAIL |
+| 90 s | **−22** | PASS |
+
+Within a single 60 s trace, GDI climbed 91 → 193, dropped to 58 in one sample, then climbed to 265. The
+historical baseline recorded in `docs/HISTORY-pre-1.0.0.md` ("GDI −24") was a run that ended just after
+a collection, so it was never evidence of health either.
+
+**Per-step attribution** (added to the churn marker, since reading the code found nothing — every
+explicit GDI site in the path disposes correctly):
+
+| step | GDI net / 190 cycles | USER net | per cycle |
+|---|---|---|---|
+| pet + speech | +255 | +270 | +1.34 GDI, +1.42 USER |
+| tray icon | −24 | −8 | clean |
+| menu refresh | 0 | 0 | clean |
+
+Ablating `Say`, `PaintSpeechForResourceChurn` and `DrawToBitmap` one at a time did **not** eliminate it,
+so it is not one missing `Dispose` — it is spread across creating and destroying a top-level window plus
+a speech bubble twice a second, which is not a workload any user generates.
+
+**What settles it:** `SettleAndSample` forces `GC.Collect` → `WaitForPendingFinalizers` → `GC.Collect`
+before reading the counters, at the start and end of churning. That converts an unanswerable question
+into an answerable one: after everything collectable HAS been collected, did the process permanently
+lose handles? Over 319 cycles the post-finalization growth was **+31 GDI, +21 USER — 0.097 and 0.066 per
+cycle**, i.e. two orders of magnitude below the per-cycle allocation rate, which is the signature of a
+warming cache rather than a linear leak. A periodic settled series was added to confirm the shape
+directly rather than by inference from endpoints.
+
+#### ✅ FIXED 2026-09-10 — there is no leak, and the gate now measures that
+
+The settled series is conclusive. Post-finalization GDI over a 548-cycle, three-minute run:
+
+| cycle | 40 | 80 | 120 | 160 | 200 | 240 | 280 | 320 | 360 | 400 | 440 | 480 | 520 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| GDI | 46 | 46 | 46 | 46 | 46 | 46 | 46 | 46 | 46 | 46 | 46 | 46 | 46 |
+
+**Exactly flat**, for 500 cycles. The +31 from the cold baseline is a one-time warm-up — the first
+sprite decode, cached fonts and brushes, the bubble's region, the tray icon — paid before cycle 40 and
+never paid again. `Handles` and `USER` behave the same. **The app does not leak GDI, USER or kernel
+handles**; every explicit disposal in the churn path was already correct, which is why reading the code
+found nothing to fix.
+
+`runtime-resource-soak.ps1` now asserts **post-finalization flatness** — the first post-warm-up settled
+sample against the last — instead of raw first-vs-last. Warm-up is excluded by construction rather than
+by a generous allowance, which is the same reasoning `module-window-soak.ps1` already used when it
+compared its LAST segment against the previous one. `PrivateBytes` stays on the raw samples; it is not
+finalizer-bound in the same way.
+
+**Changing an assertion so that it passes is worthless unless it can still fail, so that was tested
+directly** by injecting genuinely ROOTED leaks (held in a field, so no finalizer can reclaim them):
+
+| injected leak | result |
+|---|---|
+| `CreateCompatibleDC` per cycle, never `DeleteDC` | **caught** — post-finalization GdiObjects over bound |
+| rooted `Form` HWND per cycle | **caught** — trips GdiObjects first, since an HWND carries GDI objects too |
+| *(control)* unmodified build | passes, `SettledGrowth` = GDI 0, USER −4, Handles −1 |
+
+One instructive false negative found while building that check: a rooted **`System.Drawing.Font`** per
+cycle sailed straight through. GDI+ `Font` and `Bitmap` are user-mode objects and do **not** necessarily
+consume a handle `GetGuiResources` counts, so they are useless as test leaks — use a raw GDI handle
+(`CreateCompatibleDC`, `GetHbitmap`) when writing one. This is worth remembering before concluding from
+this gate that "nothing leaks": it measures OS handle counts, not GDI+ memory.
+
+Per-step attribution, the settled series and the settled counters all remain in the churn marker, so the
+next occurrence starts from data instead of from a code read.
 
 BUG-002 was undiagnosable for a reason that is not specific to BUG-002, so it is worth its own item.
+
+> **2026-09-10, done as part of the BUG-002/003 fixes:** items 1, 3 and 6 below, plus the
+> capture-uniformity check. `AiBrain` gained a static `LogSink` wired to `IHost.Log`, and the AiBrain
+> row of the table below is no longer 1. **The open design question is settled: AI lines stay under
+> `Modules`** and rely on the existing per-module mute, as this item predicted would suffice — a new
+> `LogCategory` was not justified by the volume these calls produce.
+>
+> Still open: item 2 (backend availability transitions), item 4 (request outcome: latency, retry count,
+> parse result) and item 5 (the vision-specific path: capture size, OCR-vs-vision, Tesseract
+> resolution). None of them gates a known bug, which is why they were not done now.
+>
+> The "never log" list was honoured and is now partly ASSERTED rather than trusted: a probe assertion
+> fails if a window title reaches the prompt string, and the log records endpoint HOSTS rather than URLs
+> because a base URL can carry a key in its query.
 
 **The plumbing already exists and is barely used.** `IHost.Log(moduleId, message)`
 (`PluginApi.cs:552`) routes a module's line into the same rotating diagnostic log the host writes,

@@ -151,10 +151,23 @@ namespace DesktopAICompanion
             return false;
         }
 
+            /// <summary>
+            /// Allow the once-per-process walk to run again.
+            ///
+            /// Needed for real, not only by tests: when Explorer restarts it can file a BRAND NEW
+            /// notification-area entry, and a brand new entry has no IsPromoted value -- which is exactly
+            /// the state PromoteOnce exists to fix. Without this the promotion is spent on the first
+            /// launch and a post-restart icon stays buried in the overflow flyout for good.
+            /// </summary>
+        internal static void AllowRetry()
+        {
+            attempted = false;
+        }
+
             /// <summary>Test seam: let a self-test run the walk more than once in one process.</summary>
         internal static void ResetForTests()
         {
-            attempted = false;
+            AllowRetry();
         }
     }
 }

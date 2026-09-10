@@ -1451,7 +1451,8 @@ namespace DesktopAICompanion.Ai
         private static readonly string[] VisionModelMarkers =
         {
             "llava", "bakllava", "moondream", "vision", "-vl", "vl-", "vl:", "pixtral",
-            "minicpm-v", "minicpm-o", "gemma3", "gemma-3", "mllama", "llama4", "llama-4",
+            "minicpm-v", "minicpm-o", "gemma3", "gemma-3", "gemma4", "gemma-4", "mllama",
+            "llama4", "llama-4",
             "internvl", "cogvlm", "gpt-4o", "gpt-4-turbo", "gpt-4.1", "chatgpt-4o",
             "claude-3", "claude-4", "claude-opus", "claude-sonnet", "claude-haiku",
             "gemini-1.5", "gemini-2", "gemini-pro-vision", "glm-4v", "deepseek-vl",
@@ -1479,6 +1480,84 @@ namespace DesktopAICompanion.Ai
         public static bool IsVisionCapable(string model, bool? reportedVision)
         {
             return (reportedVision ?? false) || LooksVisionCapable(model);
+        }
+
+        /// <summary>
+        /// Does a configured model id name the same model as a backend listing? Ollama's list carries the
+        /// explicit tag (<c>gemma3:4b</c>, <c>llama3.1:latest</c>) while a setting or a default may omit
+        /// it, and treating <c>gemma3</c> as absent when the backend offers <c>gemma3:latest</c> would
+        /// report a missing model that is installed.
+        /// </summary>
+        internal static bool ModelIdMatches(string configured, string listed)
+        {
+            if (string.IsNullOrWhiteSpace(configured) || string.IsNullOrWhiteSpace(listed)) return false;
+            string a = configured.Trim();
+            string b = listed.Trim();
+            if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase)) return true;
+            const string latest = ":latest";
+            if (a.IndexOf(':') < 0 &&
+                string.Equals(a + latest, b, StringComparison.OrdinalIgnoreCase)) return true;
+            if (b.IndexOf(':') < 0 &&
+                string.Equals(b + latest, a, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Decide which model an ask should actually use, given what the backend reports it has.
+        ///
+        /// BUG-002: a saved model id was never re-validated against the backend, so a setting that was
+        /// valid when chosen kept pointing at a model that had since been removed -- and because the ask
+        /// path returns null on any failure, the result was indistinguishable from "nothing to say". The
+        /// shipped default (<c>gemma3:4b</c>) is exactly such an id on a machine that never had it.
+        ///
+        /// Deliberately does NOT nag when the list is empty or null: that means the backend is offline or
+        /// does not support listing, which is not evidence the model is missing. Only a list we actually
+        /// have can prove absence.
+        /// </summary>
+        /// <param name="configured">The id from settings (already normalized).</param>
+        /// <param name="available">What the backend reports, or null/empty when unknown.</param>
+        /// <param name="needVision">True when this ask needs image input.</param>
+        internal static ModelChoice ChooseModel(
+            string configured,
+            System.Collections.Generic.IReadOnlyList<ModelListing> available,
+            bool needVision)
+        {
+            if (available == null || available.Count == 0)
+                return new ModelChoice(configured, null, "model-list-unknown");
+
+            foreach (ModelListing listing in available)
+            {
+                if (listing == null) continue;
+                if (!ModelIdMatches(configured, listing.Id)) continue;
+                // Present, but it still has to be able to do the job asked of it. A text-only model
+                // selected for the vision path fails the same silent way a missing one does.
+                if (needVision && !IsVisionCapable(listing.Id, listing.Vision))
+                    break;
+                return new ModelChoice(listing.Id, null, "configured");
+            }
+
+            foreach (ModelListing listing in available)
+            {
+                if (listing == null || string.IsNullOrWhiteSpace(listing.Id)) continue;
+                if (needVision && !IsVisionCapable(listing.Id, listing.Vision)) continue;
+                return new ModelChoice(
+                    listing.Id,
+                    Describe(configured) + " isn't available, so I'm using " + listing.Id + " instead.",
+                    "substituted");
+            }
+
+            return new ModelChoice(
+                null,
+                needVision
+                    ? Describe(configured) + " isn't available and I can't find another model that can " +
+                      "see images. Pick one in AI Brain settings."
+                    : Describe(configured) + " isn't available. Pick a model in AI Brain settings.",
+                "none-usable");
+        }
+
+        private static string Describe(string model)
+        {
+            return string.IsNullOrWhiteSpace(model) ? "The configured model" : model;
         }
 
         public static bool LooksVisionCapable(string model)

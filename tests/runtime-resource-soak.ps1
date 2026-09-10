@@ -302,15 +302,62 @@ try {
     if ($first.GdiObjects -lt 1 -or $first.UserObjects -lt 1) {
         throw 'Windows GUI resource counters were unavailable for the running process.'
     }
-    if ($growth.Handles -gt $MaximumHandleGrowth) {
-        throw "Handle growth exceeded the bound: $($growth.Handles) > $MaximumHandleGrowth."
+
+    # ---- the leak verdict: the SETTLED series, not the raw sawtooth (BUG-004) --------------------
+    #
+    # This used to assert raw first-vs-last GDI/USER/handle growth, and that is not a leak test.
+    # Bitmap, Font, Icon and Form hold their native handles until a FINALIZER runs, so the raw
+    # counters are a sawtooth and the verdict depended entirely on where the last sample happened to
+    # land relative to a collection. Measured 2026-09-10 on one unchanged build: raw GDI growth came
+    # out +81, +206, -22 and -3 on four runs of different lengths -- two FAILs and two PASSes for
+    # identical code. The pre-1.0.0 baseline of "GDI -24" recorded in docs/HISTORY-pre-1.0.0.md was a
+    # run that ended just after a collection, so it never demonstrated health either.
+    #
+    # The app now forces GC -> WaitForPendingFinalizers -> GC before sampling, periodically during the
+    # run (RuntimeResourceChurn.SettleAndSample), and publishes the series. That answers the question
+    # this gate exists to ask: after everything collectable HAS been collected, does the process keep
+    # losing handles?
+    #
+    # Compared from the FIRST post-warm-up sample rather than from the cold baseline, deliberately.
+    # The first pet legitimately and permanently costs a sprite decode, cached fonts and brushes, a
+    # bubble region and the tray icon: measured at +31 GDI, reached by cycle 40 and then EXACTLY flat
+    # (46, 46, 46 ...) for all 548 cycles of a three-minute run. Charging that one-time cost to a leak
+    # is what made this gate cry wolf; charging it to nothing at all would let a real leak hide inside
+    # the allowance. Warm-up is therefore excluded by construction, and anything growing after it
+    # fails -- which is the same reasoning module-window-soak.ps1 already uses when it compares its
+    # LAST segment against the previous one instead of against a cold start.
+    $settled = @($churn.settledSeries)
+    if ($settled.Count -lt 2) {
+        throw ("The churn published $($settled.Count) settled sample(s); at least 2 are needed to " +
+               'tell a warming cache from a leak. Increase -DurationSeconds.')
     }
-    if ($growth.GdiObjects -gt $MaximumGdiGrowth) {
-        throw "GDI object growth exceeded the bound: $($growth.GdiObjects) > $MaximumGdiGrowth."
+    $settledFirst = $settled[0]
+    $settledLast = $settled[$settled.Count - 1]
+    $settledGrowth = [pscustomobject][ordered]@{
+        FromCycle   = [int]$settledFirst.cycle
+        ToCycle     = [int]$settledLast.cycle
+        GdiObjects  = [int]$settledLast.gdi - [int]$settledFirst.gdi
+        UserObjects = [int]$settledLast.user - [int]$settledFirst.user
+        Handles     = [int]$settledLast.handles - [int]$settledFirst.handles
     }
-    if ($growth.UserObjects -gt $MaximumUserGrowth) {
-        throw "USER object growth exceeded the bound: $($growth.UserObjects) > $MaximumUserGrowth."
+    if ($settledGrowth.ToCycle -le $settledGrowth.FromCycle) {
+        throw 'The settled samples are not ordered by cycle; the churn marker is malformed.'
     }
+    foreach ($counter in @('GdiObjects', 'UserObjects', 'Handles')) {
+        $bound = switch ($counter) {
+            'GdiObjects'  { $MaximumGdiGrowth }
+            'UserObjects' { $MaximumUserGrowth }
+            'Handles'     { $MaximumHandleGrowth }
+        }
+        $value = $settledGrowth.$counter
+        if ($value -gt $bound) {
+            throw ("Post-finalization $counter growth exceeded the bound between cycle " +
+                   "$($settledGrowth.FromCycle) and $($settledGrowth.ToCycle): $value > $bound. " +
+                   'Handles survived a forced collection, so this is a real leak and not finalizer lag.')
+        }
+    }
+
+    # Private bytes are NOT finalizer-bound in the same way and stay on the raw samples.
     if ($growth.PrivateBytes -gt $MaximumPrivateByteGrowth) {
         throw "Private-byte growth exceeded the bound: $($growth.PrivateBytes) > $MaximumPrivateByteGrowth."
     }
@@ -327,6 +374,7 @@ try {
         First = $first
         Last = $last
         Growth = $growth
+        SettledGrowth = $settledGrowth
     } | ConvertTo-Json -Depth 5
 }
 finally {

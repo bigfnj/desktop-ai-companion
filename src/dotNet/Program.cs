@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -142,6 +143,11 @@ namespace DesktopAICompanion
             if (args != null && Array.IndexOf(args, "--desktopwindows-selftest") >= 0)
             {
                 Environment.Exit(DesktopAICompanion.DesktopWindows.SelfTest() ? 0 : 1);
+            }
+            // BUG-001 recovery wiring: the TaskbarCreated listener and the WM_CLOSE orderly exit.
+            if (args != null && Array.IndexOf(args, "--traywatcher-selftest") >= 0)
+            {
+                Environment.Exit(DesktopAICompanion.ProcessIcon.SelfTest() ? 0 : 1);
             }
             if (args != null && Array.IndexOf(args, "--catalog-selftest") >= 0)
             {
@@ -637,6 +643,45 @@ namespace DesktopAICompanion
         private int speechAndPetCycles;
         private int trayAndMenuCycles;
 
+        // Per-STEP GDI/USER accounting. The soak reports whole-process growth, which proves a leak
+        // exists but not which of the three churn steps produced it -- and chasing that by reading code
+        // found nothing, because every explicit GDI site in the churn path disposes correctly. These
+        // counters answer "which step" directly, and keep answering it for the next leak.
+        private long petGdi, petUser, trayGdi, trayUser, menuGdi, menuUser;
+
+        // Post-finalization readings, taken at the start and end of churning. Their difference is the
+        // only figure that distinguishes a real leak from finalizer lag; see SettleAndSample.
+        private int baselineGdi, baselineUser, baselineHandles;
+        private int settledGdi, settledUser, settledHandles;
+
+        // Post-finalization readings taken periodically DURING the run, so the shape can be read and not
+        // just the endpoints. A true leak is linear in cycles; a warming cache (fonts, brushes, the first
+        // sprite decode) rises and then flattens. Endpoint-only figures cannot tell those apart, which is
+        // what left BUG-004 ambiguous after the first measurement.
+        private readonly JsonArray settledSeries = new JsonArray();
+        private const int SettledSampleEveryCycles = 40;
+
+        [DllImport("user32.dll")]
+        private static extern int GetGuiResources(IntPtr process, int flags);
+        [DllImport("kernel32.dll")]
+        private static extern IntPtr GetCurrentProcess();
+
+        private const int GrGdiObjects = 0;
+        private const int GrUserObjects = 1;
+
+        private static void SampleGui(out int gdi, out int user)
+        {
+            IntPtr me = GetCurrentProcess();
+            gdi = GetGuiResources(me, GrGdiObjects);
+            user = GetGuiResources(me, GrUserObjects);
+        }
+
+        /// <summary>Kernel handle count, which is finalizer-bound in exactly the same way.</summary>
+        private static int SampleHandles()
+        {
+            using (Process self = Process.GetCurrentProcess()) return self.HandleCount;
+        }
+
         internal RuntimeResourceChurn(
             StartUp runtime,
             RuntimeResourceChurnConfiguration configuration)
@@ -650,7 +695,33 @@ namespace DesktopAICompanion
                 Interval = configuration.IntervalMilliseconds
             };
             cycleTimer.Tick += CycleTimer_Tick;
+            // Baseline AFTER full finalization, so the figure this run is judged against does not
+            // include whatever happened to be awaiting a finalizer when churning began.
+            SettleAndSample(out baselineGdi, out baselineUser, out baselineHandles);
             cycleTimer.Start();
+        }
+
+        /// <summary>
+        /// Collect, run finalizers, collect again, then read the OS counters.
+        ///
+        /// BUG-004. Sampling raw GDI/USER while churning measures a sawtooth: native handles held by
+        /// Bitmap/Font/Icon/Form finalizers are released only when the GC runs, so the same healthy build
+        /// reads "+206" or "-24" depending purely on where the last sample landed relative to a
+        /// collection. Measured 2026-09-10: GDI climbed to 193, dropped to 58 in one sample, then climbed
+        /// again -- and the historical "GDI -24" PASS was a run that happened to end just after a
+        /// collection, so it was never evidence of health.
+        ///
+        /// Forcing finalization first turns an unanswerable question ("is this growth a leak or timing?")
+        /// into the answerable one: after everything collectable HAS been collected, did the process
+        /// permanently lose handles? A true leak survives this; finalizer lag does not.
+        /// </summary>
+        private static void SettleAndSample(out int gdi, out int user, out int handles)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            SampleGui(out gdi, out user);
+            handles = SampleHandles();
         }
 
         private void CycleTimer_Tick(object sender, EventArgs e)
@@ -677,13 +748,18 @@ namespace DesktopAICompanion
 
         private void RunCycle(int cycle)
         {
+            int gdi0, user0, gdi1, user1;
             string astral = char.ConvertFromUtf32(0x1F642);
             string speech =
                 "Resource churn " + cycle + " " + astral +
                 " exercises text, bubble paint, and companion image ownership.";
+            SampleGui(out gdi0, out user0);
             if (!runtime.RunResourceChurnPetCycle(speech))
                 throw new InvalidOperationException(
                     "The speech/pet churn path did not complete.");
+            SampleGui(out gdi1, out user1);
+            petGdi += gdi1 - gdi0;
+            petUser += user1 - user0;
             speechAndPetCycles++;
 
             // The About/Help dialogs are now themed WPF windows (the WinForms AboutBox/FormHelp were retired).
@@ -691,11 +767,33 @@ namespace DesktopAICompanion
             // in a loop is fragile, and the WPF chrome isn't what this harness measures. The speech/pet/tray/menu
             // churn below is the meaningful coverage.
 
+            SampleGui(out gdi0, out user0);
             if (!runtime.RefreshTrayIconForResourceChurn())
                 throw new InvalidOperationException(
                     "The tray icon refresh path did not complete.");
+            SampleGui(out gdi1, out user1);
+            trayGdi += gdi1 - gdi0;
+            trayUser += user1 - user0;
+
+            SampleGui(out gdi0, out user0);
             ContextMenus.RefreshSpeechMenuItem();
+            SampleGui(out gdi1, out user1);
+            menuGdi += gdi1 - gdi0;
+            menuUser += user1 - user0;
             trayAndMenuCycles++;
+
+            if (cycle > 0 && cycle % SettledSampleEveryCycles == 0)
+            {
+                int sg, su, sh;
+                SettleAndSample(out sg, out su, out sh);
+                settledSeries.Add(new JsonObject
+                {
+                    ["cycle"] = cycle,
+                    ["gdi"] = sg,
+                    ["user"] = su,
+                    ["handles"] = sh,
+                });
+            }
         }
 
         private void Finish(bool passed, Exception failure)
@@ -704,6 +802,7 @@ namespace DesktopAICompanion
             finished = true;
             cycleTimer.Stop();
             elapsed.Stop();
+            SettleAndSample(out settledGdi, out settledUser, out settledHandles);
             WriteMarker(passed, failure);
             if (!passed) Environment.ExitCode = 1;
 
@@ -730,6 +829,24 @@ namespace DesktopAICompanion
                     configuration.MinimumDurationMilliseconds,
                 ["speechAndPetCycles"] = speechAndPetCycles,
                 ["trayAndMenuCycles"] = trayAndMenuCycles,
+                // Net GDI/USER attributable to each step across the whole run. A step that allocates
+                // and frees nets ~0; a step that leaks grows roughly linearly with cycles.
+                ["petGdiNet"] = petGdi,
+                ["petUserNet"] = petUser,
+                ["trayGdiNet"] = trayGdi,
+                ["trayUserNet"] = trayUser,
+                ["menuGdiNet"] = menuGdi,
+                ["menuUserNet"] = menuUser,
+                // The leak verdict: counters after full finalization, at the start and end of churning.
+                ["baselineGdiSettled"] = baselineGdi,
+                ["baselineUserSettled"] = baselineUser,
+                ["baselineHandlesSettled"] = baselineHandles,
+                ["settledGdi"] = settledGdi,
+                ["settledUser"] = settledUser,
+                ["settledHandles"] = settledHandles,
+                ["settledGdiGrowth"] = settledGdi - baselineGdi,
+                ["settledUserGrowth"] = settledUser - baselineUser,
+                ["settledSeries"] = settledSeries,
                 ["error"] = failure == null
                     ? null
                     : failure.GetType().Name + ": " + failure.Message

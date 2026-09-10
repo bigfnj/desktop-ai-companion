@@ -121,6 +121,17 @@ namespace DesktopAICompanion.AiBrainModule
             _host = host;
             _ui = SynchronizationContext.Current;   // the WinForms UI-thread context (host loads modules there)
 
+            // Give the engine a way into the diagnostic log. Until this existed the whole of
+            // modules/AiBrain had ONE IHost.Log call, in a module that fails by returning null on
+            // purpose -- so every failure looked like "nothing to say" (BUG-002). Set before anything
+            // else here so a fault during the rest of Init is itself recorded.
+            AiBrain.LogSink = delegate(string line)
+            {
+                IHost h = _host;
+                if (h == null) return;
+                try { h.Log(Info.Id, line); } catch { }
+            };
+
             try
             {
                 IModuleStorage storage = host.GetStorage("aibrain");
@@ -939,7 +950,28 @@ namespace DesktopAICompanion.AiBrainModule
                     backend = cloud;
                 }
             }
-            return new AiBrain(backend, s.ActiveSlotSnapshot());
+            AiBrain brain = new AiBrain(backend, s.ActiveSlotSnapshot());
+            // Let the brain re-validate its configured model against what the backend actually offers
+            // (BUG-002). Uses the SAME listing call the Options pane uses, so the two can never disagree
+            // about what is installed. Captures the backend the brain owns, not a fresh one.
+            brain.ModelLister = delegate(CancellationToken ct) { return ListBackendModelsAsync(backend, ct); };
+            return brain;
+        }
+
+        /// <summary>
+        /// List what a backend offers, or an empty list when that backend has no listing endpoint. Empty
+        /// and null mean different things downstream: <see cref="AiModelPolicy.ChooseModel"/> treats an
+        /// unknown inventory as "do not complain", so a backend that cannot enumerate must not be able to
+        /// make the brain claim a model is missing.
+        /// </summary>
+        private static async Task<IReadOnlyList<ModelListing>> ListBackendModelsAsync(
+            ICompanionBrainBackend backend, CancellationToken ct)
+        {
+            OllamaClient ollama = backend as OllamaClient;
+            if (ollama != null) return await ollama.ListModelsAsync(ct).ConfigureAwait(false);
+            OpenAiCompatBackend compat = backend as OpenAiCompatBackend;
+            if (compat != null) return await compat.ListModelsAsync(ct).ConfigureAwait(false);
+            return null;
         }
 
         private static bool CanUse(AiSettings s, out string error)
@@ -1161,6 +1193,11 @@ namespace DesktopAICompanion.AiBrainModule
             if (_hotkey != null) { try { _hotkey.Dispose(); } catch { } _hotkey = null; }
             try { _lifetime.Cancel(); _lifetime.Dispose(); } catch { }
             try { _session.Dispose(); } catch { }
+            // The sink is a STATIC field holding a delegate over this instance. Leaving it set would keep
+            // the module alive past unload and route lines at a nulled host, so it is cleared here. The
+            // delegate re-reads _host each call, so an in-flight line during teardown is a no-op, not a
+            // throw.
+            AiBrain.LogSink = null;
             _host = null;
         }
     }

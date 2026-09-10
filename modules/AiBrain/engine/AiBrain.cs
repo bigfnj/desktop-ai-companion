@@ -31,6 +31,73 @@ namespace DesktopAICompanion.Ai
         private readonly bool _useVision;
         private readonly string _tesseractPath;
 
+        /// <summary>
+        /// Where this engine's diagnostic lines go. <c>AiBrainModule</c> points it at
+        /// <c>IHost.Log(Info.Id, ...)</c>; left null (self-tests, the probe) the lines are discarded.
+        ///
+        /// Static, and deliberately so: the engine is constructed in several places (the live module, the
+        /// probe, the self-test doubles) and threading a sink through every constructor would change more
+        /// call sites than it is worth. Follows the host's own <c>Animations.SoundSink</c> precedent.
+        ///
+        /// NEVER pass prompt text, capture content, OCR output, model replies or API keys to this. The
+        /// diagnostic log is what SUPPORT.md tells users to attach to an issue, and this is the one module
+        /// where careless logging would export the contents of the user's screen. Model ids, endpoint
+        /// HOSTS, sizes, latencies and error categories only.
+        /// </summary>
+        internal static Action<string> LogSink;
+
+        /// <summary>
+        /// How this brain finds out what the backend actually offers. <c>AiBrainModule</c> points it at the
+        /// same listing call the Options pane uses; left null (the probe, the self-test doubles) the list
+        /// stays unknown, which <see cref="AiModelPolicy.ChooseModel"/> treats as "do not complain".
+        /// </summary>
+        internal Func<CancellationToken, Task<IReadOnlyList<ModelListing>>> ModelLister { get; set; }
+
+        /// <summary>Last known backend inventory; null until <see cref="PrepareAsync"/> fills it.</summary>
+        private IReadOnlyList<ModelListing> _available;
+
+        /// <summary>
+        /// The advisory most recently spoken, so a broken configuration is reported ONCE rather than on
+        /// every idle tick. A companion repeating "gemma3:4b isn't available" every thirty seconds is a
+        /// worse bug than the one being reported.
+        /// </summary>
+        private string _lastAdvisory;
+
+        /// <summary>
+        /// Emit one diagnostic line. Never throws: a broken sink must not be able to take down an AI turn,
+        /// which is the whole reason this layer swallows exceptions in the first place.
+        /// </summary>
+        private static void Log(string message)
+        {
+            if (string.IsNullOrEmpty(message)) return;
+            Action<string> sink = LogSink;
+            if (sink == null) return;
+            try { sink(message); } catch { }
+        }
+
+        /// <summary>
+        /// Classify a swallowed exception into a short, non-identifying category. The message itself can
+        /// carry a URL or a file path, so only the type name and a coarse bucket are recorded.
+        /// </summary>
+        internal static string DescribeError(Exception ex)
+        {
+            if (ex == null) return "none";
+            if (ex is TaskCanceledException || ex is OperationCanceledException) return "timeout-or-cancelled";
+            if (ex is HttpRequestException) return "backend-unreachable";
+            if (ex is System.Text.Json.JsonException) return "bad-response-json";
+            if (ex is UnauthorizedAccessException) return "access-denied";
+            if (ex is InvalidOperationException) return "invalid-state";
+            return ex.GetType().Name;
+        }
+
+        /// <summary>Endpoint HOST only, never the full URL: a base URL can carry a key in its query.</summary>
+        internal static string DescribeEndpoint(string endpoint)
+        {
+            if (string.IsNullOrWhiteSpace(endpoint)) return "(unset)";
+            try { return new Uri(endpoint).Host; }
+            catch { return "(unparseable)"; }
+        }
+
         private byte[] _lastFrameSignature;   // change-detection gate (used by the idle loop, phase 3)
         private int _disposeStarted;
 
@@ -193,6 +260,12 @@ namespace DesktopAICompanion.Ai
                     ? await _backend.EnsureServerAsync(ct).ConfigureAwait(false)
                     : await _backend.IsAvailableAsync(ct).ConfigureAwait(false);
 
+                // Learn what the backend HAS, while we are already talking to it. Without this the
+                // configured model is never re-validated and BUG-002's failure mode (a saved id that the
+                // backend no longer offers) stays invisible until someone reads the log. Best-effort:
+                // a backend that cannot list models leaves the inventory unknown, which is handled.
+                if (up) await RefreshInventoryAsync(ct).ConfigureAwait(false);
+
                 if (up && _settings.WarmUpDesired)
                     await _backend.WarmUpAsync(_useVision ? _visionModel : _textModel, ct).ConfigureAwait(false);
 
@@ -200,6 +273,41 @@ namespace DesktopAICompanion.Ai
             }
             catch (OperationCanceledException) { throw; }
             catch { return false; }
+        }
+
+        /// <summary>
+        /// Refresh the cached backend inventory. Never throws and never blocks an ask: a listing failure
+        /// leaves the previous snapshot (or null) in place, and null simply means "unknown".
+        /// </summary>
+        private async Task RefreshInventoryAsync(CancellationToken ct)
+        {
+            Func<CancellationToken, Task<IReadOnlyList<ModelListing>>> lister = ModelLister;
+            if (lister == null) return;
+            try
+            {
+                IReadOnlyList<ModelListing> listed = await lister(ct).ConfigureAwait(false);
+                if (listed == null) return;
+                _available = listed;
+                Log("model inventory: " + listed.Count + " model(s) reported by " +
+                    DescribeEndpoint(_settings.Endpoint));
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                Log("model inventory unavailable: " + DescribeError(ex));
+            }
+        }
+
+        /// <summary>
+        /// Turn a <see cref="ModelChoice"/> advisory into something to say, at most once per distinct
+        /// message. Returns null when the same advisory has already been delivered.
+        /// </summary>
+        private BrainResponse AdvisoryOnce(string advisory)
+        {
+            if (string.IsNullOrWhiteSpace(advisory)) return null;
+            if (string.Equals(_lastAdvisory, advisory, StringComparison.Ordinal)) return null;
+            _lastAdvisory = advisory;
+            return new BrainResponse(advisory, "confused");
         }
 
         /// <summary>
@@ -243,10 +351,14 @@ namespace DesktopAICompanion.Ai
                     return null;
 
                 Rectangle captureBounds;
+                // The monitor that was on offer, kept in scope so the diagnostic below can say whether
+                // the window or the whole monitor ended up being the subject.
+                Rectangle offeredMonitor = Rectangle.Empty;
                 if (captureContext != null)
                 {
                     PixelRect mb = captureContext.MonitorBounds;
                     Rectangle monitor = new Rectangle(mb.X, mb.Y, mb.Width, mb.Height);
+                    offeredMonitor = monitor;
                     // Prefer the foreground WINDOW over the whole monitor (host 1.1.0). A monitor
                     // shot is downscaled twice before a vision model sees it (monitor -> 1280 ->
                     // 896), so on a 2560-wide display body text arrives about 6px tall and the
@@ -264,6 +376,7 @@ namespace DesktopAICompanion.Ai
                         throw new InvalidOperationException(
                             "No display is available for screen capture.");
                     captureBounds = primary.Bounds;
+                    offeredMonitor = primary.Bounds;
                 }
                 // Capture straight to the width the chosen path wants, because only one path runs and
                 // the old fixed 1280 made the vision path resample TWICE: source -> 1280 -> 896. Two
@@ -276,8 +389,31 @@ namespace DesktopAICompanion.Ai
                 // beyond it are either thrown away by the model or turned into extra image tiles that
                 // multiply prefill cost for detail a one-line remark does not need.
                 bool useVisionPath = _useVision && allowVision;
+
+                // BUG-002: settle WHICH model before paying for a capture. A saved id is not evidence the
+                // backend still has it -- "Refresh local models" can drop one, and the shipped default is
+                // an id many machines never had -- and the ask path returns null on any failure, so an
+                // absent model was indistinguishable from a quiet companion. Resolving here also avoids
+                // capturing the screen for a request that cannot be sent.
+                ModelChoice choice = AiModelPolicy.ChooseModel(
+                    useVisionPath ? _visionModel : _textModel,
+                    _available,
+                    useVisionPath);
+                Log("model resolve: " + choice.Reason +
+                    " configured=" + (useVisionPath ? _visionModel : _textModel) +
+                    " using=" + (choice.Model ?? "(none)") +
+                    " vision=" + useVisionPath);
+                if (!choice.Usable)
+                    return AdvisoryOnce(choice.Advisory);
+
                 using (Bitmap shot = CaptureScreen(captureBounds, useVisionPath ? VisionMaxWidth : OcrCaptureWidth))
                 {
+                    // BUG-003: the chosen rect, which of the two candidates won it, and how uniform the
+                    // result was. Geometry and one statistic -- never the pixels, never the OCR text.
+                    Log("capture: rect=" + captureBounds.Width + "x" + captureBounds.Height +
+                        "@" + captureBounds.X + "," + captureBounds.Y +
+                        " subject=" + (captureBounds == offeredMonitor ? "monitor" : "window") +
+                        " uniform=" + UniformityPercent(shot) + "%");
                     List<ChatMessage> messages = new List<ChatMessage> { ChatMessage.System(BuildSystemPrompt()) };
 
                     string model;
@@ -303,7 +439,7 @@ namespace DesktopAICompanion.Ai
                     {
                         string b64 = ToBase64PngScaled(shot, VisionMaxWidth);
                         messages.Add(ChatMessage.User(ctx + "Look at my screen and react.", new[] { b64 }));
-                        model = _visionModel;
+                        model = choice.Model;
                     }
                     else
                     {
@@ -313,11 +449,19 @@ namespace DesktopAICompanion.Ai
                             ocr,
                             1500);
                         messages.Add(ChatMessage.User(ctx + "Here is the text currently visible on my screen:\n\n" + ocr, null));
-                        model = _textModel;
+                        model = choice.Model;
                     }
 
                     string raw = await ChatWithRetryAsync(model, messages, ct).ConfigureAwait(false);
                     BrainResponse resp = Parse(raw);
+                    // A substitution worked, so the turn is fine -- but the user is now talking to a model
+                    // they did not choose, and silently swapping one is how BUG-002 stayed hidden. Said
+                    // once, then never again for the same message.
+                    if (choice.Advisory != null)
+                    {
+                        BrainResponse advisory = AdvisoryOnce(choice.Advisory);
+                        if (advisory != null) return advisory;
+                    }
                     return resp;
                 }
             }
@@ -325,8 +469,16 @@ namespace DesktopAICompanion.Ai
             {
                 throw;
             }
-            catch
+            catch (Exception ex)
             {
+                // Still returns null -- the pet staying silent on a broken backend is correct -- but no
+                // longer SILENTLY. Before this line a missing model, an unreachable server and "nothing
+                // interesting to say" were the same observable event, which is what made BUG-002 take a
+                // maintainer bisect to explain. Category and model id only; see LogSink's contract.
+                Log("screen ask failed: " + DescribeError(ex) +
+                    " model=" + (_useVision ? _visionModel : _textModel) +
+                    " vision=" + _useVision +
+                    " endpoint=" + DescribeEndpoint(_settings.Endpoint));
                 return null;   // never crash the app over the AI layer
             }
         }
@@ -420,22 +572,34 @@ namespace DesktopAICompanion.Ai
         }
 
         /// <summary>
-        /// "Also open on this screen: outlook, msedge" for the other windows sharing the front window's
-        /// monitor. Process names rather than titles on purpose: a title is where the personal data
-        /// lives, and for "what else is open" the application is the useful part anyway.
+        /// "Also open on this screen: outlook, msedge" for the other windows sharing the monitor that is
+        /// actually being CAPTURED. Process names rather than titles on purpose: a title is where the
+        /// personal data lives, and for "what else is open" the application is the useful part anyway.
+        ///
+        /// Keyed on <see cref="ScreenContext.MonitorBounds"/> by intersection, not on the foreground
+        /// window's <c>MonitorIndex</c>. It was the latter until BUG-003(b) made capture follow the
+        /// COMPANION's monitor: from that point the phrase "on this screen" and the pixels being
+        /// described could refer to two different displays, so the model was handed a list of windows the
+        /// user could not see next to a picture of somewhere else. Geometry rather than the index because
+        /// MonitorBounds is a rect and the index is only meaningful against the host's monitor array.
         /// </summary>
         internal static string DescribeOtherWindows(ScreenContext context)
         {
             if (context == null || context.Windows == null || context.Windows.Count == 0) return "";
-            int frontMonitor = int.MinValue;
-            foreach (ScreenWindow w in context.Windows)
-                if (w != null && w.IsForeground) { frontMonitor = w.MonitorIndex; break; }
+            PixelRect mb = context.MonitorBounds;
+            var captured = new Rectangle(mb.X, mb.Y, mb.Width, mb.Height);
+            bool haveMonitor = captured.Width > 0 && captured.Height > 0;
 
             var names = new List<string>();
             foreach (ScreenWindow w in context.Windows)
             {
                 if (w == null || w.IsForeground) continue;
-                if (frontMonitor != int.MinValue && w.MonitorIndex != frontMonitor) continue;
+                if (haveMonitor)
+                {
+                    var wb = new Rectangle(w.Bounds.X, w.Bounds.Y, w.Bounds.Width, w.Bounds.Height);
+                    Rectangle hit = Rectangle.Intersect(wb, captured);
+                    if (hit.Width <= 0 || hit.Height <= 0) continue;
+                }
                 if (string.IsNullOrWhiteSpace(w.ProcessName)) continue;
                 string name = w.ProcessName.Trim();
                 if (!names.Contains(name)) names.Add(name);
@@ -443,6 +607,46 @@ namespace DesktopAICompanion.Ai
             }
             if (names.Count == 0) return "";
             return "Also open on this screen: " + string.Join(", ", names.ToArray()) + "\n";
+        }
+
+        /// <summary>
+        /// Share (0-100) of a sparse sample taken by the single most common colour. 100 means every
+        /// sampled pixel was identical.
+        ///
+        /// This exists because "the capture showed only the wallpaper" (BUG-003(a)) was unfalsifiable
+        /// from a user report: nothing recorded what the capture actually contained, and the privacy
+        /// constraint rules out writing the bitmap anywhere. A single number cannot reconstruct a screen
+        /// but it does separate "captured a blank surface" from "captured something and the model was
+        /// unimpressed", which is the distinction the whole investigation lacked.
+        ///
+        /// Sampled on a fixed grid rather than per pixel: this runs on every vision ask and the answer
+        /// only needs to be indicative.
+        /// </summary>
+        internal static int UniformityPercent(Bitmap bmp)
+        {
+            if (bmp == null || bmp.Width <= 0 || bmp.Height <= 0) return 0;
+            const int Grid = 24;
+            var counts = new Dictionary<int, int>();
+            int samples = 0;
+            int stepX = Math.Max(1, bmp.Width / Grid);
+            int stepY = Math.Max(1, bmp.Height / Grid);
+            for (int y = 0; y < bmp.Height; y += stepY)
+            {
+                for (int x = 0; x < bmp.Width; x += stepX)
+                {
+                    Color c = bmp.GetPixel(x, y);
+                    int key = (c.R << 16) | (c.G << 8) | c.B;
+                    int seen;
+                    counts.TryGetValue(key, out seen);
+                    counts[key] = seen + 1;
+                    samples++;
+                }
+            }
+            if (samples == 0) return 0;
+            int top = 0;
+            foreach (KeyValuePair<int, int> kv in counts)
+                if (kv.Value > top) top = kv.Value;
+            return (int)Math.Round(100.0 * top / samples);
         }
 
         private static Bitmap CaptureScreen(Rectangle b, int maxWidth)

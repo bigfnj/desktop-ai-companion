@@ -1058,6 +1058,29 @@ namespace DesktopAICompanion
                     left,
                     monitors),
                 "Equal monitor overlap did not prefer the pet's monitor.");
+
+            // BUG-003(b): capture follows the COMPANION, not the foreground window. The regression this
+            // pins is the reported one -- companion on the left display, active window on the primary,
+            // capture showing the primary.
+            AssertEqual(
+                left,
+                DesktopGeometry.SelectCompanionMonitor(left, monitors),
+                "A companion on the left monitor did not select the left monitor.");
+            AssertEqual(
+                upper,
+                DesktopGeometry.SelectCompanionMonitor(upper, monitors),
+                "A companion on the upper monitor did not select the upper monitor.");
+            // A stale or bogus companion rect must still resolve to a REAL monitor, or the capture reads
+            // black. Nearest wins, which is the same rule an off-screen foreground window gets.
+            AssertEqual(
+                primary,
+                DesktopGeometry.SelectCompanionMonitor(new Rectangle(5000, 300, 500, 500), monitors),
+                "An off-screen companion rect did not select the nearest monitor.");
+            // No monitors reported at all: hand the input back rather than inventing geometry.
+            AssertEqual(
+                left,
+                DesktopGeometry.SelectCompanionMonitor(left, new Rectangle[0]),
+                "An empty monitor list did not return the companion's own bounds.");
         }
 
         private static void TestWindowLandingCoordinateSentinel()

@@ -1,6 +1,6 @@
 ﻿# Desktop AI Companion — Session Handoff
 
-> Working notes for picking this up later. Last updated: **2026-09-10** (tenth session).
+> Working notes for picking this up later. Last updated: **2026-09-10** (eleventh session).
 > Fork of Adrianotiger/desktopPet, though no longer a GitHub fork: the repo was recreated fresh for
 > 1.0.0. Clone it wherever you like -- nothing here depends on the checkout path, and this file is
 > public, so no machine paths go in it.
@@ -9,7 +9,50 @@
 
 ---
 
-## START HERE (2026-09-10) — 1.0.0 is TAGGED; the remaining risk is legal, not technical
+## START HERE (2026-09-10, eleventh session) — all four known bugs fixed, 1.1.0 ready to tag
+
+BUG-001 to BUG-004 are **fixed and verified** (full write-ups in [`BACKLOG.md`](BACKLOG.md)). What a
+future reader most needs to know is the parts that were *wrong* before being fixed, because two of them
+would otherwise be repeated:
+
+1. **BUG-003(a)'s suspected cause was wrong.** The backlog said GDI cannot read DWM-composited content
+   and implied a DXGI / `Windows.Graphics.Capture` rewrite. **Measured: false.** The screen-DC path we
+   ship reads Edge WebView, WhatsApp and VS Code perfectly; `PrintWindow` is the path that returns blank
+   surfaces (`cmd` and `TextInputHost` came back 100% one colour). Do not rewrite the capture API on the
+   strength of that entry. (a) was most likely (b) in disguise — a monitor the user is not working on is
+   mostly wallpaper.
+
+2. **BUG-004 was a MEASUREMENT defect, not a leak.** `runtime-resource-soak.ps1` compared raw first-vs-
+   last GDI/USER, which is a sawtooth because those handles are released by finalizers. The same
+   unchanged build scored +81, +206, −22 and −3 on four runs. After forcing finalization, GDI is
+   **exactly 46 at every sample from cycle 40 to 548**. The app does not leak. The gate now asserts
+   post-warm-up flatness, and that new assertion was itself validated by injecting rooted leaks.
+
+3. **BUG-001 needed no installer change.** The MSI already posts `WM_CLOSE`; nothing in the app turned
+   it into a shutdown, so the `TerminateProcess` fallback always won and the tray icon's `NIM_DELETE`
+   was never sent. `TerminateProcess="1"` is deliberately KEPT — dropping it reintroduces the stalled-
+   upgrade hang `AppLifetime` was written for, and it is still needed on the first upgrade hop, where
+   the exe being closed is the OLD one without the handler.
+
+### Traps this session re-learned the hard way
+
+- **A mutation harness must prove the code under test was REBUILT.** The BUG-002 harness reported 0/7
+  FIRED because it rebuilt the host project while the code under test compiles into `AiBrain.dll`. It
+  now asserts the module DLL's timestamp advanced *and* that a witness assertion label appears in the
+  probe report before trusting any PASS/FAIL. A clean 0/N is a red flag, never a result.
+- **GDI+ `Font`/`Bitmap` are useless as test leaks.** They are user-mode objects and do not necessarily
+  consume a handle `GetGuiResources` counts; a rooted-Font-per-cycle leak passed the gate. Use a raw GDI
+  handle (`CreateCompatibleDC`, `GetHbitmap`).
+- **Anchor text must be unique.** Inserting members before `        public void Dispose()` landed them
+  inside a nested class that had since acquired its own `Dispose`. The patch scripts in this session
+  count matches and refuse anything other than exactly 1.
+- **Heredocs eat backslashes.** `
+` in a `<<'PY'` heredoc arrived as a real newline and silently broke
+  three anchors. Build separators with `chr(92)` / `chr(10)`, or write the script to a file first.
+
+---
+
+## Previous session (2026-09-10) — 1.0.0 is TAGGED; the remaining risk is legal, not technical
 
 Smoke test passed, `v1.0.0` cut, `release.yml` publishes the portable ZIP, the per-user MSI, two author
 NuGet packages and `SHA256SUMS.txt`. **Full gate green** (`tests/run-gate.ps1 -SkipClean`): 0 build

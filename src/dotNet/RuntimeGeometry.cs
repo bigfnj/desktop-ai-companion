@@ -479,9 +479,40 @@ namespace DesktopAICompanion
         }
 
         /// <summary>
+        /// Select the monitor a companion should react to: the one the companion is STANDING ON.
+        ///
+        /// BUG-003(b). Capture used to follow the foreground WINDOW's monitor, with the companion's own
+        /// monitor arriving only as a fallback -- so a companion on the second display commented on the
+        /// first, which reads as broken however defensible the reasoning. Both readings were arguable
+        /// ("react to what the user is looking at" vs "react to what is around me"); the maintainer picked
+        /// the latter, because it is also the one that makes a per-monitor watcher possible.
+        ///
+        /// The foreground window is NOT discarded by this choice. It still supplies the window title, and
+        /// <c>ScreenContext.ForegroundWindowBounds</c> still carries its rect, so a foreground window that
+        /// happens to be on the companion's monitor is still the preferred capture SUBJECT within it (see
+        /// AiBrain.ChooseCaptureBounds, which clamps to this monitor and falls back to the whole monitor
+        /// when the window does not overlap it). The two decisions compose: which monitor is this, which
+        /// rect inside it is that.
+        ///
+        /// Snapping through the same selector rather than returning the input verbatim matters: the
+        /// companion's cached monitor rect can be stale after a resolution change or a display being
+        /// unplugged, and capturing a rect that is no longer a monitor reads black.
+        /// </summary>
+        public static Rectangle SelectCompanionMonitor(
+            Rectangle companionMonitorBounds,
+            IList<Rectangle> monitorBounds)
+        {
+            // Empty foreground bounds makes the selector target the fallback, which is what we want here.
+            return SelectCaptureMonitor(Rectangle.Empty, companionMonitorBounds, monitorBounds);
+        }
+
+        /// <summary>
         /// Select the single monitor whose content should accompany foreground-window context.
         /// The monitor with the largest foreground-window overlap wins; an off-screen window uses
         /// the nearest monitor, and missing foreground geometry falls back to the pet's monitor.
+        ///
+        /// Retained as the geometry primitive and still covered by its own assertions, but capture no
+        /// longer selects a monitor this way -- see <see cref="SelectCompanionMonitor"/> and BUG-003(b).
         /// </summary>
         public static Rectangle SelectCaptureMonitor(
             Rectangle foregroundWindowBounds,

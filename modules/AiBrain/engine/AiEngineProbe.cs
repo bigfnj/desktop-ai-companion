@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using DesktopAICompanion.Ai;
 using DesktopAICompanion.ModuleKit;   // AtomicFile / CrossSessionLock / UnicodeTextProgress
+using DesktopAICompanion.Modules;    // ABI ScreenContext / ScreenWindow / PixelRect
 
 namespace DesktopAICompanion.AiBrainModule
 {
@@ -65,6 +66,78 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "vision: an unreported model still matches on name",
                     AiModelPolicy.IsVisionCapable("llava:13b", null));
 
+                // --- BUG-002: a saved model id re-validated against what the backend actually has -----
+                // The bug was that this never happened: an id that was valid when chosen kept being sent
+                // after the model was removed, and the ask path returns null on failure, so the result was
+                // indistinguishable from a companion with nothing to say.
+                var installed = new System.Collections.Generic.List<ModelListing>
+                {
+                    new ModelListing("gemma3:4b", null),
+                    new ModelListing("qwen3.6:27b", true),
+                    new ModelListing("dolphin3:latest", false),
+                };
+
+                ModelChoice picked = AiModelPolicy.ChooseModel("gemma3:4b", installed, true);
+                ok &= Check(sb, "model: an installed vision model is used as configured",
+                    picked.Model == "gemma3:4b" && picked.Advisory == null && picked.Reason == "configured");
+
+                // The exact live failure: VisionModel=gemma4:12b with only gemma4:26b present.
+                ModelChoice missing = AiModelPolicy.ChooseModel("gemma4:12b", installed, true);
+                ok &= Check(sb, "model: an absent model is replaced by one that can do the job",
+                    missing.Model == "gemma3:4b" && missing.Reason == "substituted");
+                ok &= Check(sb, "model: the substitution names both models so the user can act",
+                    missing.Advisory != null &&
+                    missing.Advisory.IndexOf("gemma4:12b", StringComparison.Ordinal) >= 0 &&
+                    missing.Advisory.IndexOf("gemma3:4b", StringComparison.Ordinal) >= 0);
+
+                // Nothing can see: the advisory must be actionable and the model unusable, NOT a silent null.
+                var textOnly = new System.Collections.Generic.List<ModelListing>
+                {
+                    new ModelListing("dolphin3:latest", false),
+                };
+                ModelChoice none = AiModelPolicy.ChooseModel("gemma4:12b", textOnly, true);
+                ok &= Check(sb, "model: no vision-capable model leaves the choice unusable",
+                    !none.Usable && none.Reason == "none-usable");
+                ok &= Check(sb, "model: an unusable choice still tells the user where to go",
+                    none.Advisory != null &&
+                    none.Advisory.IndexOf("settings", StringComparison.OrdinalIgnoreCase) >= 0);
+
+                // A text ask may use the text-only model the vision ask rejected.
+                ok &= Check(sb, "model: a text ask accepts a text-only model",
+                    AiModelPolicy.ChooseModel("dolphin3:latest", textOnly, false).Model == "dolphin3:latest");
+
+                // The critical non-nag case. An empty or absent list means the backend is offline or cannot
+                // enumerate -- NOT that the model is missing -- so it must pass through unchanged and
+                // silently, or every offline start would accuse a perfectly good configuration.
+                ModelChoice unknown = AiModelPolicy.ChooseModel("gemma3:4b", null, true);
+                ok &= Check(sb, "model: an unknown inventory uses the configured model without complaint",
+                    unknown.Model == "gemma3:4b" && unknown.Advisory == null &&
+                    unknown.Reason == "model-list-unknown");
+                ok &= Check(sb, "model: an empty inventory is also treated as unknown",
+                    AiModelPolicy.ChooseModel("gemma3:4b", new System.Collections.Generic.List<ModelListing>(), true)
+                        .Advisory == null);
+
+                // A model that IS installed but cannot do the job must not be used just because it matched.
+                ok &= Check(sb, "model: an installed text-only model is not used for a vision ask",
+                    AiModelPolicy.ChooseModel("dolphin3:latest", installed, true).Reason == "substituted");
+
+                // Ollama omits ":latest" in a setting but reports it in the list; treating that as absent
+                // would report a missing model that is installed.
+                ok &= Check(sb, "model: a tagless id matches the backend's :latest",
+                    AiModelPolicy.ModelIdMatches("dolphin3", "dolphin3:latest"));
+                ok &= Check(sb, "model: a :latest id matches a tagless listing",
+                    AiModelPolicy.ModelIdMatches("dolphin3:latest", "dolphin3"));
+                ok &= Check(sb, "model: matching is case-insensitive",
+                    AiModelPolicy.ModelIdMatches("Gemma3:4B", "gemma3:4b"));
+                ok &= Check(sb, "model: a different tag is a different model",
+                    !AiModelPolicy.ModelIdMatches("gemma4:12b", "gemma4:26b"));
+                ok &= Check(sb, "model: a prefix is not a match",
+                    !AiModelPolicy.ModelIdMatches("gemma", "gemma3:4b"));
+
+                // BUG-002 item 4: the marker list is the fallback for backends that report nothing.
+                ok &= Check(sb, "vision: gemma4 is recognised by name",
+                    AiModelPolicy.IsVisionCapable("gemma4:26b", null));
+
                 // --- capture subject: the foreground window, or the monitor when that is a bad subject ---
                 // Pure, so the cases that matter are asserted here rather than by arranging real windows.
                 var mon = new System.Drawing.Rectangle(0, 0, 2560, 1440);
@@ -85,6 +158,122 @@ namespace DesktopAICompanion.AiBrainModule
                 // rather than capturing a 40px strip.
                 ok &= Check(sb, "capture: a barely-visible window falls back to the monitor",
                     AiBrain.ChooseCaptureBounds(new DesktopAICompanion.Modules.PixelRect(2520, 100, 1200, 800), mon) == mon);
+                // BUG-003(b) composition. Capture now follows the COMPANION's monitor, so a foreground
+                // window on a different display must not drag the subject there -- it clamps to nothing
+                // and the companion's own monitor wins. This is the pair that makes the two decisions
+                // ("which monitor" then "which rect inside it") safe to compose.
+                ok &= Check(sb, "capture: a foreground window on another monitor cannot pull the subject off this one",
+                    AiBrain.ChooseCaptureBounds(new DesktopAICompanion.Modules.PixelRect(3000, 100, 1200, 800), mon) == mon);
+
+                // --- what else is open, and on WHICH screen (BUG-003(b) consistency) -----------------
+                // Untested until now. The phrase is "Also open on this screen", so it has to mean the
+                // screen being captured; keying it off the foreground window's monitor made it describe
+                // one display next to a picture of another.
+                var thisMon = new DesktopAICompanion.Modules.PixelRect(0, 0, 2560, 1440);
+                var otherMon = new DesktopAICompanion.Modules.PixelRect(2560, 0, 1920, 1080);
+                Func<DesktopAICompanion.Modules.PixelRect, string, bool, int, ScreenWindow> mk =
+                    delegate(DesktopAICompanion.Modules.PixelRect r, string proc, bool fore, int z)
+                    {
+                        return new ScreenWindow
+                        {
+                            Title = "SECRET-TITLE",
+                            ProcessName = proc,
+                            Bounds = r,
+                            MonitorIndex = 0,
+                            IsForeground = fore,
+                            ZOrder = z,
+                        };
+                    };
+                var ctxOne = new ScreenContext
+                {
+                    MonitorBounds = thisMon,
+                    Windows = new System.Collections.Generic.List<ScreenWindow>
+                    {
+                        mk(new DesktopAICompanion.Modules.PixelRect(0, 0, 1200, 800), "code", true, 0),
+                        mk(new DesktopAICompanion.Modules.PixelRect(200, 200, 900, 700), "outlook", false, 1),
+                        mk(new DesktopAICompanion.Modules.PixelRect(2600, 50, 800, 600), "msedge", false, 2),
+                    },
+                };
+                string described = AiBrain.DescribeOtherWindows(ctxOne);
+                ok &= Check(sb, "windows: a window sharing the captured monitor is named",
+                    described.IndexOf("outlook", StringComparison.Ordinal) >= 0);
+                ok &= Check(sb, "windows: a window on a DIFFERENT monitor is not named",
+                    described.IndexOf("msedge", StringComparison.Ordinal) < 0);
+                ok &= Check(sb, "windows: the foreground window is not listed as an 'also'",
+                    described.IndexOf("code", StringComparison.Ordinal) < 0);
+                // The privacy constraint, asserted rather than trusted: titles carry document names,
+                // customer names and subject lines, and this string goes into a prompt.
+                ok &= Check(sb, "windows: a window TITLE never reaches the prompt",
+                    described.IndexOf("SECRET-TITLE", StringComparison.Ordinal) < 0);
+
+                // Same windows, captured monitor moved to the other display: the answer must invert.
+                var ctxTwo = new ScreenContext
+                {
+                    MonitorBounds = otherMon,
+                    Windows = ctxOne.Windows,
+                };
+                string describedTwo = AiBrain.DescribeOtherWindows(ctxTwo);
+                ok &= Check(sb, "windows: moving the captured monitor moves which windows are named",
+                    describedTwo.IndexOf("msedge", StringComparison.Ordinal) >= 0 &&
+                    describedTwo.IndexOf("outlook", StringComparison.Ordinal) < 0);
+
+                // A duplicate process must not be listed twice.
+                var ctxDup = new ScreenContext
+                {
+                    MonitorBounds = thisMon,
+                    Windows = new System.Collections.Generic.List<ScreenWindow>
+                    {
+                        mk(new DesktopAICompanion.Modules.PixelRect(0, 0, 100, 100), "code", true, 0),
+                        mk(new DesktopAICompanion.Modules.PixelRect(10, 10, 900, 700), "msedge", false, 1),
+                        mk(new DesktopAICompanion.Modules.PixelRect(20, 20, 900, 700), "msedge", false, 2),
+                    },
+                };
+                string dup = AiBrain.DescribeOtherWindows(ctxDup);
+                int firstEdge = dup.IndexOf("msedge", StringComparison.Ordinal);
+                ok &= Check(sb, "windows: a repeated process name is listed once",
+                    firstEdge >= 0 &&
+                    dup.IndexOf("msedge", firstEdge + 1, StringComparison.Ordinal) < 0);
+
+                // No monitor rect at all (a host that could not resolve one): describe everything rather
+                // than silently dropping the whole list.
+                var ctxNoMon = new ScreenContext
+                {
+                    MonitorBounds = default(DesktopAICompanion.Modules.PixelRect),
+                    Windows = ctxOne.Windows,
+                };
+                ok &= Check(sb, "windows: an unknown captured monitor does not blank the list",
+                    AiBrain.DescribeOtherWindows(ctxNoMon).IndexOf("outlook", StringComparison.Ordinal) >= 0);
+
+                // --- BUG-003(a): the capture-content check that made the report falsifiable --------
+                // The reported symptom was "the capture shows only the wallpaper", and nothing recorded
+                // what the capture contained, so it could not be confirmed or dismissed. Measured
+                // 2026-09-10: the GDI screen-DC path reads DWM-composited windows (Edge WebView,
+                // WhatsApp, VS Code) perfectly on this machine, and PrintWindow is the path that returns
+                // blank surfaces -- so the suspected "GDI cannot see composited content" cause is ruled
+                // out and no capture-API rewrite is warranted. This statistic is what remains: it tells a
+                // blank capture apart from a model that simply had nothing to say.
+                using (var flat = new System.Drawing.Bitmap(64, 64))
+                {
+                    using (var g = System.Drawing.Graphics.FromImage(flat))
+                        g.Clear(System.Drawing.Color.FromArgb(30, 30, 30));
+                    ok &= Check(sb, "capture: a blank surface reads as fully uniform",
+                        AiBrain.UniformityPercent(flat) == 100);
+                }
+                using (var busy = new System.Drawing.Bitmap(64, 64))
+                {
+                    for (int yy = 0; yy < busy.Height; yy++)
+                        for (int xx = 0; xx < busy.Width; xx++)
+                            busy.SetPixel(xx, yy, System.Drawing.Color.FromArgb(
+                                (xx * 4) % 256, (yy * 4) % 256, ((xx + yy) * 3) % 256));
+                    ok &= Check(sb, "capture: a varied surface does not read as uniform",
+                        AiBrain.UniformityPercent(busy) < 50);
+                }
+                ok &= Check(sb, "capture: uniformity of nothing is zero, not a crash",
+                    AiBrain.UniformityPercent(null) == 0);
+
+                ok &= Check(sb, "windows: no windows produces no line",
+                    AiBrain.DescribeOtherWindows(new ScreenContext { MonitorBounds = thisMon,
+                        Windows = new System.Collections.Generic.List<ScreenWindow>() }) == "");
 
                 // --- the persona must not be sanitised behind the user's back ---
                 // Six of the 26 dispositions ask for profanity or insults. A model that self-censors to
