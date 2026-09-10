@@ -80,9 +80,10 @@ namespace DesktopAICompanion.Ai
 
         /// <summary>
         /// Build the system prompt fresh each call so it reflects the current persona (name, user,
-        /// personality — backlog 5.5) and the time of day (5.2).
+        /// personality — backlog 5.5) and the time of day (5.2). Internal rather than private so a
+        /// probe can assert on the real prompt text instead of on a copy of it that can drift.
         /// </summary>
-        private string BuildSystemPrompt()
+        internal string BuildSystemPrompt()
         {
             string name        = string.IsNullOrWhiteSpace(_settings.CompanionName) ? "a tiny desktop companion" : _settings.CompanionName.Trim();
             string disposition = Dispositions.InstructionForId(_settings.Disposition);
@@ -108,6 +109,15 @@ namespace DesktopAICompanion.Ai
                 "Keep it to one or two sentences, about 20 words each (40 words at most) — for a roast or " +
                 "insult-comic disposition, a short setup followed by the knockdown lands well; otherwise one " +
                 "sentence is often enough. Do not use quotation marks in the remark. " +
+                // Stated once, here, so it reaches every disposition. It used to live only inside the
+                // Jules Winnfield instruction text, which meant the Jeff Ross roast and the Drill
+                // Sergeant -- both of which ask for real profanity -- never told the model how to write
+                // it, and a model that self-censors to "f***" was satisfying its own training rather
+                // than the persona the user chose. Measured: nemotron-3-nano did exactly that, mixing a
+                // plain curse and an asterisked one in the same remark. Picking a foul-mouthed character
+                // and getting asterisks is not the character.
+                "If your character swears, write the word out in full — never censor it with asterisks, " +
+                "symbols, abbreviations or euphemisms. " +
                 "Never say that you are an AI or a language model. " +
                 "Reply ONLY with compact JSON of the form " +
                 "{\"text\":\"<your remark>\",\"emotion\":\"<one of: happy, sad, thinking, excited, confused, neutral>\"}.";

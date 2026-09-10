@@ -147,27 +147,37 @@ carrying audio and tool-calling this module never invokes, which is what the ext
 
 | model | size | avg | Ted Lasso | Jeselnik | Jules Winnfield | verdict |
 |---|---:|---:|:---:|:---:|:---:|---|
-| **`gemma3:4b`** | **3.3 GB** | **406 ms** | ✅ | ✅ | ✅ | **recommended** |
-| `dolphin3` | 4.9 GB | 341 ms | ✅ | ✅ | ✅ | good alternative, fastest |
-| `dolphin-mistral` | 4.1 GB | 552 ms | ✅ | ✅ | ✅ | fine, wordier |
-| `nemotron-3-nano:4b` | 2.8 GB | 1,272 ms | ✅ | ~ | ✅ | 3x slower, weaker voice |
-| `llama2-uncensored` | 3.8 GB | 630 ms | ~ | ~ | ❌ | **not recommended** |
+| **`gemma3:4b`** | **3.3 GB** | **~430 ms** | ✅ | ✅ | ✅ | **recommended** |
+| `dolphin3` | 4.9 GB | ~450 ms | ✅ | ✅ | ✅ | good alternative |
+| `dolphin-mistral` | 4.1 GB | ~740 ms | ✅ | ✅ | ✅ | fine, wordier |
+| `nemotron-3-nano:4b` | 2.8 GB | ~1,450 ms | ~ | ~ | ✅ | 3x slower, flaky |
+| `llama2-uncensored` | 3.8 GB | ~330 ms | ❌ | ❌ | ✅ | **not recommended** |
 
 Six of the 26 dispositions (Jeselnik, Jeff Ross, Jules Winnfield, Drill Sergeant, Beavis & Butthead,
-Walter) ask for material a safety-tuned model may decline, so the three columns are a gradient:
-Ted Lasso is a benign control, Jeselnik applies mild pressure, and Jules Winnfield is the hard case —
-its instruction explicitly requires real curse words "spelled out in full, never censored with
-asterisks or symbols", which makes compliance a clean pass or fail rather than a judgement call.
+Walter) ask for material a safety-tuned model may decline, so the columns are a gradient: Ted Lasso is
+a benign control, Jeselnik applies mild pressure, and Jules Winnfield is the hard case — its
+instruction requires real curse words spelled out in full, which makes compliance a clean pass or fail
+rather than a judgement call.
 
-**The result worth knowing: "uncensored" in a model's name predicts nothing.** The aligned control
-matched or beat every uncensored model, and `llama2-uncensored` — the one whose name promises exactly
-this capability — was the only outright failure, in two independent runs. It dropped the persona
-entirely and answered "The screen is displaying a code editor." It is a 2023-era Llama 2 fine-tune and
-it shows: it also leaked the JSON envelope into its own remark text and reads as an assistant rather
-than a character.
+**The prompt mattered more than the model.** In the first round only 3 of 5 models produced uncensored
+profanity for Jules Winnfield: one sanitised it away entirely and one wrote `F*** THIS SHIT` alongside
+an uncensored word in the same breath. The no-censoring instruction now lives in the shared system
+prompt rather than inside one disposition's text, and **all 5 then complied**. If a foul-mouthed
+character is coming out clean, suspect the prompt before blaming the model.
 
-So the module's `LooksUncensored` name-marker check (`dolphin`, `uncensored`, `abliterated`,
-`unfiltered`) should be read as what it claims to be — an advisory label, never a capability test.
+**And "uncensored" in a model's name predicts nothing.** The safety-tuned control matched or beat every
+uncensored model. `llama2-uncensored` — the one whose name promises exactly this — is the weakest of
+the five: it reads as an assistant rather than a character ("Hey there! It's great to be here."), it
+leaked the JSON envelope into its own remark text, and it refused the Jeselnik persona outright on one
+run. It is a 2023-era Llama 2 fine-tune and it shows. Treat the module's `LooksUncensored` marker list
+(`dolphin`, `uncensored`, `abliterated`, `unfiltered`) as the advisory label it says it is, never a
+capability test.
+
+> **On profanity:** there is deliberately no profanity switch for the AI. Choosing a disposition *is*
+> the acceptance — you pick Jules Winnfield from a list that says who he is. A second toggle would mean
+> selecting a foul-mouthed character and getting a sanitised one with no explanation, which is the same
+> failure as a model self-censoring. (Fortunes does have a filter, because its content arrives unchosen
+> from 158 packs; a persona is chosen by name.)
 
 **One model does both jobs.** `gemma3:4b` is the recommendation for the vision model *and* the text
 model, which replaces an 11.4 GB pair (`llama2-uncensored` 3.8 GB + `gemma4:12b` 7.6 GB) with a single

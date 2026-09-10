@@ -71,6 +71,34 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "capture: a barely-visible window falls back to the monitor",
                     AiBrain.ChooseCaptureBounds(new DesktopAICompanion.Modules.PixelRect(2520, 100, 1200, 800), mon) == mon);
 
+                // --- the persona must not be sanitised behind the user's back ---
+                // Six of the 26 dispositions ask for profanity or insults. A model that self-censors to
+                // f*** is serving its own training rather than the character the user picked, so the
+                // prompt tells it not to -- and it says so ONCE, globally, because the rule previously
+                // lived only inside the Jules Winnfield text and never reached Jeff Ross or the Drill
+                // Sergeant. Asserted against a real AiBrain instance, so this fails if the sentence is
+                // ever dropped or reworded past recognition. Measured effect: it took Jules Winnfield
+                // compliance from 3 of 5 local models to 5 of 5.
+                try
+                {
+                    var promptSettings = new AiSettings();
+                    promptSettings.Disposition = "samuel";
+                    using (ICompanionBrainBackend probeBackend = new OllamaClient(normLocal, TimeSpan.FromSeconds(5), ""))
+                    using (var promptBrain = new AiBrain(probeBackend, promptSettings))
+                    {
+                        string prompt = promptBrain.BuildSystemPrompt();
+                        ok &= Check(sb, "persona: the prompt forbids censoring a swear word",
+                            prompt.IndexOf("never censor it with asterisks", StringComparison.OrdinalIgnoreCase) >= 0);
+                        ok &= Check(sb, "persona: the chosen disposition reaches the prompt",
+                            prompt.IndexOf("Jules Winnfield", StringComparison.Ordinal) >= 0);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ok = false;
+                    sb.AppendLine("FAIL: system-prompt assertions threw: " + ex.GetType().Name + ": " + ex.Message);
+                }
+
                 // --- reply parsing: the JSON envelope must never be spoken ---
                 // Fixtures are the literal shapes the two installed vision models emitted when A/B
                 // tested, fence and all. Before the extractor these went down the plain-text fallback

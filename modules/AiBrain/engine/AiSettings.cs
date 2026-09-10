@@ -142,6 +142,17 @@ namespace DesktopAICompanion.Ai
         /// Drop any fortune flagged for recognized profanity or explicit sexual content, at every
         /// level (a conservative hard filter).
         /// </summary>
+        // DEAD as far as the AI module is concerned: declared and persisted, but read by nothing in
+        // modules/AiBrain. It is a Fortunes concept that ended up on this settings class. Left in place
+        // rather than deleted because removing a persisted field changes the on-disk schema.
+        //
+        // It must STAY dead for the AI path, and the reason is a design decision rather than an
+        // oversight: **the consent is the disposition.** Nobody flips a profanity switch -- they pick
+        // Jules Winnfield, or Jeff Ross, or the Drill Sergeant, from a list that says exactly who those
+        // characters are. That choice IS the acceptance. Gating it behind a second toggle would mean a
+        // user selects a foul-mouthed character, gets a sanitised one, and has no idea why; and it is
+        // the same mistake in reverse as a model self-censoring to "f***". Fortunes needs a filter
+        // because its content arrives unchosen from 158 packs; a persona is chosen by name.
         public bool NoProfanity = false;
 
         /// <summary>
