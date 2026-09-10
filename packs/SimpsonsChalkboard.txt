@@ -1,0 +1,365 @@
+SimpsonsChalkboard	work-money	quip	general	0	"Bagman" is not a legitimate career choice.
+SimpsonsChalkboard	life	tv-quote	general	0	"Bart Bucks" are not legal tender.
+SimpsonsChalkboard	life	quip	general	0	"Bewitched" does not promote Satanism.
+SimpsonsChalkboard	society	quip	general	0	"Caucus" is not a dirty word.
+SimpsonsChalkboard	life	observation	general	0	"Daylight Savings" is not a failed bank.
+SimpsonsChalkboard	life	quip	general	0	"March Madness" is not an excuse for missing school.
+SimpsonsChalkboard	life	tv-quote	general	0	"Temptation Island" was not a sleazy piece of crap.
+SimpsonsChalkboard	society	observation	general	0	"The President did it" is not an excuse.
+SimpsonsChalkboard	life	quip	general	0	"butt.com" is not my e-mail address.
+SimpsonsChalkboard	life	dark	general	0	20 more shoplifting days till Christmas.
+SimpsonsChalkboard	society	quip	general	0	25 years and they can't come up with a new punishment.
+SimpsonsChalkboard	arts	observation	general	0	A Charlie Brown Thanksgiving is as good as A Charlie Brown Christmas.
+SimpsonsChalkboard	life	quip	general	0	A belch is not an oral report.
+SimpsonsChalkboard	life	quip	general	0	A booger is not a bookmark.
+SimpsonsChalkboard	life	quip	general	0	A burp in a jar is not a science project.
+SimpsonsChalkboard	life	quip	general	0	A burp is not an answer.
+SimpsonsChalkboard	life	quip	general	0	A fire drill does not demand a fire.
+SimpsonsChalkboard	life	quip	general	0	A person's a person, no matter how Ralph.
+SimpsonsChalkboard	life	quip	general	0	A trained ape could not teach gym.
+SimpsonsChalkboard	life	observation	general	0	Adding "just kidding" doesn't make it okay to insult the principal.
+SimpsonsChalkboard	life	tv-quote	general	0	All work and no play makes Bart a dull boy.
+SimpsonsChalkboard	work-money	aphorism	general	0	All work and no play makes Jack a dull boy.
+SimpsonsChalkboard	society	quip	general	0	April showers do not bring Matt Lauers.
+SimpsonsChalkboard	life	quip	general	0	April showers do not date the President.
+SimpsonsChalkboard	life	tv-quote	general	0	Bart is at a Doctor's appointment
+SimpsonsChalkboard	life	tv-quote	general	0	Bart's earned a day off.
+SimpsonsChalkboard	life	quip	general	0	Batman is not 'nothing' without his utility belt.
+SimpsonsChalkboard	food	observation	general	0	Beans are neither fruit nor musical.
+SimpsonsChalkboard	food	observation	general	0	Beer in a milk carton is not milk.
+SimpsonsChalkboard	life	quip	general	0	Being right sucks.
+SimpsonsChalkboard	life	quip	general	0	Cafeteria trays are not toboggans.
+SimpsonsChalkboard	family	aphorism	general	0	Call your mother during the commercials.
+SimpsonsChalkboard	life	tv-quote	general	0	Candy canes are not elf bones.
+SimpsonsChalkboard	life	quip	general	0	Chalkboarding is not torture.
+SimpsonsChalkboard	food	observation	general	0	Chili fries do not go in like a lamb and out like a lion
+SimpsonsChalkboard	work-money	quip	general	0	Class clown is not a paid position.
+SimpsonsChalkboard	food	quip	general	0	Coffee is not for kids.
+SimpsonsChalkboard	life	observation	general	0	Cursive writing does not mean what I think it does.
+SimpsonsChalkboard	work-money	observation	general	0	Dad swears he'll get his taxes in soon.
+SimpsonsChalkboard	life	quip	general	0	Daylight savings isn't something I can spend
+SimpsonsChalkboard	family	quip	general	0	Dirty clothes are not a Mother's day gift.
+SimpsonsChalkboard	life	observation	general	0	Dodgeball stops at the gym door.
+SimpsonsChalkboard	life	quip	general	0	Does any kid still do this anymore?
+SimpsonsChalkboard	family	quip	general	0	Eating my vegetables is not a Mother's Day present.
+SimpsonsChalkboard	arts	quip	general	0	End of "Lost": It was all the dog's dream. Watch us.
+SimpsonsChalkboard	life	quip	general	0	Everyone is tired of that Richard Gere story.
+SimpsonsChalkboard	life	dark	general	0	Fire is not the cleanser.
+SimpsonsChalkboard	life	quip	general	0	Fish do not like coffee.
+SimpsonsChalkboard	society	dark	general	0	Five days is not too long to wait for a gun.
+SimpsonsChalkboard	nature	quip	general	0	Four leaf clovers are not mutant freaks.
+SimpsonsChalkboard	life	quip	general	0	Frankincense is not a monster.
+SimpsonsChalkboard	work-money	quip	general	0	Fridays are not "pants optional".
+SimpsonsChalkboard	life	quip	general	0	Fun does not have a size.
+SimpsonsChalkboard	life	quip	general	0	Funny noises are not funny.
+SimpsonsChalkboard	life	quip	general	0	Garlic gum is not funny.
+SimpsonsChalkboard	life	quip	general	0	Genetics is not an excuse.
+SimpsonsChalkboard	life	quip	general	0	Global warming did not eat my homework.
+SimpsonsChalkboard	nature	observation	general	0	Goldfish don't bounce.
+SimpsonsChalkboard	life	quip	general	0	Grammar is not a time of waste.
+SimpsonsChalkboard	life	observation	general	0	Guinea pigs should not be used as "Guinea Pigs".
+SimpsonsChalkboard	tech	quip	general	0	HDTV is worth every cent.
+SimpsonsChalkboard	life	quip	edgy	1	Halloween does not kick Thanksgiving's ass.
+SimpsonsChalkboard	life	quip	general	0	Have a great summer, everyone.
+SimpsonsChalkboard	love	quip	general	0	Hershey Kisses do not drop from Cupid's butt.
+SimpsonsChalkboard	life	quip	general	0	High explosives and school don't mix.
+SimpsonsChalkboard	society	observation	general	0	Hillbillies are people too.
+SimpsonsChalkboard	work-money	quip	general	0	Hooligan is not a profession.
+SimpsonsChalkboard	life	tv-quote	general	0	Hot dogs are not bookmarks.
+SimpsonsChalkboard	life	quip	general	0	How did the boy get me to do this?
+SimpsonsChalkboard	life	quip	general	0	I am not Charlie Brown on acid.
+SimpsonsChalkboard	life	quip	general	0	I am not a 32 year old woman
+SimpsonsChalkboard	life	quip	general	0	I am not a dentist.
+SimpsonsChalkboard	life	quip	general	0	I am not a grandmother
+SimpsonsChalkboard	life	quip	general	0	I am not a lean mean spitting machine.
+SimpsonsChalkboard	life	quip	general	0	I am not a licensed hairstylist.
+SimpsonsChalkboard	life	quip	general	0	I am not allergic to long division.
+SimpsonsChalkboard	life	quip	general	0	I am not an FDIC-insured bank.
+SimpsonsChalkboard	life	quip	general	0	I am not authorized to fire substitute teachers.
+SimpsonsChalkboard	life	quip	general	0	I am not certified to remove asbestos.
+SimpsonsChalkboard	life	quip	general	0	I am not delightfully saucy.
+SimpsonsChalkboard	life	quip	general	0	I am not here on a fartball scholarship.
+SimpsonsChalkboard	life	quip	general	0	I am not licensed to do anything.
+SimpsonsChalkboard	life	quip	general	0	I am not my long-lost twin.
+SimpsonsChalkboard	society	quip	general	0	I am not smarter than the president.
+SimpsonsChalkboard	society	quip	general	0	I am not the acting president.
+SimpsonsChalkboard	life	quip	general	0	I am not the last Don.
+SimpsonsChalkboard	faith	quip	general	0	I am not the new Dalai Lama.
+SimpsonsChalkboard	life	quip	general	0	I am not the reincarnation of Sammy Davis Jr.
+SimpsonsChalkboard	life	quip	general	0	I can't see dead people.
+SimpsonsChalkboard	faith	quip	general	0	I cannot absolve sins.
+SimpsonsChalkboard	life	tv-quote	general	0	I cannot hire a substitute student.
+SimpsonsChalkboard	life	quip	general	0	I did not invent Irish dancing.
+SimpsonsChalkboard	life	quip	general	0	I did not learn everything I need to know from kindergarten.
+SimpsonsChalkboard	life	quip	general	0	I did not learn everything I need to know in kindergarten.
+SimpsonsChalkboard	life	quip	general	0	I did not see Elvis.
+SimpsonsChalkboard	life	quip	general	0	I did not see my teacher siphoning gas.
+SimpsonsChalkboard	work-money	quip	general	0	I did not see teacher applying for welfare.
+SimpsonsChalkboard	life	quip	general	0	I did not win the Nobel Fart Prize.
+SimpsonsChalkboard	life	quip	general	0	I did nothing wrong this week.
+SimpsonsChalkboard	family	quip	general	0	I do not deserve a Mother's Day gift for being "one badass mother".
+SimpsonsChalkboard	life	quip	general	0	I do not have a cereal named after me.
+SimpsonsChalkboard	society	quip	general	0	I do not have diplomatic immunity.
+SimpsonsChalkboard	life	quip	general	0	I do not have power of attorney over first graders.
+SimpsonsChalkboard	life	quip	general	0	I do not have the hots for my mom.
+SimpsonsChalkboard	life	quip	general	0	I have neither been there nor done that.
+SimpsonsChalkboard	life	quip	general	0	I must not write all over the walls.
+SimpsonsChalkboard	life	quip	general	0	I must not write on mountain
+SimpsonsChalkboard	arts	quip	general	0	I no longer want my MTV.
+SimpsonsChalkboard	life	quip	general	0	I saw nothing unusual in the teacher's lounge.
+SimpsonsChalkboard	life	quip	general	0	I should not be twenty-one by now.
+SimpsonsChalkboard	society	pun	general	0	I want to secede but don't know which state I'm in.
+SimpsonsChalkboard	life	tv-quote	general	0	I was not the inspiration for "Kramer."
+SimpsonsChalkboard	life	quip	general	0	I was not the sixth Beatle.
+SimpsonsChalkboard	faith	quip	general	0	I was not touched "there" by an angel.
+SimpsonsChalkboard	life	quip	general	0	I was told not to do this.
+SimpsonsChalkboard	life	quip	general	0	I wasn't nominated for "Best Spoken Swear Word".
+SimpsonsChalkboard	life	quip	general	0	I will finish what I sta
+SimpsonsChalkboard	life	tv-quote	general	0	I will never lie about being cancelled again.
+SimpsonsChalkboard	life	quip	general	0	I will never win an Emmy.
+SimpsonsChalkboard	life	quip	general	0	I will not
+SimpsonsChalkboard	life	quip	general	0	I will not "let the dogs out".
+SimpsonsChalkboard	life	quip	general	0	I will not Xerox my butt.
+SimpsonsChalkboard	life	quip	general	0	I will not aim for the head.
+SimpsonsChalkboard	life	quip	general	0	I will not ask my guidance counselor why he couldn't get a better job.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not barf unless I'm sick.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not belch the national anthem.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not bet with Bart on the Final Four.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not bite the hand that feeds me Butterfingers. (reference to his Butterfinger commercials and how, after a blatant jab two episodes earlier, the ads had been canceled)
+SimpsonsChalkboard	life	tv-quote	general	0	I will not bring sheep to class.
+SimpsonsChalkboard	life	quip	general	0	I will not burp in class.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not bury the new kid.
+SimpsonsChalkboard	society	quip	general	0	I will not buy a presidential pardon.
+SimpsonsChalkboard	life	quip	general	0	I will not call my teacher "Hot Cakes".
+SimpsonsChalkboard	life	quip	general	0	I will not call my teacher 'Prancer' and 'Vixen'.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not call the principal "spud head".
+SimpsonsChalkboard	life	tv-quote	general	0	I will not carve gods.
+SimpsonsChalkboard	life	quip	general	0	I will not celebrate meaningless milestones.
+SimpsonsChalkboard	life	quip	general	0	I will not charge admission to the bathroom.
+SimpsonsChalkboard	life	quip	general	0	I will not complain about the solution when I hear it.
+SimpsonsChalkboard	society	tv-quote	general	0	I will not concede the election till Karl Rove gives me permission.
+SimpsonsChalkboard	life	quip	general	0	I will not conduct my own fire drills.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not create art from dung.
+SimpsonsChalkboard	life	quip	general	0	I will not cut corners.
+SimpsonsChalkboard	life	quip	general	0	I will not dance on anyone's grave.
+SimpsonsChalkboard	life	quip	general	0	I will not defame New Orleans.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not demand what I'm worth.
+SimpsonsChalkboard	life	quip	general	0	I will not dissect things unless instructed.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not do "the dirty bird."
+SimpsonsChalkboard	life	quip	general	0	I will not do anything bad ever again.
+SimpsonsChalkboard	life	quip	general	0	I will not do that thing with my tongue.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not draw naked ladies in class.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not drive the principal's car.
+SimpsonsChalkboard	life	quip	general	0	I will not eat things for money.
+SimpsonsChalkboard	life	quip	general	0	I will not encourage others to fly.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not fake rabies.
+SimpsonsChalkboard	life	quip	general	0	I will not fake seizures.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not fight the future.
+SimpsonsChalkboard	life	quip	general	0	I will not file frivolous lawsuits.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not flip the classroom upside down.
+SimpsonsChalkboard	life	quip	general	0	I will not flush evidence.
+SimpsonsChalkboard	life	quip	general	0	I will not get very far with this attitude.
+SimpsonsChalkboard	life	quip	general	0	I will not go near the kindergarten turtle.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not grease the monkey bars.
+SimpsonsChalkboard	life	quip	general	0	I will not hang donuts on my person.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not have fun with educational toys.
+SimpsonsChalkboard	life	quip	general	0	I will not hide behind the Fifth Amendment.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not hide the teacher's Prozac.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not hide the teacher's medication.
+SimpsonsChalkboard	life	quip	general	0	I will not illegally download this movie.
+SimpsonsChalkboard	society	quip	general	0	I will not instigate revolution.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not laminate dog doo.
+SimpsonsChalkboard	life	quip	general	0	I will not leak the plot of the movie.
+SimpsonsChalkboard	work-money	quip	general	0	I will not look up what teacher makes.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not make flatulent noises in class.
+SimpsonsChalkboard	life	quip	general	0	I will not make fun of Cupid's dink.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not mess with the opening credits.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not mock Mrs. Dumbface.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not mock teacher's outdated cell phone.
+SimpsonsChalkboard	life	quip	general	0	I will not obey the voices in my head.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not order pregnant rats
+SimpsonsChalkboard	life	quip	general	0	I will not pay my sister to do my punishment.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not plant subliminAL messaGOREs.
+SimpsonsChalkboard	life	quip	general	0	I will not pledge allegiance to Bart.
+SimpsonsChalkboard	life	quip	general	0	I will not prescribe medication.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not publish the principal's credit report.
+SimpsonsChalkboard	life	quip	general	0	I will not put hot sauce in the CPR dummy.
+SimpsonsChalkboard	life	quip	general	0	I will not re-transmit without the express permission of Major League Baseball.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not replace a candy heart with a frog's heart.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not ridicule teacher's Final Four bracket.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not say "Springfield" just to get applause.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not scare the vice president.
+SimpsonsChalkboard	life	quip	general	0	I will not scream for ice cream.
+SimpsonsChalkboard	life	quip	general	0	I will not sell land in Florida.
+SimpsonsChalkboard	life	quip	general	0	I will not sell miracle cures.
+SimpsonsChalkboard	life	quip	general	0	I will not sell my kidney on eBay.
+SimpsonsChalkboard	life	quip	general	0	I will not sell school property.
+SimpsonsChalkboard	life	quip	general	0	I will not sell school property.Same as Bart Gets Hit by a Car
+SimpsonsChalkboard	life	quip	general	0	I will not send lard through the mail.
+SimpsonsChalkboard	life	quip	general	0	I will not shirk my responsibilities.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not show off.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not skateboard in the halls.
+SimpsonsChalkboard	life	quip	general	0	I will not sleep through my education.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not snap bras.
+SimpsonsChalkboard	life	quip	general	0	I will not spank others.
+SimpsonsChalkboard	life	observation	general	0	I will not speculate on how hot my teacher used to be.
+SimpsonsChalkboard	life	quip	general	0	I will not spin the turtle.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not squeak chalk.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not strut around like I own the place.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not surprise the incontinent.
+SimpsonsChalkboard	life	quip	general	0	I will not teach others to fly.
+SimpsonsChalkboard	life	quip	general	0	I will not tease Fatty.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not torment the emotionally frail.
+SimpsonsChalkboard	life	quip	general	0	I will not trade pants with others.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not tweet as the principal's toilet.
+SimpsonsChalkboard	life	quip	general	0	I will not use abbrev.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not use permanent ink on the chalkboard.
+SimpsonsChalkboard	arts	quip	general	0	I will not wait 20 years to make another movie.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not waste chalk.
+SimpsonsChalkboard	life	quip	general	0	I will not wear white after Labor Day.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not whittle hall passes out of soap.
+SimpsonsChalkboard	work-money	tv-quote	general	0	I will not write "audit please" on Homer's tax return.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not yell "Fire" in a crowded classroom.
+SimpsonsChalkboard	life	tv-quote	general	0	I will not yell "She's dead" during roll call.
+SimpsonsChalkboard	arts	quip	general	0	I will obey Oscar campaign rules from now on.
+SimpsonsChalkboard	life	quip	general	0	I will only do this once a year.
+SimpsonsChalkboard	life	tv-quote	general	0	I will only provide a urine sample when asked.
+SimpsonsChalkboard	health-body	quip	general	0	I will remember to take my medication.
+SimpsonsChalkboard	life	quip	general	0	I will return the seeing-eye dog.
+SimpsonsChalkboard	life	quip	general	0	I will stop asking when Santa goes to the bathroom.
+SimpsonsChalkboard	life	tv-quote	general	0	I will stop losing 50% of my NFL lead-in.
+SimpsonsChalkboard	life	quip	general	0	I will stop phoning it in.
+SimpsonsChalkboard	arts	quip	general	0	I will stop talking about the twelve inch pianist.
+SimpsonsChalkboard	life	quip	general	0	I will watch all 600 episodes without sleeping.
+SimpsonsChalkboard	life	quip	general	0	I won't not use no double negatives.
+SimpsonsChalkboard	life	quip	general	0	I'm not here on a Spitball scholar.
+SimpsonsChalkboard	life	quip	general	0	I'm so very tired.
+SimpsonsChalkboard	life	quip	general	0	I'm sorry I broke the blackboard.
+SimpsonsChalkboard	faith	aphorism	general	0	Idle hands are the Devil's tools
+SimpsonsChalkboard	life	quip	general	0	If Villanova doesn't win we lose everything.
+SimpsonsChalkboard	life	quip	general	0	If we're so good at predicting, how come my dad bet on Atlanta?
+SimpsonsChalkboard	family	observation	general	0	If you haven't broken your Christmas presents yet, you're not trying.
+SimpsonsChalkboard	society	quip	general	0	Indian burns are not our cultural heritage.
+SimpsonsChalkboard	life	quip	general	0	It does not suck to be you.
+SimpsonsChalkboard	life	quip	general	0	It's 'Facebook', not 'Assbook'.
+SimpsonsChalkboard	life	tv-quote	general	0	It's November 6th -- How come we're not airing a Halloween show?
+SimpsonsChalkboard	society	quip	general	0	It's not too early to speculate about the 2016 election.
+SimpsonsChalkboard	life	quip	general	0	It's potato, not potatoe.
+SimpsonsChalkboard	society	quip	general	0	It's unfair to judge a president on his first 300 days.
+SimpsonsChalkboard	life	tv-quote	general	0	January is not Bart History Month.
+SimpsonsChalkboard	life	quip	general	0	Je ne parle pas français.
+SimpsonsChalkboard	life	quip	general	0	Je ne suis pas français
+SimpsonsChalkboard	faith	observation	general	0	Jesus is not mad his birthday is on Christmas.
+SimpsonsChalkboard	faith	quip	general	0	Jesus' last words were not 'TGIF'.
+SimpsonsChalkboard	arts	fact	general	0	Judas Priest is not 'death metal'.
+SimpsonsChalkboard	life	quip	general	0	Loose teeth don't need my help.
+SimpsonsChalkboard	life	tv-quote	general	0	Making Milhouse cry is not a science project.
+SimpsonsChalkboard	life	tv-quote	general	0	Milhouse did not test cootie positive.
+SimpsonsChalkboard	life	tv-quote	general	0	Milhouse does not live below the puberty line.
+SimpsonsChalkboard	food	quip	general	0	Mud is not one of the 4 food groups.
+SimpsonsChalkboard	life	quip	general	0	My butt does not deserve a website.
+SimpsonsChalkboard	family	observation	general	0	My dad's already drunk for St. Patrick's.
+SimpsonsChalkboard	life	observation	general	0	My homework was not stolen by a one-armed man.
+SimpsonsChalkboard	family	tv-quote	general	0	My mom is not dating Jerry Seinfeld.
+SimpsonsChalkboard	life	quip	general	0	My name is not "Dr. Death".
+SimpsonsChalkboard	life	quip	general	0	My new year's resolution was to quit school
+SimpsonsChalkboard	life	quip	general	0	My pen is not a booger launcher.
+SimpsonsChalkboard	work-money	quip	general	0	My piggy bank is not entitled to TARP funds.
+SimpsonsChalkboard	life	quip	general	0	My pre-Christmas behavior really helps the coal industry
+SimpsonsChalkboard	life	quip	general	0	My school schedule does not include a bye week.
+SimpsonsChalkboard	life	quip	general	0	My suspension was not "mutual".
+SimpsonsChalkboard	life	quip	general	0	Nerve gas is not a toy.
+SimpsonsChalkboard	arts	quip	general	0	Network TV is not dead.
+SimpsonsChalkboard	life	tv-quote	general	0	Never lose a bet to Bart Simpson.
+SimpsonsChalkboard	life	dark	general	0	Next time it could be me on the scaffolding.
+SimpsonsChalkboard	society	quip	general	0	No one cares what my definition of "is" is.
+SimpsonsChalkboard	life	quip	general	0	No one is interested in my underpants.
+SimpsonsChalkboard	life	observation	general	0	No one wants to hear about my sciatica.
+SimpsonsChalkboard	life	quip	general	0	No one wants to hear from my armpits.
+SimpsonsChalkboard	life	quip	general	0	Nobody likes sun burn slappers.
+SimpsonsChalkboard	life	quip	general	0	Nobody reads these anymore.
+SimpsonsChalkboard	life	quip	general	0	Non-flammable is not a challenge.
+SimpsonsChalkboard	life	quip	general	0	Organ transplants are best left to the professionals.
+SimpsonsChalkboard	life	quip	general	0	Over forty & single is not funny.
+SimpsonsChalkboard	life	wisdom	general	0	Pain is not the cleanser.
+SimpsonsChalkboard	nature	quip	general	0	Pearls are not oyster barf.
+SimpsonsChalkboard	arts	quip	general	0	Pixel art is not real art.
+SimpsonsChalkboard	life	quip	general	0	Poking a dead raccoon is not research.
+SimpsonsChalkboard	life	quip	general	0	Pork is not a verb.
+SimpsonsChalkboard	arts	fact	general	0	Prince is not the son of Martin Luther King.
+SimpsonsChalkboard	work-money	aphorism	general	0	Prosperity is just around the corner.
+SimpsonsChalkboard	life	quip	general	0	Ralph won't "morph" if you squeeze him hard enough.
+SimpsonsChalkboard	food	fact	general	0	Reindeer meat does not taste like chicken.
+SimpsonsChalkboard	life	quip	general	0	Rocktober is not followed by Blowvember.
+SimpsonsChalkboard	life	quip	general	0	Rudolph's red nose is not alcohol-related.
+SimpsonsChalkboard	food	observation	general	0	Sandwiches should not contain sand.
+SimpsonsChalkboard	life	quip	general	0	School online
+SimpsonsChalkboard	life	quip	general	0	Science class should not end in tragedy.
+SimpsonsChalkboard	life	tv-quote	general	0	Sherri does not "got back".
+SimpsonsChalkboard	arts	quip	general	0	Shooting paintballs is not an art form.
+SimpsonsChalkboard	life	quip	general	0	Silly string is not a nasal spray.
+SimpsonsChalkboard	life	quip	general	0	Snow angels are not frozen hobos.
+SimpsonsChalkboard	life	quip	nsfw	1	Snowmen don't have carrot penises.
+SimpsonsChalkboard	life	quip	general	0	South Park, we'd stand beside you if we weren't so scared.
+SimpsonsChalkboard	society	quip	general	0	Spitwads are not free speech.
+SimpsonsChalkboard	family	dark	general	0	Spoiler Alert: Unfortunately, my dad doesn't die.
+SimpsonsChalkboard	life	quip	general	0	SpongeBob is not a contraceptive.
+SimpsonsChalkboard	family	dark	general	0	Strangling is not an effective parenting tool.
+SimpsonsChalkboard	life	quip	general	0	Studying is not 'appropriating nerd culture'.
+SimpsonsChalkboard	work-money	quip	general	0	Substitute teachers are not scabs.
+SimpsonsChalkboard	life	quip	general	0	Tar is not a plaything.
+SimpsonsChalkboard	life	quip	general	0	Teacher did not pay too much for her condo.
+SimpsonsChalkboard	life	observation	general	0	Teacher is not a leper.
+SimpsonsChalkboard	work-money	observation	general	0	Teacher spent new year's eve at home by choice
+SimpsonsChalkboard	life	quip	general	0	Teacher was not dumped - it was mutual.
+SimpsonsChalkboard	life	quip	general	0	Teacher's diet is working.
+SimpsonsChalkboard	society	tv-quote	general	0	Teachers' unions are not ruining this country.
+SimpsonsChalkboard	arts	quip	general	0	Thank you for 28 great years...Taylor Swift.
+SimpsonsChalkboard	life	quip	general	0	The Christmas Pageant does not stink.
+SimpsonsChalkboard	society	quip	general	0	The First Amendment does not cover burping.
+SimpsonsChalkboard	life	quip	general	0	The Giving Tree is not a chump.
+SimpsonsChalkboard	life	quip	general	0	The Good Humor man can only be pushed so far.
+SimpsonsChalkboard	society	quip	general	0	The Pilgrims were not illegal aliens.
+SimpsonsChalkboard	life	quip	general	0	The Pledge of Allegiance does not end with "Hail Satan".
+SimpsonsChalkboard	society	quip	general	0	The Wall Street Journal is better than ever.
+SimpsonsChalkboard	life	quip	general	0	The art teacher is fat, not pregnant.
+SimpsonsChalkboard	life	tv-quote	general	0	The boys' room is not a water park.
+SimpsonsChalkboard	life	quip	general	0	The cafeteria deep fryer is not a toy.
+SimpsonsChalkboard	life	fact	general	0	The capital of Montana is not "Hannah".
+SimpsonsChalkboard	life	dark	general	0	The class hamster isn't just sleeping.
+SimpsonsChalkboard	family	quip	general	0	The fat man who works one night a year is my dad
+SimpsonsChalkboard	life	quip	general	0	The first episode of the second 600.
+SimpsonsChalkboard	life	dark	general	0	The hamster did not have a "full life".
+SimpsonsChalkboard	life	quip	general	0	The nurse is not dealing.
+SimpsonsChalkboard	life	tv-quote	general	0	The principal's toupée is not a frisbee.
+SimpsonsChalkboard	life	quip	general	0	The teacher did not get fat during the holidays.
+SimpsonsChalkboard	life	quip	general	0	The true location of Springfield is in any state but yours.
+SimpsonsChalkboard	life	quip	general	0	The truth is not out there.
+SimpsonsChalkboard	life	tv-quote	general	0	The world may end in 2012, but this show won't.
+SimpsonsChalkboard	arts	quip	general	0	There are plenty of businesses like show business.
+SimpsonsChalkboard	life	quip	general	0	There is no such month as Rocktober.
+SimpsonsChalkboard	tech	quip	general	0	There is no such thing as an iPoddy.
+SimpsonsChalkboard	society	joke	general	0	There was no Roman god named "Fartacus".
+SimpsonsChalkboard	life	observation	general	0	There's no proven link between raisins and boogers.
+SimpsonsChalkboard	life	quip	general	0	They are laughing at me, not with me.
+SimpsonsChalkboard	health-body	quip	general	0	This arm needs Tommy John surgery.
+SimpsonsChalkboard	life	quip	general	0	This counts as gym and art class.
+SimpsonsChalkboard	life	quip	general	0	This is not a clue... or is it?
+SimpsonsChalkboard	life	quip	general	0	This is the last episode.
+SimpsonsChalkboard	life	quip	general	0	This punishment is not boring and pointless.
+SimpsonsChalkboard	life	quip	general	0	This punishment is not medieval.
+SimpsonsChalkboard	society	tv-quote	general	0	This school does not need a "regime change".(reference to the then-upcoming War In Iraq)
+SimpsonsChalkboard	life	tv-quote	general	0	This school is not falling apart.
+SimpsonsChalkboard	life	quip	general	0	Tintin did not suck suck.
+SimpsonsChalkboard	life	quip	general	0	Today is not Mothra's Day.
+SimpsonsChalkboard	life	quip	general	0	Underwear should be worn on the inside.
+SimpsonsChalkboard	life	quip	general	0	Vampire is not a career choice.
+SimpsonsChalkboard	life	quip	general	0	We are not all naked under our clothes.
+SimpsonsChalkboard	life	quip	general	0	We do need no education.
+SimpsonsChalkboard	life	observation	general	0	We do not live in our own pee.
+SimpsonsChalkboard	life	quip	general	0	We'll really miss you, Mrs. K.
+SimpsonsChalkboard	life	observation	general	0	We're the only house where the Christmas tree is still up.
+SimpsonsChalkboard	life	quip	general	0	Wedgies are unhealthy for children and other living things.
+SimpsonsChalkboard	life	quip	general	0	When I slept in class, it was not to help Leo DiCaprio.
+SimpsonsChalkboard	society	quip	general	0	World War II could not beat up World War I.
+SimpsonsChalkboard	life	observation	general	0	You can't play April Fools jokes on April 27th.

@@ -9732,3 +9732,21 @@ showerthoughts	life	quip	general	0	you know that your game of monopoly starts to
 showerthoughts	society	observation	general	0	'Respect your elders' makes no sense. I don't care if you're 5, 15 or 50, everyone deserves respect until they continue to act in ways that doesn't command it. Then, respect has to be earned back.
 showerthoughts	tech	observation	general	0	"I don't watch TV" proudly says a person who spends 8 hours a day on the internet
 showerthoughts	life	observation	general	0	"I'll be speaking with my lawyer" is the adult version of saying "I'm telling mom".
+showerthoughts	love	quip	general	0	A bachelor party is more appropriate after a divorce than before a wedding.
+showerthoughts	life	observation	general	0	A cell phone doesn’t seem that heavy till you drop it on your face while laying down.
+showerthoughts	work-money	observation	general	0	I don’t necessarily work ‘better under pressure’, I just literally will not work until I am under the extreme pressure of time constraints created by my own unnecessary procrastination.
+showerthoughts	life	observation	general	0	I wish I had a Mario Kart-like ghost of myself punctually getting ready for work in the morning so I’d know if I was running late.
+showerthoughts	nature	observation	general	0	If fish keep declining, future generations will think “plenty of fish in the sea” is a sarcastic quip meaning they will never find anyone.
+showerthoughts	science	observation	edgy	1	If we ever end up settling on a planet with low gravity, boobs will stay perkier much longer.
+showerthoughts	life	quip	general	0	If you’re no longer covered by your parent’s health insurance, your manufacturer’s warranty is over.
+showerthoughts	life	observation	general	0	It’s socially acceptable to talk about how reliant and addicted you are to a drug as long as that drug is caffeine.
+showerthoughts	nature	observation	general	0	Let's take a moment to appreciate that mother nature not only pre-sliced but also pre-wrapped oranges.
+showerthoughts	nature	observation	general	0	My dog understand several human words. I don’t understand any dog barks. He may be smarter than me.
+showerthoughts	life	dark	general	0	Never in my entire life have I been naked for 24 hours straight...
+showerthoughts	tech	observation	general	0	Since smart watches can now read your pulse, there should be a feature that erases your browser history if your heart stops beating.
+showerthoughts	life	observation	general	0	Sleeping in is considered lazy, but going to bed early is not.
+showerthoughts	nature	observation	general	0	The best thing about dogs is you can act like something really good just happened and they’ll instantly start celebrating. They have no idea what the context is, they're just always ready to party.
+showerthoughts	life	quip	general	0	What if every country has ninjas, but we only know about the Japanese ones because they’re rubbish?
+showerthoughts	life	observation	general	0	When people don’t sit next to me on public transit I feel both slightly relieved and slightly rejected.
+showerthoughts	science	observation	general	0	every cell in my body knows how to replicate DNA yet I'm not in on it so I have to spend hours studying it
+showerthoughts	tech	observation	general	0	“I don’t watch TV” proudly says a person who spends 8 hours a day on the internet

@@ -277,6 +277,7 @@ lwall-quotes	life	quip	general	0	That's a valid argument. I just don't think it'
 lwall-quotes	life	quip	general	0	That's what Sleepy Brain says. But Coffee Brain despises Sleepy Brain. :-)
 lwall-quotes	life	tv-quote	general	0	That's...sick... I love it. *Please* don't tell Damian.
 lwall-quotes	society	observation	general	0	The Golden Gate wasn't our fault either, but we still put a bridge across it.
+lwall-quotes	science	quip	edgy	1	The Harvard Law states: Under controlled conditions of light, temperature, humidity, and nutrition, the organism will do as it damn well pleases.
 lwall-quotes	tech	quip	general	0	The autodecrement is not magical.
 lwall-quotes	tech	wisdom	general	0	The choice of approaches could be made the responsibility of the programmer.
 lwall-quotes	tech	quip	general	0	The code also assumes that it's difficult to misspell "a" or "b". :-)

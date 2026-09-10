@@ -1,14 +1,20 @@
 hackers	tech	wisdom	general	0	"Engelbart did not think of the computer as merely improving human thinking, but as transforming the processes of our institutions in a more profound way..." ~ Janet H. Murray, "Inventing the Medium"
+hackers	tech	wisdom	general	0	"Engelbart did not think of the computer as merely improving human thinking, but as transforming the processes of our institutions in a more profound way…" ~ Janet H. Murray, "Inventing the Medium"
 hackers	tech	quip	general	0	"Engelbart has forever changed the way we do business in America." ~ Coors American Ingenuity Award, 1991
 hackers	tech	wisdom	general	0	"Engelbart's vision was [to] multiply the power of people and collaborators by creating systems that augment our intellect, humanity and creativity. His goal was to raise the human potential." ~ Samim Winiger & Roelof Pieters
+hackers	tech	wisdom	general	0	"Engelbart’s vision was [to] multiply the power of people and collaborators by creating systems that augment our intellect, humanity and creativity. His goal was to raise the human potential." ~ Samim Winiger & Roelof Pieters
 hackers	tech	wisdom	general	0	"How do you harness the collective intelligence of the world to solve urgent global problems? That's what Doug [Engelbart] was about." ~ Adam Cheyer
+hackers	tech	wisdom	general	0	"How do you harness the collective intelligence of the world to solve urgent global problems? That’s what Doug [Engelbart] was about." ~ Adam Cheyer
 hackers	tech	wisdom	general	0	"Human beings face ever more complex and urgent problems, and their effectiveness in dealing with these problems is a matter that is critical to the stability and continued progress of society." ~ Doug Engelbart, 1961
 hackers	tech	quip	general	0	"I don't know what Silicon Valley will do when it runs out of Doug [Engelbart]'s ideas." ~ Alan Kay
+hackers	tech	wisdom	general	0	"I don’t know what Silicon Valley will do when it runs out of Doug [Engelbart]’s ideas." ~ Alan Kay
 hackers	tech	wisdom	general	0	"If ease of use was the only requirement, everybody would still be riding tricycles" ~ Doug Engelbart
 hackers	tech	aphorism	general	0	"In 20 or 30 years, you'll be able to hold in your hand as much computing knowledge as exists now in the whole city, or even the whole world." ~ Doug Engelbart
+hackers	tech	wisdom	general	0	"In 20 or 30 years, you’ll be able to hold in your hand as much computing knowledge as exists now in the whole city, or even the whole world." ~ Doug Engelbart
 hackers	society	wisdom	general	0	"Never doubt that a small group of thoughtful, committed people can change the world. Indeed, it is the only thing that ever has." ~ Margaret Mead (see Source)
 hackers	life	wisdom	general	0	"One never notices what has been done; one can only see what remains to be done." ~ Marie Curie
 hackers	life	wisdom	general	0	"Our age of anxiety is the result of trying to do today's jobs with yesterday's tools" ~ Marshall McLuhan
+hackers	work-money	aphorism	general	0	"Our age of anxiety is the result of trying to do today’s jobs with yesterday’s tools" ~ Marshall McLuhan
 hackers	tech	wisdom	general	0	"Payoff will come when we make better use of computers to bring communities of people together and to augment the very human skills that people bring to bear on difficult problems." ~ Doug Engelbart
 hackers	society	wisdom	general	0	"Perhaps the most basic challenge humanity faces is to awaken our capacity for collective knowing and conscious action so that we can respond successfully to the immense social and ecological difficulties that now confront us." ~ Duane Elgin, Author, Educator, Consultant
 hackers	tech	wisdom	general	0	"Technology should not aim to replace humans, rather amplify human capabilities." ~ Doug Engelbart
@@ -17,10 +23,13 @@ hackers	tech	wisdom	general	0	"The complexity of the problems facing mankind is 
 hackers	tech	wisdom	general	0	"The digital revolution is far more significant than the invention of writing or even of printing." ~ Doug Engelbart
 hackers	science	wisdom	general	0	"The great obstacle to discovering the shape of the earth, the continents and the ocean was not ignorance but the illusion of knowledge.." ~ Daniel J. Boorstin
 hackers	society	wisdom	general	0	"The key thing about all the world's big problems is that they have to be dealt with collectively. If we don't get collectively smarter, we're doomed." ~ Doug Engelbart, 2006
+hackers	society	wisdom	general	0	"The key thing about all the world’s big problems is that they have to be dealt with collectively. If we don’t get collectively smarter, we’re doomed." ~ Doug Engelbart, 2006
 hackers	tech	fact	general	0	"The mouse was just a tiny piece of a much larger project, aimed at augmenting human intellect." ~ Doug Engelbart, inventor of the mouse
 hackers	life	wisdom	general	0	"The rate at which a person can mature is directly proportional to the embarrassment he can tolerate" ~ Doug Engelbart
 hackers	work-money	wisdom	general	0	"There's a double pressure on the evolution of every organization: how you evolve to be more capable and effective, and efficient, but also how you stay in synch with the rest of the environment." ~ Doug Engelbart
+hackers	work-money	aphorism	general	0	"There’s a double pressure on the evolution of every organization: how you evolve to be more capable and effective, and efficient, but also how you stay in synch with the rest of the environment." ~ Doug Engelbart
 hackers	tech	uplifting	general	0	"To improve our collective ability to solve the world's problems, we must harness the immense promise and power of technology." ~ Doug Engelbart
+hackers	tech	wisdom	general	0	"To improve our collective ability to solve the world’s problems, we must harness the immense promise and power of technology." ~ Doug Engelbart
 hackers	life	uplifting	general	0	"To remain indifferent to the challenges we face is indefensible. If the goal is noble, whether or not it is realized within our lifetime is largely irrelevant. What we must do therefore is to strive and persevere and never give up." ~ Dalai Lama XIV
 hackers	life	wisdom	general	0	"We cannot solve our problems with the same thinking we used when we created them." ~ Albert Einstein
 hackers	society	wisdom	general	0	"We need to train people in an entirely new set of 21st Century skills, which are in fact the oldest skills: communication, collaboration, empathy, respect and how to overcome cultural boundaries." ~ Toomas Hendrick Ilves, the fourth President of Estonia
@@ -226,7 +235,9 @@ hackers	tech	quip	general	0	Open source is a development methodology; free softw
 hackers	tech	quip	general	0	Our mailing lists (and their repeater newsgroups) are only for the purpose of promoting proprietary software. ~ Richard Stallman
 hackers	tech	quip	general	0	Over the past several years, I've been more in a managerial role. ~ Dennis Ritchie
 hackers	society	aphorism	general	0	Paying isn't wrong, and being paid isn't wrong. Trampling other people's freedom and community is wrong, so the free software movement aims to put an end to it, at least in the area of software. ~ Richard Stallman
+hackers	tech	wisdom	general	0	Paying isn’t wrong, and being paid isn’t wrong. Trampling other people’s freedom and community is wrong, so the free software movement aims to put an end to it, at least in the area of software. ~ Richard Stallman
 hackers	society	aphorism	general	0	People get the government their behavior deserves. People deserve better than that. ~ Richard Stallman
+hackers	society	quip	edgy	1	People said I should accept the world. Bullshit! I don't accept the world. ~ Richard Stallman
 hackers	tech	quip	general	0	People sometimes ask me if it is a sin in the Church of Emacs to use vi. Using a free version of vi is not a sin; it is a penance. So happy hacking. ~ Richard Stallman
 hackers	tech	wisdom	general	0	People think that computer science is the art of geniuses but the actual reality is the opposite, just many people doing things that build on eachother, like a wall of mini stones. ~ Donald Knuth
 hackers	tech	wisdom	general	0	People who are more than casually interested in computers should have at least some idea of what the underlying hardware is like. Otherwise the programs they write will be pretty weird. ~ Donald Knuth
@@ -244,6 +255,7 @@ hackers	tech	wisdom	general	0	Programming is one of the most difficult branches 
 hackers	tech	wisdom	general	0	Programming language is very specific to instructing a computer to do a particular structure of a sequence. It's the very way you tell the machine what you want it to do. ~ Brian Kernighan
 hackers	tech	quip	general	0	Proprietary software is an injustice. ~ Richard Stallman
 hackers	tech	wisdom	general	0	Proprietary software tends to have malicious features. The point is with a proprietary program, when the users don't have the source code, we can never tell. So you must consider every proprietary program as potential malware. ~ Richard Stallman
+hackers	tech	quip	general	0	Proprietary software tends to have malicious features. The point is with a proprietary program, when the users dont have the source code, we can never tell. So you must consider every proprietary program as potential malware. ~ Richard Stallman
 hackers	society	observation	general	0	Quite a few people have to believe something is normal before it becomes normal - a sort of 'voting' situation. But once the threshold is reached, then everyone demands to do whatever it is. ~ Alan Kay
 hackers	tech	wisdom	general	0	Rather than bringing me closer to others, the time that I spend online isolates me from the most important people in my life, my family, my friends, my neighbourhood, my community. ~ Clifford Stoll
 hackers	tech	quip	general	0	Right now, computers, which are supposed to be our servant, are oppressing us. ~ Jef Raskin
@@ -261,6 +273,7 @@ hackers	society	wisdom	general	0	Societies need rules that make no sense for ind
 hackers	tech	wisdom	general	0	Software patents are dangerous to software developers because they impose monopolies on software ideas. ~ Richard Stallman
 hackers	tech	quip	general	0	Some people worry that artificial intelligence will make us feel inferior, but then, anybody in his right mind should have an inferiority complex every time he looks at a flower. ~ Alan Kay
 hackers	tech	wisdom	general	0	Somebody is saying this is inevitable - and whenever you hear somebody saying that, it's very likely to be a set of businesses campaigning to make it true. ~ Richard Stallman
+hackers	society	wisdom	general	0	Somebody is saying this is inevitable – and whenever you hear somebody saying that, it's very likely to be a set of businesses campaigning to make it true. ~ Richard Stallman
 hackers	tech	quip	general	0	Stanley Kubrick knew we had good graphics around MIT and came to my lab to find out how to do it. We had some really good stuff. I was very impressed with Kubrick; he knew all the graphics work I had ever heard of, and probably more. ~ Marvin Minsky
 hackers	tech	quip	general	0	Steve Jobs, the pioneer of the computer as a jail made cool, designed to sever fools from their freedom, has died. ~ Richard Stallman
 hackers	tech	observation	general	0	Steve was perfectly aware of the Dynabook. That was one of the reasons he wanted me to come to Apple. ~ Alan Kay
@@ -275,6 +288,7 @@ hackers	tech	quip	general	0	The GNU GPL was not designed to be "open source". ~ 
 hackers	tech	quip	general	0	The Internet is a telephone system that's gotten uppity. ~ Clifford Stoll
 hackers	tech	quip	general	0	The X server has to be the biggest program I've ever seen that doesn't do anything for you. ~ Ken Thompson
 hackers	tech	wisdom	general	0	The act of describing a program in unambiguous detail and the act of programming are one and the same.
+hackers	tech	wisdom	edgy	1	The art of programming is the art of organizing complexity, of mastering multitude and avoiding its bastard chaos as effectively as possible. ~ Edsger W. Dijkstra
 hackers	nature	quip	general	0	The average gardener probably knows little about what is going on in his or her garden. ~ Ken Thompson
 hackers	tech	wisdom	general	0	The basic idea in case-based, or CBR, is that the program has stored problems and solutions. Then, when a new problem comes up, the program tries to find a similar problem in its database by finding analogous aspects between the problems. ~ Marvin Minsky
 hackers	tech	wisdom	general	0	The best way to predict the future is to invent it. ~ Alan Kay
@@ -289,6 +303,7 @@ hackers	society	fact	general	0	The idea of copyright did not exist in ancient ti
 hackers	tech	wisdom	general	0	The idea of free software is that users of computing deserve freedom. They deserve in particular to have control over their computing. And proprietary software does not allow users to have control of their computing. ~ Richard Stallman
 hackers	society	wisdom	general	0	The idea that laws decide what is right or wrong is mistaken in general. Laws are, at their best, an attempt to achieve justice; to say that laws define justice or ethical conduct is turning things upside down. ~ Richard Stallman
 hackers	tech	quip	general	0	The interesting thing about cloud computing is that we've redefined cloud computing to include everything that we already do, ~ Richard Stallman
+hackers	tech	wisdom	general	0	The interesting thing about cloud computing is that we've redefined cloud computing to include everything that we already do. ~ Richard Stallman
 hackers	tech	wisdom	general	0	The key is to test the areas that you are most worried about going wrong. That way you get the most benefit for your testing effort. It is better to write and run incomplete tests than not to run complete tests ~ Martin Fowler
 hackers	tech	observation	general	0	The kind of programming that C provides will probably remain similar absolutely or slowly decline in usage, but relatively, JavaScript or its variants, or XML, will continue to become more central. ~ Dennis Ritchie
 hackers	tech	quip	general	0	The manuals we got from IBM would show examples of programs and I knew I could do a heck of a lot better than that. So I thought I might have some talent. ~ Donald Knuth

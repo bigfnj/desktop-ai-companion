@@ -33,6 +33,7 @@ Jenny_Holzer	life	dark	general	0	IT'S NO FUN WATCHING PEOPLE WOUND THEMSELVES SO
 Jenny_Holzer	life	observation	general	0	Ideals are replaced by conventional goals at a certain age.
 Jenny_Holzer	society	quip	general	0	If you behaved nicely, the communists wouldn't exist.
 Jenny_Holzer	life	uplifting	general	0	In a dream you saw a way to survive and you were full of joy.
+Jenny_Holzer	life	wisdom	general	0	It is in your self-interest to find a way to be very tender.
 Jenny_Holzer	life	wisdom	general	0	Knowing yourself lets you understand others.
 Jenny_Holzer	life	dark	general	0	MORE THAN ONCE I'VE AWAKENED WITH TEARS RUNNING DOWN MY CHEEKS. I HAVE HAD TO THINK WHETHER I WAS CRYING OR WHETHER IT IS INVOLUNTARY, LIKE DROOLING.
 Jenny_Holzer	life	quip	general	0	OBVIOUSLY YOU STRIKE OUT AGAINST PEOPLE WITHIN RANGE. IT'S CATHARTIC TO AFFECT SOMEONE WHEN YOU'RE ANGRY. ALTERNATIVELY, CHOOSE ENEMIES IMPOSSIBLY FAR AWAY SO YOU NEVER HAVE TO FIGHT.

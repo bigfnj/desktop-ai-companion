@@ -530,6 +530,7 @@ authors	life	wisdom	general	0	He was appalled by the examination system, when it
 authors	life	observation	general	0	He was born to be alone, a damned cold intellectual, an egoist. Ursula K. Le Guin
 authors	life	dark	general	0	He was clearly aware of only one thing, his own total isolation. The world had fallen out from under him, and he was left alone. To die is to lose the self and rejoin the rest. He had kept himself, and lost the rest. Ursula K. Le Guin, The Dispossessed
 authors	science	wisdom	general	0	He was not interested in detached knowledge, science for science's sake: there was no use learning anything if it was of no use. Relevance was his touchstone. Ursula K. Le Guin, The Lathe of Heaven
+authors	life	dark	edgy	1	He was the sort of person who stood on mountaintops during thunderstorms in wet copper armour shouting 'All the Gods are bastards.'
 authors	life	observation	general	0	He was very weary; the day had been long, and full of dragons. Ursula K. Le Guin, The Farthest Shore
 authors	faith	wisdom	general	0	He whom God has touched will always be a being apart: he is, whatever he may do, a stranger among men; he is marked by a sign. ~ Ernest Renan
 authors	life	dark	general	0	He will die of it. That he will: what does a man die of but his death? Ursula K. Le Guin, The Left Hand of Darkness
@@ -1086,6 +1087,7 @@ authors	society	wisdom	general	0	Men do not learn much from the lessons of histo
 authors	society	wisdom	general	0	Men do not learn much from the lessons of history and that is the most important of all the lessons of history. ~ Aldous Huxley
 authors	life	wisdom	general	0	Men of age object too much, consult too long, adventure too little, repent too soon, and seldom drive business home to the full period, but content themselves with a mediocrity of success.
 authors	life	observation	general	0	Men want to make the best use of time and want to see how something can inform them and give them a stronger sense of power.
+authors	life	quip	nsfw	1	Mind you, the Elizabethans had so many words for the female genitals that it is quite hard to speak a sentence of modern English without inadvertently mentioning at least three of them.
 authors	life	verse	general	0	Minne oppaani ystvllisyydessn minut johdattavat, / Min seuraan, seuraan kevyesti / eik tomuun taaksemme / j ainuttakaan jalanjlke. Ursula K. Le Guin, The Telling
 authors	life	aphorism	general	0	Modesty is the conscience of the body. ~ Honore de Balzac
 authors	arts	observation	general	0	Money is an unavoidable consequence, but it isn't the reason I write; if it was, I wouldn't have written any of the YA books, because advances in that field are small compared to what I'd got now for an 'adult' DW.

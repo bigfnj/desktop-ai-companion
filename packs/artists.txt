@@ -211,6 +211,7 @@ artists	arts	wisdom	general	0	I decided that if I could paint that flower in a h
 artists	life	wisdom	general	0	I decided to start anew, to strip away what I had been taught.
 artists	arts	quip	general	0	I did not break up the Beatles. You can't have it both ways. If you're going to blame me for breaking the Beatles up, you should be thankful that I made them into myth rather than a crumbling group.
 artists	arts	quip	general	0	I didn't abandon everything at a moment's notice - on the contrary. I returned to France from America, leaving the 'Large Glass' unfinished.
+artists	arts	wisdom	edgy	1	I didn't finish college; my parents didn't graduate college - we didn't have a pot to piss in. I'm from Newark, New Jersey. I had to work. I didn't think it would be possible for me to be an artist without having a job.
 artists	work-money	quip	general	0	I didn't get paid for performances most of my life. If I did, I would be billionaire now, and I'm not.
 artists	arts	observation	general	0	I do not know how I shall develop, but for the present, I am continuing to work within ordinary, generally known terrain, different only because of a deep substratum, which leads those who are receptive to sense the finer regions.
 artists	arts	wisdom	general	0	I do not paint a portrait to look like the subject, rather does the person grow to look like his portrait.
@@ -351,6 +352,7 @@ artists	arts	wisdom	general	0	I think what I'm trying to do is create moments of
 artists	life	quip	general	0	I thought I was going to be a bum the rest of my life.
 artists	arts	quip	general	0	I thought art was a verb, rather than a noun.
 artists	life	observation	general	0	I travel a lot, so when I arrive in a city, I like to go to good local bookshops and make a selection based on how I'm feeling and what I'm thinking. The book I pick usually seems to have a definite karmic connection!
+artists	life	quip	edgy	1	I tried to drown my sorrows, but the bastards learned how to swim, and now I am overwhelmed by this decent and good feeling.
 artists	life	wisdom	general	0	I trust myself. You need that to survive.
 artists	arts	wisdom	general	0	I try to deal with the complexities of power and social life, but as far as the visual presentation goes I purposely avoid a high degree of difficulty.
 artists	arts	wisdom	general	0	I used language because I wanted to offer content that people - not necessarily art people - could understand.
@@ -694,6 +696,7 @@ artists	arts	quip	general	0	The entire world of art has reached such a low level
 artists	arts	observation	general	0	The epiphany for me was that I wasn't a writer, and I had to do something with these texts. I put them in the streets as posters.
 artists	arts	wisdom	general	0	The first man to compare the cheeks of a young woman to a rose was obviously a poet; the first to repeat it was possibly an idiot.
 artists	arts	wisdom	general	0	The first question I ask myself when something doesn't seem to be beautiful is why do I think it's not beautiful. And very shortly you discover that there is no reason.
+artists	health-body	fact	nsfw	1	The function of muscle is to pull and not to push, except in the case of the genitals and the tongue.
 artists	arts	wisdom	general	0	The function of the artist in a disturbed society is to give awareness of the universe, to ask the right questions, and to elevate the mind.
 artists	life	quip	general	0	The future is now.
 artists	science	observation	general	0	The genius of Einstein leads to Hiroshima.
