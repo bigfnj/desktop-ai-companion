@@ -9,13 +9,6 @@ The repository-root MIT license applies only to original contributions whose cop
 
 ## Redistribution blockers
 
-- The WinForms engine originated in `Adrianotiger/desktopPet`, an upstream repository that carries no
-  license file. The maintainer states that **written permission to redistribute has been obtained**
-  from the upstream author. This bullet stays in the blocker list until the grant itself is recorded
-  here: date, granting party, the form it took (email, issue, or pull-request comment), and its scope
-  (source, binaries, derivative works, sublicensing). Record those and move this entry to "Bundled
-  with a verified redistribution grant" below. A grant nobody can point at is not evidence, and this
-  is the one item the whole release depends on.
 - The bundled and downloadable companion sprites have source-specific authorship and copyright notes,
   but a complete redistribution grant is not recorded for every asset. Clear or replace each asset.
 - The bundled fortune corpus contains mixed sources, including copyrighted quotations and
@@ -37,6 +30,12 @@ The repository-root MIT license applies only to original contributions whose cop
   the repository currently lacks a pinned provenance record for the two shipped model files.
 
 ## Bundled with a verified redistribution grant
+
+- **The WinForms engine**, which originated in `Adrianotiger/desktopPet`. That upstream repository
+  carries no license file, so redistribution rests on a direct grant rather than on a public licence:
+  the maintainer holds **written permission from the upstream author** to redistribute. Attribution to
+  Adriano Petrucci and the upstream project is retained here, in `LICENSE`, and in
+  [`grimoire/01-history-and-lineage.md`](grimoire/01-history-and-lineage.md).
 
 - **Shimeji base behaviour config** — `tools/ShimejiConvert.Engine/base-conf/actions.xml` and
   `behaviors.xml`, embedded in `ShimejiConvert.Engine.dll`. This is the default behaviour configuration

@@ -143,14 +143,23 @@ foreach ($dir in (Get-ChildItem -LiteralPath $petsRoot -Directory | Sort-Object 
 
 # --- packs (per-source; collection metadata from packs\collections.json) -----
 $packsRoot = Join-Path $RepoRoot 'packs'
+$collectionsDoc = Get-Content -LiteralPath (Join-Path $packsRoot 'collections.json') -Raw -Encoding UTF8 |
+    ConvertFrom-Json
 $sourceCollection = @{}
-foreach ($c in
-    (Get-Content -LiteralPath (Join-Path $packsRoot 'collections.json') -Raw -Encoding UTF8 |
-        ConvertFrom-Json).collections) {
+foreach ($c in $collectionsDoc.collections) {
     foreach ($src in $c.sources) {
         $sourceCollection[[string]$src] = $c
     }
 }
+# One licence for the whole pack library, written to the catalog root instead of copied onto every
+# entry. Stamping it per pack meant 158 copies of one fact, and 158 places for it to drift.
+if (-not $collectionsDoc.PSObject.Properties['packLicense'] -or
+    [string]::IsNullOrWhiteSpace($collectionsDoc.packLicense)) {
+    throw ("packs\collections.json has no 'packLicense'. The catalog would then advertise no licence " +
+           "at all for any pack, which reads as an oversight rather than the deliberate NOASSERTION " +
+           "the notices file requires.")
+}
+$packLicense = [string]$collectionsDoc.packLicense
 # Curated display names (packs\pack-names.json). Pack ids are raw file stems ("lwall-quotes",
 # "rfc1925"), so the title-cased id is a poor label; fall back to it only for an unnamed pack.
 $packNames = @{}
@@ -177,7 +186,6 @@ foreach ($file in
         name       = if ($packNames.ContainsKey($id)) { $packNames[$id] } else { Get-PrettyName $id }
         group      = [string]$collection.name
         desc       = ''
-        license    = [string]$collection.license
         url        = "$rawBase/packs/$id.txt"
         sha256     = $asset.Sha256
         bytes      = $asset.Bytes
@@ -230,11 +238,12 @@ if (-not $appVersion) {
 
 # Force arrays so a single entry still serializes as a JSON array.
 $catalog = [ordered]@{
-    version = 1
-    app     = [ordered]@{ version = $appVersion; releases = "https://github.com/bigfnj/desktop-ai-companion/releases" }
-    companions = @($pets)
-    packs   = @($packs)
-    modules = @($modules)
+    version     = 1
+    app         = [ordered]@{ version = $appVersion; releases = "https://github.com/bigfnj/desktop-ai-companion/releases" }
+    packLicense = $packLicense
+    companions  = @($pets)
+    packs       = @($packs)
+    modules     = @($modules)
 }
 $json = $catalog | ConvertTo-Json -Depth 6
 [IO.File]::WriteAllText(

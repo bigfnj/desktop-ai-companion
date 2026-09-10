@@ -203,6 +203,14 @@ namespace DesktopAICompanion
             if (root == null || JsonRead.IntOrNull(root["version"]) != 1)
                 throw new InvalidDataException("Unsupported catalog version.");
 
+            // One licence for the whole pack library, declared once at the root. It used to be stamped
+            // onto all 158 pack entries: 158 copies of a single fact, because every pack carries the
+            // same terms. A pack may still declare its own, so a differently-licensed pack needs no
+            // schema change.
+            string defaultPackLicense = JsonRead.Str(root["packLicense"]).Trim();
+            if (defaultPackLicense.Length > 256)
+                throw new InvalidDataException("Catalog pack licence is invalid.");
+
             var pets = root["companions"] as JsonArray;
             var packs = root["packs"] as JsonArray;
             var modules = root["modules"] as JsonArray;
@@ -248,7 +256,9 @@ namespace DesktopAICompanion
                         Name = JsonRead.Str(token["name"]).Trim(),
                         Group = JsonRead.Str(token["group"]).Trim(),
                         Description = JsonRead.Str(token["desc"]).Trim(),
-                        License = JsonRead.Str(token["license"]).Trim(),
+                        License = token["license"] != null
+                            ? JsonRead.Str(token["license"]).Trim()
+                            : defaultPackLicense,
                         Url = JsonRead.Str(token["url"]).Trim(),
                         Sha256 = JsonRead.Str(token["sha256"]).Trim().ToLowerInvariant(),
                         Bytes = JsonRead.IntOrNull(token["bytes"]) ?? 0,
@@ -409,13 +419,20 @@ namespace DesktopAICompanion
             bool ok = true;
 
             string validJson =
-                "{ \"version\": 1, \"companions\": [ { \"id\": \"fox\", \"name\": \"Fox\", " +
+                "{ \"version\": 1, \"packLicense\": \"NOASSERTION\", " +
+                "\"companions\": [ { \"id\": \"fox\", \"name\": \"Fox\", " +
                 "\"author\": \"Michelle\", \"url\": \"" + PetUrlBase +
                 "fox/animations.xml\", \"sha256\": \"" + SampleSha + "\", \"bytes\": 33556 } ], " +
+                // Two packs on purpose: the first inherits the root licence, the second declares its
+                // own. Both paths ship, so both are parsed here rather than only the common one.
                 "\"packs\": [ { \"id\": \"tech\", \"name\": \"Tech\", \"desc\": \"quips\", " +
-                "\"license\": \"NOASSERTION\", \"url\": \"" + PackUrlBase +
+                "\"url\": \"" + PackUrlBase +
                 "tech.txt\", \"sha256\": \"" + SampleSha + "\", \"bytes\": 308767, " +
-                "\"count\": 620, \"dataSchema\": 2 } ], " +
+                "\"count\": 620, \"dataSchema\": 2 }, " +
+                "{ \"id\": \"perl\", \"name\": \"Perl\", \"desc\": \"quips\", " +
+                "\"license\": \"MIT\", \"url\": \"" + PackUrlBase +
+                "perl.txt\", \"sha256\": \"" + SampleSha + "\", \"bytes\": 1024, " +
+                "\"count\": 12, \"dataSchema\": 2 } ], " +
                 "\"modules\": [ { \"id\": \"fortunes\", \"name\": \"Fortunes\", " +
                 "\"desc\": \"Offline smart fortunes\", \"version\": \"1.2.1\", \"url\": \"" +
                 ModuleUrlBase + "fortunes.zip\", \"sha256\": \"" + SampleSha +
@@ -436,11 +453,20 @@ namespace DesktopAICompanion
             try
             {
                 RemoteCatalog catalog = Parse(validJson);
-                if (catalog.Pets.Count != 1 || catalog.Packs.Count != 1 || catalog.Modules.Count != 1 ||
+                if (catalog.Pets.Count != 1 || catalog.Packs.Count != 2 || catalog.Modules.Count != 1 ||
                     catalog.Modules[0].Permissions != (ModulePermissions.Speech | ModulePermissions.Storage))
                 {
                     ok = false;
                     report.AppendLine("CATALOG FAIL valid catalog produced wrong counts");
+                }
+                // A pack with no licence of its own inherits the root one; a pack that declares one
+                // keeps it. Both halves are asserted, because getting the fallback backwards would
+                // relicense the entire library from a single line of JSON without failing anything.
+                else if (catalog.Packs[0].License != "NOASSERTION" || catalog.Packs[1].License != "MIT")
+                {
+                    ok = false;
+                    report.AppendLine("CATALOG FAIL pack licence fallback wrong: got '" +
+                        catalog.Packs[0].License + "' and '" + catalog.Packs[1].License + "'");
                 }
             }
             catch (Exception ex)
