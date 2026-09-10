@@ -573,8 +573,9 @@ namespace DesktopAICompanion.AiBrainModule
 
         /// <summary>
         /// Builds one dropdown's Options: every listed model (or only vision-capable ones when
-        /// <paramref name="visionOnly"/> — real capability from the backend when it reported one, else the
-        /// <see cref="AiModelPolicy.LooksVisionCapable"/> heuristic), tagged/sorted so uncensored-leaning
+        /// <paramref name="visionOnly"/> — the UNION of what the backend reported and the
+        /// <see cref="AiModelPolicy.LooksVisionCapable"/> heuristic, because Ollama's /api/tags omits
+        /// "vision" for some models that have it), tagged/sorted so uncensored-leaning
         /// models (<see cref="AiModelPolicy.LooksUncensored"/> — an advisory for personas that need a model
         /// to actually comply, e.g. Samuel/Triumph; never a hard filter) come first, each labeled with its
         /// known size (see <see cref="FormatModelLabel"/>) when available. SAFETY INVARIANT: the
@@ -592,7 +593,25 @@ namespace DesktopAICompanion.AiBrainModule
                 foreach (ModelListing model in models)
                 {
                     if (model == null || string.IsNullOrEmpty(model.Id) || !seenIds.Add(model.Id)) continue;
-                    bool isVision = model.Vision ?? AiModelPolicy.LooksVisionCapable(model.Id);
+                    // UNION, not fallback. `??` only fires when the backend reported nothing, and
+                    // Ollama's /api/tags reports a capabilities array that is INCOMPLETE for the Gemma
+                    // family. Measured 2026-09-10 on one machine:
+                    //
+                    //   gemma3:4b              /api/show: completion,vision   /api/tags: completion
+                    //   gemma4:26b             /api/show: completion,vision,… /api/tags: completion,…
+                    //   mistral-small3.2:24b   /api/show: completion,vision,… /api/tags: vision,…
+                    //
+                    // So VisionFromCapabilities saw ["completion"], correctly returned false rather than
+                    // null, and `??` treated an incomplete report as authoritative -- which hid the
+                    // RECOMMENDED vision model from its own dropdown, while the "gemma3" name marker that
+                    // exists for precisely this case was never consulted.
+                    //
+                    // The asymmetry decides the direction: a false positive is visible and recoverable
+                    // (the user picks a model that cannot see, and changes it), while a false negative
+                    // hides a working model with no way to discover it exists. /api/show would be
+                    // authoritative but costs one request per model on every pane open; revisit if the
+                    // name markers ever go stale enough to matter.
+                    bool isVision = AiModelPolicy.IsVisionCapable(model.Id, model.Vision);
                     if (visionOnly && !isVision) continue;
                     (AiModelPolicy.LooksUncensored(model.Id) ? uncensoredLabels : otherLabels).Add(FormatModelLabel(model.Id, models));
                 }

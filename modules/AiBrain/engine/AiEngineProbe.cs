@@ -50,6 +50,21 @@ namespace DesktopAICompanion.AiBrainModule
                 string normModel;
                 ok &= Check(sb, "model policy normalizes a valid id", AiModelPolicy.TryNormalize("gemma3:4b", out normModel) && normModel == "gemma3:4b");
 
+                // --- vision capability: an INCOMPLETE backend report must not hide a working model ---
+                // The three cases are the real /api/tags vs /api/show disagreement measured on this
+                // machine. The first is the bug: tags said ["completion"] for gemma3:4b, so a
+                // report-wins fallback excluded the recommended vision model from its own dropdown.
+                ok &= Check(sb, "vision: a name-known model survives an incomplete report",
+                    AiModelPolicy.IsVisionCapable("gemma3:4b", false));
+                ok &= Check(sb, "vision: a reported vision model is offered",
+                    AiModelPolicy.IsVisionCapable("mistral-small3.2:24b", true));
+                ok &= Check(sb, "vision: a name-unknown model with no report is not offered",
+                    !AiModelPolicy.IsVisionCapable("llama2-uncensored:latest", null));
+                ok &= Check(sb, "vision: a text-only model reported as such stays out",
+                    !AiModelPolicy.IsVisionCapable("dolphin3:latest", false));
+                ok &= Check(sb, "vision: an unreported model still matches on name",
+                    AiModelPolicy.IsVisionCapable("llava:13b", null));
+
                 // --- capture subject: the foreground window, or the monitor when that is a bad subject ---
                 // Pure, so the cases that matter are asserted here rather than by arranging real windows.
                 var mon = new System.Drawing.Rectangle(0, 0, 2560, 1440);

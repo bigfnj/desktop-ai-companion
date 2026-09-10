@@ -1461,6 +1461,26 @@ namespace DesktopAICompanion.Ai
         /// <summary>Best-effort, name-based guess of whether a model accepts image input, so the
         /// options UI can advise when a text-only model is picked for the vision feature. Advisory
         /// only, never a hard gate. Empty -> true (no advisory).</summary>
+        /// <summary>
+        /// Whether to offer a model as vision-capable: the UNION of what the backend reported and the
+        /// name heuristic, never one overriding the other.
+        ///
+        /// A fallback (report first, heuristic only when the report is absent) looks more principled
+        /// and is wrong, because a report can be present AND incomplete. Ollama's /api/tags does
+        /// exactly that for the Gemma family: measured 2026-09-10, gemma3:4b and gemma4:26b both omit
+        /// "vision" there while /api/show lists it for the same models, and mistral-small3.2:24b
+        /// reports it correctly in both. Trusting the incomplete report hid the recommended vision
+        /// model from its own dropdown.
+        ///
+        /// The asymmetry decides the direction: a false positive is visible and recoverable, a false
+        /// negative hides a working model with no way to discover it.
+        /// </summary>
+        /// <param name="reportedVision">What the backend said: true, false, or null for "did not say".</param>
+        public static bool IsVisionCapable(string model, bool? reportedVision)
+        {
+            return (reportedVision ?? false) || LooksVisionCapable(model);
+        }
+
         public static bool LooksVisionCapable(string model)
         {
             if (string.IsNullOrWhiteSpace(model)) return true;
