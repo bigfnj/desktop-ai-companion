@@ -34,9 +34,34 @@ fix is to handle the `TaskbarCreated` registered window message and re-add the i
 which also covers an Explorer restart, a case this build does not handle either. Worth checking whether
 `ProcessIcon` subscribes to it at all before designing anything more elaborate.
 
-A second candidate, not exclusive with the first: the installer's `TerminateProcess` path kills a running
-instance without it calling `NIM_DELETE`, leaving a stale slot. That does not explain a **fresh** install
-with no prior instance, so `TaskbarCreated` is the stronger lead.
+**MECHANISM CONFIRMED 2026-09-10, and it is the terminate path.** The earlier note here discounted it
+on the grounds that a fresh install has no prior instance; that was wrong, because every observed install
+replaced a running one. Traced end to end:
+
+- `ProcessIcon` is held in a `using` block (`Program.cs:291`, `:460`), so its `Dispose` -- which does
+  `ni.Visible = false; ni.Dispose()`, i.e. `NIM_DELETE` -- runs only when `Application.Run` **returns
+  normally**.
+- The tray item "Remove all companions and Close" reaches it properly: `Exit_Click` calls
+  `Program.Mainthread.KillSheeps(true)`, and `KillSheeps` disposes the icon as its *first* action
+  (`StartUp.cs:1097`), before anything else can go wrong.
+- `util:CloseApplication` in the MSI is configured `CloseMessage="yes" TerminateProcess="1"`
+  (`installer/DesktopAICompanion.wxs:50-55`). If the graceful WM_CLOSE does not finish inside msiexec's
+  window, the process is **killed**, the `using` never unwinds, `NIM_DELETE` is never sent, and the shell
+  keeps a slot for a dead owner. The next instance's icon then has nowhere to land.
+
+So a clean exit removes the icon and a terminated one does not, which is exactly the observed
+"missing until I restart it".
+
+**Fix, and it is the maintainer's own suggestion:** have the installer invoke the app's orderly exit --
+the same path the tray item uses -- instead of relying on WM_CLOSE plus a force-kill. Do NOT simply drop
+`TerminateProcess`; that reintroduces the stalled-upgrade bug `AppLifetime` was written to fix.
+
+**Also do the second belt, because it fixes this for every cause and not just this one.**
+`TaskbarCreated` is **not handled anywhere in the codebase** (verified). Registering it and re-adding the
+icon makes the tray survive a stale slot however it arose: a force-kill, a crash, a Task Manager kill, or
+an Explorer restart -- that last one is a real second defect today. `AppLifetime`'s own comment argues for
+"two independent belts here, because the failure is a race about thread affinity"; the same reasoning
+applies to a race about shell state.
 
 **Where to look.** `src/dotNet/ProcessIcon.cs` (SetIcon and whether any window pumps `TaskbarCreated`),
 `src/dotNet/TrayPromotion.cs` (correct as-is, do not change it), and the launch custom action in
@@ -295,7 +320,8 @@ problem and did not.
 
 ### Still stale after this session
 
-- `BACKLOG.md:1480` describes "12 named collections" in the embedded `packs/collections.json`. It is 7 now.
+- ~~`BACKLOG.md` described "12 named collections" in the embedded `packs/collections.json`.~~ Fixed
+  2026-09-10.
 - The items in the docs-debt section below are unchanged apart from `Changelog.md`, which was deleted
   outright with the rest of the Jekyll site.
 
@@ -1773,7 +1799,7 @@ releasing is now `git tag vX.Y.Z` (see [`docs/RELEASE-CHECKLIST.md`](docs/RELEAS
    `--online-selftest` PASS). Diagnostics: `--catalog-selftest`, `--catalog-parse-file=<path>`, `--online-selftest`.
 6. ✅ **DONE (2026-08) — Granular per-source fortune packs (grouped tree).** The 12 monolithic packs
    were split by their column-1 source tag into **152 per-source packs** (`packs/<source>.txt`), grouped
-   by a new embedded `packs/collections.json` (12 named collections). Content is byte-identical to the
+   by a new embedded `packs/collections.json` (12 named collections, since regrouped to 7). Content is byte-identical to the
    originals (50,860 lines) and all 152 display names are curated. The embedded pack catalog was fully
    retired (`packs.json`, `TrustedPackCatalog`, and the per-pack rights gate) in favor of the runtime
    `catalog.json`; the Fortunes tab gained a grouped tri-state **download tree** (mirror of the Sources
