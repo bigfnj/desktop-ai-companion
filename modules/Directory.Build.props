@@ -1,0 +1,42 @@
+<Project>
+  <Import Project="$(MSBuildThisFileDirectory)..\ProductVersion.props"
+          Condition="Exists('$(MSBuildThisFileDirectory)..\ProductVersion.props')" />
+  <!--
+    Shared MSBuild properties for every project under modules/.
+
+    WHY THIS FILE EXISTS: modules/ sat outside src/, and src/Directory.Build.props was the repo's
+    ONLY one, so no module project inherited any of the shared settings. MSBuild walks UP from the
+    project directory to find Directory.Build.props, and modules/AiBrain/ never reaches src/. Each
+    module csproj had therefore been repeating (or quietly missing) what src/ sets once.
+
+    The leak this closes, found 2026-09-10 by auditing what actually ships. Every DLL inside the six
+    tracked modules-dist/*.zip carried a PE CodeView (RSDS) debug record naming the maintainer's
+    absolute build path:
+
+        D:\...\projects\desktop-ai-companion\modules\AiBrain\obj\Release\AiBrain.pdb
+
+    Those zips are served to every user from master via raw.githubusercontent, so that string was
+    published. No .pdb is shipped in the zip at all, the payload is the DLL, deps.json and the
+    WinRT/SDK assemblies, so the record pointed at a file no user could ever have, and existed
+    purely as machine metadata. src/DesktopAICompanion_Portable.csproj already sets DebugType=none
+    for Release for the app; this makes the modules match, which is why the app was never affected.
+
+    Deterministic + ContinuousIntegrationBuild alone do NOT fix it: ContinuousIntegrationBuild is
+    gated on $(CI) in src/Directory.Build.props, and the module zips are produced LOCALLY by
+    packaging/New-ModuleDistZip.ps1 where CI is unset. Suppressing the record is the fix that does
+    not depend on who runs the build.
+
+    Debug builds keep full symbols; only Release drops them, and only Release is ever published.
+  -->
+  <PropertyGroup>
+    <LangVersion>7.3</LangVersion>
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <!-- No PDB, and therefore no absolute path embedded in the assembly. -->
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+</Project>
