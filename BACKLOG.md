@@ -116,6 +116,45 @@ wait for the app to notice (schedule runs to ~22s)
 reflection seam still exists, so a future .NET rename fails loudly instead of silently disabling the
 fix.
 
+#### CONFIRMED IN THE WILD, and re-tuned in 1.1.2 (2026-09-10)
+
+The maintainer installed v1.1.1 fresh from GitHub with "Launch" ticked. **The fault reproduced, and
+for the first time the instrumentation caught it:**
+
+```
+12:26:58.642  tray icon set: ... shellHasIt=False        <- the initial add WAS dropped
+12:26:59.858  tray icon MISSING from the shell (check 1); re-adding
+12:27:02.863  tray icon MISSING from the shell (check 2); re-adding
+12:27:08.863  tray icon MISSING from the shell (check 3); re-adding
+12:27:20.862  tray icon MISSING from the shell (check 4); re-adding
+12:27:40.878  tray icon recovered after 4 repair attempt(s)
+```
+
+This settles the diagnosis by direct measurement rather than inference: `shellHasIt=False` on the very
+first add, four rejected re-adds, then recovery. The icon the user saw was put there by the repair.
+
+**Two defects the capture exposed, both fixed in 1.1.2:**
+
+1. **The refusal window is far longer than assumed, and recovery landed on the LAST attempt.** The
+   shell refused at 1.5s, 3s, 6s, 12s and 20s; the icon only returned on the check after that, about
+   42 seconds after start. The original five-step schedule ended at exactly that point, so a slightly
+   more stubborn shell would have exhausted it and left the user with no icon and a "giving up" line.
+   `MaximumAttempts` is now 9, running out to roughly 2.7 minutes. The cost on a healthy machine is
+   four extra `NIM_MODIFY` calls and no log output.
+
+2. **The re-add line misattributed its own cause.** All four repairs logged "tray icon re-added after
+   TaskbarCreated" when no shell restart had occurred -- the presence check had triggered them.
+   `ReassertIcon` now takes a reason and logs it (`presence check 1`, `TaskbarCreated`, ...). Worth
+   calling out rather than quietly fixing: a log line that misstates why it fired is the same defect
+   class as the `success=True` line that hid this bug for two sessions, and it was introduced by the
+   fix for that very bug.
+
+**What this does NOT establish.** The trigger is still unexplained. The launch method correlates
+(msiexec-launched starts are where it has been seen) but does not determine it -- an earlier
+msiexec-launched start accepted the icon first try. The fix is deliberately mechanism-agnostic: it
+verifies and repairs regardless of why the shell refused, which is why it worked here without the
+cause being known.
+
 #### The two 1.1.0 belts, kept -- but they are NOT what fixes this
 
 Written for the refuted terminate-path theory, and retained because each covers a real case this

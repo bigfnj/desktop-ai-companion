@@ -254,6 +254,18 @@ namespace DesktopAICompanion
         /// </summary>
         private void ReassertIcon()
         {
+            ReassertIcon("TaskbarCreated");
+        }
+
+        /// <summary>
+        /// <paramref name="reason"/> is logged verbatim, because the first real capture of this bug
+        /// (2026-09-10, v1.1.1 on a fresh install) produced four lines reading "re-added after
+        /// TaskbarCreated" when nothing of the sort had happened -- the presence check had triggered
+        /// them. A log line that misattributes its own cause is the exact defect this whole fix exists
+        /// to remove, so it is not repeated here.
+        /// </summary>
+        private void ReassertIcon(string reason)
+        {
             NotifyIcon icon = ni;
             if (icon == null) return;
             try
@@ -264,7 +276,7 @@ namespace DesktopAICompanion
                 // be lifted or the icon stays buried in the overflow flyout.
                 TrayPromotion.AllowRetry();
                 TrayPromotion.PromoteOnce(Application.ExecutablePath, icon.Text);
-                StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info, "tray icon re-added after TaskbarCreated");
+                StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info, "tray icon re-added (" + reason + ")");
             }
             catch (Exception ex)
             {
@@ -678,7 +690,7 @@ namespace DesktopAICompanion
             {
                 StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info,
                     "tray icon MISSING from the shell (check " + presenceAttempt + "); re-adding");
-                ReassertIcon();
+                ReassertIcon("presence check " + presenceAttempt);
                 presenceRepairs++;
             }
 

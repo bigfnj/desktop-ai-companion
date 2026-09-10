@@ -174,11 +174,24 @@ namespace DesktopAICompanion
                 case 2: return 3000;
                 case 3: return 6000;
                 case 4: return 12000;
-                default: return 20000;
+                case 5: return 20000;
+                default: return 30000;
             }
         }
 
-        /// <summary>How many times to verify before giving up and saying so in the log.</summary>
-        internal const int MaximumAttempts = 5;
+        /// <summary>
+        /// How many times to verify before giving up and saying so in the log.
+        ///
+        /// Sized from a MEASURED refusal window, not a guess. First real capture (2026-09-10, v1.1.1 on
+        /// a fresh install): the shell refused the add at 1.5s, 3s, 6s, 12s and 20s, and the icon only
+        /// came back on the check after that. Recovery landed on the LAST attempt of the original
+        /// five-step schedule, so a slightly longer refusal would have exhausted it and left the user
+        /// with no icon and a "giving up" line.
+        ///
+        /// Nine attempts now run out to roughly 2.7 minutes. The cost of the extra headroom on a healthy
+        /// machine is four more Shell_NotifyIcon(NIM_MODIFY) calls and no log output at all, which is a
+        /// far better trade than being one tick short.
+        /// </summary>
+        internal const int MaximumAttempts = 9;
     }
 }
