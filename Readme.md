@@ -145,33 +145,50 @@ carrying audio and tool-calling this module never invokes, which is what the ext
 
 **Text model** — used for the faster OCR path, and the one that has to carry a persona.
 
-| model | size | avg | Ted Lasso | Jeselnik | Jules Winnfield | verdict |
-|---|---:|---:|:---:|:---:|:---:|---|
-| **`gemma3:4b`** | **3.3 GB** | **~430 ms** | ✅ | ✅ | ✅ | **recommended** |
-| `dolphin3` | 4.9 GB | ~450 ms | ✅ | ✅ | ✅ | good alternative |
-| `dolphin-mistral` | 4.1 GB | ~740 ms | ✅ | ✅ | ✅ | fine, wordier |
-| `nemotron-3-nano:4b` | 2.8 GB | ~1,450 ms | ~ | ~ | ✅ | 3x slower, flaky |
-| `llama2-uncensored` | 3.8 GB | ~330 ms | ❌ | ❌ | ✅ | **not recommended** |
+15 generations per model: 5 dispositions x 3 runs, scored mechanically. "Parses" uses the module's own
+extractor, so it means *the companion would actually speak this* rather than *the model tried*.
 
-Six of the 26 dispositions (Jeselnik, Jeff Ross, Jules Winnfield, Drill Sergeant, Beavis & Butthead,
-Walter) ask for material a safety-tuned model may decline, so the columns are a gradient: Ted Lasso is
-a benign control, Jeselnik applies mild pressure, and Jules Winnfield is the hard case — its
-instruction requires real curse words spelled out in full, which makes compliance a clean pass or fail
-rather than a judgement call.
+| model | size | median | parses | on-topic | profanity | words | verdict |
+|---|---:|---:|:---:|:---:|:---:|---:|---|
+| **`gemma3:4b`** | **3.3 GB** | **377 ms** | **15/15** | **15/15** | **6/6** | **21** | **recommended** |
+| `dolphin3` | 4.9 GB | 402 ms | 15/15 | 13/15 | 4/6 | 54 | **fallback** |
+| `llama2-uncensored` | 3.8 GB | 436 ms | 1/15 | 12/15 | 0/6 | 53 | avoid |
+| `dolphin-mistral` | 4.1 GB | 662 ms | 7/15 | 10/15 | 5/6 | 57 | avoid |
+| `nemotron-3-nano:4b` | 2.8 GB | 1,513 ms | 10/15 | 10/15 | 2/6 | 17 | avoid |
 
-**The prompt mattered more than the model.** In the first round only 3 of 5 models produced uncensored
-profanity for Jules Winnfield: one sanitised it away entirely and one wrote `F*** THIS SHIT` alongside
-an uncensored word in the same breath. The no-censoring instruction now lives in the shared system
-prompt rather than inside one disposition's text, and **all 5 then complied**. If a foul-mouthed
-character is coming out clean, suspect the prompt before blaming the model.
+*Profanity* counts only the two dispositions whose instructions actually demand it (Jules Winnfield,
+Jeff Ross). *Words* is the mean spoken length against the prompt's own 40-word cap. None of the five
+refused a persona outright and none produced asterisk-masked profanity on this run.
 
-**And "uncensored" in a model's name predicts nothing.** The safety-tuned control matched or beat every
-uncensored model. `llama2-uncensored` — the one whose name promises exactly this — is the weakest of
-the five: it reads as an assistant rather than a character ("Hey there! It's great to be here."), it
-leaked the JSON envelope into its own remark text, and it refused the Jeselnik persona outright on one
-run. It is a 2023-era Llama 2 fine-tune and it shows. Treat the module's `LooksUncensored` marker list
-(`dolphin`, `uncensored`, `abliterated`, `unfiltered`) as the advisory label it says it is, never a
-capability test.
+**`gemma3:4b` scored perfectly on every axis** — parsed 15 out of 15, referenced something really on
+screen 15 out of 15, complied with both profane personas 6 out of 6, and averaged 21 words against a
+20-word target. It is also the fastest of the credible options. Samples, one per disposition:
+
+- *Ted Lasso* — "Well now, that's a bit like a fumble in the end zone, ain't it? Looks like we've got a little somethin' to sort out with that BUG-003 file, bless its heart."
+- *Jeselnik* — "That wallpaper is a tragically predictable backdrop for a coding disaster. It seems someone's priorities are fundamentally misplaced."
+- *Drill Sergeant* — "BUG-003.MD! THAT WALLPAPER IS AN INSULT TO PRODUCTIVITY, PRIVATE! FIX IT NOW!"
+
+**`dolphin3` is the fallback** if `gemma3:4b` will not run for you. It is equally reliable structurally
+(15/15 parses, no leaks, no refusals) and about as fast, but it rambles: 54 words on average against a
+40-word cap, frequently running past the limit and getting cut mid-sentence, and it delivered the
+profane personas only 4 times in 6.
+
+**Avoid the other three, and the reasons differ.** `dolphin-mistral` and `nemotron-3-nano` fail to emit
+usable JSON on a third to a half of attempts, and `nemotron` is four times slower. `llama2-uncensored`
+is the worst of the set at **1 parse in 15**: it does not answer in JSON at all, instead prefixing the
+character's name and quoting itself — `Pip: "Oh, look at that! The wallpaper is beautiful..."` — which
+is also not the persona it was given. It is a 2023-era Llama 2 fine-tune and it shows.
+
+**"Uncensored" in a model's name predicts nothing.** The safety-tuned `gemma3:4b` beat all three
+uncensored models on the profane personas, 6/6 against 4/6, 5/6 and 0/6. The one whose name promises
+this capability most directly scored zero. In an earlier run `dolphin3` self-censored to `sh*t` — a
+model tagged uncensored, masking a word the persona explicitly asks for in full. Treat the module's
+`LooksUncensored` marker list (`dolphin`, `uncensored`, `abliterated`, `unfiltered`) as the advisory
+label it says it is, never a capability test.
+
+**The prompt mattered more than the model.** Before the no-censoring rule moved into the shared system
+prompt, only 3 of 5 models produced uncensored profanity for Jules Winnfield; afterwards all 5 did. If
+a foul-mouthed character comes out clean, suspect the prompt before swapping models.
 
 > **On profanity:** there is deliberately no profanity switch for the AI. Choosing a disposition *is*
 > the acceptance — you pick Jules Winnfield from a list that says who he is. A second toggle would mean
@@ -182,7 +199,16 @@ capability test.
 **One model does both jobs.** `gemma3:4b` is the recommendation for the vision model *and* the text
 model, which replaces an 11.4 GB pair (`llama2-uncensored` 3.8 GB + `gemma4:12b` 7.6 GB) with a single
 3.3 GB download and no measured loss on any axis. It is also the module's shipped default, so a fresh
-install is already pointed at it — `ollama pull gemma3:4b` is the whole setup.
+install is already pointed at it:
+
+```
+ollama pull gemma3:4b
+```
+
+If you need an alternative, `ollama pull dolphin3` is the fallback for the text model — equally
+reliable structurally, a little slower, wordier than the prompt asks for, and less consistent on the
+two profane personas. There is no second choice worth recommending for the vision model: of the three
+tested, one takes 52 seconds and the other cannot hold a persona at all.
 
 > Sizes are Ollama's Q4 quantisations. Numbers move with hardware, quantisation and Ollama version;
 > what should survive is the shape — a 3-4B instruction-tuned model is the right class for a one-line
