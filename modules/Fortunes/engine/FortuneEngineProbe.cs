@@ -116,15 +116,17 @@ namespace DesktopAICompanion.FortunesModule
                 // which nothing reads. A lean install had nothing to say and no gate noticed.
                 List<FortuneEntry> embedded = FortuneProvider.EmbeddedEntriesForDiagnostics();
                 ok &= Check(sb, "the built-in fortune corpus is embedded in the module (" + embedded.Count + " entries)",
-                    embedded.Count > 5000);
+                    embedded.Count > 3000);
                 var embeddedSources = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (FortuneEntry e in embedded) embeddedSources.Add(e.Source ?? "");
-                // These seven ship only in the corpus -- no pack file carries them -- so they are the ones
-                // that vanish without a trace if the embed is dropped again.
+                // The corpus is deliberately just these two. It used to carry 26 sources, six of which
+                // existed nowhere else; those were exported to pack files so the box could ship the two
+                // that belong in it. Classic Fortunes still has no pack, so it remains the source that
+                // vanishes without a trace if the embed is dropped again.
                 bool orphansPresent = true;
-                foreach (string s in new[] { "quotable", "cleanjokes", "fortunes", "godin", "SimpsonsChalkboard", "activists", "BibleAbridged" })
+                foreach (string s in new[] { "fortunes", "dadjokes" })
                     if (!embeddedSources.Contains(s)) { orphansPresent = false; sb.AppendLine("    missing corpus source: " + s); }
-                ok &= Check(sb, "the corpus sources that exist in no pack file are all present", orphansPresent);
+                ok &= Check(sb, "both built-in corpus sources are present", orphansPresent);
 
                 // Scraped packs arrived HTML-escaped, so the bubble literally showed "me &amp; Dave". The
                 // Reddit-sourced lines are double-escaped (&amp;#x200B; -- a zero-width space escaped twice),
