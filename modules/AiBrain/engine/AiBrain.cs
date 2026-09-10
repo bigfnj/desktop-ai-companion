@@ -34,8 +34,37 @@ namespace DesktopAICompanion.Ai
         private byte[] _lastFrameSignature;   // change-detection gate (used by the idle loop, phase 3)
         private int _disposeStarted;
 
-        // Vision images are downscaled to this width before sending — full-screen frames make a
-        // vision model crawl (tens of seconds). OCR keeps the larger capture for legibility.
+        // Width a vision image is downscaled to before sending.
+        //
+        // MEASURED 2026-09-10 against gemma3:4b with an eye chart: seven uncommon words rendered at
+        // known font sizes on a 2560x1440 panel, downscaled to each candidate width, read back and
+        // scored against a list the model never saw. 3 runs each.
+        //
+        //   width   11px  14px   18px  24px+   invented words
+        //     448     no    no     NO    yes        0
+        //     672     no    no    yes    yes        0
+        //     896     no  near    yes    yes        0     <-- this value
+        //    1120     no  near    yes    yes        0
+        //    1344     no  near    2/3    yes        5
+        //    1792     no  near    yes    yes        1
+        //    2560     no  near    yes    yes        5
+        //
+        // Three things that were not obvious, and one of which contradicted the comment this replaced:
+        //
+        //  * LATENCY IS FLAT: 181-283ms across every width, native included. The old comment blamed
+        //    "full-screen frames make a vision model crawl (tens of seconds)" -- that is not what
+        //    happens. The model resizes internally, so extra pixels are neither slow nor useful. (The
+        //    tens-of-seconds figure was really a bigger MODEL, not a bigger image: gemma4:12b took 52s
+        //    at this same width.)
+        //  * MORE PIXELS MAKE IT WORSE. At 1344 and 2560 the model began INVENTING words that were
+        //    never on the chart ("STOP", "DECODER"), five apiece. 896 and 1120 invented none. So the
+        //    cap is an accuracy guard, not a bandwidth or speed one.
+        //  * 11px SOURCE TEXT IS UNREADABLE AT ANY WIDTH, native included -- a model ceiling, not a
+        //    downscale artifact. 14px only ever comes back near-miss ("MARGOLD" for MARIGOLD).
+        //
+        // 896 is therefore the largest width with zero hallucination, and the smallest that resolves
+        // 14px text at all. 672 is equally clean but reads less. Do not raise this to "read the screen
+        // better": above 1120 it reads the screen worse.
         private const int VisionMaxWidth = 896;
         /// <summary>OCR reads the larger capture: Tesseract accuracy falls off with glyph height,
         /// and unlike the vision model there is no native input size to match.</summary>

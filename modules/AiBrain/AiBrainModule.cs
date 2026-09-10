@@ -1019,7 +1019,13 @@ namespace DesktopAICompanion.AiBrainModule
             // disagree with itself. What is left is the honest cost of the choice actually made.
             string cost;
             if (string.Equals(s.ModelResidency, AiSettings.ResidencyUnload, StringComparison.OrdinalIgnoreCase))
-                cost = "  The model reloads for each remark, which costs a second or two — that is the trade for the VRAM.";
+                // "a second or two" was optimistic by roughly an order of magnitude. Measured on
+                // gemma3:4b, the recommended and smallest sensible model: cold load about 5 seconds on
+                // the text path and about 11 with an image, against ~60ms and ~400ms warm. A bigger
+                // model is worse. Quoting the real range matters because this setting's whole purpose
+                // is trading latency for VRAM, and a user cannot make that trade against a wrong number.
+                cost = "  The model reloads for each remark, which costs roughly five seconds — ten or more " +
+                       "for a vision glance, and longer on a larger model — that is the trade for the VRAM.";
             else if (string.Equals(s.ModelResidency, AiSettings.ResidencyKeep, StringComparison.OrdinalIgnoreCase))
                 cost = "  The model stays loaded for the whole session, so remarks are instant and the VRAM is held throughout.";
             else

@@ -143,6 +143,30 @@ that fails, so a captioner produces a companion that is permanently, silently mu
 figure for a desktop companion, it is an abandonment figure. It is also a multimodal generalist
 carrying audio and tool-calling this module never invokes, which is what the extra 4.3 GB buys.
 
+**How much of the screen it can actually read.** The module downscales a capture to 896px wide before
+sending it. Measured with an eye chart -- seven uncommon words at known font sizes, downscaled to each
+candidate width, read back and scored against a list the model never saw:
+
+| capture width | 11px text | 14px | 18px | 24px+ | invented words |
+|---:|:---:|:---:|:---:|:---:|---:|
+| 448 | no | no | **no** | yes | 0 |
+| 672 | no | no | yes | yes | 0 |
+| **896** | no | near | yes | yes | **0** |
+| 1120 | no | near | yes | yes | 0 |
+| 1344 | no | near | 2/3 | yes | **5** |
+| 2560 (native) | no | near | yes | yes | **5** |
+
+Latency was flat at 181-283 ms across every width including native, so a bigger image is not slower --
+the model resizes internally. What a bigger image *does* is hallucinate: at 1344 and native it invented
+words that were never on the chart. So 896 is an accuracy ceiling, not a bandwidth one, and raising it
+to "read the screen better" reads the screen worse. Text at 11px is unreadable at any width, native
+included; that is the model, not the downscale.
+
+The practical consequence: a companion can reliably comment on headings, filenames, tab titles and
+window chrome, and cannot read body text or small UI labels. Window-scoped capture helps here for a
+different reason -- a 1200px-wide window barely gets downscaled at all, where a 2560px monitor is cut
+by two thirds.
+
 **Text model** — used for the faster OCR path, and the one that has to carry a persona.
 
 15 generations per model: 5 dispositions x 3 runs, scored mechanically. "Parses" uses the module's own
