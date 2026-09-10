@@ -5,7 +5,6 @@
 > 1.0.0. Clone it wherever you like -- nothing here depends on the checkout path, and this file is
 > public, so no machine paths go in it.
 > `origin` = **git@github.com:bigfnj/desktop-ai-companion.git**. There is **no `upstream` remote** any more.
-> Also read the persistent memory note `project_desktoppet` in the auto-memory index (has the fine detail).
 > Feature backlog: **[`BACKLOG.md`](BACKLOG.md)**.
 
 ---
@@ -692,7 +691,7 @@ Catalog now: **fortunes 1.2.4, aibrain 1.2.2, petstudio 1.4.1, reminder 1.7.0, r
 **Shipped v1.8.0's feature payload: a fourth catalog module (Reminder), a module-owned styled-speech
 platform, and two global audio toggles — on `feat/reminder-and-fixes`, pushed to `master`, Reminder in the
 catalog.** ProductVersion is `1.8.0`; host ABI grew (additively) to `1.8.0`. Full detail in BACKLOG.md
-("v1.8.0 — shipped") and the `project_desktoppet` memory note. In one breath:
+("v1.8.0 — shipped"). In one breath:
 
 > **The Reminder module has since grown to 1.5.0, all catalog-only (no host release needed).** 1.3.0 = up to
 > five calendar slots each with its own name + speech style; 1.4.x = a browsable, per-calendar chime with a

@@ -2,7 +2,7 @@
 
 > A local "meeting memory" module: capture a meeting's audio, transcribe it offline, name it from the
 > calendar, snapshot on demand, and self-purge the heavy media after 72 hours. Design converged with the
-> user 2026-08-26. This doc is the agreed spec; `handoff.md` and the `project_desktoppet` memory point at it.
+> user 2026-08-26. This doc is the agreed spec, and `handoff.md` points at it.
 
 ## What it does
 
