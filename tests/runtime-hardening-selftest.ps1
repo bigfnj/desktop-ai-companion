@@ -573,15 +573,28 @@ Assert-True (
     # form of this check that survives someone adding a longer DEBUG_TYPE later.
     $longestLevel -gt 0 -and $levelPadWidth -gt $longestLevel
 ) 'the diagnostic log level column is wider than the longest level name'
+# Read once, above the assertion: an assignment inside an Assert-True (...) expression is a parser
+# error, and $processIconSource is defined further down the file (a forward reference throws under
+# Set-StrictMode).
+$processIconLogLine = (Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'src\dotNet\ProcessIcon.cs') -Raw))
 Assert-True (
-    # The tray path must say what happened on EVERY run, not only when it fails. A run where SetIcon
-    # succeeded and the icon still never appeared was previously indistinguishable from one that never
-    # reached the call at all.
+    # The tray path must say what happened on EVERY run, not only when it fails.
+    #
+    # Strengthened in 1.1.1, because the previous form of this check asserted only that a log line
+    # EXISTED and was itself satisfied by the line that hid BUG-001 for two sessions. That line read
+    # "success=True" whenever SetIcon's try block did not throw, which is not the same as the shell
+    # having accepted the icon -- so a dropped NIM_ADD and a working one logged identically. The
+    # invariant's own comment already described that exact failure while the regex it used could not
+    # detect it.
+    #
+    # What is required now is the SHELL's verdict, which is the only thing that distinguishes the two:
+    # 'shellHasIt=' carries Shell_NotifyIcon(NIM_MODIFY)'s answer (True/False/unknown).
     # Read inline rather than reusing $processIconSource: that is defined further down the file, and under
     # Set-StrictMode a forward reference throws rather than evaluating to empty.
-    (Remove-LineComments (Get-Content -LiteralPath (
-        Join-Path $repoRoot 'src\dotNet\ProcessIcon.cs') -Raw)) -match 'tray icon set: success='
-) 'SetIcon records its outcome whether or not it succeeded'
+    ($processIconLogLine -match 'tray icon set: noThrow=') -and
+    ($processIconLogLine -match 'shellHasIt=')
+) 'SetIcon records the SHELL''s verdict, not merely that the call did not throw'
 
 # The converted-author string is DUPLICATED across two assemblies that cannot reference each other: the
 # converter stamps it (PetEmitter.ConvertedAuthor) and the app reads it back to decide whether a pet's

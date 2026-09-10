@@ -16,6 +16,9 @@ namespace DesktopAICompanion
         NotifyIcon ni;
         ContextMenus menus;
         TaskbarWatcher taskbarWatcher;
+        System.Windows.Forms.Timer presenceTimer;
+        int presenceAttempt;
+        int presenceRepairs;
 
             /// <summary>
             /// The app's name in the notification area.
@@ -71,6 +74,8 @@ namespace DesktopAICompanion
                         "tray watcher not created: " + ex.GetType().Name);
                 }
             }
+
+            StartPresenceVerification();
         }
 
             /// <summary>
@@ -118,10 +123,16 @@ namespace DesktopAICompanion
             // logged only on the failure branch, so a run where SetIcon "succeeded" and the icon still did
             // not appear looked identical to a run that never got here. These three facts separate the
             // cases -- did we set an icon, is the control marked visible, and which name did the shell get.
+            // "success" here means only that the assignment above did not throw, which is NOT the
+            // same as the shell having accepted the icon -- and conflating the two is what hid
+            // BUG-001 through two investigations that both read this line. `shellHasIt` is the
+            // answer to the question that actually matters; "unknown" is reported as such.
+            bool? shellHasIt = TrayIconPresence.TryIsPresent(ni);
             StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info,
-                "tray icon set: success=" + success +
+                "tray icon set: noThrow=" + success +
                 " icon=" + (ni.Icon != null) +
                 " visible=" + ni.Visible +
+                " shellHasIt=" + (shellHasIt.HasValue ? shellHasIt.Value.ToString() : "unknown") +
                 " text='" + (ni.Text ?? "") + "'");
 
             // The icon is registered with the shell by this point (successfully or via the fallback above),
@@ -168,6 +179,7 @@ namespace DesktopAICompanion
             /// </summary>
         public void Dispose()
         {
+            StopPresenceVerification();
             if (taskbarWatcher != null)
             {
                 try { taskbarWatcher.Dispose(); } catch { }
@@ -470,6 +482,99 @@ namespace DesktopAICompanion
                     recorder.Calls.Count == 2 && recorder.Calls[0] == false && recorder.Calls[1] == true);
                 ok &= TrayAssert(report, "the re-add tolerates a missing surface",
                     SafeReassertNull());
+
+                // --- BUG-001's real root cause: is the icon ACTUALLY in the shell? --------------
+                // The whole fix rests on TrayIconPresence being able to answer that, via WinForms
+                // internals reached by reflection. If a future runtime renames them the check would
+                // silently start answering "unknown" forever and the bug would quietly return, so the
+                // seam is asserted here rather than trusted.
+                ok &= TrayAssert(report, "the icon-presence check is supported on this runtime",
+                    TrayIconPresence.Supported);
+
+                // Only a definite "the shell does not have it" may trigger a re-add. Repairing on
+                // unknown would re-add on every tick of every healthy run.
+                ok &= TrayAssert(report, "a present icon is not repaired",
+                    !TrayIconPresence.ShouldRepair(true));
+                ok &= TrayAssert(report, "a missing icon IS repaired",
+                    TrayIconPresence.ShouldRepair(false));
+                ok &= TrayAssert(report, "an UNKNOWN answer is not treated as missing",
+                    !TrayIconPresence.ShouldRepair(null));
+                ok &= TrayAssert(report, "presence of no icon at all is unknown, not false",
+                    TrayIconPresence.TryIsPresent(null) == null);
+
+                // Backoff must actually back off, and stay bounded.
+                bool rising = true;
+                for (int a = 1; a < TrayIconPresence.MaximumAttempts; a++)
+                    if (TrayIconPresence.RetryDelayMilliseconds(a + 1) <
+                        TrayIconPresence.RetryDelayMilliseconds(a))
+                        rising = false;
+                ok &= TrayAssert(report, "the retry delay never decreases", rising);
+                ok &= TrayAssert(report, "the retry delay is bounded",
+                    TrayIconPresence.RetryDelayMilliseconds(99) <= 60000);
+                ok &= TrayAssert(report, "verification is bounded to a few attempts",
+                    TrayIconPresence.MaximumAttempts >= 3 && TrayIconPresence.MaximumAttempts <= 10);
+
+                // The primitive itself, against a REAL tray icon. This is the assertion that would
+                // have caught the bug: it distinguishes an icon the shell holds from one it does not,
+                // which is precisely what `success=True` could never do.
+                using (var probe = new NotifyIcon())
+                {
+                    probe.Icon = System.Drawing.SystemIcons.Information;
+                    probe.Text = "presence-selftest";
+                    probe.Visible = true;
+                    Application.DoEvents();
+                    bool? shown = TrayIconPresence.TryIsPresent(probe);
+                    ok &= TrayAssert(report, "a shown icon reads as present in the shell",
+                        shown.HasValue && shown.Value);
+
+                    probe.Visible = false;
+                    Application.DoEvents();
+                    bool? hidden = TrayIconPresence.TryIsPresent(probe);
+                    ok &= TrayAssert(report, "a hidden icon reads as ABSENT from the shell",
+                        hidden.HasValue && !hidden.Value);
+                }
+
+                // --- the repair path, proven by FAULT INJECTION -------------------------------
+                // The natural failure is intermittent: one msiexec-launched start dropped the icon and
+                // a later identical one did not. Waiting for a bad run would mean the repair is never
+                // actually exercised, so the exact broken state is manufactured here -- the shell holds
+                // no icon while WinForms still believes it is shown, which is what a dropped NIM_ADD
+                // leaves behind. This is the assertion that shows the fix WORKS, not merely that it
+                // compiles.
+                using (var victim = new NotifyIcon())
+                {
+                    victim.Icon = System.Drawing.SystemIcons.Warning;
+                    victim.Text = "repair-selftest";
+                    victim.Visible = true;
+                    Application.DoEvents();
+
+                    bool? before = TrayIconPresence.TryIsPresent(victim);
+                    ok &= TrayAssert(report, "fault injection starts from a present icon",
+                        before.HasValue && before.Value);
+
+                    ok &= TrayAssert(report, "the icon can be dropped behind WinForms' back",
+                        TrayIconPresence.TryDeleteBehindWinForms(victim));
+                    Application.DoEvents();
+
+                    // WinForms is now WRONG about its own state -- exactly the situation that made the
+                    // old log line useless.
+                    ok &= TrayAssert(report, "WinForms still believes the icon is visible", victim.Visible);
+                    bool? dropped = TrayIconPresence.TryIsPresent(victim);
+                    ok &= TrayAssert(report, "the check DETECTS the dropped icon",
+                        dropped.HasValue && !dropped.Value);
+                    ok &= TrayAssert(report, "a dropped icon is judged repairable",
+                        TrayIconPresence.ShouldRepair(dropped));
+
+                    // The repair the timer performs.
+                    ReassertSequence(new NotifyIconVisibility(victim));
+                    Application.DoEvents();
+
+                    bool? repaired = TrayIconPresence.TryIsPresent(victim);
+                    ok &= TrayAssert(report, "the repair puts the icon BACK in the shell",
+                        repaired.HasValue && repaired.Value);
+                    ok &= TrayAssert(report, "a repaired icon needs no further repair",
+                        !TrayIconPresence.ShouldRepair(repaired));
+                }
             }
             catch (Exception ex)
             {
@@ -524,6 +629,93 @@ namespace DesktopAICompanion
             EntryPoint = "RegisterWindowMessageW",
             CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
         private static extern int NativeRegisterWindowMessage2(string message);
+
+
+        /// <summary>
+        /// Verify the shell actually took the icon, and re-add it if not.
+        ///
+        /// THE fix for BUG-001, and the reason the earlier attempts missed: nothing ever checked. The
+        /// app called `Visible = true`, logged that no exception was thrown, and moved on. Measured on
+        /// the shipped 1.1.0 MSI: a process launched by msiexec has its NIM_ADD silently dropped, while
+        /// the identical binary launched normally is fine. So the icon must be verified rather than
+        /// assumed, and re-added when the shell says it does not have it.
+        ///
+        /// Only a DEFINITE "not present" triggers a re-add (see TrayIconPresence.ShouldRepair). When the
+        /// answer is unknown -- the WinForms internals the check reads have moved, or the icon has no
+        /// window yet -- nothing is re-added, because re-adding on every tick of a healthy run is worse
+        /// than the bug. Bounded attempts with backoff, so a shell that will never accept the icon
+        /// produces one clear log line instead of a permanent timer.
+        /// </summary>
+        private void StartPresenceVerification()
+        {
+            if (presenceTimer != null) return;
+            if (!TrayIconPresence.Supported)
+            {
+                // Say so rather than silently degrading: this is the seam the whole check rests on.
+                StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info,
+                    "tray icon presence cannot be verified on this runtime; relying on TaskbarCreated only");
+                return;
+            }
+            presenceAttempt = 0;
+            presenceRepairs = 0;
+            presenceTimer = new System.Windows.Forms.Timer
+            {
+                Interval = TrayIconPresence.RetryDelayMilliseconds(1)
+            };
+            presenceTimer.Tick += PresenceTimer_Tick;
+            presenceTimer.Start();
+        }
+
+        private void PresenceTimer_Tick(object sender, EventArgs e)
+        {
+            presenceAttempt++;
+            NotifyIcon icon = ni;
+            if (icon == null) { StopPresenceVerification(); return; }
+
+            bool? present = TrayIconPresence.TryIsPresent(icon);
+
+            if (TrayIconPresence.ShouldRepair(present))
+            {
+                StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info,
+                    "tray icon MISSING from the shell (check " + presenceAttempt + "); re-adding");
+                ReassertIcon();
+                presenceRepairs++;
+            }
+
+            // Deliberately does NOT stop at the first success. The whole schedule runs, because the
+            // window in which the shell drops an icon is the period while it is still settling after
+            // an install -- so an icon can be accepted at 1.5s and gone at 6s. Stopping early would
+            // cover only the first case. Five NIM_MODIFY calls over ~22s cost nothing measurable, and
+            // a healthy run logs nothing at all.
+            if (presenceAttempt >= TrayIconPresence.MaximumAttempts)
+            {
+                bool? last = TrayIconPresence.TryIsPresent(icon);
+                if (last.HasValue && !last.Value)
+                    StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.error,
+                        "tray icon STILL missing after " + presenceRepairs +
+                        " repair attempt(s); the shell is refusing it");
+                else if (presenceRepairs > 0)
+                    StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info,
+                        "tray icon recovered after " + presenceRepairs + " repair attempt(s)");
+                else if (!last.HasValue)
+                    StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info,
+                        "tray icon presence stayed unknown across " + presenceAttempt + " checks");
+                StopPresenceVerification();
+                return;
+            }
+
+            presenceTimer.Interval =
+                TrayIconPresence.RetryDelayMilliseconds(presenceAttempt + 1);
+        }
+
+        private void StopPresenceVerification()
+        {
+            if (presenceTimer == null) return;
+            presenceTimer.Stop();
+            presenceTimer.Tick -= PresenceTimer_Tick;
+            presenceTimer.Dispose();
+            presenceTimer = null;
+        }
 
     }
 }

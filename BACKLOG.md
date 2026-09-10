@@ -40,71 +40,97 @@ fix is to handle the `TaskbarCreated` registered window message and re-add the i
 which also covers an Explorer restart, a case this build does not handle either. Worth checking whether
 `ProcessIcon` subscribes to it at all before designing anything more elaborate.
 
-**MECHANISM CONFIRMED 2026-09-10, and it is the terminate path.** The earlier note here discounted it
-on the grounds that a fresh install has no prior instance; that was wrong, because every observed install
-replaced a running one. Traced end to end:
+**MECHANISM ~~CONFIRMED~~ WRONG (2026-09-10, first attempt).** This entry previously claimed the
+cause was the terminate path: that `util:CloseApplication`'s `TerminateProcess="1"` force-killed the
+app, the `using` around `ProcessIcon` never unwound, `NIM_DELETE` was never sent, and the shell was
+left holding a slot for a dead owner. **That was reasoned, not measured, and the maintainer refuted it
+in one sentence:** they closed the sheep *manually* from the tray, then installed the release, and the
+icon was still missing. A manual close runs `KillSheeps(true)`, which disposes the icon as its FIRST
+action, so `NIM_DELETE` was sent and no slot was stale -- and with no process running, the installer's
+`CloseApplication` never fired at all. Neither half of the terminate theory was in play.
 
-- `ProcessIcon` is held in a `using` block (`Program.cs:291`, `:460`), so its `Dispose` -- which does
-  `ni.Visible = false; ni.Dispose()`, i.e. `NIM_DELETE` -- runs only when `Application.Run` **returns
-  normally**.
-- The tray item "Remove all companions and Close" reaches it properly: `Exit_Click` calls
-  `Program.Mainthread.KillSheeps(true)`, and `KillSheeps` disposes the icon as its *first* action
-  (`StartUp.cs:1097`), before anything else can go wrong.
-- `util:CloseApplication` in the MSI is configured `CloseMessage="yes" TerminateProcess="1"`
-  (`installer/DesktopAICompanion.wxs:50-55`). If the graceful WM_CLOSE does not finish inside msiexec's
-  window, the process is **killed**, the `using` never unwinds, `NIM_DELETE` is never sent, and the shell
-  keeps a slot for a dead owner. The next instance's icon then has nowhere to land.
+Recorded rather than deleted, because the wrong turn is the lesson: the log line that "proved" the app
+was doing everything right (`success=True`) was the thing that was broken, and two investigations in a
+row built theories on top of it instead of questioning it.
 
-So a clean exit removes the icon and a terminated one does not, which is exactly the observed
-"missing until I restart it".
+**ROOT CAUSE, measured 2026-09-10 on the live installed build.** The `NIM_ADD` is dropped by the shell,
+and the app cannot tell:
 
-**Fix, and it is the maintainer's own suggestion:** have the installer invoke the app's orderly exit --
-the same path the tray item uses -- instead of relying on WM_CLOSE plus a force-kill. Do NOT simply drop
-`TerminateProcess`; that reintroduces the stalled-upgrade bug `AppLifetime` was written to fix.
+- `HKCU\Control Panel\NotifyIconSettings` for the exact installed exe held `IsPromoted=1`, so the shell
+  was being told to show it. Promotion was never the problem.
+- Greenshot, installed to the same `%LOCALAPPDATA%\Programs` root with the same `UID=1`,
+  `IsPromoted=1`, `InitialTooltip` and `IconSnapshot`, was **visible**. So the registry entry is not the
+  differentiator; the difference is at runtime.
+- A UI Automation walk of `Shell_TrayWnd` found 39 buttons and **no companion icon**.
+- Sending the shipped `TaskbarCreated` handler to the running process made it **appear immediately** --
+  40 buttons.
 
-**Also do the second belt, because it fixes this for every cause and not just this one.**
-`TaskbarCreated` is **not handled anywhere in the codebase** (verified). Registering it and re-adding the
-icon makes the tray survive a stale slot however it arose: a force-kill, a crash, a Task Manager kill, or
-an Explorer restart -- that last one is a real second defect today. `AppLifetime`'s own comment argues for
-"two independent belts here, because the failure is a race about thread affinity"; the same reasoning
-applies to a race about shell state.
+So the icon was genuinely never in the shell, and a re-add fixed it. The reason nothing caught this:
+`ProcessIcon.SetIcon` sets its `success` flag false ONLY when the `try` block throws. It never captured
+`Shell_NotifyIcon`'s return value, and `NotifyIcon.Visible = true` does not report whether the shell
+accepted the add. **A dropped add and a working one logged byte-identical lines.**
 
-**Where to look.** `src/dotNet/ProcessIcon.cs` (SetIcon and whether any window pumps `TaskbarCreated`),
-`src/dotNet/TrayPromotion.cs` (correct as-is, do not change it), and the launch custom action in
-`installer/DesktopAICompanion.wxs`. Two captured logs exist from consecutive runs; they are identical,
-which is itself the finding.
+**It is INTERMITTENT, and the entry's "reproduces every time" was also wrong.** Measured across three
+starts of the same binary: one msiexec-launched start dropped it, a direct launch was fine, and a later
+msiexec-launched start -- real installer, licence accepted, "Launch" ticked, app parented to msiexec --
+logged `shellHasIt=True` on the first add. The launch method correlates but does not determine it.
 
-#### ✅ FIXED 2026-09-10 — both belts, and neither needed an installer change
 
-`ProcessIcon` now owns a hidden **top-level** window (`TaskbarWatcher`) that does two things:
+#### FIXED in host 1.1.1 (2026-09-10) -- verify the add, and repair it
 
-1. **`TaskbarCreated`** — re-adds the icon when the shell rebuilds its notification area, toggling
-   `Visible` false then true (NIM_DELETE then NIM_ADD) and lifting `TrayPromotion`'s once-per-process
-   guard, because a rebuilt area can file a brand-new entry and a brand-new entry is unpromoted. This
-   covers an Explorer restart, which was a second, separate defect nothing handled.
-2. **`WM_CLOSE`** — routes into `KillSheeps(true)`, the *same* orderly exit the tray's "Remove all
-   companions and Close" uses, which disposes the icon as its first action.
+**`TrayIconPresence` asks the shell the question the app could not.**
+`Shell_NotifyIcon(NIM_MODIFY)` returns FALSE when the shell holds no icon for a given
+`(hWnd, uID)`. WinForms keeps both private, so they are read by reflection (`_window`, `_id`), cached
+once, and reported as **unknown** rather than guessed at if a future runtime renames them. The
+primitive was validated BEFORE anything was built on it -- shown icon answers True, hidden icon
+answers False -- because a check that always succeeds would have been worse than no check.
 
-Point 2 is what addresses the reported repro, and it needed **no `.wxs` edit at all**: the MSI's
-`util:CloseApplication` already posts `WM_CLOSE` to the target's top-level windows, and nothing in the
-app had ever turned that into a shutdown — WinForms answers `WM_QUERYENDSESSION` on a background
-broadcast thread owning no forms, so the polite request was acknowledged and ignored and the
-`TerminateProcess` fallback always won. `TerminateProcess="1"` is deliberately **kept**: it is the
-backstop for a wedged process, and for the first upgrade hop, where the exe being closed is the OLD one
-that lacks this handler. That first-hop gap is inherent and is the reason belt 1 exists.
+**`ProcessIcon` now verifies after startup and repairs.** A backed-off schedule
+(1.5s, 3s, 6s, 12s, 20s) re-adds the icon on a definite "absent", and deliberately:
 
-Top-level is load-bearing and asserted: the shell posts `TaskbarCreated` with `HWND_BROADCAST`, which
-never reaches a message-only (`HWND_MESSAGE`) window — the usual way this fix gets written and silently
-does nothing.
+- **never repairs on `unknown`** -- that would re-add on every tick of every healthy run, which is the
+  failure mode of a blind retry loop;
+- **does not stop at the first success** -- the shell can accept an icon at 1.5s and drop it at 6s
+  while it is still settling after an install, so the whole schedule runs. Five `NIM_MODIFY` calls
+  cost nothing measurable and a healthy run logs nothing at all.
 
-**Verified:** new `--traywatcher-selftest` (13 assertions), wired into `tests
-un-gate.ps1` and
-`build.yml`. Mutation-tested **8/8 FIRED**, including making the window a child window, misspelling the
-shell message name, removing the `id != 0` guard, dropping the `WM_CLOSE` handling, falling through to
-`DefWindowProc`, and both ways of getting the visibility toggle wrong (dropping it, and reversing it).
-Two mutations survived the first run and were real assertion gaps, not equivalent mutants: the id guard
-was unreachable until the message id became injectable, and the toggle was untested until the sequence
-was put behind a seam. Both are now covered.
+**The log line is now honest**, which matters more than the repair: it reads
+`noThrow=... shellHasIt=True|False|unknown` instead of a `success=True` that only ever meant "no
+exception was thrown". That single word is what hid this bug through two investigations.
+
+**Proven by FAULT INJECTION, not by waiting for a bad run.** Since the natural failure is
+intermittent, the exact broken state is manufactured instead: `NIM_DELETE` behind WinForms' back
+leaves the shell holding no icon while the app still believes it is shown -- precisely what a dropped
+`NIM_ADD` leaves. Verified live, from outside the process, against the real app:
+
+```
+INJECT: delete the icon behind the app's back
+  icon in tray: False        <- fault took hold
+wait for the app to notice (schedule runs to ~22s)
+  icon in tray: True         <- repaired itself
+```
+
+**Verification:** `--traywatcher-selftest`, 30 assertions, wired into `tests\run-gate.ps1` and
+`build.yml`. The chain that matters: `WinForms still believes the icon is visible` (the blind spot) ->
+`the check DETECTS the dropped icon` -> `the repair puts the icon BACK in the shell`. Also asserts the
+reflection seam still exists, so a future .NET rename fails loudly instead of silently disabling the
+fix.
+
+#### The two 1.1.0 belts, kept -- but they are NOT what fixes this
+
+Written for the refuted terminate-path theory, and retained because each covers a real case this
+does not:
+
+- **`TaskbarCreated`** re-adds the icon when the shell rebuilds its notification area, which covers an
+  Explorer restart. That was a genuine second defect: the message was not observed anywhere in the
+  codebase before 1.1.0.
+- **`WM_CLOSE` -> orderly exit** routes the installer's close request into `KillSheeps(true)`, the same
+  path the tray menu uses, so the icon is torn down on the way out. Needed no `.wxs` change, because
+  `util:CloseApplication` already posts `WM_CLOSE` and nothing had ever turned it into a shutdown.
+  Verified live this session: posting `WM_CLOSE` to the watcher exits the app cleanly.
+  `TerminateProcess="1"` stays as the backstop for a wedged process and for the first upgrade hop,
+  where the exe being closed is the old one without the handler.
+
 
 ### BUG-002 — the vision feature does nothing, silently, when the configured model is not installed
 

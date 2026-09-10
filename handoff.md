@@ -34,6 +34,39 @@ would otherwise be repeated:
    upgrade hang `AppLifetime` was written for, and it is still needed on the first upgrade hop, where
    the exe being closed is the OLD one without the handler.
 
+### BUG-001 was diagnosed WRONG twice before it was measured (read this first)
+
+The tray-icon bug is fixed in host **1.1.1**, and the route there is the most useful thing in this file.
+
+Two mechanisms were "confirmed" and both were wrong:
+
+1. *"Windows hides icons whose IsPromoted is absent"* (v1.9.16). Real, and fixed then, but not this.
+2. *"The installer force-kills the app, so NIM_DELETE is never sent and the shell keeps a stale slot"*
+   (1.1.0). Reasoned, never measured. **The maintainer refuted it in one sentence**: they closed the
+   sheep manually and then installed, so NIM_DELETE *was* sent, and with nothing running the
+   installer's CloseApplication never fired.
+
+The actual cause: the shell **drops the NIM_ADD**, and the app could not tell, because
+`SetIcon`'s `success` flag was set false only when its `try` block threw. It never captured
+`Shell_NotifyIcon`'s return, and `Visible = true` does not report acceptance -- so a dropped add and a
+working one logged *byte-identical* lines. **The broken diagnostic was the bug's best hiding place**,
+and two investigations built theories on top of it rather than doubting it.
+
+It is also **intermittent**, so "reproduces every time" in the backlog was wrong too: same binary,
+three starts, one msiexec-launched failure and two successes (one of them also msiexec-launched).
+
+What to do differently next time this shape appears:
+
+- **Go and read the live system before theorising.** The registry (`IsPromoted=1`), a UI Automation
+  walk of `Shell_TrayWnd` (39 buttons, no icon), and a differential against an app whose icon DOES
+  work (Greenshot -- same install root, same UID, same IsPromoted, visible) settled in minutes what
+  two rounds of reasoning got wrong.
+- **Distrust any log line that cannot fail.** If a flag is only false on an exception, it is not
+  evidence.
+- **When the natural failure is flaky, inject it.** `TrayIconPresence.TryDeleteBehindWinForms` removes
+  the icon behind WinForms' back, leaving the exact broken state (shell empty, app believes it is
+  shown). That is how the repair is tested, rather than by waiting for a bad run.
+
 ### Released, and what shipped after the tag
 
 `v1.1.0` is tagged and released (portable ZIP, per-user MSI, two author NuGet packages,
