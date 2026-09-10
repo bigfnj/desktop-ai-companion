@@ -869,22 +869,64 @@ namespace DesktopAICompanion.Ai
         private static BrainResponse Parse(string raw)
         {
             if (string.IsNullOrWhiteSpace(raw)) return null;
-            try
+            // Find the JSON object inside the reply instead of demanding the whole reply BE one.
+            // Measured against the two vision models installed here: both gemma3:4b and gemma4:12b
+            // wrap the object in a ```json fence unprompted, however firmly the prompt says otherwise.
+            // JsonNode.Parse throws on the fence, which sent every such reply down the plain-text
+            // fallback below -- and because SanitizeResponseText only collapses whitespace, the
+            // companion then SPOKE the envelope: backticks, braces, "text":, "emotion": and all. That
+            // is worse than silence and it is almost certainly a large part of what reads as the AI
+            // misfiring. Bracket-scanning also absorbs a model that prefixes a sentence of preamble.
+            string json = ExtractJsonObject(raw);
+            if (json != null)
             {
-                JsonNode o = JsonNode.Parse(raw);
-                string text = SanitizeResponseText(JsonRead.Str(o["text"]));
-                string emotion = NormalizeEmotion(JsonRead.Str(o["emotion"]));
-                if (!string.IsNullOrWhiteSpace(text))
-                    return new BrainResponse(text, emotion);
+                try
+                {
+                    JsonNode o = JsonNode.Parse(json);
+                    string text = SanitizeResponseText(JsonRead.Str(o["text"]));
+                    string emotion = NormalizeEmotion(JsonRead.Str(o["emotion"]));
+                    if (!string.IsNullOrWhiteSpace(text))
+                        return new BrainResponse(text, emotion);
+                }
+                catch
+                {
+                    // Looked like JSON and was not -> fall through to the plain-text fallback.
+                }
             }
-            catch
-            {
-                // not JSON -> fall through to plain-text fallback
-            }
-            string fallback = SanitizeResponseText(raw);
+            // A model that answered in prose is still worth speaking, but only when the reply carried
+            // no JSON envelope at all; otherwise this is the path that read the braces out loud.
+            string fallback = SanitizeResponseText(json != null ? StripJsonObject(raw, json) : raw);
             return string.IsNullOrWhiteSpace(fallback)
                 ? null
                 : new BrainResponse(fallback, "neutral");
+        }
+
+        /// <summary>
+        /// The outermost <c>{...}</c> in a reply, or null when there is none. Deliberately the first
+        /// brace to the LAST one rather than a balanced scan: the payload is a flat two-key object, and
+        /// a balanced scan would still be defeated by a brace inside a string value, so the simple form
+        /// buys the same result for less that can go wrong.
+        /// </summary>
+        internal static string ExtractJsonObject(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return null;
+            int start = raw.IndexOf('{');
+            int end = raw.LastIndexOf('}');
+            if (start < 0 || end <= start) return null;
+            return raw.Substring(start, end - start + 1);
+        }
+
+        /// <summary>What is left of a reply once its JSON envelope is removed. Keeps a model's prose
+        /// preamble while ensuring the fallback can never speak the envelope itself.</summary>
+        private static string StripJsonObject(string raw, string json)
+        {
+            if (string.IsNullOrEmpty(raw) || string.IsNullOrEmpty(json)) return raw;
+            int at = raw.IndexOf(json, StringComparison.Ordinal);
+            if (at < 0) return raw;
+            string before = raw.Substring(0, at);
+            string after = raw.Substring(at + json.Length);
+            // Drop a code fence left stranded on either side once the object between them is gone.
+            return (before + " " + after).Replace("```json", " ").Replace("```", " ");
         }
 
         internal static string SanitizeResponseText(string value)

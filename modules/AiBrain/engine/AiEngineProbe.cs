@@ -71,6 +71,28 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "capture: a barely-visible window falls back to the monitor",
                     AiBrain.ChooseCaptureBounds(new DesktopAICompanion.Modules.PixelRect(2520, 100, 1200, 800), mon) == mon);
 
+                // --- reply parsing: the JSON envelope must never be spoken ---
+                // Fixtures are the literal shapes the two installed vision models emitted when A/B
+                // tested, fence and all. Before the extractor these went down the plain-text fallback
+                // and the companion read the braces and key names out loud.
+                string fence = new string('`', 3);
+                string fenced = fence + "json {\"text\": \"Well now, look at that file manager.\", " +
+                                        "\"emotion\": \"happy\"} " + fence;
+                string bare = "{\"text\":\"Bare object.\",\"emotion\":\"excited\"}";
+                ok &= Check(sb, "parse: a fenced object is found",
+                    AiBrain.ExtractJsonObject(fenced) != null &&
+                    AiBrain.ExtractJsonObject(fenced).StartsWith("{", StringComparison.Ordinal) &&
+                    AiBrain.ExtractJsonObject(fenced).EndsWith("}", StringComparison.Ordinal));
+                ok &= Check(sb, "parse: a bare object is found unchanged",
+                    AiBrain.ExtractJsonObject(bare) == bare);
+                ok &= Check(sb, "parse: prose with no object yields nothing to parse",
+                    AiBrain.ExtractJsonObject("The image shows a computer screen.") == null);
+                ok &= Check(sb, "parse: an empty reply yields nothing to parse",
+                    AiBrain.ExtractJsonObject("") == null);
+                // A stray opening brace with no close is not an object, and must not be treated as one.
+                ok &= Check(sb, "parse: an unterminated object yields nothing to parse",
+                    AiBrain.ExtractJsonObject("oh {text: broken") == null);
+
                 // --- backend construction (types + HttpClient load in the module ALC; no network) ---
                 try
                 {
