@@ -1464,6 +1464,15 @@ namespace DesktopAICompanion.Ai
         // or widely-recognized markers) — a model with none of these is simply untagged, not "safe"; this is
         // a positive advisory tag for model-picker UI (e.g. surfacing a model that will actually commit to a
         // profane persona), never a claim about actual content or a hard filter.
+        //
+        // MEASURED 2026-09-10, and the tag turned out to predict nothing. A/B across five local text
+        // models against the Jules Winnfield disposition, whose instruction explicitly requires curse
+        // words spelled out in full: the safety-tuned control (gemma3:4b) complied, and the ONLY model
+        // that failed was `llama2-uncensored` -- the one this marker list flags most confidently. It
+        // dropped the persona entirely and replied "The screen is displaying a code editor.", twice, in
+        // independent runs. Two of the three `dolphin` matches did comply, so the list is not useless,
+        // but it is a naming convention and not a capability test. Do not let the UI imply otherwise,
+        // and do not use it to steer a persona to a model. See the model table in Readme.md.
         private static readonly string[] UncensoredModelMarkers =
         {
             "dolphin", "uncensored", "abliterated", "unfiltered",

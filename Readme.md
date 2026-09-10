@@ -118,6 +118,66 @@ want it:
   module only falls back to **Tesseract** if you have it, and **Options → AI → Choose OCR engine…**
   lets you pick. **Test OCR** confirms which one answered.
 
+#### Recommended local models
+
+Measured on this project's own workload, not borrowed from a leaderboard: the real system prompt, a
+real screen capture at the width the module actually sends (896px), and the shipped dispositions.
+Ollama on one RTX-class GPU, cold load reported separately from warm because a user pays it once per
+session rather than per remark.
+
+**Vision model** — used when the companion looks at the screen.
+
+| model | size | warm | cold | usable JSON | verdict |
+|---|---:|---:|---:|:---:|---|
+| **`gemma3:4b`** | **3.3 GB** | **456 ms** | **10.9 s** | yes | **recommended** |
+| `gemma4:12b` | 7.6 GB | 52 s | 66 s | yes | correct but far too slow |
+| `moondream` | 1.7 GB | 357 ms | 30.9 s | **no** | unusable, see below |
+
+`moondream` is fast and tiny and still the wrong choice: it is a captioner, not an instruction
+follower. Asked for an in-character remark as JSON it returns a generic description of the image
+("The image shows a computer screen displaying a webpage with three tabs open…"), often of things
+that are not there. The module parses a reply as `{"text":…,"emotion":…}` and speaks nothing when
+that fails, so a captioner produces a companion that is permanently, silently mute.
+
+`gemma4:12b` answers correctly every time and takes **52 seconds** to do it. That is not a latency
+figure for a desktop companion, it is an abandonment figure. It is also a multimodal generalist
+carrying audio and tool-calling this module never invokes, which is what the extra 4.3 GB buys.
+
+**Text model** — used for the faster OCR path, and the one that has to carry a persona.
+
+| model | size | avg | Ted Lasso | Jeselnik | Jules Winnfield | verdict |
+|---|---:|---:|:---:|:---:|:---:|---|
+| **`gemma3:4b`** | **3.3 GB** | **406 ms** | ✅ | ✅ | ✅ | **recommended** |
+| `dolphin3` | 4.9 GB | 341 ms | ✅ | ✅ | ✅ | good alternative, fastest |
+| `dolphin-mistral` | 4.1 GB | 552 ms | ✅ | ✅ | ✅ | fine, wordier |
+| `nemotron-3-nano:4b` | 2.8 GB | 1,272 ms | ✅ | ~ | ✅ | 3x slower, weaker voice |
+| `llama2-uncensored` | 3.8 GB | 630 ms | ~ | ~ | ❌ | **not recommended** |
+
+Six of the 26 dispositions (Jeselnik, Jeff Ross, Jules Winnfield, Drill Sergeant, Beavis & Butthead,
+Walter) ask for material a safety-tuned model may decline, so the three columns are a gradient:
+Ted Lasso is a benign control, Jeselnik applies mild pressure, and Jules Winnfield is the hard case —
+its instruction explicitly requires real curse words "spelled out in full, never censored with
+asterisks or symbols", which makes compliance a clean pass or fail rather than a judgement call.
+
+**The result worth knowing: "uncensored" in a model's name predicts nothing.** The aligned control
+matched or beat every uncensored model, and `llama2-uncensored` — the one whose name promises exactly
+this capability — was the only outright failure, in two independent runs. It dropped the persona
+entirely and answered "The screen is displaying a code editor." It is a 2023-era Llama 2 fine-tune and
+it shows: it also leaked the JSON envelope into its own remark text and reads as an assistant rather
+than a character.
+
+So the module's `LooksUncensored` name-marker check (`dolphin`, `uncensored`, `abliterated`,
+`unfiltered`) should be read as what it claims to be — an advisory label, never a capability test.
+
+**One model does both jobs.** `gemma3:4b` is the recommendation for the vision model *and* the text
+model, which replaces an 11.4 GB pair (`llama2-uncensored` 3.8 GB + `gemma4:12b` 7.6 GB) with a single
+3.3 GB download and no measured loss on any axis. It is also the module's shipped default, so a fresh
+install is already pointed at it — `ollama pull gemma3:4b` is the whole setup.
+
+> Sizes are Ollama's Q4 quantisations. Numbers move with hardware, quantisation and Ollama version;
+> what should survive is the shape — a 3-4B instruction-tuned model is the right class for a one-line
+> remark, a 12B+ model is too slow to feel alive, and a captioning VLM cannot hold a persona at all.
+
 > **Privacy:** fortunes and smart-fortunes are entirely local. The optional AI brain can send window,
 > OCR, screenshot, persona, and recent-conversation context to the provider you configure after it
 > is enabled. Remote providers require explicit cloud-data consent. See [`PRIVACY.md`](PRIVACY.md).
