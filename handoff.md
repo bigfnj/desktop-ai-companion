@@ -41,8 +41,11 @@ See `BACKLOG.md`, the `DONE (2026-09-10, tagged v1.0.0)` block — corpus 26 sou
 
 - **BUG-001 and BUG-002 are filed in `BACKLOG.md` under "Known bugs (post-1.0.0)"** and both have a
   reliable repro. BUG-001 is the tray icon after an MSI install; BUG-002 is the vision feature failing
-  silently when the configured model is not installed, which is also the reason `modules/AiBrain/` has
-  **zero** `DiagnosticLog` calls and should be the first thing fixed there.
+  silently when the configured model is not installed. Its diagnosability is filed separately as
+  **"Open: instrument the modules, AI Brain first"** -- `IHost.Log` already routes a module's lines into
+  the diagnostic log with per-module muting, and all of `modules/AiBrain/` uses it once. Start there;
+  everything else in that module is guesswork until it logs. Never log prompt text, capture content,
+  OCR output or replies -- users attach this file to issues.
 - **The tray icon.** Reported missing again after installing a fresh MSI. The diagnostic log, built
   precisely for this, says the app did everything right on both runs: `success=True icon=True
   visible=True`, and the shell's `NotifyIconSettings` entry has `IsPromoted=1` for the exact install path,

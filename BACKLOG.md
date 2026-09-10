@@ -63,9 +63,10 @@ smoke-test, changed back, never worked again). That makes the real defect broade
 **a saved model id is never re-validated against what the backend currently has.** A refresh that drops
 a model should say so, or clear the setting, rather than leaving it pointing at nothing.
 
-**The part that makes it undiagnosable:** `DiagnosticLog` is referenced **zero** times anywhere in
-`modules/AiBrain/`. The log added in Phase 4b to make invisible faults visible has no instrumentation in
-the one subsystem that fails by returning null on purpose.
+**The part that makes it undiagnosable:** modules reach the log through `IHost.Log`, and all of
+`modules/AiBrain/` contains **one** such call. The log added in Phase 4b to make invisible faults
+visible has effectively no instrumentation in the one subsystem that fails by returning null on
+purpose. See the diagnostics work item below.
 
 **Fix, in order of value:**
 
@@ -87,6 +88,56 @@ the one subsystem that fails by returning null on purpose.
 
 ---
 
+## ▶ Open: instrument the modules, AI Brain first (filed 2026-09-10)
+
+BUG-002 was undiagnosable for a reason that is not specific to BUG-002, so it is worth its own item.
+
+**The plumbing already exists and is barely used.** `IHost.Log(moduleId, message)`
+(`PluginApi.cs:552`) routes a module's line into the same rotating diagnostic log the host writes,
+under the `Modules` category, with per-module muting already keyed on the module id
+(`DiagnosticLog.IsEnabled(category, moduleId)`). Nothing needs building for a module to be
+diagnosable. Current usage:
+
+| module | `IHost.Log` calls |
+|---|---:|
+| Remembrance | 8 |
+| Reminder | 4 |
+| **AiBrain** | **1** |
+| Fortunes | 0 |
+| PetStudio | 0 |
+| BlinkingLed | 0 |
+
+**AI Brain first, because it is the module that fails by design.** `AskAboutScreenAsync` ends in a
+bare `catch { return null; }` and the caller treats null as "nothing to say", so every failure mode
+looks identical to normal quiet operation. What to record, in rough value order:
+
+1. **The swallowed exception itself** — model, endpoint host, and error category, at the catch in
+   `AiBrain.cs:257-262`. This is the whole of BUG-002's diagnosability and should land first.
+2. **Backend availability transitions** — `IsAvailableAsync` flipping, with the reason. Currently a
+   `catch { return false; }`.
+3. **Model resolution** — what was configured, what was normalized, and whether the backend actually
+   offers it. This is where BUG-002 becomes obvious at a glance rather than after an investigation.
+4. **Request outcome** — latency, retry count, whether a retry was attempted, and the parse result.
+   `ChatWithRetryAsync` swallows retryable exceptions with `catch (Exception ex) when
+   (AiEndpointPolicy.IsRetryable(ex, ct)) { }`, so a request that retried and gave up is invisible.
+5. **Vision-specific path** — capture size, whether OCR or vision was used, and whether Tesseract was
+   resolved. `ResolveTesseract` is wrapped in `catch { }`.
+
+**Never log:** prompt text, screen-capture content, OCR output, model replies, or API keys. The
+diagnostic log is explicitly "no message text" in the Preferences label and `SUPPORT.md` tells users
+they can attach it to an issue. This is the one part of the item that must not be got wrong: the AI
+module is the one place where careless logging would export the contents of the user's screen.
+
+**Open design question.** Whether AI lines want their own `LogCategory` (currently App, Companions,
+Modules, Tray, Network, Audio, Animation) or stay under `Modules` and rely on the existing per-module
+mute. Per-module muting probably suffices, and a category is only worth adding if AI volume would bury
+the rest -- in which case follow the `Animation` precedent and default it off. Decide before writing
+the calls, not after.
+
+Fortunes, PetStudio and BlinkingLed are at zero and should follow, but none of them fail silently by
+construction, so they are lower value.
+
+---
 ## ✅ DONE (2026-09-10, tagged v1.0.0) — the fortune library, the licence, and the inherited-docs cull
 
 Reactive session: every item started as something the maintainer noticed in the shipped UI or repo, not
