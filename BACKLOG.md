@@ -138,6 +138,48 @@ Fortunes, PetStudio and BlinkingLed are at zero and should follow, but none of t
 construction, so they are lower value.
 
 ---
+## ▶ Open: "Show me 5 examples" for the Disposition dropdown (requested 2026-09-10)
+
+Maintainer request: the same affordance Fortunes has, but for the AI persona. Pick a Disposition, press
+a button, see five things it would actually say — so the character is judged by its voice rather than
+by its name.
+
+**The precedent.** `FortunesModule.cs:328` —
+`new PaneAction { Label = "Show me 5 examples", InvokeAsync = PreviewFortunesAsync, Group = "Content level" }`
+— sits in the same group as the controls it previews. The AI equivalent belongs in `Group = "Persona"`,
+next to `new SettingField { Id = "disposition", ... }` at `AiBrainModule.cs:187`. The catalog to sample
+from is `Dispositions.All` in `modules/AiBrain/engine/Dispositions.cs` (each entry is `{ Id, Name,
+Instruction }`, a complete tone-plus-delivery instruction; default `ted-lasso`).
+
+**Why this is not a copy of the Fortunes one.** That draws five rows from a local corpus: instant, free,
+and it cannot fail. This has to run five inferences. That changes five things:
+
+1. **It is slow and cancellable.** Five sequential generations on a 12B local model is not a button
+   press, it is a progress bar. Needs a cancel path and a per-sample timeout, and must not block the
+   options window.
+2. **It must preview the PENDING dropdown value, not the saved one.** The user's whole intent is to
+   audition a disposition *before* Apply. A `PaneAction` that reads the stored setting would preview the
+   old persona and look broken. This is the same class of bug as the staged-tick overlay fixed in
+   Fortunes on 2026-09-10 — the fix there was to overlay pending state rather than read the file, and
+   the host will need an equivalent for a pending enum value.
+3. **There is no screen to react to.** The runtime prompt is built around a `ScreenContext`, and the
+   feature's value is judging *voice*, not accuracy. Sampling against the live screen gives five
+   near-identical remarks about the same window. Prefer a small set of canned synthetic contexts
+   (a code editor, a video, an empty desktop, a spreadsheet, a browser) so the five samples differ and
+   the persona is what varies. Keep them in the module, not in the prompt builder.
+4. **On a cloud provider this spends real money and sends data.** Five calls per press, and the user may
+   press it repeatedly while comparing characters. Confirm before the first cloud sample, or restrict
+   the feature to the local backend, or both. Do not let a persona audition become a silent bill.
+5. **It will hit BUG-002.** If the configured model is absent or the backend is down, five failed
+   inferences currently produce `null` five times and the button appears to do nothing — exactly the
+   fault BUG-002 describes, in a second place. **Depends on** the error-surfacing work in "instrument
+   the modules, AI Brain first"; building this first would just add another silent-dots surface.
+
+**Nice-to-have once it works:** sample the whole catalog rather than one entry, so the dropdown can be
+chosen by reading voices side by side. That is a bigger UI than a `PaneAction` and should not gate the
+simple version.
+
+---
 ## ✅ DONE (2026-09-10, tagged v1.0.0) — the fortune library, the licence, and the inherited-docs cull
 
 Reactive session: every item started as something the maintainer noticed in the shipped UI or repo, not
