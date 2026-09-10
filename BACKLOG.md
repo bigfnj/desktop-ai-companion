@@ -88,6 +88,56 @@ purpose. See the diagnostics work item below.
 
 ---
 
+### BUG-003 — screen capture returns the wallpaper, and follows the wrong monitor
+
+**Reported 2026-09-10.** Two symptoms, and they have different causes:
+
+**(a) The capture shows only the desktop wallpaper, not the foreground windows.**
+
+**(b) Moving the companion to the second monitor still captures the first.**
+
+**Symptom (b) is explained, and it may be a design decision rather than a defect.** Capture deliberately
+follows the **foreground window's** monitor, not the companion's. `ActiveWindow.CaptureContext`
+(`src/dotNet/Ai/ActiveWindow.cs:120`) reads `GetForegroundWindow`, takes its rect, and calls
+`DesktopGeometry.SelectCaptureMonitor(foregroundBounds, fallback, monitors)`; the companion's own
+monitor arrives only as `fallback`, and its own doc comment says "if no usable foreground window exists,
+fall back to the monitor containing the pet". `FormCompanion.CaptureScreenBounds` correctly resolves the
+companion's monitor via `Screen.FromRectangle(Bounds).Bounds`, so the input is right and the preference
+is what surprises.
+
+So with the companion on monitor 2 and the active window on monitor 1, capturing monitor 1 is the code
+working as written. Two defensible readings: react to *what the user is looking at* (current behaviour)
+or *what is around me* (the reported expectation). **Pick one deliberately.** A reasonable resolution is
+to prefer the companion's monitor when the foreground window is on a different one, since a companion
+commenting on a screen it is not standing on reads as broken regardless of which is more useful.
+Note `IsOwnWindow` already blanks the title and ignores the bounds when one of our own windows is
+foreground, so an open Options window correctly falls through to the companion's monitor.
+
+**Symptom (a) is not yet explained, but several plausible causes are eliminated.** Verified correct:
+
+- the blit **does** pass `CAPTUREBLT` — `StretchBlt(..., Srccopy | Captureblt)` at
+  `modules/AiBrain/engine/AiBrain.cs:374`, so this is not the classic missing-flag bug;
+- the source is the screen DC, `GetDC(IntPtr.Zero)`, not a window DC or the desktop window;
+- DPI is **not** the problem: `PerMonitorV2` is declared in both `src/Properties/app.manifest:31-32`
+  and `Application.SetHighDpiMode` at `src/dotNet/Program.cs:46`, so `Screen.Bounds` is in physical
+  pixels and cannot be virtualised out of alignment with the screen DC;
+- bounds selection is sane, and symptom (b) shows the rect is a real monitor rect, not a degenerate one.
+
+Leading remaining candidate: **GDI cannot reliably read DWM-composited content.** `BitBlt`/`StretchBlt`
+from the screen DC is the legacy path; GPU-rendered and hardware-overlay window content is not
+guaranteed to be present in it, and the wallpaper is what remains when it is not. The supported modern
+answers are DXGI Desktop Duplication or `Windows.Graphics.Capture`. Confirm before rewriting anything:
+if it is this, a plain Notepad window will capture fine while a browser or a video will not.
+
+**Both are blocked on instrumentation, for the same reason as BUG-002.** Nothing records the chosen
+rect, which monitor won, or whether the resulting bitmap was uniform, so this is currently unfalsifiable
+from a user report. See "instrument the modules, AI Brain first" — log the selected bounds, the
+foreground-vs-companion decision, and a cheap uniformity check on the bitmap.
+
+**Privacy constraint on any diagnostic here:** never write capture content, OCR text or a bitmap into
+the diagnostic log. Users attach it to issues. If a visual dump is needed to diagnose this, it must be a
+separate, explicit, opt-in, one-shot action that says where it wrote the file.
+
 ## ▶ Open: instrument the modules, AI Brain first (filed 2026-09-10)
 
 BUG-002 was undiagnosable for a reason that is not specific to BUG-002, so it is worth its own item.
@@ -122,6 +172,9 @@ looks identical to normal quiet operation. What to record, in rough value order:
    (AiEndpointPolicy.IsRetryable(ex, ct)) { }`, so a request that retried and gave up is invisible.
 5. **Vision-specific path** — capture size, whether OCR or vision was used, and whether Tesseract was
    resolved. `ResolveTesseract` is wrapped in `catch { }`.
+6. **Capture selection, for BUG-003** — the chosen monitor rect, whether the foreground window or the
+   companion's own monitor won it, and a cheap uniformity check on the resulting bitmap. That last one
+   turns "it captured the wallpaper" from a user report into a fact. This item now gates two bugs.
 
 **Never log:** prompt text, screen-capture content, OCR output, model replies, or API keys. The
 diagnostic log is explicitly "no message text" in the Preferences label and `SUPPORT.md` tells users
