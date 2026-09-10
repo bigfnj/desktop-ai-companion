@@ -1,15 +1,19 @@
 # Fortune Sources — Harvest & Assessment
 
 Working doc for the Fortune Sheep corpus. Every source below was downloaded, normalized to
-bubble-sized entries (8–280 chars, whitespace-collapsed), then run through the **real shipping
-pipeline** (`strip-authors.py` + `classify-corpus.py`). Columns:
+bubble-sized entries (8–280 chars, whitespace-collapsed), then run through what was then the shipping
+pipeline (`strip-authors.py` + `classify-corpus.py`). That pipeline no longer produces the corpus:
+`build-corpus.sh` now assembles it from already-labelled inputs, because the topic/genre labels cannot
+be regenerated. Columns:
 
 - **n** — deduped entries that survived the full pass
 - **edgy / nsfw** — how many our classifier flagged (the rest are `general`)
 - **rec** — historical planning labels: `INCLUDE` (candidate for the embedded core), `PACKAGE`
   (candidate for an opt-in download), or `IGNORE`
 
-Raw combined harvest: `scratchpad/harvest/fortunes-harvest.txt` (+ `bofh.txt`).
+Raw combined harvest: `harvest/fortunes-harvest.txt` plus `bofh.txt`, in the session scratchpad. That
+was working material outside the repo, was never committed, and no longer exists; the per-source table
+below is the record that survived.
 Total harvested (pre-curation): **~41,800 entries** across ~120 source files.
 
 Harvest caveats: Mitch Hedberg gist returned the scrape *script* not jokes (junk); type.fit's
@@ -29,9 +33,14 @@ section immediately below records the embedded corpus that actually ships now.
 
 ---
 
-## What we actually ship — 26 sources, 10,311 entries
+## What we shipped before 1.0.0 — 26 sources, 10,311 entries
 
-`n` is the exact embedded row count. `edgy` and `nsfw` are the stored content-level tags. The
+**Historical.** The built-in corpus is now **2 sources and 3,225 lines** (Classic Fortunes plus Dad
+Jokes); the other 24 became downloadable packs. See
+[`docs/FORTUNE-SOURCE-TABLE.md`](docs/FORTUNE-SOURCE-TABLE.md) for the current picture. The table below
+is kept because it records the per-source harvest and classification evidence, which nothing else does.
+
+`n` was the exact embedded row count at the time. `edgy` and `nsfw` are the stored content-level tags. The
 runtime parser may raise a row's effective severity when its text is more restrictive than its
 stored tag; it never lowers the supplied severity.
 

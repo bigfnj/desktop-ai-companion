@@ -5,6 +5,74 @@
 
 ---
 
+## ✅ DONE (2026-09-10, tagged v1.0.0) — the fortune library, the licence, and the inherited-docs cull
+
+Reactive session: every item started as something the maintainer noticed in the shipped UI or repo, not
+as a filed backlog item. Recorded because several of the fixes were guards that should have caught the
+problem and did not.
+
+- **Built-in corpus cut from 26 sources / 10,310 lines to 2 / 3,225** — Classic Fortunes (431) and Dad
+  Jokes (2,794). The trim could not be a delete: six sources existed ONLY in the corpus with no pack
+  (`quotable` 2,109, `cleanjokes` 1,588, `godin` 401, `SimpsonsChalkboard` 365, `activists` 357,
+  `BibleAbridged` 48), and nine more had packs that were not supersets of the built-in slice, so 55
+  further lines would have gone too. All exported/backfilled; the migration verified all 9,879 departing
+  lines were reachable in a pack before writing anything.
+- **Pack categories regrouped 12 → 7.** Classic Fortunes sat under "Comedy & One-liners" while Fortune
+  Cookies sat two categories away; they are now together in "Fortunes & Wisdom". Three old categories
+  described tone rather than subject ("Spicy", and the clean/mature TV split) and duplicated the
+  per-fortune content-level filter that already exists; three more were a single source each. NSFW stays
+  separate as a deliberate exception: it is a safety boundary, not a genre.
+- **A licence grant that never existed, removed 165 times.** Every pack advertised
+  `LicenseRef-DesktopPet-Community` in the catalog. That identifier names the pre-rename product and its
+  licence text exists nowhere, so it granted nothing — while asserting a grant over exactly the material
+  `THIRD_PARTY_NOTICES.md` lists as a redistribution blocker. Now `NOASSERTION`, and declared **once** at
+  the catalog root instead of copied onto all 158 pack entries (`catalog.json` lost 157 lines). A pack may
+  still override it, so a differently-licensed pack needs no schema change.
+- **629 files / 6.6 MB of inherited documentation deleted.** `docs/html/` documented `DesktopPet.exe`,
+  `DesktopPet.Form` and `DesktopPet.Tools` — the upstream codebase. `FormCompanion`, the current main
+  form type, appeared in **0 of 399** files. Three different `Documentation.chm` copies existed. Also the
+  inherited Jekyll website, which had already been relabelled an archive and was never served (Pages is
+  not enabled). Removing it retired the Ms-PL licence section too, which existed only to cover
+  `docs/SearchHelp.aspx` and the Sandcastle branding scripts.
+- **`build-corpus.sh` could not reproduce its own output and would have destroyed it.** It built schema v1
+  from a pinned JKirchartz clone; the committed corpus is v2, and the topic/genre columns came from a
+  labelling pass whose store is gitignored and gone. It is now an assembler over inputs that exist as
+  labelled v2 data, with a `--check` mode that reproduces the committed file byte for byte. Classic
+  Fortunes moved to `src/Fortunes/sources/fortunes.tsv` so the corpus has a real input instead of being
+  its own source. Mutation-tested 4/4 FIRED.
+- **Select all / Select none restored** on the installed-pack and genre lists. The pre-1.0.0 Options tab
+  had them; the ListCard rewrite kept them only on "Available online". With 158 packs the absence bit
+  hardest exactly when it mattered. Both cards are `DeferChanges`, so the actions stage like an ordinary
+  tick and a bulk change still costs one settings write and one engine rebuild at Apply.
+- **Text option rows stretched to the row height.** `BuildRow` is a `DockPanel` with `LastChildFill` and a
+  fixed 165px wrapping label, so a two-line label grew the editor with it. `TextBox`/`PasswordBox` now pin
+  `VerticalAlignment.Center`, which `CheckBox` and the status rows already did.
+- **Phase 6 completed and decoupled from Phase 5.** `bigfnj/desktopPet` deleted, which was the only clean
+  way to remove a work identity from a public git history. The other three Phase 6 items were already
+  true. The plan's own Phase 6 text had been damaged by the rename sweep and named the LIVE data root as
+  the thing to delete; corrected before executing.
+
+### Three guards that should have caught these and did not
+
+1. **`--fortunes-selftest` hard-coded a collection name.** It asserted `dadGroup == "Dad Jokes"`, which the
+   regrouping invalidated, and CI went red for three pushes before it was noticed. Now asserts the
+   property it describes: a curated id resolves somewhere curated, an unknown one falls back to
+   "More packs".
+2. **`FindAction` resolves a label pane-wide and returns the first match.** Adding "Select all" to two more
+   cards silently retargeted the catalog-download test at the installed-packs list. There is now a
+   card-scoped overload and the catalog steps name their card.
+3. **The staged-tick overlay was missing.** `LoadSourceItems`/`LoadGenreItems` read the saved setting while
+   ticks live in `_stagedDisabled` until Apply, so any `ReloadPaneAfter` action would redraw from disk and
+   discard them — a bulk button that looked inert. Both loaders now overlay staged state.
+
+### Still stale after this session
+
+- `BACKLOG.md:1480` describes "12 named collections" in the embedded `packs/collections.json`. It is 7 now.
+- The items in the docs-debt section below are unchanged apart from `Changelog.md`, which was deleted
+  outright with the rest of the Jekyll site.
+
+---
+
 ## ▶ Open: post-1.0.0 docs debt (filed 2026-09-09)
 
 Audited after the 1.0.0 rebase. Corrected already: `Readme.md` (old product name in the H1, wrong MSI
@@ -64,7 +132,7 @@ fresh repository on 2026-09-04, and all six catalog modules were rebased to **1.
    residual base fortune/AI code + Options tabs + Newtonsoft→System.Text.Json) — **all DONE + MERGED.**
    **S6 phase 1 (bare host + in-app Modules catalog) — DONE + MERGED (PR #68, 2026-08-11), detail below.**
    **Next: S6 phase 2** (Companions becomes a module too, pre-installed by default) — full plan in
-   [`S6P2-PETS-MODULE-PLAN.md`](S6P2-PETS-MODULE-PLAN.md), which folds in the old #16 (per-companion
+   `S6P2-PETS-MODULE-PLAN.md` (never written; the work landed directly), which folds in the old #16 (per-companion
    personality/voice). **S7 (third-party module code-signing + consent) is DROPPED (2026-08-13):** real
    signing isn't coming any time soon, and S6 phase 1's hash-pinning + permissions-consent already covers
    the in-catalog case — revisit if/when third-party signing is actually on the table. **TTS was DROPPED as
@@ -648,8 +716,8 @@ reports SILENT and is indistinguishable from a missing guard.
   **✅ DONE the same day (2026-09-02, format 1.6 -> 1.8, master at `65eb2c0`).** I first recommended NOT
   re-migrating, on the grounds that changing every `sha256` makes existing users re-download ~40 MB to save
   7 MB. The maintainer overruled it in one line: there are no users but them. **That is the
-  [no-users-until-10-stars gate](CLAUDE.local.md) and I should have applied it before recommending a
-  deferral -- the whole point of that gate is that blast-radius arguments are void at 0 stars.** Checked
+  no-users-until-10-stars rule, and I should have applied it before recommending a deferral -- the whole
+  point of it is that blast-radius arguments are void at 0 stars.** Checked
   after the fact: 0 stars, 0 forks.
   Shipped as two migrations plus the emitter fixes that stop both causes recurring: `dedupe` (1.6 -> 1.7)
   collapses cells by CONTENT and re-grids, `undirect` (1.7 -> 1.8) drops the suffix. Catalog companion content

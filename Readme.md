@@ -1,5 +1,5 @@
 ﻿<p align="center">
-  <img src="docs/images/showcase.png" alt="A pasture of DesktopAICompanion companions under a blue sky" width="640">
+  <img src="docs/images/showcase.png" alt="A pasture of Desktop AI Companion companions under a blue sky" width="640">
 </p>
 
 # 🐑 Desktop AI Companion
@@ -68,14 +68,14 @@ rather it never reached the network unprompted. Notify-only either way: nothing 
 <img align="right" width="68" src="Companions/fox/icon.png" alt="Fox">
 
 One-liners — quotes, jokes, philosophy, Simpsons chalkboard gags, the abridged Bible, and more. The
-module carries a built-in corpus of ~10,000 lines, so it has something to say the moment it installs,
+module carries a built-in corpus of ~3,200 lines, so it has something to say the moment it installs,
 before you download a single pack. Install it from **Options → Modules**, then from
 **Options → Fortunes** you can:
 - Dial the tone with one ordered **Content level** — *Clean only* / *Clean + edgy* / *Everything* /
   *Spicy only* — plus a separate **Filter profanity** switch for recognized profanity and explicit
   sexual content. A live count under the controls says how many fortunes the current selection
   actually leaves (and warns when that is none), and **Show me 5 examples** prints what it would say.
-- **Pick sources** — 150+ per-source packs, grouped into collapsible collections with a filter box,
+- **Pick sources** — 158 downloadable packs, grouped into seven collapsible collections with a filter box,
   so you can run only Simpsons + Futurama if you want.
 - **Download packs** — *Check online for packs*, tick the ones you want, then *Download selected*;
   each download is SHA-256-verified against the published `catalog.json`.
@@ -103,12 +103,12 @@ it just showed, and falls back to the full library whenever it isn't sure. Toggl
 <img align="left" width="68" src="Companions/neko/icon.png" alt="Neko">
 
 A screen-commentary LLM: the companion glances at your screen (OCR or a vision model) and speaks an original
-remark. It's **off out of the box**, so DesktopAICompanion does not contact the configured provider. When you
+remark. It's **off out of the box**, so Desktop AI Companion does not contact the configured provider. When you
 want it:
-- Right-click the tray → **Enable AI**. **Disable AI** cancels DesktopAICompanion's provider requests. With
+- Right-click the tray → **Enable AI**. **Disable AI** cancels Desktop AI Companion's provider requests. With
   Ollama, configured warm-up and unload operations also control that server's keep-alive model
   memory. Generic OpenAI-compatible providers expose no remote-memory control, so disabling
-  DesktopAICompanion does not promise to free memory owned by those servers.
+  Desktop AI Companion does not promise to free memory owned by those servers.
 - Works with **any OpenAI-compatible provider** — Ollama (local, with keep-alive VRAM control),
   LM Studio, llama.cpp, OpenRouter, OpenAI, or a custom `/v1` endpoint. Pick one in **Options → AI**;
   cloud keys are stored **DPAPI-encrypted**.
@@ -226,8 +226,11 @@ Each GitHub release provides two Windows x64 artifacts:
 - **`DesktopAICompanion.msi`** — a per-user installer (no admin).
 - **`DesktopAICompanion-Portable.zip`** — unzip anywhere and run `DesktopAICompanion.exe`.
 
-Either way you get the whole thing (sheep + fortunes + smart model + AI runtime) with **no downloads
-required** to run. The builds are **unsigned** — verify them against `SHA256SUMS.txt` on the release.
+Neither download carries the plugin modules: they come from the in-app catalog, which is what keeps the
+installer small. The portable ZIP additionally bundles six companions and all 158 fortune packs offline;
+the MSI carries neither, so a fresh install starts with the built-in companions and two built-in fortune
+sources until you install Fortunes from **Options -> Modules**. The builds are **unsigned** -- verify
+them against `SHA256SUMS.txt` on the release.
 
 ---
 
@@ -342,7 +345,9 @@ $wix = Join-Path $env:TEMP 'DesktopAICompanion-WiX-5.0.2'
   **Fortunes module package**, not beside the exe — the installer and the ZIP are lean and carry no
   modules, so it arrives when the user installs Fortunes from the in-app catalog (~30 MB, which is
   almost entirely this model + runtime). The corpus + packs pipeline lives in
-  [`src/Fortunes/`](src/Fortunes/) (`build-corpus.sh` → `strip-authors.py` → `classify-corpus.py`).
+  [`src/Fortunes/`](src/Fortunes/). `build-corpus.sh` assembles the corpus from the labelled inputs named
+in `corpus-required-files.txt` and verifies it with `--check`; there is deliberately no path back to the
+upstream fortune files, because the topic/genre labels cannot be regenerated.
 
 - The Shimeji conversion engine lives in [`tools/ShimejiConvert.Engine`](tools/ShimejiConvert.Engine/)
   and is **shared**: Companion Studio source-links it for in-app import (above), and the
@@ -351,11 +356,14 @@ $wix = Join-Path $env:TEMP 'DesktopAICompanion-WiX-5.0.2'
   rules, so converted companions are graded by exactly what the app enforces. It bundles libwebp's `dwebp`
   (BSD) to decode Android-bundle WebP sprites with alpha, since the Windows WebP codec drops it.
 
-> ⚠️ The portable csproj compiles the engine from `src/dotNet/*` but the tray dialogs (FormOptions,
-> AboutBox, FormHelp) from **`src/Portable/*`** — edit the options UI there.
+> ⚠️ The portable csproj compiles the engine from `src/dotNet/*` but the settings and About windows
+> (`OptionsWindow.cs`, `OptionsShell.cs`, `AboutWindow.cs`) from **`src/Portable/Wpf/*`** — edit the
+> options UI there. Help was folded into About.
 
-See [`grimoire/`](grimoire/) for a deep architecture reference and
-[`FORTUNE-SOURCES-ASSESSMENT.md`](FORTUNE-SOURCES-ASSESSMENT.md) for the corpus inventory.
+See [`grimoire/`](grimoire/) for a deep architecture reference,
+[`docs/FORTUNE-SOURCE-TABLE.md`](docs/FORTUNE-SOURCE-TABLE.md) for every source and its collection, and
+[`FORTUNE-SOURCES-ASSESSMENT.md`](FORTUNE-SOURCES-ASSESSMENT.md) for the original harvest assessment
+(its per-source table predates the corpus cut).
 
 ### Continuous integration & releases
 

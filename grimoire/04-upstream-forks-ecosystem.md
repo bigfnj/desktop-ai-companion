@@ -16,7 +16,7 @@ project sites; treat star/fork counts as a snapshot. Uncertain items are flagged
 - **Latest release:** **`v1.3.2`, 2025-08-08** (fixed local-XML loading)
   (<https://github.com/Adrianotiger/desktopPet/releases>).
 - **Distribution:** portable single-`.exe` (GitHub Releases), a **Microsoft Store UWP** app
-  (`9MX2V0TQT6RM`, see [`Download.md`](../Download.md)), and an Android build linked from the Pages site.
+  (`9MX2V0TQT6RM`), and an Android build linked from the Pages site.
 
 ### License — important
 
@@ -42,8 +42,8 @@ The wiki (<https://github.com/Adrianotiger/desktopPet/wiki>, ~13 pages) is the c
 `animations.xml`: *Introduction, Structure, Header, Image, Spawn, Animation, Child, Coordinate, Next*
 (plus Home/Help). [03 — Companion XML Format](03-companion-xml-format.md) is the offline, code-verified companion to
 it. There is also an **online editor** at <https://esheep.petrucci.ch> and a downloadable **offline
-editor** (release tag `editor0.2`), mirrored in this repo under [`Tools/`](../Tools) (`PetEditor`,
-`PetTester`) and [`Manual - online editor.docx`](../Manual%20-%20online%20editor.docx).
+editor** (release tag `editor0.2`), formerly mirrored in this repo as `Tools/` (`PetEditor`,
+`PetTester`) and `Manual - online editor.docx`; all three were removed at 1.0.0.
 
 ## 2. This fork: `bigfnj/desktop-ai-companion` (AI Edition)
 
@@ -152,4 +152,4 @@ GitHub API + repos/sites, 2026-07-27:
 <https://github.com/lwu309/Scmpoo> ·
 <https://kilkakon.com/shimeji/> ·
 <https://samperson.itch.io/desktop-goose>.
-In-repo: [`Download.md`](../Download.md), [`Companions/companions.json`](../Companions/companions.json), [`Companions/README.md`](../Companions/README.md).
+In-repo: [`Companions/companions.json`](../Companions/companions.json), [`Companions/README.md`](../Companions/README.md).

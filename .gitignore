@@ -198,7 +198,7 @@ appsettings.*.local.json
 DesktopPet.config
 
 # Generated fortune-labeling work. These exact paths are also fail-closed in
-# packaging/Invoke-ReleaseGate.ps1 and must never enter a source or release artifact.
+# the retired release-gate scripts and must never enter a source or release artifact.
 /src/Fortunes/label-input.tsv
 /src/Fortunes/labels-store.tsv
 /src/Fortunes/label-chunks/
@@ -211,3 +211,11 @@ tests/*.mp4
 tests/*.mp3
 tests/*.zip
 tests/*-transcription.md
+
+# Assistant/session working material. These are written OUTSIDE the repo by design, but a stray one
+# created in the tree would otherwise be one `git add -A` away from a public release. FORTUNE-SOURCES-
+# ASSESSMENT.md used to point at `scratchpad/harvest/...` as though it were committed; it never was.
+/scratchpad/
+/.scratch/
+/scratch/
+*.scratch

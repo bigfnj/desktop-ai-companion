@@ -49,8 +49,9 @@ that animation-loop model.
 
 Only the `PORTABLE` branch is part of the maintained product. It uses the `src/Portable/LocalData.cs`
 facade and is built with Visual Studio/MSBuild plus locked `PackageReference` graphs. The old non-portable
-UWP/classic projects are quarantined under `src/legacy/`; they are not built or packaged. `Tools/PetTester`
-is the maintained companion-validation utility, while `Tools/PetEditor` is explicitly unsupported legacy
+Upstream's UWP/classic projects and its `PetTester`/`PetEditor` utilities are **not** carried in this
+repository. Companion validation lives in the app itself (`CompanionXmlValidator`), and Shimeji import
+lives in `tools/ShimejiConvert`; the upstream editor remains unsupported legacy
 source.
 
 `AppPaths.Resolve` is the single installed/portable mode rule. An installed executable lives in either

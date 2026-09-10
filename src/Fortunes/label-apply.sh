@@ -48,8 +48,6 @@ fi
 DEPENDENT_METADATA=(
   "catalog.json"
   "packs/collections.json"
-  "packaging/source-assets.json"
-  "packaging/source-rights-evidence.json"
   "THIRD_PARTY_NOTICES.md"
   "PROVENANCE.md"
   "Readme.md"

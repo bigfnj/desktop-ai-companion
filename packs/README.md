@@ -7,10 +7,12 @@ directory, where they load as new sources.
 
 ## How packs are organized and delivered
 
-- **One file per source.** Packs are split per source id (`packs/<source>.txt`) — 152 of them — so a
+- **One file per source.** Packs are split per source id (`packs/<source>.txt`) — 158 of them — so a
   user can pick individual shows/authors instead of whole monolithic bundles.
 - **Collections group them.** `packs/collections.json` (embedded in the app) maps each source to a
-  named collection ("Dad Jokes", "Pop-Culture TV", …). It groups both the Sources tree and the
+  named collection. There are seven: Jokes & Humour, Fortunes & Wisdom, Books, Art & Language,
+  Screen & Stage, Tech & Hackers, Facts & Observations, and NSFW (adults only). It groups both the
+  Sources tree and the
   fortune-packs download tree, and is available offline before any catalog is fetched.
 - **The runtime catalog publishes them.** `catalog.json` at the repo root is fetched over HTTPS at
   runtime (branch-pinned). Each entry records an id, display metadata, byte size, and a SHA-256
@@ -30,10 +32,12 @@ machinery (`packs.json`, `pack-rights-evidence.json`, `Test-PackRightsEvidence.p
 when packs moved to the runtime `catalog.json`.
 
 The catalog still guarantees **integrity** — HTTPS delivery plus a per-file SHA-256 check on every
-download — but there is **no longer a per-pack redistribution-rights gate**. The 152 packs are now
-served as-is. Source-scope rights are still machine-checked for the corpus, model, vocabulary, engine
-source, and bundled/downloadable art via `packaging/source-rights-evidence.json`; downloadable-pack
-rights are not. Before a public release, pack rights must be reviewed by hand.
+download — but there is **no longer a per-pack redistribution-rights gate**. The 158 packs are now
+served as-is, and every one carries the catalog's single root `packLicense` of `NOASSERTION`. The
+machine-checked source-rights evidence gate was retired with the enterprise release pipeline and has
+not been replaced: `packaging/source-rights-evidence.json` no longer exists. Nothing in this repository
+now checks redistribution rights automatically, for packs or for anything else. Before a public
+release, they must be reviewed by hand.
 
 ## Provenance & licensing
 
@@ -43,7 +47,8 @@ or "personal use" are notes, not redistribution grants:
 - **Fair-use / public-domain:** tech, philosophy, literary, facts (fortune-mod datfiles, quotes).
 - **Community lists (personal use):** dad jokes & showerthoughts (Reddit), BOFH excuse server.
 - **Copyrighted excerpts (personal use):** pop-culture TV dialogue, comedy, spicy.
-- **Adults only:** the `nsfw` pack (the classic `fortune -o` set, with hate files removed).
+- **Adults only:** the 19 `off-*` packs in the NSFW collection (the classic `fortune -o` set, with
+  hate files removed). There is no single `nsfw` pack.
 
 Presence in this repository is not a redistribution grant. Enable a pack at your discretion and do
 not assume any pack is rights-cleared. Rights holders can use the process in

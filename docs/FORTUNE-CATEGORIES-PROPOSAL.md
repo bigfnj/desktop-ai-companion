@@ -4,6 +4,10 @@ Applied to packs/collections.json. Generated from an explicit mapping that is ch
 complete partition of all 159 sources, so nothing can silently fall into the "More packs"
 fallback the way it did before.
 
+The `origin` column below is **as of the proposal**, before the corpus was cut to two sources. Only
+`fortunes` and `dadjokes` are built-in now; everything else reads `pack`. `docs/FORTUNE-SOURCE-TABLE.md`
+is the regenerated, current version.
+
 ## Why these seven
 
 **Tone is not a subject.** Three of the old categories described how something sounds rather

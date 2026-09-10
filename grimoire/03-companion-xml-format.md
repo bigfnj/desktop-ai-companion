@@ -406,9 +406,9 @@ disables volume rather than crashing.
 7. **Add the required `<childs>` container.** It may contain zero or more `<child>` entries; use
    `<childs />` when the companion has none. Add the optional `<sounds>` container only when audio is needed.
 8. **Validate.** Validate against [`Resources/animations.xsd`](../Resources/animations.xsd), then test
-   with the current application validator. [`Tools/PetTester`](../Tools/PetTester) supplies additional
+   with the current application validator. Upstream's `PetTester` (not carried here) supplied additional
    diagnostics, some of which are stricter authoring recommendations rather than runtime requirements.
-   `Tools/PetEditor` is retained as unsupported legacy source and must not be used as the authority for
+   Upstream's `PetEditor` is unsupported legacy and must not be used as the authority for
    current-format validity. The upstream online editor is likewise a legacy aid and may not enforce the
    current application's semantic and resource limits.
 9. **Test live.** Run a companion and **drag-and-drop your `animations.xml` onto it** — the engine hot-loads it

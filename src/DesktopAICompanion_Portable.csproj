@@ -4,7 +4,7 @@
        build.ps1 always builds x64). Converted from the classic net48 project; product identity/version
        still come from ProductVersion.props via the WriteCodeFragment targets below (GenerateAssemblyInfo
        stays off so there is one source of truth). Compile/EmbeddedResource/None/Content are listed
-       explicitly (EnableDefaultItems=false) so src\legacy and Tools are never pulled in by globbing. -->
+       explicitly (EnableDefaultItems=false) so nothing is ever pulled in by globbing. -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>

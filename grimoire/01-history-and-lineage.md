@@ -31,11 +31,11 @@ that walked on the desktop, climbed windows, and sat on the taskbar. It circulat
 
 > *"Can you remember this application from the '95? This nice sheep covered our desktops for years :D
 > Since this application was a 16-bit version and it doesn't work anymore on Windows 7/8/10, I wrote a
-> little application in c# to see this sheep again on the desktop!"* — [`index.html`](../index.html)
+> little application in c# to see this sheep again on the desktop!"* — [the upstream front page](https://adrianotiger.github.io/desktopPet/)
 
 The upstream repo description is *"Remembering the lovely eSheep (stray sheep) from 1995"*
 (<https://github.com/Adrianotiger/desktopPet>). The changelog even calls out reviving specific old
-mates: *"NEKO, another mate from 1995 is now available"* ([`Changelog.md`](../Changelog.md), v1.2.1).
+mates: *"NEKO, another mate from 1995 is now available"* (upstream changelog, v1.2.1).
 
 ### Attribution caveats (read this before repeating a "fact")
 
@@ -82,7 +82,7 @@ full manifest with authors and dates.
 
 ### Version timeline
 
-From this repo's [`Changelog.md`](../Changelog.md) / [`Changelog.txt`](../Changelog.txt) (desktop track)
+From the upstream changelog (desktop track)
 and the upstream releases API (<https://github.com/Adrianotiger/desktopPet/releases>). Numbering is
 **non-linear** — a UWP "2.x" Store track ran in parallel with the "1.2.x/1.3.x" desktop track.
 
@@ -152,8 +152,8 @@ worth recording here for lineage purposes:
 
 ## Sources
 
-- In-repo: [`index.html`](../index.html), [`Changelog.md`](../Changelog.md),
-  [`Changelog.txt`](../Changelog.txt), [`Companions/companions.json`](../Companions/companions.json),
+- Upstream site and changelog (the local copies were removed at 1.0.0; see the note above):
+  <https://adrianotiger.github.io/desktopPet/>. In-repo: [`Companions/companions.json`](../Companions/companions.json),
   [`Companions/esheep64/animations.xml`](../Companions/esheep64/animations.xml),
   [`Resources/animations.xsd`](../Resources/animations.xsd), [`Readme.md`](../Readme.md),
   [`handoff.md`](../handoff.md).

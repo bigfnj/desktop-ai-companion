@@ -16,9 +16,11 @@ DesktopAICompanion sends data only when a network feature is used:
 - The explicit **Refresh model list** and connection-test controls contact the configured provider.
   Granting cloud-data consent by itself remains network-silent. Configured model warm-up and
   Ollama model-unload operations can also contact that provider.
-- Optional companion or fortune-pack downloads contact the source shown in the application. Trusted
-  fortune-pack downloads are commit-pinned and integrity-checked; entries without documented
-  redistribution approval are not downloadable.
+- Optional companion or fortune-pack downloads contact the source shown in the application. Every
+  download is integrity-checked against a SHA-256 recorded in the catalog before it is installed. The
+  catalog URLs are **branch-pinned**, not commit-pinned, and there is no per-pack redistribution gate:
+  the retired rights-evidence gate has not been replaced, so every listed pack is downloadable and each
+  one's licence field reads `NOASSERTION`. Integrity is checked; rights are not.
 - **At most once a week**, DesktopAICompanion fetches the project's own content catalog to see whether a
   newer build has been published, and tells you if one has. There are **three** such checks — one for
   installed modules, one for installed companions, and one for the application itself — and they are the

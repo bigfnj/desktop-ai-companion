@@ -1,15 +1,91 @@
 ﻿# Desktop AI Companion — Session Handoff
 
-> Working notes for picking this up later. Last updated: **2026-09-09** (ninth session).
+> Working notes for picking this up later. Last updated: **2026-09-10** (tenth session).
 > Fork of Adrianotiger/desktopPet, though no longer a GitHub fork: the repo was recreated fresh for
 > 1.0.0. Clone it wherever you like -- nothing here depends on the checkout path, and this file is
 > public, so no machine paths go in it.
-> `origin` = **git@github.com:bigfnj/desktop-ai-companion.git**. There is **no `upstream` remote** any more.
+> `origin` = **https://github.com/bigfnj/desktop-ai-companion.git**. There is **no `upstream` remote** any more.
 > Feature backlog: **[`BACKLOG.md`](BACKLOG.md)**.
 
 ---
 
-## START HERE (2026-09-09) — 1.0.0 is BUILT AND UNTAGGED, blocked on one smoke-test section
+## START HERE (2026-09-10) — 1.0.0 is TAGGED; the remaining risk is legal, not technical
+
+Smoke test passed, `v1.0.0` cut, `release.yml` publishes the portable ZIP, the per-user MSI, two author
+NuGet packages and `SHA256SUMS.txt`. **Full gate green** (`tests/run-gate.ps1 -SkipClean`): 0 build
+warnings, 16 self-tests with no skips, every source invariant, all 6 module payloads current, module
+template scaffolds and builds, converter 53 pets / 0 invalid / 0 round-trip failures.
+
+### What actually blocks a wider release, and it is not code
+
+`THIRD_PARTY_NOTICES.md` "Redistribution blockers" lists four unresolved items: the companion sprites (no
+complete grant per asset), the fortune corpus's copyrighted quotations, the fan-compiled packs, and a
+pinned provenance record for the two `bge-small-en-v1.5` model files. Every pack's catalog licence
+therefore reads `NOASSERTION`.
+
+The **engine licence is settled** — the maintainer holds written permission from the upstream author, it
+is recorded under "Bundled with a verified redistribution grant", and they have declined to share the
+grant's particulars. Do not re-raise it.
+
+The asymmetry worth naming: this project has excellent automated gates for staleness, corpus integrity and
+module freshness, and **none at all** for redistribution rights, which is the only risk here that is legal
+rather than technical. A green gate and a passing smoke test measure something else.
+
+### What landed this session
+
+See `BACKLOG.md`, the `DONE (2026-09-10, tagged v1.0.0)` block — corpus 26 sources to 2, categories 12 to
+7, a fabricated licence removed 165 times, 629 files of inherited documentation deleted,
+`build-corpus.sh` rewritten, Select all/none restored, and Phase 6 completed. Not duplicated here.
+
+### Open, in the order it will cost you
+
+- **The tray icon.** Reported missing again after installing a fresh MSI. The diagnostic log, built
+  precisely for this, says the app did everything right on both runs: `success=True icon=True
+  visible=True`, and the shell's `NotifyIconSettings` entry has `IsPromoted=1` for the exact install path,
+  so `TrayPromotion` correctly left it alone. Never confirmed resolved. If it recurs, the likely mechanism
+  is the installer's `TerminateProcess` path killing the old instance without a
+  `Shell_NotifyIcon(NIM_DELETE)`, leaving Explorer holding a stale slot; the honest fix is the installer
+  removing the icon before terminating. Two logged runs exist to diff.
+- **`BACKLOG.md:1480`** still says "12 named collections". It is 7.
+- **The docs-debt section** in `BACKLOG.md` is otherwise unchanged, minus `Changelog.md`, which was deleted
+  with the Jekyll site.
+- **The portable ZIP has no freshness gate.** `Test-ModulePublishFreshness.ps1` covers module payloads
+  only. A truncated `build.ps1` run this session produced a fresh MSI beside an hour-old ZIP and nothing
+  would have caught it. Consider asserting inputs are newer than the output in
+  `New-DeterministicPortableZip.ps1`.
+
+### Three traps this session, all previously documented and all still bit
+
+1. **`Select-Object -First` kills the upstream command.** It raises `StopUpstreamCommandsException`, so
+   piping `build.ps1 -Release -Zip` through `Select-Object -First 20` terminated the script before the zip
+   step, and the run still looked successful. Use `-Last`. Caught only because the ZIP's SHA-256 was
+   unchanged after host code had been edited.
+2. **A mutation harness that restores with `git checkout --` destroys uncommitted work** — the exact trap
+   the Verification standard in `docs/1.0.0-RENAME-PLAN.md` warns about. It reverted an in-progress parser
+   change and then reported SURVIVED for a build that no longer contained the code under test. Baseline
+   from a working-tree copy and assert the code under test is present before mutating.
+3. **A self-test that pins a display string will break on a rename.** `--fortunes-selftest` asserted
+   `dadGroup == "Dad Jokes"` and CI went red for three pushes. Assert the property, not the label.
+
+### Environment note that will waste your time
+
+The user-profile `.dotnet\tools` directory and the DevToolbox were both wiped on this machine, taking the
+`wix` dotnet tool, `gh`, and the toolbox Python with them. WiX restores from the repo's own
+`packaging/wix-toolchain-lock.json` via `Install-LockedWixToolchain.ps1` (digest-pinned,
+signature-verified, which is what CI does). `gh` still exists under its WinGet package directory but is
+off PATH.
+
+### Do not assume two builds of one commit match
+
+The MSI is deterministic per checkout path, not across paths: `Normalize-MsiDeterminism.ps1` folds the
+content hash into the ProductCode seed, and there is no `PathMap` or `ContinuousIntegrationBuild`, so
+absolute source paths bake into the binaries. Renaming the working tree alone changed the ProductCode.
+This is survivable only because `MajorUpgrade AllowSameVersionUpgrades="yes"` is set; without it a
+CI-built 1.0.0 would register as a second product fighting over one install directory. Do not remove it.
+
+---
+
+## Previous START HERE (2026-09-09) — 1.0.0 is BUILT AND UNTAGGED, blocked on one smoke-test section
 
 `master` at `36cf424` plus this session's docs pass. **Gate green: 154 source invariants, 16 self-tests
 with no skips, 0 build warnings.** CI green on every push.

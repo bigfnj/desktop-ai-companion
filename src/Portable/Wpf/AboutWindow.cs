@@ -77,7 +77,7 @@ namespace DesktopAICompanion.Wpf
             stack.Children.Add(LinkLine("• Privacy: ", "https://github.com/bigfnj/desktop-ai-companion/blob/master/PRIVACY.md", true));
             stack.Children.Add(LinkLine("• Support: ", "https://github.com/bigfnj/desktop-ai-companion/blob/master/SUPPORT.md", true));
             stack.Children.Add(LinkLine("• Security: ", "https://github.com/bigfnj/desktop-ai-companion/blob/master/SECURITY.md", true));
-            stack.Children.Add(LinkLine("• Companion authoring: ", "https://github.com/bigfnj/desktop-ai-companion/blob/master/grimoire/03-pet-xml-format.md", true));
+            stack.Children.Add(LinkLine("• Companion authoring: ", "https://github.com/bigfnj/desktop-ai-companion/blob/master/grimoire/03-companion-xml-format.md", true));
             stack.Children.Add(LinkLine("• Fortune packs: ", "https://github.com/bigfnj/desktop-ai-companion/blob/master/packs/README.md", true));
             stack.Children.Add(LinkLine("• Release status: ", "https://github.com/bigfnj/desktop-ai-companion/blob/master/docs/RELEASE-CHECKLIST.md", true));
 

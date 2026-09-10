@@ -1,7 +1,8 @@
 # Security Policy
 
-Desktop AI Companion does not yet have a public release. Security reports are still welcome for
-the current repository and for private or CI builds identified by an exact 40-character Git commit.
+Desktop AI Companion publishes tagged releases on GitHub. Security reports are welcome for a published
+release, for the current repository, and for private or CI builds identified by an exact 40-character
+Git commit.
 
 ## Report privately
 

@@ -6,7 +6,7 @@
 .DESCRIPTION
     Single source of truth for what the portable build carries offline. Copies
     every pet skin (each folder's animations.xml + optional icon.png, plus the
-    pets.json author manifest) under <StagingRoot>\pets\<folder>\..., and the
+    companions.json author manifest) under <StagingRoot>\pets\<folder>\..., and the
     full fortune-pack set under <StagingRoot>\fortunes\<id>.txt.
 
     The caller then hands <StagingRoot>\pets and <StagingRoot>\fortunes to
@@ -58,10 +58,13 @@ foreach ($petDirectory in Get-ChildItem -LiteralPath $petsSource -Directory) {
     }
 }
 
-$petsManifest = Join-Path $petsSource 'pets.json'
-if (Test-Path -LiteralPath $petsManifest -PathType Leaf) {
-    Copy-Item -LiteralPath $petsManifest -Destination $petsStage
+$petsManifest = Join-Path $petsSource 'companions.json'
+if (-not (Test-Path -LiteralPath $petsManifest -PathType Leaf)) {
+    throw ("Companion manifest not found: $petsManifest. It carries every bundled companion's author, " +
+           "so a portable ZIP without it ships the art with no attribution. This was a silent skip for " +
+           "as long as the guard looked for the pre-rename 'pets.json'.")
 }
+Copy-Item -LiteralPath $petsManifest -Destination $petsStage
 
 foreach ($pack in
     Get-ChildItem -LiteralPath $packsSource -Filter '*.txt' -File) {

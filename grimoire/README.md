@@ -47,8 +47,9 @@ Two kinds of sources back this grimoire:
 
 - **In-repo (authoritative for the engine):** the C# under `src/dotNet/` (`Program.cs`, `StartUp.cs`,
   `Xml.cs`, `Animations.cs`, `FormCompanion.cs`, `ProcessIcon.cs`), the schema `Resources/animations.xsd`,
-  example companions under `Companions/` (esheep64, neko), and `Changelog.md` / `Changelog.txt` / `index.html` /
-  `Download.md`. Engine claims cite `file:member`.
+  example companions under `Companions/` (esheep64, neko), and `Companions/companions.json`. Engine
+  claims cite `file:member`. The inherited `Changelog.md` / `Changelog.txt` / `index.html` /
+  `Download.md` were removed at 1.0.0; cite the upstream site for those.
 - **Web (authoritative for lineage/ecosystem):** the upstream repo
   <https://github.com/Adrianotiger/desktopPet> and its wiki, the project home
   <https://esheep.petrucci.ch/>, the GitHub Pages site

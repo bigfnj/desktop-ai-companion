@@ -5,9 +5,11 @@ agreement.
 
 ## Before filing an issue
 
-1. Confirm that Windows is 64-bit and the .NET Framework 4.8 runtime is installed.
+1. Confirm that Windows is 64-bit and the **.NET 10 Desktop Runtime (x64)** is installed. The build
+   targets `net10.0-windows` and is not self-contained, so it will not start without it.
 2. For a published release, record the DesktopAICompanion version and whether you used the MSI or portable
-   ZIP. Verify the artifact's SHA-256 checksum, signature, and provenance as described in
+   ZIP. Verify the artifact's SHA-256 checksum against `SHA256SUMS.txt` on the release. Builds are
+   currently **unsigned**, so there is no signature or provenance attestation to check; see
    [PROVENANCE.md](PROVENANCE.md).
 3. For a private, local, or CI build, record the exact 40-character Git commit and clearly label it
    as a private, local, or CI build, not a release.
