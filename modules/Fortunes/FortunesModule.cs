@@ -344,6 +344,8 @@ namespace DesktopAICompanion.FortunesModule
                             "catalog, or “Open fortunes folder” to drop your own .txt pack in and Rescan.",
                         Actions = new[]
                         {
+                            new PaneAction { Label = "Select all", InvokeAsync = SelectAllSourcesAsync, ReloadPaneAfter = true },
+                            new PaneAction { Label = "Select none", InvokeAsync = SelectNoSourcesAsync, ReloadPaneAfter = true },
                             new PaneAction { Label = "Import your own…", InvokeAsync = ImportPacksAsync, ReloadPaneAfter = true },
                             new PaneAction { Label = "Open fortunes folder", InvokeAsync = OpenFortunesFolderAsync },
                             new PaneAction { Label = "Rescan folder", InvokeAsync = RescanAsync, ReloadPaneAfter = true },
@@ -375,6 +377,11 @@ namespace DesktopAICompanion.FortunesModule
                         SetChecked = SetGenreActive,
                         DeferChanges = true,
                         EmptyHint = "Genres appear here once you add a pack.",
+                        Actions = new[]
+                        {
+                            new PaneAction { Label = "Select all", InvokeAsync = SelectAllGenresAsync, ReloadPaneAfter = true },
+                            new PaneAction { Label = "Select none", InvokeAsync = SelectNoGenresAsync, ReloadPaneAfter = true },
+                        },
                     },
                 },
             };
@@ -397,7 +404,7 @@ namespace DesktopAICompanion.FortunesModule
                         Id = st.Id,
                         Label = PrettySource(st.Id),
                         Detail = detail,
-                        Checked = !disabled.Contains(st.Id),
+                        Checked = StagedChecked("disabledSources", st.Id, !disabled.Contains(st.Id)),
                         // The curated map is the only reliable signal for "is this a catalog pack?" --
                         // SourceStat.Custom is true for ANYTHING in the user's fortunes folder, which
                         // includes every catalog pack once downloaded, so it can't tell them apart.
@@ -462,7 +469,7 @@ namespace DesktopAICompanion.FortunesModule
             {
                 var disabled = new HashSet<string>(SplitList(GetSetting("disabledGenres")), StringComparer.OrdinalIgnoreCase);
                 foreach (GenreStat g in FortuneProvider.Genres())
-                    items.Add(new ListItem { Id = g.Id, Label = g.Id, Detail = g.Count + (g.Count == 1 ? " line" : " lines"), Checked = !disabled.Contains(g.Id) });
+                    items.Add(new ListItem { Id = g.Id, Label = g.Id, Detail = g.Count + (g.Count == 1 ? " line" : " lines"), Checked = StagedChecked("disabledGenres", g.Id, !disabled.Contains(g.Id)) });
             }
             catch { }
             return items;
@@ -470,6 +477,68 @@ namespace DesktopAICompanion.FortunesModule
 
         private void SetSourceActive(string id, bool active) { StageDisabled("disabledSources", id, !active); }
         private void SetGenreActive(string id, bool active) { StageDisabled("disabledGenres", id, !active); }
+
+        // ---- tick everything / untick everything ----------------------------------------------------
+        // The pre-1.0.0 Options tab had Select all/none on both of these lists and the rewrite into
+        // ListCards dropped them, keeping them only on "Available online". With 158 catalog packs the
+        // absence is worst exactly when it matters most: turning the library off to hear one pack meant
+        // 158 clicks.
+        //
+        // These stage like an individual tick rather than writing settings directly, so a bulk change
+        // costs the same single write and single engine rebuild at Apply that StageDisabled exists to
+        // give, and so "Select none" then Cancel leaves the saved state alone like any other tick.
+        private Task<string> SelectAllSourcesAsync()  { return Task.FromResult(SetAllSources(true)); }
+        private Task<string> SelectNoSourcesAsync()   { return Task.FromResult(SetAllSources(false)); }
+        private Task<string> SelectAllGenresAsync()   { return Task.FromResult(SetAllGenres(true)); }
+        private Task<string> SelectNoGenresAsync()    { return Task.FromResult(SetAllGenres(false)); }
+
+        private string SetAllSources(bool active)
+        {
+            int n = 0;
+            foreach (SourceStat st in FortuneProvider.Sources())
+            {
+                if (string.IsNullOrEmpty(st.Id)) continue;
+                SetSourceActive(st.Id, active);
+                n++;
+            }
+            if (n == 0) return "No fortune packs to change yet.";
+            // Says "Apply" out loud because these cards are DeferChanges: the boxes move immediately but
+            // the engine does not, and a bulk action is the one most likely to be trusted as already done.
+            return (active ? "Ticked all " : "Unticked all ") + n + (n == 1 ? " pack" : " packs") +
+                ". Apply to use it.";
+        }
+
+        private string SetAllGenres(bool active)
+        {
+            int n = 0;
+            foreach (GenreStat g in FortuneProvider.Genres())
+            {
+                if (string.IsNullOrEmpty(g.Id)) continue;
+                SetGenreActive(g.Id, active);
+                n++;
+            }
+            if (n == 0) return "No genres to change yet.";
+            return (active ? "Ticked all " : "Unticked all ") + n + (n == 1 ? " genre" : " genres") +
+                ". Apply to use it.";
+        }
+
+        /// <summary>
+        /// A pending tick, or the saved state when nothing is pending for this id. Every one of these
+        /// cards is DeferChanges, so the staged batch -- not the settings file -- is what the user
+        /// currently sees ticked. A ReloadPaneAfter action that read the file directly would redraw all
+        /// the boxes from disk and silently throw away whatever was staged, which is precisely what a
+        /// "Select none" immediately followed by a repaint would look like: a button that does nothing.
+        /// </summary>
+        private bool StagedChecked(string key, string id, bool savedChecked)
+        {
+            Dictionary<string, bool> staged;
+            bool disabled;
+            if (!string.IsNullOrEmpty(id) &&
+                _stagedDisabled.TryGetValue(key, out staged) &&
+                staged.TryGetValue(id, out disabled))
+                return !disabled;
+            return savedChecked;
+        }
 
         // Both cards are DeferChanges, so these run at Apply, one call per box the user actually moved,
         // immediately before SavePaneValues. Staging them means the settings write and the engine rebuild

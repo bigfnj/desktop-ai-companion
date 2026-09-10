@@ -772,7 +772,9 @@ namespace DesktopAICompanion.Wpf
                 }
                 case SettingKind.Secret:
                 {
-                    var pw = new PasswordBox();
+                    // Same stretch-to-row-height issue as the text editor below; no Secret field currently
+                    // has a label long enough to wrap, so this is pinned before one does rather than after.
+                    var pw = new PasswordBox { VerticalAlignment = VerticalAlignment.Center };
                     bool alreadySet = !string.IsNullOrEmpty(cur);
                     if (alreadySet) pw.ToolTip = "A value is saved. Leave blank to keep it.";
                     _secretIds.Add(f.Id);
@@ -783,7 +785,12 @@ namespace DesktopAICompanion.Wpf
                 }
                 default: // Int + Text both edit as text (Int is validated by the module on Save).
                 {
-                    var tb = new TextBox { Text = cur };
+                    // Center, not the DockPanel's default Stretch. The label beside it is a fixed 165px
+                    // and wraps, so a long one makes the row two lines tall and LastChildFill grows the
+                    // editor to match -- a one-line value like "512" sitting in a double-height box, out
+                    // of line with every single-line field above it. The checkbox and status rows already
+                    // pin Center for the same reason.
+                    var tb = new TextBox { Text = cur, VerticalAlignment = VerticalAlignment.Center };
                     _readers[f.Id] = () => tb.Text ?? "";
                     tb.TextChanged += delegate { Dirty(); };
                     row.Children.Add(tb);

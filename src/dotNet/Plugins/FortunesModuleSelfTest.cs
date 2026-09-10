@@ -117,9 +117,9 @@ namespace DesktopAICompanion.Plugins
                     host.CatalogPayloads["extrapack"] = new UTF8Encoding(false).GetBytes("Probe fortune delta, from the catalog.\n");
                     OptionsPane fortunesPane = host.PaneNamed("Fortunes");
                     ListCard availableCard = FindCard(fortunesPane, "Available online");
-                    PaneAction check = FindAction(fortunesPane, "Check online for packs");
-                    PaneAction download = FindAction(fortunesPane, "Download selected");
-                    PaneAction selectAll = FindAction(fortunesPane, "Select all");
+                    PaneAction check = FindAction(fortunesPane, "Available online", "Check online for packs");
+                    PaneAction download = FindAction(fortunesPane, "Available online", "Download selected");
+                    PaneAction selectAll = FindAction(fortunesPane, "Available online", "Select all");
                     ok &= Check(sb, "pane offers the browse/select/download catalog actions",
                         availableCard != null && check != null && download != null && selectAll != null);
                     if (availableCard != null && check != null && download != null && selectAll != null)
@@ -158,6 +158,31 @@ namespace DesktopAICompanion.Plugins
                             spokeAfter && host.Said.Count > 0);
                     }
 
+                    // Bulk tick on the INSTALLED packs list. Separate from the catalog buttons above and
+                    // easy to conflate with them, which is the whole reason the lookups are card-scoped.
+                    ListCard packsCard = FindCard(fortunesPane, "Fortune packs");
+                    PaneAction packsAll = FindAction(fortunesPane, "Fortune packs", "Select all");
+                    PaneAction packsNone = FindAction(fortunesPane, "Fortune packs", "Select none");
+                    ok &= Check(sb, "the installed-packs card offers select all/none",
+                        packsCard != null && packsAll != null && packsNone != null);
+                    if (packsCard != null && packsAll != null && packsNone != null)
+                    {
+                        int total = packsCard.LoadItems().Count;
+                        packsNone.InvokeAsync().GetAwaiter().GetResult();
+                        int checkedAfterNone = 0;
+                        foreach (ListItem li in packsCard.LoadItems()) if (li.Checked) checkedAfterNone++;
+                        // The card is DeferChanges, so this reload reads the SAVED setting. Without the
+                        // staged overlay every box would redraw ticked and the button would look inert.
+                        ok &= Check(sb, "select none unticks every installed pack in the reloaded list",
+                            total > 0 && checkedAfterNone == 0);
+
+                        packsAll.InvokeAsync().GetAwaiter().GetResult();
+                        int checkedAfterAll = 0;
+                        foreach (ListItem li in packsCard.LoadItems()) if (li.Checked) checkedAfterAll++;
+                        ok &= Check(sb, "select all re-ticks every installed pack",
+                            checkedAfterAll == total);
+                    }
+
                     // Grouping: both pack cards ask for collapsible groups + a filter, and a pack the user
                     // supplied themselves is grouped as their own rather than lumped in with catalog packs.
                     ListCard installedCard = FindCard(fortunesPane, "Fortune packs");
@@ -180,8 +205,14 @@ namespace DesktopAICompanion.Plugins
                         // A known catalog id must resolve to its curated collection, and only genuinely
                         // unknown ids fall back to "More packs" -- i.e. at least two distinct groups.
                         sb.AppendLine("  dadjokes group: " + (dadGroup ?? "<none>") + " | probepack group: " + (probeGroup ?? "<none>"));
+                        // Asserted as a property, not a literal collection name. This used to demand
+                        // dadGroup == "Dad Jokes" and broke the moment the collections were regrouped from
+                        // 12 to 7 and Dad Jokes became one source inside "Jokes & Humour" -- a rename this
+                        // check has no opinion about. What it actually guards is the mapping's shape: a
+                        // curated id lands somewhere curated, an unknown one lands in the fallback.
                         ok &= Check(sb, "a catalog pack groups by its curated collection, not as the user's own",
-                            string.Equals(dadGroup, "Dad Jokes", StringComparison.Ordinal) &&
+                            !string.IsNullOrEmpty(dadGroup) &&
+                            !string.Equals(dadGroup, "More packs", StringComparison.Ordinal) &&
                             string.Equals(probeGroup, "More packs", StringComparison.Ordinal));
 
                         // Labels come from the curated name map, so a pack whose id says nothing about its
@@ -238,6 +269,22 @@ namespace DesktopAICompanion.Plugins
             if (pane == null || pane.Lists == null) return null;
             foreach (ListCard c in pane.Lists)
                 if (c != null && string.Equals(c.Title, title, StringComparison.Ordinal)) return c;
+            return null;
+        }
+
+        /// <summary>
+        /// A pane action by label WITHIN one named card. Prefer this over the pane-wide lookup below for
+        /// any label a second card could plausibly reuse. "Select all" is exactly that case: it exists on
+        /// "Fortune packs", "Available online" and "Genres", and the pane-wide search returns whichever
+        /// card is declared first -- so this test's download step silently retargeted itself at the
+        /// installed-packs list the moment the other two gained the button.
+        /// </summary>
+        private static PaneAction FindAction(OptionsPane pane, string cardTitle, string label)
+        {
+            ListCard card = FindCard(pane, cardTitle);
+            if (card == null || card.Actions == null) return null;
+            foreach (PaneAction a in card.Actions)
+                if (a != null && string.Equals(a.Label, label, StringComparison.Ordinal)) return a;
             return null;
         }
 
