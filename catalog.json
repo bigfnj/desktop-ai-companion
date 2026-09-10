@@ -1,7 +1,7 @@
 {
   "version": 1,
   "app": {
-    "version": "1.0.0",
+    "version": "1.1.0",
     "releases": "https://github.com/bigfnj/desktop-ai-companion/releases"
   },
   "packLicense": "NOASSERTION",
@@ -2175,7 +2175,7 @@
     {
       "id": "fortunes",
       "name": "Fortunes",
-      "desc": "Offline smart fortunes and speech bubbles, picked contextually by a bundled bge-small embedding model. Ships a built-in corpus of ~10,000 lines, so it has something to say before you download a single pack.",
+      "desc": "Offline smart fortunes and speech bubbles, picked contextually by a bundled bge-small embedding model. Ships a built-in corpus of ~3,200 lines (Classic Fortunes plus Dad Jokes), so it has something to say before you download a single pack.",
       "version": "1.0.0",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/fortunes.zip",
       "sha256": "b5241ef76ccf0b0c4a59025d1982abd0022352229120e90001f35fae7094f8b6",
@@ -2186,20 +2186,20 @@
       "id": "aibrain",
       "name": "AI Brain",
       "desc": "An optional, off-by-default screen-commentary AI brain (local Ollama/llama.cpp or an optional cloud provider). Reads the screen with Windows' built-in OCR, so it needs no separate Tesseract install.",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/aibrain.zip",
-      "sha256": "e3a4c2d39c7d766ea980c39e5eeb5654f9c80e4aae43f4edbd6c44d5748c7b1a",
-      "bytes": 6421028,
+      "sha256": "942ec154481706d9eebf7a092e6e4332562366679d9b7bd590f4af1dd651743d",
+      "bytes": 6729899,
       "permissions": "Speech, Animation, ScreenContext, Network, Hotkey, Storage"
     },
     {
       "id": "petstudio",
       "name": "Companion Studio",
       "desc": "Check a companion's animations.xml before you use it: what the host would reject, which animations can never play, and how it actually looks running on your desktop. Edit the XML in place, watch any animation's real sprite frames, preview the companion temporarily on your desktop, then install it.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/petstudio.zip",
-      "sha256": "54166dcdafaf42bef63d450a9f9db018e5acbeff55c5a43ed291cd96789bbe7d",
-      "bytes": 360506,
+      "sha256": "330ecf2ea92afacda52b122764883ca30825c38f120cf9f6120a5835c3776bfc",
+      "bytes": 370487,
       "permissions": "Companions, Storage"
     },
     {

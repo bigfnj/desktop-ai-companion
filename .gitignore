@@ -162,8 +162,26 @@ AGENTS.md
 .windsurfrules
 .aider*
 .mcp.json
+.gemini/
+.roo/
+.continue/
+copilot-instructions.md
+.github/copilot-instructions.md
 SESSION_*
 HANDOFF_*
+
+# The app's OWN runtime settings. Named explicitly because the secrets block below did not cover
+# them, which left one real way for a key to reach a commit: in PORTABLE mode AppPaths.DataRoot is
+# <exe dir>\data, so a portable copy unpacked at the repo root writes data\ai-settings.json straight
+# into the tree -- untracked AND unignored, so a `git add -A` would have staged it. Latent today only
+# because build output lands in the ignored build/ tree. The key inside is DPAPI ciphertext bound to
+# user+machine, so the exposure would be endpoint and model configuration rather than a usable
+# credential, but that is not a reason to publish it.
+ai-settings.json
+chat-history.json
+/data/
+**/data/ai-settings.json
+**/data/chat-history.json
 
 # Secrets. Nothing of the sort is tracked today and the app keeps real keys DPAPI-encrypted under
 # %LOCALAPPDATA%\DesktopAICompanion, well outside this tree -- these patterns exist so a stray local
