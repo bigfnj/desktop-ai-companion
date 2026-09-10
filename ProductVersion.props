@@ -7,12 +7,22 @@
     <DesktopAICompanionProductName>Desktop AI Companion</DesktopAICompanionProductName>
     <DesktopAICompanionPublisher>bigfnj</DesktopAICompanionPublisher>
     <DesktopAICompanionDescription>A physics-driven desktop pet with offline smart fortunes and an optional AI brain</DesktopAICompanionDescription>
-    <!-- MUST be bumped in the same change as any plugin-ABI edit. DesktopAICompanion.Contracts stamps its
-         FileVersion from this value, and a Windows Installer major upgrade SKIPS refreshing a file whose
-         version did not change: shipping an ABI change without this bump installs a stale Contracts.dll
-         that cannot resolve the new types (the failure 9009133 fixed). -->
+    <!-- The MARKETING version: tag name, MSI ProductVersion, catalog app.version, the update check.
+         MUST be bumped in the same change as any plugin-ABI edit. -->
     <DesktopAICompanionVersion>1.1.0</DesktopAICompanionVersion>
-    <DesktopAICompanionAssemblyVersion>1.0.0.0</DesktopAICompanionAssemblyVersion>
+    <!-- The FILE version, and the one that actually decides whether an upgrade replaces a binary.
+         Contracts, ModuleKit and the exe all stamp <FileVersion> from THIS property, not from the one
+         above, and a Windows Installer major upgrade SKIPS refreshing a file whose FileVersion did not
+         change: shipping an ABI change without bumping this installs a stale Contracts.dll that cannot
+         resolve the new types (the failure 9009133 fixed).
+         Caught for real on 2026-09-10: 1.1.0 added ScreenContext.Windows and ScreenWindow, the comment
+         above was bumped as instructed, and Contracts.dll still shipped FileVersion 1.0.0.0 carrying the
+         new types, so the upgrade would have kept the old DLL and every module would have failed to
+         resolve them. The comment had been attached to the wrong property, which is how it was missed.
+         Keep the major.minor of the two in step; the build now refuses otherwise (see the Error
+         condition in src/DesktopAICompanion_Portable.csproj). Safe to bump: SignAssembly is false, so
+         nothing binds by assembly identity. -->
+    <DesktopAICompanionAssemblyVersion>1.1.0.0</DesktopAICompanionAssemblyVersion>
     <DesktopAICompanionRepositoryUrl>https://github.com/bigfnj/desktop-ai-companion</DesktopAICompanionRepositoryUrl>
     <DesktopAICompanionCopyright>Copyright (c) 2015-2026 DesktopAICompanion contributors</DesktopAICompanionCopyright>
   </PropertyGroup>

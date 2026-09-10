@@ -264,6 +264,17 @@
   <Target Name="ValidateDesktopAICompanionProductIdentity" BeforeTargets="PrepareForBuild">
     <Error Condition="'$(DesktopAICompanionProductName)' == '' or '$(DesktopAICompanionPublisher)' == '' or '$(DesktopAICompanionVersion)' == '' or '$(DesktopAICompanionAssemblyVersion)' == ''"
            Text="ProductVersion.props is missing or incomplete. Product identity and version metadata cannot be generated." />
+    <!-- The two versions must agree on major.minor. They are separate properties for a real reason (one
+         is marketing, one is the FileVersion an upgrade compares), and that separation is exactly how
+         1.1.0 nearly shipped a Contracts.dll stamped 1.0.0.0 while carrying new ABI types: Windows
+         Installer would have declined to replace it and every module would have failed to resolve them.
+         Cheaper to fail the build here than to debug a stale DLL on a user's machine. -->
+    <PropertyGroup>
+      <_DacMarketingMajorMinor>$(DesktopAICompanionVersion.Split('.')[0]).$(DesktopAICompanionVersion.Split('.')[1])</_DacMarketingMajorMinor>
+      <_DacFileMajorMinor>$(DesktopAICompanionAssemblyVersion.Split('.')[0]).$(DesktopAICompanionAssemblyVersion.Split('.')[1])</_DacFileMajorMinor>
+    </PropertyGroup>
+    <Error Condition="'$(_DacMarketingMajorMinor)' != '$(_DacFileMajorMinor)'"
+           Text="ProductVersion.props: DesktopAICompanionVersion ($(DesktopAICompanionVersion)) and DesktopAICompanionAssemblyVersion ($(DesktopAICompanionAssemblyVersion)) disagree on major.minor. AssemblyVersion is what Contracts/ModuleKit/the exe stamp as FileVersion, and a Windows Installer upgrade SKIPS a file whose FileVersion did not change - so a mismatch ships new ABI types inside a DLL the installer refuses to replace. Bump both." />
   </Target>
   <Target Name="GenerateDesktopAICompanionProductInfo" BeforeTargets="CoreCompile">
     <PropertyGroup>
