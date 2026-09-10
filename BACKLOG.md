@@ -5,6 +5,81 @@
 
 ---
 
+## 🐞 Known bugs (post-1.0.0)
+
+Numbered so they can be cited. Both were found by the maintainer using the shipped build, not by a gate.
+
+### BUG-001 — the tray icon is missing after an MSI install that launches the app
+
+**Reproduces every time on a fresh install.** Run the MSI, leave "launch when finished" ticked, and the
+notification-area icon is **not present**. Restarting the app puts it there. This is the intermittent
+fault the diagnostic log was built for in Phase 4b; it is now a reliable repro, which it never was before.
+
+**What the evidence rules out.** The app is not failing to create the icon and is not being overruled by
+the user's shell preference:
+
+```
+Tray  tray icon set: success=True icon=True visible=True text='Desktop AI Companion'
+Tray  tray icon: visibility left as the user set it
+```
+
+`Shell_NotifyIcon` reported success, the icon object was non-null, and `HKCU\Control Panel\NotifyIconSettings` holds `IsPromoted=1` for the exact installed executable path — so
+`TrayPromotion.ShouldPromote` correctly declined to touch an explicit user choice. The process is alive
+and responding, and the installed binary is the expected one. Everything the app controls is right.
+
+**Most likely mechanism.** The MSI launches the app from an **immediate** custom action, so the process
+is started by `msiexec` rather than by the shell, and `NIM_ADD` lands while the taskbar is not in a state
+to keep it. `Shell_NotifyIcon` returning TRUE does not guarantee the shell retained the icon. The classic
+fix is to handle the `TaskbarCreated` registered window message and re-add the icon when it arrives —
+which also covers an Explorer restart, a case this build does not handle either. Worth checking whether
+`ProcessIcon` subscribes to it at all before designing anything more elaborate.
+
+A second candidate, not exclusive with the first: the installer's `TerminateProcess` path kills a running
+instance without it calling `NIM_DELETE`, leaving a stale slot. That does not explain a **fresh** install
+with no prior instance, so `TaskbarCreated` is the stronger lead.
+
+**Where to look.** `src/dotNet/ProcessIcon.cs` (SetIcon and whether any window pumps `TaskbarCreated`),
+`src/dotNet/TrayPromotion.cs` (correct as-is, do not change it), and the launch custom action in
+`installer/DesktopAICompanion.wxs`. Two captured logs exist from consecutive runs; they are identical,
+which is itself the finding.
+
+### BUG-002 — the vision feature does nothing, silently, when the configured model is not installed
+
+**Repro.** Set the vision model to something not present in Ollama (the shipped default `gemma3:4b` is
+exactly this on a machine that has only Gemma 4), then trigger a screen reaction. The thinking dots
+appear and then nothing happens, forever, with no error and no log line.
+
+**Root cause, confirmed.** `AiSettings.cs:86` defaults `VisionModel = "gemma3:4b"`, and
+`AiBrain.cs:136` falls back to the same string. When that model is absent the backend errors, and
+`AiBrain.AskAboutScreenAsync` ends in a bare `catch { return null; }` at `AiBrain.cs:257-262`, commented
+"never crash the app over the AI layer". The caller then "simply stays silent without special-casing
+exceptions", exactly as the method's own summary says. So a missing model is indistinguishable from
+"nothing interesting to say".
+
+**The part that makes it undiagnosable:** `DiagnosticLog` is referenced **zero** times anywhere in
+`modules/AiBrain/`. The log added in Phase 4b to make invisible faults visible has no instrumentation in
+the one subsystem that fails by returning null on purpose.
+
+**Fix, in order of value:**
+
+1. Log the swallowed failure. Keep returning null, but record the model, the endpoint and the error
+   category first. Nothing else here is diagnosable until this exists.
+2. Say something the user can act on when the configured model is not in the backend's list — the pane
+   already enumerates installed models, so "gemma3:4b is not installed" is available at the point of
+   failure.
+3. Stop defaulting to a hard-coded model id that may not be present. Prefer the first vision-capable
+   model the backend actually reports, and only fall back to a literal when the list is empty.
+4. Add `gemma4` / `gemma-4` to `VisionModelMarkers` (`AiSettings.cs:1443`). Low priority and **not** the
+   cause of this bug: Ollama reports a real `capabilities` array which the module already honours, so the
+   marker list is only the fallback for backends that report nothing. It has `llama4` but not `gemma4`,
+   so it will mis-advise on such a backend.
+
+**Not a bug:** every model currently installed here (`gemma4:12b`, `gemma4:26b`, `qwen3.6:27b`,
+`mistral-small3.2:24b`) declares `vision` in `ollama show`, and `gemma4:12b` additionally declares
+`audio`. Nothing needs pulling; the default just points at a model that is not there.
+
+---
+
 ## ✅ DONE (2026-09-10, tagged v1.0.0) — the fortune library, the licence, and the inherited-docs cull
 
 Reactive session: every item started as something the maintainer noticed in the shipped UI or repo, not
@@ -48,7 +123,7 @@ problem and did not.
   fixed 165px wrapping label, so a two-line label grew the editor with it. `TextBox`/`PasswordBox` now pin
   `VerticalAlignment.Center`, which `CheckBox` and the status rows already did.
 - **Phase 6 completed and decoupled from Phase 5.** `bigfnj/desktopPet` deleted, which was the only clean
-  way to remove a work identity from a public git history. The other three Phase 6 items were already
+  clean way to retire author metadata from a public git history. The other three Phase 6 items were already
   true. The plan's own Phase 6 text had been damaged by the rename sweep and named the LIVE data root as
   the thing to delete; corrected before executing.
 
@@ -1323,8 +1398,8 @@ releasing is now `git tag vX.Y.Z` (see [`docs/RELEASE-CHECKLIST.md`](docs/RELEAS
   tagged v1.2.3–v1.3.2 (2019–2021), so the fork's 1.2.x series ran into that range. Resolved by jumping the
   fork clear of it: the next release was cut as **v1.4.0** (not 1.2.4), so no tag collides. Releases continue
   from 1.4.x.
-- ✅ **DONE (2026-08-13) — scrubbed a personal work email from the first 10 fork commits.** The fork's
-  day-one commits (2026-06-24) were authored/committed under a work address rather than the project's
+- ✅ **DONE (2026-08-13) — normalised author metadata on the first 10 fork commits.** The fork's
+  day-one commits (2026-06-24) were authored/committed under a different address rather than the project's
   `bigfnj` (personal identity) identity. Rewrote history with `git filter-repo --mailmap` to map those 10
   commits onto the `bigfnj` identity (0 commits now carry the old address; the HEAD tree stayed byte-identical,
   so no file content changed), then force-pushed master + the re-pointed release tags. Tracked file content was

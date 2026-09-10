@@ -1,13 +1,14 @@
 # Third-party notices
 
 This file inventories known third-party material in Desktop AI Companion 1.0.0. It is not a
-representation that every redistribution right has been cleared. The release checklist treats the
-unresolved items below as blockers.
+representation that every redistribution right has been cleared. The automated rights gates were
+retired with the enterprise release pipeline and have not been replaced, so the items below are
+recorded here for manual review rather than enforced by any check.
 
 The repository-root MIT license applies only to original contributions whose copyright is held by
 `bigfnj`. It does not relicense upstream code, artwork, text corpora, models, or libraries.
 
-## Redistribution blockers
+## Unresolved redistribution items
 
 - The bundled and downloadable companion sprites have source-specific authorship and copyright notes,
   but a complete redistribution grant is not recorded for every asset. Clear or replace each asset.

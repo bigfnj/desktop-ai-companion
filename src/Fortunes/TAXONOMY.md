@@ -133,13 +133,12 @@ New or migrated packs must use v2.
 - **Current-corpus provenance status:** the checked-in `fortunes.txt` has no retained
   `fortunes.sources.tsv`, and this repository contains no reviewed, pinned
   `FORTUNE_SOURCE_COMMIT`. The current corpus therefore cannot be reconstructed or verified from
-  repository-controlled evidence. That missing evidence remains a release blocker; the builder's
-  ability to generate a sidecar is not evidence for the corpus already checked in.
-- `packaging/Test-EmbeddedCorpus.ps1` requires exact full-row uniqueness. Identical text with
-  distinct source/category/severity metadata is retained and counted as separate provenance. The
-  protected current snapshot has one exact duplicate row; development validation may name that
-  pinned exception explicitly, while release validation fails it as a known blocker.
-- `packaging/source-rights-evidence.json` binds six scopes to exact file or deterministic
+  repository-controlled evidence. Nothing enforces that any more: the automated rights and corpus
+  gates were retired with the enterprise release pipeline. The gap is recorded rather than gated, and
+  the builder's ability to generate a sidecar is not evidence for the corpus already checked in.
+- **Retired, described here only as history:** `packaging/Test-EmbeddedCorpus.ps1` required exact
+  full-row uniqueness, and `packaging/source-rights-evidence.json` bound six scopes to exact file or
+  deterministic
   aggregate hashes: the embedded corpus, model, vocabulary, supported engine-source closure,
   bundled executable art/resources, and downloadable companion animation/icon/catalog payloads. A
   virtual-set approval must assign every fingerprinted path exactly once across its approvals'

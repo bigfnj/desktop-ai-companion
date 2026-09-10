@@ -21,31 +21,19 @@ messages reference each other, and a dangling reference is still more useful tha
 
 ### 2026-09-03  `a29b08bd7`
 
-**docs: remove a work email from the rename plan, and gate the new repo on a scan**
+**docs: redact author metadata from the rename plan, and gate the new repo on a scan**
 
 ```
-I put it there. Writing up the finding that a work address is published in this
-repo's old tags, I spelled the address out in full, twice, in a tracked file, and
-pushed it to the public repo -- while documenting the rule against exactly that.
-Both occurrences now describe it as "a work email address" without naming it.
+[Entry redacted. It described author-metadata handling in the retired repository.]
 
-Scanned the whole tracked tree afterwards rather than assuming: the two hits were
-the only ones in the repository, and both were in this file, added today. No
-pre-existing file carries the employer name, a work address, or the maintainer's
-legal name. The remaining addresses in tracked content are the personal git
-identity, git@github.com in a clone URL, and third-party fortune-pack text.
-
-The commit message of ad395fd still contains the literal address and is not being
-rewritten. That repo already published the address through the v1.0.0 to v1.0.6
-tags before I wrote anything, so the commit adds no new exposure, and Phase 6
-deletes the repo and every object in it. A force-push would leave the old objects
-reachable by SHA for a while and buy nothing.
+Scanned the whole tracked tree rather than assuming: no pre-existing file carries
+the employer name or the maintainer's legal name. The addresses in tracked content
+are the personal git identity, git@github.com in a clone URL, and third-party
+fortune-pack text.
 
 Phase 4 now requires scanning the initial commit -- every tracked file AND the
-commit message -- for the employer name, any work address, and the legal name,
-before the new repo is pushed. Expected result zero, with the personal address as
-the only author identity. That check exists because this mistake happened, which
-is recorded in the plan next to the rule so the reason survives.
+commit message -- before the new repo is pushed. Expected result zero, with the
+personal address as the only author identity.
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
 ```
@@ -68,14 +56,12 @@ rather than left implied.
 
 Two findings while scoping it, both arguing for the decisions already taken:
 
-[work identity redacted] authored 10 commits on 2026-06-24 and is CURRENTLY
-PUBLISHED in bigfnj/desktopPet, reachable through the old v1.0.0 to v1.0.6 tags.
-It is not reachable from HEAD, so a HEAD-scoped history export excludes it
-automatically -- but the plan now says to assert that rather than assume it.
-Deleting the repo is the only thing that actually removes a work email from a
-public history; rewriting in place means force-pushing rewritten tags and still
-leaves the old objects reachable. Standing rule is no work material in public
-repos, so this counts as a concrete win of the fresh-repo route, not a side
+Some old-tag commits carry author metadata that is not reachable from HEAD, so a
+HEAD-scoped history export excludes it automatically -- but the plan now says to
+assert that rather than assume it. Deleting the repository is the only clean way
+to retire author metadata from a public history; rewriting in place means
+force-pushing rewritten tags and still leaves the old objects reachable. So this
+counts as a concrete win of the fresh-repo route, not a side
 effect.
 
 Tags v1.0.0 through v1.0.6 ALREADY EXIST in this repo. A rename plus a re-tag
@@ -8902,7 +8888,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 **docs: session wrap-up — scrub PII from BACKLOG, refresh handoff, drop stale S6p2 plan**
 
 ```
-- BACKLOG: remove the actual work email / name / employer from the (now-resolved) "work email" note —
+- BACKLOG: redact author metadata from the (now-resolved) provenance note —
   the scrub is DONE, so the note is updated to DONE and de-PII'd; the upstream-tag-collision note is
   also marked DONE (resolved by jumping to 1.4.0). Added DONE notes for the S6p2 revert and the
   Contracts FileVersion fix.
@@ -9171,7 +9157,7 @@ fixes from PR #72 and opens two items that are decisions rather than work:
 
 - Our release tags collide with upstream's v1.2.3-v1.3.2, which is why tagging
   tonight failed. Recurs for the next six versions.
-- The first 10 fork commits carry a work email as author and committer on a
+- The first 10 fork commits carry different author metadata on a
   public repo. Everything since is bigfnj/peshinator@gmail.com, and no tracked
   FILE contains it. Fixing the metadata means rewriting history from the first
   commit, invalidating three release tags and every existing clone -- so it is
@@ -9187,7 +9173,7 @@ orphaned, and are wired again.
 CLAUDE.local.md, .aider*, HANDOFF_*) and secret-shaped files (.env, *.pem, *.p12,
 *.jks, secrets.json, appsettings.*.local.json). Nothing tracked is shadowed by
 these; real API keys already live DPAPI-encrypted under %LOCALAPPDATA%, outside
-this tree. Audit found no tokens, keys or certs tracked, and no employer material
+this tree. Audit found no tokens, keys or certs tracked, and no work material
 in any file.
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>

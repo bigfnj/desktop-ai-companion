@@ -1604,7 +1604,7 @@ Reproduced at the byte level against the real engine with the pet's exact `Proce
 ```
 GetConsoleOutputCP() = 0
 StandardOutput.CurrentEncoding = Codepage - 0 (cp 0)     <- CP_ACP == 1252
-  [work identity redacted] Ventures as[U+00C2][U+00AE]                  <- the bubble, reproduced
+  [redacted] Ventures as[U+00C2][U+00AE]                  <- the bubble, reproduced
   Windows[U+00C2][U+00AE] 11 Pro [U+00E2][U+20AC][U+201D] caf[U+00C3][U+00A9]
 ```
 
@@ -2022,8 +2022,8 @@ Housekeeping so the repo tells the truth about itself.
 
 | Check | Result |
 |---|---|
-| "[work identity redacted]" / work material | **clean** — no matches in tracked files or anywhere in history |
-| Work identity in git history | **clean** — the earlier `filter-repo` scrub held; 13 of 14 authors are upstream OSS contributors |
+| Employer name / work material | **clean** — no matches in tracked files or anywhere in history |
+| Author metadata in git history | **clean** — the earlier `filter-repo` scrub held; 13 of 14 authors are upstream OSS contributors |
 | Credentials in tracked files | **clean** — the only matches are deliberate fake fixtures in a security self-test |
 | Credential/key files | **none tracked**; real API keys live DPAPI-encrypted under `%LOCALAPPDATA%`, outside the repo |
 | AI/agent leftovers | **none tracked or on disk**; `.gitignore` already covers `CLAUDE.md` and `.claude/` |

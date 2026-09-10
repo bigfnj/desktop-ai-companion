@@ -18,14 +18,14 @@ template scaffolds and builds, converter 53 pets / 0 invalid / 0 round-trip fail
 
 ### What actually blocks a wider release, and it is not code
 
-`THIRD_PARTY_NOTICES.md` "Redistribution blockers" lists four unresolved items: the companion sprites (no
+`THIRD_PARTY_NOTICES.md` "Unresolved redistribution items" lists four of them: the companion sprites (no
 complete grant per asset), the fortune corpus's copyrighted quotations, the fan-compiled packs, and a
 pinned provenance record for the two `bge-small-en-v1.5` model files. Every pack's catalog licence
 therefore reads `NOASSERTION`.
 
 The **engine licence is settled** — the maintainer holds written permission from the upstream author, it
-is recorded under "Bundled with a verified redistribution grant", and they have declined to share the
-grant's particulars. Do not re-raise it.
+is recorded under "Bundled with a verified redistribution grant", and the particulars are not being
+shared. Do not re-raise it.
 
 The asymmetry worth naming: this project has excellent automated gates for staleness, corpus integrity and
 module freshness, and **none at all** for redistribution rights, which is the only risk here that is legal
@@ -39,6 +39,10 @@ See `BACKLOG.md`, the `DONE (2026-09-10, tagged v1.0.0)` block — corpus 26 sou
 
 ### Open, in the order it will cost you
 
+- **BUG-001 and BUG-002 are filed in `BACKLOG.md` under "Known bugs (post-1.0.0)"** and both have a
+  reliable repro. BUG-001 is the tray icon after an MSI install; BUG-002 is the vision feature failing
+  silently when the configured model is not installed, which is also the reason `modules/AiBrain/` has
+  **zero** `DiagnosticLog` calls and should be the first thing fixed there.
 - **The tray icon.** Reported missing again after installing a fresh MSI. The diagnostic log, built
   precisely for this, says the app did everything right on both runs: `success=True icon=True
   visible=True`, and the shell's `NotifyIconSettings` entry has `IsPromoted=1` for the exact install path,
@@ -1185,7 +1189,7 @@ reading its OWN "Sheep"-titled window as screen context (a sheep-joke loop; fixe
 Genres filter being a no-op for downloaded packs. `v1.4.2` (2026-08-14) shipped the OCR mojibake fix + the
 module-update path + the monthly auto-check above.
 
-**History was scrubbed (2026-08-13):** a personal work email on the 10 fork-day commits was removed via
+**History was scrubbed (2026-08-13):** non-project author metadata on the 10 fork-day commits was removed via
 `git filter-repo --mailmap` (→ `bigfnj` (personal identity)); master + the v1.2.1/1.2.2/1.2.3 tags were
 force-pushed. **Residual:** GitHub's immutable `refs/pull/*/head` refs still hold the old commits — a
 force-push can't remove them; fully purging needs a GitHub Support "remove sensitive data" request (in BACKLOG).

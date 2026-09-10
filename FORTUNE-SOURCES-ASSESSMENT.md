@@ -26,10 +26,11 @@ section immediately below records the embedded corpus that actually ships now.
 
 > **Rights status:** this harvest assessment is research and planning evidence, not legal clearance.
 > License labels below repeat source metadata or historical assumptions unless an exact content
-> revision and redistribution grant have been independently retained and reviewed. The unresolved
-> corpus provenance work in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and
-> [`docs/RELEASE-CHECKLIST.md`](docs/RELEASE-CHECKLIST.md) remains a public-release blocker. No source
-> is approved for redistribution merely because it appears in Tier A or in the current corpus table.
+> revision and redistribution grant have been independently retained and reviewed. The automated
+> rights gates were **retired** with the enterprise release pipeline and have not been replaced, so
+> nothing now checks this mechanically; the open items are recorded in
+> [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and must be reviewed by hand. No source is
+> approved for redistribution merely because it appears in Tier A or in the current corpus table.
 
 ---
 
