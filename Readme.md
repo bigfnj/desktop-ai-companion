@@ -67,9 +67,9 @@ rather it never reached the network unprompted. Notify-only either way: nothing 
 ### 🔮 Fortunes (optional module, 100% offline)
 <img align="right" width="68" src="Companions/fox/icon.png" alt="Fox">
 
-One-liners — quotes, jokes, philosophy, Simpsons chalkboard gags, the abridged Bible, and more. The
-module carries a built-in corpus of ~3,200 lines, so it has something to say the moment it installs,
-before you download a single pack. Install it from **Options → Modules**, then from
+One-liners. The module carries a built-in corpus of ~3,200 lines — Classic Fortunes and Dad Jokes — so
+it has something to say the moment it installs, before you download a single pack. Philosophy, Simpsons
+chalkboard gags, the abridged Bible and the rest are **packs** you add on top. Install it from **Options → Modules**, then from
 **Options → Fortunes** you can:
 - Dial the tone with one ordered **Content level** — *Clean only* / *Clean + edgy* / *Everything* /
   *Spicy only* — plus a separate **Filter profanity** switch for recognized profanity and explicit
@@ -110,12 +110,12 @@ want it:
   memory. Generic OpenAI-compatible providers expose no remote-memory control, so disabling
   Desktop AI Companion does not promise to free memory owned by those servers.
 - Works with **any OpenAI-compatible provider** — Ollama (local, with keep-alive VRAM control),
-  LM Studio, llama.cpp, OpenRouter, OpenAI, or a custom `/v1` endpoint. Pick one in **Options → AI**;
+  LM Studio, llama.cpp, OpenRouter, OpenAI, or a custom `/v1` endpoint. Pick one in **Options → AI Brain**;
   cloud keys are stored **DPAPI-encrypted**.
 - Ask on demand with the global hotkey (`Ctrl+Alt+P`) or the tray, or opt into occasional idle
   commentary.
 - **Reads the screen with no extra install.** Windows' own OCR does the work out of the box; the
-  module only falls back to **Tesseract** if you have it, and **Options → AI → Choose OCR engine…**
+  module only falls back to **Tesseract** if you have it, and **Options → AI Brain → Choose OCR engine…**
   lets you pick. **Test OCR** confirms which one answered.
 
 #### Recommended local models
@@ -352,10 +352,15 @@ Each GitHub release provides two Windows x64 artifacts:
 - **`DesktopAICompanion.msi`** — a per-user installer (no admin).
 - **`DesktopAICompanion-Portable.zip`** — unzip anywhere and run `DesktopAICompanion.exe`.
 
+**Prerequisites.** Windows 10 or later, x64, and the **.NET 10 Desktop Runtime** — the builds are
+framework-dependent, so the runtime is not included. AI Brain and Remembrance additionally need Windows
+10 version 2004 (build 19041) or later, because they use the built-in OCR and audio-capture APIs.
+
 Neither download carries the plugin modules: they come from the in-app catalog, which is what keeps the
 installer small. The portable ZIP additionally bundles six companions and all 158 fortune packs offline;
-the MSI carries neither, so a fresh install starts with the built-in companions and two built-in fortune
-sources until you install Fortunes from **Options -> Modules**. The builds are **unsigned** -- verify
+the MSI carries neither, so a fresh install starts with the built-in companions and **no fortunes at all**
+until you install Fortunes from **Options -> Modules**: the corpus lives inside that module's payload, not
+in the base app. The builds are **unsigned** -- verify
 them against `SHA256SUMS.txt` on the release.
 
 ---
@@ -448,7 +453,8 @@ bathtub escape. Every companion's exact moves and odds live in its `animations.x
 
 Requires the **.NET 10 SDK** — exactly 10.0.302, pinned in [`global.json`](global.json) with
 `rollForward: disable` so a different patch fails fast instead of quietly building something untested.
-All fifteen projects target `net10.0-windows`. MSI builds also require WiX 5.0.2.
+All fifteen projects target `net10.0-windows`, except AI Brain and Remembrance, which pin
+`net10.0-windows10.0.19041.0` because they call Windows 10 2004 APIs (built-in OCR, audio capture). MSI builds also require WiX 5.0.2.
 
 ```powershell
 .\tests\run-gate.ps1                                        # the one that matters: build + CoreTests +
@@ -463,7 +469,7 @@ $wix = Join-Path $env:TEMP 'DesktopAICompanion-WiX-5.0.2'
 ```
 
 - `build.ps1` never terminates a running app; if `DesktopAICompanion.exe` is locked, close it and retry. It
-  builds only the supported x64 project (`src/DesktopAICompanion_Portable.csproj`).
+  builds the supported x64 project and all seven module projects (`src/DesktopAICompanion_Portable.csproj`).
 - ZIP and MSI share the runtime list in [`packaging/runtime-files.txt`](packaging/runtime-files.txt).
   The ZIP also adds `DesktopAICompanion.portable`, which forces portable data-root behavior even when it is
   extracted into an install-shaped directory.
@@ -579,7 +585,11 @@ the eSheep desktop-pet lineage.
 
 **Embedder model** — [`bge-small-en-v1.5`](https://huggingface.co/BAAI/bge-small-en-v1.5) by BAAI.
 
-**Fortune corpus** — aggregated largely from
+**Fortune corpus** — the built-in corpus is just two sources: Classic Fortunes (the BSD `fortune`
+files) and Dad Jokes, 3,225 lines together. Everything else named below moved out to **downloadable
+packs** and is no longer bundled.
+
+**Fortune packs** — aggregated largely from
 [JKirchartz/fortunes](https://github.com/JKirchartz/fortunes) and the classic BSD `fortune` files,
 with grateful thanks to the sources behind them, including: the Quotable quote collection; clean
 jokes; collected authors, artists, and activists; Seth Godin; Larry Wall and the hacker koans;

@@ -2178,8 +2178,8 @@
       "desc": "Offline smart fortunes and speech bubbles, picked contextually by a bundled bge-small embedding model. Ships a built-in corpus of ~3,200 lines (Classic Fortunes plus Dad Jokes), so it has something to say before you download a single pack.",
       "version": "1.0.0",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/fortunes.zip",
-      "sha256": "b5241ef76ccf0b0c4a59025d1982abd0022352229120e90001f35fae7094f8b6",
-      "bytes": 30431922,
+      "sha256": "ce9577380b39448f16710d103a56141d4995fd929ec1d47327544a5e46e2f777",
+      "bytes": 30431742,
       "permissions": "Speech, ScreenContext, Storage"
     },
     {
@@ -2188,8 +2188,8 @@
       "desc": "An optional, off-by-default screen-commentary AI brain (local Ollama/llama.cpp or an optional cloud provider). Reads the screen with Windows' built-in OCR, so it needs no separate Tesseract install.",
       "version": "1.1.0",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/aibrain.zip",
-      "sha256": "942ec154481706d9eebf7a092e6e4332562366679d9b7bd590f4af1dd651743d",
-      "bytes": 6729899,
+      "sha256": "723f3ef79ed219c1ce4e68f1de5b7e0fe4ec1e65fc1b8a2e382913c6916f9aa0",
+      "bytes": 6729751,
       "permissions": "Speech, Animation, ScreenContext, Network, Hotkey, Storage"
     },
     {
@@ -2198,8 +2198,8 @@
       "desc": "Check a companion's animations.xml before you use it: what the host would reject, which animations can never play, and how it actually looks running on your desktop. Edit the XML in place, watch any animation's real sprite frames, preview the companion temporarily on your desktop, then install it.",
       "version": "1.0.1",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/petstudio.zip",
-      "sha256": "330ecf2ea92afacda52b122764883ca30825c38f120cf9f6120a5835c3776bfc",
-      "bytes": 370487,
+      "sha256": "a1381372167f0346f94d33df98519a5d672799f8605c3392e58ad4f7962516ce",
+      "bytes": 370338,
       "permissions": "Companions, Storage"
     },
     {
@@ -2208,8 +2208,8 @@
       "desc": "Your companion announces upcoming calendar events and reads your agenda. Watches up to five calendars (local file, ICS URL, or running Outlook), each with its own name, style, and chime; one-click Join for Teams/Zoom/Meet links; a daily morning briefing; typed personal reminders; skips declined and all-day events; lead times, quiet hours, and hush-while-presenting.",
       "version": "1.0.0",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/reminder.zip",
-      "sha256": "8a6fba3b890f4daecbe0567d76ccddb2abc9e117d2d38d66b06e2077ebb30405",
-      "bytes": 378494,
+      "sha256": "1786e03e56432daabf8d5d47030944aa526b9e62a5f4152cca555e518abeafff",
+      "bytes": 385678,
       "permissions": "Speech, Storage, Network, Companions, Audio, Animation"
     },
     {
@@ -2218,8 +2218,8 @@
       "desc": "Records a meeting (your microphone + the system output over WASAPI loopback), transcribes it offline with a local Whisper, names it from your calendar (via the Reminder module) or a timestamp, snapshots the screen on a hotkey, and purges the audio + snapshots after 72 hours while keeping the transcript. Needs a local Whisper (whisper-cli + a model) set up in options, and the machine's own console - a Remote Desktop session presents no real microphone.",
       "version": "1.0.0",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/remembrance.zip",
-      "sha256": "13c3809b4e1a59e2ba3695174850a538190d947b8dbfbe2ebf35602a2b70ba24",
-      "bytes": 6731847,
+      "sha256": "e66a34a06b137fbdacf20515c39bd33f8062849f194aa770c429a332507de8c3",
+      "bytes": 7043349,
       "permissions": "Microphone, SystemAudio, ScreenContext, Hotkey, Storage, Network"
     },
     {
@@ -2228,8 +2228,8 @@
       "desc": "Blinks your keyboard's Scroll Lock light so the machine reads as active. Six speeds from Glacial to Hyper, switchable from the tray, and your companion has an opinion about each one. It works by pressing Scroll Lock, a key no application acts on, so nothing is ever typed anywhere; Windows still counts it as activity, which is the whole point. Caps Lock stops it.",
       "version": "1.0.0",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/blinkingled.zip",
-      "sha256": "3f081c3d55df6e62eaecd44c52ae6be3325b086911b8d3730988e825f35bd145",
-      "bytes": 32427,
+      "sha256": "5d2196449406d581f1838e1c261f4164e7c5993d5d378e19f84493033650c798",
+      "bytes": 33002,
       "permissions": "Speech, Storage"
     }
   ]

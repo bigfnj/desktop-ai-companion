@@ -13,6 +13,13 @@ DesktopAICompanion sends data only when a network feature is used:
   user names entered in settings, time-of-day context, foreground-window title, OCR text derived
   from the screen, and recent conversation context. If **Use vision model** is enabled, an image of
   the screen is sent instead of OCR text for supported requests.
+- **Since 1.1.0 it also sends the PROCESS NAMES of other windows on the companion's monitor** (for
+  example `outlook, msedge`), as a line reading "Also open on this screen: ...". Process names and not
+  window titles, deliberately: the title is where document names, message subjects and customer names
+  live, and for "what else is open" the application is the useful part anyway. That distinction is
+  asserted by a test rather than left to convention, so a title cannot start reaching the prompt
+  unnoticed. Capture follows the monitor the companion is standing on, so windows on your other
+  displays are not described.
 - The explicit **Refresh model list** and connection-test controls contact the configured provider.
   Granting cloud-data consent by itself remains network-silent. Configured model warm-up and
   Ollama model-unload operations can also contact that provider.

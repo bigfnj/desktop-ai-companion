@@ -64,7 +64,14 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.1.0",   // 1.1.0: NEW: screen reactions capture the FOREGROUND WINDOW rather than the
+            Version = "1.1.1",   // 1.1.1: the shipped TextModel default was llama3.1:8b, a model that was
+                                 //        never in the measured comparison and that the Readme tables do
+                                 //        not mention, so a fresh install pointed its text model at
+                                 //        something the user very likely did not have. Now gemma3:4b,
+                                 //        matching VisionModel so one download serves both jobs and the
+                                 //        backend can keep a single model resident. The value was
+                                 //        duplicated across five sites; all are now in step.
+                                 // 1.1.0: NEW: screen reactions capture the FOREGROUND WINDOW rather than the
                                  //        whole monitor, and the prompt names what else is open. Needs host
                                  //        1.1.0 for ScreenContext.ForegroundWindowBounds / .Windows.
                                  // 1.0.0: rebased with the host for the Desktop AI Companion rename. Not a
@@ -292,7 +299,7 @@ namespace DesktopAICompanion.AiBrainModule
                         return "✗ Not reachable at " + normalized;
                     // Test whichever slot is active: cloud model when a cloud provider is selected, else local.
                     string activeModel = local ? s.TextModel : s.CloudTextModel;
-                    string model = string.IsNullOrWhiteSpace(activeModel) ? "llama3.1:8b" : activeModel.Trim();
+                    string model = string.IsNullOrWhiteSpace(activeModel) ? "gemma3:4b" : activeModel.Trim();
                     var msgs = new List<ChatMessage> { ChatMessage.System("Reply with OK."), ChatMessage.User("OK?", null) };
                     await backend.ChatAsync(model, msgs, false, CancellationToken.None).ConfigureAwait(false);
                     sw.Stop();

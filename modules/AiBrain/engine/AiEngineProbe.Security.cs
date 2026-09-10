@@ -878,7 +878,7 @@ namespace DesktopAICompanion.AiBrainModule
                     string.Equals(migrated.OpenAiBaseUrl, "https://api.openai.com/v1", StringComparison.Ordinal) &&
                     string.Equals(migrated.CloudTextModel, "gpt-4o-mini", StringComparison.Ordinal) &&
                     string.Equals(migrated.CloudVisionModel, "gpt-4o", StringComparison.Ordinal) &&
-                    string.Equals(migrated.TextModel, "llama3.1:8b", StringComparison.Ordinal) &&
+                    string.Equals(migrated.TextModel, "gemma3:4b", StringComparison.Ordinal) &&
                     string.Equals(migrated.VisionModel, "gemma3:4b", StringComparison.Ordinal) &&
                     migrated.SchemaVersion == AiSettings.CurrentSchemaVersion &&
                     string.Equals(migrated.ApiKey, migrateKey, StringComparison.Ordinal));

@@ -75,8 +75,21 @@ namespace DesktopAICompanion.Ai
         /// </summary>
         public string LocalBackendKind = "ollama";
 
-        /// <summary>Fast text-only model used for OCR-based commentary.</summary>
-        public string TextModel = "llama3.1:8b";
+        /// <summary>
+        /// Fast text-only model used for OCR-based commentary.
+        ///
+        /// gemma3:4b, matching <see cref="VisionModel"/> on purpose: one 3.3 GB download serves both
+        /// jobs, and an identical id lets the backend keep a single model resident instead of swapping
+        /// between two. Measured 2026-09-10 over 15 generations per candidate, it parsed 15/15 and led
+        /// on every axis, so this is the recommendation rather than a guess.
+        ///
+        /// Was llama3.1:8b, which was never in that comparison and which the Readme's model tables do
+        /// not mention at all -- so a fresh install pointed its text model at something the user very
+        /// likely did not have, and before BUG-002 that failed silently and looked like a companion
+        /// with nothing to say. Changing the default is the other half of that fix: BUG-002 makes a
+        /// missing model SAY so, this stops a fresh install starting out missing one.
+        /// </summary>
+        public string TextModel = "gemma3:4b";
 
         /// <summary>
         /// Multimodal model used when <see cref="UseVision"/> is on (much slower/heavier than OCR).
@@ -604,7 +617,10 @@ namespace DesktopAICompanion.Ai
                 LocalBackendKind = "ollama";
                 changed = true;
             }
-            changed |= NormalizeModel(ref TextModel, "llama3.1:8b");
+            // Keep this fallback in step with the TextModel field default above: it is a SECOND
+            // source of truth for the same value, so changing only the declaration would leave a
+            // blank or invalid setting normalizing back to the old model.
+            changed |= NormalizeModel(ref TextModel, "gemma3:4b");
             changed |= NormalizeModel(ref VisionModel, "gemma3:4b");
             changed |= NormalizeString(ref TesseractPath, "", MaximumPathCharacters);
             changed |= NormalizeString(ref CompanionName, "eSheep", MaximumNameCharacters);
@@ -729,7 +745,8 @@ namespace DesktopAICompanion.Ai
             {
                 CloudTextModel = TextModel;
                 CloudVisionModel = VisionModel;
-                TextModel = "llama3.1:8b";
+                // The local defaults, kept in step with the field declarations above.
+                TextModel = "gemma3:4b";
                 VisionModel = "gemma3:4b";
                 return true;
             }

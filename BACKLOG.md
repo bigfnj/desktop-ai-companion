@@ -373,6 +373,81 @@ this gate that "nothing leaks": it measures OS handle counts, not GDI+ memory.
 Per-step attribution, the settled series and the settled counters all remain in the churn marker, so the
 next occurrence starts from data instead of from a code read.
 
+## Open: findings from the v1.1.0 wrap-up audit (filed 2026-09-10)
+
+Four parallel read-only audits ran over the tree at the v1.1.0 tag (credentials, PII/employer material,
+stale files, readme accuracy). Credentials came back with **zero** findings and the working tree was
+clean. What was found and FIXED at the time is not repeated here; these are the items deliberately left
+open, with the evidence, so none of them has to be rediscovered.
+
+### 1. `ModuleKit.dll` still embeds the build path in every published module zip
+
+`DesktopAICompanion.ModuleKit.dll` is copied into all six `modules-dist/*.zip`, and because it builds
+from `src/` it still carries a CodeView record naming
+`D:\...\src\DesktopAICompanion.ModuleKit\obj\Release\...pdb`. The six MODULE DLLs were
+fixed by `modules/Directory.Build.props` (`DebugType=none`); this one cannot use the same fix, because
+Contracts and ModuleKit deliberately set `IncludeSymbols` + `SymbolPackageFormat=snupkg` so module
+authors can debug into the ABI.
+
+Measured while attempting it, so nobody repeats the dead ends:
+
+- **`PathMap` does not help.** It rewrites source paths recorded *inside* the PDB, not the output PDB
+  path in the assembly's CodeView record. Verified: the absolute path survived unchanged.
+- **`DebugType=embedded` DOES clean it and keeps symbols** (they move inside the DLL, +14 KB on
+  ModuleKit), but `dotnet pack` then fails **NU5017**, "cannot create a package that has no dependencies
+  nor content", because the symbol package has nothing left to carry.
+- **The release does not publish `.snupkg` assets at all** - the v1.1.0 assets are two `.nupkg`, the
+  portable ZIP, the MSI and `SHA256SUMS.txt`. So that setting currently produces an artifact no user
+  receives, which is the thing to settle first: either publish the symbol packages, or switch to
+  `embedded` and drop `IncludeSymbols`.
+- Calibration before treating this as urgent: the vendored third-party DLLs in those same zips carry
+  their own vendors' CI paths (`N:\_work\...` for onnxruntime, `C:\__w\1\s\...` for the
+  Windows SDK projection, `D:\a\_work\...` for WinRT.Runtime). Embedded build paths in shipped
+  binaries are normal practice; this one matters only because it names a personal machine rather than a
+  hosted runner. It contains no username and no employer string.
+
+**No gate looks for this.** `Test-ModulePublishFreshness.ps1` measures staleness and integrity, never
+embedded paths. A scan over the zips' DLLs for `<drive>:\...\*.pdb` would be cheap to add and would
+have caught it.
+
+### 2. The module template scaffolds a module the 1.1.0 host refuses
+
+`templates/desktop-ai-companion-module/.template.config/template.json` still defaults `minHostVersion`
+and `packageVersion` to **1.4.8**, which is pre-rebase numbering. 1.4.8 > 1.1.0, so `ModuleHost`
+correctly refuses the scaffolded module, and the `--standalone` path tries to restore Contracts/ModuleKit
+**1.4.8**, a version never published. This breaks the Readme's own module quick-start.
+`Test-ModuleTemplate.ps1` passes regardless, because it asserts that every placeholder was substituted
+and that the result BUILDS - not that the host would load it.
+
+### 3. Readme / docs items not corrected
+
+- The Preferences pane list claims module panes only, "alphabetically", and puts `Companions` last.
+  `Companions` is a CORE pane (`OptionsShell.cs:66`) and the tail is sorted across all of them, so the
+  real order on a full install is Preferences, Modules, AI Brain, Blinking LED, Companion Studio,
+  Companions, Fortunes, Reminders, Remembrance.
+- Neither `Readme.md` nor `docs/module-authoring.md` documents the ABI added in host 1.1.0:
+  `ScreenContext.Windows`, `ScreenWindow`, `ScreenContext.ForegroundWindowBounds`. The contract itself
+  carries the privacy note (`PluginApi.cs:127-163`), but the authoring guide still describes screen
+  reading as a bare `CaptureScreenContext`, and its worked example gives `MinHostVersion = "1.4.6"` - a
+  value this host now refuses.
+- The window-scoped capture section does not mention that the rect is intersected with the COMPANION's
+  monitor, so its "a 1200px window barely gets downscaled" promise silently does not apply when the front
+  window is on another display.
+
+### 4. Two small hygiene items
+
+- `docs/FORTUNE-CATEGORIES-PROPOSAL.md` has **zero referrers** anywhere in the repo, and its own header
+  says it has been applied. `docs/FORTUNE-SOURCE-TABLE.md` is the generated successor. Archive it beside
+  `HISTORY-pre-1.0.0.md` rather than delete it.
+- `Resources/animations.xsd` and `src/Resources/animations.xsd` are byte-identical duplicates and BOTH
+  are live: the `src/` copy is embedded by three csproj files, the root copy is what the grimoire docs
+  link. `handoff.md` already records that they must stay in sync, but **nothing asserts it**. A file-hash
+  equality check in `tests/run-gate.ps1` is cheap now and prevents a silent drift later.
+
+---
+
+## PARTLY DONE: instrument the modules, AI Brain first (filed 2026-09-10)
+
 BUG-002 was undiagnosable for a reason that is not specific to BUG-002, so it is worth its own item.
 
 > **2026-09-10, done as part of the BUG-002/003 fixes:** items 1, 3 and 6 below, plus the

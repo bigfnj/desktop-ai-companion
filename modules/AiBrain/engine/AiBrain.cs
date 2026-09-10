@@ -238,7 +238,7 @@ namespace DesktopAICompanion.Ai
             _textModel = AiModelPolicy.TryNormalize(
                 _settings.TextModel, out normalizedModel)
                 ? normalizedModel
-                : "llama3.1:8b";
+                : "gemma3:4b";
             _visionModel = AiModelPolicy.TryNormalize(
                 _settings.VisionModel, out normalizedModel)
                 ? normalizedModel
