@@ -70,9 +70,10 @@ Two web homes, with different jobs:
   The XSD's target namespace is literally this URL: `https://esheep.petrucci.ch/`
   ([`Resources/animations.xsd`](../Resources/animations.xsd)).
 - **<https://adrianotiger.github.io/desktopPet/>** — the GitHub Pages "Desktop Pet (eSheep 64bit)" site
-  (a Jekyll site; this repo carries its `_config.yml`, `_layouts/`, `_posts/`): downloads (including an
-  Android build), a browsable companion gallery, and news. Distribution-focused; the authoring **spec lives in
-  the wiki**, not this page.
+  (a Jekyll site): downloads (including an Android build), a browsable companion gallery, and news.
+  Distribution-focused; the authoring **spec lives in the wiki**, not this page. This repo carried a
+  copy of that site's `_config.yml`, `_layouts/` and `_posts/` until 1.0.0; it was never served from
+  here (Pages was not enabled) and was removed along with the generated Sandcastle documentation.
 
 The repo ships **built-in companions**: the original eSheep, seven rainbow "gSheep" color variants
 (blue/green/orange/pink/purple/red/yellow), plus Bunny, Asuna, Neko, Pingus, and community additions

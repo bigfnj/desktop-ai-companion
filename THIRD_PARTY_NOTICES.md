@@ -9,9 +9,13 @@ The repository-root MIT license applies only to original contributions whose cop
 
 ## Redistribution blockers
 
-- The WinForms engine originated in `Adrianotiger/desktopPet`. That upstream repository has no
-  license file or other verified redistribution grant. Obtain written permission or replace the
-  code with code under a compatible license before public binary distribution.
+- The WinForms engine originated in `Adrianotiger/desktopPet`, an upstream repository that carries no
+  license file. The maintainer states that **written permission to redistribute has been obtained**
+  from the upstream author. This bullet stays in the blocker list until the grant itself is recorded
+  here: date, granting party, the form it took (email, issue, or pull-request comment), and its scope
+  (source, binaries, derivative works, sublicensing). Record those and move this entry to "Bundled
+  with a verified redistribution grant" below. A grant nobody can point at is not evidence, and this
+  is the one item the whole release depends on.
 - The bundled and downloadable companion sprites have source-specific authorship and copyright notes,
   but a complete redistribution grant is not recorded for every asset. Clear or replace each asset.
 - The bundled fortune corpus contains mixed sources, including copyrighted quotations and
@@ -140,71 +144,6 @@ The distributed payload retains these exact legal artifacts:
 
 The dependency table above, together with [`src/packages.lock.json`](src/packages.lock.json), is the
 runtime inventory.
-
-## Historical documentation support files
-
-The repository retains a generated Sandcastle documentation snapshot under `docs/` for historical
-reference. The root Jekyll configuration excludes that entire directory from the public legacy
-site, and these files are not part of the DesktopAICompanion application payload. Their licenses still
-apply to source-repository distribution:
-
-- `docs/SearchHelp.aspx`, `docs/scripts/branding.js`, and
-  `docs/scripts/branding-Website.js` identify their Sandcastle support code as Microsoft Public
-  License (Ms-PL). The complete Ms-PL text is reproduced below.
-- `docs/scripts/jquery-1.11.0.min.js` is jQuery 1.11.0, copyright 2005, 2014 jQuery Foundation,
-  Inc. and other contributors, distributed under the MIT License. The complete MIT text is
-  reproduced below.
-
-## Microsoft Public License (Ms-PL)
-
-This license governs use of the accompanying software. If you use the software, you accept this
-license. If you do not accept the license, do not use the software.
-
-### 1. Definitions
-
-The terms "reproduce," "reproduction," "derivative works," and "distribution" have the same
-meaning here as under U.S. copyright law.
-
-A "contribution" is the original software, or any additions or changes to the software.
-
-A "contributor" is any person that distributes its contribution under this license.
-
-"Licensed patents" are a contributor's patent claims that read directly on its contribution.
-
-### 2. Grant of Rights
-
-(A) Copyright Grant- Subject to the terms of this license, including the license conditions and
-limitations in section 3, each contributor grants you a non-exclusive, worldwide, royalty-free
-copyright license to reproduce its contribution, prepare derivative works of its contribution, and
-distribute its contribution or any derivative works that you create.
-
-(B) Patent Grant- Subject to the terms of this license, including the license conditions and
-limitations in section 3, each contributor grants you a non-exclusive, worldwide, royalty-free
-license under its licensed patents to make, have made, use, sell, offer for sale, import, and/or
-otherwise dispose of its contribution in the software or derivative works of the contribution in
-the software.
-
-### 3. Conditions and Limitations
-
-(A) No Trademark License- This license does not grant you rights to use any contributors' name,
-logo, or trademarks.
-
-(B) If you bring a patent claim against any contributor over patents that you claim are infringed
-by the software, your patent license from such contributor to the software ends automatically.
-
-(C) If you distribute any portion of the software, you must retain all copyright, patent,
-trademark, and attribution notices that are present in the software.
-
-(D) If you distribute any portion of the software in source code form, you may do so only under
-this license by including a complete copy of this license with your distribution. If you distribute
-any portion of the software in compiled or object code form, you may only do so under a license
-that complies with this license.
-
-(E) The software is licensed "as-is." You bear the risk of using it. The contributors give no
-express warranties, guarantees or conditions. You may have additional consumer rights under your
-local laws which this license cannot change. To the extent permitted under your local laws, the
-contributors exclude the implied warranties of merchantability, fitness for a particular purpose
-and non-infringement.
 
 ## MIT license text
 
