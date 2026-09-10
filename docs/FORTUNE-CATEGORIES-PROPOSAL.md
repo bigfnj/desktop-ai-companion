@@ -1,6 +1,6 @@
 # Proposed fortune categories: 12 down to 7
 
-For review. Nothing is applied yet. Generated from an explicit mapping that is checked to be a
+Applied to packs/collections.json. Generated from an explicit mapping that is checked to be a
 complete partition of all 159 sources, so nothing can silently fall into the "More packs"
 fallback the way it did before.
 
