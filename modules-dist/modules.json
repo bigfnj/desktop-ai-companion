@@ -25,7 +25,7 @@
             "id": "reminder",
             "name": "Reminder",
             "desc": "Your companion announces upcoming calendar events and reads your agenda. Watches up to five calendars (local file, ICS URL, or running Outlook), each with its own name, style, and chime; one-click Join for Teams/Zoom/Meet links; a daily morning briefing; typed personal reminders; skips declined and all-day events; lead times, quiet hours, and hush-while-presenting.",
-            "version": "1.0.0",
+            "version": "1.0.1",
             "permissions": "Speech, Storage, Network, Companions, Audio, Animation"
         },
         {
