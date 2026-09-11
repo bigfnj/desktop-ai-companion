@@ -231,8 +231,27 @@ namespace DesktopAICompanion.Ai
         /// </summary>
         internal string BuildSystemPrompt()
         {
+            return BuildSystemPrompt(null);
+        }
+
+        /// <summary>
+        /// As <see cref="BuildSystemPrompt()"/>, but for a disposition the user has NOT saved yet.
+        ///
+        /// Exists for the persona audition ("Show me 5 examples"), whose entire purpose is to hear a
+        /// disposition before committing to it. An overload rather than a copy on purpose: everything
+        /// else in the prompt -- the name, the no-inventing-names rule, the word budget, the
+        /// write-swearing-out-in-full rule, the JSON shape -- must be identical to a real turn, or the
+        /// audition is of a different character than the one the user would get.
+        /// </summary>
+        /// <param name="dispositionIdOverride">
+        /// A disposition id to use instead of the saved one; null or unknown falls back to the saved
+        /// setting, which is what <see cref="Dispositions.InstructionForId"/> already does for a bad id.
+        /// </param>
+        internal string BuildSystemPrompt(string dispositionIdOverride)
+        {
             string name        = string.IsNullOrWhiteSpace(_settings.CompanionName) ? "a tiny desktop companion" : _settings.CompanionName.Trim();
-            string disposition = Dispositions.InstructionForId(_settings.Disposition);
+            string disposition = Dispositions.InstructionForId(
+                string.IsNullOrWhiteSpace(dispositionIdOverride) ? _settings.Disposition : dispositionIdOverride);
             string userName = string.IsNullOrWhiteSpace(_settings.UserName) ? "" : _settings.UserName.Trim();
             // Allow the configured name but don't force it into every remark, and forbid reading a name
             // off the screen — window titles and paths ("Administrator", "C:\\Users\\Admin", ...) were
@@ -267,6 +286,90 @@ namespace DesktopAICompanion.Ai
                 "Never say that you are an AI or a language model. " +
                 "Reply ONLY with compact JSON of the form " +
                 "{\"text\":\"<your remark>\",\"emotion\":\"<one of: happy, sad, thinking, excited, confused, neutral>\"}.";
+        }
+
+        /// <summary>
+        /// Audition a disposition: generate one remark per canned scene so a persona can be judged by its
+        /// VOICE before it is saved.
+        ///
+        /// Deliberately reuses the live path's prompt builder, retry helper and parser, so what the user
+        /// hears is what the companion would actually say. What it does NOT reuse is the screen: see
+        /// <see cref="DispositionScenes"/> for why a live capture makes all five samples the same remark.
+        ///
+        /// Bounded and cancellable, because this is five sequential generations rather than a button
+        /// press. Each sample gets its own timeout from a LINKED token, so one stuck generation costs one
+        /// sample instead of the whole audition, and the caller's token still cancels the lot. A failed
+        /// sample is recorded as a category and the run CONTINUES: four remarks and one timeout is a
+        /// useful answer, and stopping on the first failure would make a flaky backend look like a broken
+        /// persona.
+        ///
+        /// Never throws except for caller cancellation.
+        /// </summary>
+        internal async Task<DispositionAudition> SampleDispositionAsync(
+            string dispositionId,
+            TimeSpan perSampleTimeout,
+            CancellationToken ct)
+        {
+            var samples = new List<DispositionSample>();
+            // The audition is a TEXT turn by construction (there is no image), so it is graded against the
+            // text model and never the vision one -- auditioning a persona on a 12B vision model would
+            // take minutes and measure the wrong thing.
+            ModelChoice choice = AiModelPolicy.ChooseModel(_textModel, _available, false);
+            Log("persona audition: disposition=" + (dispositionId ?? "(saved)") +
+                " scenes=" + DispositionScenes.All.Length +
+                " model=" + (choice.Model ?? "(none)") + " resolve=" + choice.Reason);
+            if (!choice.Usable)
+            {
+                // BUG-002's shape, in the place the backlog predicted it would reappear. Reported once
+                // rather than five identical times. Rare on the text path (ChooseModel substitutes
+                // whenever the inventory holds anything usable) but reachable when the inventory is
+                // known and empty of candidates.
+                samples.Add(new DispositionSample(
+                    "(not run)", null, choice.Advisory ?? "no usable text model", 0));
+                return new DispositionAudition(samples, null, choice.Advisory);
+            }
+
+            string system = BuildSystemPrompt(dispositionId);
+            foreach (DispositionScenes.Scene scene in DispositionScenes.All)
+            {
+                ct.ThrowIfCancellationRequested();
+                Stopwatch clock = Stopwatch.StartNew();
+                var messages = new List<ChatMessage>
+                {
+                    ChatMessage.System(system),
+                    ChatMessage.User(scene.Context + "\n" + DispositionScenes.Instruction, null),
+                };
+                using (var perSample = CancellationTokenSource.CreateLinkedTokenSource(ct))
+                {
+                    perSample.CancelAfter(perSampleTimeout);
+                    try
+                    {
+                        string raw = await ChatWithRetryForDiagnosticsAsync(
+                            _backend, choice.Model, messages, perSample.Token).ConfigureAwait(false);
+                        BrainResponse resp = Parse(raw);
+                        samples.Add(resp == null
+                            ? new DispositionSample(scene.Label, null,
+                                string.IsNullOrWhiteSpace(raw) ? "empty reply" : "unusable reply shape",
+                                clock.ElapsedMilliseconds)
+                            : new DispositionSample(scene.Label, resp.Text, null, clock.ElapsedMilliseconds));
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // The caller cancelling ends the audition; only THIS sample's own timeout is
+                        // recoverable. Distinguished by asking the caller's token, not this one, because
+                        // the linked source reports cancelled either way.
+                        if (ct.IsCancellationRequested) throw;
+                        samples.Add(new DispositionSample(
+                            scene.Label, null, "timed out", clock.ElapsedMilliseconds));
+                    }
+                    catch (Exception ex)
+                    {
+                        samples.Add(new DispositionSample(
+                            scene.Label, null, DescribeError(ex), clock.ElapsedMilliseconds));
+                    }
+                }
+            }
+            return new DispositionAudition(samples, choice.Model, choice.Advisory);
         }
 
         /// <summary>Coarse time-of-day label for the persona (backlog 5.2).</summary>

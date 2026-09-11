@@ -64,7 +64,14 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.1.2",   // 1.1.2: republished so the bundled ModuleKit.dll no longer carries the
+            Version = "1.1.3",   // 1.1.3: a failed AI turn now says WHICH failure it was (backend
+                                 //        availability transitions, request latency/attempts/parse
+                                 //        outcome, and the OCR engine plus every silent `return ""` in
+                                 //        the tesseract path), and the Persona card gained "Show me 5
+                                 //        examples" -- five remarks across five canned scenes, so a
+                                 //        disposition is judged by its voice. Reports the model that
+                                 //        answered, because ChooseModel substitutes silently.
+                                 // 1.1.2: republished so the bundled ModuleKit.dll no longer carries the
                                  //        maintainer's absolute build path (Contracts + ModuleKit moved to
                                  //        DebugType=embedded). NO functional change here; the bump exists
                                  //        because the catalog offers an update by VERSION, so without it the
@@ -267,6 +274,7 @@ namespace DesktopAICompanion.AiBrainModule
                 Save = SavePaneValues,
                 Actions = new[]
                 {
+                    new PaneAction { Label = "Show me 5 examples", InvokeAsync = PreviewDispositionAsync, Group = "Persona" },
                     new PaneAction { Label = "Refresh local models", InvokeAsync = RefreshLocalModelsAsync, Group = "Local provider", ReloadPaneAfter = true },
                     new PaneAction { Label = "Test connection", InvokeAsync = TestConnectionAsync, Group = "Cloud provider" },
                     new PaneAction { Label = "Refresh cloud models", InvokeAsync = RefreshCloudModelsAsync, Group = "Cloud provider", ReloadPaneAfter = true },
@@ -277,6 +285,134 @@ namespace DesktopAICompanion.AiBrainModule
             });
 
             ApplyState();
+        }
+
+        /// <summary>
+        /// Guard against a second audition starting while one is running. Five sequential generations is
+        /// the one action in this pane long enough for an impatient user to press twice, and the backlog
+        /// called that out: pressing it repeatedly while comparing characters would otherwise queue 25
+        /// generations against one local model. Not a lock -- pane actions arrive on the UI thread -- just
+        /// a flag, so a second press gets an explanation instead of silently doubling the work.
+        /// </summary>
+        private bool _auditionRunning;
+
+        /// <summary>
+        /// "Show me 5 examples" for the Persona card: generate one remark per canned scene so a
+        /// disposition can be judged by how it SOUNDS rather than by its name.
+        ///
+        /// Reads the SAVED disposition, not the unapplied dropdown, and says so in the header. That is a
+        /// real limitation rather than a choice: <c>PaneAction.InvokeAsync</c> is a
+        /// <c>Func&lt;Task&lt;string&gt;&gt;</c>, so a module cannot see a pending field value, and
+        /// previewing the old persona WITHOUT saying so is what would look broken. Naming the persona in
+        /// the output makes the mismatch self-evident and tells the user what to do about it. Matches the
+        /// Fortunes preview, whose own comment records the same rule for the same reason. Lifting it
+        /// needs an additive ABI member; filed in BACKLOG rather than worked around here.
+        /// </summary>
+        private async Task<string> PreviewDispositionAsync()
+        {
+            AiSettings s = _settings;
+            if (s == null) return "✗ No settings.";
+            if (_auditionRunning) return "⏳ Already generating examples — give it a moment.";
+
+            string dispositionName = DispositionNameForId(s.Disposition);
+
+            // A cloud provider means five billable requests per press, and the persona is exactly the
+            // thing a user presses repeatedly while comparing. CreateBrain already refuses a non-local
+            // endpoint without CloudDataConsent, so the consent gate is inherited rather than
+            // reimplemented; what is added here is telling the user the COST before they spend it.
+            string endpoint = SelectedEndpoint(s);
+            string normalized, endpointError;
+            if (!AiEndpointPolicy.TryNormalize(endpoint, out normalized, out endpointError))
+                return "✗ " + endpointError;
+            bool cloud = !AiEndpointPolicy.IsLoopbackEndpoint(normalized);
+            if (cloud && !s.CloudDataConsent)
+                return "✗ Approve cloud data sharing first — an audition sends " +
+                       DispositionScenes.All.Length + " requests to your provider.";
+
+            // Per sample rather than for the run, so one stuck generation costs one example instead of
+            // all five. Floor of 20s because a local 4B model answering a text prompt is ~400ms but a
+            // cold first load is seconds, and a ceiling so a misconfigured timeout cannot pin the pane.
+            TimeSpan perSample = TimeSpan.FromSeconds(Math.Max(20, Math.Min(90, s.TimeoutSeconds)));
+            // A whole-run bound as well: PaneAction has no cancel affordance, so "cancellable" here means
+            // "cannot run forever". The engine also honours this token between samples.
+            TimeSpan whole = TimeSpan.FromSeconds(perSample.TotalSeconds * DispositionScenes.All.Length + 15);
+
+            _auditionRunning = true;
+            try
+            {
+                AiBrain brain;
+                try { brain = CreateBrain(s); }
+                catch (Exception ex) { return "✗ " + ex.Message; }
+
+                using (brain)
+                using (var run = new CancellationTokenSource(whole))
+                {
+                    // Fills the model inventory, so ChooseModel can tell "configured model is missing"
+                    // from "backend is down" instead of producing five identical silences (BUG-002).
+                    if (!await brain.PrepareAsync(run.Token).ConfigureAwait(false))
+                        return "✗ Not reachable at " + normalized + " — start the provider and try again.";
+
+                    DispositionAudition audition =
+                        await brain.SampleDispositionAsync(s.Disposition, perSample, run.Token)
+                            .ConfigureAwait(false);
+                    return FormatAudition(dispositionName, audition, cloud);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return "✗ Gave up after " + (int)whole.TotalSeconds + "s — the provider is too slow for an audition.";
+            }
+            catch (Exception ex) { return "✗ " + ex.Message; }
+            finally { _auditionRunning = false; }
+        }
+
+        /// <summary>
+        /// Render an audition. Names the persona (so previewing the saved one is obvious), labels each
+        /// sample with the scene that produced it (so a character that only works on code is visible), and
+        /// reports failures per sample rather than collapsing the run into one error.
+        /// </summary>
+        private static string FormatAudition(
+            string dispositionName, DispositionAudition audition, bool cloud)
+        {
+            IReadOnlyList<DispositionSample> samples = audition == null ? null : audition.Samples;
+            if (samples == null || samples.Count == 0)
+                return "✗ No examples were produced.";
+
+            var sb = new StringBuilder();
+            sb.Append(dispositionName).Append(" — as currently saved");
+            if (!string.IsNullOrEmpty(audition.ModelUsed)) sb.Append(" · ").Append(audition.ModelUsed);
+            if (cloud) sb.Append(" · ").Append(samples.Count).Append(" cloud requests");
+            sb.Append("\nChange the dropdown and hit Apply to audition a different one.");
+            // A substituted model has to be said out loud here. ChooseModel swaps in whatever is
+            // available when the configured id is missing, and a user auditioning personas on a model
+            // they never picked would blame the character for the model's output.
+            if (!string.IsNullOrEmpty(audition.Advisory))
+                sb.Append("\n⚠ ").Append(audition.Advisory);
+
+            int ok = 0;
+            foreach (DispositionSample sample in samples)
+            {
+                sb.Append("\n\n");
+                if (sample.Ok)
+                {
+                    ok++;
+                    sb.Append("• [").Append(sample.SceneLabel).Append("] ")
+                      .Append(Ellipsize(sample.Text, 220));
+                }
+                else
+                {
+                    sb.Append("• [").Append(sample.SceneLabel).Append("] ✗ ").Append(sample.Error);
+                }
+            }
+            if (ok == 0)
+                sb.Append("\n\nNothing came back. The diagnostic log records why, under Modules.");
+            return sb.ToString();
+        }
+
+        private static string Ellipsize(string value, int maximum)
+        {
+            string one = (value ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
+            return one.Length > maximum ? one.Substring(0, maximum) + "…" : one;
         }
 
         /// <summary>Test-connection action for the WPF pane: build a backend from the current settings, probe

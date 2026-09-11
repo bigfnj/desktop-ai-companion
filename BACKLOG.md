@@ -677,11 +677,84 @@ Fortunes, PetStudio and BlinkingLed are at zero and should follow, but none of t
 construction, so they are lower value.
 
 ---
-## ▶ Open: "Show me 5 examples" for the Disposition dropdown (requested 2026-09-10)
+## ✅ DONE (2026-09-11): "Show me 5 examples" for the Disposition dropdown (requested 2026-09-10)
 
 Maintainer request: the same affordance Fortunes has, but for the AI persona. Pick a Disposition, press
 a button, see five things it would actually say — so the character is judged by its voice rather than
 by its name.
+
+> **Shipped in aibrain, verified end to end against a live `gemma3:4b`** by driving the real pane through
+> UI Automation, not only by self-test. How the five predicted constraints were answered:
+>
+> 1. **Slow and cancellable.** Per-sample timeout from a LINKED token, so one stuck generation costs one
+>    example rather than the whole audition, plus a whole-run bound. `PaneAction` has no cancel
+>    affordance, so "cancellable" here means "cannot run forever"; a real cancel button needs an ABI
+>    addition and is not worth one yet. `_auditionRunning` stops an impatient second press queueing 25
+>    generations, which the item specifically warned about.
+> 2. **Previews the SAVED disposition, and says so in its own output.** Not a compromise that was
+>    overlooked: `PaneAction.InvokeAsync` is a `Func<Task<string>>`, so a module *cannot* see an
+>    unapplied field value. The item's fear was that previewing the old persona "would look broken", and
+>    the fix for that is naming the persona in the header plus "Change the dropdown and hit Apply to
+>    audition a different one". Lifting it properly needs an additive ABI member; filed below.
+> 3. **No screen.** Five canned scenes in `DispositionScenes` (code editor, video, empty desktop,
+>    spreadsheet, late-night browsing), phrased exactly as `AskAboutScreenAsync` phrases its context so
+>    the persona is graded by the real prompt. Confirmed in the live run: the five remarks are about five
+>    different things, which a live capture cannot deliver. It also drops the audition's dependence on
+>    capture, OCR and vision entirely, so a persona can be auditioned on a box with no Tesseract.
+> 4. **Cloud spend.** The existing `CloudDataConsent` gate is inherited via `CreateBrain` rather than
+>    reimplemented, and the refusal now states the cost ("sends 5 requests to your provider"); a
+>    consented run prints "5 cloud requests" in the header.
+> 5. **BUG-002.** Handled, and the assumption behind it was wrong in a useful way. `ChooseModel` does not
+>    refuse a missing model, it SUBSTITUTES the first usable one — right for a live turn, a trap for an
+>    audition, because the user would blame the character for another model's output. So the audition now
+>    carries `ModelUsed` and the substitution advisory out to the pane, not just to the log. A probe
+>    assertion pins it; the first version of that assertion expected a refusal and failed, which is how
+>    this was found.
+
+### Found by the live run, and NOT fixed: runaway emoji in a real remark
+
+The audition's first real use immediately produced a defect no self-test would have: on the "a video
+playing" scene, `gemma3:4b` answered `Self-assessment: Checked. Seems right in the wool. ... 🚀 🐑 🍞 👍
+💯 🎉 😎 🥳 🥰 😍 🥰 😍 🥰 🥰 🥰 …`, degenerating into a repeated-emoji run and never mentioning the
+video. `replyChars=485` against a 512 cap, visible in the diagnostic log.
+
+**This is a pre-existing engine defect, not an audition one.** The sample went through the same
+`Parse` → `SanitizeResponseText` path a real remark does, and that function collapses WHITESPACE and
+bounds length to `MaximumResponseCharacters` (512) — it has no notion of repetition, and emoji survive
+intact as correctly-handled surrogate pairs. So a companion speech bubble can already show this. The
+audition is simply the first thing that made it easy to see, which is the feature working as intended.
+
+Not fixed here because both plausible fixes change every remark and deserve a deliberate choice:
+- **Post-process**: collapse a run of the same grapheme beyond two or three. Narrow, testable, and does
+  not touch the persona; a run of identical emoji is never intentional voice.
+- **Prompt**: add an emoji rule to `BuildSystemPrompt`. Reaches every model at once, but it constrains
+  expression for every disposition to fix one model's degeneration, and the prompt already carries a
+  lot of instructions that smaller models drop.
+
+Recommend the post-process. Whatever is chosen, assert it on a synthetic degenerate string rather than
+by re-running the model, since the failure is not reliably reproducible.
+
+### Still open: the pane cannot preview an UNAPPLIED dropdown value
+
+`PaneAction.InvokeAsync` takes no arguments, so a module action sees only saved settings. Every
+"preview what I just chose" affordance in any module hits this, and it is the one part of this item that
+was worked around rather than solved. The additive fix is a member carrying the pane's pending values,
+e.g. `Func<IReadOnlyDictionary<string,string>, Task<string>> InvokeWithPendingAsync`, which the host
+already has to hand (it passes the same dictionary to `Save` on Apply).
+
+Per THE HOST CONTRACT that means: additive only, `AssemblyVersion` stays `1.0.0.0`, and the product
+version bumps in the SAME commit. Sequencing cost is the real reason this was not done today — the host
+release has to ship before aibrain can declare `MinHostVersion` for it, so it is a host release plus a
+module publish, not a module publish.
+
+### Nice-to-have, unchanged
+
+Sample the whole catalog rather than one entry, so the dropdown can be chosen by reading voices side by
+side. Bigger UI than a `PaneAction`, and it should not gate the simple version that now exists.
+
+---
+
+## Original filing (kept for the reasoning)
 
 **The precedent.** `FortunesModule.cs:328` —
 `new PaneAction { Label = "Show me 5 examples", InvokeAsync = PreviewFortunesAsync, Group = "Content level" }`

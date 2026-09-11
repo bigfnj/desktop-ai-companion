@@ -67,6 +67,138 @@ namespace DesktopAICompanion.AiBrainModule
             ok &= CheckAiReconfigureDisposeRace(sb);
             ok &= CheckAiAfterRetireDurability(sb);
             ok &= CheckRequestOutcomeInstrumentation(sb);
+            ok &= CheckDispositionAudition(sb);
+
+            return ok;
+        }
+
+        /// <summary>
+        /// The persona audition ("Show me 5 examples"): the prompt override really overrides, the scene
+        /// catalog is usable, and a failing backend produces five reported failures rather than one
+        /// swallowed one.
+        ///
+        /// The last part is the reason this exists. The backlog predicted this feature would hit BUG-002
+        /// and "five failed inferences currently produce null five times and the button appears to do
+        /// nothing". These assertions pin the opposite: every scene comes back with a category, and an
+        /// unusable model is reported ONCE instead of five identical times.
+        /// </summary>
+        private static bool CheckDispositionAudition(StringBuilder sb)
+        {
+            bool ok = true;
+
+            // --- the scene catalog ---
+            ok &= Check(sb, "the audition has scenes to run", DispositionScenes.All.Length >= 3);
+            bool scenesWellFormed = true;
+            var seenLabels = new List<string>();
+            var seenContexts = new List<string>();
+            foreach (DispositionScenes.Scene scene in DispositionScenes.All)
+            {
+                if (string.IsNullOrWhiteSpace(scene.Label) || string.IsNullOrWhiteSpace(scene.Context))
+                    scenesWellFormed = false;
+                if (seenLabels.Contains(scene.Label)) scenesWellFormed = false;
+                if (seenContexts.Contains(scene.Context)) scenesWellFormed = false;
+                seenLabels.Add(scene.Label);
+                seenContexts.Add(scene.Context);
+            }
+            // Distinctness is the whole point: identical scenes would make the five samples vary by
+            // sampling noise, which is exactly the failure canned scenes exist to avoid.
+            ok &= Check(sb, "every audition scene is labelled, non-empty and distinct", scenesWellFormed);
+
+            var settings = new AiSettings();
+            settings.Disposition = "ted-lasso";
+            using (var brain = new AiBrain(new RecordingBackend("", true), settings))
+            {
+                // --- the disposition override ---
+                string saved = brain.BuildSystemPrompt();
+                string explicitSaved = brain.BuildSystemPrompt(null);
+                string overridden = brain.BuildSystemPrompt("pirate");
+                ok &= Check(
+                    sb,
+                    "a null disposition override leaves the live prompt byte-identical",
+                    saved == explicitSaved);
+                ok &= Check(
+                    sb,
+                    "a disposition override actually changes the prompt",
+                    overridden != saved);
+                // Not merely "different": it must carry the REQUESTED persona's instruction, or the
+                // audition would be of some other character. Compared against the catalog rather than a
+                // hardcoded phrase, so a reworded instruction does not break this.
+                ok &= Check(
+                    sb,
+                    "an overridden prompt carries the requested disposition's instruction",
+                    overridden.Contains(Dispositions.InstructionForId("pirate")));
+                ok &= Check(
+                    sb,
+                    "an overridden prompt keeps the shared rules (JSON shape, no-asterisk swearing)",
+                    overridden.Contains("\"emotion\"") && overridden.Contains("never censor it with asterisks"));
+                ok &= Check(
+                    sb,
+                    "an unknown disposition override falls back rather than emitting an empty persona",
+                    brain.BuildSystemPrompt("definitely-not-a-disposition").Length > 200);
+            }
+
+            // --- every scene reports, even when every request fails ---
+            var failing = new TransientFailBackend();
+            using (var brain = new AiBrain(failing, settings))
+            {
+                DispositionAudition audition = brain.SampleDispositionAsync(
+                    "pirate", TimeSpan.FromSeconds(5), CancellationToken.None).GetAwaiter().GetResult();
+                ok &= Check(
+                    sb,
+                    "a failing audition still returns one result per scene",
+                    audition.Samples.Count == DispositionScenes.All.Length);
+                bool everyFailureExplained = audition.Samples.Count > 0;
+                foreach (DispositionSample sample in audition.Samples)
+                    if (sample.Ok || string.IsNullOrWhiteSpace(sample.Error)) everyFailureExplained = false;
+                ok &= Check(
+                    sb,
+                    "every failed audition sample carries a reason instead of being silent",
+                    everyFailureExplained);
+            }
+
+            // --- a SUBSTITUTED model is carried out to the caller, not just to the log ---
+            // The first version of this assertion expected ChooseModel to REFUSE a configured model the
+            // inventory does not list. It does not: it substitutes the first usable one, which is the
+            // right runtime behaviour and the wrong thing to do silently during an audition. So the
+            // contract asserted here is that the swap is reported, and the run still happens.
+            var reachable = new RecordingBackend("{\"text\":\"arr\",\"emotion\":\"happy\"}", true);
+            var absentModel = new AiSettings();
+            absentModel.Disposition = "ted-lasso";
+            absentModel.TextModel = "a-model-nobody-has:1b";
+            using (var brain = new AiBrain(reachable, absentModel))
+            {
+                brain.ModelLister = delegate(CancellationToken ct)
+                {
+                    return Task.FromResult((IReadOnlyList<ModelListing>)new List<ModelListing>
+                    {
+                        new ModelListing("gemma3:4b", true),
+                    });
+                };
+                brain.PrepareAsync(CancellationToken.None).GetAwaiter().GetResult();
+                DispositionAudition audition = brain.SampleDispositionAsync(
+                    "pirate", TimeSpan.FromSeconds(5), CancellationToken.None).GetAwaiter().GetResult();
+                ok &= Check(
+                    sb,
+                    "an audition on a substituted model still produces every sample",
+                    audition.Samples.Count == DispositionScenes.All.Length);
+                ok &= Check(
+                    sb,
+                    "an audition reports WHICH model answered",
+                    audition.ModelUsed == "gemma3:4b");
+                ok &= Check(
+                    sb,
+                    "an audition says so when the configured model was substituted",
+                    !string.IsNullOrEmpty(audition.Advisory) &&
+                    audition.Advisory.Contains("a-model-nobody-has:1b"));
+                ok &= Check(
+                    sb,
+                    "an audition asked the backend once per scene",
+                    reachable.ChatCalls == DispositionScenes.All.Length);
+                ok &= Check(
+                    sb,
+                    "the substituted model is the one actually asked for",
+                    reachable.LastModel == "gemma3:4b");
+            }
 
             return ok;
         }
