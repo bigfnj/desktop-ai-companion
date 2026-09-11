@@ -44,8 +44,20 @@
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <IncludeSymbols>true</IncludeSymbols>
-    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <!--
+      Symbols live INSIDE the dll, and there is no .snupkg. See the matching comment in
+      DesktopAICompanion.Contracts.csproj for the full reasoning; the short version is that
+      release.yml discards every '*.snupkg', so the separate symbol package was built and never
+      delivered, while the separate PDB left an absolute build path in the CodeView record.
+
+      It matters more here than for Contracts: ModuleKit is copied into all six modules-dist\*.zip,
+      so that path shipped in every published module payload rather than only in the release.
+      +14 KB on the assembly, which is the whole cost.
+
+      Do not re-add IncludeSymbols alongside this: `dotnet pack` fails NU5017 when the symbol
+      package has nothing to carry.
+    -->
+    <DebugType>embedded</DebugType>
   </PropertyGroup>
 
   <ItemGroup>

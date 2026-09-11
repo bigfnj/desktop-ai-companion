@@ -40,8 +40,26 @@
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
-    <IncludeSymbols>true</IncludeSymbols>
-    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <!--
+      Symbols live INSIDE the dll, and there is no .snupkg.
+
+      Two reasons, and the second is the one that decided it. First, the separate symbol package was
+      never delivered to anybody: release.yml filters '*.snupkg' out of both SHA256SUMS.txt and the
+      release assets, so IncludeSymbols + SymbolPackageFormat=snupkg produced a file every release
+      built and then discarded. Embedding means a module author debugging into the ABI actually HAS
+      symbols, which until now they never did.
+
+      Second, a separate PDB leaves the maintainer's absolute build path in the shipped assembly's
+      CodeView record (D:\...\obj\Release\...\DesktopAICompanion.Contracts.pdb). PathMap does NOT fix
+      that (it rewrites paths recorded inside the PDB, not the PDB's own path in the dll), and this
+      assembly ships beside the exe in both the portable ZIP and the MSI, so it reached every user.
+
+      Do not re-add IncludeSymbols alongside this: `dotnet pack` then fails NU5017 ("cannot create a
+      package that has no dependencies nor content") because the symbol package has nothing left to
+      carry. If separate symbol packages are ever wanted, publish them as release assets first, or the
+      setting is once again producing an artifact nobody receives.
+    -->
+    <DebugType>embedded</DebugType>
   </PropertyGroup>
 
   <ItemGroup>

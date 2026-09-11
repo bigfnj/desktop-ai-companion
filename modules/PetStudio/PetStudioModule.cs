@@ -24,7 +24,12 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.0.1",   // 1.0.1: picked up a source-linked RuntimeGeometry change (the host gained
+            Version = "1.0.2",   // 1.0.2: republished so the bundled ModuleKit.dll no longer carries the
+                                 //        maintainer's absolute build path (Contracts + ModuleKit moved to
+                                 //        DebugType=embedded). NO functional change here; the bump exists
+                                 //        because the catalog offers an update by VERSION, so without it the
+                                 //        cleaned payload would only ever reach new installs.
+                                 // 1.0.1: picked up a source-linked RuntimeGeometry change (the host gained
                                  //        SelectCompanionMonitor for BUG-003(b)). This module compiles that
                                  //        file in, so its payload went stale the moment the host changed it
                                  //        and CI fails until it is republished -- see docs/VERSIONING.md,

@@ -64,7 +64,12 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.1.1",   // 1.1.1: the shipped TextModel default was llama3.1:8b, a model that was
+            Version = "1.1.2",   // 1.1.2: republished so the bundled ModuleKit.dll no longer carries the
+                                 //        maintainer's absolute build path (Contracts + ModuleKit moved to
+                                 //        DebugType=embedded). NO functional change here; the bump exists
+                                 //        because the catalog offers an update by VERSION, so without it the
+                                 //        cleaned payload would only ever reach new installs.
+                                 // 1.1.1: the shipped TextModel default was llama3.1:8b, a model that was
                                  //        never in the measured comparison and that the Readme tables do
                                  //        not mention, so a fresh install pointed its text model at
                                  //        something the user very likely did not have. Now gemma3:4b,

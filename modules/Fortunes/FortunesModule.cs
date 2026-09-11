@@ -43,7 +43,13 @@ namespace DesktopAICompanion.FortunesModule
         {
             Id = "fortunes",
             Name = "Fortunes",
-            Version = "1.0.0",   // 1.0.0: rebased with the host for the Desktop AI Companion rename. Not a
+            Version = "1.0.1",   // 1.0.1: republished so the bundled ModuleKit.dll no longer carries the
+                                 //        maintainer's absolute build path (Contracts + ModuleKit moved to
+                                 //        DebugType=embedded, which also gives authors symbols the discarded
+                                 //        .snupkg never delivered). NO functional change here. The bump exists
+                                 //        because the catalog offers an update by VERSION, so at 1.0.0 the
+                                 //        cleaned payload would only ever reach new installs.
+                                 // 1.0.0: rebased with the host for the Desktop AI Companion rename. Not a
                                  //        rollback -- the previous line below is the higher number, and
                                  //        every module restarts its numbering here alongside the app.
                                  // 1.2.7: payload refresh only, no behaviour change -- the bundled ModuleKit
