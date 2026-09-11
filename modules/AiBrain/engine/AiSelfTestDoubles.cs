@@ -345,6 +345,33 @@ namespace DesktopAICompanion.AiBrainModule
         }
     }
 
+    /// <summary>
+    /// Honours the cancellation token: throws <see cref="OperationCanceledException"/> from the chat.
+    ///
+    /// Needed because <see cref="CancellationIgnoringBackend"/> deliberately does the opposite (it
+    /// returns a reply regardless) and so cannot exercise the cancel path at all. The distinction
+    /// matters for the request-outcome diagnostics: AiEndpointPolicy.IsRetryable returns false once the
+    /// token is cancelled, so a cancel takes the same branch a deterministic failure does, and only an
+    /// explicit rethrow keeps it from being recorded as a request failure.
+    /// </summary>
+    internal sealed class CancellationHonouringBackend : ICompanionBrainBackend
+    {
+        public int ChatCalls { get; private set; }
+
+        public Task<string> ChatAsync(string model, IList<ChatMessage> messages, bool jsonFormat, CancellationToken ct)
+        {
+            ChatCalls++;
+            ct.ThrowIfCancellationRequested();
+            return Task.FromResult("");
+        }
+
+        public Task<bool> IsAvailableAsync(CancellationToken ct) { return Task.FromResult(true); }
+        public Task<bool> EnsureServerAsync(CancellationToken ct) { return Task.FromResult(true); }
+        public Task WarmUpAsync(string model, CancellationToken ct) { return Task.CompletedTask; }
+        public Task UnloadAsync(string model, CancellationToken ct) { return Task.CompletedTask; }
+        public void Dispose() { }
+    }
+
     /// <summary>Fails every chat with a non-transient (redirect) status to prove no retry occurs.</summary>
     internal sealed class DeterministicFailureBackend : ICompanionBrainBackend
     {

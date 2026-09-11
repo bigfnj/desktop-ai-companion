@@ -64,6 +64,14 @@ namespace DesktopAICompanion.Ai
         private string _lastAdvisory;
 
         /// <summary>
+        /// Last known backend reachability, or null before the first check. Exists so availability is
+        /// logged on the TRANSITION rather than on every probe: the ask path checks before each turn, so
+        /// logging the state itself would write a line every idle tick and bury everything else in the
+        /// diagnostic file. Same reasoning as <see cref="_lastAdvisory"/>, for the same reason.
+        /// </summary>
+        private bool? _lastBackendUp;
+
+        /// <summary>
         /// Emit one diagnostic line. Never throws: a broken sink must not be able to take down an AI turn,
         /// which is the whole reason this layer swallows exceptions in the first place.
         /// </summary>
@@ -73,6 +81,48 @@ namespace DesktopAICompanion.Ai
             Action<string> sink = LogSink;
             if (sink == null) return;
             try { sink(message); } catch { }
+        }
+
+        /// <summary>
+        /// Record backend reachability, logging only when it CHANGED. <paramref name="reason"/> is a
+        /// category (never a message, which can carry a URL or a key in a query string) and is only used
+        /// when going down, because "why is it up" is not a question.
+        ///
+        /// The first check logs too, since null-to-known is a transition and the launch answer is the one
+        /// a user reporting "it never says anything" most needs in the file.
+        /// </summary>
+        private void NoteBackendAvailability(bool up, string reason)
+        {
+            if (_lastBackendUp.HasValue && _lastBackendUp.Value == up) return;
+            bool first = !_lastBackendUp.HasValue;
+            _lastBackendUp = up;
+            Log("backend " + (up ? "reachable" : "unreachable") +
+                (first ? " (first check)" : " (was " + (!up ? "reachable" : "unreachable") + ")") +
+                (up || string.IsNullOrEmpty(reason) ? "" : " reason=" + reason) +
+                " endpoint=" + DescribeEndpoint(_settings.Endpoint));
+        }
+
+        /// <summary>
+        /// Ask the backend whether it is there, recording any transition on the way through.
+        ///
+        /// Deliberately RETHROWS rather than converting a failure into false: both callers already have
+        /// their own handler (PrepareAsync returns false, AskAboutScreenAsync logs and returns null), and
+        /// swallowing here would take the exception away from them and change what they report.
+        /// </summary>
+        private async Task<bool> CheckBackendAvailableAsync(CancellationToken ct)
+        {
+            try
+            {
+                bool up = await _backend.IsAvailableAsync(ct).ConfigureAwait(false);
+                NoteBackendAvailability(up, up ? null : "backend reported unavailable");
+                return up;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                NoteBackendAvailability(false, DescribeError(ex));
+                throw;
+            }
         }
 
         /// <summary>
@@ -256,9 +306,20 @@ namespace DesktopAICompanion.Ai
         {
             try
             {
-                bool up = _settings.AutoStartServer
-                    ? await _backend.EnsureServerAsync(ct).ConfigureAwait(false)
-                    : await _backend.IsAvailableAsync(ct).ConfigureAwait(false);
+                bool up;
+                if (_settings.AutoStartServer)
+                {
+                    up = await _backend.EnsureServerAsync(ct).ConfigureAwait(false);
+                    // EnsureServerAsync may START the server, so its answer is a reachability answer too
+                    // and belongs in the same transition record. Distinguished in the reason, because
+                    // "we tried to launch it and it still is not there" is a different user problem from
+                    // "it was never running and we were told not to start it".
+                    NoteBackendAvailability(up, up ? null : "auto-start ran and the backend is still absent");
+                }
+                else
+                {
+                    up = await CheckBackendAvailableAsync(ct).ConfigureAwait(false);
+                }
 
                 // Learn what the backend HAS, while we are already talking to it. Without this the
                 // configured model is never re-validated and BUG-002's failure mode (a saved id that the
@@ -272,7 +333,14 @@ namespace DesktopAICompanion.Ai
                 return up;
             }
             catch (OperationCanceledException) { throw; }
-            catch { return false; }
+            catch (Exception ex)
+            {
+                // Was a bare `catch { return false; }`. Launch preparation failing is the single most
+                // consequential silent failure in this module: it decides whether "AI ready" is ever
+                // true, and a user whose brain never speaks has no other record of why.
+                NoteBackendAvailability(false, DescribeError(ex));
+                return false;
+            }
         }
 
         /// <summary>
@@ -347,7 +415,7 @@ namespace DesktopAICompanion.Ai
         {
             try
             {
-                if (!await _backend.IsAvailableAsync(ct).ConfigureAwait(false))
+                if (!await CheckBackendAvailableAsync(ct).ConfigureAwait(false))
                     return null;
 
                 Rectangle captureBounds;
@@ -438,6 +506,12 @@ namespace DesktopAICompanion.Ai
                     if (useVisionPath)
                     {
                         string b64 = ToBase64PngScaled(shot, VisionMaxWidth);
+                        // What the vision model is actually being sent. The Readme's accuracy table is
+                        // keyed on capture WIDTH, so the only way to tell whether a disappointing remark
+                        // came from a degraded input is to know the width and payload that produced it.
+                        // A size, not the image.
+                        Log("vision payload: cap=" + VisionMaxWidth + "px shot=" + shot.Width + "x" + shot.Height +
+                            " pngKB=" + (b64.Length * 3L / 4 / 1024));
                         messages.Add(ChatMessage.User(ctx + "Look at my screen and react.", new[] { b64 }));
                         model = choice.Model;
                     }
@@ -454,6 +528,17 @@ namespace DesktopAICompanion.Ai
 
                     string raw = await ChatWithRetryAsync(model, messages, ct).ConfigureAwait(false);
                     BrainResponse resp = Parse(raw);
+                    // The last place a turn can die quietly. A model that answers promptly in the wrong
+                    // shape produces exactly the same silence as an unreachable backend, and the Readme
+                    // already records that a captioner makes the companion "permanently, silently mute".
+                    // Lengths and an outcome word: never the reply, per LogSink's contract.
+                    Log("reply parse: " +
+                        (string.IsNullOrWhiteSpace(raw) ? "empty-reply"
+                            : resp == null ? "unusable-shape"
+                            : "ok") +
+                        " model=" + model +
+                        " rawChars=" + (raw == null ? 0 : raw.Length) +
+                        (resp == null ? "" : " emotion=" + resp.Emotion));
                     // A substitution worked, so the turn is fine -- but the user is now talking to a model
                     // they did not choose, and silently swapping one is how BUG-002 stayed hidden. Said
                     // once, then never again for the same message.
@@ -499,16 +584,57 @@ namespace DesktopAICompanion.Ai
             CancellationToken ct)
         {
             if (backend == null) throw new ArgumentNullException("backend");
+
+            // Latency and attempt count, because "slow" and "failed twice" are the two things a user
+            // reporting "the AI does nothing" cannot tell apart from the outside, and neither was
+            // recorded anywhere. A 52-second vision generation and a dead backend look identical to
+            // someone watching a companion say nothing.
+            Stopwatch clock = Stopwatch.StartNew();
+            string firstError = null;
             try
             {
-                return await backend.ChatAsync(model, messages, true, ct).ConfigureAwait(false);
+                string reply = await backend.ChatAsync(model, messages, true, ct).ConfigureAwait(false);
+                Log("request ok: model=" + model + " attempts=1 ms=" + clock.ElapsedMilliseconds +
+                    " replyChars=" + (reply == null ? 0 : reply.Length));
+                return reply;
             }
             // Retry once on a transient transport/timeout/HTTP failure; a deterministic failure (non-transient
             // 4xx/redirect) is not caught here and propagates. Predicate shared with FallbackBackend.
-            catch (Exception ex) when (AiEndpointPolicy.IsRetryable(ex, ct)) { }
+            catch (Exception ex) when (AiEndpointPolicy.IsRetryable(ex, ct))
+            {
+                firstError = DescribeError(ex);
+            }
+            // A DETERMINISTIC failure (non-transient 4xx, a redirect) skips the filter above and
+            // propagates without ever reaching the retry, so it would otherwise leave no request-outcome
+            // line at all. OperationCanceledException is excluded first and deliberately: IsRetryable
+            // returns false once ct is cancelled, so an ordinary cancel would land here and be recorded
+            // as a failure it is not.
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                Log("request failed: model=" + model + " attempts=1 ms=" + clock.ElapsedMilliseconds +
+                    " error=" + DescribeError(ex) + " retried=no-not-transient");
+                throw;
+            }
 
             ct.ThrowIfCancellationRequested();
-            return await backend.ChatAsync(model, messages, true, ct).ConfigureAwait(false);
+            try
+            {
+                string reply = await backend.ChatAsync(model, messages, true, ct).ConfigureAwait(false);
+                Log("request ok after retry: model=" + model + " attempts=2 ms=" + clock.ElapsedMilliseconds +
+                    " firstError=" + firstError + " replyChars=" + (reply == null ? 0 : reply.Length));
+                return reply;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                // The case the backlog called out as invisible: retried, and gave up. It still
+                // propagates (the caller's handler decides what the companion does), but the fact that
+                // TWO attempts were spent is recorded here, where the retry actually happened.
+                Log("request failed after retry: model=" + model + " attempts=2 ms=" + clock.ElapsedMilliseconds +
+                    " firstError=" + firstError + " secondError=" + DescribeError(ex));
+                throw;
+            }
         }
 
         /// <summary>
@@ -810,10 +936,31 @@ namespace DesktopAICompanion.Ai
 
         private async Task<string> RunOcrAsync(Bitmap bmp, CancellationToken ct)
         {
-            string exe = ResolveTesseract();
+            // WHICH engine read the screen, recorded before it runs. ResolveTesseract walks a configured
+            // path, two install locations and PATH, and every one of its failure modes was invisible:
+            // DescribeOcrEngine wraps it in `catch { }` and SelfTestOcrAsync only runs when a user presses
+            // a button. A companion reading the screen through Windows OCR when the user believes they
+            // installed Tesseract is a silent downgrade in accuracy, not an error.
+            // File NAME only, never the resolved path: the path contains the Windows user name.
+            string exe = null;
+            string resolveError = null;
+            try { exe = ResolveTesseract(); }
+            catch (Exception ex) { resolveError = DescribeError(ex); }
+
             // No Tesseract anywhere -> fall back to the OS engine rather than going screen-blind.
             if (string.IsNullOrEmpty(exe))
-                return await WindowsOcr.RecognizeAsync(bmp, ct).ConfigureAwait(false);
+            {
+                Log("ocr engine: " + (WindowsOcr.IsAvailable ? WindowsOcr.DisplayName : "NONE AVAILABLE") +
+                    " tesseract=absent" +
+                    (resolveError == null ? "" : " resolveError=" + resolveError) +
+                    " configured=" + (string.IsNullOrWhiteSpace(_tesseractPath) ? "no" : "yes"));
+                string osText = await WindowsOcr.RecognizeAsync(bmp, ct).ConfigureAwait(false);
+                Log("ocr result: engine=windows chars=" + (osText == null ? 0 : osText.Length));
+                return osText;
+            }
+
+            Log("ocr engine: " + Path.GetFileName(exe) + " tesseract=present" +
+                " configured=" + (string.IsNullOrWhiteSpace(_tesseractPath) ? "no" : "yes"));
             SweepStaleOcrScratch();
             string tmpPng = Path.Combine(Path.GetTempPath(), "pet_ocr_" + Guid.NewGuid().ToString("N") + ".png");
             try
@@ -834,7 +981,11 @@ namespace DesktopAICompanion.Ai
                         catch { exited.TrySetResult(-1); }
                     };
 
-                    if (!p.Start()) return "";
+                    if (!p.Start())
+                    {
+                        Log("ocr result: engine=tesseract chars=0 reason=process-did-not-start");
+                        return "";
+                    }
                     using (ProcessJob job = ProcessJob.TryAttach(p))
                     {
                         if (p.HasExited) exited.TrySetResult(p.ExitCode);
@@ -851,6 +1002,7 @@ namespace DesktopAICompanion.Ai
                             ObserveFailure(stdout);
                             ObserveFailure(stderr);
                             ct.ThrowIfCancellationRequested();
+                            Log("ocr result: engine=tesseract chars=0 reason=timeout-8s");
                             return "";
                         }
 
@@ -865,12 +1017,21 @@ namespace DesktopAICompanion.Ai
                             KillProcessTree(p);
                             ObserveFailure(drain);
                             ct.ThrowIfCancellationRequested();
+                            Log("ocr result: engine=tesseract chars=0 reason=output-drain-timeout-2s");
                             return "";
                         }
 
                         await drain.ConfigureAwait(false);
-                        if (exitCode != 0) return "";
-                        return CleanOcr(stdout.Result);
+                        if (exitCode != 0)
+                        {
+                            // Exit code only. stderr can name the image path and the tessdata directory,
+                            // both of which carry the Windows user name.
+                            Log("ocr result: engine=tesseract chars=0 reason=exit-" + exitCode);
+                            return "";
+                        }
+                        string text = CleanOcr(stdout.Result);
+                        Log("ocr result: engine=tesseract chars=" + (text == null ? 0 : text.Length));
+                        return text;
                     }
                 }
             }
@@ -878,8 +1039,9 @@ namespace DesktopAICompanion.Ai
             {
                 throw;
             }
-            catch
+            catch (Exception ex)
             {
+                Log("ocr result: engine=tesseract chars=0 reason=" + DescribeError(ex));
                 return "";   // tesseract missing or failed -> no OCR text
             }
             finally

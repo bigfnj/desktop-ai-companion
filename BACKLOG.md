@@ -590,9 +590,39 @@ BUG-002 was undiagnosable for a reason that is not specific to BUG-002, so it is
 > `Modules`** and rely on the existing per-module mute, as this item predicted would suffice — a new
 > `LogCategory` was not justified by the volume these calls produce.
 >
-> Still open: item 2 (backend availability transitions), item 4 (request outcome: latency, retry count,
-> parse result) and item 5 (the vision-specific path: capture size, OCR-vs-vision, Tesseract
-> resolution). None of them gates a known bug, which is why they were not done now.
+> **2026-09-11: items 2, 4 and 5 are now DONE too, so AI BRAIN is fully instrumented.** Fortunes,
+> PetStudio and BlinkingLed are still at zero `IHost.Log` calls and remain open, which is why this
+> section is still PARTLY DONE rather than closed. None of the three fails silently by construction,
+> so they stay lower value.
+>
+> - **Item 2, availability transitions.** `NoteBackendAvailability` + `CheckBackendAvailableAsync` log on
+>   the TRANSITION only, never per probe, because the ask path checks before every turn and logging the
+>   state would write a line each idle tick. The first check logs (null to known is a transition) since
+>   the launch answer is what a "it never speaks" report most needs. `CheckBackendAvailableAsync`
+>   deliberately RETHROWS instead of returning false: both callers already have handlers, and swallowing
+>   would take the exception away from them. `PrepareAsync`'s bare `catch { return false; }` now records
+>   the category first, and the `EnsureServerAsync` branch is distinguished in the reason, because
+>   "auto-start ran and it is still absent" is a different user problem from "it was never running".
+> - **Item 4, request outcome.** Latency, attempt count and reply length on success; the retried-and-gave-up
+>   case the item called invisible now logs both error categories. A DETERMINISTIC failure skips the retry
+>   filter entirely and used to produce no outcome line at all, so it gained its own. Cancellation is
+>   excluded explicitly, because `IsRetryable` returns false once the token is cancelled and an ordinary
+>   cancel would otherwise be recorded as a failure it is not. `reply parse:` distinguishes empty-reply
+>   from unusable-shape from ok, which is the Readme's "permanently, silently mute" captioner case.
+> - **Item 5, the vision path.** `ocr engine:` records which engine actually ran and whether Tesseract was
+>   configured or merely found (a companion reading through Windows OCR while the user believes they
+>   installed Tesseract is a silent accuracy downgrade, not an error). `ResolveTesseract`'s throw is
+>   captured rather than swallowed. Every one of the tesseract path's five `return ""` exits now says why:
+>   process-did-not-start, timeout-8s, output-drain-timeout-2s, exit-N, or an error category. `vision
+>   payload:` records cap width, shot size and PNG KB, so a disappointing remark can be checked against
+>   the Readme's width/accuracy table.
+>
+> **Proven, not assumed.** `CheckRequestOutcomeInstrumentation` in `AiEngineProbe.Security.cs` drives the
+> real retry helper with the real classifier and asserts the LINES. Mutation-tested by deleting the
+> retried-and-failed `Log` call: exactly the two retry-log assertions failed, the behavioural assertions
+> ("was attempted twice") still passed, and the line-count assertion independently caught the drop from
+> three lines to two. That count assertion also caught its own author: it was first written `>= 4` and the
+> true count is 3, because the cancellation case contributes nothing by design.
 >
 > The "never log" list was honoured and is now partly ASSERTED rather than trusted: a probe assertion
 > fails if a window title reaches the prompt string, and the log records endpoint HOSTS rather than URLs

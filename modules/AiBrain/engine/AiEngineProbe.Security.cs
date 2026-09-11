@@ -66,7 +66,140 @@ namespace DesktopAICompanion.AiBrainModule
             ok &= CheckAiRetirementBound(sb);
             ok &= CheckAiReconfigureDisposeRace(sb);
             ok &= CheckAiAfterRetireDurability(sb);
+            ok &= CheckRequestOutcomeInstrumentation(sb);
 
+            return ok;
+        }
+
+        /// <summary>
+        /// The request-outcome diagnostics actually EMIT, and emit nothing they are forbidden to.
+        ///
+        /// This exists because of what BUG-001 taught and BUG-002 repeated: a log line that cannot fail is
+        /// not evidence. `ProcessIcon.SetIcon` logged `success=True` whether or not the shell took the icon,
+        /// and two investigations built theories on top of it. So these assertions drive the real retry
+        /// helper with the real classifier and check the LINES, not the code that is supposed to write them
+        /// -- delete the Log call and this fails.
+        ///
+        /// It also pins the privacy half of LogSink's contract, which matters more here than anywhere else
+        /// in the product: the prompt text handed to the backend must not appear in any emitted line.
+        /// </summary>
+        private static bool CheckRequestOutcomeInstrumentation(StringBuilder sb)
+        {
+            bool ok = true;
+            var lines = new List<string>();
+            // Never cleared, unlike `lines`: the privacy assertion has to see EVERY line this method
+            // provoked, or it degenerates into checking whichever batch happened to be last (and an
+            // empty batch would pass it unconditionally, which is the kind of check this module has
+            // already been bitten by).
+            var everyLine = new List<string>();
+            Action<string> previous = AiBrain.LogSink;
+            // A phrase no diagnostic would ever legitimately contain, standing in for the prompt body
+            // (which really does carry window titles and OCR text).
+            const string PromptSecret = "SECRET-PROMPT-BODY-DO-NOT-LOG";
+            var messages = new List<ChatMessage> { ChatMessage.User(PromptSecret, null) };
+            try
+            {
+                AiBrain.LogSink = delegate(string line) { lines.Add(line); everyLine.Add(line); };
+
+                // --- success on the first attempt ---
+                lines.Clear();
+                string reply = AiBrain.ChatWithRetryForDiagnosticsAsync(
+                    new RecordingBackend("{\"text\":\"hi\",\"emotion\":\"happy\"}", true),
+                    "probe-model",
+                    messages,
+                    CancellationToken.None).GetAwaiter().GetResult();
+                string joined = string.Join("\n", lines.ToArray());
+                ok &= Check(sb, "a successful AI request logs its outcome", joined.Contains("request ok:"));
+                ok &= Check(sb, "a successful AI request records one attempt", joined.Contains("attempts=1"));
+                ok &= Check(sb, "a successful AI request records a latency", joined.Contains(" ms="));
+                ok &= Check(sb, "a successful AI request names the model asked for", joined.Contains("probe-model"));
+                ok &= Check(sb, "the successful reply itself was returned", !string.IsNullOrEmpty(reply));
+
+                // --- retried, and gave up: the case the backlog called invisible ---
+                lines.Clear();
+                var transient = new TransientFailBackend();
+                bool threw = Throws<AiBackendHttpException>(delegate
+                {
+                    AiBrain.ChatWithRetryForDiagnosticsAsync(
+                        transient, "probe-model", messages, CancellationToken.None).GetAwaiter().GetResult();
+                });
+                joined = string.Join("\n", lines.ToArray());
+                ok &= Check(sb, "a retried-and-failed AI request still throws", threw);
+                ok &= Check(sb, "a retried-and-failed AI request was attempted twice", transient.ChatCalls == 2);
+                ok &= Check(
+                    sb,
+                    "a retried-and-failed AI request logs that it retried",
+                    joined.Contains("request failed after retry:") && joined.Contains("attempts=2"));
+                ok &= Check(
+                    sb,
+                    "a retried-and-failed AI request records both error categories",
+                    joined.Contains("firstError=") && joined.Contains("secondError="));
+
+                // --- deterministic failure: no retry, but still an outcome line ---
+                lines.Clear();
+                var deterministic = new DeterministicFailureBackend();
+                bool threwDeterministic = Throws<AiBackendHttpException>(delegate
+                {
+                    AiBrain.ChatWithRetryForDiagnosticsAsync(
+                        deterministic, "probe-model", messages, CancellationToken.None).GetAwaiter().GetResult();
+                });
+                joined = string.Join("\n", lines.ToArray());
+                ok &= Check(sb, "a deterministic AI failure still throws", threwDeterministic);
+                ok &= Check(
+                    sb,
+                    "a deterministic AI failure is not retried",
+                    deterministic.ChatCalls == 1);
+                ok &= Check(
+                    sb,
+                    "a deterministic AI failure logs an outcome rather than vanishing",
+                    joined.Contains("request failed:") && joined.Contains("retried=no-not-transient"));
+
+                // --- an ordinary cancellation is NOT reported as a failure ---
+                // IsRetryable returns false once ct is cancelled, so without the explicit
+                // OperationCanceledException rethrow a normal cancel would be logged as a request failure.
+                lines.Clear();
+                using (var cancelled = new CancellationTokenSource())
+                {
+                    cancelled.Cancel();
+                    bool threwCancel = false;
+                    try
+                    {
+                        AiBrain.ChatWithRetryForDiagnosticsAsync(
+                            new CancellationHonouringBackend(), "probe-model", messages, cancelled.Token)
+                            .GetAwaiter().GetResult();
+                    }
+                    catch (OperationCanceledException) { threwCancel = true; }
+                    catch (Exception) { threwCancel = false; }
+                    joined = string.Join("\n", lines.ToArray());
+                    ok &= Check(sb, "a cancelled AI request surfaces as cancellation", threwCancel);
+                    ok &= Check(
+                        sb,
+                        "a cancelled AI request is not logged as a request failure",
+                        !joined.Contains("request failed"));
+                }
+
+                // --- the privacy half of the contract, over every line emitted above ---
+                // Asserted against the accumulated list so it cannot pass by looking at nothing; the
+                // count assertion is what proves that.
+                string all = string.Join("\n", everyLine.ToArray());
+                // Exactly three: one per outcome case above. The cancellation case contributes NOTHING,
+                // which is the point of it, so a fourth line here would mean a cancel had started being
+                // reported as an event. Written as >= 3 rather than == 3 so adding a case is not a
+                // failure, and it is deliberately not >= 4: that was the first guess, and this assertion
+                // caught it.
+                ok &= Check(
+                    sb,
+                    "the instrumentation emitted lines to examine at all",
+                    everyLine.Count >= 3);
+                ok &= Check(
+                    sb,
+                    "no emitted diagnostic line carried the prompt body",
+                    !all.Contains(PromptSecret));
+            }
+            finally
+            {
+                AiBrain.LogSink = previous;
+            }
             return ok;
         }
 
