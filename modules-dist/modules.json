@@ -4,7 +4,7 @@
             "id": "fortunes",
             "name": "Fortunes",
             "desc": "Offline smart fortunes and speech bubbles, picked contextually by a bundled bge-small embedding model. Ships a built-in corpus of ~3,200 lines (Classic Fortunes plus Dad Jokes), so it has something to say before you download a single pack.",
-            "version": "1.0.0",
+            "version": "1.0.1",
             "permissions": "Speech, ScreenContext, Storage"
         },
         {
