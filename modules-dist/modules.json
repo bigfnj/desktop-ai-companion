@@ -39,7 +39,7 @@
             "id": "blinkingled",
             "name": "Blinking LED",
             "desc": "Blinks your keyboard's Scroll Lock light so the machine reads as active. Six speeds from Glacial to Hyper, switchable from the tray, and your companion has an opinion about each one. It works by pressing Scroll Lock, a key no application acts on, so nothing is ever typed anywhere; Windows still counts it as activity, which is the whole point. Caps Lock stops it.",
-            "version": "1.0.0",
+            "version": "1.0.1",
             "permissions": "Speech, Storage"
         }
     ]
