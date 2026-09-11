@@ -6,10 +6,12 @@ using System.Threading.Tasks;
 namespace DesktopAICompanion
 {
     /// <summary>
-    /// "Is there a newer version of the app?" — answered at launch, at most once a day, and never acted on.
+    /// "Is there a newer version of the app?" — answered at launch, at most once a WEEK, and never acted on.
+    /// (This line said "once a day" and the one below said "monthly" long after both became weekly; the
+    /// numbers now live in CheckInterval and ContentInterval, so read those rather than this sentence.)
     ///
     /// NOTIFY ONLY. This downloads nothing and installs nothing; the entire outcome is a version string the
-    /// Preferences footer may render as a link to the releases page. That is the same contract as the monthly
+    /// Preferences footer may render as a link to the releases page. That is the same contract as the weekly
     /// module check, and it can be switched off in Preferences for the same reason: it reaches the network
     /// without being asked.
     ///

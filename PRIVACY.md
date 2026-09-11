@@ -73,8 +73,8 @@ drive-relative, and current-drive-rooted overrides are rejected or ignored. Data
   **Preferences -> Diagnostic log**; see [`SUPPORT.md`](SUPPORT.md) for where the file lives and what
   to review before attaching it to a bug report.
 
-Older versions used `%APPDATA%\DesktopAICompanion`; a current version may migrate supported files from that
-location. API keys are encrypted at rest with Windows DPAPI for the current Windows user. DPAPI
+Older versions used `%APPDATA%\DesktopPet` (the pre-rename name, which the migration code deliberately
+still spells that way); a current version may migrate supported files from that location. API keys are encrypted at rest with Windows DPAPI for the current Windows user. DPAPI
 reduces accidental disclosure but does not protect against software already running as that user.
 
 Temporary OCR images and self-test logs may be created in the Windows temporary directory. OCR

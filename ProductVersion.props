@@ -9,7 +9,7 @@
     <DesktopAICompanionDescription>A physics-driven desktop pet with offline smart fortunes and an optional AI brain</DesktopAICompanionDescription>
     <!-- The MARKETING version: tag name, MSI ProductVersion, catalog app.version, the update check.
          MUST be bumped in the same change as any plugin-ABI edit. -->
-    <DesktopAICompanionVersion>1.1.3</DesktopAICompanionVersion>
+    <DesktopAICompanionVersion>1.1.4</DesktopAICompanionVersion>
     <!-- The FILE version, and the one that actually decides whether an upgrade replaces a binary.
          Contracts, ModuleKit and the exe all stamp <FileVersion> from THIS property, not from the one
          above, and a Windows Installer major upgrade SKIPS refreshing a file whose FileVersion did not
@@ -22,7 +22,7 @@
          Keep the major.minor of the two in step; the build now refuses otherwise (see the Error
          condition in src/DesktopAICompanion_Portable.csproj). Safe to bump: SignAssembly is false, so
          nothing binds by assembly identity. -->
-    <DesktopAICompanionAssemblyVersion>1.1.3.0</DesktopAICompanionAssemblyVersion>
+    <DesktopAICompanionAssemblyVersion>1.1.4.0</DesktopAICompanionAssemblyVersion>
     <DesktopAICompanionRepositoryUrl>https://github.com/bigfnj/desktop-ai-companion</DesktopAICompanionRepositoryUrl>
     <DesktopAICompanionCopyright>Copyright (c) 2015-2026 DesktopAICompanion contributors</DesktopAICompanionCopyright>
   </PropertyGroup>

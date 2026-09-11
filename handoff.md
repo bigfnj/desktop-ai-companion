@@ -1,6 +1,6 @@
 ﻿# Desktop AI Companion — Session Handoff
 
-> Working notes for picking this up later. Last updated: **2026-09-10** (eleventh session).
+> Working notes for picking this up later. Last updated: **2026-09-11** (twelfth session).
 > Fork of Adrianotiger/desktopPet, though no longer a GitHub fork: the repo was recreated fresh for
 > 1.0.0. Clone it wherever you like -- nothing here depends on the checkout path, and this file is
 > public, so no machine paths go in it.
@@ -9,7 +9,158 @@
 
 ---
 
-## START HERE (2026-09-10, eleventh session) — all four known bugs fixed, 1.1.0 ready to tag
+## START HERE (2026-09-11, twelfth session) — v1.1.4, and two checks that were lying
+
+Three things happened that a future reader needs, and the first two are the same lesson twice: **a
+check that measures the wrong thing is worse than no check, because it buys confidence.**
+
+### 1. The update notification was inverted, not broken, for three releases
+
+`catalog.json`'s `app.version` said 1.1.0 while 1.1.1, 1.1.2 and 1.1.3 shipped. `AppUpdateCheck` reads
+the latest version from the catalog on master rather than the releases API (deliberately, for good
+reasons in its class comment), so this did not disable the check. It made the check answer **"you are
+up to date"** to every user, while the thing they were not being offered was the tray-icon fix that
+those three releases exist to deliver.
+
+It rotted because nothing in a host release touched the catalog: `release.yml` does not regenerate it,
+and `New-ContentCatalog.ps1` otherwise runs only during a *module* publish. Three tags with no module
+publish between them left the number behind.
+
+**Fixed, and gated.** `Test-ModulePublishFreshness.ps1` now fails when `catalog.json` `app.version`
+disagrees with `ProductVersion.props`, so `build.yml` catches it. `docs/RELEASE-CHECKLIST.md` gained
+catalog regeneration as **step 2, in the same commit as the version bump** — deliberately before the
+tag rather than after, because the alternative leaves `master` red until the release lands. Do not
+"tidy" that ordering.
+
+Worth internalising: `New-ContentCatalog.ps1` already refused to write a BLANK `app.version`, with a
+comment explaining that a blank one disables the check. The failure mode one step to the side of the
+guarded one is the one that happened.
+
+### 2. "Do not repeat anything you have said recently" was an instruction to nobody
+
+The AI system prompt has carried that sentence for a long time. It was **inert**: it was the only
+occurrence of the idea anywhere in the engine, no recent-remarks list was ever sent, and every ask is
+an independent single-turn request. The model had no way to know what it had said before.
+
+This is not an edge case, it is the *normal* case, and that is how it was reported: a maintainer who
+spends the day in one editor gets one unchanging screen description and therefore the same remark
+every time the companion speaks.
+
+Now two mechanisms, because the instruction alone is not trustworthy. The prompt is **told** the recent
+remarks (bounded to the last 8 of a 40-deep memory), and the answer is then **checked** against that
+memory and retried once on a repeat. `IsRepeatOf` uses normalised equality or a 0.8 word-set overlap,
+never byte equality, because a model asked twice about one screen rephrases rather than repeating —
+which reads as a repeat to a human and passes a string compare. On a second repeat it speaks the first
+answer anyway: slightly repetitive beats silent.
+
+`SmartFortunes._recent` had already solved this for the fortune picker ("so a stable foreground window
+rotates"). Nobody had asked whether the AI path had the same problem. **When one subsystem needs a
+mechanism, ask whether its sibling does.**
+
+### 3. Two ABI gaps are now blocking real UI, and they want one release together
+
+Both are additive, both need the product version bumped in the same commit, and both mean a host
+release must ship before `aibrain` can declare `MinHostVersion` for them:
+
+- **A pane action cannot see an unapplied field value.** `PaneAction.InvokeAsync` is a
+  `Func<Task<string>>`. Any "preview what I just picked" button therefore previews the SAVED value.
+  This is why the persona audition reads the saved disposition and says so in its own header, and why
+  the live-versus-canned choice is two buttons rather than a setting. The fix is a member carrying the
+  pane's pending values, which the host already has to hand (it passes the same dictionary to `Save`).
+- **There is no radio `SettingKind`.** The set is `Bool, Int, Text, Enum, Secret, Info`. Mutually
+  exclusive options can only be a dropdown today.
+
+The maintainer asked for radio buttons and got two buttons instead, with the reason stated. If that
+bundle is ever built, do both members in one host release.
+
+### Released this session
+
+**`v1.1.4`**, and seven module publishes. Every one of the six modules took a patch bump to carry a
+cleaned `ModuleKit.dll` (see below), and `aibrain` then moved three more times for real features:
+
+    fortunes 1.0.1   aibrain 1.1.4   petstudio 1.0.2
+    reminder 1.0.1   remembrance 1.0.1   blinkingled 1.0.1
+
+**The maintainer's build path is gone from the shipped binaries.** The v1.1.0 audit recorded
+`DebugType=embedded` as blocked by NU5017 and `PathMap` as useless. PathMap really is useless here (it
+rewrites paths recorded *inside* the PDB, not the PDB's own path in the assembly's CodeView record),
+but the NU5017 finding was half an answer: it only fires while `IncludeSymbols` is still set, because
+the symbol package then has nothing to carry. Dropping both packs clean. And dropping the `.snupkg`
+costs nothing, because `release.yml` filters `*.snupkg` out of the release assets, so every release
+built a symbol package and threw it away. Embedding is strictly better for the module authors it was
+meant to serve. The audit named only ModuleKit; **Contracts carried it too**, and that one ships beside
+the exe in the ZIP and MSI.
+
+### New gates, all mutation-tested, and one of them caught its own author
+
+- **catalog `app.version` vs `ProductVersion.props`** (in the freshness check, so CI runs it). Not
+  mutated artificially: it fired on the live defect.
+- **The module template must LOAD, not merely build.** It defaulted `minHostVersion` to the pre-rebase
+  `1.4.8`, above the shipped host, so every scaffolded module compiled and was then refused — breaking
+  the Readme's own quick-start while `Test-ModuleTemplate.ps1` passed, because it asserted substitution
+  and compilation and never asked the host for an opinion. It now runs the scaffolded module through
+  the real loader via `--module-selftest`. The decisive mutation was hardcoding
+  `MinHostVersion = "9.9.9"` in the template source: it slips past the new version pre-check, builds
+  clean, and is caught only by the loader step.
+- **The two `animations.xsd` copies must be byte-identical.** Both are live and `handoff.md` had said
+  they must agree for months with nothing asserting it.
+- **Request-outcome and audition instrumentation** are asserted on the emitted LINES, not on the code
+  that should write them, because this module's own history says otherwise: `SetIcon` logged
+  `success=True` whether or not the shell took the icon, and two investigations built theories on it.
+
+The line-count assertion in the instrumentation probe was first written `>= 4` when the true count is
+3, because the cancellation case contributes nothing by design. **It failed, and it was right.** Write
+count assertions; they catch you.
+
+### Traps this session, in the order they cost time
+
+1. **The NuGet global package cache was gutted by the 2026-09-10 profile wipe** and nothing built at
+   all: 3,384 extracted payload files missing across 128 package versions, including `onnxruntime.dll`
+   and the .NET runtime packs. Every `.nupkg` was intact, so the repair was offline and additive
+   (re-extract only missing entries, never overwrite). First attempt missed it because the detector
+   looked for target folders holding `.xml` docs but no `.dll`, and `runtimes\win-x64\native` ships no
+   docs. **Reconcile against each package's own manifest; do not pattern-match damage.**
+2. **An XML comment cannot contain `--`.** Both new csproj comments used it as punctuation and the
+   build died with MSB4025 before compiling anything.
+3. **`Get-Process -Name a,b -ErrorAction Stop` inside a try/catch** throws on the absent name and
+   silently skips killing the present one, leaving the exe locked (MSB3027) and an instance-slot lock
+   file undeletable. Already in "Durable gotchas" below. Walked into it anyway.
+4. **A heredoc had already eaten a backslash in a committed doc**: `docs/RELEASE-CHECKLIST.md`
+   contained a literal tab plus newline where `.\tests\run-gate.ps1` belonged. Verified with `cat -A`,
+   not by reading it rendered.
+5. **UIA cannot find the WPF settings window by title from a shell argument** — the title contains an
+   em-dash. Match on `ProcessId` + `ClassName -eq 'Window'`. The schema checkboxes expose **no
+   accessible name**, so correlate a checkbox to its label by geometry. `--reopen-options=<pane title>`
+   opens the window but still lands on Preferences; select the pane from the nav list.
+
+### Verification that is worth repeating
+
+The gate is green on a clean rebuild, but the things that actually found defects this session were a
+real install and a real model:
+
+- Driving the audition button through UI Automation against a live `gemma3:4b` produced five real
+  remarks, and immediately exposed a **pre-existing** engine defect: the model degenerated into a
+  repeated-emoji run (`replyChars=485` against a 512 cap). `SanitizeResponseText` collapses whitespace
+  and bounds length but has no notion of repetition, so a real speech bubble can already show it.
+  Filed with two candidate fixes and a recommendation; **not fixed**, because either changes every
+  remark and deserves a deliberate choice.
+- The live pane's navigation list confirmed the Readme's pane order, and showed that the v1.1.0 audit
+  note had **Remembrance and Reminders the wrong way round**. `OptionsShell.CollectPanes` sorts the
+  tail with `OrdinalIgnoreCase`, under which `Remembrance` precedes `Reminders`.
+
+### Still outstanding
+
+- **`SMOKETEST.md` sections A-E have not been walked on a real MSI install** for anything in the 1.1.x
+  line. This is the one release-checklist step no automation replaces, and its own preamble lists the
+  bugs that reached users because it was skipped.
+- The emoji-degeneration fix (two options filed).
+- The two ABI members above.
+- Fortunes, PetStudio and BlinkingLed still have **zero** `IHost.Log` calls. None of them fails
+  silently by construction, so they stay lower value than AI Brain was.
+
+---
+
+## Previous START HERE (2026-09-10, eleventh session) — all four known bugs fixed, 1.1.0 ready to tag
 
 BUG-001 to BUG-004 are **fixed and verified** (full write-ups in [`BACKLOG.md`](BACKLOG.md)). What a
 future reader most needs to know is the parts that were *wrong* before being fixed, because two of them
@@ -843,11 +994,12 @@ Catalog now: **fortunes 1.2.4, aibrain 1.2.2, petstudio 1.4.1, reminder 1.7.0, r
 
 ### Three traps this session hit that will bite again
 
-- **`git` is not on PATH in a PowerShell agent shell**, and the box's only git is a full HKLM-registered Git
-  for Windows at an unusual location (`C:\Anthropic\.Git`). Do NOT winget-install `Git.Git` to "fix" it: the
-  winget version is older, so the installer aborts as a downgrade. Its `cmd` dir is now on the User PATH, so
-  new sessions are fine; inside an already-running session prepend it. Everything that shells out to bare
-  `git` depends on this (`run-gate.ps1`, `Test-ModulePublishFreshness.ps1`, `New-ModulePublish.ps1`).
+- **`git` may not be on PATH in a PowerShell agent shell**, if the box's only git is a full HKLM-registered
+  Git for Windows installed somewhere non-default. Do NOT winget-install `Git.Git` to "fix" that: the winget
+  version can be older, so the installer aborts as a downgrade. Put its `cmd` directory on the User PATH
+  instead; inside an already-running session, prepend it. Everything that shells out to bare `git` depends
+  on this (`run-gate.ps1`, `Test-ModulePublishFreshness.ps1`, `New-ModulePublish.ps1`).
+  (The literal install path used to be named here, which broke this file's own no-machine-paths rule.)
 - **A host may hand a module a NULL settings store, and that killed both modules at load.** The app's own
   `--module-selftest` harness returns null from `GetSettings` AND `GetStorage`. Anything reading settings
   during `Init` (building an options SCHEMA whose dropdown depends on a saved value; a legacy migration)
@@ -1518,8 +1670,9 @@ The precise rebind detail is in the `project-desktoppet` memory note.
 - **The active companion is persisted as its raw `animations.xml`** (not an id); downloaded companions read via
   `UTF8.GetString`, so a leading BOM survives — `CompanionXmlValidator.TryParse` strips it.
 - `TreatWarningsAsErrors=true` — a build failure is often just a newly-orphaned member; the compiler points
-  right at it. `src/packages/*` are untracked net48-era NuGet leftovers (the SDK build uses the global
-  cache) — ignore them; a future cleanup could delete them.
+  right at it. (`src/packages/*` used to sit here as untracked net48-era NuGet leftovers awaiting a
+  cleanup; that cleanup happened and the directory is gone. Only `src/packages.lock.json` remains, and
+  that one is a real tracked lock file.)
 - **CI note (2026-08-06):** GitHub Actions was globally down; S2, S3.1, and the S3c engine relocation were
   merged on the strength of the full local self-test suite + the resource-churn soak. Re-run CI on `master`
   once Actions is back to confirm green.

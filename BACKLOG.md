@@ -5,6 +5,48 @@
 
 ---
 
+## 🚢 Released: v1.1.4 (2026-09-11)
+
+Host **1.1.4** plus seven module publishes. Leak soak PASS before the tag: `SettledGrowth` GDI **0**,
+USER **0**, handles **−9** (cycle 40 → 80, bounds 16 each), private bytes **+10.9 MB** on raw samples
+(bound 64 MB). GDI sat at exactly 46 and USER at exactly 57 at both settled samples, matching BUG-004's
+finding that this build settles flat.
+
+| module | version | why it moved |
+|---|---|---|
+| fortunes | 1.0.1 | cleaned `ModuleKit.dll` (no build path) |
+| aibrain | 1.1.4 | cleaned ModuleKit, then instrumentation, the persona audition, and the repeat guard |
+| petstudio | 1.0.2 | cleaned ModuleKit |
+| reminder | 1.0.1 | cleaned ModuleKit |
+| remembrance | 1.0.1 | cleaned ModuleKit |
+| blinkingled | 1.0.1 | cleaned ModuleKit |
+
+**What shipped, beyond the module features:** the inverted update notification is fixed and gated, the
+maintainer's absolute build path is gone from both `Contracts.dll` and `ModuleKit.dll`, and three new
+assertions exist that each catch a defect the previous suite could not see. Full reasoning in
+[`handoff.md`](handoff.md)'s twelfth-session entry; not duplicated here.
+
+**Pre-tag verification actually performed**, so the gap is precise rather than implied:
+
+- Full gate green on a clean rebuild; leak soak PASS (numbers above); MSI built and passed all 23
+  surface assertions plus ICE validation.
+- **A real MSI install was done** (`/passive`, fresh) and the installed 1.1.4 exe launched with
+  `tray icon set: ... shellHasIt=True` on the FIRST add. That is BUG-001's own repro, passing on the
+  shipped artifact rather than on a self-test. It also loaded modules left by an earlier install at
+  their older versions (`aibrain 1.1.1`, `fortunes 1.0.0`), which is the in-app update path having
+  something real to offer.
+- Both new AI Brain features exercised in the real app against a live `gemma3:4b`, driven through UI
+  Automation.
+
+**⚠ Still NOT done: the full `SMOKETEST.md` A-E walk, and the UPGRADE path.** The install above was
+onto a machine with no registered install, so it exercised first-install rather than
+install-over-previous, and the checklist is explicit that the upgrade path is the one users take. The
+A-E script also covers speech routing, the poke ladder, drag, multi-monitor pinning and fullscreen
+stand-down, none of which was touched. Recorded rather than glossed, because that file's own preamble
+lists the bugs that reached users precisely because this step was skipped.
+
+---
+
 ## 🐞 Known bugs (post-1.0.0)
 
 Numbered so they can be cited. BUG-001 to BUG-003 were found by the maintainer using the shipped build,
@@ -907,10 +949,11 @@ Still stale, in rough value order:
 
 - **`REMEMBRANCE-PLAN.md`** — "Host ABI 1.9.0", "cut the host 1.9.0 release". A completed plan doc; either
   correct it or retire it to `docs/` as an archive alongside the other pre-1.0.0 records.
-- **`Companions/README.md`** — instructs the reader to run `build\PetTester\...\PetTester.exe` against
-  `.\Pets\your-pet\animations.xml`. `PetTester` is not a tracked project, and the directory is
-  `Companions/`. The `localxml=` argument it also mentions IS still valid.
-- **`grimoire/03-companion-xml-format.md`** — still "every desktopPet pet is a single...".
+- ~~**`Companions/README.md`** — instructs the reader to run `build\PetTester\...\PetTester.exe`.~~
+  **Already fixed** (2026-09-11 audit): the file now says "There is no separate validator executable"
+  and names `tools/ShimejiConvert`. This entry was itself the stale one.
+- ~~**`grimoire/03-companion-xml-format.md`** — still "every desktopPet pet is a single...".~~ Fixed
+  2026-09-11; it now says "every companion" and explains why the namespace still says "pet".
 - **~10 items in this file** whose content is correct but whose version numbers predate the rebase: the
   converter format chain (0.1-0.8 now, not 1.0-1.8) at the `reweight`/`dedupe`/`undirect`/`rejump`
   descriptions, "host v1.9.0 released", the app update check described as hourly, and the "only unprompted

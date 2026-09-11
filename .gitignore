@@ -163,12 +163,52 @@ AGENTS.md
 .aider*
 .mcp.json
 .gemini/
+GEMINI.md
 .roo/
+.roomodes
 .continue/
+.clinerules
+.opencode/
+.junie/
+.specstory/
+.taskmaster/
+.trae/
+CONVENTIONS.md
+repomix-output.xml
 copilot-instructions.md
 .github/copilot-instructions.md
+# Copilot's SUBDIRECTORY forms. The single flat file above misses these entirely.
+.github/instructions/
+.github/prompts/
+.github/chatmodes/
 SESSION_*
 HANDOFF_*
+
+# Directory-versus-file asymmetry, closed deliberately: each pair below had one half covered above
+# and the other missing, which is the shape that lets a leftover through. `.gemini/` was listed
+# without GEMINI.md (the analogue of CLAUDE.md); `.windsurfrules` is the LEGACY single-file form and
+# current Windsurf writes `.windsurf/rules/*.md` instead.
+.windsurf/
+
+# Editor workspace state. `.vs/` was already ignored further up; these three were not.
+.vscode/
+.idea/
+.zed/
+
+# Conflict and patch debris. *.tmp was ignored and these were not, which is backwards: .orig and
+# .rej are exactly what a failed `git apply` or merge leaves lying around.
+*.bak
+*.orig
+*.rej
+
+# The Windows `> nul` artefact. A redirect written for cmd and then run under Git Bash creates a
+# FILE called nul in the working directory. This repo is Windows-primary and uses both shells, which
+# is precisely the condition that produces it.
+nul
+
+# Runtime lock directory created by src/Fortunes/label-common.sh. The generated label artefacts
+# beside it are already fail-closed; an interrupted run left this one untracked and unignored.
+.label-pipeline.lock/
 
 # The app's OWN runtime settings. Named explicitly because the secrets block below did not cover
 # them, which left one real way for a key to reach a commit: in PORTABLE mode AppPaths.DataRoot is
@@ -198,6 +238,19 @@ chat-history.json
 *.pkcs12
 .netrc
 _netrc
+# Public certificate formats. These normally carry no private material, so they are here for
+# symmetry with the private-key list above rather than because they are dangerous: the point of this
+# block is that a stray local file cannot become a commit, and asymmetry is how that gets defeated.
+*.crt
+*.cer
+*.der
+
+# The host's own settings file. Sibling of the ai-settings.json block above and ignored for the same
+# portable-mode reason: a portable copy unpacked at the repo root writes data\settings.json into the
+# tree. AppSettingsStore carries no key, secret or token field, so this is window dressing today --
+# which is exactly when to add it, rather than after a field like that appears.
+settings.json
+**/data/settings.json
 .npmrc
 .yarnrc
 id_rsa

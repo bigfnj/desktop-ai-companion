@@ -72,7 +72,7 @@ it has something to say the moment it installs, before you download a single pac
 chalkboard gags, the abridged Bible and the rest are **packs** you add on top. Install it from **Options → Modules**, then from
 **Options → Fortunes** you can:
 - Dial the tone with one ordered **Content level** — *Clean only* / *Clean + edgy* / *Everything* /
-  *Spicy only* — plus a separate **Filter profanity** switch for recognized profanity and explicit
+  *Spicy only* — plus a separate **Remove profanity / explicit words** switch for recognized profanity and explicit
   sexual content. A live count under the controls says how many fortunes the current selection
   actually leaves (and warns when that is none), and **Show me 5 examples** prints what it would say.
 - **Pick sources** — 158 downloadable packs, grouped into seven collapsible collections with a filter box,
@@ -99,12 +99,14 @@ post toward heartbreak lines. It warms once in the background (cached after), av
 it just showed, and falls back to the full library whenever it isn't sure. Toggle it in
 **Options → Fortunes**.
 
-### 🤖 AI brain (optional module, OFF by default — no provider requests until enabled)
+### 🤖 AI brain (optional module, OFF by default — no unprompted provider requests)
 <img align="left" width="68" src="Companions/neko/icon.png" alt="Neko">
 
 A screen-commentary LLM: the companion glances at your screen (OCR or a vision model) and speaks an original
-remark. It's **off out of the box**, so Desktop AI Companion does not contact the configured provider. When you
-want it:
+remark. It's **off out of the box**, so the companion never speaks to a provider on its own. The honest
+caveat: three buttons in **Options → AI Brain** do reach the provider whichever way the master switch is
+set, because their whole job is to answer "can you reach it" — *Refresh local models*, *Refresh cloud
+models* and *Test connection*. Nothing else contacts it while the brain is off. When you want it on:
 - Right-click the tray → **Enable AI**. **Disable AI** cancels Desktop AI Companion's provider requests. With
   Ollama, configured warm-up and unload operations also control that server's keep-alive model
   memory. Generic OpenAI-compatible providers expose no remote-memory control, so disabling
@@ -114,9 +116,11 @@ want it:
   cloud keys are stored **DPAPI-encrypted**.
 - Ask on demand with the global hotkey (`Ctrl+Alt+P`) or the tray, or opt into occasional idle
   commentary.
-- **Reads the screen with no extra install.** Windows' own OCR does the work out of the box; the
-  module only falls back to **Tesseract** if you have it, and **Options → AI Brain → Choose OCR engine…**
-  lets you pick. **Test OCR** confirms which one answered.
+- **Reads the screen with no extra install.** It prefers **Tesseract** and uses it whenever one is
+  found, because it reads dense text better; with no Tesseract anywhere it falls back to **Windows' own
+  OCR** rather than going screen-blind, which is why no extra install is required. **Options → AI Brain
+  → Choose OCR engine…** browses to a `tesseract.exe` the auto-detect missed (it selects a Tesseract
+  binary, not between the two engines). **Test OCR** tells you which one actually answered.
 - **Audition a Disposition before you live with it.** A name tells you nothing about a voice, so the
   **Persona** card has two buttons. **Show me 5 examples** runs five made-up screens (a code editor, a
   video, an empty desktop, a spreadsheet, late-night browsing) so the persona is the only thing that
@@ -258,8 +262,10 @@ tested, one takes 52 seconds and the other cannot hold a persona at all.
 > remark, a 12B+ model is too slow to feel alive, and a captioning VLM cannot hold a persona at all.
 
 > **Privacy:** fortunes and smart-fortunes are entirely local. The optional AI brain can send window,
-> OCR, screenshot, persona, and recent-conversation context to the provider you configure after it
-> is enabled. Remote providers require explicit cloud-data consent. See [`PRIVACY.md`](PRIVACY.md).
+> OCR, screenshot, persona, and recent-conversation context to the provider you configure once it
+> is enabled; while it is off, only the explicit *Refresh models* and *Test connection* buttons reach
+> the provider, and they send no screen content. Remote providers require explicit cloud-data
+> consent. See [`PRIVACY.md`](PRIVACY.md).
 
 **Your VRAM stays yours.** A local model is only worth keeping in memory between remarks if you want speed
 more than the memory, so **Model residency** is one choice — unload after each remark (the default), keep it
@@ -285,7 +291,8 @@ bug. It validates with the host's *own* parser, so its verdict is what the app w
 previews the companion on your real desktop without installing or saving it.
 
 It also **imports Shimeji skins**. Point it at a skin folder or a `.zip`, in either the classic desktop
-format (an `actions.xml`/`behaviours.xml` config plus PNG sprites) or the newer Android bundle format
+format (an `actions.xml`/`behaviors.xml` config plus PNG sprites — American spelling, which is what the
+parser matches on) or the newer Android bundle format
 (a JSON manifest plus WebP sprites), and it converts the skin to a Desktop AI Companion companion, maps its behaviours
 onto the app's own action model, keeps the artwork's per-pixel transparency, shows an honest report of
 what could not be carried over, then previews and installs it.
@@ -335,7 +342,8 @@ a key no application acts on, so nothing is ever typed anywhere; Windows still c
 activity, which is the point. **Caps Lock stops it**, and stopping always leaves the light off rather
 than wherever the blink happened to land.
 
-It keeps to **two tray entries**, an on/off toggle and the speed menu. The standalone app also showed a
+It keeps to **one tray entry**, with Off folded into the speed submenu so the whole thing is one decision
+in one place rather than a toggle plus a separate rate menu. The standalone app also showed a
 live countdown to the next blink; that is deliberately not here, because a module ships data and the host
 renders it, so the value could only be a snapshot taken when the menu opens, and a stale countdown is not
 worth the tray space. **Blink once now** in the options pane covers what it was really for: telling "doing
@@ -371,7 +379,7 @@ framework-dependent, so the runtime is not included. AI Brain and Remembrance ad
 
 Neither download carries the plugin modules: they come from the in-app catalog, which is what keeps the
 installer small. The portable ZIP additionally bundles six companions and all 158 fortune packs offline;
-the MSI carries neither, so a fresh install starts with the built-in companions and **no fortunes at all**
+the MSI carries neither, so a fresh install starts with the one built-in companion and **no fortunes at all**
 until you install Fortunes from **Options -> Modules**: the corpus lives inside that module's payload, not
 in the base app. The builds are **unsigned** -- verify
 them against `SHA256SUMS.txt` on the release.
@@ -384,11 +392,11 @@ them against `SHA256SUMS.txt` on the release.
 - **Right-click the sheep** to poke it — first pokes give fortunes, then it starts ignoring you, then
   gets sassy, then escapes to a bathtub. Each companion keeps its **own** poke ladder, so poking one does not
   make another sassy, and only the companion you actually clicked answers.
-- **Right-click the tray icon** for the menu: add a sheep, **Test Speech**, **Companion Speech**,
+- **Right-click the tray icon** for the menu: **Add a companion**, **Test Speech**, **Companion Speech**,
   **Enable/Disable AI**, **Options**, and quit.
 - **Tray → Companion Speech** picks which module speaks for **each companion**: `Companion Speech ▸ Pearl ▸ Fortunes`,
   `Companion Speech ▸ Rick ▸ AI Brain`, and so on, with a tick on whichever is in effect. There is an *All companions*
-  row for the shared default and a *Reset all companions* row to clear per-companion choices. With several companions on
+  row for the shared default and a *Reset all companions to the default* row to clear per-companion choices. With several companions on
   screen they no longer all say the same line at the same moment — a reaction belongs to one companion.
 - **Options** opens with **Preferences** and **Modules** pinned in that order, then everything else
   sorted alphabetically. That tail mixes core panes and module panes together rather than listing modules
@@ -418,7 +426,7 @@ downloaded companion and installed module and installs a clean copy. It also clo
 of asking you to, offers a working **Repair**, and launches the companion when it finishes.
 
 An installed copy stores mutable data under `%LOCALAPPDATA%\DesktopAICompanion`. A portable copy stores it
-under `data\` beside the executable. Supported files from the legacy `%APPDATA%\DesktopAICompanion` location
+under `data\` beside the executable. Supported files from the legacy `%APPDATA%\DesktopPet` location
 are migrated when needed.
 
 ---
@@ -473,8 +481,11 @@ All fifteen projects target `net10.0-windows`, except AI Brain and Remembrance, 
 
 ```powershell
 .\tests\run-gate.ps1                                        # the one that matters: build + CoreTests +
-                                                            # every self-test + source-text invariants +
-                                                            # module payload freshness. Fails on a SKIP.
+                                                            # 16 self-tests + source-text invariants +
+                                                            # module payload freshness + the module
+                                                            # template. Fails on a SKIP. (The soaks and
+                                                            # --online-selftest are deliberately out:
+                                                            # they need a window station or a network.)
 .\build.ps1 -Release -Zip                                   # -> dist\DesktopAICompanion-Portable.zip
 dotnet build .\tests\DesktopAICompanion.CoreTests\DesktopAICompanion.CoreTests.csproj -c Release
 .\tests\DesktopAICompanion.CoreTests\bin\Release\DesktopAICompanion.CoreTests.exe
@@ -529,7 +540,7 @@ See [`grimoire/`](grimoire/) for a deep architecture reference,
         │                                        (offline, CPU)          ├─ OllamaClient (native, keep-alive VRAM)
         │ Say(text)                                   │ Pick(context)    └─ OpenAiCompatBackend (/v1: LMStudio,
         ▼                                              │                     llama.cpp, OpenRouter, OpenAI, custom)
-   FormSpeech (follows the companion)  ◄── SayFortune() ◄────┴── FortuneProvider (corpus + packs + filters)
+   FormSpeech (follows the companion)  ◄── IHost.Say() ◄─────┴── FortuneProvider (corpus + packs + filters)
 ```
 
 - **FortuneProvider** loads the embedded corpus + downloaded/custom packs and filters by tone + source.
