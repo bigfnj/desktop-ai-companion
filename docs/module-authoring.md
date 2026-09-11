@@ -90,13 +90,46 @@ deliberately handle-based (`ICompanion`, never the app's `FormCompanion`) and fr
 
 Two of those are worth calling out because they are easy to reimplement badly:
 
-- **`IsDarkTheme`** (host 1.4.7+) — if you own a window, theme it from this, not from the OS registry. The
+- **`IsDarkTheme`** (host 1.0.0+) — if you own a window, theme it from this, not from the OS registry. The
   user's choice is light / dark / **system**, and only the host knows which is set; reading the OS directly is
   correct for "system" and wrong the moment someone pins the opposite. Re-read it when you build UI rather
   than caching, since a preference change takes effect on the next open.
-- **`Log(Info.Id, message)`** (host 1.4.7+) — your diagnostic channel, tagged with your id. Before it existed
+- **`Log(Info.Id, message)`** (host 1.0.0+) — your diagnostic channel, tagged with your id. Before it existed
   a module's only way to report anything was `SayAll`, i.e. making the companion talk to the user about an
   exception. Best-effort and never throws.
+
+### Screen reading
+
+`CaptureScreenContext` (declare `ModulePermissions.ScreenContext`) returns a `ScreenContext`. It is **not**
+a screenshot — it is metadata, and host 1.1.0 widened it considerably. Declaring `MinHostVersion = "1.1.0"`
+is the price of touching the last two members:
+
+| member | since | what it is |
+|---|---|---|
+| `WindowTitle`, `ProcessName` | 1.0.0 | the foreground window |
+| `MonitorBounds` | 1.0.0 | the monitor the **companion** is on, not the one the front window is on |
+| `WindowUnderCompanion` | 1.0.0 | title of the window the companion is standing on, or null |
+| `ForegroundWindowBounds` | **1.1.0** | visual bounds (DWM extended frame) of the front window, or a zero-size rect |
+| `Windows` | **1.1.0** | every ordinary window, frontmost first, across all monitors. Never null |
+
+**Prefer `Windows` to a screenshot.** "The front app is Code, and Outlook and Edge are also open" costs one
+bounded window enumeration and no inference. The same knowledge from pixels costs a capture, a downscale and
+a vision model that may not be able to read the result, and it survives cases GDI capture does not because it
+never touches the framebuffer. Each `ScreenWindow` carries `Title`, `ProcessName`, `Bounds`, `MonitorIndex`
+(largest-share, or -1), `IsForeground` and `ZOrder` (0 is frontmost).
+
+**If you do capture, capture the window.** `ForegroundWindowBounds` exists so you can frame the window instead
+of the monitor, which matters more than it sounds: a monitor capture is downscaled twice before a vision model
+sees it, and on a 2560-wide display that leaves body text around 6px tall. Two rules the host does not enforce
+for you — treat a zero-size rect as "no usable window" and fall back to `MonitorBounds`, and intersect the
+window rect with the monitor you are capturing, because the front window may be on a different display
+entirely. AI Brain's `ChooseCaptureBounds` is the worked example, including its 320x240 floor below which
+framing a window is not worth it.
+
+> ⚠️ **`Windows` is personal data.** Titles routinely carry document names, URLs and mail subjects, and this
+> member widens a module's view from one title to all of them. Never log it (`Log` writes to a file users are
+> told they can attach to an issue), and disclose any use that leaves the machine. The contract repeats this
+> at `PluginApi.cs`, and it is the one note in this guide that is a rule rather than advice.
 
 ### Permissions
 
@@ -113,12 +146,18 @@ check return values; do not assume success.
 ### MinHostVersion
 
 ```csharp
-MinHostVersion = "1.4.6",   // the host that added ICompanionManager.CompanionsDirectory
+MinHostVersion = "1.0.0",   // the floor every module starts from after the 1.0.0 rebase
 ```
 
 Checked **before** `Init`, against the host's *product* version (not the frozen `AssemblyVersion`). Raise it
 only when you actually call a member a newer host introduced: a module that demands a host newer than the one
 shipped is refused **forever**. Leaving it out means "runs anywhere".
+
+**Use `1.0.0` unless you have a reason not to.** The 1.0.0 rebase flattened every floor, because a mandatory
+clean install means no host older than that exists to refuse anything. Of the six shipped modules only AI
+Brain has raised it since, to `1.1.0`, and only because it reads `ScreenContext.Windows`. Pre-rebase numbers
+(1.4.x) are **above** the current host and are refused, so a version copied out of an older doc or an older
+module is worse than leaving the field out entirely. See [`VERSIONING.md`](VERSIONING.md).
 
 ### Rules the host relies on
 

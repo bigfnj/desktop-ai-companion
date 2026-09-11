@@ -4,7 +4,23 @@ Desktop AI Companion ships **unsigned** Windows x64 builds. To cut a release:
 
 1. Bump `DesktopAICompanionVersion` (and `DesktopAICompanionAssemblyVersion`) in
    [`ProductVersion.props`](../ProductVersion.props).
-2. Commit and push to `master`; confirm [`build.yml`](../.github/workflows/build.yml) is green.
+2. **Regenerate the catalog in the same commit as the bump**: `.\packaging\New-ContentCatalog.ps1`. This
+   is the step that tells existing users the release exists.
+
+   `catalog.json`'s `app.version` is where the launch update check reads the latest version from, and
+   nothing else in a release touches it — `release.yml` does not, and `New-ContentCatalog.ps1` otherwise
+   runs only during a *module* publish. So a run of host releases with no module publish between them
+   leaves the number behind, and a stale number does not disable the check, it inverts it: every user is
+   told they are current. **This happened.** The catalog was generated while the props said 1.1.0, then
+   v1.1.1, v1.1.2 and v1.1.3 shipped, and nobody on 1.1.0 was ever offered the tray-icon fix.
+
+   `Test-ModulePublishFreshness.ps1` now fails when the two disagree, so `build.yml` will catch a
+   forgotten regeneration. That is also why this belongs in the *same commit* as the bump rather than
+   after the tag: the alternative leaves `master` red until the release lands. The cost is a window of a
+   few minutes where the catalog names a version whose assets are still building, and the footer is a
+   link to the releases page rather than a download, so the worst case is a user seeing the previous
+   release for a moment.
+3. Commit and push to `master`; confirm [`build.yml`](../.github/workflows/build.yml) is green.
 
    **Exception, when this release is the one a module has been waiting for.** If a module's source
    declares a `MinHostVersion` equal to the version being cut, `build.yml` **cannot** be green yet:
@@ -13,11 +29,10 @@ Desktop AI Companion ships **unsigned** Windows x64 builds. To cut a release:
    The two rules genuinely contradict each other, and the resolution is that
    [`release.yml`](../.github/workflows/release.yml) does **not** run the freshness gate — only
    `build.yml` does. So the working order is: push the host → tag → publish the module → CI goes green.
-   Confirm the freshness mismatch is the ONLY failure before tagging (`.	ests
-un-gate.ps1` locally),
+   Confirm the freshness mismatch is the ONLY failure before tagging (`.\tests\run-gate.ps1` locally),
    because that exception is otherwise an excellent way to tag over a real break. Hit for real on
    2026-09-10 cutting v1.1.0 with aibrain 1.1.0 waiting on it.
-3. **Run the leak soak locally** and check the growth numbers:
+4. **Run the leak soak locally** and check the growth numbers:
    `.\tests\runtime-resource-soak.ps1` → expect `"Result": "PASS"`. The figure that
    matters is **`SettledGrowth`**, not `Growth`: `Handles`/`GdiObjects`/`UserObjects` measured after a
    forced `GC` → `WaitForPendingFinalizers` → `GC`, compared between the first post-warm-up sample
@@ -39,10 +54,10 @@ un-gate.ps1` locally),
    check covering a module's own HWNDs, Bitmaps and decoded sprites. It compares the LAST segment against the
    previous one rather than against a cold start, because the first pass legitimately sets a high private-byte
    watermark while a sprite sheet decodes. Record these numbers too.
-4. **Walk the live smoke script** below. Everything above is a self-test: it proves invariants, not that the
+5. **Walk the live smoke script** below. Everything above is a self-test: it proves invariants, not that the
    app still works. This is the class of check that caught the S6p2 UI, a stale install being debugged as if
    it were current, and the OCR mojibake — none of which any automated gate noticed.
-5. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+6. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 
 ## Live smoke script
 

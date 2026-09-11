@@ -173,6 +173,12 @@ window chrome, and cannot read body text or small UI labels. Window-scoped captu
 different reason -- a 1200px-wide window barely gets downscaled at all, where a 2560px monitor is cut
 by two thirds.
 
+That only applies when the front window is on the **companion's own** monitor. The window rect is
+intersected with the monitor being captured (`ChooseCaptureBounds`), and a rect left smaller than
+320x240 falls back to the whole monitor. So a companion on display 1 commenting while you work on
+display 2 gets a full-monitor capture of display 1, with all the downscaling above, which is the
+mechanism behind reactions that read as if the model only saw the wallpaper.
+
 **Text model** — used for the faster OCR path, and the one that has to carry a persona.
 
 15 generations per model: 5 dispositions x 3 runs, scored mechanically. "Parses" uses the module's own
@@ -377,9 +383,11 @@ them against `SHA256SUMS.txt` on the release.
   `Companion Speech ▸ Rick ▸ AI Brain`, and so on, with a tick on whichever is in effect. There is an *All companions*
   row for the shared default and a *Reset all companions* row to clear per-companion choices. With several companions on
   screen they no longer all say the same line at the same moment — a reaction belongs to one companion.
-- **Options** has panes for **Preferences**, **Modules**, and then one per installed module,
-  alphabetically: **AI** (provider / model / key / OCR / triggers), **Fortunes** (content level /
-  sources / packs / smart toggle), **Companions**.
+- **Options** opens with **Preferences** and **Modules** pinned in that order, then everything else
+  sorted alphabetically. That tail mixes core panes and module panes together rather than listing modules
+  after core ones, so **Companions** (core) sits among them. On a full install it reads: **AI Brain**
+  (provider / model / key / OCR / triggers), **Blinking LED**, **Companion Studio**, **Companions**,
+  **Fortunes** (content level / sources / packs / smart toggle), **Remembrance**, **Reminders**.
 - **Options → Companions** gives each companion a **size** and, on a multi-monitor desktop, a **screen**. Leave the
   screen on *Any* and the companion spawns wherever; name a monitor and it stays there, and it **hides rather
   than moving** if a fullscreen app takes that screen over. The dropdown is hidden on a single monitor,
@@ -554,7 +562,7 @@ round-trip, a reaction to the companion being poked, and a self-test.
   embedded-resource loading, `WavAudio` for wrapping raw samples, and a headless `RecordingHost` so you
   can unit-test a module with no app running.
 
-Two capabilities worth knowing about if you are writing something that talks:
+Three capabilities worth knowing about if you are writing something that talks:
 
 - **Speak for one companion, not all of them.** Register with `RegisterCompanionPokeResponder` /
   `RegisterCompanionDropResponder` and the host tells you *which* companion the reaction belongs to, so you can call
@@ -566,6 +574,12 @@ Two capabilities worth knowing about if you are writing something that talks:
   `RegisterSpeechResponder` (declare `ModulePermissions.Voice`) offers you every line *before* its bubble
   is drawn, so a voice module can speak it and optionally suppress the bubble. Returning `false` from
   `PlaySound` means nothing will be heard — fall back to showing the bubble.
+- **Read the screen without a screenshot.** `CaptureScreenContext` (declare
+  `ModulePermissions.ScreenContext`) returns metadata, and host 1.1.0 added `ScreenContext.Windows` — every
+  ordinary window, frontmost first, with process name, bounds and monitor — plus
+  `ScreenContext.ForegroundWindowBounds` so you can capture the front *window* rather than the whole
+  monitor. Both need `MinHostVersion = "1.1.0"`. Window titles are personal data: never log them. See
+  [`docs/module-authoring.md`](docs/module-authoring.md#screen-reading).
 
 The ABI is **stable, not frozen**: it only ever gains members, never loses or redefines them. If you
 need something it cannot express, that is a gap worth filing rather than a wall.

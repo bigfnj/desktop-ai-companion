@@ -7,9 +7,21 @@
     A project template rots silently: it is not built by anything, so a rename in the ABI or ModuleKit
     leaves it broken and nobody finds out until someone tries to start a module. This scaffolds a throwaway
     module from templates\desktop-ai-companion-module into modules\, builds it, checks no placeholder token survived
-    substitution, and removes it again.
+    substitution, LOADS IT THROUGH THE REAL HOST, and removes it again.
 
     The template is installed and uninstalled around the run, so the machine is left as it was found.
+
+    BUILDS is not the same as WORKS, and the gap was real. Until 2026-09-11 the template defaulted
+    minHostVersion to 1.4.8 -- pre-rebase numbering, and therefore ABOVE the shipped host -- so every
+    scaffolded module built perfectly and was then refused by ModuleHost at load, breaking the Readme's own
+    module quick-start. This script passed throughout, because it asserted substitution and compilation and
+    never asked the host for an opinion. It now does both: the version defaults are checked against
+    ProductVersion.props, and the built module is run through the host's real loader via
+    --module-selftest, which enforces MinHostVersion before Init.
+
+    Requires a built host (build.ps1 -Release), because the loader check needs the real exe. It fails
+    rather than skipping when that is absent: a skip here is indistinguishable from a pass, which is the
+    class of hole this script exists to close.
 
 .EXAMPLE
     .\packaging\Test-ModuleTemplate.ps1
@@ -37,6 +49,47 @@ function Remove-Sample {
 }
 
 if (-not (Test-Path -LiteralPath $templateDir)) { throw "The template is missing: $templateDir" }
+
+# ---- the template's version defaults must name a host that EXISTS ----
+# Checked before scaffolding, because a bad default here produces a module that compiles and is then
+# refused at load, and the compile is what this script used to measure. Both values are bounded by the
+# product version: MinHostVersion above it is refused by ModuleHost forever, and a packageVersion above it
+# names a NuGet package that was never released (they are attached to GitHub releases, not pushed to
+# nuget.org, so only a released version can be restored).
+$templateJson = Join-Path $templateDir '.template.config\template.json'
+if (-not (Test-Path -LiteralPath $templateJson)) { throw "The template config is missing: $templateJson" }
+$symbols = (Get-Content -LiteralPath $templateJson -Raw | ConvertFrom-Json).symbols
+
+[xml]$versionPropsXml = Get-Content -LiteralPath (Join-Path $repoRoot 'ProductVersion.props')
+$productVersion = ([string]$versionPropsXml.Project.PropertyGroup.DesktopAICompanionVersion).Trim()
+if ([string]::IsNullOrWhiteSpace($productVersion)) {
+    throw 'Could not read <DesktopAICompanionVersion> from ProductVersion.props.'
+}
+$productParsed = [version]$productVersion
+
+foreach ($symbolName in 'minHostVersion', 'packageVersion') {
+    $declared = [string]$symbols.$symbolName.defaultValue
+    $parsed = $null
+    if (-not [version]::TryParse($declared, [ref]$parsed)) {
+        throw "template.json's $symbolName default '$declared' is not a version."
+    }
+    if ($parsed -gt $productParsed) {
+        throw ("template.json's $symbolName default is '$declared', which is NEWER than the shipped host " +
+               "'$productVersion'. A scaffolded module would build and then be refused at load " +
+               "(minHostVersion), or fail to restore against a package that was never released " +
+               "(packageVersion). Lower it to a version that exists.")
+    }
+    Write-Host ("OK   template $symbolName default '$declared' is not above the host '$productVersion'")
+}
+
+# The loader check below needs the real host. Fail loudly rather than skipping: this script's whole
+# history is of passing while the thing it guards was broken.
+$hostExe = Join-Path $repoRoot ("build\DesktopAICompanionPortable\bin\$Configuration\x64\DesktopAICompanion.exe")
+if (-not (Test-Path -LiteralPath $hostExe)) {
+    throw ("The host executable is missing, so the scaffolded module cannot be run through the real " +
+           "loader: $hostExe`nBuild it first (.\build.ps1 -Release). This check is not skippable -- a " +
+           "template that compiles but is refused at load is exactly the failure it exists to catch.")
+}
 
 $installed = $false
 try {
@@ -80,8 +133,29 @@ try {
         throw 'DesktopAICompanion.Contracts.dll shipped with the module; the reference must stay Private="false".'
     }
 
+    # ---- the host's real loader must ACCEPT it ----
+    # --module-selftest=<id> goes through ModuleHost.LoadFrom, so MinHostVersion is enforced (before Init),
+    # the ALC resolves Contracts from the default context, and the scaffolded SelfTest actually runs. This is
+    # the only assertion here that would have failed on the 1.4.8 default; everything above it passed.
+    Write-Host '=== load the scaffolded module through the real host' -ForegroundColor Cyan
+    $loaderLog = Join-Path $env:TEMP 'dp-template-module-selftest.log'
+    [System.IO.File]::Delete($loaderLog)
+    $loader = Start-Process -FilePath $hostExe -ArgumentList "--module-selftest=$sampleId" `
+        -Wait -PassThru -NoNewWindow -RedirectStandardOutput $loaderLog -RedirectStandardError "$loaderLog.err"
+    if ($loader.ExitCode -ne 0) {
+        foreach ($logPath in @($loaderLog, "$loaderLog.err")) {
+            if (Test-Path -LiteralPath $logPath) {
+                Get-Content -LiteralPath $logPath | Select-Object -Last 30 | ForEach-Object { Write-Host "        $_" }
+            }
+        }
+        throw ("The host refused or failed the scaffolded module (--module-selftest=$sampleId exited " +
+               "$($loader.ExitCode)). It compiled, so this is a LOAD-time rejection: check template.json's " +
+               "minHostVersion against ProductVersion.props, and the Private=`"false`" contract reference.")
+    }
+    Write-Host ("OK   the host loaded and self-tested the scaffolded module")
+
     Write-Host ''
-    Write-Host 'TEMPLATE OK (scaffolds, substitutes, builds, and packages correctly).' -ForegroundColor Green
+    Write-Host 'TEMPLATE OK (scaffolds, substitutes, builds, packages, and LOADS in the real host).' -ForegroundColor Green
 }
 finally {
     Remove-Sample

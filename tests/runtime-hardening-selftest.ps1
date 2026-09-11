@@ -995,4 +995,23 @@ foreach ($script in $ciScripts) {
         $(if ($unencoded.Count) { " -- $($unencoded[0].GetCommandName()) at line $($unencoded[0].Extent.StartLineNumber)" } else { '' }))
 }
 
+# ---- the two animations.xsd copies must stay byte-identical ----
+# BOTH are live, which is why neither can simply be deleted: src\Resources\animations.xsd is embedded by
+# three csproj files (it is what the running app validates against), and Resources\animations.xsd is the
+# one the grimoire docs link as the authoritative schema. handoff.md has recorded that they must stay in
+# sync for a long time, and nothing asserted it -- so the failure mode was a companion the app rejects for
+# a rule the published schema does not contain, or the reverse, with the docs confidently wrong.
+# Hash the bytes rather than diffing text: a line-ending difference between the two would be a real drift
+# for an embedded resource, so it must not be normalized away by the comparison.
+$xsdPaths = @('Resources\animations.xsd', 'src\Resources\animations.xsd')
+$xsdHashes = @()
+foreach ($xsdRelative in $xsdPaths) {
+    $xsdFull = Join-Path $repoRoot $xsdRelative
+    Assert-True (Test-Path -LiteralPath $xsdFull) "$xsdRelative exists"
+    $xsdHashes += (Get-FileHash -LiteralPath $xsdFull -Algorithm SHA256).Hash
+}
+Assert-True ($xsdHashes[0] -eq $xsdHashes[1]) (
+    "the two animations.xsd copies are byte-identical (embedded $($xsdPaths[1]) vs documented $($xsdPaths[0]))" +
+    $(if ($xsdHashes[0] -ne $xsdHashes[1]) { " -- $($xsdHashes[0].Substring(0,12)) vs $($xsdHashes[1].Substring(0,12)); copy the one you edited over the other" } else { '' }))
+
 Write-Host 'PASS: runtime hardening source invariants.'

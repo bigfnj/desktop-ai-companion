@@ -86,8 +86,8 @@ Two module publishes happened AFTER the tag, and both are instructive:
   literal: the field, `Normalize`'s fallback, the cloud-to-local demotion, the engine constructor and the
   module's blank-model fallback all carried it, plus an assertion pinning the demotion result.
 
-**The smoke test has NOT been walked.** `docs/RELEASE-CHECKLIST.md` step 4 (SMOKETEST.md sections A-E on
-the built MSI) is still outstanding for 1.1.0. It matters more than usual this time: BUG-001's fix is
+**The smoke test has NOT been walked.** `docs/RELEASE-CHECKLIST.md`'s live-smoke step (SMOKETEST.md
+sections A-E on the built MSI) is still outstanding for 1.1.0. It matters more than usual this time: BUG-001's fix is
 covered by a self-test that proves the WIRING, but the end-to-end repro is "install the MSI, tick launch,
 confirm the tray icon appears", and only a real install exercises that.
 
@@ -1456,9 +1456,10 @@ The precise rebind detail is in the `project-desktoppet` memory note.
 
 - **Build:** `pwsh build.ps1 -Release [-Zip]` → base + all modules into `build\DesktopAICompanionPortable\bin\
   Release\x64\` (modules under `modules\<id>\`). `installer\build-installer.ps1 -Config Release` → MSI (WiX
-  5.0.2). Root `global.json` accepts any installed **.NET 10.x** SDK (`version 10.0.100` + `rollForward
-  latestMinor` — relaxed from the old exact 10.0.201 pin after that SDK was uninstalled here, leaving only
-  10.0.302; CI still sets up 10.0.201 via setup-dotnet, so it keeps using that).
+  5.0.2). Root `global.json` pins the SDK to **exactly 10.0.302** (`rollForward: disable`), and all three
+  CI jobs install that same version via setup-dotnet, so a local build and a CI build use one SDK. A
+  different patch fails fast rather than quietly building something untested. (This line previously
+  described a relaxed `10.0.100` + `rollForward latestMinor` pin, which no longer matches the file.)
 - **Self-tests:** the app takes `--*-selftest` flags (in-process, no external host), e.g.
   `--module-host-selftest`, `--fortunes-selftest`, `--fortunes-engine-selftest`, `--wpf-options-selftest`,
   `--security-selftest`, `--hardening-selftest`, `--fortunecache-selftest`, … (`--sound-selftest` was removed

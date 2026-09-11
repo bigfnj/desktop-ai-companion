@@ -5,8 +5,9 @@ Runtime architecture of the maintained WinForms product, grounded in the code un
 [03 — Companion XML Format](03-companion-xml-format.md). For user-facing AI-Edition behavior and current build
 commands, see the repository [`Readme.md`](../Readme.md).
 
-> **Reading note.** Line numbers drift as the file changes, so members are cited by name. The engine is
-> C# 7.3 targeting .NET Framework 4.8. The maintained build is Windows x64
+> **Reading note.** Line numbers drift as the file changes, so members are cited by name. The engine
+> targets `net10.0-windows` (it was C# 7.3 on .NET Framework 4.8 until the .NET 10 migration, and much
+> of the code still reads that way). The maintained build is Windows x64
 > (`src/DesktopAICompanion_Portable.csproj`); its assembly and executable are `DesktopAICompanion` / `DesktopAICompanion.exe`,
 > so Task Manager and process APIs identify the running process as **`DesktopAICompanion`**.
 

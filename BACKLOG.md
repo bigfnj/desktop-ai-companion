@@ -422,8 +422,8 @@ above. 3 assertions cover it.
 
 ### BUG-004 — the leak soak's verdict was a coin flip, and it is the only gate that can catch a leak
 
-**Found 2026-09-10 by running [`RELEASE-CHECKLIST`](docs/RELEASE-CHECKLIST.md) step 3 before the v1.1.0
-tag** — the first time either soak had been run since v1.0.0. `runtime-resource-soak.ps1` failed with
+**Found 2026-09-10 by running the [`RELEASE-CHECKLIST`](docs/RELEASE-CHECKLIST.md) leak-soak step before
+the v1.1.0 tag** — the first time either soak had been run since v1.0.0. `runtime-resource-soak.ps1` failed with
 `GDI object growth exceeded the bound: 81 > 16`, and USER was over too (+57).
 
 **Not a v1.1.0 regression, mechanically confirmed.** The churn path is

@@ -31,9 +31,9 @@
     "minHostVersion": {
       "type": "parameter",
       "datatype": "string",
-      "defaultValue": "1.4.8",
+      "defaultValue": "1.0.0",
       "replaces": "SAMPLE_MIN_HOST",
-      "description": "The oldest host this module runs on. Raise it only when you actually call a newer ABI member: a module declaring a version above the shipped host is refused forever."
+      "description": "The oldest host this module runs on. Leave it at 1.0.0 unless you actually call a newer ABI member: a module declaring a version above the shipped host is refused forever. (This defaulted to the pre-rebase 1.4.8 until 2026-09-11, which is ABOVE the current host, so every scaffolded module was refused at load.)"
     },
     "standalone": {
       "type": "parameter",
@@ -44,9 +44,9 @@
     "packageVersion": {
       "type": "parameter",
       "datatype": "string",
-      "defaultValue": "1.4.8",
+      "defaultValue": "1.1.3",
       "replaces": "SAMPLE_PKG_VERSION",
-      "description": "The DesktopAICompanion.Contracts / DesktopAICompanion.ModuleKit NuGet version to reference (standalone only). Normally the host version you are targeting."
+      "description": "The DesktopAICompanion.Contracts / DesktopAICompanion.ModuleKit NuGet version to reference (standalone only). Must be a version that was actually RELEASED, because the packages are attached to GitHub releases rather than pushed to nuget.org. (This defaulted to 1.4.8 until 2026-09-11, a version never published, so --standalone could not restore at all.)"
     }
   },
   "sources": [

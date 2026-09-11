@@ -192,11 +192,49 @@ foreach ($m in (Get-Content -LiteralPath $modulesJson -Raw | ConvertFrom-Json).m
 # the file ModuleUpdateScan compares against to decide whether to offer an update.
 $catalogVersions = @{}
 $catalogPath = Join-Path $RepoRoot 'catalog.json'
+$catalogAppVersion = $null
 if (Test-Path -LiteralPath $catalogPath) {
-    foreach ($m in (Get-Content -LiteralPath $catalogPath -Raw | ConvertFrom-Json).modules) {
+    $catalogObject = Get-Content -LiteralPath $catalogPath -Raw | ConvertFrom-Json
+    foreach ($m in $catalogObject.modules) {
         $catalogVersions[[string]$m.id] = [string]$m.version
     }
+    if ($catalogObject.PSObject.Properties['app'] -and $catalogObject.app.PSObject.Properties['version']) {
+        $catalogAppVersion = [string]$catalogObject.app.version
+    }
 }
+
+# ---- catalog.json's app.version must equal ProductVersion.props ----
+# This is the version the LAUNCH UPDATE CHECK compares against. AppUpdateCheck reads it from the catalog
+# on master rather than the GitHub releases API (deliberately -- see the class comment there), so a stale
+# app.version does not degrade the check, it SILENTLY INVERTS it: every user is told they are current.
+#
+# It rots because nothing in a host release touches the catalog. release.yml never regenerates it, and
+# New-ContentCatalog.ps1 runs only as part of a MODULE publish, so a run of host releases with no module
+# publish between them leaves the number behind. That happened for real: the catalog was last generated
+# while ProductVersion.props said 1.1.0, then v1.1.1, v1.1.2 and v1.1.3 shipped -- three releases, the
+# last of which fixed the tray icon -- and no user on 1.1.0 was ever offered any of them.
+#
+# New-ContentCatalog.ps1 already refuses to write a BLANK app.version for this reason. A blank one
+# disables the check; a stale one is worse, because the check still runs and still answers "no".
+$productVersionProps = Join-Path $RepoRoot 'ProductVersion.props'
+[xml]$versionPropsXml = Get-Content -LiteralPath $productVersionProps
+$productVersion = ([string]$versionPropsXml.Project.PropertyGroup.DesktopAICompanionVersion).Trim()
+if ([string]::IsNullOrWhiteSpace($productVersion)) {
+    throw "Could not read <DesktopAICompanionVersion> from $productVersionProps."
+}
+if ($null -eq $catalogAppVersion) {
+    throw ("catalog.json has no app.version. The launch update check reads the latest version from there, " +
+           "so without it the app can never tell a user an update exists. Regenerate it: " +
+           "packaging\New-ContentCatalog.ps1")
+}
+if ($catalogAppVersion -ne $productVersion) {
+    throw ("catalog.json app.version is '$catalogAppVersion' but ProductVersion.props says " +
+           "'$productVersion'. The launch update check compares the catalog against the running build, so " +
+           "while these disagree every user at or above '$catalogAppVersion' is told they are up to date. " +
+           "Regenerate the catalog (packaging\New-ContentCatalog.ps1) and commit it -- merging to master " +
+           "is what publishes it.")
+}
+Write-Host "OK   app -- catalog.json app.version $catalogAppVersion agrees with ProductVersion.props"
 
 $stale = @()
 $mismatched = @()

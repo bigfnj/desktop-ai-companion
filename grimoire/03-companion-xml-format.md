@@ -1,8 +1,9 @@
 # 03 — The Companion XML Format (`animations.xml`)
 
-**This is the reference document for authoring pets.** Every desktopPet pet is a single
+**This is the reference document for authoring companions.** Every companion is a single
 `animations.xml` file that embeds its own sprite sheet, icon, and sounds (as base64) and describes its
-behaviour as a state machine. The same format is used by the WinForms engine *and* the browser port
+behaviour as a state machine. (The format is inherited from desktopPet, which is why the namespace and
+much of the vocabulary below still say "pet"; the file and the schema are unchanged.) The same format is used by the WinForms engine *and* the browser port
 [`web-esheep`](04-upstream-forks-ecosystem.md), so a well-formed companion is portable between them.
 
 - **Schema:** [`Resources/animations.xsd`](../Resources/animations.xsd) (target namespace
