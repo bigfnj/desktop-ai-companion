@@ -117,6 +117,13 @@ want it:
 - **Reads the screen with no extra install.** Windows' own OCR does the work out of the box; the
   module only falls back to **Tesseract** if you have it, and **Options → AI Brain → Choose OCR engine…**
   lets you pick. **Test OCR** confirms which one answered.
+- **Audition a Disposition before you live with it.** A name tells you nothing about a voice, so the
+  **Persona** card has two buttons. **Show me 5 examples** runs five made-up screens (a code editor, a
+  video, an empty desktop, a spreadsheet, late-night browsing) so the persona is the only thing that
+  varies. **5 about my screen** is the honest version: it reads what you actually have open, once, and
+  gives you five different things the companion could say about it. Each sample is told what the
+  previous ones said, so you get five angles rather than the same line five times. Both name the model
+  that answered, and say so when your configured model was missing and another was substituted.
 
 #### Recommended local models
 

@@ -200,6 +200,167 @@ namespace DesktopAICompanion.AiBrainModule
                     reachable.LastModel == "gemma3:4b");
             }
 
+            // --- anti-repetition: what it already said is fed back into the next prompt ---
+            // This is the mechanism the whole live-screen audition rests on. The system prompt says "Do
+            // not repeat anything you have said recently", and that sentence is INERT on its own: each
+            // sample is an independent single-turn request, so without this the model cannot know what
+            // the other four said and five asks about one unchanging screen come back near-identical.
+            var recorder = new MessageRecordingBackend();
+            using (var brain = new AiBrain(recorder, settings))
+            {
+                DispositionAudition audition = brain.SampleDispositionAsync(
+                    "pirate", TimeSpan.FromSeconds(5), CancellationToken.None).GetAwaiter().GetResult();
+                ok &= Check(
+                    sb,
+                    "every audition sample produced a remark",
+                    audition.Samples.Count == DispositionScenes.All.Length && audition.Samples[0].Ok);
+                ok &= Check(
+                    sb,
+                    "the FIRST audition prompt carries no already-said list",
+                    recorder.UserContent.Count > 0 &&
+                    recorder.UserContent[0].IndexOf("ALREADY said", StringComparison.Ordinal) < 0);
+                ok &= Check(
+                    sb,
+                    "the SECOND audition prompt is told what the first one said",
+                    recorder.UserContent.Count > 1 &&
+                    recorder.UserContent[1].IndexOf("ALREADY said", StringComparison.Ordinal) >= 0 &&
+                    recorder.UserContent[1].IndexOf("REMARK-NUMBER-1", StringComparison.Ordinal) >= 0);
+                // Bounded, or a long audition would spend more prefill on its own transcript than on the
+                // screen it is supposed to be reacting to.
+                bool boundedRecall = true;
+                if (recorder.UserContent.Count >= 5)
+                {
+                    string last = recorder.UserContent[recorder.UserContent.Count - 1];
+                    // Five samples, recall of four: by the last prompt the very first remark has aged out.
+                    if (last.IndexOf("REMARK-NUMBER-1\"", StringComparison.Ordinal) >= 0) boundedRecall = false;
+                    if (last.IndexOf("REMARK-NUMBER-4", StringComparison.Ordinal) < 0) boundedRecall = false;
+                }
+                ok &= Check(sb, "the already-said list is bounded, not a growing transcript", boundedRecall);
+                ok &= Check(
+                    sb,
+                    "a canned-scene audition sends no image",
+                    !recorder.SawImage);
+            }
+
+            // --- the repeat JUDGEMENT, which is what stops a day in one editor sounding identical ---
+            // Byte equality would be useless here: a model asked twice about an unchanging screen
+            // rephrases rather than repeating, which reads as a repeat to a human and passes a string
+            // compare. These pin both directions, because a too-eager matcher is worse than the bug it
+            // fixes (it costs a second inference and can leave the companion quiet about a screen it
+            // legitimately has more to say about).
+            var spoken = new List<string>
+            {
+                "Well now, that VS Code window looks like a mighty fine bit of thinking.",
+            };
+            ok &= Check(
+                sb,
+                "an identical remark is caught",
+                AiBrain.IsRepeatOf("Well now, that VS Code window looks like a mighty fine bit of thinking.", spoken));
+            ok &= Check(
+                sb,
+                "punctuation and casing alone do not make a remark new",
+                AiBrain.IsRepeatOf("WELL NOW that VS CODE window looks like a mighty fine bit of thinking!!!", spoken));
+            ok &= Check(
+                sb,
+                "a reworded near-duplicate is caught, which byte equality would miss",
+                AiBrain.IsRepeatOf("Well now, that VS Code window sure looks like a mighty fine bit of thinking.", spoken));
+            ok &= Check(
+                sb,
+                "a genuinely different remark about the same screen is NOT suppressed",
+                !AiBrain.IsRepeatOf("Your terminal is awfully quiet today, friend.", spoken));
+            ok &= Check(
+                sb,
+                "a short quip is judged on exact match only, not on word overlap",
+                !AiBrain.IsRepeatOf("Mighty fine thinking", new List<string> { "Fine thinking, mighty" }));
+            ok &= Check(
+                sb,
+                "nothing said yet is never a repeat",
+                !AiBrain.IsRepeatOf("anything at all", new List<string>()));
+            ok &= Check(
+                sb,
+                "an empty candidate is not a repeat",
+                !AiBrain.IsRepeatOf("", spoken) && !AiBrain.IsRepeatOf(null, spoken));
+
+            // --- the LIVE product's repeat guard, across separate asks ---
+            // The audition proves the mechanism within one run; this proves it across asks, which is the
+            // case that actually matters: a day in one editor is one unchanging screen description, and
+            // the memory has to span calls rather than runs. Driven through GenerateWithRepeatGuardAsync
+            // rather than AskAboutScreenAsync precisely so it needs no desktop, no capture and no OCR.
+            var asker = new MessageRecordingBackend();
+            using (var brain = new AiBrain(asker, settings))
+            {
+                const string SameScreen = "The active window is: AiBrain.cs - Visual Studio Code\n";
+                BrainResponse first = brain.GenerateWithRepeatGuardAsync(
+                    "probe-model", SameScreen, null, CancellationToken.None).GetAwaiter().GetResult();
+                BrainResponse second = brain.GenerateWithRepeatGuardAsync(
+                    "probe-model", SameScreen, null, CancellationToken.None).GetAwaiter().GetResult();
+
+                ok &= Check(sb, "a live ask returns a remark", first != null && second != null);
+                ok &= Check(
+                    sb,
+                    "the FIRST live ask is told nothing, having said nothing",
+                    asker.UserContent.Count > 0 &&
+                    asker.UserContent[0].IndexOf("ALREADY said", StringComparison.Ordinal) < 0);
+                // The point of the whole exercise: ask number two knows what ask number one said, even
+                // though they are separate calls minutes apart in real use.
+                ok &= Check(
+                    sb,
+                    "the SECOND live ask is told what the first one said, across calls",
+                    asker.UserContent.Count > 1 &&
+                    asker.UserContent[1].IndexOf("REMARK-NUMBER-1", StringComparison.Ordinal) >= 0);
+                ok &= Check(
+                    sb,
+                    "an unchanging screen still reaches the model unchanged",
+                    asker.UserContent.Count > 1 &&
+                    asker.UserContent[1].IndexOf(SameScreen, StringComparison.Ordinal) >= 0);
+            }
+
+            // A backend that answers the SAME thing every time must trigger exactly one retry, and then
+            // be spoken anyway rather than leaving the companion silent.
+            var parrot = new FixedReplyBackend("{\"text\":\"That editor looks like a mighty fine bit of thinking, friend.\",\"emotion\":\"happy\"}");
+            using (var brain = new AiBrain(parrot, settings))
+            {
+                BrainResponse first = brain.GenerateWithRepeatGuardAsync(
+                    "probe-model", "screen\n", null, CancellationToken.None).GetAwaiter().GetResult();
+                int callsAfterFirst = parrot.ChatCalls;
+                BrainResponse second = brain.GenerateWithRepeatGuardAsync(
+                    "probe-model", "screen\n", null, CancellationToken.None).GetAwaiter().GetResult();
+
+                ok &= Check(sb, "the first ask costs one request", callsAfterFirst == 1);
+                ok &= Check(
+                    sb,
+                    "a repeated reply is retried exactly once, not looped",
+                    parrot.ChatCalls == 3);
+                ok &= Check(
+                    sb,
+                    "a companion that can only repeat itself still speaks rather than going silent",
+                    second != null && !string.IsNullOrWhiteSpace(second.Text));
+                ok &= Check(
+                    sb,
+                    "the retry was told about the reply it is meant to beat",
+                    parrot.LastUserContent.IndexOf("mighty fine bit of thinking", StringComparison.Ordinal) >= 0);
+            }
+
+            // --- a live audition with no screen context falls back to nothing, it does not invent one ---
+            // Guards the module-side refusal: passing a null ScreenContext must take the CANNED path
+            // rather than capturing something arbitrary, so the two buttons can never answer each other's
+            // question.
+            var liveRecorder = new MessageRecordingBackend();
+            using (var brain = new AiBrain(liveRecorder, settings))
+            {
+                brain.SampleDispositionAsync("pirate", null, null, TimeSpan.FromSeconds(5), CancellationToken.None)
+                    .GetAwaiter().GetResult();
+                bool everyPromptIsAScene = liveRecorder.UserContent.Count == DispositionScenes.All.Length;
+                for (int i = 0; i < liveRecorder.UserContent.Count && everyPromptIsAScene; i++)
+                    if (liveRecorder.UserContent[i].IndexOf(
+                            DispositionScenes.All[i].Context, StringComparison.Ordinal) < 0)
+                        everyPromptIsAScene = false;
+                ok &= Check(
+                    sb,
+                    "a null live context takes the canned path, scene for scene",
+                    everyPromptIsAScene);
+            }
+
             return ok;
         }
 

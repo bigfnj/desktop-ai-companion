@@ -64,7 +64,15 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.1.3",   // 1.1.3: a failed AI turn now says WHICH failure it was (backend
+            Version = "1.1.4",   // 1.1.4: the persona audition can run against the REAL screen ("5 about
+                                 //        my screen"), which is the more honest test. Needed a real
+                                 //        anti-repetition mechanism first: the prompt's "do not repeat
+                                 //        anything you have said recently" was INERT, because each
+                                 //        sample is an independent single-turn request and nothing told
+                                 //        the model what it had already said. Five asks about one
+                                 //        unchanging screen came back near-identical; now each prompt
+                                 //        carries the previous remarks, bounded to the last four.
+                                 // 1.1.3: a failed AI turn now says WHICH failure it was (backend
                                  //        availability transitions, request latency/attempts/parse
                                  //        outcome, and the OCR engine plus every silent `return ""` in
                                  //        the tesseract path), and the Persona card gained "Show me 5
@@ -274,7 +282,13 @@ namespace DesktopAICompanion.AiBrainModule
                 Save = SavePaneValues,
                 Actions = new[]
                 {
+                    // Two actions rather than one action plus a mode switch, and deliberately. A saved
+                    // "which screen" setting would have to be APPLIED before the button could see it
+                    // (PaneAction.InvokeAsync takes no arguments), so ticking a box and pressing the
+                    // button would audition the OTHER source and look broken. Pressing one of two
+                    // buttons is inherently exclusive and needs no Apply.
                     new PaneAction { Label = "Show me 5 examples", InvokeAsync = PreviewDispositionAsync, Group = "Persona" },
+                    new PaneAction { Label = "5 about my screen", InvokeAsync = PreviewDispositionLiveAsync, Group = "Persona" },
                     new PaneAction { Label = "Refresh local models", InvokeAsync = RefreshLocalModelsAsync, Group = "Local provider", ReloadPaneAfter = true },
                     new PaneAction { Label = "Test connection", InvokeAsync = TestConnectionAsync, Group = "Cloud provider" },
                     new PaneAction { Label = "Refresh cloud models", InvokeAsync = RefreshCloudModelsAsync, Group = "Cloud provider", ReloadPaneAfter = true },
@@ -308,13 +322,51 @@ namespace DesktopAICompanion.AiBrainModule
         /// Fortunes preview, whose own comment records the same rule for the same reason. Lifting it
         /// needs an additive ABI member; filed in BACKLOG rather than worked around here.
         /// </summary>
-        private async Task<string> PreviewDispositionAsync()
+        private Task<string> PreviewDispositionAsync()
+        {
+            return PreviewDispositionAsync(false);
+        }
+
+        /// <summary>
+        /// "5 about my screen": the same audition, but against the REAL screen instead of canned scenes.
+        ///
+        /// The more honest of the two, and the maintainer's point when asking for it: it is literally
+        /// what the companion would say about what you are doing, carrying every quirk a real turn has
+        /// (the capture clamped to the COMPANION's monitor, the OCR engine that is actually installed,
+        /// the vision downscale). Needs a companion on screen, because ScreenContext is anchored to one
+        /// and MonitorBounds means "the monitor the companion is on".
+        /// </summary>
+        private Task<string> PreviewDispositionLiveAsync()
+        {
+            return PreviewDispositionAsync(true);
+        }
+
+        private async Task<string> PreviewDispositionAsync(bool live)
         {
             AiSettings s = _settings;
             if (s == null) return "✗ No settings.";
             if (_auditionRunning) return "⏳ Already generating examples — give it a moment.";
 
             string dispositionName = DispositionNameForId(s.Disposition);
+
+            // A live audition reads the screen through a companion handle, so one has to be out. Said
+            // plainly rather than falling back to canned scenes, which would silently answer a different
+            // question than the one the button asks.
+            ScreenContext liveContext = null;
+            string petZone = null;
+            if (live)
+            {
+                IHost host = _host;
+                ICompanion pet = _lastPet;
+                if (host == null) return "✗ No host.";
+                if (pet == null || !host.IsCompanionAlive(pet))
+                    return "✗ No companion on screen to look through — add one from the tray, then try again.";
+                try { liveContext = host.CaptureScreenContext(pet); }
+                catch (Exception ex) { return "✗ Couldn't read the screen: " + ex.Message; }
+                if (liveContext == null)
+                    return "✗ Couldn't read the screen (the companion went away).";
+                petZone = liveContext.WindowUnderCompanion;
+            }
 
             // A cloud provider means five billable requests per press, and the persona is exactly the
             // thing a user presses repeatedly while comparing. CreateBrain already refuses a non-local
@@ -353,9 +405,10 @@ namespace DesktopAICompanion.AiBrainModule
                         return "✗ Not reachable at " + normalized + " — start the provider and try again.";
 
                     DispositionAudition audition =
-                        await brain.SampleDispositionAsync(s.Disposition, perSample, run.Token)
+                        await brain.SampleDispositionAsync(
+                            s.Disposition, liveContext, petZone, perSample, run.Token)
                             .ConfigureAwait(false);
-                    return FormatAudition(dispositionName, audition, cloud);
+                    return FormatAudition(dispositionName, audition, cloud, live);
                 }
             }
             catch (OperationCanceledException)
@@ -372,7 +425,7 @@ namespace DesktopAICompanion.AiBrainModule
         /// reports failures per sample rather than collapsing the run into one error.
         /// </summary>
         private static string FormatAudition(
-            string dispositionName, DispositionAudition audition, bool cloud)
+            string dispositionName, DispositionAudition audition, bool cloud, bool live)
         {
             IReadOnlyList<DispositionSample> samples = audition == null ? null : audition.Samples;
             if (samples == null || samples.Count == 0)
@@ -381,6 +434,7 @@ namespace DesktopAICompanion.AiBrainModule
             var sb = new StringBuilder();
             sb.Append(dispositionName).Append(" — as currently saved");
             if (!string.IsNullOrEmpty(audition.ModelUsed)) sb.Append(" · ").Append(audition.ModelUsed);
+            sb.Append(live ? " · your real screen" : " · made-up scenes");
             if (cloud) sb.Append(" · ").Append(samples.Count).Append(" cloud requests");
             sb.Append("\nChange the dropdown and hit Apply to audition a different one.");
             // A substituted model has to be said out loud here. ChooseModel swaps in whatever is
@@ -390,18 +444,23 @@ namespace DesktopAICompanion.AiBrainModule
                 sb.Append("\n⚠ ").Append(audition.Advisory);
 
             int ok = 0;
+            int index = 0;
             foreach (DispositionSample sample in samples)
             {
+                index++;
                 sb.Append("\n\n");
+                // Canned mode labels each remark with the scene that produced it, because the scene is
+                // what varies. Live mode asks about ONE screen, so the label would be the same five
+                // times; numbering is what carries information there.
+                sb.Append("• [").Append(live ? index.ToString(CultureInfo.InvariantCulture) : sample.SceneLabel).Append("] ");
                 if (sample.Ok)
                 {
                     ok++;
-                    sb.Append("• [").Append(sample.SceneLabel).Append("] ")
-                      .Append(Ellipsize(sample.Text, 220));
+                    sb.Append(Ellipsize(sample.Text, 220));
                 }
                 else
                 {
-                    sb.Append("• [").Append(sample.SceneLabel).Append("] ✗ ").Append(sample.Error);
+                    sb.Append("✗ ").Append(sample.Error);
                 }
             }
             if (ok == 0)

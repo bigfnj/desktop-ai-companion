@@ -696,11 +696,12 @@ by its name.
 >    unapplied field value. The item's fear was that previewing the old persona "would look broken", and
 >    the fix for that is naming the persona in the header plus "Change the dropdown and hit Apply to
 >    audition a different one". Lifting it properly needs an additive ABI member; filed below.
-> 3. **No screen.** Five canned scenes in `DispositionScenes` (code editor, video, empty desktop,
->    spreadsheet, late-night browsing), phrased exactly as `AskAboutScreenAsync` phrases its context so
->    the persona is graded by the real prompt. Confirmed in the live run: the five remarks are about five
->    different things, which a live capture cannot deliver. It also drops the audition's dependence on
->    capture, OCR and vision entirely, so a persona can be auditioned on a box with no Tesseract.
+> 3. **No screen — REVISITED 2026-09-11, and the item's advice here was half wrong.** Canned scenes
+>    shipped as `DispositionScenes`, phrased exactly as `AskAboutScreenAsync` phrases its context. But
+>    the maintainer pushed back that a live screen is the more honest test, and they were right, so
+>    there are now TWO buttons. See "Auditioning against the real screen" below for why the item's
+>    reasoning ("five near-identical remarks about the same window") was correct about the symptom and
+>    wrong about it being unavoidable.
 > 4. **Cloud spend.** The existing `CloudDataConsent` gate is inherited via `CreateBrain` rather than
 >    reimplemented, and the refusal now states the cost ("sends 5 requests to your provider"); a
 >    consented run prints "5 cloud requests" in the header.
@@ -710,6 +711,38 @@ by its name.
 >    carries `ModelUsed` and the substitution advisory out to the pane, not just to the log. A probe
 >    assertion pins it; the first version of that assertion expected a refusal and failed, which is how
 >    this was found.
+
+### Auditioning against the real screen (added 2026-09-11, at the maintainer's request)
+
+**"5 about my screen"** reads what is actually on screen, once, and asks for five remarks about it. It
+is the honest test, because it carries every quirk a real turn has: the capture clamped to the
+COMPANION's monitor, the OCR engine that is genuinely installed, the vision downscale. It needs a
+companion on screen and says so plainly when there is none, rather than falling back to canned scenes
+and answering a different question than the button asked.
+
+**It could not have worked without fixing "don't repeat yourself" first, and that is the real finding.**
+The system prompt has always said "Do not repeat anything you have said recently". That sentence was
+**INERT**: it was the only occurrence of the idea anywhere in the engine, no recent-remarks list was
+ever sent, and each sample is an independent single-turn request. The model therefore had no way to
+know what the other four samples said, so five asks about one unchanging screen would have come back
+near-identical — exactly what the original item predicted, but for a fixable reason rather than an
+inherent one.
+
+`DescribeAlreadySaid` now appends the previous remarks to each prompt, bounded to the last four and
+trimmed per remark (a growing verbatim transcript would eventually cost more prefill than the remark it
+is trying to vary). Applied to both modes.
+
+Measured on a live `gemma3:4b`, reading the AI Brain options pane itself: one capture
+(`rect=1036x813 subject=window uniform=64%`), one OCR pass (`engine=tesseract chars=1216`), five
+generations at 5498/3803/419/380/385 ms, and **five distinct remarks** each latching onto a different
+detail of the same screen (the module name, the backend row, the model name, the endpoint). The OCR's
+own errors show through as well (`Albrain`, `gemma3db Ba`), which is real information about what the
+companion actually perceives rather than a defect in the audition.
+
+Two buttons rather than one button plus a mode switch, and that is forced rather than chosen: a saved
+"which screen" setting would have to be APPLIED before the button could read it, so ticking a box and
+pressing the button would audition the *other* source. See the open ABI item below; mutually exclusive
+radio "bubbles" would additionally need a `SettingKind` that does not exist.
 
 ### Found by the live run, and NOT fixed: runaway emoji in a real remark
 

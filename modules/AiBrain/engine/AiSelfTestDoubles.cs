@@ -346,6 +346,81 @@ namespace DesktopAICompanion.AiBrainModule
     }
 
     /// <summary>
+    /// Answers the SAME thing every time, whatever it is asked.
+    ///
+    /// Stands in for the failure the repeat guard exists for: a model that has decided what it thinks
+    /// about a screen and will say it again however firmly the prompt asks for something new. Proves the
+    /// guard retries once, stops, and still lets the companion speak rather than going silent.
+    /// </summary>
+    internal sealed class FixedReplyBackend : ICompanionBrainBackend
+    {
+        private readonly string _reply;
+        public FixedReplyBackend(string reply) { _reply = reply; }
+        public int ChatCalls { get; private set; }
+        /// <summary>The user turn of the most recent request, for asserting what the retry was told.</summary>
+        public string LastUserContent { get; private set; }
+
+        public Task<string> ChatAsync(string model, IList<ChatMessage> messages, bool jsonFormat, CancellationToken ct)
+        {
+            ChatCalls++;
+            LastUserContent = "";
+            if (messages != null)
+                foreach (ChatMessage m in messages)
+                    if (m != null && m.Role == "user") LastUserContent = m.Content ?? "";
+            return Task.FromResult(_reply);
+        }
+
+        public Task<bool> IsAvailableAsync(CancellationToken ct) { return Task.FromResult(true); }
+        public Task<bool> EnsureServerAsync(CancellationToken ct) { return Task.FromResult(true); }
+        public Task WarmUpAsync(string model, CancellationToken ct) { return Task.CompletedTask; }
+        public Task UnloadAsync(string model, CancellationToken ct) { return Task.CompletedTask; }
+        public void Dispose() { }
+    }
+
+    /// <summary>
+    /// Records the USER content of every chat it is asked for, and answers with a distinct remark each
+    /// time.
+    ///
+    /// Exists for the audition's anti-repetition check. RecordingBackend keeps the model and a call
+    /// count, which cannot show whether the previous remarks were fed back into the next prompt -- and
+    /// that is the whole mechanism, because the system prompt's "do not repeat anything you have said
+    /// recently" is inert unless something in the context says what was said.
+    /// </summary>
+    internal sealed class MessageRecordingBackend : ICompanionBrainBackend
+    {
+        private readonly List<string> _userContent = new List<string>();
+        public int ChatCalls { get; private set; }
+        /// <summary>The user turn of each request, in order.</summary>
+        public IReadOnlyList<string> UserContent { get { return _userContent; } }
+        /// <summary>True when a request carried at least one image.</summary>
+        public bool SawImage { get; private set; }
+
+        public Task<string> ChatAsync(string model, IList<ChatMessage> messages, bool jsonFormat, CancellationToken ct)
+        {
+            ChatCalls++;
+            string user = "";
+            if (messages != null)
+                foreach (ChatMessage m in messages)
+                {
+                    if (m == null) continue;
+                    if (m.ImagesBase64 != null && m.ImagesBase64.Length > 0) SawImage = true;
+                    if (m.Role == "user") user = m.Content ?? "";
+                }
+            _userContent.Add(user);
+            // A distinct, recognisable remark per call, so a later prompt containing an earlier one is
+            // unambiguous rather than a coincidence of shared wording.
+            return Task.FromResult(
+                "{\"text\":\"REMARK-NUMBER-" + ChatCalls + "\",\"emotion\":\"neutral\"}");
+        }
+
+        public Task<bool> IsAvailableAsync(CancellationToken ct) { return Task.FromResult(true); }
+        public Task<bool> EnsureServerAsync(CancellationToken ct) { return Task.FromResult(true); }
+        public Task WarmUpAsync(string model, CancellationToken ct) { return Task.CompletedTask; }
+        public Task UnloadAsync(string model, CancellationToken ct) { return Task.CompletedTask; }
+        public void Dispose() { }
+    }
+
+    /// <summary>
     /// Honours the cancellation token: throws <see cref="OperationCanceledException"/> from the chat.
     ///
     /// Needed because <see cref="CancellationIgnoringBackend"/> deliberately does the opposite (it

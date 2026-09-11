@@ -72,6 +72,42 @@ namespace DesktopAICompanion.Ai
         private bool? _lastBackendUp;
 
         /// <summary>
+        /// What the companion has actually said recently, newest last, so it stops saying it again.
+        ///
+        /// THE PROBLEM THIS SOLVES IS THE NORMAL CASE, not an edge case. The system prompt has always
+        /// carried "Do not repeat anything you have said recently", and that sentence was INERT: every
+        /// ask is an independent single-turn request, so nothing in the model's context said what it had
+        /// said before. A user who spends the day in one editor gets one unchanging screen description
+        /// and therefore the same remark, over and over, which is the single most likely way this feature
+        /// becomes annoying enough to switch off.
+        ///
+        /// Mirrors <c>SmartFortunes._recent</c>, which solved exactly this for the fortune picker ("so a
+        /// stable foreground window rotates"). The mechanism has to differ because this GENERATES rather
+        /// than picking from a pool: a pool can be filtered, a model has to be told.
+        ///
+        /// Instance state, and the brain outlives an ask (<c>AiSessionManager</c> caches it), so the
+        /// memory spans a session. It resets when the brain is retired, which a settings change or an
+        /// enable/disable does. That is acceptable: a reset costs at most one repeated remark.
+        /// </summary>
+        private readonly Queue<string> _recentRemarks = new Queue<string>();
+
+        /// <summary>
+        /// How many remarks are remembered for DUPLICATE DETECTION. Larger than the prompt recall below,
+        /// because checking a candidate against memory is free while putting memory into the prompt is
+        /// not.
+        /// </summary>
+        private const int RecentRemarkMemory = 40;
+
+        /// <summary>
+        /// How many remarks are quoted back to the model. Bounded because this is prefill on every single
+        /// ask: at roughly 20-40 words a remark, eight is a few hundred tokens, which is negligible on a
+        /// local model and still small on a metered one. Raising it to the full memory would put the
+        /// transcript above the screen description in size, i.e. spend more on what NOT to say than on
+        /// what to react to.
+        /// </summary>
+        private const int RecentRemarkPromptRecall = 8;
+
+        /// <summary>
         /// Emit one diagnostic line. Never throws: a broken sink must not be able to take down an AI turn,
         /// which is the whole reason this layer swallows exceptions in the first place.
         /// </summary>
@@ -289,6 +325,28 @@ namespace DesktopAICompanion.Ai
         }
 
         /// <summary>
+        /// The screen described in words: the front window, the window the companion is standing on, and
+        /// what else is open. Extracted from AskAboutScreenAsync so the live persona audition builds its
+        /// context with the SAME code a real turn does rather than a copy of it, which is the kind of
+        /// duplication Companion Studio's parity self-test exists to stop.
+        /// </summary>
+        private static string DescribeScreenContext(ScreenContext captureContext, string petZone)
+        {
+            // Context: the front window (5.1) and the window the pet is standing on (5.6).
+            string win = captureContext != null ? captureContext.WindowTitle : "";
+            string ctx = "";
+            if (!string.IsNullOrWhiteSpace(win))     ctx += "The active window is: " + win + "\n";
+            if (!string.IsNullOrWhiteSpace(petZone)) ctx += "You are standing on the window: " + petZone.Trim() + "\n";
+            // What else is open, frontmost first (host 1.1.0). One bounded window enumeration, no
+            // inference, and often a better basis for a remark than the pixels: "Code in front, Outlook
+            // and a browser behind it" is legible where 6px text is not.
+            string others = DescribeOtherWindows(captureContext);
+            if (others.Length > 0) ctx += others;
+            if (ctx.Length > 0) ctx += "\n";
+            return ctx;
+        }
+
+        /// <summary>
         /// Audition a disposition: generate one remark per canned scene so a persona can be judged by its
         /// VOICE before it is saved.
         ///
@@ -310,34 +368,101 @@ namespace DesktopAICompanion.Ai
             TimeSpan perSampleTimeout,
             CancellationToken ct)
         {
+            return await SampleDispositionAsync(dispositionId, null, null, perSampleTimeout, ct)
+                .ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// As the canned-scene audition, but optionally against the REAL screen.
+        ///
+        /// Pass a <paramref name="liveContext"/> and the audition captures once, reads it once (OCR or
+        /// vision, exactly as a real turn would), and then asks for several remarks about that one
+        /// screen. That is the more honest test of the two: it is literally what the companion would say
+        /// about what you are doing, including the quirks a real turn has, such as the capture being
+        /// clamped to the COMPANION's monitor rather than the front window's.
+        ///
+        /// Captured ONCE and reused, not re-captured per sample. Re-capturing would let the screen change
+        /// underneath the run, which reintroduces a second variable into the one comparison the feature
+        /// exists to make.
+        /// </summary>
+        /// <param name="liveContext">The live screen, or null for the canned scenes.</param>
+        /// <param name="petZone">The window the companion is standing on, as a real turn reports it.</param>
+        internal async Task<DispositionAudition> SampleDispositionAsync(
+            string dispositionId,
+            ScreenContext liveContext,
+            string petZone,
+            TimeSpan perSampleTimeout,
+            CancellationToken ct)
+        {
             var samples = new List<DispositionSample>();
-            // The audition is a TEXT turn by construction (there is no image), so it is graded against the
-            // text model and never the vision one -- auditioning a persona on a 12B vision model would
+            bool live = liveContext != null;
+            // The audition is a TEXT turn unless a live screen is being read by a vision model, so it is
+            // normally graded against the text model -- auditioning a persona on a 12B vision model would
             // take minutes and measure the wrong thing.
-            ModelChoice choice = AiModelPolicy.ChooseModel(_textModel, _available, false);
+            bool useVisionPath = live && _useVision;
+            ModelChoice choice = AiModelPolicy.ChooseModel(
+                useVisionPath ? _visionModel : _textModel, _available, useVisionPath);
+            int sampleCount = DispositionScenes.All.Length;
             Log("persona audition: disposition=" + (dispositionId ?? "(saved)") +
-                " scenes=" + DispositionScenes.All.Length +
+                " source=" + (live ? (useVisionPath ? "live-vision" : "live-ocr") : "canned") +
+                " samples=" + sampleCount +
                 " model=" + (choice.Model ?? "(none)") + " resolve=" + choice.Reason);
             if (!choice.Usable)
             {
                 // BUG-002's shape, in the place the backlog predicted it would reappear. Reported once
                 // rather than five identical times. Rare on the text path (ChooseModel substitutes
                 // whenever the inventory holds anything usable) but reachable when the inventory is
-                // known and empty of candidates.
+                // known and empty of candidates, and reachable on the VISION path whenever nothing
+                // installed can see images.
                 samples.Add(new DispositionSample(
-                    "(not run)", null, choice.Advisory ?? "no usable text model", 0));
+                    "(not run)", null, choice.Advisory ?? "no usable model", 0));
                 return new DispositionAudition(samples, null, choice.Advisory);
             }
 
+            // Read the screen ONCE, before the loop, so five samples cost one capture and one OCR pass
+            // rather than five of each.
+            var scenes = new List<PreparedScene>();
+            if (live)
+            {
+                PreparedScene? prepared = null;
+                try
+                {
+                    prepared = await PrepareLiveSceneAsync(liveContext, petZone, useVisionPath, ct)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    samples.Add(new DispositionSample("(your screen)", null,
+                        "could not read the screen: " + DescribeError(ex), 0));
+                    return new DispositionAudition(samples, choice.Model, choice.Advisory);
+                }
+                for (int i = 0; i < sampleCount; i++) scenes.Add(prepared.Value);
+            }
+            else
+            {
+                foreach (DispositionScenes.Scene scene in DispositionScenes.All)
+                    scenes.Add(new PreparedScene(scene.Label, scene.Context, null));
+            }
+
             string system = BuildSystemPrompt(dispositionId);
-            foreach (DispositionScenes.Scene scene in DispositionScenes.All)
+            // What it has already said, so the prompt's "Do not repeat anything you have said recently"
+            // has something to refer to. Without this it is an INERT instruction: each sample is an
+            // independent single-turn request, so the model cannot know what the other four said, and
+            // five asks about one unchanging screen come back nearly identical. This is what makes a
+            // live-screen audition a real test rather than the same sentence five times.
+            var alreadySaid = new List<string>();
+
+            foreach (PreparedScene scene in scenes)
             {
                 ct.ThrowIfCancellationRequested();
                 Stopwatch clock = Stopwatch.StartNew();
                 var messages = new List<ChatMessage>
                 {
                     ChatMessage.System(system),
-                    ChatMessage.User(scene.Context + "\n" + DispositionScenes.Instruction, null),
+                    ChatMessage.User(
+                        scene.Context + "\n" + DispositionScenes.Instruction + DescribeAlreadySaid(alreadySaid),
+                        scene.ImageBase64 == null ? null : new[] { scene.ImageBase64 }),
                 };
                 using (var perSample = CancellationTokenSource.CreateLinkedTokenSource(ct))
                 {
@@ -347,11 +472,18 @@ namespace DesktopAICompanion.Ai
                         string raw = await ChatWithRetryForDiagnosticsAsync(
                             _backend, choice.Model, messages, perSample.Token).ConfigureAwait(false);
                         BrainResponse resp = Parse(raw);
-                        samples.Add(resp == null
-                            ? new DispositionSample(scene.Label, null,
+                        if (resp == null)
+                        {
+                            samples.Add(new DispositionSample(scene.Label, null,
                                 string.IsNullOrWhiteSpace(raw) ? "empty reply" : "unusable reply shape",
-                                clock.ElapsedMilliseconds)
-                            : new DispositionSample(scene.Label, resp.Text, null, clock.ElapsedMilliseconds));
+                                clock.ElapsedMilliseconds));
+                        }
+                        else
+                        {
+                            samples.Add(new DispositionSample(
+                                scene.Label, resp.Text, null, clock.ElapsedMilliseconds));
+                            alreadySaid.Add(resp.Text);
+                        }
                     }
                     catch (OperationCanceledException)
                     {
@@ -370,6 +502,172 @@ namespace DesktopAICompanion.Ai
                 }
             }
             return new DispositionAudition(samples, choice.Model, choice.Advisory);
+        }
+
+        /// <summary>The most recent remarks, oldest first, capped at what is worth putting in a prompt.</summary>
+        private List<string> RecentRemarksForPrompt()
+        {
+            var all = new List<string>(_recentRemarks);
+            int from = Math.Max(0, all.Count - RecentRemarkPromptRecall);
+            return all.GetRange(from, all.Count - from);
+        }
+
+        /// <summary>Record a spoken remark, evicting the oldest past <see cref="RecentRemarkMemory"/>.</summary>
+        private void RememberRemark(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return;
+            _recentRemarks.Enqueue(text);
+            while (_recentRemarks.Count > RecentRemarkMemory) _recentRemarks.Dequeue();
+        }
+
+        /// <summary>
+        /// Is this effectively something the companion already said?
+        ///
+        /// Deliberately not byte equality. A model asked twice about the same screen rarely repeats
+        /// itself exactly; it rephrases, which reads as a repeat to a human and passes a string compare.
+        /// So: normalised equality, or a word-set overlap at or above <see cref="RepeatOverlap"/>.
+        ///
+        /// The threshold is high on purpose. Suppressing too eagerly is worse than the bug, because the
+        /// remedy is a second inference and the failure mode is a companion that goes quiet about a
+        /// screen it legitimately has more to say about. Short remarks are exempted below the word floor
+        /// for the same reason: two four-word quips can share three words and mean different things.
+        /// </summary>
+        internal static bool IsRepeatOf(string candidate, IEnumerable<string> previous)
+        {
+            if (string.IsNullOrWhiteSpace(candidate) || previous == null) return false;
+            string normalized = NormalizeForRepeat(candidate);
+            if (normalized.Length == 0) return false;
+            string[] candidateWords = normalized.Split(' ');
+            foreach (string earlier in previous)
+            {
+                if (string.IsNullOrWhiteSpace(earlier)) continue;
+                string earlierNormalized = NormalizeForRepeat(earlier);
+                if (earlierNormalized.Length == 0) continue;
+                if (normalized == earlierNormalized) return true;
+                if (candidateWords.Length < RepeatWordFloor) continue;
+                if (WordOverlap(candidateWords, earlierNormalized.Split(' ')) >= RepeatOverlap) return true;
+            }
+            return false;
+        }
+
+        /// <summary>Fraction of the shorter remark's distinct words that the other also has.</summary>
+        private static double WordOverlap(string[] left, string[] right)
+        {
+            var a = new HashSet<string>(left);
+            var b = new HashSet<string>(right);
+            if (a.Count == 0 || b.Count == 0) return 0;
+            int shared = 0;
+            foreach (string word in a) if (b.Contains(word)) shared++;
+            return (double)shared / Math.Min(a.Count, b.Count);
+        }
+
+        /// <summary>Lowercase, punctuation stripped, whitespace collapsed, so rephrasing is comparable.</summary>
+        private static string NormalizeForRepeat(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return "";
+            var sb = new StringBuilder(value.Length);
+            bool pendingSpace = false;
+            foreach (char c in value)
+            {
+                if (char.IsLetterOrDigit(c))
+                {
+                    if (pendingSpace && sb.Length > 0) sb.Append(' ');
+                    pendingSpace = false;
+                    sb.Append(char.ToLowerInvariant(c));
+                }
+                else
+                {
+                    pendingSpace = true;
+                }
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>A copy of <paramref name="list"/> with one more entry, for a retry's avoid-list.</summary>
+        private static List<string> AppendedTo(IEnumerable<string> list, string extra)
+        {
+            var copy = new List<string>(list);
+            if (!string.IsNullOrWhiteSpace(extra)) copy.Add(extra);
+            return copy;
+        }
+
+        /// <summary>At or above this word-set overlap, two remarks count as the same remark.</summary>
+        private const double RepeatOverlap = 0.8;
+
+        /// <summary>Below this many words, overlap is too noisy to judge and only exact repeats count.</summary>
+        private const int RepeatWordFloor = 6;
+
+        /// <summary>One scene ready to send: a description, and a base64 PNG when the vision path is on.</summary>
+        private struct PreparedScene
+        {
+            public readonly string Label;
+            public readonly string Context;
+            public readonly string ImageBase64;
+            public PreparedScene(string label, string context, string imageBase64)
+            {
+                Label = label;
+                Context = context;
+                ImageBase64 = imageBase64;
+            }
+        }
+
+        /// <summary>
+        /// Capture and read the real screen once, for a live audition. Uses the SAME bounds choice, the
+        /// same capture, the same OCR and the same context wording a real turn uses, so what the audition
+        /// grades is the live behaviour rather than an approximation of it.
+        /// </summary>
+        private async Task<PreparedScene> PrepareLiveSceneAsync(
+            ScreenContext liveContext, string petZone, bool useVisionPath, CancellationToken ct)
+        {
+            PixelRect mb = liveContext.MonitorBounds;
+            Rectangle monitor = new Rectangle(mb.X, mb.Y, mb.Width, mb.Height);
+            Rectangle bounds = ChooseCaptureBounds(liveContext.ForegroundWindowBounds, monitor);
+            string ctx = DescribeScreenContext(liveContext, petZone);
+
+            using (Bitmap shot = CaptureScreen(bounds, useVisionPath ? VisionMaxWidth : OcrCaptureWidth))
+            {
+                Log("audition capture: rect=" + bounds.Width + "x" + bounds.Height +
+                    " subject=" + (bounds == monitor ? "monitor" : "window") +
+                    " uniform=" + UniformityPercent(shot) + "%");
+                if (useVisionPath)
+                {
+                    string b64 = ToBase64PngScaled(shot, VisionMaxWidth);
+                    return new PreparedScene(
+                        "your screen", ctx + "Look at my screen and react.", b64);
+                }
+                string ocr = await RunOcrAsync(shot, ct).ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(ocr)) ocr = "(the screen has no readable text)";
+                ocr = UnicodeTextProgress.TruncateAtCodePointBoundary(ocr, 1500);
+                return new PreparedScene(
+                    "your screen",
+                    ctx + "Here is the text currently visible on my screen:\n\n" + ocr,
+                    null);
+            }
+        }
+
+        /// <summary>
+        /// The "you already said this" clause. Empty for the first sample, so a single ask is unchanged.
+        ///
+        /// Bounded to the last few remarks and to a per-remark length: the point is to rule out repeats,
+        /// and a growing verbatim transcript would eventually cost more prefill than the remark it is
+        /// trying to vary. Trimmed rather than summarised, because a summary needs another inference.
+        /// </summary>
+        private static string DescribeAlreadySaid(IList<string> alreadySaid)
+        {
+            if (alreadySaid == null || alreadySaid.Count == 0) return "";
+            const int Remembered = 4;
+            const int PerRemark = 160;
+            var sb = new StringBuilder();
+            sb.Append("\n\nYou have ALREADY said the following about this. Say something clearly " +
+                      "different this time -- a different detail, a different angle:");
+            int from = Math.Max(0, alreadySaid.Count - Remembered);
+            for (int i = from; i < alreadySaid.Count; i++)
+            {
+                string said = (alreadySaid[i] ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
+                if (said.Length > PerRemark) said = said.Substring(0, PerRemark) + "…";
+                sb.Append("\n- ").Append(said);
+            }
+            return sb.ToString();
         }
 
         /// <summary>Coarse time-of-day label for the persona (backlog 5.2).</summary>
@@ -444,6 +742,78 @@ namespace DesktopAICompanion.Ai
                 NoteBackendAvailability(false, DescribeError(ex));
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Ask for one remark, having told the model what it already said, and refuse to accept the same
+        /// remark twice.
+        ///
+        /// This is the whole anti-repetition mechanism for the LIVE product, and it matters most in the
+        /// most ordinary case there is: a day spent in one editor is one unchanging screen description,
+        /// so without this the companion says the same thing every time it speaks. The system prompt has
+        /// always asked it not to; that request was inert, because each ask is an independent single-turn
+        /// request with no record of the others.
+        ///
+        /// Two mechanisms, because one is not enough. The prompt is TOLD the recent remarks (an
+        /// instruction a small model may ignore), and the answer is then CHECKED against memory (which it
+        /// cannot ignore). Exactly one retry on a repeat: a second inference to avoid boring the user is
+        /// worth paying for, a loop is not, and a companion that is slightly repetitive beats one that
+        /// goes quiet.
+        ///
+        /// Internal, and split out of AskAboutScreenAsync deliberately: in there it could only be tested
+        /// with a real desktop, a real capture and a real OCR engine, which is not something the gate can
+        /// run. Here the probe drives it with a fake backend and no screen at all.
+        /// </summary>
+        internal async Task<BrainResponse> GenerateWithRepeatGuardAsync(
+            string model, string userText, string[] images, CancellationToken ct)
+        {
+            List<string> recent = RecentRemarksForPrompt();
+            var messages = new List<ChatMessage>
+            {
+                ChatMessage.System(BuildSystemPrompt()),
+                ChatMessage.User(userText + DescribeAlreadySaid(recent), images),
+            };
+
+            string raw = await ChatWithRetryAsync(model, messages, ct).ConfigureAwait(false);
+            BrainResponse resp = Parse(raw);
+            // The last place a turn can die quietly. A model that answers promptly in the wrong shape
+            // produces exactly the same silence as an unreachable backend, and the Readme already records
+            // that a captioner makes the companion "permanently, silently mute". Lengths and an outcome
+            // word: never the reply, per LogSink's contract.
+            Log("reply parse: " +
+                (string.IsNullOrWhiteSpace(raw) ? "empty-reply"
+                    : resp == null ? "unusable-shape"
+                    : "ok") +
+                " model=" + model +
+                " rawChars=" + (raw == null ? 0 : raw.Length) +
+                (resp == null ? "" : " emotion=" + resp.Emotion));
+
+            if (resp != null && recent.Count > 0 && IsRepeatOf(resp.Text, _recentRemarks))
+            {
+                Log("repeat guard: the reply repeated a recent remark, asking once more");
+                var retryMessages = new List<ChatMessage>
+                {
+                    ChatMessage.System(BuildSystemPrompt()),
+                    ChatMessage.User(
+                        userText + DescribeAlreadySaid(AppendedTo(recent, resp.Text)),
+                        images),
+                };
+                string retryRaw = await ChatWithRetryAsync(model, retryMessages, ct).ConfigureAwait(false);
+                BrainResponse retryResp = Parse(retryRaw);
+                // Keep the retry only if it is actually fresh; otherwise the first answer stands, because
+                // two similar remarks are better than none.
+                if (retryResp != null && !IsRepeatOf(retryResp.Text, _recentRemarks))
+                {
+                    Log("repeat guard: the second reply was fresh");
+                    resp = retryResp;
+                }
+                else
+                {
+                    Log("repeat guard: the second reply repeated too, speaking the first anyway");
+                }
+            }
+            if (resp != null) RememberRemark(resp.Text);
+            return resp;
         }
 
         /// <summary>
@@ -589,23 +959,12 @@ namespace DesktopAICompanion.Ai
 
                     string model;
 
-                    // Context: the front window (5.1) and the window the pet is standing on (5.6).
-                    string win = captureContext != null
-                        ? captureContext.WindowTitle
-                        : "";
-                    string ctx = "";
-                    if (!string.IsNullOrWhiteSpace(win))     ctx += "The active window is: " + win + "\n";
-                    if (!string.IsNullOrWhiteSpace(petZone)) ctx += "You are standing on the window: " + petZone.Trim() + "\n";
-                    // What else is open, frontmost first (host 1.1.0). One bounded window
-                    // enumeration, no inference, and often a better basis for a remark than the
-                    // pixels: "Code in front, Outlook and a browser behind it" is legible where 6px
-                    // text is not.
-                    string others = DescribeOtherWindows(captureContext);
-                    if (others.Length > 0) ctx += others;
-                    if (ctx.Length > 0) ctx += "\n";
+                    string ctx = DescribeScreenContext(captureContext, petZone);
 
                     // Routing (backlog 6.2): vision only for explicit asks; idle stays on the fast
                     // text path since a vision glance can take tens of seconds.
+                    string userText;
+                    string[] images = null;
                     if (useVisionPath)
                     {
                         string b64 = ToBase64PngScaled(shot, VisionMaxWidth);
@@ -615,7 +974,8 @@ namespace DesktopAICompanion.Ai
                         // A size, not the image.
                         Log("vision payload: cap=" + VisionMaxWidth + "px shot=" + shot.Width + "x" + shot.Height +
                             " pngKB=" + (b64.Length * 3L / 4 / 1024));
-                        messages.Add(ChatMessage.User(ctx + "Look at my screen and react.", new[] { b64 }));
+                        userText = ctx + "Look at my screen and react.";
+                        images = new[] { b64 };
                         model = choice.Model;
                     }
                     else
@@ -625,23 +985,14 @@ namespace DesktopAICompanion.Ai
                         ocr = UnicodeTextProgress.TruncateAtCodePointBoundary(
                             ocr,
                             1500);
-                        messages.Add(ChatMessage.User(ctx + "Here is the text currently visible on my screen:\n\n" + ocr, null));
+                        userText = ctx + "Here is the text currently visible on my screen:\n\n" + ocr;
                         model = choice.Model;
                     }
 
-                    string raw = await ChatWithRetryAsync(model, messages, ct).ConfigureAwait(false);
-                    BrainResponse resp = Parse(raw);
-                    // The last place a turn can die quietly. A model that answers promptly in the wrong
-                    // shape produces exactly the same silence as an unreachable backend, and the Readme
-                    // already records that a captioner makes the companion "permanently, silently mute".
-                    // Lengths and an outcome word: never the reply, per LogSink's contract.
-                    Log("reply parse: " +
-                        (string.IsNullOrWhiteSpace(raw) ? "empty-reply"
-                            : resp == null ? "unusable-shape"
-                            : "ok") +
-                        " model=" + model +
-                        " rawChars=" + (raw == null ? 0 : raw.Length) +
-                        (resp == null ? "" : " emotion=" + resp.Emotion));
+                    // Generation, the already-said list and the repeat check all live in there, so the
+                    // reply-parse diagnostic does too rather than being written twice.
+                    BrainResponse resp = await GenerateWithRepeatGuardAsync(
+                        model, userText, images, ct).ConfigureAwait(false);
                     // A substitution worked, so the turn is fine -- but the user is now talking to a model
                     // they did not choose, and silently swapping one is how BUG-002 stayed hidden. Said
                     // once, then never again for the same message.
