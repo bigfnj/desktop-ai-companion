@@ -47,6 +47,56 @@ lists the bugs that reached users precisely because this step was skipped.
 
 ---
 
+## 🔬 Proposed: AgentFlow — unstick a blocked coding agent (research done 2026-09-16)
+
+**Status: research only, nothing built. Read [`docs/agentflow/README.md`](docs/agentflow/README.md)
+before proposing work** — it carries the measurements, and two of the obvious designs are already
+ruled out by numbers rather than opinion. Four runnable harnesses live beside it.
+
+The idea: the companion notices a coding agent (Claude Code, Codex) sitting blocked on a permission
+prompt, says so, and optionally answers it. The pet framing is presence — noticing your agent has
+been stuck for nine minutes is the part a dashboard cannot do.
+
+**What the research settled:**
+
+- **No VS Code extension needed, and no per-IDE work for the notify half.** Both agents write
+  append-only JSONL transcripts pairing a tool call with its result by id, so "blocked" is readable
+  from a file. It is agent-keyed, not IDE-keyed: the same transcript appears whether the agent runs
+  in VS Code, a JetBrains terminal, Antigravity or a bare shell. That killed the two-artifact design
+  and with it the Antigravity marketplace and JetBrains plugin questions.
+- **A stall threshold alone is NOT a detector.** Measured over 27,967 paired calls: prompts median
+  86.2s vs 1.6s for ordinary completions, but a 20s threshold still yields ~450 false alarms per
+  real prompt, and half the prompts are answered in under 20s anyway.
+- **The permission-rule join works in default mode and is useless in auto mode.** ~19% precision in
+  `default` (≈4 false per real, usable alongside a threshold) against 0.09% in `auto`, where a
+  model-side classifier sits in front of the rules and approves nearly everything. **AgentFlow is
+  therefore a default-mode feature**, and in auto mode it should say so and stand down rather than
+  fire constantly — the MAX-card idiom of refusing and explaining.
+- **Answering a prompt needs a classifier, and it is the safety mechanism, not a nicety.** The agent
+  bundle ships ten distinct `Yes*` strings; only three mean "approve this one call". The rest grant
+  a session, write a permanent rule, or change the permission mode — one sets auto mode as the
+  user's persistent default. A prefix match would eventually press that. Built, 25/25 self-test,
+  audit clean against the installed bundle, 5/5 mutations fired.
+
+**ABI consequence if the input half is ever built:** `ModulePermissions` needs `InputSynthesis`.
+That is the same gap already filed under the tray-app port assessment further down this file, where
+Blinking LED P/Invokes `SendInput` while declaring only `Speech | Storage`. Additive to the enum,
+safe. The host should own foregrounding, focus restore and the idle gate once, so later assistant
+behaviours inherit them rather than each module reinventing input.
+
+**Next step:** the `default`-mode sample is n=85 with 6 real prompts, so 19% is promising rather
+than measured. Generate real default-mode data (work an hour out of auto mode) and rerun
+`agentflow_join.py`. Two known-incomplete threads: the compound-command splitter is naive and caused
+most of the recall failure — the sibling `permission-wildcarding` project already has a correct one
+to reuse — and process CPU was never tested as a discriminator despite being free and working on
+occluded and minimised windows.
+
+**Open, deliberately unsettled:** whether the detector ships inside `permission-wildcarding` (which
+already reads both agents' history and owns the rule matcher) with this module as a thin consumer,
+or lives here. Leaning to the former.
+
+---
+
 ## 🐞 Known bugs (post-1.0.0)
 
 Numbered so they can be cited. BUG-001 to BUG-003 were found by the maintainer using the shipped build,
