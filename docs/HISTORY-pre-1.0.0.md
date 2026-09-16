@@ -11126,7 +11126,7 @@ Three related changes from live testing of the AI persona:
 3. Force the configured name / stop reading "Admin" off screen: BuildSystemPrompt now
    says "Always address them as <UserName>; never use any other name, username or
    handle you see on the screen" (and, when no name is set, forbids inventing one).
-   Window titles / paths like C:\Users\Admin were leaking in as the user's name.
+   Window titles / paths like C:\Users\<account> were leaking in as the user's name.
 
 Note: hard profanity is still model-gated — safety-tuned models sanitize it. (Wiring
 the running pet to an uncensored local model is a runtime settings change, not code.)
