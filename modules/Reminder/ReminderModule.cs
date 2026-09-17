@@ -37,8 +37,11 @@ namespace DesktopAICompanion.ReminderModule
 
         private IHost _host;
         private IModuleSettings _settings;
-        // Pets seen this run, oldest first. Deliberately never pruned: with no CompanionRemoved event the only
-        // honest liveness answer is IHost.IsCompanionAlive, asked when a reminder actually speaks.
+        // Pets seen this run, OLDEST FIRST -- the order is load-bearing, see ResolveSpeaker. There is no
+        // CompanionRemoved event, so IHost.IsCompanionAlive is the only honest liveness answer; asking it
+        // lazily at speak time was not enough on its own, because the dead entries were walked past and left
+        // behind, so the list was bounded by spawns-per-session rather than by the pets on screen. PruneDeadPets
+        // sweeps it, and both the places that touch the list go through it.
         private readonly List<ICompanion> _seenPets = new List<ICompanion>();
         private Action<ICompanion> _petSpawned;
         // Label -> pet type id for the per-calendar speaker dropdown, rebuilt whenever the pane loads.
@@ -124,9 +127,14 @@ namespace DesktopAICompanion.ReminderModule
             host.AddTrayItems(new[] { BuildTrayItem(), BuildJoinTrayItem(), BuildAgendaTrayItem() });
 
             // Remember the pets as they appear, so a calendar aimed at one of them has a handle to speak
-            // through. There is no CompanionRemoved event, which is exactly why IHost.IsCompanionAlive exists: the list
-            // is allowed to go stale and is filtered at the moment of speaking rather than pruned here.
-            _petSpawned = delegate(ICompanion pet) { if (pet != null) _seenPets.Add(pet); };
+            // through. There is no CompanionRemoved event, which is exactly why IHost.IsCompanionAlive exists --
+            // and the sweep happens HERE as well as at speak time, because a spawn is the only thing that grows
+            // the list and a session that never fires a reminder would otherwise never prune it.
+            _petSpawned = delegate(ICompanion pet)
+            {
+                PruneDeadPets();
+                if (pet != null) _seenPets.Add(pet);
+            };
             host.CompanionSpawned += _petSpawned;
 
             // WinForms timer: its Tick fires on the UI thread the host called Init on, so SayAll is on the
@@ -394,16 +402,42 @@ namespace DesktopAICompanion.ReminderModule
         private ICompanion ResolveSpeaker(string slotId)
         {
             string wanted = SlotSpeaker(slotId);
-            if (string.IsNullOrEmpty(wanted) || _host == null) return null;
+            if (_host == null) return null;
+            // Sweep first, THEN scan forward. Pruning unconditionally -- before the "no preference" exit --
+            // is deliberate: a user who never picks a speaker still spawns pets, and this is the other place
+            // that can bound the list. After the sweep every survivor is live, so the forward scan needs no
+            // per-candidate liveness check and the FIRST type match is the oldest live one, which is the
+            // property the summary above promises.
+            PruneDeadPets();
+            if (string.IsNullOrEmpty(wanted)) return null;
             foreach (ICompanion pet in _seenPets)
-            {
-                if (pet == null) continue;
-                if (!string.Equals(pet.TypeId ?? "", wanted, StringComparison.OrdinalIgnoreCase)) continue;
-                bool alive;
-                try { alive = _host.IsCompanionAlive(pet); } catch { alive = false; }
-                if (alive) return pet;
-            }
+                if (string.Equals(pet.TypeId ?? "", wanted, StringComparison.OrdinalIgnoreCase)) return pet;
             return null;
+        }
+
+        /// <summary>
+        /// Drop the pets that have gone away, newest index first so the removals do not disturb the entries
+        /// still to be examined. Order is preserved, so "oldest first" survives the sweep. A host that throws
+        /// from IsCompanionAlive counts as not-alive, matching AgentFlowModule.AnyCompanionCanSpeak, which is
+        /// the reference for this pattern. A null host means the answer is unknowable, so nothing is dropped
+        /// rather than everything.
+        /// </summary>
+        private void PruneDeadPets()
+        {
+            IHost host = _host;
+            if (host == null) return;
+            for (int index = _seenPets.Count - 1; index >= 0; index--)
+            {
+                ICompanion pet = _seenPets[index];
+                bool alive;
+                if (pet == null) alive = false;
+                else
+                {
+                    try { alive = host.IsCompanionAlive(pet); }
+                    catch (Exception) { alive = false; }
+                }
+                if (!alive) _seenPets.RemoveAt(index);
+            }
         }
 
         /// <summary>The pet type id stored for a calendar, or "" for no preference.</summary>
