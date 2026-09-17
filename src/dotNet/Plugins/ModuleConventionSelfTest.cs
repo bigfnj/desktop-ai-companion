@@ -96,6 +96,26 @@ namespace DesktopAICompanion.Plugins
                     ok &= RunModuleSelfTest(sb, module.GetType().Assembly, moduleId);
 
                     loader.ShutdownAll(s => sb.AppendLine("  " + s));
+
+                    // Nothing asserted anything about Shutdown until 2026-09-17: ShutdownAll was
+                    // called and its result discarded. A module that subscribes in Init and never
+                    // unsubscribes keeps being invoked on an instance whose Init state is gone --
+                    // which is the defect Remembrance actually shipped with, on HostShutdown, and
+                    // which ReminderModule's own comment warns about.
+                    //
+                    // Unsubscribe assertions did exist, but only in three bespoke host-side
+                    // self-tests each carrying its own private fake host, so reminder,
+                    // remembrance, blinkingled and agentflow had none. One assertion here covers
+                    // every module the real loader can load, including out-of-tree ones.
+                    string stillSubscribed = "";
+                    if (host.CompanionSpawnedHasSubs) stillSubscribed += " CompanionSpawned";
+                    if (host.CompanionPokedHasSubs) stillSubscribed += " CompanionPoked";
+                    if (host.CompanionLandedHasSubs) stillSubscribed += " CompanionLanded";
+                    if (host.HostShutdownHasSubs) stillSubscribed += " HostShutdown";
+                    ok &= Check(sb,
+                        "Shutdown unsubscribed every host event it subscribed to"
+                        + (stillSubscribed.Length > 0 ? " -- still attached:" + stillSubscribed : ""),
+                        stillSubscribed.Length == 0);
                 }
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
@@ -197,6 +217,22 @@ namespace DesktopAICompanion.Plugins
             public event Action<PokeInfo> CompanionPoked;
             public event Action<ICompanion> CompanionLanded;
             public event Action HostShutdown;
+
+            // Whether each event still has a subscriber. Field-like events are directly observable
+            // from inside their declaring class, which is why this costs four one-line properties
+            // and no new ABI.
+            //
+            // Deliberately HERE and not on ModuleKit's RecordingHost. ModuleKit is referenced
+            // without Private="false", so its DLL is copied into every module folder and ships in
+            // every zip -- adding a member there marks all six published payloads stale, which is
+            // exactly what adding TrayConventions.cs did. This fake is host-only, so it costs
+            // nothing, and it covers every module plus any future third-party one rather than
+            // needing an edit per module.
+            internal bool CompanionSpawnedHasSubs { get { return CompanionSpawned != null; } }
+            internal bool CompanionPokedHasSubs { get { return CompanionPoked != null; } }
+            internal bool CompanionLandedHasSubs { get { return CompanionLanded != null; } }
+            internal bool HostShutdownHasSubs { get { return HostShutdown != null; } }
+
             // Never called: it exists so the declared events count as used under warnings-as-errors (CS0067).
             internal void TouchEvents()
             {
