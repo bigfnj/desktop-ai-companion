@@ -1,7 +1,7 @@
 # Live smoke test
 
 **What this is.** The checks that require a human to open the app and look at it. Everything else in this
-repo (the gate, 61 source invariants, 16 self-tests, two soaks, the mutation suites) proves the code does
+repo (the gate, 61 source invariants, 18 self-tests, two soaks, the mutation suites) proves the code does
 what it says. Nothing in it proves the code says the right thing.
 
 **Why it exists.** Five of the eleven releases v1.9.4 through v1.9.14 shipped a bug that the full automated
@@ -208,6 +208,23 @@ Run the MSI **over a running app** — that is the path that used to fail.
 - [ ] **H9. Companion Studio.** Open a companion, edit the XML, preview it on the desktop. Then the behaviour timeline:
       drag animations into a chain and press **Run**. This button has no automated coverage at all.
 - [ ] **H10. Blinking LED.** Toggle it, confirm the Scroll Lock light blinks and the companion comments.
+- [ ] **H11. AgentFlow — a real blocked agent.** Not in the catalog (built, never published), so it is
+      present only in a dev build. Leave a coding agent sitting on a permission prompt **in `default` mode**
+      for longer than the threshold, and confirm the companion says so, naming the tool and the project
+      folder. Then answer the prompt and confirm it does **not** repeat itself on the next poll.
+- [ ] **H12. AgentFlow — auto mode stands down.** Same again with the agent in `auto` mode. It must say
+      nothing at all, and the diagnostic log should show it standing down rather than firing. Auto mode
+      prompts on roughly 0.04% of calls and the rules predict them at about 0.4% precision there, so a
+      module that fired anyway would be wrong ~250 times for every time it was right.
+- [ ] **H13. AgentFlow — the first notice after launch is not swallowed.** Start the app with an agent
+      ALREADY blocked. The bubble must still appear. This is a real defect that shipped into a dev build
+      and was invisible to every automated check: the module's first poll runs inside `Init`, before a
+      companion is on screen, and `SayAll` drops a line with no speaker **silently** while the log claimed
+      success. Watch for the bubble, not the log line.
+- [ ] **H14. AgentFlow — nothing sensitive on screen or in the log.** The bubble must name a tool
+      (`Bash`) and ONE path segment (`my-project`), never a command and never a full path. Then open
+      `diagnostics.log` and confirm the same. This reads the most sensitive files the application touches,
+      and a bubble is visible to anyone standing behind you.
 
 ## I. Update check (2 min)
 

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace DesktopAICompanion.Modules
@@ -359,14 +359,17 @@ namespace DesktopAICompanion.Modules
         // installed/downloaded pets live. A pet-authoring module uses it to open a file dialog where the
         // author's pets already are, rather than guessing the host's folder layout. Read-only, absolute,
         // and possibly not-yet-created; "" when the host cannot resolve it. Added after the freeze (1.4.6)
-        // — a module that reads it must declare MinHostVersion 1.4.6 or the load-time check refuses it.
+        // — a module that reads it must declare MinHostVersion 1.0.0 or the load-time check refuses it.
+        // (Added pre-rebase as 1.4.6; the 1.0.0 rename rebase collapsed every version at or below
+        // 1.9.16 into 1.0.0, so 1.0.0 is the correct declaration and 1.4.6 is a version this host
+        // does not have. See docs/1.0.0-RENAME-PLAN.md.)
         string CompanionsDirectory { get; }
         IReadOnlyList<CompanionTypeInfo> InstalledTypes();
         // Read an installed pet type's animations.xml by id -- the writable library, then the bundled pets
         // beside the exe, then the built-in default -- so an authoring/analysis module can open a pet the user
         // already has without knowing (or being able to reach) the host's folder layout. Returns false with a
         // reason when the id is unknown/unsafe or the Pets permission is missing. Added in 1.8.0; a module that
-        // calls it must declare MinHostVersion 1.8.0 or the load gate refuses it.
+        // calls it must declare MinHostVersion 1.0.0 or the load gate refuses it. (Pre-rebase 1.8.0.)
         bool TryReadTypeXml(string typeId, out string animationsXml, out string error);
         // Live pets counted by type, in first-appearance order. PREVIEW pets are deliberately not counted,
         // so this can sum to less than MaxCompanions while IsAtMax is already true.
@@ -487,7 +490,7 @@ namespace DesktopAICompanion.Modules
         // As Say/SayAll, but with an optional per-message SpeechStyle (font family/size, colour, bold/italic/
         // underline) the bubble renders. A null style -- or any unset field within it -- renders exactly as the
         // plain Say/SayAll, so this is a pure superset. Added in 1.8.0: a module that calls these must declare
-        // MinHostVersion 1.8.0 or the load gate refuses it.
+        // MinHostVersion 1.0.0 or the load gate refuses it. (Pre-rebase 1.8.0.)
         void Say(ICompanion pet, string text, SpeechStyle style);
         void SayAll(string text, SpeechStyle style);
         bool TryPlayAnimation(ICompanion pet, string animationName);
@@ -515,7 +518,7 @@ namespace DesktopAICompanion.Modules
         // what the user's "Trigger Speech" preference selects between (registration id = module id).
         IDisposable RegisterPokeResponder(string moduleId, int priority, Func<bool> onPoke);
 
-        // ---- pet-aware responders (host 1.5.0+): PREFER THESE ----
+        // ---- pet-aware responders (host 1.0.0+, pre-rebase 1.5.0): PREFER THESE ----
         // Same two arbitrated chains, but told WHICH pet the reaction belongs to. Use them: a reaction is
         // always about one pet, and answering with SayAll makes every pet on screen say the same line at the
         // same moment -- which is what the argument-less versions above forced, because the host had no way to
@@ -539,7 +542,7 @@ namespace DesktopAICompanion.Modules
         // hosts and their fakes.
         bool IsCompanionAlive(ICompanion pet);
 
-        // ---- fullscreen (host 1.9.9+) ----
+        // ---- fullscreen (host 1.0.0+, pre-rebase 1.9.9) ----
         // True while a FULLSCREEN window exists on ANY monitor -- foreground or not. Deliberately not "the
         // foreground window is fullscreen": an alt-tabbed game still owns its VRAM and its exclusive swap
         // chain, so the thing a module must avoid disturbing is still there when the game is not focused.
@@ -558,7 +561,7 @@ namespace DesktopAICompanion.Modules
         // VRAM you are holding", because by the next tick the damage is done.
         event Action<bool> FullscreenChanged;
 
-        // ---- audio (host 1.6.0+) ----
+        // ---- audio (host 1.0.0+, pre-rebase 1.6.0) ----
         // Play a sound through the app's SHARED output: the same mixer and device the pet's own animation
         // sounds use, so one volume and one device picker govern everything the app emits. `audio` is a
         // self-describing container the host decodes (WAV or MP3), which keeps sample formats out of the
@@ -580,7 +583,7 @@ namespace DesktopAICompanion.Modules
         // did to make the sound. True when something was actually cut.
         bool StopSound(string moduleId);
 
-        // ---- speech interception (host 1.6.0+) ----
+        // ---- speech interception (host 1.0.0+, pre-rebase 1.6.0) ----
         // Offered every utterance BEFORE any bubble is drawn, highest priority first, until one responder
         // returns true. Returning true means "I OWN THE OUTPUT of this line; stop offering it" -- which is NOT
         // the same as "I spoke it". Whether a bubble appears is the separate SpeechRequest.SuppressBubble.
@@ -631,14 +634,15 @@ namespace DesktopAICompanion.Modules
         // real host, no userinfo, length-bounded) and swallows failures. Returns false when refused.
         bool OpenLink(string moduleId, string httpsUrl);
 
-        // ---- shared context (host 1.9.0+) ----
+        // ---- shared context (host 1.0.0+, pre-rebase 1.9.0) ----
         // A tiny host-mediated key/value channel so one module can hand a fact to another WITHOUT a direct
         // reference — modules load in separate contexts and cannot call each other. The publisher owns its key
         // namespace by convention (dotted, e.g. "meeting.current"); the value is an opaque JSON string the host
         // never parses. Reading an unset key returns "". ContextChanged fires with the key that changed, on the
         // UI thread, so a reader reacts without polling. Live process state, not settings: it is unpersisted and
         // cleared on restart, and deliberately ungated (it is strictly weaker than the storage a module has).
-        // A module that calls these must declare MinHostVersion 1.9.0 or the load gate refuses it.
+        // A module that calls these must declare MinHostVersion 1.0.0 or the load gate refuses it.
+        // (Pre-rebase 1.9.0.)
         void PublishContext(string moduleId, string key, string valueJson);
         string ReadContext(string key);
         event Action<string> ContextChanged;

@@ -143,6 +143,33 @@ A service you did not declare hands back a **refusing stand-in** rather than thr
 `ModulePermissions.Companions`, `GetCompanionManager` returns a manager whose every verb returns false with a reason. So
 check return values; do not assume success.
 
+**Some flags are ENFORCED and some are only DISCLOSED, and you need to know which yours is.** Four are
+enforced, all through one predicate (`CompanionHost.ModuleDeclares`): `Audio` gates `PlaySound`, `Voice` gates
+your speech responder being offered a line, `Network` gates `OpenLink`, and `Companions` gates
+`GetCompanionManager`. The rest — `Speech`, `Animation`, `ScreenContext`, `Hotkey`, `Storage`, `Microphone`,
+`SystemAudio`, `AgentTranscripts` — are **disclosure only**. Nothing stops you using those capabilities
+without declaring them.
+
+That is deliberate, not an oversight. A module is an ordinary in-process assembly running with the user's
+full privileges; there is no sandbox and pretending otherwise would be security theatre (see
+[`module-ecosystem-roadmap.md`](module-ecosystem-roadmap.md)). What the flags buy is *informed consent*, and
+they only buy it if you are honest. Declaring nothing and doing everything works perfectly and is the one
+thing that would make this system worthless.
+
+| flag | since | what declaring it tells the user |
+|---|---|---|
+| `Microphone` | 1.0.0 | you record audio input |
+| `SystemAudio` | 1.0.0 | you record what they hear |
+| `AgentTranscripts` | **1.2.0** | you read the transcripts a coding agent writes about its own session |
+
+> ⚠️ **`AgentTranscripts` covers the most sensitive read in this application.** Claude Code's
+> `%USERPROFILE%\.claude\projects\<slug>\<session>.jsonl` and Codex's `%USERPROFILE%\.codex\sessions\...`
+> contain every command the user ran, every path they touched, and the full text of everything they typed to
+> the agent. If you read them, declare it, and hold the same line the `Windows` note above sets: never log it,
+> and disclose anything that leaves the machine. `modules/AgentFlow` is the worked example — it names a tool
+> and one path segment in its speech bubble, and its self-test asserts that no command text and no full path
+> can reach either the bubble or the diagnostic log.
+
 ### MinHostVersion
 
 ```csharp

@@ -54,6 +54,33 @@ The selected provider operates under its own privacy policy. DesktopAICompanion 
 provider logs or retains. Review that policy before enabling a cloud provider, and do not expose
 sensitive information on screen while requesting commentary.
 
+## Data read on this computer but never sent anywhere
+
+The optional **AgentFlow** module reads the transcript files that a coding agent writes about its own
+session — Claude Code's `%USERPROFILE%\.claude\projects\<project>\<session>.jsonl` and Codex's
+`%USERPROFILE%\.codex\sessions\...`. This is called out separately, and in this much detail, because it is
+the most sensitive thing any part of this application reads: those files contain every command the agent
+ran, every file path it touched, and the full text of everything you typed to it.
+
+What the module does with them:
+
+- It reads them **only to answer one question**: is a tool call sitting unanswered, and would the
+  permission rules already on your disk have prompted for it? That is what lets the companion tell you an
+  agent is waiting.
+- **Nothing leaves the computer.** The module makes no network request of any kind. It has no provider, no
+  key and no endpoint.
+- **No command, argument, path or prompt text is ever spoken or written down.** The speech bubble names the
+  tool (`Bash`) and the last segment of the working directory (`my-project`) — never the command and never
+  the full path, because a bubble is on screen where anyone behind you can read it. The diagnostic log gets
+  tool names, counts and durations only. Both of those limits are asserted by the module's self-test rather
+  than left to convention, so they cannot quietly stop being true.
+- It **never answers a prompt for you**, and that is not a setting you can switch on.
+- It declares `AgentTranscripts` in its permission list, so the Modules pane shows you this read **before**
+  you install it. Nothing installs itself.
+
+The module is not installed by default and the base application never reads these files. Remove it from
+**Options → Modules** and the read stops entirely; uninstalling also deletes its settings.
+
 ## Data stored locally
 
 An installed copy stores mutable data in `%LOCALAPPDATA%\DesktopAICompanion`. A portable copy stores it in
