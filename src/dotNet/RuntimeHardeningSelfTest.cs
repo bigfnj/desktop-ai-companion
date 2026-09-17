@@ -265,6 +265,20 @@ namespace DesktopAICompanion
                     Check(name, inner is InvalidDataException);
                 }
             }
+            // The counterpart CheckRejects always needed and never had. Without it the only way to
+            // assert "this input is accepted" was to invoke and then Check(name, true) -- a literal
+            // true, which prints PASS forever even if the invocation above it is deleted. The
+            // assertion could not fail; only the whole suite could, via the outer catch.
+            void CheckAccepts(string name, Action action)
+            {
+                try { action(); Check(name, true); }
+                catch (Exception ex)
+                {
+                    Exception inner = ex;
+                    while (inner.InnerException != null) inner = inner.InnerException;
+                    Check(name + " -- threw " + inner.GetType().Name + ": " + inner.Message, false);
+                }
+            }
 
             Assembly asm = typeof(RuntimeHardeningSelfTest).Assembly;
             const BindingFlags PubInstance = BindingFlags.Public | BindingFlags.Instance;
@@ -356,8 +370,8 @@ namespace DesktopAICompanion
                     finally { animT.GetMethod("Dispose", PubInstance).Invoke(animations, new object[0]); }
 
                     MethodInfo validateBudget = xmlT.GetMethod("ValidateSpriteBudget", NpStatic);
-                    validateBudget.Invoke(null, new object[] { 32, 32, 128, 128 });
-                    Check("exact sprite pixel budget accepted", true);
+                    CheckAccepts("exact sprite pixel budget accepted",
+                        () => validateBudget.Invoke(null, new object[] { 32, 32, 128, 128 }));
                     CheckRejects("oversized generated-frame count rejected", () => validateBudget.Invoke(null, new object[] { 41, 25, 1, 1 }));
                     CheckRejects("oversized generated-pixel budget rejected", () => validateBudget.Invoke(null, new object[] { 32, 32, 256, 256 }));
                 }

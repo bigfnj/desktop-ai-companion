@@ -190,13 +190,30 @@ namespace DesktopAICompanion.Plugins
             try
             {
                 var host = new CompanionHost(null);   // RegisterHotkey does not touch StartUp
+                bool ok = true;
                 using (IDisposable a = host.RegisterHotkey("Ctrl+Alt+F24", delegate { }))
-                    if (a == null) return Check(sb, "hotkey registrar returns a handle for a valid combo", false);
-                IDisposable b = host.RegisterHotkey("", delegate { });   // graceful no-op
+                    ok &= Check(sb, "hotkey registrar returns a handle for a valid combo", a != null);
+
+                // The empty combo. This used to be invoked and then reported as passing with a
+                // literal true, so `b == null` and `b != null` BOTH reached the PASS -- while the
+                // assertion's name claimed both halves had been checked. The contract is a graceful
+                // no-op HANDLE rather than null, so that a caller can dispose unconditionally.
+                IDisposable b = host.RegisterHotkey("", delegate { });
+                ok &= Check(sb, "hotkey registrar returns a safe handle for an EMPTY combo", b != null);
                 if (b != null) b.Dispose();
-                return Check(sb, "hotkey registrar: valid combo + empty combo both return safe handles", true);
+                return ok;
             }
-            catch (Exception ex)
+            catch (PlatformNotSupportedException ex)
+            {
+                // Narrowed from catch-all. `catch (Exception)` here converted ANY regression inside
+                // RegisterHotkey -- a NullReferenceException being the obvious one -- into
+                // "unavailable in this context", i.e. a skip that reads as a pass. The genuine
+                // environmental reason this can be unavailable is a context with no message window
+                // or no window station, which surfaces as one of the two types caught here.
+                sb.AppendLine("SKIP: hotkey registrar smoke unavailable (" + ex.GetType().Name + ")");
+                return true;
+            }
+            catch (InvalidOperationException ex)
             {
                 sb.AppendLine("SKIP: hotkey registrar smoke unavailable (" + ex.GetType().Name + ")");
                 return true;
