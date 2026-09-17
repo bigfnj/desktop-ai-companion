@@ -81,7 +81,6 @@ namespace DesktopAICompanion.AgentFlow
 
         // Written on the UI thread only, read by the tray's DynamicText on the UI thread.
         private string _status = "no agents seen yet";
-        private int _blockedCount;
 
         // Guards against overlapping scans when a poll outlives its interval.
         private int _scanning;
@@ -392,7 +391,6 @@ namespace DesktopAICompanion.AgentFlow
             // can notify again about a genuinely new prompt without ever repeating an old one.
             _budget.Retain(live);
 
-            _blockedCount = blocked;
             _status = DescribeStatus(results.Count, blocked, stoodDown);
 
             if (speakThis == null) return;
@@ -625,7 +623,6 @@ namespace DesktopAICompanion.AgentFlow
             else
             {
                 _status = "off";
-                _blockedCount = 0;
             }
         }
 
