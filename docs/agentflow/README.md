@@ -1,7 +1,29 @@
 ﻿# AgentFlow — research notes and measurement harnesses
 
-**Status: the module is BUILT and gated. It is not published.** `modules/AgentFlow/` ships the
-notify half; `modules-dist/` and `catalog.json` are untouched, so no existing user is offered it.
+**Status: the module is BUILT, gated, and RUNNING in the maintainer's real install.** It is not
+published. `modules/AgentFlow/` ships the notify half; `modules-dist/` and `catalog.json` are
+untouched, so no existing user is offered it.
+
+**Verified in the installed app on 2026-09-17**, which is a different claim from "the self-test
+passes" and the one that matters. Host 1.1.5 installed over 1.1.4 by MSI, the module folder copied
+into `%LOCALAPPDATA%\Programs\Desktop AI Companion\modules\agentflow\` (exactly where the
+installer extracts a module zip), then launched:
+
+```
+16:50:57.796  info  Modules  [module] module loaded: agentflow 1.0.0
+16:50:59.068  info  Modules  [agentflow] standing down for session d5d95e35: auto mode: ...
+16:50:59.068  info  Modules  [agentflow] standing down for session b6850431: auto mode: ...
+16:50:59.069  info  Modules  [agentflow] standing down for session ca52f58a: auto mode: ...
+```
+
+Three concurrent live sessions found in the real transcript store, all three correctly stood down
+because none was in `default` mode. `--module-selftest=agentflow` run by the INSTALLED host through
+the real loader: 79 assertions, `RESULT=PASS`. Note what the log does NOT contain: no command text,
+no paths, and an 8-character session prefix rather than an id that identifies a project.
+
+**To see it speak you need a session in `default` permission mode**, blocked on a prompt for longer
+than the threshold. In `auto`, `acceptEdits` or `plan` it stands down by design, because measured
+precision outside `default` is ~0.4%.
 This directory holds the five harnesses that decided whether it was buildable and what they
 measured. Read it before proposing work, because several of the obvious designs are ruled out by
 numbers rather than opinion, and two of the numbers recorded here were themselves wrong once and
@@ -584,6 +606,35 @@ mis-attribution path; Codex needs its own candidate index.
 cannot classify one of them. `--mutate` breaks the classifier five ways and proves the self-test
 catches each; a clean run with no mutation firing means the suite is blind, not that the code is
 good. Current state: 25/25 self-test, audit clean, 5/5 mutations fired.
+
+### Two more defects, found after the module was built, by testing the SEAM
+
+Both are recorded here rather than only in git because they share a shape: each sat between two
+things that were separately well tested.
+
+**Saving the settings pane re-armed the one-shot.** `SavePaneValues` replaced the whole
+`NotifyBudget` so a changed cooldown reached the live object instead of waiting for the next launch,
+and the replacement discarded `_announced` with it -- so pressing Save handed every prompt the
+module had already spoken about another turn. Turning the cooldown UP, which is what a user does
+when they find it too chatty, made it briefly chattier. Every one-shot assertion in
+`SelfCheckBudget` passed either way, because not one of them presses Save: the suite tested the
+budget and the pane separately and the defect lived in the seam. The fix mutates the cooldown in
+place, and the new assertion spans a save.
+
+**The cache bound was asserted by nothing, while its own accessor said otherwise.**
+`PermissionRules.CacheStats` carried the doc comment "so the cache bound can be asserted rather
+than assumed" and no caller asserted it. Both rule caches evict by wholesale `.Clear()` at 5000
+entries and that path had never executed once in any test -- a wholesale clear is either invisible
+or it corrupts every verdict computed afterwards, and nothing said which. `SelfCheckCacheBound` now
+pushes past the cap and re-checks four verdicts across the eviction. The mutations are deliberately
+per-cache, because removing ONE cache's eviction has to be caught and not only removing both:
+
+```
+the normalized-rule cache grows without bound  -> FIRED (10041 normalized, 19 compiled, cap 5000)
+the compiled-rule cache grows without bound    -> FIRED (41 normalized, 5019 compiled, cap 5000)
+```
+
+Suite now 23/23 mutations fired, 79 self-test assertions.
 
 ### Eight defects these found that would otherwise have shipped
 
