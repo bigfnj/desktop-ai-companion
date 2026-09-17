@@ -773,11 +773,28 @@ Assert-True ($armBlock.Success) 'all three update checks are armed outside the m
 Assert-True ($startUpSource -notmatch 'if \(loadedModules > 0\) ArmModuleUpdateCheck\(\)') (
     'the module check is no longer skipped when no modules are installed')
 
-# The seed-without-checking branch is the bug AppUpdateCheck documents: it stamped "I looked" on a fresh
-# install without looking, so a new install stayed blind for a whole interval. It must not come back.
-Assert-True ($startUpSource -notmatch 'seed the month WITHOUT checking') (
-    'a fresh install checks rather than stamping a check it never performed'
-)
+# The seed-without-checking branch is the bug AppUpdateCheck documents: it stamped "I looked" on a
+# fresh install without looking, so a new install stayed blind for a whole interval.
+#
+# This used to assert that the source did NOT CONTAIN THE ENGLISH PHRASE 'seed the month WITHOUT
+# checking'. The only input that failed it was someone re-adding a comment with that exact wording;
+# re-introducing the actual defect under any other comment, or none, passed. This file warns about
+# precisely that class four separate times, and this was the one place the warning was not applied.
+#
+# Now it asserts the ORDER of the real statements, in the file that actually does the work:
+# AppUpdateCheck.MaybeCheckAsync must FETCH before it STAMPS. Reorder those two and this fails;
+# reword every comment in the repo and it does not. Both subjects are asserted present first, so
+# renaming either cannot turn this into a pass on an absent pair.
+$appUpdateSource = Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\AppUpdateCheck.cs') -Raw
+$fetchIndex = $appUpdateSource.IndexOf('FetchAppVersionAsync')
+$stampIndex = $appUpdateSource.IndexOf('SetAppUpdateResult')
+Assert-True ($fetchIndex -ge 0) (
+    'AppUpdateCheck still fetches the catalog version, so this ordering invariant has a subject')
+Assert-True ($stampIndex -ge 0) (
+    'AppUpdateCheck still stamps a result, so this ordering invariant has an object')
+Assert-True ($fetchIndex -lt $stampIndex) (
+    'the app update check FETCHES before it stamps that it checked' +
+    " (fetch at $fetchIndex, stamp at $stampIndex)")
 
 # Discarding the result is what made the previous module check useless to the pane: it raised a balloon and
 # threw the offers away, so opening Modules still knew nothing.
@@ -835,15 +852,25 @@ try {
     $sampleX1 = [int](355.0 / 370.0 * $dialogBmp.Width)
     $sampleY0 = [int](190.0 / 234.0 * $dialogBmp.Height)
     $sampleY1 = [int](230.0 / 234.0 * $dialogBmp.Height)
+    # The sample window must be non-empty BEFORE the loop, because $darkest is seeded to 255 and the
+    # assertion below is '-ge 216' -- so the seed IS the pass value. Any bitmap narrower than about
+    # 3px in either axis makes the loop body never run and the check pass on no evidence at all.
+    # Counting the samples is what turns that from a silent pass into a failure.
+    Assert-True (($sampleX1 -gt $sampleX0) -and ($sampleY1 -gt $sampleY0)) (
+        "the sidebar sample window is non-empty (x $sampleX0..$sampleX1, y $sampleY0..$sampleY1)")
     $darkest = 255
+    $sampled = 0
     for ($sx = $sampleX0; $sx -lt $sampleX1; $sx += 3) {
         for ($sy = $sampleY0; $sy -lt $sampleY1; $sy += 3) {
             $pixel = $dialogBmp.GetPixel($sx, $sy)
+            $sampled++
             foreach ($channel in @($pixel.R, $pixel.G, $pixel.B)) {
                 if ($channel -lt $darkest) { $darkest = $channel }
             }
         }
     }
+    Assert-True ($sampled -gt 0) (
+        "the sidebar check actually read pixels rather than passing on its seed ($sampled sampled)")
     # COLOR_BTNFACE is 240,240,240. 24 allows a whisper of background tint without letting real art back in.
     Assert-True ($darkest -ge 216) (
         "the installer sidebar keeps a light panel behind the non-transparent checkbox (darkest channel $darkest, needs >= 216)")
@@ -915,7 +942,14 @@ Assert-True (
 #
 # XmlDocument rejects exactly what the WiX compiler rejects here, so this needs no bespoke dash-hunting
 # regex: a regex would also have to understand where comments start and end, and would drift.
-foreach ($wxs in @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'installer') -Filter '*.wxs' -File)) {
+# A floor first. This loop asserts nothing at all if the set empties, and there is exactly ONE .wxs
+# today -- so renaming it, moving it, or generating it elsewhere would silently reduce this to zero
+# assertions and a pass. The shell-parity block further down already asserts a floor for its own
+# derived set; this is the same discipline applied here.
+$wxsFiles = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'installer') -Filter '*.wxs' -File)
+Assert-True ($wxsFiles.Count -ge 1) (
+    "installer\ still holds at least one .wxs to validate (found $($wxsFiles.Count))")
+foreach ($wxs in $wxsFiles) {
     $wxsError = $null
     try { [void]([xml](Get-Content -LiteralPath $wxs.FullName -Raw)) }
     catch { $wxsError = $_.Exception.Message }
