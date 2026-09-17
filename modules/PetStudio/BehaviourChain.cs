@@ -169,6 +169,32 @@ namespace DesktopAICompanion.PetStudioModule
         /// </summary>
         internal static string BuildDebugXml(string sourceXml, IList<ChainStep> steps, bool loop, out string error)
         {
+            return BuildDebugXml(sourceXml, steps, loop, false, out error);
+        }
+
+        /// <summary>
+        /// As above, optionally starting the preview facing RIGHT.
+        ///
+        /// Why this needs to exist: `FormCompanion.IsMovingLeft` is initialised to TRUE and nothing
+        /// randomises it, so a previewed chain containing `walk` ALWAYS walks left, and rightward motion is
+        /// only ever seen if the chain happens to include the companion's own flip animation. The field's own
+        /// comment explains the default ("the original eSheep was a Japanese application, so it was normal to
+        /// see something right to left"), but a debugger that can only show you one direction cannot check
+        /// smoke row B1.
+        ///
+        /// Implemented by prepending a SYNTHETIC one-frame animation carrying
+        /// <c>&lt;action&gt;flip&lt;/action&gt;</c> and spawning into that instead of into the first step. The
+        /// engine applies a flip when <c>AnimationStep &gt;= lastStep</c>, immediately before it picks the
+        /// next animation, so a single-frame flip turns the companion and hands straight on.
+        ///
+        /// **Do NOT implement this by prepending the companion's own `turn`.** A hand-authored companion may
+        /// not have one, and the name differs per skin -- converted companions use `turn`/`turn2`, the sheep
+        /// do not use that word at all. The compiler controls the XML it emits, so a synthetic flip is the
+        /// only version that works for every companion, including one this repo has never seen.
+        /// </summary>
+        internal static string BuildDebugXml(
+            string sourceXml, IList<ChainStep> steps, bool loop, bool faceRight, out string error)
+        {
             error = "";
             if (string.IsNullOrWhiteSpace(sourceXml)) { error = "No companion XML to build from."; return null; }
             if (steps == null || steps.Count == 0) { error = "The timeline is empty."; return null; }
@@ -253,9 +279,20 @@ namespace DesktopAICompanion.PetStudioModule
 
             var animations = new List<XmlData.AnimationNode>(root.Animations.Animation);
             animations.AddRange(clones);
+
+            // Facing: spawn into a synthetic flip, which then hands to the first step. It is counted OUTSIDE
+            // MaxChainNodes on purpose -- that bound exists to keep a hand-built timeline sane, and one
+            // machine-generated node is not the user's doing.
+            int entryId = clones[0].Id;
+            if (faceRight)
+            {
+                XmlData.AnimationNode flip = BuildFacingFlip(++maxId, clones[0]);
+                animations.Add(flip);
+                entryId = flip.Id;
+            }
             root.Animations.Animation = animations.ToArray();
 
-            // ONE spawn, straight into the first step, standing on the floor. The pet's own spawns are replaced
+            // ONE spawn, straight into the entry step, standing on the floor. The pet's own spawns are replaced
             // rather than added to: half of them drop the pet in from above, and watching a chain start after a
             // four-second fall is not watching the chain.
             root.Spawns = new XmlData.SpawnsNode
@@ -268,7 +305,7 @@ namespace DesktopAICompanion.PetStudioModule
                         Probability = 100,
                         X = "random*(screenW-imageW-50)/100+25",
                         Y = "areaH-imageH",
-                        Next = new XmlData.NextNode { Value = clones[0].Id, Probability = 100 },
+                        Next = new XmlData.NextNode { Value = entryId, Probability = 100 },
                     },
                 },
             };
@@ -332,6 +369,50 @@ namespace DesktopAICompanion.PetStudioModule
             if (source.Border != null) clone.Border = new XmlData.HitNode { Next = new XmlData.NextNode[0] };
             if (source.Gravity != null) clone.Gravity = new XmlData.HitNode { Next = new XmlData.NextNode[0] };
             return clone;
+        }
+
+        /// <summary>
+        /// A one-frame animation whose only job is to turn the companion round and hand on.
+        ///
+        /// It borrows the FIRST FRAME of the step it precedes rather than frame 0, so the single tick it is
+        /// on screen shows the art the chain is about to show instead of whatever the sheet happens to start
+        /// with.
+        ///
+        /// No <c>&lt;gravity&gt;</c> and no <c>&lt;border&gt;</c> node, and both omissions are deliberate. A
+        /// gravity node would make the companion fall for the one tick this is up; a border node cannot fire
+        /// in a single tick and would only add an edge to read in a report. Absent gravity is also what the
+        /// engine reads as "clinging", which is harmless for one tick on the floor and would matter if this
+        /// ever grew a second frame.
+        /// </summary>
+        private static XmlData.AnimationNode BuildFacingFlip(int id, XmlData.AnimationNode target)
+        {
+            int frame = target != null && target.Sequence != null && target.Sequence.Frame != null &&
+                        target.Sequence.Frame.Length > 0
+                ? target.Sequence.Frame[0]
+                : 0;
+            return new XmlData.AnimationNode
+            {
+                Id = id,
+                Name = ClonePrefix + "0_faceright",
+                Start = new XmlData.MovingNode { X = "0", Y = "0", Interval = "40", Opacity = 1.0 },
+                End = new XmlData.MovingNode { X = "0", Y = "0", Interval = "40", Opacity = 1.0 },
+                Sequence = new XmlData.SequenceNode
+                {
+                    RepeatFromFrame = 0,
+                    RepeatCount = "0",
+                    Frame = new[] { frame },
+                    Action = "flip",
+                    Next = new[]
+                    {
+                        new XmlData.NextNode
+                        {
+                            Value = target == null ? 1 : target.Id,
+                            Probability = 100,
+                            OnlyFlag = "none",
+                        },
+                    },
+                },
+            };
         }
 
         private static XmlData.MovingNode CloneMoving(XmlData.MovingNode source)

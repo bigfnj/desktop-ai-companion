@@ -38,6 +38,7 @@ namespace DesktopAICompanion.PetStudioModule
                 ok &= ClassifyIsHonest(sb, report, byId);
                 ok &= BuildProducesARunnableChain(sb, fixturePetXml, report, byId);
                 ok &= RepeatMakesDistinctNodes(sb, fixturePetXml, report);
+                ok &= StartsFacingRightOnlyWhenAsked(sb, fixturePetXml, report);
                 ok &= LimitsHold(sb, fixturePetXml, report);
             }
             catch (Exception ex)
@@ -131,6 +132,91 @@ namespace DesktopAICompanion.PetStudioModule
             ok &= Check(sb, "a missing source animation classifies as Forced rather than throwing",
                 BehaviourChain.Classify(null, 1).Kind == ChainLink.Forced);
             return ok;
+        }
+
+        /// <summary>
+        /// "Start facing right" must prepend a synthetic flip and spawn into IT, and must do nothing at all
+        /// when it is not asked for.
+        ///
+        /// The second half is the one worth asserting. The engine starts every companion facing left, and a
+        /// preview that silently flipped would be a debugger lying about the direction being watched -- the
+        /// exact class of defect this whole pane exists to expose. So the default path is asserted to emit no
+        /// flip node and to spawn straight into the first step, not merely "to work".
+        /// </summary>
+        private static bool StartsFacingRightOnlyWhenAsked(StringBuilder sb, string fixturePetXml, PetReport report)
+        {
+            bool ok = true;
+            var steps = new List<ChainStep>();
+            int wanted = Math.Min(2, report.Nodes.Count);
+            for (int i = 0; i < wanted; i++)
+                steps.Add(new ChainStep { AnimationId = report.Nodes[i].Id, Name = report.Nodes[i].Name, Repeat = 1 });
+
+            string error;
+            XmlData.RootNode plain;
+            string ignored;
+            string plainXml = BehaviourChain.BuildDebugXml(fixturePetXml, steps, false, false, out error);
+            if (!Check(sb, "a chain builds with facing left, the default (" + (error ?? "") + ")",
+                    plainXml != null && CompanionXmlValidator.TryParse(plainXml, out plain, out ignored)))
+                return false;
+            CompanionXmlValidator.TryParse(plainXml, out plain, out ignored);
+
+            XmlData.AnimationNode noFlip = FindByName(plain, BehaviourChain.ClonePrefix + "0_faceright");
+            ok &= Check(sb, "facing left emits NO flip node", noFlip == null);
+            ok &= Check(sb, "facing left spawns straight into the first step",
+                plain.Spawns != null && plain.Spawns.Spawn != null && plain.Spawns.Spawn.Length == 1 &&
+                plain.Spawns.Spawn[0].Next != null &&
+                plain.Spawns.Spawn[0].Next.Value ==
+                    plain.Animations.Animation[plain.Animations.Animation.Length - wanted].Id);
+
+            string rightXml = BehaviourChain.BuildDebugXml(fixturePetXml, steps, false, true, out error);
+            XmlData.RootNode right;
+            if (!Check(sb, "a chain builds with facing right (" + (error ?? "") + ")",
+                    rightXml != null && CompanionXmlValidator.TryParse(rightXml, out right, out ignored)))
+                return false;
+            CompanionXmlValidator.TryParse(rightXml, out right, out ignored);
+
+            XmlData.AnimationNode flip = FindByName(right, BehaviourChain.ClonePrefix + "0_faceright");
+            if (!Check(sb, "facing right emits a flip node", flip != null)) return false;
+
+            // The engine applies a flip at AnimationStep >= lastStep, so ONE frame is what makes it turn and
+            // hand on in a single tick. More than one frame would hold the wrong pose on screen first.
+            ok &= Check(sb, "the flip node is a single frame carrying <action>flip</action>",
+                flip.Sequence != null && flip.Sequence.Action == "flip" &&
+                flip.Sequence.Frame != null && flip.Sequence.Frame.Length == 1);
+
+            // It must borrow the first step's own first frame, or the one tick it is up shows unrelated art.
+            // Layout of the faceRight build: [originals ...][clones, `wanted` of them][flip]. So the first
+            // clone sits `wanted` back from the flip, which is last.
+            XmlData.AnimationNode firstClone =
+                right.Animations.Animation[right.Animations.Animation.Length - 1 - wanted];
+            ok &= Check(sb, "the flip borrows the first step's own first frame",
+                firstClone != null && firstClone.Sequence != null && firstClone.Sequence.Frame != null &&
+                firstClone.Sequence.Frame.Length > 0 &&
+                flip.Sequence.Frame[0] == firstClone.Sequence.Frame[0]);
+
+            ok &= Check(sb, "the flip hands on to the first step",
+                OnlyEdgeIs(flip.Sequence.Next, firstClone.Id));
+
+            // A gravity node would make the companion fall for the tick the flip is on screen.
+            ok &= Check(sb, "the flip node has no <gravity>, so it cannot fall mid-turn", flip.Gravity == null);
+
+            ok &= Check(sb, "facing right spawns into the flip, not into the first step",
+                right.Spawns != null && right.Spawns.Spawn != null && right.Spawns.Spawn.Length == 1 &&
+                right.Spawns.Spawn[0].Next != null && right.Spawns.Spawn[0].Next.Value == flip.Id);
+
+            // Everything else must be untouched: the flip is one extra animation, not a re-wiring.
+            ok &= Check(sb, "facing right adds exactly one animation and changes nothing else",
+                right.Animations.Animation.Length == plain.Animations.Animation.Length + 1);
+            return ok;
+        }
+
+        private static XmlData.AnimationNode FindByName(XmlData.RootNode root, string name)
+        {
+            if (root == null || root.Animations == null || root.Animations.Animation == null) return null;
+            foreach (XmlData.AnimationNode a in root.Animations.Animation)
+                if (a != null && string.Equals(a.Name, name, StringComparison.Ordinal))
+                    return a;
+            return null;
         }
 
         /// <summary>

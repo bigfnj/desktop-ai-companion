@@ -178,31 +178,7 @@ Measured while attempting it, so nobody repeats the dead ends:
 embedded paths. A scan over the zips' DLLs for `<drive>:\...\*.pdb` would be cheap to add and would
 have caught it.
 
-### 2. The module template scaffolds a module the 1.1.0 host refuses
-
-`templates/desktop-ai-companion-module/.template.config/template.json` still defaults `minHostVersion`
-and `packageVersion` to **1.4.8**, which is pre-rebase numbering. 1.4.8 > 1.1.0, so `ModuleHost`
-correctly refuses the scaffolded module, and the `--standalone` path tries to restore Contracts/ModuleKit
-**1.4.8**, a version never published. This breaks the Readme's own module quick-start.
-`Test-ModuleTemplate.ps1` passes regardless, because it asserts that every placeholder was substituted
-and that the result BUILDS - not that the host would load it.
-
-### 3. Readme / docs items not corrected
-
-- The Preferences pane list claims module panes only, "alphabetically", and puts `Companions` last.
-  `Companions` is a CORE pane (`OptionsShell.cs:66`) and the tail is sorted across all of them, so the
-  real order on a full install is Preferences, Modules, AI Brain, Blinking LED, Companion Studio,
-  Companions, Fortunes, Reminders, Remembrance.
-- Neither `Readme.md` nor `docs/module-authoring.md` documents the ABI added in host 1.1.0:
-  `ScreenContext.Windows`, `ScreenWindow`, `ScreenContext.ForegroundWindowBounds`. The contract itself
-  carries the privacy note (`PluginApi.cs:127-163`), but the authoring guide still describes screen
-  reading as a bare `CaptureScreenContext`, and its worked example gives `MinHostVersion = "1.4.6"` - a
-  value this host now refuses.
-- The window-scoped capture section does not mention that the rect is intersected with the COMPANION's
-  monitor, so its "a 1200px window barely gets downscaled" promise silently does not apply when the front
-  window is on another display.
-
-### 4. Nothing asserts that the two copies of `animations.xsd` stay in sync
+### 2. Nothing asserts that the two copies of `animations.xsd` stay in sync
 
 - `Resources/animations.xsd` and `src/Resources/animations.xsd` are byte-identical duplicates and BOTH
   are live: the `src/` copy is embedded by three csproj files, the root copy is what the grimoire docs
@@ -336,27 +312,6 @@ side. Bigger UI than a `PaneAction`, and it should not gate the simple version t
 
 ---
 
-## ▶ Open: post-1.0.0 docs debt (filed 2026-09-09)
-
-Audited after the 1.0.0 rebase. Corrected already: `Readme.md` (old product name in the H1, wrong MSI
-filename twice, project count), `PRIVACY.md` (it described **one monthly** catalog check when there are
-**three weekly** ones, and did not disclose the diagnostic log at all — the log records companion names,
-module ids and file paths, so it contains the Windows user name), `docs/VERSIONING.md` (every
-`MinHostVersion` was rebased to 1.0.0, so the "current values" example was wrong), and the header of this
-file.
-
-Still stale:
-
-- **`SMOKETEST.md`** — no row for the dropped `" (converted)"` title suffix or the About
-  "Converter format:" label. A gap rather than an error; the file is otherwise current at 73 checks in
-  twelve sections. Not fixed here: `SMOKETEST.md` is owned by another track.
-
-Recorded because a doc that is confidently wrong costs more than one that is missing, and because
-`PRIVACY.md` being wrong about network behaviour was the kind of thing worth catching before a public
-release rather than after.
-
----
-
 ## Open: threads left by the .NET 10 + plugin re-architecture
 
 The re-architecture itself is finished — the .NET 10 migration, streams S1 to S7, the in-app Modules
@@ -455,18 +410,6 @@ there.
   product since before companions could climb — part of why walking it never felt worth the time. Handed to the
   maintainer the same day; **still unwalked until a report comes back.**
 
-- 📌 **Companion Studio's timeline preview always runs facing LEFT, and should offer a direction toggle.**
-  Asked 2026-09-02: does Run pick a random direction? No. `FormCompanion.IsMovingLeft` is initialised to `true`
-  and nothing randomises it; the only things that change facing are `<action>flip</action>` at the end of a
-  sequence, facing the pointer, and a child inheriting from its parent. The field's own comment explains
-  why ("the original eSheep was a Japanese application, so it was normal to see something right to left").
-  So a previewed chain containing `walk` always walks LEFT, and you only see rightward motion if the chain
-  happens to include the companion's flip animation. That is confusing in exactly the way the `_left` names were.
-  **Fix shape, and it needs no ABI and no engine change:** the timeline already COMPILES a throwaway companion, so
-  a "start facing right" toggle just injects a synthetic first animation of one frame carrying
-  `<action>flip</action>`. Do NOT implement it by prepending the companion's own `turn`, because a hand-authored
-  companion may not have one and the names differ per skin; the compiler controls the XML it emits, so a synthetic
-  flip works for every companion. Cheap, and it makes a rightward walk directly checkable, which is smoke row B1.
 
 - 📌 **Companion Studio's behaviour-timeline Run button has no automated coverage.** There is no way to drive the
   tray from a test, previews auto-hide under a fullscreen foreground window, and an isolated
@@ -599,6 +542,24 @@ leak soak and the `WeakReference` trap that cost the most time in building it.)*
   Worked around module-side by renaming those six to `SelfCheck` (2026-08-27), but the sharp edge is still
   in the host and will catch the next module author, including third parties. Fix shape: prefer the type
   implementing `IModule`, then fall back to the scan. Host change, so it wants a release to be worth much.
+
+- 📌 **Module projects are not held to warnings-as-errors, unlike host projects — and the measurement
+  says turning it on is free.** `src/Directory.Build.props:19-20` sets `WarningLevel 4` +
+  `TreatWarningsAsErrors true`; `modules/Directory.Build.props` sets `LangVersion`, `Deterministic`,
+  `ContinuousIntegrationBuild` and the Release `DebugType none`, and NEITHER warning property. So every
+  module compiles under a looser bar than the host, and the seven published modules have never been held
+  to the standard the rest of the tree is.
+  **Measured 2026-09-17, because enabling it blind could redden seven modules at once:** a forced full
+  recompile (`--no-incremental`, `-p:WarningLevel=4`) of all seven module projects emits **0 warnings**.
+  AiBrain, BlinkingLed, Fortunes, PetStudio, Remembrance, Reminder, TestModule: zero each. Adding the two
+  properties would therefore break nothing today. NOT measured: `modules/AgentFlow`, which does not exist
+  on this branch.
+  **The diagnosis this measurement corrects, and it matters more than the item:** a module build DOES
+  report this class of warning. An injected `private int _probeNeverRead = 1;` in `AiSettings` produced
+  `warning CS0414 ... 1 Warning(s)` from a plain `dotnet build`, and `error CS0414 ... 1 Error(s)` with
+  `-warnaserror`. So a module build reporting `0 Warning(s)` after a code change is almost always an
+  **up-to-date incremental build that never ran the compiler** — the same defect class as a log line that
+  cannot fail. Pass `--no-incremental` before believing a warning count, in this repo or any other.
 
 - 📌 **Three `--module-selftest=<id>` entries in `tests/run-gate.ps1` map to `$null`, so they cannot
   fail when the module is absent.** `reminder`, `remembrance` and `blinkingled` are registered at
