@@ -200,6 +200,33 @@ CASES = (
         '                Log("deferred a notice about " + (speakThis.ToolName ?? "?")\n                    + ": no companion on screen to say it");\n                _budget.Record(speakThis, now);\n                return;',
         "held notice is still delivered once a companion appears",
     ),
+    # Saving the pane used to REPLACE the budget so a changed cooldown took effect at once, which
+    # discarded the announced set with it. This is that code, put back.
+    (
+        "saving the pane replaces the budget instead of mutating it",
+        MODULE,
+        "            if (_budget != null) _budget.SetCooldownSeconds(CooldownSeconds);",
+        "            _budget = new NotifyBudget(CooldownSeconds, NotifyBudget.DefaultWindowSeconds,\n"
+        "                                       NotifyBudget.DefaultMaxPerWindow,\n"
+        "                                       NotifyBudget.DefaultPauseSeconds);",
+        "saving the pane does not re-arm an announced prompt",
+    ),
+    # The match caches are bounded. Remove the eviction from ONE of them: the assertion has to
+    # notice a single unbounded cache, not only both of them together.
+    (
+        "the normalized-rule cache grows without bound",
+        RULES,
+        "                if (NormalizedRules.Count >= MatchCacheLimit) NormalizedRules.Clear();",
+        "                if (false) NormalizedRules.Clear();",
+        "evict instead of growing without bound",
+    ),
+    (
+        "the compiled-rule cache grows without bound",
+        RULES,
+        "                if (CompiledRules.Count >= MatchCacheLimit) CompiledRules.Clear();",
+        "                if (false) CompiledRules.Clear();",
+        "evict instead of growing without bound",
+    ),
 )
 
 

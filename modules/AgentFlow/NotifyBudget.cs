@@ -41,7 +41,14 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>How long the guard stays closed once tripped.</summary>
         public const double DefaultPauseSeconds = 1800.0;
 
-        private readonly double _cooldownSeconds;
+        // NOT readonly, and that is the whole fix for "saving the pane re-arms the one-shot".
+        // SavePaneValues used to replace the budget object so a changed cooldown took effect
+        // immediately, which threw away _announced with it -- so pressing Save let a prompt that
+        // had already been announced be announced again. The one-shot is the guard that stops the
+        // companion repeating itself on every poll, so discarding it undoes the module's single
+        // most important piece of restraint, and the pane is the one place a user goes when they
+        // find it too chatty.
+        private double _cooldownSeconds;
         private readonly double _windowSeconds;
         private readonly int _maxPerWindow;
         private readonly double _pauseSeconds;
@@ -68,6 +75,26 @@ namespace DesktopAICompanion.AgentFlow
 
         /// <summary>True while the death-loop guard is holding notifications back.</summary>
         public bool IsPaused(DateTime nowUtc) { return nowUtc < _pausedUntilUtc; }
+
+        /// <summary>
+        /// Change the cooldown on the LIVE budget, keeping every one-shot, the window and any
+        /// active pause. The alternative -- constructing a replacement -- is what the pane used to
+        /// do, and it silently re-armed prompts that had already been announced.
+        /// </summary>
+        public void SetCooldownSeconds(double cooldownSeconds)
+        {
+            _cooldownSeconds = cooldownSeconds;
+        }
+
+        /// <summary>The cooldown in force, so a test can assert the pane's value reached here.</summary>
+        public double CooldownSeconds { get { return _cooldownSeconds; } }
+
+        /// <summary>Has this detection already been announced? Exposed so the one-shot can be
+        /// asserted across a settings save rather than assumed to survive it.</summary>
+        public bool WasAnnounced(Detection detection)
+        {
+            return detection != null && _announced.Contains(KeyFor(detection));
+        }
 
         /// <summary>Notifications inside the current window. Exposed so a test can assert the cap
         /// rather than assume it -- a bound nothing observes is not a bound.</summary>

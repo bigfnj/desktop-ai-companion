@@ -593,11 +593,12 @@ namespace DesktopAICompanion.AgentFlow
                 _settings.Set(entry.Key, entry.Value);
             }
             bool ok = _settings.Save();
-            // A changed cooldown has to reach the live budget, or the setting appears to do
-            // nothing until the next launch.
-            _budget = new NotifyBudget(CooldownSeconds, NotifyBudget.DefaultWindowSeconds,
-                                       NotifyBudget.DefaultMaxPerWindow,
-                                       NotifyBudget.DefaultPauseSeconds);
+            // A changed cooldown has to reach the live budget, or the setting appears to do nothing
+            // until the next launch. Mutate it IN PLACE: replacing the object here also replaced
+            // _announced, so saving the pane re-armed every prompt the module had already spoken
+            // about and the companion said it all again. Turning the cooldown up -- what a user
+            // does when it is too chatty -- made it briefly chattier.
+            if (_budget != null) _budget.SetCooldownSeconds(CooldownSeconds);
             return ok;
         }
 
@@ -751,7 +752,8 @@ namespace DesktopAICompanion.AgentFlow
                               && SelfCheckRules(probe)
                               && SelfCheckDetector(probe)
                               && SelfCheckBudget(probe)
-                              && SelfCheckPrivacy(probe);
+                              && SelfCheckPrivacy(probe)
+                              && SelfCheckCacheBound(probe);
                     probe.Check("every logic group ran", ok);
 
                     OptionsPane pane = host.OptionsPanes[0];
@@ -781,6 +783,35 @@ namespace DesktopAICompanion.AgentFlow
                     // An Info row is prose, not a value, and must never reach settings.json.
                     probe.Check("info rows are not persisted",
                         !clamped.ContainsKey("aboutAnswering"));
+
+                    // WITNESS, and it is the defect the two Save calls above were already
+                    // triggering with nothing watching. SavePaneValues used to REPLACE _budget so a
+                    // changed cooldown took effect at once, which discarded the announced set with
+                    // it -- so pressing Save let an already-announced prompt speak again. Turning
+                    // the cooldown up, which is what a user does when the companion is too chatty,
+                    // made it briefly chattier. The assertion has to span a save: every one-shot
+                    // test in SelfCheckBudget passes either way, because none of them press Save.
+                    var announcedRules = new RuleSet();
+                    announcedRules.Ask.Add("Bash(curl *)");
+                    DateTime paneNow = new DateTime(2026, 9, 17, 12, 0, 0, DateTimeKind.Utc);
+                    Detection announced = BlockedDetector.Evaluate(
+                        Session(paneNow.AddSeconds(-600), paneNow.AddSeconds(-600),
+                                "curl https://x", "default"),
+                        announcedRules, 30, paneNow);
+                    module._budget.Record(announced, paneNow);
+                    probe.Check("a recorded prompt is announced", module._budget.WasAnnounced(announced));
+                    pane.Save(new Dictionary<string, string>
+                    {
+                        { SettingEnabled, "true" }, { SettingThreshold, "45" },
+                        { SettingCooldown, "300" }, { SettingWatchClaude, "true" },
+                        { SettingWatchCodex, "true" }, { SettingAnimate, "false" },
+                    });
+                    probe.Check("WITNESS saving the pane does not re-arm an announced prompt",
+                        module._budget.WasAnnounced(announced));
+                    // ...and the reason the replacement existed in the first place still holds: the
+                    // new cooldown has to reach the live budget, not wait for the next launch.
+                    probe.Check("...while the new cooldown still reaches the live budget",
+                        module._budget.CooldownSeconds == 300.0);
 
                     // ---- the defect found by watching the real app, not by a test --------------
                     //
@@ -934,6 +965,56 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("WITNESS an ask rule beats an allow rule for the same command",
                 PermissionRules.EvaluateCall("Bash", "curl https://x", null, ordered)
                     == RuleVerdict.WouldPrompt);
+            return true;
+        }
+
+        /// <summary>
+        /// The rule-match caches are bounded, and `CacheStats` says of itself that the bound "can
+        /// be asserted rather than assumed". Nothing asserted it until 2026-09-17: the accessor
+        /// existed, the eviction path had never executed once, and a wholesale `.Clear()` of both
+        /// caches is exactly the kind of thing that is either fine or corrupts every later verdict.
+        ///
+        /// Runs last, because filling the cache to its cap empties it for every other caller.
+        /// </summary>
+        private static bool SelfCheckCacheBound(SelfTestProbe probe)
+        {
+            int normalized, compiled, limit;
+            PermissionRules.CacheStats(out normalized, out compiled, out limit);
+            probe.Check("the match cache reports a bound", limit > 0);
+            if (limit <= 0) return false;
+
+            // limit + 10 distinct rules, so the cap is crossed and then refilled a little. Each
+            // iteration inserts two normalize keys (the rule and the permission) and one compiled
+            // key, so both caches are pushed past the cap.
+            for (int i = 0; i < limit + 10; i++)
+            {
+                string tag = "cachebound" + i.ToString(CultureInfo.InvariantCulture);
+                PermissionRules.RuleMatches("Bash(" + tag + " *)", "Bash(" + tag + ")");
+            }
+            int afterNormalized, afterCompiled, sameLimit;
+            PermissionRules.CacheStats(out afterNormalized, out afterCompiled, out sameLimit);
+
+            // This is the assertion that fails if the eviction is removed: without the clear, the
+            // counts would be limit + 10 compiled and 2 * (limit + 10) normalized. It is not
+            // vacuous, because more distinct keys than the cap were just pushed through.
+            probe.Check("WITNESS the match caches evict instead of growing without bound ("
+                        + afterNormalized + " normalized, " + afterCompiled + " compiled, cap "
+                        + sameLimit + ")",
+                afterNormalized <= limit && afterCompiled <= limit
+                && afterNormalized > 0 && afterCompiled > 0);
+
+            // And the clear must be invisible to callers: a verdict computed after eviction has to
+            // match the one computed before it. These four are the same rules SelfCheckRules
+            // asserts against a warm cache.
+            var rules = new RuleSet();
+            rules.Allow.Add("Bash(echo *)");
+            rules.Ask.Add("Bash(curl *)");
+            rules.Deny.Add("Bash(rm *)");
+            probe.Check("verdicts are unchanged after the cache was evicted",
+                PermissionRules.EvaluateCall("Bash", "echo hello", null, rules) == RuleVerdict.WouldAllow
+                && PermissionRules.EvaluateCall("Bash", "curl https://x", null, rules) == RuleVerdict.WouldPrompt
+                && PermissionRules.EvaluateCall("Bash", "rm x", null, rules) == RuleVerdict.WouldDeny
+                && PermissionRules.RuleMatches("Bash(git:*)", "Bash(git status)"));
             return true;
         }
 
