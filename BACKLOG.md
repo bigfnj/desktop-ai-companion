@@ -77,19 +77,53 @@ been stuck for nine minutes is the part a dashboard cannot do.
   a session, write a permanent rule, or change the permission mode — one sets auto mode as the
   user's persistent default. A prefix match would eventually press that. Built, 25/25 self-test,
   audit clean against the installed bundle, 5/5 mutations fired.
+- **Four public tools already do the answering half. All four press a wider grant.** Reviewed at
+  source 2026-09-16 because every README understates what the code does; the comparison table and
+  per-tool detail are in the doc. `Munkhin/auto-accept-agent` clicks on substring match including
+  `always allow`. `sudoghut/llm-auto-confirm` targets Claude Code, advertises `response: "1"`, then
+  discards it and sends a **bare Enter** on whichever row the TUI cursor rests on.
+  `nextcortex/antigravity-auto-accept` fires eight accept commands every 800 ms with no detection
+  at all. `nockasdd/domyh-auto-accept` is genuinely well built (layered, tested, five IDE adapters,
+  anchored regex matching) and uses that precision to rank `AcceptAll` as priority 1. Four authors,
+  four architectures, same destination: it is where the category goes, not a gap better
+  engineering closes. Strongest external support the allowlist design has.
+- **Nobody else needs a detector, and that says what the notify half is worth.** Three of the four
+  simply poll and fire, because an accept command that no-ops when nothing is pending is safe to
+  attempt against nothing. The 450:1 false-alarm rate that kills a stall threshold is a cost of
+  **notifying a human**, which none of them do. The detector is a requirement of the notify
+  feature, not the answering feature, so notify is the hard half, the differentiated half, and it
+  should not wait on answering.
+- **Actuation splits four ways, not two.** Terminal Shell Integration, a host-published VS Code
+  command, CDP into the renderer, and Windows UI Automation. `domyh`'s `VSCodeCopilotAdapter`
+  confirms CDP reaches **stock VS Code** webview targets, so fork kinship transfers the transport.
+  It does not transfer the vocabulary: that adapter's commands are all `github.copilot.*`, and its
+  selectors still carry an Antigravity Tailwind class. Every pattern is ours to write.
+- **Take the death-loop guard.** `domyh`'s is a sliding window of retry timestamps with a pause and
+  cooldown. Anything that presses Retry eventually presses it against a recurring error. Take the
+  idea, not the code: its cooldown clears all state and auto-resumes, so a persistent loop cycles
+  rather than stopping.
 
-**ABI consequence if the input half is ever built:** `ModulePermissions` needs `InputSynthesis`.
-That is the same gap already filed under the tray-app port assessment further down this file, where
-Blinking LED P/Invokes `SendInput` while declaring only `Speech | Storage`. Additive to the enum,
-safe. The host should own foregrounding, focus restore and the idle gate once, so later assistant
-behaviours inherit them rather than each module reinventing input.
+**ABI consequence if the input half is ever built, revised 2026-09-16.** The prior-art review found
+four actuation channels and **not one of them needs synthetic input**: Terminal Shell Integration
+(`terminal.sendText()`), a host-published VS Code command (`executeCommand`), CDP into the renderer
+(reaches stock VS Code webview targets, at the cost of a debugging port and a launch-flag rewrite),
+and Windows UI Automation (`InvokePattern.Invoke()` on a button found by tree walk, which is not
+`SendInput`). None requires foregrounding, focus restore or an idle gate, because none touches the
+focused window. So `ModulePermissions` very likely needs no `InputSynthesis` for AgentFlow at all,
+and the host-owned foregrounding machinery is not on this module's critical path. The
+`InputSynthesis` gap is still real and still additive-safe: it is the same one filed under the
+tray-app port assessment further down this file, where Blinking LED P/Invokes `SendInput` while
+declaring only `Speech | Storage`. Decide the permission per channel, not once for the module.
 
 **Next step:** the `default`-mode sample is n=85 with 6 real prompts, so 19% is promising rather
 than measured. Generate real default-mode data (work an hour out of auto mode) and rerun
 `agentflow_join.py`. Two known-incomplete threads: the compound-command splitter is naive and caused
 most of the recall failure — the sibling `permission-wildcarding` project already has a correct one
 to reuse — and process CPU was never tested as a discriminator despite being free and working on
-occluded and minimised windows.
+occluded and minimised windows. On the answering side, ship the notify half behind observe-only
+first, since it is the half nobody else has and the only one that needs the detector; then treat
+each of the four actuation channels as its own decision, with a death-loop guard in whichever
+version first presses something.
 
 **Open, deliberately unsettled:** whether the detector ships inside `permission-wildcarding` (which
 already reads both agents' history and owns the rule matcher) with this module as a thin consumer,
