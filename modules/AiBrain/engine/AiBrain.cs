@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Globalization;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.IO;
@@ -1825,7 +1826,102 @@ namespace DesktopAICompanion.Ai
                 if (codeUnits == 2)
                     clean.Append(value[++index]);
             }
-            return clean.ToString().Trim();
+            return CollapseDecorativeRuns(clean.ToString().Trim());
+        }
+
+        /// <summary>
+        /// Maximum consecutive decorative graphemes -- emoji and other non-ASCII symbols -- in one remark.
+        /// </summary>
+        private const int MaximumDecorativeRun = 2;
+
+        /// <summary>
+        /// Collapses a run of consecutive emoji to <see cref="MaximumDecorativeRun"/>.
+        ///
+        /// Found by the Disposition audition's first real use: asked about a video, gemma3:4b answered
+        /// "Self-assessment: Checked. Seems right in the wool. ... [rocket] [sheep] [bread] [thumb] ..."
+        /// and degenerated into an emoji run that never mentioned the video, filling 485 of the 512-character
+        /// cap. It is an ENGINE defect, not an audition one -- the sample went through this same method, which
+        /// collapses whitespace and bounds length and has no notion of repetition, so a speech bubble could
+        /// already show it.
+        ///
+        /// A post-process rather than a prompt rule, deliberately: a prompt rule constrains expression for
+        /// every disposition in order to fix one model's degeneration, and small models drop instructions
+        /// from an already-long system prompt. This touches no persona.
+        ///
+        /// Three choices worth knowing before changing it:
+        ///
+        /// - It counts a RUN, not repeats of one grapheme. The observed reply alternated
+        ///   ([heart-eyes] [smiling] [heart-eyes] [smiling] ...), so a same-grapheme rule would have let most
+        ///   of it through. Fifteen consecutive emoji are not intentional voice whether or not they differ.
+        /// - A single space does not break a run, because the loop above has already collapsed whitespace, so
+        ///   "[a] [b] [c]" is the same defect as "[a][b][c]" with spaces in it.
+        /// - ASCII is never decorative. "!!!" is emphasis and "$" is money; collapsing those would change
+        ///   every remark, which is the outcome this fix exists to avoid. Letters and digits are never
+        ///   touched either, so "hmmm" and a CJK character outside the BMP both survive intact.
+        ///
+        /// Runs after the length bound above rather than before it: a reply whose emoji run comes FIRST
+        /// therefore still loses the text the cap cut. Accepted rather than solved, because reordering means
+        /// a second surrogate-safe truncation pass, and the degenerate tail is where every observed case put
+        /// it.
+        /// </summary>
+        internal static string CollapseDecorativeRuns(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return value ?? "";
+
+            var result = new StringBuilder(value.Length);
+            int decorativeInRun = 0;
+            string pendingSpace = null;
+            var walker = StringInfo.GetTextElementEnumerator(value);
+            while (walker.MoveNext())
+            {
+                string element = (string)walker.Current;
+                if (element.Length == 1 && element[0] == ' ')
+                {
+                    // Held, not emitted: a space before a dropped emoji must go with it, or a collapsed run
+                    // leaves a double space behind.
+                    if (result.Length > 0) pendingSpace = element;
+                    continue;
+                }
+
+                if (IsDecorativeGrapheme(element))
+                {
+                    if (decorativeInRun >= MaximumDecorativeRun)
+                    {
+                        pendingSpace = null;
+                        continue;
+                    }
+                    decorativeInRun++;
+                }
+                else
+                {
+                    decorativeInRun = 0;
+                }
+
+                if (pendingSpace != null)
+                {
+                    result.Append(pendingSpace);
+                    pendingSpace = null;
+                }
+                result.Append(element);
+            }
+            return result.ToString();
+        }
+
+        /// <summary>
+        /// True for an emoji or other non-ASCII symbol grapheme. Category-based rather than range-based: an
+        /// astral-plane test alone would catch CJK Extension B, which is letters.
+        /// </summary>
+        private static bool IsDecorativeGrapheme(string element)
+        {
+            if (string.IsNullOrEmpty(element)) return false;
+            int codePoint = char.IsHighSurrogate(element[0]) && element.Length > 1 &&
+                            char.IsLowSurrogate(element[1])
+                ? char.ConvertToUtf32(element[0], element[1])
+                : element[0];
+            if (codePoint <= 0x7F) return false;
+            UnicodeCategory category = CharUnicodeInfo.GetUnicodeCategory(element, 0);
+            return category == UnicodeCategory.OtherSymbol ||
+                   category == UnicodeCategory.ModifierSymbol;
         }
 
         private static string NormalizeEmotion(string value)

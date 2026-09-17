@@ -317,30 +317,7 @@ construction, so they are lower value.
 The feature shipped — "Show me 5 examples" and "5 about my screen" beside the Disposition dropdown,
 verified end to end against a live `gemma3:4b` by driving the real pane through UI Automation. That
 record, and how the five predicted constraints were answered, is in
-[`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md). Three threads it left open:
-
-### Found by the live run, and NOT fixed: runaway emoji in a real remark
-
-The audition's first real use immediately produced a defect no self-test would have: on the "a video
-playing" scene, `gemma3:4b` answered `Self-assessment: Checked. Seems right in the wool. ... 🚀 🐑 🍞 👍
-💯 🎉 😎 🥳 🥰 😍 🥰 😍 🥰 🥰 🥰 …`, degenerating into a repeated-emoji run and never mentioning the
-video. `replyChars=485` against a 512 cap, visible in the diagnostic log.
-
-**This is a pre-existing engine defect, not an audition one.** The sample went through the same
-`Parse` → `SanitizeResponseText` path a real remark does, and that function collapses WHITESPACE and
-bounds length to `MaximumResponseCharacters` (512) — it has no notion of repetition, and emoji survive
-intact as correctly-handled surrogate pairs. So a companion speech bubble can already show this. The
-audition is simply the first thing that made it easy to see, which is the feature working as intended.
-
-Not fixed here because both plausible fixes change every remark and deserve a deliberate choice:
-- **Post-process**: collapse a run of the same grapheme beyond two or three. Narrow, testable, and does
-  not touch the persona; a run of identical emoji is never intentional voice.
-- **Prompt**: add an emoji rule to `BuildSystemPrompt`. Reaches every model at once, but it constrains
-  expression for every disposition to fix one model's degeneration, and the prompt already carries a
-  lot of instructions that smaller models drop.
-
-Recommend the post-process. Whatever is chosen, assert it on a synthetic degenerate string rather than
-by re-running the model, since the failure is not reliably reproducible.
+[`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md). Two threads it left open:
 
 ### Still open: the pane cannot preview an UNAPPLIED dropdown value
 
@@ -449,12 +426,25 @@ there.
 
 ### Open, found 2026-09-01 while chasing companion behaviour
 
-- 📌 **A one-frame animation with `repeat="0"` is effectively invisible.** Hornet's `Grapple3` is a single
-  frame with no repeat, so it renders for ONE tick (~0.1s measured) and cannot be seen. It is reachable and
-  it "plays" — it just never appears, which is indistinguishable from a bug to a user and invisible to the
-  reachability check that now guards the corpus. Emitter fix shape: give a single-frame non-magic animation a
-  minimum on-screen time the way rests get one, or refuse to emit it and put it in the residue report. Worth
-  measuring how many companions have one before choosing.
+- 📌 **A one-frame animation with `repeat="0"` is effectively invisible — and the fix this entry
+  proposed is now ruled out by its own prerequisite measurement.** Hornet's `Grapple3` was the report: a
+  single frame with no repeat renders for ONE tick (`TotalSteps` is 1, so `AnimationStep >= lastStep` fires
+  on the first one) and cannot be seen. It is reachable and it "plays"; it just never appears, which is
+  indistinguishable from a bug to a user and invisible to the reachability check that guards the corpus.
+  **Measured 2026-09-17, which is what the entry asked for before choosing:** across all 31 shipping
+  converted skins, **54 non-magic single-frame sequences sit under 500ms of on-screen time, across 26
+  companions**. Method, so it is reproducible: for every `<animation>` with exactly one `<frame>` in its
+  `<sequence>`, take `(1 + repeat) * <start><interval>`, and exclude the four magic names
+  (`kill`/`sync`/`fall`/`drag`) — `sync` is legitimately a 100ms no-op and accounts for 25 more on its own.
+  **That count refutes the proposed fix.** 25 of the 54 are the emitter's SYNTHETIC `turn` at 120ms, whose
+  whole job is to be instantaneous, and most of the remainder are `*Blink`, `*Transit` and `*End` poses that
+  are meant to be brief. A blanket minimum dwell would put a visible stall into every converted companion's
+  facing change; refusing to emit would break facing outright. `Grapple3` does not appear in the measurement
+  at all, so the original example has already been re-emitted away.
+  **What is actually left is narrower:** the decision belongs to the pose ROLE, not the frame count. The
+  emitter already gives rest poses a dwell; the open question is whether any other role wants one, and
+  nothing in the measurement says one does. Do not spend on this without an observed case that is not a
+  `turn` or a blink.
 
 - 📌 **A converted companion's ceiling art can read as "standing sideways in mid-air", and it is not a bug.**
   Hornet's skin draws its ceiling cling as a body lying flat against the ceiling (rotated 90 degrees,
@@ -558,43 +548,6 @@ here, because four of the five estimates were wrong in a way that is informative
 [`docs/BLOCKED.md`](docs/BLOCKED.md), because what it needs first is a judgement call rather than
 code. What remains open:
 
-- ⚠️ **THE SCREEN CEILING IS UNREACHABLE FOR CONVERTED PETS, and it is the same defect class as the jump was.
-  Measured 2026-08-31 after "I have never seen Hornet reach the ceiling".** Correct: she effectively cannot.
-  The wall region was shipped as working, the ceiling region is reachable on paper, and the acceptance bar
-  passes — because again the bar is on the graph and the problem is in the numbers.
-
-  | | px per pass | sec per pass | px/sec | passes to climb 940px |
-  |---|---|---|---|---|
-  | Hornet `ClimbWall` | 32 | 12.8 | **2.5** | 30 |
-  | Uzi Doorman `ClimbWall` | 45 | 4.0 | 11.4 | 21 |
-  | yellow_sheep `wall_slide` | 66 | 1.0 | 66.7 | 15 |
-
-  Hornet climbs **26x slower than the slowest hand-authored wall move**, so the top of a 1440p screen is
-  **6.4 minutes of unbroken climbing** away. But `ClimbWall`'s sequence end offers climb 60 / grab 20 /
-  **fall 25**, so every pass boundary is a 23.8% chance of letting go. Monte Carlo over 3,000,000 wall entries
-  on the emitted weights: **9 reached the top, 1 in 333,000.** At one wall entry every ~13 minutes that is
-  **about 8 years of uptime per ceiling visit**. 34% of wall entries climb exactly one pass; the mean is 2.9
-  passes, 93px, a tenth of the way up. A 47-hour behaviour simulation gave 215 wall entries, **zero** ceiling
-  visits, median climb 62px, and one lucky run that stalled at 928px — 12px short.
-
-  The ceiling POSES are not wasted: they are also reached by jumping into a window's underside
-  (`only="window-bottom"` → `GrabCeiling`, weight 100), which needs no climb. That route got better for Hornet
-  with the jump fix (Grapple4 rises 46px now, not 15px) and slightly worse for the companions whose jumps used to
-  overshoot to 72px.
-
-  **Fix, when it is picked up:** the same move the jump just had. Budget the climb by DISTANCE, not time.
-  `TargetWallMs = 5000` is a time budget, and Hornet's single 12.8s pass already overshoots it, so
-  `RepeatCountForBudget` returns 0 and the pass covers whatever 32 frames at the source's -2px/tick happens to
-  cover. Assert the observable quantity instead: one pass should climb a stated fraction of the screen, which
-  means overriding the source's climb velocity the way the jump now overrides its launch. Lowering the
-  let-go weight is the smaller, weaker half of the fix and should not be done alone — at 2.5px/s the climb is
-  visibly wrong even when it succeeds.
-
-- ⬜ **`totalCount` — DO NOT BUILD.** Zero occurrences across all 31 shipping skins. It survives in the
-  classifier only because the reference conf mentions it. The 40 multi-companion actions we do lose are Group3
-  (Breed / pairing needs independent sibling companions, which `<child>` cannot be), a different and much harder
-  problem. Action: reword the rule's "added in Stage 5" promise so it stops implying work is planned.
-
 - **Not a gap:** "moves the user's windows" (48 actions) is refused deliberately — desktopPet "cannot and
   should not move the user's windows". No work.
 
@@ -617,16 +570,6 @@ code. What remains open:
   `fall2c`. They are how a companion goes invisible. The blank-tile assertion therefore lives on the SYNTHETIC
   fixture only. If a corpus-wide check is ever wanted it needs an allowlist keyed by animation name.
 
-The jump-arc work (Phase 0, finished 2026-08-31) left two measurements open as well. The first is the
-same defect as the one-frame `repeat="0"` item above, found independently while measuring the jumps —
-the mechanism detail here is what that entry lacks:
-
-  **Still open, found while measuring and deliberately not fixed here:**
-  - **An animation with one frame and `repeat="0"` is invisible.** `TotalSteps` is 1, so `AnimationStep >=
-    lastStep` on the very first tick and it hands straight on. Hornet's `Grapple3` shows for one tick. Whether
-    this affects anything other than one-frame `Animate` actions is unmeasured.
-  - **Hornet jumps about once every 5 minutes.** Grapple4's hub weight is 20 of 664 and the hub itself dwells
-    9.4s per visit. That is the hub weighting, not the jump, so it is a separate question from this entry.
 
 ### Known ABI gaps (add when the module that needs them is written — see handoff.md's host contract)
 
@@ -663,17 +606,26 @@ leak soak and the `WeakReference` trap that cost the most time in building it.)*
   in the host and will catch the next module author, including third parties. Fix shape: prefer the type
   implementing `IModule`, then fall back to the scan. Host change, so it wants a release to be worth much.
 
+- 📌 **Three `--module-selftest=<id>` entries in `tests/run-gate.ps1` map to `$null`, so they cannot
+  fail when the module is absent.** `reminder`, `remembrance` and `blinkingled` are registered at
+  `run-gate.ps1:88-90` with no marker file. The marker is the half of that table that catches a skip: the gate
+  fails on a missing marker and fails on a `^SKIP:` line (`run-gate.ps1:123-135`). With `$null` it checks the
+  exit code only — and `ModuleConventionSelfTest` returns **true** for a missing module folder
+  (`src/dotNet/Plugins/ModuleConventionSelfTest.cs:61-64`: `SKIP: no bundled module at ...` then
+  `Finish(..., true)`), so a module that never loaded scores identically to one that passed. The marker file is
+  already written on that path, and `docs/module-authoring.md:248` tells a new module author to register
+  `dp-module-<id>-selftest.txt`, so the documented shape is the marker and these three are the exception to
+  it. The fix is three table values, not code. **This is the failure mode `run-gate.ps1`'s own preamble was
+  written about, sitting in `run-gate.ps1`.** Filed rather than fixed: that file is owned by the AgentFlow
+  track, which registered the marker for its own `agentflow` entry and deliberately left these three so a
+  gate edit and a module change do not land in one commit.
+
 - 📌 **`release.yml` still runs `microsoft/setup-msbuild`, which is vestigial.** `build.ps1:48-54` states it no
   longer probes MSBuild/VS, and the MSI is built by the `wix` dotnet tool, so nothing consumes it. Left in
   deliberately rather than removed in the same change: it costs seconds, and the release path is the wrong
   place to find out you were wrong about an implicit dependency. Drop it the next time the release workflow is
   touched for another reason.
 
-- ⬜ **`AiSettings` carries orphan `RandomDropEnabled` / `RandomDropMinutes` / `RandomDropJitterMinutes`
-  fields** (`modules/AiBrain/engine/AiSettings.cs:171-180`, clamped at `:529-530`) that nothing in
-  `AiBrainModule.cs` reads. Left over from before the drop moved to the host, where the live values now come
-  from `AppSettingsStore`. Harmless but actively confusing: they are part of why the two trigger groups look
-  duplicated in the settings file. Delete them.
 
 *(The closed entries from this section — and there are many, including four separate cases of an
 absence check defeated by a comment describing the very thing it forbids — are in
@@ -850,8 +802,10 @@ neglect.
   [`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md).
 - **The AgentFlow detector is C# inside this module**, not a consumer of the node/JS sibling. Reasoning
   in the AgentFlow section at the top of this file.
-- **Also settled, and recorded with the items they belong to:** `totalCount` is DO NOT BUILD, and
-  moving the user's windows is refused rather than missing (both in "Shimeji conversion" above);
+- **Also settled, and recorded with the items they belong to:** `totalCount` is DO NOT BUILD — zero
+  occurrences across the 31 shipping skins, now stated in `ActionClassifier`'s own reason text and pinned by
+  a `ClassifierSelfTest` assertion that no classifier reason may promise unscheduled work; moving the user's
+  windows is refused rather than missing ("Shimeji conversion" above);
   LightHost is NOT a fit for a microphone module, being a C++/JUCE effects host with zero capture code
   and GPLv3 besides (feature idea 18); module→module calls do not exist and nothing should be designed
   assuming them (feature idea 17); a browser Web Speech API transcription path was considered and

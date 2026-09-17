@@ -1,4 +1,4 @@
-﻿# Development history from v1.0.0 on
+# Development history from v1.0.0 on
 
 The completed-work record for **Desktop AI Companion** from v1.0.0 onward, extracted from
 `BACKLOG.md` so that file can hold **only open work**. Nothing in here needs doing:

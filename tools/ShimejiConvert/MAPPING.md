@@ -143,9 +143,14 @@ The Group 1/2/3 taxonomy above is now implemented in `tools/ShimejiConvert.Engin
 external `gil/shimeji-ee` clone. On that reference config it reports **91 actions: 53 Group1 / 32 Group2 / 6
 Group3**, and **24 behaviour conditions: 5 map cleanly (`only=`) / 19 need new state**. The Group2 bucket is
 dominated by the dead IE-window subsystem; the genuinely worth-preserving Group2 items are cursor-following
-(ChaseMouse / look-at-mouse). That is why v1 adds `cursorX`/`cursorY` **and** `selfX`/`selfY` to the companion
-format in Stage 5: chase is expressed as arithmetic `(cursorX - selfX)/k`, and the companion's own position is not
-otherwise reachable (`imageX`/`imageY` return -1 for a top-level, non-child companion -- see `src/dotNet/Xml.cs`).
+(ChaseMouse / look-at-mouse). **Half of that has since shipped and the other half is not planned**, so read the
+next paragraph rather than this one for current state. Look-at-mouse ships as the `faceCursor` sequence action,
+which needs only the cursor's SIDE, not its coordinates. A true chase would need `cursorX`/`cursorY` **and**
+`selfX`/`selfY` in the companion format -- chase is arithmetic `(cursorX - selfX)/k`, and the companion's own
+position is not otherwise reachable (`imageX`/`imageY` return -1 for a top-level, non-child companion -- see
+`src/dotNet/Xml.cs`) -- plus a per-tick movement mode in the engine, which is the expensive part. That work is
+parked on a judgement call recorded in `docs/BLOCKED.md`, not scheduled. `totalCount` is not planned at all: zero
+occurrences across the 31 shipping skins.
 
 `ShimejiConvert selftest` gates the parser + classifier on a committed synthetic fixture; the real config is
 copyrighted and deliberately never enters this repo (clone it outside the tree for the `classify` dev check).

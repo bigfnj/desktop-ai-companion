@@ -1,4 +1,4 @@
-﻿# Blocked — items that cannot be actioned from here
+# Blocked — items that cannot be actioned from here
 
 Every item below names its blocker on its own line. None of them is waiting on a decision about what
 to build or how; each is waiting on an environment, an account action, or an eyeball that this

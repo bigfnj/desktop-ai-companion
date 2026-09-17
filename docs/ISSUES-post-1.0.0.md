@@ -1,4 +1,4 @@
-﻿# Bug post-mortems from v1.0.0 on
+# Bug post-mortems from v1.0.0 on
 
 The four numbered bugs found after the v1.0.0 rebase, extracted from `BACKLOG.md` so that file can
 hold only open work. **All four are fixed**, so nothing here is a work item —

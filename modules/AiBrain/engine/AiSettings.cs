@@ -189,19 +189,12 @@ namespace DesktopAICompanion.Ai
         public System.Collections.Generic.List<string> DisabledGenres =
             new System.Collections.Generic.List<string>();
 
-        /// <summary>
-        /// Periodically speak an unprompted line: a random fortune when the AI brain is off, or an AI
-        /// insight about the screen when it is on. Fires at a randomized interval of
-        /// <see cref="RandomDropMinutes"/> ± <see cref="RandomDropJitterMinutes"/> minutes.
-        /// </summary>
-        public bool RandomDropEnabled = false;
-
-        /// <summary>Center of the random-drop interval, in minutes (1..9999). Default 15.</summary>
-        public int RandomDropMinutes = 15;
-
-        /// <summary>Plus/minus jitter around <see cref="RandomDropMinutes"/>, in minutes. Default 3,
-        /// clamped below the center so the interval stays positive.</summary>
-        public int RandomDropJitterMinutes = 3;
+        // The random-drop trio (RandomDropEnabled / RandomDropMinutes / RandomDropJitterMinutes) lived here
+        // and is deleted. Unprompted commentary rides the HOST's global "randomly drop a fortune or insight"
+        // schedule, so the live values come from AppSettingsStore and nothing in AiBrainModule ever read
+        // these. They were not harmless: they are why the settings file looked as though the module owned a
+        // second, competing trigger group. No migration is needed -- STJ routes an unmatched key from an
+        // existing ai-settings.json into ExtensionData, where it is inert.
 
         // ---- AI brain master switch ----------------------------------------
 
@@ -600,8 +593,6 @@ namespace DesktopAICompanion.Ai
                 changed = true;
             }
             changed |= Clamp(ref TimeoutSeconds, 10, 600);
-            changed |= Clamp(ref RandomDropMinutes, 1, 9999);
-            changed |= Clamp(ref RandomDropJitterMinutes, 0, RandomDropMinutes - 1);
 
             changed |= NormalizeString(
                 ref Endpoint, "http://localhost:11434", MaximumEndpointCharacters);
