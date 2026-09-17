@@ -160,19 +160,21 @@ namespace DesktopAICompanion
             }
         }
 
-        public static string ResolveContainedFile(string root, string id, string extension)
-        {
-            if (!IsSafeId(id)) throw new InvalidDataException("Unsafe catalog item id.");
-            if (string.IsNullOrEmpty(extension) || extension.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-                throw new InvalidDataException("Unsafe catalog file extension.");
-
-            string fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-                              + Path.DirectorySeparatorChar;
-            string fullPath = Path.GetFullPath(Path.Combine(fullRoot, id + extension));
-            if (!fullPath.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException("Catalog destination escapes the data directory.");
-            return fullPath;
-        }
+        // ResolveContainedFile was removed 2026-09-17. It had no caller, and it was the worst kind
+        // of dead code to leave: it threw "Catalog destination escapes the data directory.", so a
+        // reviewer read it and concluded catalog writes were containment-checked through here.
+        //
+        // The containment check IS performed, just not by this. Every catalog destination goes
+        // through a per-id DIRECTORY, not the flat root\<id><ext> this built, and each of the three
+        // call paths does its own IsSafeId -> GetFullPath -> StartsWith(root) -> throw:
+        //
+        //     CompanionHost.SafeLibraryDir          (pet installs)
+        //     CompanionsPaneControl.SafeLibraryDir  (pet downloads from the pane)
+        //     ModulesPaneControl.SafeModuleDir      (module installs)
+        //
+        // Wiring this in at those sites would have been a strictly WEAKER check anyway, since the
+        // filename there is a hardcoded literal containing no id. Those three copies are a fair
+        // candidate for one shared helper, which is a different change with its own review.
 
         public static async Task<byte[]> DownloadBytesAsync(Uri uri, int maximumBytes, CancellationToken ct)
         {

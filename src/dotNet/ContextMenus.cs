@@ -160,6 +160,21 @@ namespace DesktopAICompanion
         {
             try
             {
+                // Dispose before clearing, mirroring ModuleTray_Opening above, whose comment states the
+                // rule: each rebuild decodes a fresh Image from the module's IconPng bytes that nothing
+                // else references. DropDownItems.Clear() disposes neither the items nor their Images.
+                //
+                // Latent today ONLY because no module sets IconPng on a CHILD TrayItem -- every
+                // assignment in the tree is on a top-level item. Two things make it live: a module
+                // giving a submenu row an icon, and the tray-icon-uniqueness convention being applied
+                // to children, which would REQUIRE one on every row. The soak could not measure it
+                // either way: BUG-004 records that GDI+ Bitmap and Font are not necessarily counted by
+                // GetGuiResources, so this would leak invisibly.
+                foreach (ToolStripItem prior in parent.DropDownItems)
+                {
+                    try { if (prior.Image != null) prior.Image.Dispose(); } catch { }
+                    try { prior.Dispose(); } catch { }
+                }
                 parent.DropDownItems.Clear();
                 IEnumerable<TrayItem> children = null;
                 try { if (ti.BuildChildren != null) children = ti.BuildChildren(); } catch { children = null; }

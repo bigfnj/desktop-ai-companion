@@ -12,8 +12,20 @@ It drives the exe, the assembly metadata, the MSI authoring, the release verific
 is the only version a user thinks of as "the app version". Bump it when engine code changes and you intend to
 tag; `vX.Y.Z` must match it or `release.yml` refuses the tag.
 
-- **PATCH** — a fix inside the exe, no new capability. (1.9.5 → 1.9.6: a hanging companion could not let go.)
-- **MINOR** — a new user-visible capability in the host, or an additive ABI member.
+- **PATCH** — a fix inside the exe, no new capability. (1.9.5 → 1.9.6: a hanging companion could not let
+  go.) **Also an additive ABI member that adds no capability**, which in practice means a new
+  `ModulePermissions` flag: a module could already do the thing, so the flag adds only a DISCLOSURE.
+  (1.1.4 → 1.1.5: `ModulePermissions.AgentTranscripts`, which discloses a read a module was always
+  able to perform.)
+- **MINOR** — a new user-visible capability in the host, or an additive ABI member that lets a module
+  DO something it could not do before.
+
+  The capability-versus-disclosure line is the one this file did not draw, and it matters because most
+  of `ModulePermissions` is unenforced by design: the host performs no gating for `Speech`,
+  `ScreenContext`, `Storage`, `Microphone`, `SystemAudio` or `AgentTranscripts`, so declaring one grants
+  a module nothing. Calling that MINOR would bill a consent-screen string as a feature. Whichever it
+  is, the rule below is unchanged — the bump is mandatory, because the INSTALLER cares about
+  `FileVersion` changing and not about which component moved.
 - **MAJOR** — unspent so far. Reserve it for a break in settings or the ABI.
 
 **It MUST be bumped in the same change as any plugin-ABI edit.** `DesktopAICompanion.Contracts` stamps its

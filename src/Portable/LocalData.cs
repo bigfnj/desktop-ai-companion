@@ -633,11 +633,11 @@ namespace DesktopAICompanion
             lock (_sync) return ParseStamp(_settings.ModuleUpdateLastCheckUtc);
         }
 
-        /// <summary>The last check's offers, "id=version;id=version". "" when none were found.</summary>
-        public string GetModuleUpdateOffers()
-        {
-            lock (_sync) return _settings.ModuleUpdateOffers ?? "";
-        }
+        // GetModuleUpdateOffers was removed 2026-09-17: zero call sites, while the value was written
+        // on every update check. It looked like the data source for an update badge and was not -- the
+        // pane and the notification both read the scan's live result, not the persisted string. Anyone
+        // debugging "why doesn't the badge show the offer" would have chased this. Its twin
+        // GetModuleUpdateLastCheckUtc IS read, which is what made the pair look symmetric.
 
         /// <summary>Record a module check: when it ran, and what it found.</summary>
         public bool SetModuleUpdateResult(DateTimeOffset checkedUtc, string offers)
@@ -760,11 +760,8 @@ namespace DesktopAICompanion
                 delegate { _settings.DiagnosticLogMutedModules = v; });
         }
 
-        /// <summary>The catalog pets whose installed copy is stale, "id;id". "" when none.</summary>
-        public string GetPetUpdateStaleIds()
-        {
-            lock (_sync) return _settings.PetUpdateStaleIds ?? "";
-        }
+        // GetPetUpdateStaleIds was removed 2026-09-17, same shape as GetModuleUpdateOffers above:
+        // written on every companion update check, read by nothing.
 
         /// <summary>Record a pet check: when it ran, and which ids were stale.</summary>
         public bool SetPetUpdateResult(DateTimeOffset checkedUtc, string staleIds)

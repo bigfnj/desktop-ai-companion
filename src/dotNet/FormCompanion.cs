@@ -1766,6 +1766,32 @@ namespace DesktopAICompanion
             catch { return false; }
         }
 
+        /// <summary>
+        /// Record that the fullscreen check gave up, at most once per reason per process.
+        ///
+        /// Rate-limited by reason rather than unconditional, because this sits behind a 300ms
+        /// throttle on the animation timer and one companion can be on screen for hours -- an
+        /// unconditional line would bury the log it is meant to make readable, and LogCategory's
+        /// own doc warns about exactly that for per-frame categories.
+        /// </summary>
+        private static readonly HashSet<string> _fullscreenStandDownsNoted =
+            new HashSet<string>(StringComparer.Ordinal);
+
+        private static void NoteFullscreenStandDown(string reason)
+        {
+            try
+            {
+                lock (_fullscreenStandDownsNoted)
+                {
+                    if (!_fullscreenStandDownsNoted.Add(reason)) return;
+                }
+                DiagnosticLog.Write(LogCategory.App, "warn", null,
+                    "fullscreen stand-down SKIPPED: " + reason
+                    + " -- a companion may stay visible over a fullscreen application");
+            }
+            catch { }
+        }
+
         private void CheckFullScreen()
         {
             DateTime now = DateTime.UtcNow;
@@ -1773,7 +1799,17 @@ namespace DesktopAICompanion
             _lastFullscreenScanUtc = now;
 
             Screen[] screens = Screen.AllScreens;
-            if (screens.Length == 0) return;
+            if (screens.Length == 0)
+            {
+                // Each early exit below leaves this companion VISIBLE over whatever is fullscreen and
+                // said nothing about it. "Anything visible over a fullscreen game, especially the UFO"
+                // is on SMOKETEST.md's regression watchlist -- a bug that reached users -- and the
+                // source invariant that guards this asserts the enforcement is not latched behind a
+                // flag, which is true and cannot see the enforcement being skipped wholesale.
+                // A control that stands down must say so; silence is indistinguishable from working.
+                NoteFullscreenStandDown("no screens reported");
+                return;
+            }
 
             bool[] blocked;
             try
@@ -1782,8 +1818,22 @@ namespace DesktopAICompanion
                     Program.Mainthread != null ? Program.Mainthread.SheepHandles() : null;
                 blocked = FullscreenScan.BlockedMonitors(pets);
             }
-            catch { return; }
-            if (blocked == null || blocked.Length != screens.Length) return;
+            catch (Exception ex)
+            {
+                NoteFullscreenStandDown("the monitor scan threw " + ex.GetType().Name);
+                return;
+            }
+            if (blocked == null)
+            {
+                NoteFullscreenStandDown("the monitor scan returned nothing");
+                return;
+            }
+            if (blocked.Length != screens.Length)
+            {
+                NoteFullscreenStandDown("the monitor scan returned " + blocked.Length
+                                        + " results for " + screens.Length + " screens");
+                return;
+            }
             // Hand the whole picture to the host before narrowing to this pet's monitor. A module asking
             // "is a game running" means ANY monitor, not the one this particular pet happens to stand on.
             if (Program.Mainthread != null) Program.Mainthread.NoteFullscreenScan(blocked);

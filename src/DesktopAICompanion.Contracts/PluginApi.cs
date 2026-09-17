@@ -49,7 +49,11 @@ namespace DesktopAICompanion.Modules
 
         // Reads the on-disk transcripts a coding agent writes about its own session --
         // Claude Code's %USERPROFILE%\.claude\projects\<slug>\<session>.jsonl and Codex's
-        // %USERPROFILE%\.codex\sessions\... -- added in host 1.2.0 for the AgentFlow module.
+        // %USERPROFILE%\.codex\sessions\... -- added in host 1.1.5 for the AgentFlow module.
+        //
+        // 1.1.5 and not 1.2.0, per docs/VERSIONING.md: this flag adds no CAPABILITY, only a
+        // disclosure. A module could already read those files -- nothing here is enforced -- so the
+        // flag buys informed consent rather than access, which is a patch-level addition.
         //
         // This is a DISCLOSURE flag, not a gate, and the distinction is deliberate rather than an
         // omission. Like Microphone and SystemAudio, nothing in the host enforces it: a module is an
