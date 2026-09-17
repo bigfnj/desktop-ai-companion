@@ -30,6 +30,10 @@ namespace DesktopAICompanion.RemembranceModule
         private SynchronizationContext _ui;
         private System.Windows.Forms.Timer _purgeTimer;
         private EventHandler _purgeHandler;
+        // Held in a field for the same reason _purgeHandler is: you cannot unsubscribe a delegate you did not
+        // keep, and an event this module stays subscribed to outlives Shutdown. See Shutdown for what that
+        // costs.
+        private Action _hostShutdownHandler;
         private readonly List<IDisposable> _hotkeys = new List<IDisposable>();
 
         private AudioRecorder _recorder;
@@ -95,7 +99,8 @@ namespace DesktopAICompanion.RemembranceModule
             _purgeTimer.Start();
             RunPurge();
 
-            try { host.HostShutdown += OnHostShutdown; } catch { }
+            _hostShutdownHandler = OnHostShutdown;
+            try { host.HostShutdown += _hostShutdownHandler; } catch { }
         }
 
         public void Shutdown()
@@ -107,7 +112,23 @@ namespace DesktopAICompanion.RemembranceModule
                 try { _purgeTimer.Stop(); if (_purgeHandler != null) _purgeTimer.Tick -= _purgeHandler; _purgeTimer.Dispose(); }
                 catch { }
                 _purgeTimer = null;
+                _purgeHandler = null;
             }
+            // Unsubscribe. Two things go wrong if this module stays wired to a host event past Shutdown, and
+            // the first is the one that bites: the handler keeps being CALLED, on an instance whose Init state
+            // is already gone. ReminderModule's Shutdown says the same thing about CompanionSpawned.
+            // The second is that the host's event field lives in the DEFAULT load context, so the
+            // subscription roots this instance and with it the module's collectible AssemblyLoadContext that
+            // ModuleHost.ShutdownAll unloads immediately after this returns. Removing this root does not by
+            // itself make that unload collect -- CompanionHost.TrayItems and .OptionsPanes hold delegates over
+            // this instance and are never cleared -- but it is the only one the module can remove.
+            // Guarded because the host may refuse the event as readily as it offered it (the += is in a try too).
+            if (_host != null && _hostShutdownHandler != null)
+            {
+                try { _host.HostShutdown -= _hostShutdownHandler; } catch { }
+            }
+            _hostShutdownHandler = null;
+            _host = null;
         }
 
         private void OnHostShutdown() { try { if (_recording) StopRecording(); } catch { } }
@@ -124,7 +145,11 @@ namespace DesktopAICompanion.RemembranceModule
         private void Add(string combo, Action onPressed)
         {
             if (string.IsNullOrWhiteSpace(combo)) return;
-            try { IDisposable h = _host.RegisterHotkey(combo.Trim(), onPressed); if (h != null) _hotkeys.Add(h); }
+            // _host is nulled at Shutdown, and a hotkey re-registration is reachable from the options pane's
+            // Save, so this cannot assume a host is still there.
+            IHost host = _host;
+            if (host == null) return;
+            try { IDisposable h = host.RegisterHotkey(combo.Trim(), onPressed); if (h != null) _hotkeys.Add(h); }
             catch { }
         }
 

@@ -25,9 +25,13 @@ namespace DesktopAICompanion.RemembranceModule
             var list = new List<AudioDevice> { new AudioDevice { Id = "", Name = defaultLabel } };
             try
             {
+                // The COLLECTION is disposable too, not just the devices in it. This runs on every options-pane
+                // load (RemembranceModule.StatusLine counts the endpoints), so an undisposed collection per call
+                // is a per-pane-open leak rather than a one-off.
                 using (var en = new MMDeviceEnumerator())
+                using (MMDeviceCollection endpoints = en.EnumerateAudioEndPoints(flow, DeviceState.Active))
                 {
-                    foreach (MMDevice d in en.EnumerateAudioEndPoints(flow, DeviceState.Active))
+                    foreach (MMDevice d in endpoints)
                     {
                         try { list.Add(new AudioDevice { Id = d.ID, Name = d.FriendlyName }); }
                         catch { }
@@ -49,10 +53,27 @@ namespace DesktopAICompanion.RemembranceModule
             {
                 if (!string.IsNullOrWhiteSpace(friendlyName))
                 {
-                    foreach (MMDevice d in en.EnumerateAudioEndPoints(flow, DeviceState.Active))
+                    // The whole collection is walked even after a hit, because returning from inside the loop
+                    // stranded every endpoint the match had not reached yet -- and the collection itself is
+                    // disposable, so it gets a using of its own. Exactly ONE device survives this block: the
+                    // match handed to the caller.
+                    using (MMDeviceCollection endpoints = en.EnumerateAudioEndPoints(flow, DeviceState.Active))
                     {
-                        if (string.Equals(d.FriendlyName, friendlyName, StringComparison.Ordinal)) return d;
-                        try { d.Dispose(); } catch { }
+                        MMDevice match = null;
+                        foreach (MMDevice d in endpoints)
+                        {
+                            bool isMatch = false;
+                            if (match == null)
+                            {
+                                // FriendlyName reads the endpoint's property store and can throw; a throw here
+                                // must not abandon the devices still to come.
+                                try { isMatch = string.Equals(d.FriendlyName, friendlyName, StringComparison.Ordinal); }
+                                catch { isMatch = false; }
+                            }
+                            if (isMatch) match = d;
+                            else { try { d.Dispose(); } catch { } }
+                        }
+                        if (match != null) return match;
                     }
                 }
                 Role role = flow == DataFlow.Render ? Role.Multimedia : Role.Communications;
