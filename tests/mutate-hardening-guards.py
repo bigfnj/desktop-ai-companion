@@ -7,6 +7,7 @@ whole exercise is about, so each replacement gets its own mutation. Byte-exact r
 
 import io
 import os
+import re
 import subprocess
 import sys
 
@@ -15,6 +16,7 @@ HARDENING = os.path.join(REPO, "tests", "runtime-hardening-selftest.ps1")
 APPUPDATE = os.path.join(REPO, "src", "dotNet", "AppUpdateCheck.cs")
 SMOKETEST = os.path.join(REPO, "SMOKETEST.md")
 SELFTESTS = os.path.join(REPO, "tests", "Invoke-SelfTests.ps1")
+PETSPANE = os.path.join(REPO, "src", "Portable", "Wpf", "CompanionsPaneControl.cs")
 
 
 def read(p):
@@ -64,8 +66,8 @@ CASES = (
     (
         "DOC DRIFT: SMOKETEST.md quotes the wrong invariant count",
         SMOKETEST,
-        b"93 source invariants",
-        b"61 source invariants",
+        re.compile(rb"(\d+) source invariants"),
+        rb"7\1 source invariants",
         "source-invariant count matches this file",
     ),
     (
@@ -75,6 +77,25 @@ CASES = (
         b"    '--security-selftest'                = $null\n"
         b"    '--invented-selftest'                = $null",
         "self-test count matches Invoke-SelfTests.ps1",
+    ),
+    # One of three call sites made synchronous again. The count-based form is what makes this
+    # detectable: a pattern-ordered check would still find a Task.Run somewhere in the file.
+    (
+        "a Pets-pane staleness diff goes back on the UI thread",
+        PETSPANE,
+        b"                List<StalePet> restale = await Task\n"
+        b"                    .Run(delegate { return DiffStale(cached); }).ConfigureAwait(true);\n"
+        b"                if (!IsLoaded) return;\n"
+        b"                RenderUpdates(restale);",
+        b"                RenderUpdates(DiffStale(cached));",
+        "runs off the UI thread",
+    ),
+    (
+        "the update card re-hashes the pet the diff already classified",
+        PETSPANE,
+        b"            CompanionFreshness freshness = entry.Freshness;",
+        b"            CompanionFreshness freshness = FreshnessOf(entry.Pet);",
+        "instead of re-hashing",
     ),
 )
 
@@ -91,11 +112,19 @@ def main():
     fired = 0
     for name, path, old, new, expect in CASES:
         base = read(path)
-        count = base.count(old)
+        # `old` may be a compiled regex. That exists for one reason: a case whose target is a number
+        # the suite is SUPPOSED to change (the documented assertion count) would otherwise go no-op
+        # the first time an assertion is added, print "matched 0 times", and quietly stop covering
+        # anything -- which is exactly the rot mutate-diagnostics.py was carrying.
+        if hasattr(old, "subn"):
+            mutant, count = old.subn(new, base)
+        else:
+            count = base.count(old)
+            mutant = base.replace(old, new)
         if count != 1:
             print("  %-46s NO-OP (pattern matched %d times)" % (name, count))
             continue
-        write(path, base.replace(old, new))
+        write(path, mutant)
         try:
             code, out = run()
         finally:

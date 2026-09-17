@@ -238,11 +238,15 @@ Assert-True (
 # and because the shipped bug was precisely a missing comparison rather than a wrong one.
 $petsPane = Get-Content -Raw (Join-Path $repoRoot 'src\Portable\Wpf\CompanionsPaneControl.cs')
 Assert-True (
-    # A third list exists and is rendered from a STALENESS diff, not from the id diff.
-    $petsPane -match '(?s)private List<CatalogCompanion> DiffStale\(\)[\s\S]{0,900}?CompanionProvenance\.IsStale\(FreshnessOf\(pet\)\)' -and
+    # A third list exists and is rendered from a STALENESS diff, not from the id diff. Asserted
+    # against the SHARED classifier rather than against the pane's own expression: the first form of
+    # this clause pinned the literal `IsStale(FreshnessOf(pet))`, which is an implementation and not
+    # the property -- so collapsing the pane's duplicate hashing onto CompanionProvenance.StaleInstalled
+    # broke the check while strictly improving what it was protecting.
+    $petsPane -match '(?s)private static List<StalePet> DiffStale\([\s\S]{0,900}?CompanionProvenance\.StaleInstalled\(' -and
     # ...and it is actually wired to the button that checks the catalog, or nothing ever populates it.
-    $petsPane -match '(?s)CheckButton_Click[\s\S]{0,1200}?DiffStale\(\)' -and
-    $petsPane -match '(?s)CheckButton_Click[\s\S]{0,1400}?RenderUpdates\(' -and
+    $petsPane -match '(?s)CheckButton_Click[\s\S]{0,1600}?DiffStale\(' -and
+    $petsPane -match '(?s)CheckButton_Click[\s\S]{0,1800}?RenderUpdates\(' -and
     # The freshness verdict must come from the shared classifier, not from a second opinion in the UI.
     # It used to call Classify directly; it now calls FreshnessOfInstalled, which wraps Classify and is
     # shared with the weekly background check, so the pane and the notification cannot disagree.
@@ -260,6 +264,31 @@ Assert-True (
     # that forbids describing a bug is a check that gets deleted. Assert the derivation instead.
     $petsPane -match '(?s)stalePets\.Count[\s\S]{0,600}?_status\.Text'
 ) 'the Pets pane offers a content update, stamps what it installed, and says so'
+
+# Hashing every installed catalog companion must happen OFF the UI thread, on every path that does it.
+#
+# RefreshCatalogOnOpen has said so in a comment since it was written, and the button did it
+# synchronously anyway -- so the pane froze for the duration of a SHA-256 over the whole installed
+# library precisely when the user had just asked it to do something. A comment on one path is not a
+# property of the pane.
+#
+# Counted rather than pattern-ordered: every DiffStale CALL must be the body of a Task.Run, so a
+# fourth call site added later cannot quietly be synchronous.
+$diffStaleTotal = ([regex]::Matches($petsPane, 'DiffStale\(')).Count
+$diffStaleDeclared = ([regex]::Matches($petsPane, 'private static List<StalePet> DiffStale\(')).Count
+$diffStaleOffThread = ([regex]::Matches($petsPane, 'Run\(delegate \{ return DiffStale\(')).Count
+Assert-True (($diffStaleTotal - $diffStaleDeclared) -gt 0) (
+    "the Pets pane calls DiffStale somewhere (found $($diffStaleTotal - $diffStaleDeclared) calls)")
+Assert-True (($diffStaleTotal - $diffStaleDeclared) -eq $diffStaleOffThread) (
+    'every Pets-pane staleness diff runs off the UI thread' +
+    " ($($diffStaleTotal - $diffStaleDeclared) calls, $diffStaleOffThread of them inside a Task.Run)")
+
+# The classification must TRAVEL to the card. Recovering it from the id costs another SHA-256 of the
+# same file, which is what BuildUpdateCard did: DiffStale classified every installed catalog pet, then
+# each card re-hashed the one it was rendering, on the UI thread, for a string it had already computed.
+Assert-True (
+    $petsPane -match '(?s)private FrameworkElement BuildUpdateCard\(StalePet entry\)[\s\S]{0,600}?CompanionFreshness freshness = entry\.Freshness;'
+) 'a stale companion card reads the freshness the diff already computed instead of re-hashing'
 
 # The window UNDERSIDE, checked before the screen's top border for the same reason the window top is
 # checked before the taskbar: a window is inside the screen, so testing the screen first lets a jumping pet

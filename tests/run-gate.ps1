@@ -137,8 +137,8 @@ try {
     # Counted, not typed. This line said 18 while the table held 19, which is the same drift
     # the doc-count invariants now catch -- and a gate that miscounts its own coverage is the
     # least convincing place to have it.
-    Write-Host ("GATE PASSED (build 0 warnings, core tests, $($SelfTestFlags.Count) self-tests "
-        + 'with no skips, invariants, payloads, template, shimeji verify + selftest).') -ForegroundColor Green
+    Write-Host ("GATE PASSED (build 0 warnings, core tests, $($SelfTestFlags.Count) self-tests " +
+        'with no skips, invariants, payloads, template, shimeji verify + selftest).') -ForegroundColor Green
 }
 finally {
     Pop-Location

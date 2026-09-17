@@ -177,13 +177,37 @@ namespace DesktopAICompanion
         /// </summary>
         internal static List<string> StaleInstalledIds(RemoteCatalog catalog)
         {
-            var stale = new List<string>();
+            var ids = new List<string>();
+            if (catalog == null || catalog.Pets == null) return ids;
+            Dictionary<string, CompanionFreshness> stale = StaleInstalled(catalog);
+            // Catalog order, because a caller renders this as a list and it must not reshuffle
+            // between a cached render and a live one.
+            foreach (CatalogCompanion pet in catalog.Pets)
+                if (pet != null && !string.IsNullOrEmpty(pet.Id) && stale.ContainsKey(pet.Id))
+                    ids.Add(pet.Id);
+            return ids;
+        }
+
+        /// <summary>
+        /// The same set, WITH the classification that made each one stale.
+        ///
+        /// Which matters because the classification is what a caller displays -- "the catalog moved
+        /// on" versus "this would discard your changes" -- and recovering it from an id costs
+        /// another SHA-256 of the pet's animations.xml. The Pets pane did exactly that: it hashed
+        /// every installed catalog pet to build the list, then hashed each stale one AGAIN while
+        /// building its card, and the second pass ran on the UI thread after the first had been
+        /// deliberately moved off it.
+        /// </summary>
+        internal static Dictionary<string, CompanionFreshness> StaleInstalled(RemoteCatalog catalog)
+        {
+            var stale = new Dictionary<string, CompanionFreshness>(StringComparer.OrdinalIgnoreCase);
             if (catalog == null || catalog.Pets == null) return stale;
             foreach (CatalogCompanion pet in catalog.Pets)
             {
                 if (pet == null || string.IsNullOrEmpty(pet.Id)) continue;
                 if (!IsInLibrary(pet.Id)) continue;
-                if (IsStale(FreshnessOfInstalled(pet.Id, pet.Sha256))) stale.Add(pet.Id);
+                CompanionFreshness freshness = FreshnessOfInstalled(pet.Id, pet.Sha256);
+                if (IsStale(freshness)) stale[pet.Id] = freshness;
             }
             return stale;
         }

@@ -125,13 +125,13 @@ namespace DesktopAICompanion.Wpf
                 CancellationToken token = _netCts.Token;
                 RemoteCatalog catalog = await RemoteCatalogClient.FetchSharedAsync(token).ConfigureAwait(true);
                 if (token.IsCancellationRequested || !IsLoaded) return;
-                List<string> stale = await Task
-                    .Run(delegate { return CompanionProvenance.StaleInstalledIds(catalog); }, token)
+                List<StalePet> stale = await Task
+                    .Run(delegate { return DiffStale(catalog); }, token)
                     .ConfigureAwait(true);
                 if (token.IsCancellationRequested || !IsLoaded) return;
                 _lastCatalog = catalog;
                 RenderAvailable(DiffNew());
-                RenderUpdates(StaleFromIds(catalog, stale));
+                RenderUpdates(stale);
             }
             catch { }
         }
@@ -176,17 +176,9 @@ namespace DesktopAICompanion.Wpf
             }
         }
 
-        /// <summary>Map the ids the background diff produced back to catalog entries, preserving catalog
-        /// order so the list does not reshuffle between a cached render and a live one.</summary>
-        private static List<CatalogCompanion> StaleFromIds(RemoteCatalog catalog, List<string> ids)
-        {
-            var result = new List<CatalogCompanion>();
-            if (catalog == null || catalog.Pets == null || ids == null || ids.Count == 0) return result;
-            var wanted = new HashSet<string>(ids, StringComparer.OrdinalIgnoreCase);
-            foreach (CatalogCompanion pet in catalog.Pets)
-                if (pet != null && !string.IsNullOrEmpty(pet.Id) && wanted.Contains(pet.Id)) result.Add(pet);
-            return result;
-        }
+        // StaleFromIds was removed 2026-09-17. It mapped ids back to catalog entries, which was only
+        // needed because the off-thread diff returned ids and threw its classifications away --
+        // leaving each card to hash the pet again, on the UI thread. DiffStale now returns both.
 
         private void Reload()
         {
@@ -492,7 +484,14 @@ namespace DesktopAICompanion.Wpf
                 _lastCatalog = await RemoteCatalogClient.FetchAsync(_netCts.Token);
                 if (!IsLoaded) return;
                 List<CatalogCompanion> newPets = DiffNew();
-                List<CatalogCompanion> stalePets = DiffStale();
+                // Off the UI thread, for the reason RefreshCatalogOnOpen gives: this SHA-256s every
+                // installed catalog companion. A deliberate button press made it tolerable, not
+                // free, and the window froze for the duration on a large library.
+                RemoteCatalog fetched = _lastCatalog;
+                List<StalePet> stalePets = await Task
+                    .Run(delegate { return DiffStale(fetched); }, _netCts.Token)
+                    .ConfigureAwait(true);
+                if (!IsLoaded) return;
                 RenderAvailable(newPets);
                 RenderUpdates(stalePets);
                 // Both counts, and never the bare "you already have every available companion" while an update is
@@ -660,7 +659,11 @@ namespace DesktopAICompanion.Wpf
                     : ("Added " + display + " to your companions.");
                 Reload();                        // the new pet is now a local card
                 RenderAvailable(DiffNew());      // re-diff against the cached catalog (no re-fetch)
-                RenderUpdates(DiffStale());
+                RemoteCatalog cached = _lastCatalog;
+                List<StalePet> restale = await Task
+                    .Run(delegate { return DiffStale(cached); }).ConfigureAwait(true);
+                if (!IsLoaded) return;
+                RenderUpdates(restale);
             }
             catch (OperationCanceledException) { }
             catch (Exception ex) { if (IsLoaded) _status.Text = "Couldn't " + (isUpdate ? "update " : "download ") + display + ": " + Short(ex.Message); }
@@ -687,29 +690,51 @@ namespace DesktopAICompanion.Wpf
         /// Only the writable library is considered. A BUNDLED pet ships inside the app and is replaced by an
         /// app update, not by this.
         /// </summary>
-        private List<CatalogCompanion> DiffStale()
+        /// <summary>A stale companion together with the classification that made it stale, so the
+        /// card can describe it without hashing the file a second time.</summary>
+        private struct StalePet
         {
-            var result = new List<CatalogCompanion>();
-            if (_lastCatalog == null) return result;
-            foreach (CatalogCompanion pet in _lastCatalog.Pets)
-                if (LibraryFolderExists(pet.Id) && CompanionProvenance.IsStale(FreshnessOf(pet)))
-                    result.Add(pet);
+            public CatalogCompanion Pet;
+            public CompanionFreshness Freshness;
+        }
+
+        /// <summary>
+        /// Takes the catalog as a PARAMETER rather than reading _lastCatalog, because every caller
+        /// now runs this on a thread-pool thread: a field the UI thread can reassign mid-hash would
+        /// be a race, and passing the snapshot the caller already has removes it.
+        /// </summary>
+        private static List<StalePet> DiffStale(RemoteCatalog catalog)
+        {
+            var result = new List<StalePet>();
+            if (catalog == null || catalog.Pets == null) return result;
+            Dictionary<string, CompanionFreshness> stale = CompanionProvenance.StaleInstalled(catalog);
+            foreach (CatalogCompanion pet in catalog.Pets)
+            {
+                CompanionFreshness freshness;
+                if (pet == null || string.IsNullOrEmpty(pet.Id)) continue;
+                if (!stale.TryGetValue(pet.Id, out freshness)) continue;
+                result.Add(new StalePet { Pet = pet, Freshness = freshness });
+            }
             return result;
         }
 
-        private void RenderUpdates(List<CatalogCompanion> pets)
+        private void RenderUpdates(List<StalePet> pets)
         {
             _updatesGrid.Children.Clear();
             bool any = pets.Count > 0;
             _updatesHeader.Visibility = any ? Visibility.Visible : Visibility.Collapsed;
             _updatesGrid.Visibility = any ? Visibility.Visible : Visibility.Collapsed;
-            foreach (CatalogCompanion pet in pets)
-                _updatesGrid.Children.Add(BuildUpdateCard(pet));
+            foreach (StalePet entry in pets)
+                _updatesGrid.Children.Add(BuildUpdateCard(entry));
         }
 
-        private FrameworkElement BuildUpdateCard(CatalogCompanion pet)
+        private FrameworkElement BuildUpdateCard(StalePet entry)
         {
-            CompanionFreshness freshness = FreshnessOf(pet);
+            // The freshness travels with the entry. This used to call FreshnessOf(pet), which
+            // re-hashed a pet DiffStale had just classified -- pure duplicated I/O, once per card,
+            // on the UI thread.
+            CatalogCompanion pet = entry.Pet;
+            CompanionFreshness freshness = entry.Freshness;
             var sp = new StackPanel();
             sp.Children.Add(new TextBlock
             {

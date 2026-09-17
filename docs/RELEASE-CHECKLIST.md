@@ -63,7 +63,7 @@ Desktop AI Companion ships **unsigned** Windows x64 builds. To cut a release:
    |---|---|---|
    | [`tests/mutate-agentflow.py`](../tests/mutate-agentflow.py) | `--module-selftest=agentflow` is not a rubber stamp | `23/23 fired.` |
    | [`tests/mutate-selftest-guards.py`](../tests/mutate-selftest-guards.py) | the host self-test assertions that were previously unfailable | `4/4 fired.` |
-   | [`tests/mutate-hardening-guards.py`](../tests/mutate-hardening-guards.py) | the source invariants in `runtime-hardening-selftest.ps1` | `5/5 fired.` |
+   | [`tests/mutate-hardening-guards.py`](../tests/mutate-hardening-guards.py) | the source invariants in `runtime-hardening-selftest.ps1` | `7/7 fired.` |
    | [`tests/mutate-diagnostics.py`](../tests/mutate-diagnostics.py) | the diagnostic-log guards | `20/20 fired.` |
 
    A clean `0/N fired` is a red flag and never a result — it usually means the harness rebuilt the wrong
