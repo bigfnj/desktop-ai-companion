@@ -83,25 +83,33 @@ agree**, 19,237 of them real commands harvested from transcripts). The naive reg
 *inflating* `wouldPrompt` by about a third, because over-splitting invents fragments that match no
 allow rule and "nothing matched" defaults to would-prompt.
 
+**The rule matcher was missing two documented rules**, and both bite on this box's real 702-rule
+set. `Tool(cmd:*)` is an equivalent spelling of `Tool(cmd *)`, and **86 rules use the colon form** —
+without that normalization they fall through to a prefix test against the literal text `cmd:`, which
+matches no real command, so 86 allow rules were silently inert. Separately, the bare-command
+allowance on a trailing ` *` applies only when that `*` is the rule's *only* wildcard, and one rule
+here is in the other category. Both are now taken from the canonical implementation in
+`permission-wildcarding/src/permission-match.js`, which is also what the shipping C# ports.
+
 Corrected, and now reproducible from the committed harness rather than attributed by hand:
 
 ```
 mode            calls  wouldPrompt    %   realPrompts   precision   recall
-auto            23188         5637   24%           23       0.41%      87%
-acceptEdits      4964         1530   31%            6       0.39%      83%
-plan             1175          276   23%            1       0.36%     100%
+auto            23223         6197   27%           23       0.37%      91%
+acceptEdits      4978         1448   29%            6       0.41%     100%
+plan             1175          291   25%            1       0.34%     100%
 default            83           20   24%            0           -       -
 
 kind                  n   wouldPrompt   hit-rate
-permission-rule      30            26        87%
+permission-rule      30            28        93%
 automode-blocked     25            11        44%
 user-rejected        16             6        38%
 ```
 
-**Recall is 87%, not 38%.** That is the axis that decides whether this is shippable, because a miss
+**Recall is 93%, not 38%.** That is the axis that decides whether this is shippable, because a miss
 means the companion stays silent while the agent sits blocked, and this harness's own preamble says
-a matcher trading recall for precision is worse than none. The four misses are `cd` ×2, `git`,
-`docker`.
+a matcher trading recall for precision is worse than none. The two remaining misses are one `Edit`
+and one `docker`.
 
 **What moved in the conclusion.** "In auto mode the rules stop predicting anything" is **wrong** as
 stated. Rules still cause prompts in auto mode — 23 of the 30 rule-caused denials are there, and the

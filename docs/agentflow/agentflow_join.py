@@ -8,7 +8,9 @@ disk. This measures whether that question is worth asking.
 
 Two things are measured, and the first matters more:
 
-  RECALL   Of the calls we KNOW prompted (toolDenialKind == user-rejected), how
+  RECALL   Of the calls a PERMISSION RULE blocked (toolDenialKind ==
+           permission-rule -- see the ground-truth note below, the field has five
+           values and reading the wrong one inverted this measurement once), how
            many does the matcher correctly call "would prompt"? Anything it calls
            "would allow" is a PROVEN MISS -- the detector would stay silent while
            the agent sat there. Misses are the failure mode that reads as "the
@@ -27,7 +29,7 @@ executable ROOTS (program names), nothing else.
 import argparse
 import collections
 import datetime as dt
-import fnmatch
+import functools
 import glob
 import json
 import os
@@ -332,18 +334,44 @@ def load_rules():
     return buckets, sources
 
 
-def matches(pattern, value):
-    """One rule pattern against one concrete value."""
+_COMMAND_TOOLS = ("Bash", "PowerShell")
+
+
+@functools.lru_cache(maxsize=8192)
+def _compiled(pattern):
+    """`*` is the only wildcard; every other metacharacter is a literal."""
+    return re.compile("^" + re.escape(pattern).replace("\\*", ".*") + "$")
+
+
+def matches(tool, pattern, value):
+    """One rule pattern against one concrete value, with Claude Code's two documented
+    command-specifier rules.
+
+    Both were missing and both bite on this box's real settings (702 rules, user +
+    managed), which is why they are spelled out here rather than left to a reader:
+
+      1. `Tool(cmd:*)` is an equivalent spelling of `Tool(cmd *)`. **86 rules use the
+         colon form.** Without this normalization they fall through to a prefix test
+         against the literal text `cmd:`, which matches no real command at all -- so 86
+         allow rules were silently inert and this harness over-reported would-prompt.
+      2. A trailing `*` preceded by a space also matches the BARE command, so
+         `Bash(ls *)` matches `ls`. That holds only while the trailing `*` is the rule's
+         ONLY wildcard; a rule with a second `*` does not get the allowance. One rule
+         here is in that second category, few enough to be missed by inspection.
+
+    Kept deliberately parallel to modules/AgentFlow/PermissionRules.cs, which is the
+    shipping copy, and to permission-wildcarding/src/permission-match.js, which is the
+    original. Three copies of one matcher drift; changing one means changing all three.
+    """
+    if tool in _COMMAND_TOOLS and pattern.endswith(":*"):
+        pattern = pattern[:-2] + " *"
     if pattern == "*" or pattern == "":
         return True
-    if pattern.endswith(" *"):                  # Bash(git *) -> prefix family
+    if (tool in _COMMAND_TOOLS and pattern.count("*") == 1
+            and pattern.endswith(" *")):
         head = pattern[:-2]
         return value == head or value.startswith(head + " ")
-    if pattern.endswith("*"):                   # Bash(npm run test:*)
-        return value.startswith(pattern[:-1])
-    if any(ch in pattern for ch in "*?["):      # Edit(**/*.ps1)
-        return fnmatch.fnmatch(value, pattern)
-    return value == pattern
+    return bool(_compiled(pattern).match(value))
 
 
 def verdict_for(tool, value, buckets):
@@ -351,7 +379,7 @@ def verdict_for(tool, value, buckets):
     for key, result in (("deny", WOULD_DENY), ("ask", WOULD_PROMPT),
                         ("allow", WOULD_ALLOW)):
         for pattern in buckets[key].get(tool, ()):
-            if matches(pattern, value):
+            if matches(tool, pattern, value):
                 return result
     return WOULD_PROMPT
 
