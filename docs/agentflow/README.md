@@ -73,6 +73,143 @@ predicting anything: 8,684 predictions, 8 real prompts.
 way the MAX card refuses and explains instead of quietly settling for something weaker. Auto mode
 prompts on 0.04% of calls; there is genuinely almost nothing to do.
 
+**Gap in the harness, found 2026-09-17: `agentflow_join.py` never reads `permissionMode`.** The
+mode split in the table above was attributed by hand in the session that produced it, so the
+headline finding of this whole document is not currently reproducible from the committed harness.
+Measured while fixing that: `permissionMode` rides on `type: "user"` records (702 of them across the
+60 most recent transcripts) and **not** on tool calls, so attributing a call to a mode means
+carrying the last value forward. A runtime flip emits its own record, `type: "permission-mode"`,
+which is good news for collecting data mid-session — but that record carries **no `timestamp`**
+(its only keys are `permissionMode`, `sessionId`, `type`), so the carry-forward has to be
+positional, by file order. Any implementation that sorts records by timestamp first will drop the
+mode changes on the floor. Same survey, for scale: `auto` 671, `acceptEdits` 26, `default` 6,
+`plan` 3. Six default-mode turns in sixty transcripts is the entire default-mode corpus on this box.
+
+### Process CPU is the wrong unit; the process TREE is the right one
+
+Listed as an untried discriminator since 2026-09-16 and measured 2026-09-17. The idea: an agent at
+a prompt computes nothing while a build does, it costs nothing to sample, it works while the host is
+occluded or minimised, and — unlike everything built on the rule files — it does not care what
+permission mode the session is in, so it is the one candidate that does not inherit the
+default-mode ceiling above.
+
+**Measuring the agent process would have measured nothing, and this was nearly the shape of the
+experiment.** On this box a Bash tool call spawns `bash.exe` as a *child* of `claude.exe`; the child
+burns the CPU while the agent process waits on a pipe. So bare process CPU is near zero for a build
+*and* for a prompt, collapsing the exact distinction it was supposed to draw. `agentflow_cpu.py
+--verify` measures both units against a child burning one full core:
+
+```
+  tree    0.990 cores busy over 3.0s
+  process 0.005 cores busy over 3.0s
+```
+
+Two hundred to one. The tree is the unit: agent plus descendants, idle tree means waiting on a human
+or on the model, busy tree means working. That check is the harness's own witness, and it exists
+because an all-zero run is otherwise indistinguishable from a sampler that cannot open a handle or
+picked the wrong root. Five mutations fired against it, including a straight regression to the
+arithmetic below.
+
+**Concurrency is the objection to answer, and per-tree sampling is what answers it.** The
+maintainer normally runs 3–5 sessions at once, which would make a machine-wide CPU reading useless:
+the box is busy nearly always, and "busy" says nothing about which session is stuck. Measured
+2026-09-17 with four agents live (three `claude.exe`, one `codex.exe`), one 4-second window:
+
+```
+claude.exe pid=12480   19.645 cores
+claude.exe pid=40804    0.444 cores
+claude.exe pid=42252    0.082 cores
+codex.exe  pid=46536    0.342 cores
+```
+
+A factor of 240 between the busiest and quietest tree while the machine as a whole was saturated. A
+pid has exactly one parent, so trees cannot double-count, and the same sweep found only **0.012
+cores** of agent-shaped work (`node`, `python`, `bash`, `pwsh`, `dotnet`, `msbuild`) living outside
+every agent tree — so MCP servers and tool children are inside the tree that owns them, and almost
+nothing leaks. One caveat left open rather than claimed: a *working* tree that is merely starved by
+a saturated box would also read low. It did not happen here (the quiet trees sat at 0.08–0.44 while
+another burned 19.6), which contradicts the concern without settling it.
+
+**The consequence of concurrency is that attribution stops being optional.** With 3–5 sessions
+live, a signal you cannot attribute to a session is worth nothing at all, and only two of the three
+`claude.exe` processes above could be attributed. So the fresh-session gap below is not an edge
+case on this box; it is the common case, and it is the blocker on this discriminator rather than a
+documented limitation.
+
+**Attribution is UNSOLVED, and it is the blocker.** Three methods were tried on 2026-09-17 and the
+section below records each one's outcome, because two of them are the obvious ideas and both cost
+an hour to rediscover.
+
+`claude.exe` carries `--resume=<session-id>` on its command line and that id *is* the transcript
+filename, which looks exact and is the best available. Treat it as probably-right-but-unverified
+rather than exact: a command line is **launch state**, the same property that makes
+`--permission-mode` there useless, so it would go stale if a panel can be handed a new session
+without relaunching. Not demonstrated either way (one root matched its transcript 5/5 on activity),
+so this is a known unknown, not a known fault. Two limits beyond that, both observed:
+
+- a **fresh** session has no `--resume=` yet, so its tree cannot be attributed this way and reports
+  session `?`. Confirmed live: the session that wrote this file was pid 42252 with no `--resume`.
+
+  **Asking which transcript the process holds open does NOT work, measured 2026-09-17.**
+  `handle.exe -p 42252` lists 20 handles for that process and not one `.jsonl` among them: the agent
+  appends to the transcript and closes it rather than keeping it open. The tool had the rights it
+  needed (it enumerated the process fine), so this is a real negative and not the unelevated-read
+  mistake it resembles. Worth recording because the idea is the obvious one and it costs an hour to
+  rediscover.
+
+  **`cwd` does not disambiguate either.** Three sessions were live in one VS Code workspace
+  (`D:\.ai-work`), so they share one `~/.claude/projects` slug, and the only directory handles the
+  process holds are the workspace root and `.claude`. The `cwd` inside a transcript is the *tool*
+  cwd and drifts as the agent moves around: the session writing this file recorded
+  `...\docs\agentflow` because it had `cd`'d there, not its project.
+
+  **Process creation time does not work.** A fresh session's transcript is created when the first
+  message is sent, and the process starts when the panel opens, so the gap between them is however
+  long the user took to type. Ruled out before building it.
+
+  **Activity alignment is built, and it is NOT reliable — this is the current state.** The signal:
+  a tool call runs in a child of the agent process, so a child's creation time and the transcript's
+  `tool_use` timestamp are one event seen from two sides, which (unlike process creation) is
+  emitted repeatedly by the agent's own work. `agentflow_cpu.py --attribute` implements it and
+  `--validate` grades it against the `--resume` ids with the sampler's own session excluded, since
+  that one is attributed trivially by the sampler being its own tool child.
+
+  **It was never wrong, and its coverage flipped between two consecutive 25-second runs.** First
+  run: pid 40804 → `ca52f58a` correct 7/24, pid 12480 abstained with 0 alignment. Second run: pid
+  12480 → `de425e11` correct 5/5, pid 40804 abstained on a 2-2 tie. Same machine, same code, four
+  minutes apart, **0 WRONG across all four gradings**. So the refusal discipline held and the
+  failure is coverage, not correctness: it answers only for whichever session happened to be
+  running tools inside the window, which on this box is roughly half of them and a different half
+  each time. A detector that can name the blocked session half the time, unpredictably, is not yet
+  a detector — but it is failing safe, which is the half that is harder to add later.
+
+  Two confounds behind that. Only **one** transcript emitted a tool call during the observation, so
+  there was nothing to discriminate against and a hit count of 5/5 with runner-up 0 is arithmetic,
+  not evidence — the degenerate-axis failure this project has already recorded once. And a direct
+  child of `claude.exe` is **not always a tool call**: this box has a `PostToolUse` hook registered,
+  and hooks plus internal shell-outs spawn children with no `tool_use` record at all.
+
+  `--validate` therefore counts how many transcripts were busy *during* its own observation window
+  and prints `DEGRADED` and `NOT A PASS` when fewer than two were, on every run. That guard is
+  load-bearing rather than decorative: disabling it turns the refusal into `exit 0`, `1 correct,
+  0 WRONG`. It also prints, every run, that its ground truth is launch state and so a disagreement
+  is ambiguous between a bad matcher and stale truth.
+
+  **What this means for the discriminator.** Per-tree CPU separates cleanly (240x, above) and is
+  worth nothing until a tree can be named, so attribution is now the whole problem. The next
+  candidate is to stop inferring identity and read it: correlate over a long window instead of a
+  25-second one, and require agreement across several disjoint windows before accepting a mapping,
+  which converts an unstable single measurement into a stable one or reports `?` forever. If that
+  fails too, the honest fallback is to attribute only sessions carrying `--resume` and drop the
+  rest, accepting the recall loss.
+- `--permission-mode` on that same command line is the **launch** mode. It does not change when the
+  mode is flipped at runtime, so it must never be read as the current mode.
+
+**Do not sample the agent that is driving the sampler.** The launching tool call stays an unpaired
+`tool_use` for the whole run, so that session reports `pending=1` for every sample of its own
+collection and sits in the "outstanding" bucket throughout. Run it detached, or point it at another
+session.
+
 ### Answering a prompt requires a classifier, and it is the safety mechanism
 
 The Claude Code webview bundle ships **ten** distinct strings beginning with "Yes", and only three
@@ -340,7 +477,7 @@ cycles, and the `consecutiveErrors > 5` branch only logs.
 
 ## The harnesses
 
-All four are standalone Python 3, no dependencies, read-only. They print tool names, counts and
+All five are standalone Python 3, no dependencies, read-only. They print tool names, counts and
 durations — never command arguments, never tool output, never a path or prompt text out of a
 transcript. Any production code has to hold the same line, especially out of the diagnostic log.
 
@@ -350,13 +487,20 @@ transcript. Any production code has to hold the same line, especially out of the
 | `agentflow_backtest.py` | Does wait time alone separate prompts from slow tools? | `python agentflow_backtest.py --files 120` |
 | `agentflow_join.py` | Does knowing the permission rules kill the false alarms? | `python agentflow_join.py --files 120` |
 | `agentflow_classifier.py` | Which prompt option is safe to press? | `python agentflow_classifier.py --selftest \| --audit \| --mutate` |
+| `agentflow_cpu.py` | Does agent CPU separate blocked from working? | `python agentflow_cpu.py --verify \| --attribute \| --validate \| --interval 2 --count 20 --csv out.csv \| --report out.csv` |
+
+`agentflow_cpu.py --verify` is the only one of the five that can be run with no agent present and
+no data: it proves its own measurement mechanism. `--validate` needs at least two sessions running
+tools concurrently and says `DEGRADED` when it does not have them. `--attribute` reports `?` for
+Codex roots by design rather than scoring them against Claude transcripts, which would be a
+mis-attribution path; Codex needs its own candidate index.
 
 `--audit` re-derives the option set from whatever agent bundle is installed and fails if the table
 cannot classify one of them. `--mutate` breaks the classifier five ways and proves the self-test
 catches each; a clean run with no mutation firing means the suite is blind, not that the code is
 good. Current state: 25/25 self-test, audit clean, 5/5 mutations fired.
 
-### Two defects these found that would otherwise have shipped
+### Three defects these found that would otherwise have shipped
 
 **Single-newest-transcript tracking is wrong.** The probe originally watched only the most recently
 modified transcript. With two sessions live it flipped between them every poll, attributed one
@@ -372,6 +516,18 @@ window edge — meaning the row was not fully read. The original assertion deman
 would have pressed a half-read option. Kept as a witness test, because the tempting fix is to add a
 bare exact entry.
 
+**Differencing tree CPU totals across samples yields NEGATIVE CPU.** The first live run of
+`agentflow_cpu.py` printed `cores=-5.9000`. A tree's membership changes constantly while an agent
+runs tool calls, and a child that exits between two samples takes its accumulated CPU out of the
+sum, so the difference of two totals goes negative. The negative is the *harmless* half, because it
+is visibly wrong. The silent half is that the same mechanism **understates a busy tree** whenever
+any child exits mid-interval, making a working agent look idle — and "looks idle" is exactly what
+this harness would read as blocked, so the quiet form of the bug manufactures the false alarms the
+experiment exists to eliminate. Fixed by summing per-pid deltas, which are monotonic, and by
+counting vanished pids onto every row so the unmeasurable slice a dead child took with it is
+visible instead of passing as a clean sample. The regression is a mutation in the suite: reverting
+to total-differencing returns −450 for a case whose true answer is 50.
+
 ---
 
 ## Next step
@@ -384,8 +540,21 @@ Two other things are known-incomplete. The compound-command splitter in `agentfl
 naive — it does not handle a bare `&`, and a `;` inside quotes splits wrongly — which caused most
 of the recall failure (misses clustered on roots `echo`, `cd` and `&`). A correct splitter exists
 already in the sibling `permission-wildcarding` project and should be reused rather than rewritten.
-And process CPU was never tested as a discriminator: an agent at a prompt is near 0% while a build
-is not, it is free, and it works occluded and minimised.
+Process CPU is no longer untried: `agentflow_cpu.py` exists, the mechanism is verified, and the
+unit turned out to be the process **tree** rather than the process (see above). What it has not
+done yet is produce a separation number, because that needs samples taken alongside labelled
+prompts, which is the same default-mode hour.
+
+**What must exist before the hour, and what must not hold it up.** Only the live signal is
+perishable. Transcripts persist under `~/.claude/projects`, so the join, the mode attribution and
+the splitter can all be fixed *after* the data is generated and rerun over the same files as often
+as needed — the default-mode hour does not wait on any of them. CPU samples are the opposite: they
+exist only if something was sampling at the time, and they are worthless unattributed, so
+`agentflow_cpu.py` plus the fresh-session matcher must both be working *during* that hour.
+
+Also worth separating: the hour should be **ordinary work in default mode**, not a session spent
+building this tooling. The join measures how often the permission rules predict a real prompt, and
+the tool mix of a session writing Python harnesses is not the mix that question is about.
 
 On the answering side, the prior-art review turned up four actuation channels, none of which needs
 the window focused or raised. Terminal Shell Integration reaches an agent in a VS Code terminal and
