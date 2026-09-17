@@ -2105,11 +2105,20 @@ namespace DesktopAICompanion.Ai
         }
 
         /// <summary>
-        /// Diagnostic (`--fortunecache-selftest`): proves the writable-folder cache reflects add / edit
-        /// / remove without a restart (i.e. the directory fingerprint invalidates correctly). Requires
-        /// an isolated DESKTOP_AI_COMPANION_DATA_ROOT so it only ever writes throwaway files.
+        /// Proves the writable-folder cache reflects add / edit / remove without a restart -- i.e.
+        /// that the directory fingerprint invalidates correctly. Called by the host's
+        /// `--fortunes-selftest`, which runs the module against throwaway storage, so `CustomDir`
+        /// resolves inside that scratch folder.
+        ///
+        /// It used to require `DESKTOP_AI_COMPANION_DATA_ROOT` to be set "so it only ever writes
+        /// throwaway files". That guard was left behind by the S3d relocation and protected
+        /// nothing: the engine stopped resolving from the app data root when it moved into the
+        /// module, and now takes its root from `FortunePaths.SetRoot`, which the module sets from
+        /// its own storage. The env var could be set or unset without changing one byte of where
+        /// this writes. What it protected against -- clobbering a real file -- is checked directly
+        /// below instead, because that check can actually fail.
         /// </summary>
-        public static bool CustomCacheSelfTest()
+        public static bool CustomCacheSelfTest(out string detail)
         {
             var sb = new StringBuilder();
             bool ok = true;
@@ -2117,17 +2126,20 @@ namespace DesktopAICompanion.Ai
             string file = null;
             try
             {
-                string root = Environment.GetEnvironmentVariable("DESKTOP_AI_COMPANION_DATA_ROOT");
-                if (string.IsNullOrWhiteSpace(root))
-                {
-                    sb.AppendLine("FAIL: DESKTOP_AI_COMPANION_DATA_ROOT must be set (isolated root).");
-                    return FinishCacheTest(sb, false);
-                }
                 string dir = CustomDir;
                 Directory.CreateDirectory(dir);
                 file = Path.Combine(dir, id + ".txt");
                 var utf8 = new UTF8Encoding(false);
 
+                if (File.Exists(file))
+                {
+                    // Refuse rather than proceed: the next steps overwrite this file and then delete
+                    // it. The assertion below would notice, and then continue anyway.
+                    sb.AppendLine("FAIL: " + id + ".txt already exists in " + dir
+                                  + " -- refusing to overwrite a real file.");
+                    detail = FinishCacheTest(sb);
+                    return false;
+                }
                 ok &= CacheCheck(sb, "source absent before any file", SourceCount(id) == 0);
 
                 File.WriteAllText(file, "cache test alpha\ncache test bravo\ncache test charlie\n", utf8);
@@ -2145,7 +2157,9 @@ namespace DesktopAICompanion.Ai
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
             finally { try { if (file != null && File.Exists(file)) File.Delete(file); } catch { } }
-            return FinishCacheTest(sb, ok);
+            sb.AppendLine(ok ? "RESULT=PASS" : "RESULT=FAIL");
+            detail = FinishCacheTest(sb);
+            return ok;
         }
 
         private static int SourceCount(string id)
@@ -2155,12 +2169,11 @@ namespace DesktopAICompanion.Ai
             return 0;
         }
         private static bool CacheCheck(StringBuilder sb, string name, bool cond) { sb.AppendLine((cond ? "PASS: " : "FAIL: ") + name); return cond; }
-        private static bool FinishCacheTest(StringBuilder sb, bool ok)
-        {
-            sb.AppendLine(ok ? "RESULT=PASS" : "RESULT=FAIL");
-            try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "dp-fortunecache-selftest.txt"), sb.ToString()); } catch { }
-            return ok;
-        }
+
+        // No longer writes %TEMP%\dp-fortunecache-selftest.txt. The caller is the host's
+        // --fortunes-selftest, whose own marker the gate already reads; a second marker nobody
+        // reads is the failure mode seven other self-tests were just cured of.
+        private static string FinishCacheTest(StringBuilder sb) { return sb.ToString(); }
     }
 
     /// <summary>A delivery genre as shown in the picker (aggregate over its entries).</summary>

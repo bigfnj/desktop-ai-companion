@@ -69,6 +69,27 @@ namespace DesktopAICompanion.Plugins
                     sb.AppendLine("  fortune universe: " + packSet.Count + " lines (" + corpusLines + " from the built-in corpus)");
                     ok &= Check(sb, "the built-in corpus reached the pool", corpusLines > 0);
 
+                    // The welcome corpus is a SECOND embedded payload, loaded separately from the
+                    // fortunes corpus above, and until 2026-09-17 nothing asserted it arrived. The
+                    // assertion below it -- "welcome speaks + is personalized" -- passes on a corpus
+                    // of one, and would pass on a corpus of zero if the module ever gained a
+                    // hardcoded fallback line. A missing or unparseable welcome.json is a
+                    // shipped-payload failure, which is exactly what `WelcomeCorpusCount()` was
+                    // built for and has never been called from.
+                    int welcomeLines = WelcomeCorpusCount(fortunesModule);
+                    sb.AppendLine("  welcome corpus: " + welcomeLines + " lines");
+                    // A floor, not the exact 116: adding lines must not fail the gate. 100 is close
+                    // enough that losing the payload, or loading a truncated one, still fails.
+                    ok &= Check(sb, "the embedded welcome corpus loaded (>= 100 lines)", welcomeLines >= 100);
+
+                    // The writable-folder cache: add / edit / remove must each be reflected without a
+                    // restart. Only the ADD half is covered elsewhere ("a downloaded pack joins the
+                    // live pool without a restart", further down); edit and remove had no coverage at
+                    // all. It runs here rather than under --fortunes-engine-selftest because this is
+                    // the self-test that points the engine at throwaway storage, so CustomDir lands
+                    // in the scratch folder instead of the user's real fortunes directory.
+                    ok &= RunCustomCacheSelfTest(sb, fortunesModule);
+
                     // Wiring: the module owns the fortune triggers now.
                     ok &= Check(sb, "subscribed to CompanionSpawned (welcome)", host.SpawnedHasSubs);
                     ok &= Check(sb, "subscribed to CompanionLanded", host.LandedHasSubs);
@@ -328,6 +349,53 @@ namespace DesktopAICompanion.Plugins
                 return lines.Length;
             }
             catch { return 0; }
+        }
+
+        /// <summary>How many welcome lines the module loaded, by reflection. -1 when the hook is gone,
+        /// which fails the floor rather than reading as an empty corpus.</summary>
+        private static int WelcomeCorpusCount(object fortunesModule)
+        {
+            if (fortunesModule == null) return -1;
+            try
+            {
+                System.Reflection.MethodInfo count =
+                    fortunesModule.GetType().GetMethod("WelcomeCorpusCount", new Type[0]);
+                if (count == null) return -1;
+                object value = count.Invoke(fortunesModule, null);
+                return value is int ? (int)value : -1;
+            }
+            catch { return -1; }
+        }
+
+        /// <summary>
+        /// Invoke the module's own custom-corpus cache check inside its load context and fold its
+        /// individual assertions into this report. The exceptions are NOT swallowed into a pass:
+        /// a probe that has gone missing or throws fails here.
+        /// </summary>
+        private static bool RunCustomCacheSelfTest(StringBuilder sb, object fortunesModule)
+        {
+            if (fortunesModule == null) return Check(sb, "custom-corpus cache: module available", false);
+            Type probe = fortunesModule.GetType().Assembly
+                .GetType("DesktopAICompanion.FortunesModule.FortuneEngineProbe");
+            System.Reflection.MethodInfo run = probe != null
+                ? probe.GetMethod("CustomCacheSelfTest",
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+                : null;
+            if (!Check(sb, "module exposes FortuneEngineProbe.CustomCacheSelfTest", run != null))
+                return false;
+
+            var args = new object[] { null };
+            bool cacheOk = false;
+            try { cacheOk = (bool)run.Invoke(null, args); }
+            catch (Exception ex)
+            {
+                sb.AppendLine("  CustomCacheSelfTest threw: " + ex.GetType().Name + ": " + ex.Message);
+            }
+            string detail = args[0] as string;
+            if (!string.IsNullOrEmpty(detail))
+                foreach (string line in detail.Replace("\r", "").Split('\n'))
+                    if (line.Length > 0) sb.AppendLine("    " + line);
+            return Check(sb, "the custom-corpus cache reflects add/edit/remove without a restart", cacheOk);
         }
 
         private static bool Check(StringBuilder sb, string name, bool cond) { sb.AppendLine((cond ? "PASS: " : "FAIL: ") + name); return cond; }

@@ -54,10 +54,27 @@ Desktop AI Companion ships **unsigned** Windows x64 builds. To cut a release:
    check covering a module's own HWNDs, Bitmaps and decoded sprites. It compares the LAST segment against the
    previous one rather than against a cold start, because the first pass legitimately sets a high private-byte
    watermark while a sprite sheet decodes. Record these numbers too.
-5. **Walk the live smoke script** below. Everything above is a self-test: it proves invariants, not that the
+5. **Re-run the mutation harnesses if any assertion or guard changed since the last release.** They are
+   the only thing that distinguishes a passing gate from a gate that cannot fail, and none of them runs
+   in CI (each rebuilds the tree several times and edits source in place, so a shared runner is the wrong
+   place for them):
+
+   | harness | proves | expect |
+   |---|---|---|
+   | [`tests/mutate-agentflow.py`](../tests/mutate-agentflow.py) | `--module-selftest=agentflow` is not a rubber stamp | `23/23 fired.` |
+   | [`tests/mutate-selftest-guards.py`](../tests/mutate-selftest-guards.py) | the host self-test assertions that were previously unfailable | `4/4 fired.` |
+   | [`tests/mutate-hardening-guards.py`](../tests/mutate-hardening-guards.py) | the source invariants in `runtime-hardening-selftest.ps1` | all fired |
+   | [`tests/mutate-diagnostics.py`](../tests/mutate-diagnostics.py) | the diagnostic-log guards | `14/14 fired.` |
+
+   A clean `0/N fired` is a red flag and never a result — it usually means the harness rebuilt the wrong
+   project, which is why each case names its own csproj and asserts the artifact's timestamp advanced.
+   Three of these four had **zero inbound references from anywhere in the repo** until 2026-09-17, which is
+   how `tests/runtime-resource-soak.ps1` once got deleted as "an unreferenced script" three hours after CI
+   stopped calling it, leaving the only leak gate unrunnable. This table is the reference.
+6. **Walk the live smoke script** below. Everything above is a self-test: it proves invariants, not that the
    app still works. This is the class of check that caught the S6p2 UI, a stale install being debugged as if
    it were current, and the OCR mojibake — none of which any automated gate noticed.
-6. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+7. Tag and push: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 
 ## Live smoke script
 

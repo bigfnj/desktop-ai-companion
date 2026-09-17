@@ -29,6 +29,18 @@ namespace DesktopAICompanion.FortunesModule
             return texts.ToArray();
         }
 
+        /// <summary>
+        /// The writable-folder cache check, across the ALC boundary. It has to run INSIDE the module
+        /// because it exercises `FortuneProvider`'s static cache against the live `CustomDir`, and
+        /// the caller must already have pointed the engine at throwaway storage -- which
+        /// `--fortunes-selftest` does and `--fortunes-engine-selftest` does not, so only the former
+        /// calls this.
+        /// </summary>
+        public static bool CustomCacheSelfTest(out string detail)
+        {
+            return FortuneProvider.CustomCacheSelfTest(out detail);
+        }
+
         public static bool Run(out string detail)
         {
             var sb = new StringBuilder();
