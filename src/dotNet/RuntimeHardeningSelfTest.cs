@@ -265,6 +265,12 @@ namespace DesktopAICompanion
                     Check(name, inner is InvalidDataException);
                 }
             }
+            RemoteCatalog OneEntryCatalog(string id)
+            {
+                var catalog = new RemoteCatalog();
+                catalog.Pets.Add(new CatalogCompanion { Id = id, Name = id, Sha256 = new string('0', 64) });
+                return catalog;
+            }
             // The counterpart CheckRejects always needed and never had. Without it the only way to
             // assert "this input is accepted" was to invoke and then Check(name, true) -- a literal
             // true, which prints PASS forever even if the invocation above it is deleted. The
@@ -978,6 +984,93 @@ namespace DesktopAICompanion
                     CompanionProvenance.Classify(A, "", "") == CompanionFreshness.UpToDate);
                 Check("freshness: hashes compare case- and whitespace-insensitively",
                     CompanionProvenance.Classify(" AAAA ", "aaaa", "") == CompanionFreshness.UpToDate);
+
+                // ...and the COMPOSITION the panes and the weekly check actually call, which the pure
+                // table above cannot reach. CompanionProvenance.StaleInstalled walks the writable
+                // library, classifies each catalog pet once, and returns the stale ones WITH the
+                // classification -- so the Pets pane can describe a card without hashing the file a
+                // second time. Added 2026-09-17 with that refactor, because the only evidence it
+                // worked was the live log line "every installed pet is current", which is a line that
+                // cannot fail: a function returning an empty set logs identically to a correct one on
+                // a machine where nothing is stale, and the failure mode is silently never offering a
+                // pet update again (regression watchlist #12, which already shipped once).
+                //
+                // Both directions in one run, against the REAL library, read-only: a deliberately
+                // wrong catalog hash must come back stale, and the file's true hash must not. One
+                // without the other is degenerate -- "returns nothing" passes the negative alone, and
+                // "returns everything" passes the positive alone.
+                // The probe pet is CREATED here rather than borrowed from whatever the machine happens
+                // to have installed. Reading an existing companion made this DEGRADED on every clean
+                // machine and in CI -- which is where a check has to work -- and it made the result
+                // depend on the tester's library. A fixed id, not a guid: a leftover after a crash is
+                // then always the same single directory, and the next run removes it.
+                const string probeId = "dp-freshness-probe";
+                string probeDirectory = Path.Combine(AppPaths.LibraryPetsDirectory, probeId);
+                string probeXml = Path.Combine(probeDirectory, "animations.xml");
+                bool probeReady = false;
+                try
+                {
+                    if (Directory.Exists(probeDirectory)) Directory.Delete(probeDirectory, true);
+                    Directory.CreateDirectory(probeDirectory);
+                    File.WriteAllText(probeXml, "<!-- freshness probe, written and removed by --hardening-selftest -->");
+                    probeReady = File.Exists(probeXml);
+                }
+                catch (Exception ex)
+                {
+                    sb.AppendLine("NOTE: could not create the freshness probe: "
+                                  + ex.GetType().Name + ": " + ex.Message);
+                }
+
+                if (!probeReady)
+                {
+                    // DEGRADED, said out loud on every run, never a silent skip. It is not a FAIL
+                    // because an unwritable library is a legitimate state, but a reader must be able to
+                    // tell a run that checked this from a run that could not.
+                    sb.AppendLine("DEGRADED: the writable library could not be written, so the "
+                                  + "stale-companion composition was NOT exercised "
+                                  + "(StaleInstalled / StaleInstalledIds)");
+                }
+                else
+                try
+                {
+                    string trueHash = CompanionProvenance.HashFile(probeXml);
+
+                    var wrongCatalog = new RemoteCatalog();
+                    wrongCatalog.Pets.Add(new CatalogCompanion { Id = probeId, Name = probeId, Sha256 = new string('0', 64) });
+                    System.Collections.Generic.Dictionary<string, CompanionFreshness> wrongStale =
+                        CompanionProvenance.StaleInstalled(wrongCatalog);
+                    Check("freshness: an installed companion the catalog disagrees with comes back stale ("
+                          + probeId + ")",
+                        wrongStale.ContainsKey(probeId) && CompanionProvenance.IsStale(wrongStale[probeId]));
+                    // The ids helper is now expressed in terms of the same walk, so the weekly check
+                    // and the pane cannot disagree about what stale means. That is the whole reason it
+                    // was not left as two loops.
+                    System.Collections.Generic.List<string> wrongIds =
+                        CompanionProvenance.StaleInstalledIds(wrongCatalog);
+                    Check("freshness: StaleInstalledIds names exactly the set StaleInstalled classified",
+                        wrongIds.Count == wrongStale.Count && wrongIds.Contains(probeId));
+
+                    var trueCatalog = new RemoteCatalog();
+                    trueCatalog.Pets.Add(new CatalogCompanion { Id = probeId, Name = probeId, Sha256 = trueHash });
+                    Check("freshness: ...while the file's own hash is NOT offered as an update",
+                        !CompanionProvenance.StaleInstalled(trueCatalog).ContainsKey(probeId)
+                        && CompanionProvenance.StaleInstalledIds(trueCatalog).Count == 0);
+                    Check("freshness: a catalog listing an id that is not in the library yields nothing",
+                        CompanionProvenance.StaleInstalled(OneEntryCatalog("dp-not-installed-" + probeId)).Count == 0);
+                }
+                finally
+                {
+                    // Live verification data does not get left behind. The delete is asserted rather
+                    // than hoped for, because a probe companion abandoned in the user's library would
+                    // show up in their Companions pane as a pet they never installed.
+                    try { if (Directory.Exists(probeDirectory)) Directory.Delete(probeDirectory, true); }
+                    catch (Exception ex)
+                    {
+                        sb.AppendLine("NOTE: probe cleanup threw " + ex.GetType().Name + ": " + ex.Message);
+                    }
+                    Check("freshness: the probe companion was removed from the library",
+                        !Directory.Exists(probeDirectory));
+                }
 
                 Check("freshness: exactly the three differing states are offered as updates",
                     CompanionProvenance.IsStale(CompanionFreshness.UpdateAvailable) &&

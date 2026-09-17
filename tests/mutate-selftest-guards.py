@@ -36,6 +36,7 @@ HARD = os.path.join(REPO, "src", "dotNet", "RuntimeHardeningSelfTest.cs")
 HOST = os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs")
 FORTUNES_MODULE = os.path.join(REPO, "modules", "Fortunes", "FortunesModule.cs")
 FORTUNE_PROVIDER = os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneProvider.cs")
+FRESHNESS = os.path.join(REPO, "src", "dotNet", "CompanionFreshness.cs")
 
 TEMP = os.environ.get("TEMP", ".")
 
@@ -77,6 +78,30 @@ CASES = (
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--fortunes-selftest", "dp-fortunes-selftest.txt",
      "custom-corpus cache reflects add/edit/remove"),
+
+    # The stale-companion composition, both directions. One mutation each, because a check that only
+    # asserts the positive passes on a function that returns EVERYTHING, and one that only asserts
+    # the negative passes on a function that returns NOTHING -- and "returns nothing" is the actual
+    # failure mode here: it silently stops offering companion updates for ever, which is regression
+    # watchlist #12 and has shipped once already.
+    #
+    # Neither mutation uses `if (false)`, which would be unreachable code and fail the build under
+    # src/'s warnings-as-errors: a BROKEN verdict proves nothing about the assertion.
+    ("no installed companion is ever classified as stale",
+     FRESHNESS,
+     b"                if (IsStale(freshness)) stale[pet.Id] = freshness;",
+     b"                if (freshness == CompanionFreshness.NotInstalled) stale[pet.Id] = freshness;",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "the catalog disagrees with comes back stale"),
+
+    ("every installed companion is classified as stale",
+     FRESHNESS,
+     b"                if (IsStale(freshness)) stale[pet.Id] = freshness;",
+     b"                if (freshness != CompanionFreshness.NotInstalled) stale[pet.Id] = freshness;",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "own hash is NOT offered as an update"),
 )
 
 BASELINES = (
