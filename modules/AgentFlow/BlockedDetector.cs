@@ -14,10 +14,12 @@ namespace DesktopAICompanion.AgentFlow
         StalledButAllowed = 2,
         /// <summary>Stalled AND the rules say it would prompt. This is a notification.</summary>
         Blocked = 3,
-        /// <summary>Auto mode: the rules do not predict prompts here, so stand down.</summary>
+        /// <summary>Not `default` mode: the rules do not predict prompts usefully, so stand down.</summary>
         StoodDownAutoMode = 4,
         /// <summary>The transcript parsed but held no tool calls at all -- adapter may be stale.</summary>
         AdapterSuspect = 5,
+        /// <summary>Stalled, but the call carries nothing the permission rules can address.</summary>
+        NotDecidable = 6,
     }
 
     /// <summary>One detector verdict about one session.</summary>
@@ -66,7 +68,24 @@ namespace DesktopAICompanion.AgentFlow
         /// caught well before a human would give up, above the 20.3s p90 of ordinary completions.</summary>
         public const double DefaultThresholdSeconds = 30.0;
 
-        public const string ModeAuto = "auto";
+        /// <summary>
+        /// The ONLY mode in which the rule join is worth acting on.
+        ///
+        /// Keyed on `default` rather than on a list of modes to stand down in, and that is the
+        /// correction of a real defect: this used to stand down for `auto` alone, so a session in
+        /// `acceptEdits` fired. Measured precision by mode over 120 transcripts says they are the
+        /// same population:
+        ///
+        ///   auto        6197 predictions, 23 real   0.37%
+        ///   acceptEdits 1448 predictions,  6 real   0.41%
+        ///   plan         291 predictions,  1 real   0.34%
+        ///   default       20 predictions,  0 real   unmeasured, and the whole open question
+        ///
+        /// Roughly 250 false alarms per real prompt in all three. Only `default` is different, and
+        /// an allow-list of one is also the safe shape: a mode nobody has measured yet defaults to
+        /// standing down rather than to firing.
+        /// </summary>
+        public const string ModeDefault = "default";
 
         /// <summary>Evaluate one session. Pure: no clock of its own, no IO, no host calls.</summary>
         public static Detection Evaluate(AgentSession session, RuleSet rules,
@@ -107,10 +126,11 @@ namespace DesktopAICompanion.AgentFlow
             detection.Call = oldest;
 
             string mode = oldest.Mode ?? session.Mode;
-            if (string.Equals(mode, ModeAuto, StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(mode, ModeDefault, StringComparison.OrdinalIgnoreCase))
             {
                 detection.Outcome = DetectionOutcome.StoodDownAutoMode;
-                detection.Reason = "auto mode: rules predict prompts at ~0.4% precision here";
+                detection.Reason = (string.IsNullOrEmpty(mode) ? "unknown" : mode)
+                                   + " mode: rules predict prompts at ~0.4% precision outside default";
                 return detection;
             }
 
@@ -122,12 +142,23 @@ namespace DesktopAICompanion.AgentFlow
                 return detection;
             }
 
-            detection.Verdict = PermissionRules.EvaluateCall(oldest.Tool, oldest.Command, rules);
+            detection.Verdict = PermissionRules.EvaluateCall(
+                oldest.Tool, oldest.Command, oldest.Argument, rules);
             if (detection.Verdict == RuleVerdict.WouldAllow)
             {
                 detection.Outcome = DetectionOutcome.StalledButAllowed;
                 detection.Reason = "stalled " + Format(detection.IdleSeconds)
                                    + " but the rules allow this call, so it is slow, not blocked";
+                return detection;
+            }
+            if (detection.Verdict == RuleVerdict.Undecidable)
+            {
+                // The rules had nothing addressable to judge, so "would prompt" would have been
+                // arithmetic rather than a finding. A long-running Agent call is the live example.
+                detection.Outcome = DetectionOutcome.NotDecidable;
+                detection.Reason = "stalled " + Format(detection.IdleSeconds) + " on "
+                                   + (oldest.Tool ?? "?")
+                                   + ", which carries nothing the permission rules can judge";
                 return detection;
             }
 

@@ -189,11 +189,24 @@ namespace DesktopAICompanion.AgentFlow
         /// separately and the MOST RESTRICTIVE answer wins, because that is what the agent does: a
         /// chain runs unprompted only when every part is allowed.
         /// </summary>
-        public static RuleVerdict EvaluateCall(string tool, string command, RuleSet rules)
+        public static RuleVerdict EvaluateCall(string tool, string command, string argument,
+                                               RuleSet rules)
         {
             if (string.IsNullOrEmpty(tool)) return RuleVerdict.Undecidable;
             if (tool != "Bash" && tool != "PowerShell")
-                return Evaluate(tool + "(" + (command ?? string.Empty) + ")", rules);
+            {
+                // No addressable argument means the rules can only speak to the bare tool name,
+                // and nothing-matched returns WouldPrompt -- so evaluating `Tool()` would report
+                // "would prompt" for every such call regardless of the rule set. That is a verdict
+                // that cannot come out any other way, which is not evidence.
+                //
+                // Found on real data 2026-09-17: three outstanding `Agent` calls, each a subagent
+                // legitimately running for minutes, every one of them reported as a blocked prompt.
+                // On a box that runs 3-5 concurrent agents with subagents, that alone would have
+                // made the feature a nuisance within a minute of being switched on.
+                if (string.IsNullOrEmpty(argument)) return RuleVerdict.Undecidable;
+                return Evaluate(tool + "(" + argument + ")", rules);
+            }
             if (string.IsNullOrEmpty(command) || command.Trim().Length == 0)
                 return RuleVerdict.Undecidable;
 

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -13,6 +13,16 @@ namespace DesktopAICompanion.AgentFlow
         public string Tool;
         /// <summary>The command text, for rule evaluation only. NEVER logged or spoken.</summary>
         public string Command;
+        /// <summary>
+        /// The one argument the permission rules can actually address, for a tool that is not a
+        /// shell: a file path, a URL, a glob. For rule evaluation only; NEVER logged or spoken.
+        ///
+        /// Without this, every non-shell call evaluated as `Tool()` with an empty specifier, which
+        /// matches no rule, and "no rule matched" means PROMPT -- so every outstanding Read, Edit
+        /// or Write read as would-prompt no matter what the rules say. That is a check that cannot
+        /// fail, and it is why this field exists rather than defaulting the specifier to empty.
+        /// </summary>
+        public string Argument;
         public DateTime StartedUtc;
         /// <summary>The permission mode in force when the call was issued.</summary>
         public string Mode;
@@ -229,17 +239,19 @@ namespace DesktopAICompanion.AgentFlow
                         string id = GetString(block, "id");
                         if (string.IsNullOrEmpty(id)) continue;
                         JsonElement input;
-                        string command = null;
+                        string command = null, argument = null;
                         if (block.TryGetProperty("input", out input)
                             && input.ValueKind == JsonValueKind.Object)
                         {
                             command = GetString(input, "command");
+                            argument = FirstAddressable(input);
                         }
                         pending[id] = new OutstandingCall
                         {
                             Id = id,
                             Tool = GetString(block, "name") ?? "?",
                             Command = command,
+                            Argument = argument,
                             StartedUtc = haveWhen ? when : DateTime.UtcNow,
                             Mode = mode,
                         };
@@ -317,6 +329,24 @@ namespace DesktopAICompanion.AgentFlow
             catch (IOException) { session.LastWriteUtc = DateTime.UtcNow; }
             catch (UnauthorizedAccessException) { session.LastWriteUtc = DateTime.UtcNow; }
             return session;
+        }
+
+        // The keys a permission rule can actually address for a non-shell tool, in the order the
+        // measurement harness in docs/agentflow uses. A tool with none of them -- Agent being the
+        // one that matters on this box, since a subagent legitimately runs for minutes -- has
+        // nothing for the rules to say anything about, and must read as UNDECIDABLE rather than as
+        // would-prompt.
+        private static readonly string[] AddressableKeys =
+            { "file_path", "path", "notebook_path", "url", "pattern" };
+
+        private static string FirstAddressable(JsonElement input)
+        {
+            foreach (string key in AddressableKeys)
+            {
+                string value = GetString(input, key);
+                if (!string.IsNullOrEmpty(value)) return value;
+            }
+            return null;
         }
 
         private static bool Contains(string[] values, string candidate)

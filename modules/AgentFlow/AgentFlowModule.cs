@@ -78,6 +78,18 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         private readonly List<ICompanion> _companions = new List<ICompanion>();
 
+        /// <summary>
+        /// Sessions this run has already explained itself about, so the stand-down is stated ONCE
+        /// per session rather than on every poll.
+        ///
+        /// This exists because of what the first run against 764 real transcripts looked like: the
+        /// module correctly said nothing for 45 seconds, and the diagnostic log therefore contained
+        /// nothing either. A working run and a completely broken one were byte-identical. The
+        /// standing rule is that a control which stands down must SAY so, and silence is the one
+        /// outcome that cannot be told apart from failure.
+        /// </summary>
+        private readonly HashSet<string> _explained = new HashSet<string>(StringComparer.Ordinal);
+
         // Written on the UI thread only, read by the tray's DynamicText on the UI thread.
         private string _status = "no agents seen yet";
 
@@ -177,8 +189,18 @@ namespace DesktopAICompanion.AgentFlow
                     new SettingField
                     {
                         Id = SettingWatchCodex,
-                        Label = "Watch Codex",
+                        Label = "Watch Codex (reads it, but cannot act on it yet)",
                         Kind = SettingKind.Bool,
+                        Group = "Which agents",
+                    },
+                    new SettingField
+                    {
+                        Id = "aboutCodex",
+                        Label = "Codex's transcript does not record a permission mode, and AgentFlow "
+                                + "only acts in default mode, so a watched Codex session can only "
+                                + "ever stand down. The reading half works, so this becomes useful "
+                                + "the day that format carries a mode.",
+                        Kind = SettingKind.Info,
                         Group = "Which agents",
                     },
                     new SettingField
@@ -255,6 +277,7 @@ namespace DesktopAICompanion.AgentFlow
                 _host.CompanionSpawned -= _spawnHandler;
             _spawnHandler = null;
             _companions.Clear();
+            _explained.Clear();
             _tickHandler = null;
             _budget = null;
             _ui = null;
@@ -377,6 +400,13 @@ namespace DesktopAICompanion.AgentFlow
                 else if (detection.Outcome == DetectionOutcome.StoodDownAutoMode)
                 {
                     stoodDown++;
+                    Explain(detection, "standing down for session " + Short(detection.Session)
+                                       + ": " + detection.Reason);
+                }
+                else if (detection.Outcome == DetectionOutcome.NotDecidable)
+                {
+                    Explain(detection, "not acting on session " + Short(detection.Session)
+                                       + ": " + detection.Reason);
                 }
                 else if (detection.Outcome == DetectionOutcome.AdapterSuspect)
                 {
@@ -463,6 +493,15 @@ namespace DesktopAICompanion.AgentFlow
                 : session.SessionId.Substring(0, 8);
         }
 
+        /// <summary>Log a per-session explanation once per run. Carries no command text.</summary>
+        private void Explain(Detection detection, string message)
+        {
+            string key = (detection.Session != null ? detection.Session.SessionId : "?")
+                         + "/" + detection.Outcome;
+            if (!_explained.Add(key)) return;
+            Log(message);
+        }
+
         private void PostToUi(Action action)
         {
             SynchronizationContext ui = _ui;
@@ -486,7 +525,19 @@ namespace DesktopAICompanion.AgentFlow
 
         private bool Enabled { get { return _settings == null || _settings.GetBool(SettingEnabled, true); } }
         private bool WatchClaude { get { return _settings == null || _settings.GetBool(SettingWatchClaude, true); } }
-        private bool WatchCodex { get { return _settings == null || _settings.GetBool(SettingWatchCodex, true); } }
+        /// <summary>
+        /// OFF by default, and the reason is not caution. Codex's rollout transcript records no
+        /// permission mode at all, so every Codex session resolves as `unknown`, and the
+        /// stand-down is an allow-list of exactly `default` -- so a watched Codex session can only
+        /// ever stand down. Found against real data 2026-09-17: a live `rollout-` session logged
+        /// "unknown mode: standing down" on every poll.
+        ///
+        /// Leaving it ON by default would ship a switch that cannot do anything, which reads to a
+        /// user as the module being broken rather than as Codex being unsupported. It stays as a
+        /// setting because the reader half genuinely works, so the day Codex's format carries a
+        /// mode this becomes useful without an ABI change.
+        /// </summary>
+        private bool WatchCodex { get { return _settings != null && _settings.GetBool(SettingWatchCodex, false); } }
         private bool Animate { get { return _settings != null && _settings.GetBool(SettingAnimate, false); } }
 
         private double ThresholdSeconds
@@ -861,19 +912,19 @@ namespace DesktopAICompanion.AgentFlow
             rules.Ask.Add("Bash(curl *)");
             rules.Deny.Add("Bash(rm *)");
             probe.Check("allow is allowed",
-                PermissionRules.EvaluateCall("Bash", "echo hello", rules) == RuleVerdict.WouldAllow);
+                PermissionRules.EvaluateCall("Bash", "echo hello", null, rules) == RuleVerdict.WouldAllow);
             probe.Check("ask prompts",
-                PermissionRules.EvaluateCall("Bash", "curl https://x", rules) == RuleVerdict.WouldPrompt);
+                PermissionRules.EvaluateCall("Bash", "curl https://x", null, rules) == RuleVerdict.WouldPrompt);
             probe.Check("deny denies",
-                PermissionRules.EvaluateCall("Bash", "rm x", rules) == RuleVerdict.WouldDeny);
+                PermissionRules.EvaluateCall("Bash", "rm x", null, rules) == RuleVerdict.WouldDeny);
             probe.Check("nothing matched still prompts",
-                PermissionRules.EvaluateCall("Bash", "jq .", rules) == RuleVerdict.WouldPrompt);
+                PermissionRules.EvaluateCall("Bash", "jq .", null, rules) == RuleVerdict.WouldPrompt);
             // WITNESS: the reason the splitter matters to the verdict at all.
             probe.Check("WITNESS the most restrictive part of a chain wins",
-                PermissionRules.EvaluateCall("Bash", "echo a && curl https://x", rules)
+                PermissionRules.EvaluateCall("Bash", "echo a && curl https://x", null, rules)
                     == RuleVerdict.WouldPrompt);
             probe.Check("a VAR=value prefix is stripped before matching",
-                PermissionRules.EvaluateCall("Bash", "FOO=1 echo hello", rules)
+                PermissionRules.EvaluateCall("Bash", "FOO=1 echo hello", null, rules)
                     == RuleVerdict.WouldAllow);
 
             // A managed ask must beat a user allow, which is what the deny/ask/allow ORDER buys.
@@ -881,7 +932,7 @@ namespace DesktopAICompanion.AgentFlow
             ordered.Allow.Add("Bash(curl *)");
             ordered.Ask.Add("Bash(curl *)");
             probe.Check("WITNESS an ask rule beats an allow rule for the same command",
-                PermissionRules.EvaluateCall("Bash", "curl https://x", ordered)
+                PermissionRules.EvaluateCall("Bash", "curl https://x", null, ordered)
                     == RuleVerdict.WouldPrompt);
             return true;
         }
@@ -918,6 +969,62 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("WITNESS auto mode stands down however long it has stalled",
                 BlockedDetector.Evaluate(auto, rules, 30, now).Outcome
                     == DetectionOutcome.StoodDownAutoMode);
+
+            // WITNESS, and it is a defect found on REAL data: this used to key on `auto` alone, so a
+            // session in acceptEdits fired. Measured precision is ~0.4% in auto, acceptEdits AND
+            // plan alike; only `default` differs. The stand-down is now an allow-list of one.
+            foreach (string other in new[] { "acceptEdits", "plan", "bypassPermissions", "" })
+            {
+                AgentSession notDefault = Session(now.AddSeconds(-600), now.AddSeconds(-600),
+                                                  "curl https://x", other);
+                probe.Check("WITNESS '" + (other.Length == 0 ? "<unset>" : other)
+                            + "' mode stands down, not just auto",
+                    BlockedDetector.Evaluate(notDefault, rules, 30, now).Outcome
+                        == DetectionOutcome.StoodDownAutoMode);
+            }
+            probe.Check("...while default mode is still acted on",
+                BlockedDetector.Evaluate(
+                    Session(now.AddSeconds(-600), now.AddSeconds(-600), "curl https://x", "default"),
+                    rules, 30, now).Outcome == DetectionOutcome.Blocked);
+
+            // WITNESS, the second real-data defect. An `Agent` call carries no file path, URL or
+            // glob, so the rules have nothing to address; evaluating `Agent()` returned WouldPrompt
+            // purely because nothing matched, which is a verdict that cannot come out any other way.
+            // Three long-running subagents were reported as blocked prompts on the live machine.
+            var noArgument = new AgentSession
+            {
+                SessionId = "s", SawAnyCall = true, LastWriteUtc = now.AddSeconds(-600),
+                Mode = "default",
+            };
+            noArgument.Outstanding.Add(new OutstandingCall
+            {
+                Id = "c", Tool = "Agent", Command = null, Argument = null,
+                StartedUtc = now.AddSeconds(-600), Mode = "default",
+            });
+            probe.Check("WITNESS a call the rules cannot address is NOT reported as blocked",
+                BlockedDetector.Evaluate(noArgument, rules, 30, now).Outcome
+                    == DetectionOutcome.NotDecidable);
+
+            // ...but a non-shell tool that DOES carry an addressable argument must still be judged,
+            // or the fix above would have quietly disabled every tool except Bash and PowerShell.
+            var withArgument = new AgentSession
+            {
+                SessionId = "s", SawAnyCall = true, LastWriteUtc = now.AddSeconds(-600),
+                Mode = "default",
+            };
+            withArgument.Outstanding.Add(new OutstandingCall
+            {
+                Id = "c", Tool = "Edit", Command = null, Argument = @"D:\repo\x.ps1",
+                StartedUtc = now.AddSeconds(-600), Mode = "default",
+            });
+            probe.Check("WITNESS a tool WITH an addressable argument is still judged",
+                BlockedDetector.Evaluate(withArgument, rules, 30, now).Outcome
+                    == DetectionOutcome.Blocked);
+            var allowEdit = new RuleSet();
+            allowEdit.Allow.Add(@"Edit(D:\repo\x.ps1)");
+            probe.Check("...and an allow rule on that argument suppresses it",
+                BlockedDetector.Evaluate(withArgument, allowEdit, 30, now).Outcome
+                    == DetectionOutcome.StalledButAllowed);
 
             var empty = new AgentSession { SessionId = "x", SawAnyCall = false, LastWriteUtc = now };
             probe.Check("a transcript with no tool calls is suspect, not idle",

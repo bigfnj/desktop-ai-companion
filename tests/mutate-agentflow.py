@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Mutation harness for AgentFlow's self-test. A guard nobody has seen fail is a guess.
 
 Each case below breaks exactly ONE promise the module's self-test asserts, rebuilds the
@@ -109,11 +109,29 @@ CASES = (
         "most restrictive part of a chain wins",
     ),
     (
-        "auto mode no longer stands down",
+        "no mode stands down at all",
         DETECTOR,
-        '            if (string.Equals(mode, ModeAuto, StringComparison.OrdinalIgnoreCase))',
+        '            if (!string.Equals(mode, ModeDefault, StringComparison.OrdinalIgnoreCase))',
         '            if (string.Equals(mode, "never-matches-anything", StringComparison.OrdinalIgnoreCase))',
         "auto mode stands down",
+    ),
+    # The defect found on real data: keying the stand-down on `auto` alone let an acceptEdits
+    # session fire. This mutation reinstates exactly that bug.
+    (
+        "REGRESSION: stand down for auto only, as it used to",
+        DETECTOR,
+        '            if (!string.Equals(mode, ModeDefault, StringComparison.OrdinalIgnoreCase))',
+        '            if (string.Equals(mode, "auto", StringComparison.OrdinalIgnoreCase))',
+        "'acceptEdits' mode stands down",
+    ),
+    # The other real-data defect: a call the rules cannot address reported as would-prompt,
+    # which made every long-running Agent subagent look like a blocked prompt.
+    (
+        "REGRESSION: judge a call with no addressable argument",
+        RULES,
+        '                if (string.IsNullOrEmpty(argument)) return RuleVerdict.Undecidable;',
+        '                if (false) return RuleVerdict.Undecidable;',
+        "a call the rules cannot address is NOT reported as blocked",
     ),
     (
         "an allowed call is reported as blocked",
