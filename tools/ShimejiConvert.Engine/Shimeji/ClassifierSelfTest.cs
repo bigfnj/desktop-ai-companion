@@ -55,6 +55,24 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             if (checkedCount < 12)
                 failures.Add("expected at least 12 classified actions from the fixture, got " + checkedCount);
 
+            // A reason is user-facing: it is what the residue report prints for a degraded or dropped action.
+            // So it must not PROMISE work. Three of these once read "added in Stage 5", naming a plan that
+            // does not exist -- and one of them (the gaze) had already shipped as `faceCursor`, so the report
+            // was describing a delivered capability as pending. The cursor-chase half is parked on a
+            // judgement call and `totalCount` has zero occurrences across the shipping skins, so neither is
+            // scheduled either. Asserted on the CONDITION (no reason contains the phrase) rather than on the
+            // presence of any particular wording, because a check that a sentence exists survives the
+            // sentence becoming false.
+            foreach (ShimejiAction a in config.Actions)
+            {
+                string reason = a.Reason ?? "";
+                foreach (string promise in PendingWorkPromises)
+                {
+                    if (reason.IndexOf(promise, StringComparison.OrdinalIgnoreCase) >= 0)
+                        failures.Add("action '" + a.Name + "' reason promises unscheduled work (\"" + promise + "\"): " + reason);
+                }
+            }
+
             var sb = new StringBuilder();
             sb.AppendLine("classifier self-test: " + checkedCount + " synthetic actions across Group1/2/3");
             if (failures.Count == 0)
@@ -67,6 +85,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             detail = sb.ToString();
             return false;
         }
+
+        /// <summary>Phrasings that turn a residue line into a roadmap. None may appear in a classifier
+        /// reason.</summary>
+        private static readonly string[] PendingWorkPromises =
+        {
+            "added in Stage", "will be added", "coming in Stage", "once Stage"
+        };
 
         // One action per classification branch. Names carry the expected group. Kept minimal and clearly
         // synthetic -- this is our content, not Shimeji's.

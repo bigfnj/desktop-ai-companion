@@ -1191,11 +1191,6 @@ namespace DesktopAICompanion.AiBrainModule
                 Provider = "NOT-A-PROVIDER",
                 LocalBackendKind = "NOT-A-KIND",
                 TimeoutSeconds = int.MaxValue,
-                // The idle-commentary trio used to be clamped here. It is gone: unprompted commentary now
-                // rides the host's global drop schedule, so the module owns no interval of its own. The
-                // remaining int clamps stand in, so this still exercises the Clamp path on more than one field.
-                RandomDropMinutes = int.MaxValue,
-                RandomDropJitterMinutes = -1,
                 DisabledSources = new List<string>()
             };
             for (int i = 0; i < 300; i++)
@@ -1215,9 +1210,17 @@ namespace DesktopAICompanion.AiBrainModule
                 settings.Provider == "" &&
                 settings.LocalBackendKind == "ollama" &&
                 settings.Disposition == Dispositions.DefaultId &&
-                settings.TimeoutSeconds == 600 &&
-                settings.RandomDropMinutes == 9999 &&
-                settings.RandomDropJitterMinutes == 0);
+                settings.TimeoutSeconds == 600);
+
+            // TimeoutSeconds is now the ONLY int AiSettings clamps. The random-drop trio that used to stand
+            // beside it here was orphaned when unprompted commentary moved to the host's global schedule, and
+            // it is deleted rather than kept alive to give this assertion a second field to read. Two fields
+            // through one helper was duplicate coverage; two BOUNDS is not, so the lower bound gets its own
+            // pass -- without it, a Clamp that ignored its minimum would leave every assertion above green.
+            var floorSettings = new AiSettings { TimeoutSeconds = int.MinValue };
+            floorSettings.Normalize();
+            ok &= Check(sb, "AI timeout clamped at its lower bound as well as its upper",
+                floorSettings.TimeoutSeconds == 10);
             ok &= Check(sb, "AI disabled-source list bounded",
                 settings.DisabledSources.Count == 128);
 
@@ -1578,6 +1581,55 @@ namespace DesktopAICompanion.AiBrainModule
                 exact.Length == 512 &&
                 IsWellFormedUtf16(boundary) &&
                 IsWellFormedUtf16(exact));
+
+            // ---- the runaway-emoji guard -------------------------------------------------------------
+            //
+            // Asserted on SYNTHETIC degenerate strings, never by re-running a model. The degeneration is not
+            // reliably reproducible, so a model-driven check would pass on a broken build most of the time,
+            // which is worse than no check. Code points rather than literal emoji so the assertion cannot be
+            // broken by a file re-encoding.
+            string heartEyes = char.ConvertFromUtf32(0x1F970);
+            string smiling = char.ConvertFromUtf32(0x1F60D);
+            string rocket = char.ConvertFromUtf32(0x1F680);
+            string sheep = char.ConvertFromUtf32(0x1F411);
+            string scissors = "\u2702";                        // BMP OtherSymbol: the guard is not astral-only
+            string cjkAstral = char.ConvertFromUtf32(0x2000B);  // astral OtherLetter: must NOT be collapsed
+
+            // The reported shape: a usable remark, then a long emoji tail that filled 485 of 512 characters.
+            // Driven through the whole sanitizer, not just the collapse, so the wiring is asserted too.
+            string degenerate = AiBrain.SanitizeResponseText(
+                "Seems right in the wool. " + rocket + " " + sheep + " " + heartEyes + " " + smiling +
+                " " + heartEyes + " " + smiling + " " + heartEyes + " " + heartEyes + " " + heartEyes);
+            ok &= Check(
+                sb,
+                "a runaway emoji run collapses to two and the remark text survives",
+                degenerate == "Seems right in the wool. " + rocket + " " + sheep &&
+                degenerate.IndexOf("  ", StringComparison.Ordinal) < 0);
+
+            // A same-grapheme rule would have let most of the reported reply through, because it ALTERNATED.
+            ok &= Check(
+                sb,
+                "an alternating emoji run is collapsed, not only a repeated grapheme",
+                AiBrain.CollapseDecorativeRuns(
+                    heartEyes + smiling + heartEyes + smiling + heartEyes) == heartEyes + smiling);
+            ok &= Check(
+                sb,
+                "a BMP symbol run is collapsed as well as an astral one",
+                AiBrain.CollapseDecorativeRuns(scissors + scissors + scissors) == scissors + scissors);
+
+            // The narrowness IS the fix: the alternative was a prompt rule that changes every remark. Nothing
+            // that is not a non-ASCII symbol may be touched, or a persona's voice is being edited.
+            ok &= Check(
+                sb,
+                "the emoji guard leaves words, ASCII emphasis and astral letters alone",
+                // "^^^" is the case that makes the ASCII guard testable: '^' is a ModifierSymbol, so without
+                // that guard this run would collapse. '!' and '$' are OtherPunctuation and
+                // CurrencySymbol, which the category test never accepts, so neither of them can catch it.
+                AiBrain.CollapseDecorativeRuns("hmmm, wow!!! ^^^ $$$ ok") == "hmmm, wow!!! ^^^ $$$ ok" &&
+                AiBrain.CollapseDecorativeRuns(cjkAstral + cjkAstral + cjkAstral) ==
+                    cjkAstral + cjkAstral + cjkAstral &&
+                AiBrain.CollapseDecorativeRuns("a " + scissors + " b " + scissors + " c") ==
+                    "a " + scissors + " b " + scissors + " c");
 
             byte[] oversized = Encoding.UTF8.GetBytes(new string('a', 2048));
             using (var content = new ByteArrayContent(oversized))

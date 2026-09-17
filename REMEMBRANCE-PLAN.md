@@ -7,7 +7,7 @@
 >
 > ⚠️ **Every host and module version below is PRE-REBASE and no longer exists.** The 1.0.0 rebase reset
 > the series, so "Host ABI 1.9.0" and "Reminder 1.6.0" in this file map to the 1.0.0 host and Reminder
-> 1.0.0. The current host is 1.1.3. Do not copy a version number out of this file into a
+> 1.0.0. The current host is 1.1.4. Do not copy a version number out of this file into a
 > `MinHostVersion`; see [`docs/VERSIONING.md`](docs/VERSIONING.md).
 
 > A local "meeting memory" module: capture a meeting's audio, transcribe it offline, name it from the

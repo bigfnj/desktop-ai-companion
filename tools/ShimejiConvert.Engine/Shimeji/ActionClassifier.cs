@@ -50,7 +50,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             // Group 2 -- needs host state a converted pet cannot express without the format additions.
             if (Has(a.SubtreeBlob, "cursor"))
             {
-                Set(a, FidelityGroup.Group2, "branches on cursor position (needs cursorX/cursorY + selfX/selfY, added in Stage 5)");
+                Set(a, FidelityGroup.Group2, "branches on cursor position (needs cursorX/cursorY + selfX/selfY, which the format does not have); a GAZE is the exception and is emitted with the faceCursor action instead");
                 return;
             }
             if (Has(a.SubtreeBlob, "activeIE"))
@@ -58,9 +58,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 Set(a, FidelityGroup.Group2, "navigates relative to a specific window's geometry (activeIE.*), which desktopPet does not expose; degrades to the generic 'on a window' situation");
                 return;
             }
+            // totalCount is reported, never planned. Measured across all 31 shipping converted skins: ZERO
+            // occurrences. It survives here only because the reference gil/shimeji-ee config mentions it, so
+            // the census stays reproducible. The 40 multi-companion actions that ARE lost are Group3 (Breed /
+            // pairing needs independent sibling companions, which <child> cannot be), a different and much
+            // harder problem. The reason text says so, because a residue line that reads like pending work is
+            // how a backlog acquires an item nobody wants built.
             if (Has(a.SubtreeBlob, "totalCount"))
             {
-                Set(a, FidelityGroup.Group2, "gated on mascot.totalCount (breed-count state, not exposed)");
+                Set(a, FidelityGroup.Group2, "gated on mascot.totalCount (breed-count state, not exposed); not planned -- zero occurrences across the shipping skins");
                 return;
             }
             if (Has(a.SubtreeBlob, "mascot.anchor"))
@@ -82,7 +88,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     Set(a, FidelityGroup.Group1, "target-relative gate (Target* vs mascot.anchor.*); the border-driven graph and a time-budgeted repeat answer it, so no behaviour is lost");
                     return;
                 }
-                Set(a, FidelityGroup.Group2, "branches on the pet's own screen position (mascot.anchor.*); needs selfX/selfY (added in Stage 5)");
+                Set(a, FidelityGroup.Group2, "branches on the pet's own screen position (mascot.anchor.*); needs selfX/selfY, which the format does not have");
                 return;
             }
 

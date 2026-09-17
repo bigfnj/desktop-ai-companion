@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using DesktopAICompanion.Ai;
 using DesktopAICompanion.ModuleKit;   // AtomicFile / CrossSessionLock / UnicodeTextProgress
+using DesktopAICompanion.ModuleKit.Testing;   // TrayConventions
 using DesktopAICompanion.Modules;    // ABI ScreenContext / ScreenWindow / PixelRect
 
 namespace DesktopAICompanion.AiBrainModule
@@ -37,6 +38,52 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "loopback endpoint is recognized as local", okLocal && AiEndpointPolicy.IsLoopbackEndpoint(normLocal));
                 bool okCloud = AiEndpointPolicy.TryNormalize("https://api.openai.com/v1", out normCloud, out err);
                 ok &= Check(sb, "endpoint policy normalizes a cloud endpoint as non-loopback", okCloud && !AiEndpointPolicy.IsLoopbackEndpoint(normCloud));
+
+                // --- the ModuleKit tray convention (every entry its own unique icon) ---
+                //
+                // Exercised on SYNTHETIC tray entries, which is the only way to reach both failure branches:
+                // a real module hits at most one of them, and BlinkingLed asserts exactly ONE tray entry, so
+                // its own self-test can never produce a duplicate. Asserted here rather than nowhere because
+                // the check moved into ModuleKit for every module to call, and a shared helper whose failure
+                // paths are untested is worse than a private one -- five modules would inherit the same hole.
+                byte[] iconA = new byte[] { 1, 2, 3 };
+                byte[] iconB = new byte[] { 4, 5, 6 };
+                string trayReason;
+                ok &= Check(sb, "tray convention: distinct icons pass",
+                    TrayConventions.EveryTrayEntryHasAUniqueIcon(
+                        new[]
+                        {
+                            new TrayItem { Label = "a", IconPng = iconA },
+                            new TrayItem { Label = "b", IconPng = iconB },
+                        },
+                        out trayReason) && trayReason == "");
+                ok &= Check(sb, "tray convention: a missing icon fails, and the reason names the row",
+                    !TrayConventions.EveryTrayEntryHasAUniqueIcon(
+                        new[]
+                        {
+                            new TrayItem { Label = "a", IconPng = iconA },
+                            new TrayItem { Label = "naked", IconPng = null },
+                        },
+                        out trayReason) &&
+                    trayReason.IndexOf("naked", StringComparison.Ordinal) >= 0 &&
+                    trayReason.IndexOf("no icon", StringComparison.Ordinal) >= 0);
+                // Cloned, not shared: this asserts icons are compared by BYTES. A reference comparison would
+                // pass two rows built from the same embedded resource, which is the exact duplicate a user
+                // sees.
+                ok &= Check(sb, "tray convention: an icon REUSED by value fails, naming both rows",
+                    !TrayConventions.EveryTrayEntryHasAUniqueIcon(
+                        new[]
+                        {
+                            new TrayItem { Label = "first", IconPng = iconA },
+                            new TrayItem { Label = "copycat", IconPng = (byte[])iconA.Clone() },
+                        },
+                        out trayReason) &&
+                    trayReason.IndexOf("copycat", StringComparison.Ordinal) >= 0 &&
+                    trayReason.IndexOf("reuses", StringComparison.Ordinal) >= 0);
+                // Vacuously true on purpose: not every module contributes a tray entry, and one that
+                // contributes none has KEPT this convention rather than skipped it.
+                ok &= Check(sb, "tray convention: contributing no tray entry is not a violation",
+                    TrayConventions.EveryTrayEntryHasAUniqueIcon(new TrayItem[0], out trayReason));
 
                 // --- disposition catalog (in-module) ---
                 ok &= Check(sb, "disposition catalog knows the 'pirate' id", Dispositions.IsKnown("pirate"));

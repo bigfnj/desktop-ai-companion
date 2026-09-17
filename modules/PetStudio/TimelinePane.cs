@@ -39,6 +39,15 @@ namespace DesktopAICompanion.PetStudioModule
         private readonly Button _runButton = new Button { Content = "▶ Run chain", Padding = new Thickness(10, 3, 10, 3) };
         private readonly Button _stopButton = new Button { Content = "■ Stop", Padding = new Thickness(10, 3, 10, 3), IsEnabled = false, Margin = new Thickness(6, 0, 0, 0) };
         private readonly CheckBox _loop = new CheckBox { Content = "loop", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
+        // The engine starts every companion facing LEFT (FormCompanion.IsMovingLeft is initialised true and
+        // nothing randomises it), so without this a previewed `walk` can only ever be watched going one way.
+        private readonly CheckBox _faceRight = new CheckBox
+        {
+            Content = "start facing right",
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(12, 0, 0, 0),
+            ToolTip = "Prepend a one-frame flip, so a walk can be watched going right as well as left.",
+        };
         private readonly Button _clearButton = new Button { Content = "Clear", Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(12, 0, 0, 0) };
 
         private Point _dragStart;
@@ -87,6 +96,7 @@ namespace DesktopAICompanion.PetStudioModule
             buttons.Children.Add(_runButton);
             buttons.Children.Add(_stopButton);
             buttons.Children.Add(_loop);
+            buttons.Children.Add(_faceRight);
             buttons.Children.Add(_clearButton);
             DockPanel.SetDock(buttons, Dock.Right);
             caption.Children.Add(buttons);
@@ -413,7 +423,8 @@ namespace DesktopAICompanion.PetStudioModule
         private void Run()
         {
             string error;
-            string xml = BehaviourChain.BuildDebugXml(_sourceXml(), _steps, _loop.IsChecked == true, out error);
+            string xml = BehaviourChain.BuildDebugXml(
+                _sourceXml(), _steps, _loop.IsChecked == true, _faceRight.IsChecked == true, out error);
             if (xml == null)
             {
                 _setStatus(string.IsNullOrEmpty(error) ? "Could not build the chain." : error);
