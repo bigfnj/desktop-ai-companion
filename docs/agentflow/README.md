@@ -1,14 +1,16 @@
-# AgentFlow — research notes and measurement harnesses
+﻿# AgentFlow — research notes and measurement harnesses
 
-**Status: research only, nothing built.** No module exists. This directory holds the four
-harnesses that were used to decide whether AgentFlow is buildable, and what they measured.
-Read this before proposing work, because two of the obvious designs are already ruled out by
-numbers rather than opinion.
+**Status: the module is BUILT and gated. It is not published.** `modules/AgentFlow/` ships the
+notify half; `modules-dist/` and `catalog.json` are untouched, so no existing user is offered it.
+This directory holds the five harnesses that decided whether it was buildable and what they
+measured. Read it before proposing work, because several of the obvious designs are ruled out by
+numbers rather than opinion, and two of the numbers recorded here were themselves wrong once and
+are marked as superseded.
 
-AgentFlow is a proposed module that notices when a coding agent (Claude Code, Codex) is sitting
-blocked on a permission prompt, tells you, and optionally answers it so the agent keeps moving.
-The companion framing is presence: the pet notices that your agent has been stuck for nine
-minutes, which is the part a dashboard cannot do.
+AgentFlow notices when a coding agent (Claude Code, Codex) is sitting blocked on a permission
+prompt and tells you. It does NOT answer it, by standing decision. The companion framing is
+presence: the pet notices your agent has been stuck for nine minutes, which is the part a
+dashboard cannot do.
 
 ---
 
@@ -113,8 +115,8 @@ and one `docker`.
 
 **What moved in the conclusion.** "In auto mode the rules stop predicting anything" is **wrong** as
 stated. Rules still cause prompts in auto mode — 23 of the 30 rule-caused denials are there, and the
-matcher catches 87% of them. What collapses in auto mode is **precision**: 5,637 predictions for 23
-real prompts, roughly 245 false per real. So AgentFlow is still a default-mode feature, but for a
+matcher catches 91% of them. What collapses in auto mode is **precision**: 6,197 predictions for 23
+real prompts, roughly 270 false per real. So AgentFlow is still a default-mode feature, but for a
 different reason than recorded, and the honest state of the default-mode claim is *unmeasured*: this
 corpus contains **zero** rule-caused denials in `default` mode, so its precision column is empty
 rather than promising. That is exactly what the default-mode hour is for.
@@ -124,10 +126,37 @@ rather than promising. That is exactly what the default-mode hour is for.
 gate, and the rules predict only 44% of those — so it is a genuinely different population, measured
 rather than argued.
 
-**Consequence for the product: AgentFlow is a default-mode feature.** When the transcript reports
-`permissionMode: auto`, it should say so and stand down rather than firing constantly — the same
-way the MAX card refuses and explains instead of quietly settling for something weaker. Auto mode
-prompts on 0.04% of calls; there is genuinely almost nothing to do.
+**Consequence for the product: AgentFlow is a default-mode feature**, and the guard is an
+**allow-list of exactly `default`** rather than a stand-down for `auto`. That distinction is not
+pedantry; keying it on `auto` was shipped and then caught firing on real data. Precision by mode
+says the three non-default modes are one population:
+
+```
+auto         6197 predictions, 23 real   0.37%
+acceptEdits  1448 predictions,  6 real   0.41%
+plan          291 predictions,  1 real   0.34%
+default         20 predictions,  0 real   unmeasured, and the whole open question
+```
+
+Roughly 250 false alarms per real prompt in all three. An allow-list is also the safe shape: a mode
+nobody has measured yet defaults to standing down rather than to firing.
+
+**The stand-down must SAY so, once per session.** The first correct run against 764 live transcripts
+produced an empty log, because the module properly did nothing — so a working run and a completely
+broken one were byte-identical. Silence is the one outcome that cannot be told apart from failure.
+
+**Codex is read but cannot be acted on.** Its rollout format records no permission mode, so every
+Codex session resolves as `unknown` and the allow-list refuses it. `watchCodex` therefore defaults
+OFF: a switch that cannot do anything reads to a user as a broken module rather than as an
+unsupported agent. The reading half works, so it becomes useful the day that format carries a mode.
+
+**A call the rules cannot address is UNDECIDABLE, not would-prompt.** `Agent` carries no command,
+so evaluating `Agent()` matched no rule and nothing-matched returns would-prompt — a verdict that
+could not come out any other way. Three long-running subagents were reported as blocked prompts on
+the live machine. The reader now extracts the one argument a rule can address (`file_path`, `path`,
+`notebook_path`, `url`, `pattern`) and a call with none of them is not acted on. That also closed a
+gap nobody had noticed: `Read`, `Edit` and `Write` had no argument extracted either, so every
+outstanding one of them read as would-prompt regardless of the rule set.
 
 **Gap in the harness, found 2026-09-17: `agentflow_join.py` never reads `permissionMode`.** The
 mode split in the table above was attributed by hand in the session that produced it, so the
@@ -556,7 +585,7 @@ cannot classify one of them. `--mutate` breaks the classifier five ways and prov
 catches each; a clean run with no mutation firing means the suite is blind, not that the code is
 good. Current state: 25/25 self-test, audit clean, 5/5 mutations fired.
 
-### Four defects these found that would otherwise have shipped
+### Eight defects these found that would otherwise have shipped
 
 **Single-newest-transcript tracking is wrong.** The probe originally watched only the most recently
 modified transcript. With two sessions live it flipped between them every poll, attributed one
@@ -571,6 +600,20 @@ a template, so the realistic way to see one is OCR truncating `Yes, allow access
 window edge — meaning the row was not fully read. The original assertion demanded approve-once and
 would have pressed a half-read option. Kept as a witness test, because the tempting fix is to add a
 bare exact entry.
+
+**Four defects were found by pointing the BUILT MODULE at the real transcript root rather than
+a fabricated one**, and not one of them was visible to 73 assertions, 20 mutations or a
+three-way differential. It fired wrongly within six seconds of launch. In order: the stand-down
+covered only `auto`, so an `acceptEdits` session fired; a call the rules cannot address read as
+would-prompt, so three long-running `Agent` subagents were reported as blocked; the corrected,
+*correct* run then logged nothing at all, making a working run byte-identical to a broken one;
+and that fix in turn revealed that Codex can be read but never acted on. Each is described above.
+
+The lesson is narrower and more useful than "test on real data". Every one of those was
+invisible **specifically because the fixtures and the code had the same author**, so they
+encoded the same assumptions. The fabricated transcript was faithful to the format and useless
+as a check on the judgement, because it only ever contained a shell command in default mode --
+which is exactly the one case the code was written for.
 
 **The recall measurement was scored against the wrong ground truth for a full session's worth of
 conclusions.** `toolDenialKind` has five values and the harness read one of them, so it graded the
