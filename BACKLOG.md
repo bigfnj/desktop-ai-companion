@@ -202,11 +202,8 @@ and that the result BUILDS - not that the host would load it.
   monitor, so its "a 1200px window barely gets downscaled" promise silently does not apply when the front
   window is on another display.
 
-### 4. Two small hygiene items
+### 4. Nothing asserts that the two copies of `animations.xsd` stay in sync
 
-- `docs/FORTUNE-CATEGORIES-PROPOSAL.md` has **zero referrers** anywhere in the repo, and its own header
-  says it has been applied. `docs/FORTUNE-SOURCE-TABLE.md` is the generated successor. Archive it beside
-  `HISTORY-pre-1.0.0.md` rather than delete it.
 - `Resources/animations.xsd` and `src/Resources/animations.xsd` are byte-identical duplicates and BOTH
   are live: the `src/` copy is embedded by three csproj files, the root copy is what the grimoire docs
   link. `handoff.md` already records that they must stay in sync, but **nothing asserts it**. A file-hash
@@ -348,28 +345,15 @@ module ids and file paths, so it contains the Windows user name), `docs/VERSIONI
 `MinHostVersion` was rebased to 1.0.0, so the "current values" example was wrong), and the header of this
 file.
 
-Still stale, in rough value order:
+Still stale:
 
-- **`REMEMBRANCE-PLAN.md`** — "Host ABI 1.9.0", "cut the host 1.9.0 release". A completed plan doc; either
-  correct it or retire it to `docs/` as an archive alongside the other pre-1.0.0 records.
-- ~~**`Companions/README.md`** — instructs the reader to run `build\PetTester\...\PetTester.exe`.~~
-  **Already fixed** (2026-09-11 audit): the file now says "There is no separate validator executable"
-  and names `tools/ShimejiConvert`. This entry was itself the stale one.
-- ~~**`grimoire/03-companion-xml-format.md`** — still "every desktopPet pet is a single...".~~ Fixed
-  2026-09-11; it now says "every companion" and explains why the namespace still says "pet".
-- **~10 items, moved to [`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md) by the 2026-09-17
-  split,** whose content is correct but whose version numbers predate the rebase: the
-  converter format chain (0.1-0.8 now, not 1.0-1.8) at the `reweight`/`dedupe`/`undirect`/`rejump`
-  descriptions, "host v1.9.0 released", the app update check described as hourly, and the "only unprompted
-  network request" claim (there are three). Also one superseded DONE block describing the module update
-  check as monthly, which the weekly check replaced.
 - **`SMOKETEST.md`** — no row for the dropped `" (converted)"` title suffix or the About
   "Converter format:" label. A gap rather than an error; the file is otherwise current at 73 checks in
-  twelve sections.
+  twelve sections. Not fixed here: `SMOKETEST.md` is owned by another track.
 
-None of this blocks the v1.0.0 tag. It is recorded because a doc that is confidently wrong costs more than
-one that is missing, and because `PRIVACY.md` being wrong about network behaviour was the kind of thing
-worth catching before a public release rather than after.
+Recorded because a doc that is confidently wrong costs more than one that is missing, and because
+`PRIVACY.md` being wrong about network behaviour was the kind of thing worth catching before a public
+release rather than after.
 
 ---
 
@@ -551,13 +535,23 @@ code. What remains open:
 - **Not a gap:** "moves the user's windows" (48 actions) is refused deliberately — desktopPet "cannot and
   should not move the user's windows". No work.
 
-- ⬜ **CONVENTION: every tray entry carries its own unique icon.** The tray is shared by the host and six
-  modules, so an icon-less row reads as a rendering bug beside its neighbours and two rows with the same
-  glyph look like duplicates. 32x32 ARGB PNG, shipped as an `EmbeddedResource`, read with
-  `EmbeddedResources.LoadBytes`. Recorded in the module template; `BlinkingLedModule` asserts it in its
-  self-test (`EveryTrayEntryHasAUniqueIcon`). **Not yet enforced for Reminder / Remembrance / AiBrain /
-  PetStudio** -- they now all have icons, but only BlinkingLed has the assertion. Lift that helper into
-  ModuleKit so every module's self-test can call it.
+- ⬜ **CONVENTION: every tray entry carries its own unique icon — the check now exists in ModuleKit, and
+  the one edit that would enforce it everywhere is in the HOST, not in five modules.** The tray is shared
+  by the host and six modules, so an icon-less row reads as a rendering bug beside its neighbours and two
+  rows with the same glyph look like duplicates. 32x32 ARGB PNG, shipped as an `EmbeddedResource`, read
+  with `EmbeddedResources.LoadBytes`; recorded in the module template.
+  **Done 2026-09-17:** the check is `ModuleKit.Testing.TrayConventions`, lifted out of `BlinkingLedModule`
+  (which was the only module asserting it) and improved on the way — it returns WHICH row broke the
+  convention, because a bare `false` in a six-module menu does not say which one. `CheckTrayIcons(probe,
+  items)` is a one-line call. BlinkingLed uses it; both failure branches are asserted from `AiEngineProbe`
+  on synthetic entries, since a real module reaches at most one of them.
+  **The finding that changes the remaining work:** do NOT wire this into the other five module self-tests
+  one at a time. `ModuleConventionSelfTest` already loads every module through the real loader and calls
+  `Init` with its own `ConventionHost`, so ONE call there covers all six modules and every future
+  third-party one, including modules whose self-test does not construct a host (Reminder and Remembrance
+  build their tray items inline inside `Init`, so a per-module assertion would have to stand up a host
+  first). That makes this a host change rather than five module changes — cheaper, and it is the only
+  version that holds for a module this repo does not own.
 - ⬜ **A dark 1px line on the left edge of Jesus Our Lord's fall frame.** NOT a conversion artifact: the
   baked tile (88) and its left neighbour (87) were both rendered out of the shipped sheet and are clean,
   and the sheet is 2560x2560 with exact 256px tiles, so there is no rounding slop in the compositor.

@@ -496,23 +496,6 @@ namespace DesktopAICompanion.BlinkingLed
         /// contributions, the rate table, the settings round-trip, and the two behaviours that are easy to
         /// regress: silence at startup, and speech on a user toggle.
         /// </summary>
-        /// <summary>
-        /// Project convention: every tray entry carries its own icon, and no two entries share one. An
-        /// icon-less row reads as a rendering bug next to its neighbours, and two rows with the same glyph
-        /// are worse than none, because they look like duplicates of each other.
-        /// </summary>
-        internal static bool EveryTrayEntryHasAUniqueIcon(IEnumerable<TrayItem> items)
-        {
-            var seen = new HashSet<string>(StringComparer.Ordinal);
-            foreach (TrayItem item in items)
-            {
-                if (item == null) return false;
-                if (item.IconPng == null || item.IconPng.Length == 0) return false;
-                if (!seen.Add(Convert.ToBase64String(item.IconPng))) return false;
-            }
-            return true;
-        }
-
         public static bool SelfTest(out string detail)
         {
             var probe = new SelfTestProbe();
@@ -531,8 +514,11 @@ namespace DesktopAICompanion.BlinkingLed
                     // the rate submenu is what bought the row back.
                     probe.Check("contributes exactly one tray entry", host.TrayItems.Count == 1);
 
-                    // Project convention: every tray entry carries its own icon, and no two share one.
-                    probe.Check("every tray entry has an icon", EveryTrayEntryHasAUniqueIcon(host.TrayItems));
+                    // Project convention: every tray entry carries its own icon, and no two share one. The
+                    // check itself moved to ModuleKit -- this module was the ONLY one asserting it while all
+                    // six share one notification-area menu with the host, and a convention one module checks
+                    // is not a convention. The ModuleKit version also names the offending row on failure.
+                    DesktopAICompanion.ModuleKit.Testing.TrayConventions.CheckTrayIcons(probe, host.TrayItems);
 
                     // A pure submenu: a Click here would make the parent both a button and a menu, so a
                     // click meant for "open the list" would silently toggle something.
