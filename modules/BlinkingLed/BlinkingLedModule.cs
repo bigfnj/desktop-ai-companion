@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using DesktopAICompanion.ModuleKit;
@@ -26,7 +26,6 @@ namespace DesktopAICompanion.BlinkingLed
     {
         private IHost _host;
         private ScrollLockBlinker _blinker;
-        private TrayItem _trayToggle;
 
         public ModuleInfo Info { get; } = new ModuleInfo
         {
@@ -81,7 +80,7 @@ namespace DesktopAICompanion.BlinkingLed
                 // DynamicText rather than rewriting Label: the host re-evaluates it every time the menu
                 // opens, so the on/off state cannot drift out of sync with the setting. Click stays null,
                 // which is what makes this a pure submenu rather than a button that also has an arrow.
-                (_trayToggle = new TrayItem
+                new TrayItem
                 {
                     Label = "Blinking LED",
                     Group = 50,
@@ -89,7 +88,7 @@ namespace DesktopAICompanion.BlinkingLed
                     IconPng = LoadIconResource("blinkingled.png"),
                     DynamicText = TrayToggleText,
                     BuildChildren = BuildRateMenu,
-                }),
+                },
             });
 
             host.AddOptionsPane(new OptionsPane

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Text;
 using DesktopAICompanion.Ai;
@@ -205,7 +205,7 @@ namespace DesktopAICompanion.FortunesModule
 
                 // The engine's full self-test suite, running in the module's context.
                 bool filter = FortuneProvider.FilterSelfTest();
-                ok &= Check(sb, "engine FilterSelfTest (dedup/classifier/parser/ingestion/importer)", filter);
+                ok &= Check(sb, "engine FilterSelfTest (dedup/classifier/parser/ingestion/importer/embedded-taxonomy)", filter);
 
                 // --- smart layer: proves ONNX loads + runs inside the module's own load context ---
                 ok &= Check(sb, "bge-small model present beside the module", Embedder.ModelPresent);

@@ -1,4 +1,4 @@
-#requires -Version 5
+﻿#requires -Version 5
 <#
 .SYNOPSIS
     Run the full local verification gate: build, core tests, every app self-test flag, the source-text
@@ -136,7 +136,17 @@ try {
                 Write-Host ("  FAIL  {0} -- no marker" -f $flag) -ForegroundColor Red
                 continue
             }
-            $skips = @(Select-String -LiteralPath $markerPath -Pattern '^SKIP:')
+            # '^\s*SKIP:' and NOT '^SKIP:', which is what this was until 2026-09-17.
+        # Two report writers indent the lines they re-emit: ModuleConventionSelfTest.cs
+        # prefixes every module line with '  [<id>] ', and AiBrainModuleSelfTest.cs indents the
+        # engine probe's report by four spaces. So AiEngineProbe's two real skips -- the DPAPI
+        # round-trip and the Windows OCR recognizer, the latter called 'the standing proof that
+        # the WinRT projection resolves there' in its own comment -- were INVISIBLE to this
+        # grep, and a machine lacking either silently ran fewer assertions and printed ok.
+        # SelfTestProbe.Skip()'s doc comment promises the gate fails on a SKIP; with the old
+        # anchor that promise was false for every module, since none of their lines start at
+        # column zero.
+        $skips = @(Select-String -LiteralPath $markerPath -Pattern '^\s*SKIP:')
             if ($skips.Count -gt 0) {
                 $failures.Add("$flag (SKIPPED: $($skips[0].Line.Trim()))")
                 Write-Host ("  FAIL  {0} -- skipped, did not actually run" -f $flag) -ForegroundColor Red
@@ -146,19 +156,33 @@ try {
         Write-Host ("  ok    {0}" -f $flag) -ForegroundColor DarkGray
     }
 
+    # try/catch, NOT $LASTEXITCODE, for these three. Corrected 2026-09-17 after an audit.
+    # All three are .ps1 files that signal failure by `throw` (Assert-True in
+    # runtime-hardening-selftest.ps1, plain throws in the two packaging checks), and
+    # $LASTEXITCODE is set only by NATIVE commands or an explicit `exit`. So the old
+    # `if ($LASTEXITCODE -ne 0)` form was wrong in BOTH directions:
+    #
+    #   On failure, the throw is terminating and $ErrorActionPreference='Stop' carried it
+    #   out of this script with no catch -- so the $failures.Add never ran, the GATE FAILED
+    #   summary never printed, and every later check was skipped. Those branches were dead.
+    #
+    #   On success, the condition read whatever the last NATIVE command left behind, which
+    #   is DesktopAICompanion.CoreTests.exe (Start-Process -PassThru does not set it). So a
+    #   CoreTests failure ALSO reported runtime-hardening-selftest.ps1 as failed, inventing
+    #   a failure in a suite where every invariant had passed.
     Write-Host '=== source-text invariants' -ForegroundColor Cyan
-    & (Join-Path $repoRoot 'tests\runtime-hardening-selftest.ps1')
-    if ($LASTEXITCODE -ne 0) { $failures.Add('runtime-hardening-selftest.ps1') }
+    try { & (Join-Path $repoRoot 'tests\runtime-hardening-selftest.ps1') }
+    catch { $failures.Add('runtime-hardening-selftest.ps1: ' + $_.Exception.Message) }
 
     Write-Host '=== published module payloads' -ForegroundColor Cyan
-    & (Join-Path $repoRoot 'packaging\Test-ModulePublishFreshness.ps1')
-    if ($LASTEXITCODE -ne 0) { $failures.Add('Test-ModulePublishFreshness.ps1') }
+    try { & (Join-Path $repoRoot 'packaging\Test-ModulePublishFreshness.ps1') }
+    catch { $failures.Add('Test-ModulePublishFreshness.ps1: ' + $_.Exception.Message) }
 
     # The module template is built by nothing else, so it would rot unnoticed: this scaffolds a throwaway
     # module from it, builds it, and removes it again.
     Write-Host '=== module template' -ForegroundColor Cyan
-    & (Join-Path $repoRoot 'packaging\Test-ModuleTemplate.ps1') -Configuration Release
-    if ($LASTEXITCODE -ne 0) { $failures.Add('Test-ModuleTemplate.ps1') }
+    try { & (Join-Path $repoRoot 'packaging\Test-ModuleTemplate.ps1') -Configuration Release }
+    catch { $failures.Add('Test-ModuleTemplate.ps1: ' + $_.Exception.Message) }
 
     # The Shimeji converter's output half: grade every shipped pet with the app's REAL validator (via the
     # source-linked ShimejiConvert.Engine) and round-trip it through the DTOs. This is the emitter's

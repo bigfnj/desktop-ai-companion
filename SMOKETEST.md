@@ -1,7 +1,7 @@
-# Live smoke test
+﻿# Live smoke test
 
 **What this is.** The checks that require a human to open the app and look at it. Everything else in this
-repo (the gate, 61 source invariants, 18 self-tests, two soaks, the mutation suites) proves the code does
+repo (the gate, 84 source invariants, 18 self-tests, two soaks, the mutation suites) proves the code does
 what it says. Nothing in it proves the code says the right thing.
 
 **Why it exists.** Five of the eleven releases v1.9.4 through v1.9.14 shipped a bug that the full automated

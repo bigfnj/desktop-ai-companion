@@ -60,7 +60,6 @@ namespace DesktopAICompanion.AgentFlow
         private EventHandler _tickHandler;
         private SynchronizationContext _ui;
         private NotifyBudget _budget;
-        private TrayItem _trayEntry;
         private Action<ICompanion> _spawnHandler;
 
         /// <summary>
@@ -124,7 +123,7 @@ namespace DesktopAICompanion.AgentFlow
 
             host.AddTrayItems(new List<TrayItem>
             {
-                (_trayEntry = new TrayItem
+                new TrayItem
                 {
                     Label = "AgentFlow",
                     Group = 40,
@@ -135,7 +134,7 @@ namespace DesktopAICompanion.AgentFlow
                     // this is a snapshot by design rather than a live counter.
                     DynamicText = TrayText,
                     BuildChildren = BuildMenu,
-                }),
+                },
             });
 
             host.AddOptionsPane(new OptionsPane
@@ -257,7 +256,6 @@ namespace DesktopAICompanion.AgentFlow
             _spawnHandler = null;
             _companions.Clear();
             _tickHandler = null;
-            _trayEntry = null;
             _budget = null;
             _ui = null;
             _host = null;

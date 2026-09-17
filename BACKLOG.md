@@ -36,11 +36,36 @@ Anything closed that still carries standing value was extracted rather than dele
 
 ---
 
-## 🔬 Proposed: AgentFlow — unstick a blocked coding agent (research done 2026-09-16)
+## 🚧 AgentFlow — BUILT, not published (notify half, 2026-09-17)
 
-**Status: research only, nothing built. Read [`docs/agentflow/README.md`](docs/agentflow/README.md)
-before proposing work** — it carries the measurements, and two of the obvious designs are already
-ruled out by numbers rather than opinion. Four runnable harnesses live beside it.
+**Status: the module exists and is gated. It is NOT published.** `modules/AgentFlow/` is built by
+`build.ps1`, `tests/run-gate.ps1` throws if its folder is missing from the build output, and
+`--module-selftest=agentflow` runs in both the gate and CI. `modules-dist/` and `catalog.json` are
+deliberately untouched, so no existing user is offered it — the same arrangement `TestModule` has.
+
+This heading said "research only, nothing built" until 2026-09-17, six commits after the module
+landed, while the same section already said "Built, 25/25 self-test" further down. Recorded because
+status words in this file are load-bearing and that one contradicted itself.
+
+Read [`docs/agentflow/README.md`](docs/agentflow/README.md) before proposing work — it carries the
+measurements, and several obvious designs are ruled out by numbers rather than opinion. Five
+runnable harnesses live beside it.
+
+**What remains open, in order:**
+
+- 📌 **Default-mode precision is unmeasured, and it is the only number still missing.** Recall is
+  settled at 93% (28/30 against calls a permission rule actually blocked). Precision in `default`
+  cannot be measured on this box: 120 transcripts contain **zero** rule-caused denials in that mode,
+  because this machine runs `auto`. Generate it the only way it can be generated — work normally in
+  default mode for an hour — then rerun `agentflow_join.py`, which now reports the split itself.
+- 📌 **`MinHostVersion` must be raised from `1.0.0` before this module is ever published,** and
+  `ProductVersion.props` bumped with it. See the ABI item below; the two are one decision.
+- ⬜ The answering half. Four actuation channels, none of which needs synthetic input, and a
+  death-loop guard belongs in whichever version first presses anything. Not scoped.
+- ⬜ CPU as a second discriminator. Per-tree CPU separates 240x and is mode-independent, but it is
+  blocked on attributing a process to a session: activity alignment is never WRONG (0 of 4
+  gradings) and its coverage flips run to run. The transcript-only detector needs none of this,
+  which is why the module shipped without it.
 
 The idea: the companion notices a coding agent (Claude Code, Codex) sitting blocked on a permission
 prompt, says so, and optionally answers it. The pet framing is presence — noticing your agent has
@@ -119,6 +144,262 @@ sibling `permission-wildcarding` project — which already reads both agents' hi
 matcher — with this module as a thin consumer. That project is node/JS, and an MSI desktop app must
 not acquire a node runtime dependency in order to read an append-only JSONL file. What is worth taking
 from the sibling is the transcript parsing and the compound-command splitter, ported; not the runtime.
+
+---
+
+## Open: full-repo audit, 2026-09-17
+
+Three read-only audits run in parallel after the AgentFlow merge: dead code and calls that go
+nowhere, resource leaks and regression risk, and checks that cannot fail. What was cheap and
+unambiguous was fixed in the same session and is not listed here. What remains is below, worst
+first. Each entry says what input would make the thing fail, because "no such input" is the finding.
+
+### 📌 1. CI cannot see a module-folder skip, and that is the largest blast radius left
+
+`tests/run-gate.ps1:54-59` throws when a module is missing from the build output, and `:105-152`
+reads a marker file and greps for a skip. `.github/workflows/build.yml:54-84` does **neither** — it
+checks `$process.ExitCode` only. Ten of the eighteen flags skip-PASS in CI if their module folder is
+absent, and `build.ps1:229` builds a module only `if (Test-Path $moduleProject)`, so a renamed or
+deleted csproj is skipped silently. This is the exact failure `run-gate.ps1`'s own preamble was
+written to close: closed locally, still open in the one place that gates every pull request.
+
+CI also never runs the ShimejiConvert `verify` + `selftest` that the local gate does, so a
+regression in the shipped Companions corpus or in the converter is invisible on every PR.
+
+**Fix:** port the presence loop and the marker/skip read into `build.yml`. Not done here because it
+changes the file that decides whether every PR is green, and that wants its own change.
+
+### 📌 2. Seven self-tests write a marker the gate does not read
+
+`run-gate.ps1`'s flag table maps these to `$null` while the marker demonstrably exists:
+`--catalog-selftest` (`RemoteCatalog.cs:545`), `--fullscreen-selftest` (`FullscreenScan.cs:122`),
+`--hardening-selftest` (`RuntimeHardeningSelfTest.cs:1063`), `--wpf-options-selftest`
+(`WpfOptionsSelfTest.cs:385`), and `--module-selftest=`{`reminder`, `remembrance`, `blinkingled`}
+(`ModuleConventionSelfTest.cs:169`). Cost of closing each: one string. `--security-selftest` and
+`--traywatcher-selftest` write no marker at all and have no skip path, so they are the only two
+legitimately exit-code-only.
+
+`agentflow` is registered WITH its marker, which is the documented shape per
+`docs/module-authoring.md`; the others predate that convention.
+
+### 📌 3. `Test-ModulePublishFreshness.ps1` warns where its own comment says it fails
+
+`:307-309` — the comment reads *"Fail loudly rather than silently narrowing: a watch set that
+shrinks without saying so is how this check was blind to source-linked files for months"*, and the
+code is `Write-Warning`. That sets no exit code, throws nothing, and is never added to `$stale`.
+Both callers judge the script by failure only, so the watch set **can** silently narrow — a
+`$(Property)` in an `Include`, an out-of-repo link, an unparseable csproj, or a missing referenced
+project all degrade coverage and still print `OK <id> is current`. **Input that makes it fail:
+none.** Fix: add the degraded notes to `$stale`, or to a third bucket that throws.
+
+### 📌 4. Nothing reconciles `modules/` against `modules.json`, so a new module is unchecked on day one
+
+`Test-ModulePublishFreshness.ps1:175-178` derives its id list from `modules-dist/modules.json` (6
+entries). `modules/` holds 8 csproj. So `agentflow` and `testmodule` are outside the freshness check
+entirely: their version parity and payload freshness are unchecked, and **any** module added the
+same way inherits the blind spot. For `agentflow` that is currently correct-by-intent (it is
+deliberately unpublished) but the check cannot tell intent from omission. **Input that makes it
+notice: none.**
+
+### 📌 5. Two settings keys are written on every update check and never read back
+
+`AppSettingsStore.cs:193-194` `moduleUpdateOffers` (written `LocalData.cs:656`, from
+`StartUp.cs:1691` and `:1703`) and `:205-206` `companionUpdateStaleIds` (written `LocalData.cs:783`,
+from `StartUp.cs:1627`). Each has a public getter — `GetModuleUpdateOffers()` at `LocalData.cs:637`,
+`GetPetUpdateStaleIds()` at `:764` — with **zero call sites**, while both of their `*LastCheckUtc`
+twins are read. Both keys are visibly populated in the user's settings JSON and look like the data
+source for an update badge. They are write-only, and the schema-merge machinery carries them for
+nothing. Either wire them or drop both the key and the getter.
+
+### 📌 6. `SecureDownload.ResolveContainedFile` is security-shaped dead code
+
+`src/dotNet/SecureDownload.cs:163` — the only one of that type's eleven members with no caller. It
+throws *"Catalog destination escapes the data directory."*, so a reviewer reads it and concludes
+download destinations are containment-checked. They are not: the live paths are built by hand, e.g.
+`CompanionHost.cs:951` writes `Path.Combine(directory, "animations.xml")` after an `IsSafeId` check
+only, never through the escape check at `:170-172`. **Wire it or delete it** — a false assurance in
+a security helper is worse than no helper.
+
+### 📌 7. Three dead test hooks that assert coverage which does not exist
+
+- `modules/Fortunes/engine/FortuneProvider.cs:2107` `CustomCacheSelfTest()` — no caller.
+  `docs/HISTORY-pre-1.0.0.md:10836` records it as *deleted*; it came back with the S3d relocation
+  and was never re-wired. Three sources disagree about whether the custom-corpus cache is covered.
+- `modules/Fortunes/engine/SmartFortunes.cs:123` `HoldEmbedLockForDiagnostics(...)` — no caller. It
+  exists only to let a test wedge `_embedLock` open, so its presence asserts such a test exists.
+  None does. Its sibling `EmbedderDisposalCountForDiagnostics` (`:118`) is also unread, which makes
+  the `Interlocked` increment at `:644` pure overhead maintaining an unobservable counter.
+- `modules/Fortunes/FortunesModule.cs:1190` `WelcomeCorpusCount()` — doc comment says "self-test
+  hook"; no self-test calls it. `--fortunes-selftest` asserts the welcome *fires*; nothing asserts
+  the 116-line corpus *loaded*, which is the shipped-payload failure class this hook was built for.
+
+### 📌 8. `--desktopwindows-selftest` has no caller anywhere
+
+`src/dotNet/Program.cs:143` → `DesktopWindows.cs:293`. Absent from `run-gate.ps1`, `build.yml`,
+`release.yml`, `docs/RELEASE-CHECKLIST.md` and `SMOKETEST.md`. Unlike `--online-selftest`, which is
+documented as excluded at `Readme.md:487`, there is no written decision here, so it reads as
+covered. The code under test is live in production (`DesktopWindows.Snapshot` is called from
+`CompanionHost.cs:254` and feeds the module ABI), and the self-test holds eight pure assertions on
+monitor attribution. This is verbatim the failure already recorded for
+`--fortunes-smart-progress-selftest`, which *"sat orphaned with no caller at all"* for months.
+
+### 📌 9. `tests/mutate-agentflow.py` has zero inbound references
+
+The only script under `tests/`, `packaging/`, `tools/` or `installer/` with no reference of any kind
+— not the gate, not CI, not the release checklist, not this file until now. It is the only thing
+that verifies `--module-selftest=agentflow` is not a rubber stamp (18/18 mutations fired when last
+run). `tests/runtime-resource-soak.ps1` was once **deleted as "an unreferenced script"** three hours
+after CI stopped calling it, leaving the only leak gate unrunnable. Reference it from
+`docs/RELEASE-CHECKLIST.md` or from a comment in `run-gate.ps1` before that repeats.
+
+### 📌 10. Four assertions that cannot fail
+
+- `tests/runtime-hardening-selftest.ps1:778` asserts the source does **not** match the English
+  phrase `'seed the month WITHOUT checking'`. The only input that fails it is someone re-adding a
+  comment with that exact wording; re-introducing the actual defect with any other comment passes.
+  This file's own comments warn about this class four times.
+- `:918-925` loops over `installer/*.wxs` with no count assertion. There is exactly one `.wxs`
+  today, so moving or generating it elsewhere reduces the loop to zero assertions and a pass.
+  Contrast `:951`, which does assert a floor — that is the pattern this one is missing.
+- `:838-849` seeds `$darkest = 255` and asserts `$darkest -ge 216`. If the sample window is empty
+  the loop body never runs and the seed **is** the pass value.
+- `src/dotNet/RuntimeHardeningSelfTest.cs:358-360` — `Check("exact sprite pixel budget accepted",
+  true)`. The literal `true`. Delete the line above it and this prints PASS forever. Fix: a
+  `CheckAccepts` helper mirroring the existing `CheckRejects`.
+- `src/dotNet/Plugins/AiBrainModuleSelfTest.cs:188-203` — the empty-combo half of *"valid combo +
+  empty combo both return safe handles"* is not asserted at all; `b == null` and `b != null` both
+  reach `true`. Its `catch (Exception)` also converts a genuine `NullReferenceException` regression
+  inside `RegisterHotkey` into a skip-pass.
+
+### 📌 11. The fullscreen stand-down has three silent no-op exits
+
+`src/dotNet/FormCompanion.cs:1776`, `:1785`, `:1786` — `if (screens.Length == 0) return;`,
+`catch { return; }`, and a length-mismatch guard. Each leaves a companion visible over a fullscreen
+game and records **nothing**, with `DiagnosticLog` available. *"Anything visible over a fullscreen
+game, especially the UFO"* is item 9 on `SMOKETEST.md`'s watchlist, i.e. a bug that reached users.
+`runtime-hardening-selftest.ps1:429-433` asserts the enforcement is not latched behind a flag, which
+is true and cannot see that the enforcement can be skipped wholesale. This is the standing rule that
+a control which can run degraded must SAY so, unapplied in the product rather than in a test.
+
+### 📌 12. Resource leaks, ranked
+
+- **Fortunes mutates its pane collections from a thread-pool thread.**
+  `modules/Fortunes/FortunesModule.cs:723-724` and `:760-771` — after
+  `.ConfigureAwait(false)`, `CacheMissingPacks` does `_availablePacks.Clear()/.Add()` and
+  `_selectedPacks.RemoveWhere()` on collections the UI thread reads and writes from the ListCard.
+  Presents as `InvalidOperationException: Collection was modified` in the settings window, or
+  silently lost pack rows, if the user touches the packs card while a check or download is in
+  flight. Same block calls `IHost.GetSettings` from that worker, which the ABI forbids at
+  `PluginApi.cs:462-463`.
+- **Remembrance leaks an `MMDevice` per recording.** `AudioRecorder.cs:51-57` hands the device into
+  `WasapiLoopbackCapture`/`WasapiCapture` and never disposes it, against the explicit contract in
+  `AudioDevices.cs:44-45` (*"The caller owns the returned device and must dispose it"*). One or two
+  stranded COM wrappers per start/stop cycle, on a hotkey the user presses repeatedly.
+- **Remembrance leaks the whole capture when the WAV writer fails.** `AudioRecorder.cs:69-82`
+  constructs the `WaveFileWriter` **before** `_sources.Add(s)`, so a throw (the storage location is
+  a free-text field the user types) leaves an opened native capture unreachable by both
+  `CleanupCaptures()` and `Dispose()`. The leak is proportional to a user retrying a failing action.
+- **Remembrance subscribes `HostShutdown` and never unsubscribes.** `RemembranceModule.cs:98` vs
+  `:101-111`. `CompanionHost` then holds a delegate over the module instance, which makes
+  `Alc.Unload()` on a **collectible** load context a permanent no-op: the module assembly and its
+  NAudio dependencies stay mapped and the DLL stays file-locked, which is why an in-place module
+  update cannot replace it. This is verbatim the leak `ReminderModule.cs:155-156` documents and
+  guards against. The crash half is currently hidden by ordering luck: `StartUp.Dispose` raises
+  `HostShutdown` at `:409` before `moduleHost.Dispose()` at `:410`.
+- **`RebuildModuleSubmenu` has no Image disposal.** `src/dotNet/ContextMenus.cs:159-181` clears
+  `DropDownItems` without disposing their Images, while the sibling `ModuleTray_Opening:74-81`
+  disposes explicitly and says why. Latent only because no module currently sets `IconPng` on a
+  CHILD tray item — and the shared convention check requires every tray entry to carry a unique
+  icon, which is exactly the habit that will put one there. The soak could not measure it either:
+  BUG-004 records that GDI+ `Bitmap` and `Font` are not necessarily counted by `GetGuiResources`.
+- **`Reminder._seenPets` only ever grows.** `ReminderModule.cs:40-42`, declared *"deliberately never
+  pruned"*. `ResolveSpeaker` filters with `IsCompanionAlive` at speak time but never removes the
+  dead entry, and there is no `CompanionRemoved` event, so the bound is spawns-per-session rather
+  than companions-on-screen. `modules/AgentFlow/AgentFlowModule.cs:278-290` does the same job
+  correctly and is three lines.
+
+### 📌 13. Nothing asserts that a module's `Shutdown` unsubscribes, which is why item 12 shipped
+
+`ModuleConventionSelfTest.Run` calls `loader.ShutdownAll(...)` at `:98` and asserts **nothing** about
+it. Unsubscribe assertions exist only in three bespoke host-side self-tests, each with its own
+private fake host, so **reminder, remembrance, blinkingled and agentflow have none**. The structural
+cause: `ModuleKit.Testing.RecordingHost` raises events but exposes no `…HasSubs` property, so a
+module author *cannot* write that assertion with the shipped test double. Adding one property to
+`RecordingHost` plus one assertion in `ModuleConventionSelfTest` would cover all six modules and any
+third-party one, including those whose self-tests never construct a host.
+
+### 📌 14. CS0414 does not fire for a write-only field assigned from a non-constant
+
+Measured 2026-09-17, and it corrects two earlier explanations including one in a commit message.
+`private int _probeNeverRead = 1;` (constant initializer, never read) **does** warn CS0414 in a
+module build. `private int _blockedCount;` assigned only as `_blockedCount = blocked;` (a local)
+and never read **does not warn**, in a full `--no-incremental` rebuild.
+
+So the earlier claim that modules escape this because `modules/Directory.Build.props` omits
+`TreatWarningsAsErrors` was wrong, and so was the claim that an incremental build hid it. The real
+answer is worse: **write-only fields of that shape are invisible to the compiler everywhere in this
+repo, including `src/` where warnings are errors.** That is where the false comfort is.
+
+Separately and still worth doing: `modules/Directory.Build.props` sets `LangVersion`, `Deterministic`,
+`ContinuousIntegrationBuild` and the Release `DebugType`, but not `WarningLevel` or
+`TreatWarningsAsErrors`, which `src/Directory.Build.props` does set. All module projects currently
+emit 0 warnings on a forced full recompile, so the two properties can be added for free — and the
+same props file's own comment explains why the gap existed (*"modules/ sat outside src/ … so no
+module project inherited any of the shared settings"*), a reason that was applied to the debug-record
+leak and not to the warning settings.
+
+### 📌 15. Stale numbers in documentation
+
+| claim | where | reality |
+|---|---|---|
+| "61 source invariants" | `SMOKETEST.md:4` | 82 static `Assert-True` sites; ~118 PASS lines at runtime, 11 sites being inside loops |
+| "All fifteen projects target net10.0-windows" | `Readme.md:479` | 16 csproj outside `bin`/`obj`/`build` |
+| "all seven module projects" | `Readme.md:498` | 8 csproj under `modules/`, and `build.ps1` builds 8 |
+| "seven module publishes" | `docs/HISTORY-post-1.0.0.md` (v1.1.4 entry) | the table under it has 6 rows; `modules.json` lists 6 |
+
+`tests/DesktopAICompanion.CoreTests/Program.cs:87` is the model to copy: it **counts** its groups
+rather than hardcoding them, with the drift that motivated it recorded in the comment. A number
+nobody re-measures goes stale, which is why the two corrected in this session were both wrong.
+
+### 📌 16. Optimization, worth measuring rather than assumed
+
+Framed as measurements to take, per the standing rule that a performance claim needs a cold
+purpose-built baseline. None of these is a claimed saving.
+
+- `DiagnosticLog.Write` (`:142-171`) does a `FileInfo` stat plus an open/write/close **per line**,
+  inside a global lock. `LogCategory.Animation` is documented as per-frame, and
+  `runtime-hardening-selftest.ps1:534-540` *enforces* that this runs first on all 57
+  `AddDebugInfo` call sites. Worth measuring: a retained writer, cold, with Animation on at
+  MAX_SHEEPS.
+- `CheckFullScreen` runs a full `EnumWindows` walk **per companion** — the 300ms throttle at
+  `FormCompanion.cs:1772` is per-instance, not global — while `StartUp.cs:734` already holds a 2s
+  shared cache one call away and its comment already says *"Called by every pet; the first one each
+  cycle sets the value and the rest agree with it."* The redundancy is acknowledged, not collapsed.
+- `CompanionsPaneControl.CheckButton_Click:495` calls `DiffStale()` **synchronously on the UI
+  thread**, SHA-256-ing every installed catalog companion, while the on-open path at `:116-128`
+  deliberately does it off-thread and says why. And `BuildUpdateCard:712` re-hashes each stale
+  companion that `DiffStale` already classified at `:695` — that second hash is pure duplicated I/O
+  and is the one genuinely free win here.
+
+### 📌 17. Two ABI-shaped observations
+
+- `ContextChanged` (`PluginApi.cs:648`, raised `CompanionHost.cs:709`) has **zero subscribers** in
+  the repo. The one publisher is Reminder; the one consumer, Remembrance, **polls** `ReadContext`
+  instead. Not a rule violation — it is raised — but the push half of the channel has never been
+  exercised by real code. Decide whether it is for out-of-tree modules (then say so in
+  `PluginApi.cs` and exercise the raise once in `ModuleHostSelfTest`) or whether Remembrance should
+  subscribe (then the polling is the bug, not the event).
+- `modules/AgentFlow/PermissionRules.cs:234` `CacheStats(...)` has a doc comment saying the cache
+  bound *"can be asserted rather than assumed"*. Nothing asserts it. The eviction-at-5000 behaviour
+  is a wholesale `.Clear()` of both caches and is untested.
+
+### 📌 18. Saving the AgentFlow pane re-arms the one-shot
+
+`modules/AgentFlow/AgentFlowModule.cs` `SavePaneValues` replaces `_budget` with a new
+`NotifyBudget` so a changed cooldown takes effect immediately, which discards `_announced`. So
+saving the pane lets an already-announced prompt be announced once more. Not a leak; it contradicts
+the one-shot invariant the module's own self-test pins. Fix: carry the announced set across, or
+mutate the cooldown in place instead of replacing the object.
 
 ---
 

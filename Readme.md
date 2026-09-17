@@ -476,7 +476,7 @@ bathtub escape. Every companion's exact moves and odds live in its `animations.x
 
 Requires the **.NET 10 SDK** — exactly 10.0.302, pinned in [`global.json`](global.json) with
 `rollForward: disable` so a different patch fails fast instead of quietly building something untested.
-All fifteen projects target `net10.0-windows`, except AI Brain and Remembrance, which pin
+All sixteen projects target `net10.0-windows`, except AI Brain and Remembrance, which pin
 `net10.0-windows10.0.19041.0` because they call Windows 10 2004 APIs (built-in OCR, audio capture). MSI builds also require WiX 5.0.2.
 
 ```powershell
@@ -495,7 +495,7 @@ $wix = Join-Path $env:TEMP 'DesktopAICompanion-WiX-5.0.2'
 ```
 
 - `build.ps1` never terminates a running app; if `DesktopAICompanion.exe` is locked, close it and retry. It
-  builds the supported x64 project and all seven module projects (`src/DesktopAICompanion_Portable.csproj`).
+  builds the supported x64 project and all eight module projects (`src/DesktopAICompanion_Portable.csproj`).
 - ZIP and MSI share the runtime list in [`packaging/runtime-files.txt`](packaging/runtime-files.txt).
   The ZIP also adds `DesktopAICompanion.portable`, which forces portable data-root behavior even when it is
   extracted into an install-shaped directory.

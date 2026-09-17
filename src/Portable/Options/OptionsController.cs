@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace DesktopAICompanion.Options
@@ -42,7 +42,6 @@ namespace DesktopAICompanion.Options
     {
         private readonly ICompanionRuntime _runtime;
         public CompanionsState State { get; private set; }
-        public event Action PetsChanged;
 
         public CompanionsController(ICompanionRuntime runtime) { _runtime = runtime; }
 
@@ -61,16 +60,14 @@ namespace DesktopAICompanion.Options
             // Record which pet is now active so per-pet size/sound key by its real id (normalize handles ""/built-in).
             if (Program.MyData != null) Program.MyData.SetActivePetId(petId);
             bool ok = _runtime.LoadNewXMLFromString(xml);
-            if (ok) { Load(); Raise(); }
+            if (ok) Load();
             return ok ? OpResult.Success("Companion applied.") : OpResult.Fail("Couldn't apply companion.");
         }
         public OpResult AddPet(string petId)
         {
             bool ok = _runtime.AddPetFromTray(string.IsNullOrEmpty(petId) ? CompanionCatalog.BuiltInPetId : petId);
-            if (ok) Raise();
             return ok ? OpResult.Success("Added.") : OpResult.Fail("Max companions reached or load failed.");
         }
-        private void Raise() { var h = PetsChanged; if (h != null) h(); }
         private static bool IsActive(CompanionCatalog.CompanionInfo p, string activeXml)
         {
             if (string.IsNullOrEmpty(activeXml)) return false;

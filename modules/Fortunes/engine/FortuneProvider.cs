@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -354,6 +354,11 @@ namespace DesktopAICompanion.Ai
                 ok = RunParserSelfTest(sb) && ok;
                 ok = RunCustomIngestionSelfTest(sb) && ok;
                 ok = FortuneFileImporter.RunSelfTest(sb) && ok;
+                // Was declared and NOT chained until 2026-09-17. Six identically shaped
+                // *SelfTest helpers sit in this file; five ran and this one did not, so a bad
+                // topic, genre or level in the SHIPPED embedded corpus passed the gate. That is
+                // the same payload failure class Test-ModulePublishFreshness.ps1 exists for.
+                ok = ValidateEmbeddedForSelfTest(sb) && ok;
             }
             catch (Exception ex)
             {
