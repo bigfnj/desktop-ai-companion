@@ -11,6 +11,7 @@ Anything closed that still carries standing value was extracted rather than dele
 
 | file | what it holds |
 |---|---|
+| [`docs/DESIGN-REGISTER.md`](docs/DESIGN-REGISTER.md) | closed knowledge written to be CONSULTED: refused designs, the two noted-not-scheduled ABI gaps, behaviours that read as defects and are not, the closed bug log |
 | [`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md) | the completed-work record from v1.0.0 on, with the estimates that turned out wrong kept beside their corrections |
 | [`docs/ISSUES-post-1.0.0.md`](docs/ISSUES-post-1.0.0.md) | the BUG-001 to BUG-004 post-mortems, kept in full because two of them were wrong in instructive ways |
 | [`docs/BLOCKED.md`](docs/BLOCKED.md) | items that cannot be actioned from here, each with its blocker named on its own line |
@@ -21,18 +22,25 @@ Anything closed that still carries standing value was extracted rather than dele
 - **Bugs are numbered `BUG-00N` and the number is never reused**, so a commit, a test or a code
   comment can cite one. `modules/AiBrain/`, `modules/PetStudio/`, `src/dotNet/`,
   `docs/RELEASE-CHECKLIST.md` and `handoff.md` all cite them today. The next one filed is BUG-005.
+  **No bug is open right now** — the closed BUG-001 to BUG-004 register moved to
+  [`docs/DESIGN-REGISTER.md`](docs/DESIGN-REGISTER.md), because "none open" is not a TODO.
 - **Status is prose plus a glyph, never a checkbox:** ✅ done · 📌 open, with the reasoning recorded ·
   ⬜ not started · ⚠ a caveat, or a claim that has not been observed. There are no markdown
   checkboxes anywhere in this file, and adding one would lose the reasoning a glyph sits next to.
 - **An entry keeps the measurement that settled it.** Where a number decided something, the number
-  stays in the entry — otherwise the next reader re-derives it, or guesses.
+  stays in the entry — otherwise the next reader re-derives it, or guesses. **A number that merely
+  DESCRIBES the repo is the opposite case: it goes stale and nobody notices.** Say what to count and
+  where, or make the code count it — see "Numbers in documentation" in
+  [`docs/DESIGN-REGISTER.md`](docs/DESIGN-REGISTER.md), which exists because one such figure was
+  wrong three times running.
 - **Before writing "needs a host change" here again, grep `PluginApi.cs` for the verb.** That
   sentence cost a planning cycle: the Reminder entry asserted the ABI could not drive a companion
   animation or move a companion, while `IHost.TryPlayAnimation` and `IHost.PlayAnimationAll` had
   existed since the emotion work and AiBrain had been using them all along. The full case is in
   [`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md).
-- **A refused design is recorded, not forgotten.** Read "Settled decisions" at the foot of this file
-  before proposing something that looks obviously missing.
+- **A refused design is recorded, not forgotten.** Read the "Settled decisions" section of
+  [`docs/DESIGN-REGISTER.md`](docs/DESIGN-REGISTER.md) before proposing something that looks
+  obviously missing — and its "Decisions that read as defects" before filing one as a bug.
 
 ---
 
@@ -154,6 +162,12 @@ nowhere, resource leaks and regression risk, and checks that cannot fail. What w
 unambiguous was fixed in the same session and is not listed here. What remains is below, worst
 first. Each entry says what input would make the thing fail, because "no such input" is the finding.
 
+**Numbers are not reused, so a gap means an item closed.** Item 15 (stale numbers in documentation)
+is gone: all four of its claims are now correct, and the durable half — make the code count rather
+than hardcode a literal — is in [`docs/DESIGN-REGISTER.md`](docs/DESIGN-REGISTER.md). Item 19 was
+added after the others and is not in worst-first order; it is the one check in the gate that is
+failing today.
+
 ### 📌 1. CI cannot see a module-folder skip, and that is the largest blast radius left
 
 `tests/run-gate.ps1:54-59` throws when a module is missing from the build output, and `:105-152`
@@ -222,7 +236,7 @@ a security helper is worse than no helper.
 
 ### 📌 7. Three dead test hooks that assert coverage which does not exist
 
-- `modules/Fortunes/engine/FortuneProvider.cs:2107` `CustomCacheSelfTest()` — no caller.
+- `modules/Fortunes/engine/FortuneProvider.cs:2112` `CustomCacheSelfTest()` — no caller.
   `docs/HISTORY-pre-1.0.0.md:10836` records it as *deleted*; it came back with the S3d relocation
   and was never re-wired. Three sources disagree about whether the custom-corpus cache is covered.
 - `modules/Fortunes/engine/SmartFortunes.cs:123` `HoldEmbedLockForDiagnostics(...)` — no caller. It
@@ -348,19 +362,6 @@ same props file's own comment explains why the gap existed (*"modules/ sat outsi
 module project inherited any of the shared settings"*), a reason that was applied to the debug-record
 leak and not to the warning settings.
 
-### 📌 15. Stale numbers in documentation
-
-| claim | where | reality |
-|---|---|---|
-| "61 source invariants" | `SMOKETEST.md:4` | 82 static `Assert-True` sites; ~118 PASS lines at runtime, 11 sites being inside loops |
-| "All fifteen projects target net10.0-windows" | `Readme.md:479` | 16 csproj outside `bin`/`obj`/`build` |
-| "all seven module projects" | `Readme.md:498` | 8 csproj under `modules/`, and `build.ps1` builds 8 |
-| "seven module publishes" | `docs/HISTORY-post-1.0.0.md` (v1.1.4 entry) | the table under it has 6 rows; `modules.json` lists 6 |
-
-`tests/DesktopAICompanion.CoreTests/Program.cs:87` is the model to copy: it **counts** its groups
-rather than hardcoding them, with the drift that motivated it recorded in the comment. A number
-nobody re-measures goes stale, which is why the two corrected in this session were both wrong.
-
 ### 📌 16. Optimization, worth measuring rather than assumed
 
 Framed as measurements to take, per the standing rule that a performance claim needs a cold
@@ -375,8 +376,9 @@ purpose-built baseline. None of these is a claimed saving.
   `FormCompanion.cs:1772` is per-instance, not global — while `StartUp.cs:734` already holds a 2s
   shared cache one call away and its comment already says *"Called by every pet; the first one each
   cycle sets the value and the rest agree with it."* The redundancy is acknowledged, not collapsed.
-- `CompanionsPaneControl.CheckButton_Click:495` calls `DiffStale()` **synchronously on the UI
-  thread**, SHA-256-ing every installed catalog companion, while the on-open path at `:116-128`
+- `src/Portable/Wpf/CompanionsPaneControl.cs`'s `CheckButton_Click` calls `DiffStale()` at `:495`
+  **synchronously on the UI thread**, SHA-256-ing every installed catalog companion, while
+  `RefreshCatalogOnOpen` at `:120-130`
   deliberately does it off-thread and says why. And `BuildUpdateCard:712` re-hashes each stale
   companion that `DiffStale` already classified at `:695` — that second hash is pure duplicated I/O
   and is the one genuinely free win here.
@@ -389,7 +391,7 @@ purpose-built baseline. None of these is a claimed saving.
   exercised by real code. Decide whether it is for out-of-tree modules (then say so in
   `PluginApi.cs` and exercise the raise once in `ModuleHostSelfTest`) or whether Remembrance should
   subscribe (then the polling is the bug, not the event).
-- `modules/AgentFlow/PermissionRules.cs:234` `CacheStats(...)` has a doc comment saying the cache
+- `modules/AgentFlow/PermissionRules.cs:247` `CacheStats(...)` has a doc comment saying the cache
   bound *"can be asserted rather than assumed"*. Nothing asserts it. The eviction-at-5000 behaviour
   is a wholesale `.Clear()` of both caches and is untested.
 
@@ -401,24 +403,42 @@ saving the pane lets an already-announced prompt be announced once more. Not a l
 the one-shot invariant the module's own self-test pins. Fix: carry the announced set across, or
 mutate the cooldown in place instead of replacing the object.
 
----
+### 📌 19. The publish-freshness check is red for all six modules, and the recorded reason is only half of it
 
-## 🐞 Known bugs (post-1.0.0)
+**The gate has one failing check right now** and it is this one: `Test-ModulePublishFreshness.ps1`
+reports fortunes, aibrain, petstudio, reminder, remembrance and blinkingled all behind their source.
+`d780812`'s commit message and every note since attribute that entirely to `TrayConventions.cs` being
+added to ModuleKit (`8083d52`), which every module bundles as a `ProjectReference`. **That is the
+sufficient cause for all six and the SOLE cause for only two.** Measured per module at HEAD, by
+running the check and reading its own culprit attribution:
 
-**None open.** All four were fixed before the v1.1.0 tag (2026-09-10). The full post-mortems —
-diagnosis, the wrong turns, the fix, and how each was verified — are in
-[`docs/ISSUES-post-1.0.0.md`](docs/ISSUES-post-1.0.0.md).
+| module | culprit paths → commits |
+|---|---|
+| fortunes | `modules/Fortunes` → `d780812`; ModuleKit → `8083d52` |
+| aibrain | `modules/AiBrain` → `8083d52` **and `79ddfd3`**; ModuleKit → `8083d52` |
+| petstudio | `modules/PetStudio` → **`1178331`**; `tools/ShimejiConvert.Engine/Shimeji/ActionClassifier.cs` → **`79ddfd3`**; ModuleKit → `8083d52` |
+| reminder | ModuleKit → `8083d52` ONLY |
+| remembrance | ModuleKit → `8083d52` ONLY |
+| blinkingled | `modules/BlinkingLed` → `d780812`, `8083d52`; ModuleKit → `8083d52` |
 
-| bug | | fixed |
-|---|---|---|
-| BUG-001 | the tray icon is missing after an MSI install that launches the app | host 1.1.1 → 1.1.3, across all four of its symptoms |
-| BUG-002 | the vision feature does nothing, silently, when the configured model is not installed | 2026-09-10, all four items |
-| BUG-003 | screen capture returns the wallpaper, and follows the wrong monitor | (b) fixed 2026-09-10; (a) resolved — the suspected cause was refuted by measurement |
-| BUG-004 | the leak soak's verdict was a coin flip, and it is the only gate that can catch a leak | 2026-09-10 — there is no leak, and the gate now measures that |
+**Measured again at `8083d52~1`, i.e. before `TrayConventions.cs` existed: aibrain and petstudio were
+ALREADY stale, both from `79ddfd3`** — aibrain through its own module directory, petstudio through the
+source-linked `ActionClassifier.cs` in its external watch set. `1178331` and `d780812` landed *after*
+`8083d52`, so they are additional drift the red check has been absorbing since, not the original
+cause. **A permanently-red check camouflages exactly the real drift it exists to catch**, which is the
+whole argument against "accept a red freshness check on master until the next deliberate publish":
+the next reader sees one known-and-explained failure and stops reading, and petstudio's classifier
+change is invisible inside it.
 
-Three of the four were found by the maintainer running a real install, and none by a gate. That is why
-`SMOKETEST.md` exists and why the A-E walk is tracked in [`docs/BLOCKED.md`](docs/BLOCKED.md) rather
-than dropped.
+**Reverting cannot clear it, and this closes off one of the three options that were recorded.** The
+check compares **commit EXISTENCE** in `zipCommit..HEAD` (`packaging/Test-ModulePublishFreshness.ps1`,
+the `git log --format='%h %s' "$zipCommit..HEAD" -- @watchedPathspecs` call), never bytes. A forward
+commit deleting `TrayConventions.cs` is itself a commit touching the watched ModuleKit directory, so
+it makes the count worse — two commits where there was one — and leaves aibrain and petstudio red
+regardless. Only a history rewrite would clear it. **So the options are republish, or accept it with
+this table in hand; revert is not one of them.** Republishing is outward-facing (merging
+`modules-dist/` to master IS the publish, and it reaches every existing user via
+`raw.githubusercontent`), which is why it has not been done from a work session.
 
 ---
 
@@ -426,143 +446,84 @@ than dropped.
 
 Four parallel read-only audits ran over the tree at the v1.1.0 tag (credentials, PII/employer material,
 stale files, readme accuracy). Credentials came back with **zero** findings and the working tree was
-clean. What was found and FIXED at the time is not repeated here; these are the items deliberately left
-open, with the evidence, so none of them has to be rediscovered.
+clean. One residual remains open; the rest are closed and in
+[`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md).
 
-### 1. `ModuleKit.dll` still embeds the build path in every published module zip
+### 📌 Nothing scans a shipped DLL for an embedded build path, so the fix has no regression net
 
-`DesktopAICompanion.ModuleKit.dll` is copied into all six `modules-dist/*.zip`, and because it builds
-from `src/` it still carries a CodeView record naming
-`D:\...\src\DesktopAICompanion.ModuleKit\obj\Release\...pdb`. The six MODULE DLLs were
-fixed by `modules/Directory.Build.props` (`DebugType=none`); this one cannot use the same fix, because
-Contracts and ModuleKit deliberately set `IncludeSymbols` + `SymbolPackageFormat=snupkg` so module
-authors can debug into the ABI.
+The defect is fixed. `DebugType=embedded` is set in both
+`src/DesktopAICompanion.ModuleKit/DesktopAICompanion.ModuleKit.csproj:60` and
+`src/DesktopAICompanion.Contracts/DesktopAICompanion.Contracts.csproj:62` (each with a comment warning
+against re-adding `IncludeSymbols`, which is what made `dotnet pack` fail NU5017 on the first
+attempt), and the six zips were rebuilt and republished. **Re-verified 2026-09-17:** scanning every
+DLL inside every `modules-dist/*.zip` for `<drive>:\…\*.pdb` finds **zero** matches in
+`ModuleKit.dll` or `Contracts.dll`.
 
-Measured while attempting it, so nobody repeats the dead ends:
+**What is open is the net, not the fix.** `packaging/Test-ModulePublishFreshness.ps1` measures
+staleness and integrity, never embedded paths, so nothing would notice the setting being reverted or a
+new shipped assembly arriving without it. Two things a scan has to get right, both measured rather
+than assumed:
 
-- **`PathMap` does not help.** It rewrites source paths recorded *inside* the PDB, not the output PDB
-  path in the assembly's CodeView record. Verified: the absolute path survived unchanged.
-- **`DebugType=embedded` DOES clean it and keeps symbols** (they move inside the DLL, +14 KB on
-  ModuleKit), but `dotnet pack` then fails **NU5017**, "cannot create a package that has no dependencies
-  nor content", because the symbol package has nothing left to carry.
-- **The release does not publish `.snupkg` assets at all** - the v1.1.0 assets are two `.nupkg`, the
-  portable ZIP, the MSI and `SHA256SUMS.txt`. So that setting currently produces an artifact no user
-  receives, which is the thing to settle first: either publish the symbol packages, or switch to
-  `embedded` and drop `IncludeSymbols`.
-- Calibration before treating this as urgent: the vendored third-party DLLs in those same zips carry
-  their own vendors' CI paths (`N:\_work\...` for onnxruntime, `C:\__w\1\s\...` for the
-  Windows SDK projection, `D:\a\_work\...` for WinRT.Runtime). Embedded build paths in shipped
-  binaries are normal practice; this one matters only because it names a personal machine rather than a
-  hosted runner. It contains no username and no employer string.
-
-**No gate looks for this.** `Test-ModulePublishFreshness.ps1` measures staleness and integrity, never
-embedded paths. A scan over the zips' DLLs for `<drive>:\...\*.pdb` would be cheap to add and would
-have caught it.
-
-### 2. Nothing asserts that the two copies of `animations.xsd` stay in sync
-
-- `Resources/animations.xsd` and `src/Resources/animations.xsd` are byte-identical duplicates and BOTH
-  are live: the `src/` copy is embedded by three csproj files, the root copy is what the grimoire docs
-  link. `handoff.md` already records that they must stay in sync, but **nothing asserts it**. A file-hash
-  equality check in `tests/run-gate.ps1` is cheap now and prevents a silent drift later.
+- **It cannot be a bare drive-letter grep.** The same scan over the same zips returns **7 hits from
+  vendored third-party DLLs** — `N:\_work\1\…` in `Microsoft.ML.OnnxRuntime.dll`,
+  `onnxruntime.dll` and `onnxruntime_providers_shared.dll`, `C:\__w\1\s\…` in
+  `Microsoft.Windows.SDK.NET.dll`, `D:\a\_work\1\s\…` in `WinRT.Runtime.dll`. Those are hosted-runner
+  paths from other vendors' CI and are normal practice; a check that flags them is a check somebody
+  will disable. Scope it to the assemblies this repo builds.
+- **The reason this one mattered is narrow and should be written into the check**, or the next reader
+  will over-scope it: it named a personal machine rather than a hosted runner. It carried no username
+  and no employer string.
 
 ---
 
-## PARTLY DONE: instrument the modules, AI Brain first (filed 2026-09-10)
+## Open: instrument the three modules still at zero (filed 2026-09-10)
 
 BUG-002 was undiagnosable for a reason that is not specific to BUG-002, so it is worth its own item.
 
-> **2026-09-10, done as part of the BUG-002/003 fixes:** items 1, 3 and 6 below, plus the
-> capture-uniformity check. `AiBrain` gained a static `LogSink` wired to `IHost.Log`, and the AiBrain
-> row of the table below is no longer 1. **The open design question is settled: AI lines stay under
-> `Modules`** and rely on the existing per-module mute, as this item predicted would suffice — a new
-> `LogCategory` was not justified by the volume these calls produce.
->
-> **2026-09-11: items 2, 4 and 5 are now DONE too, so AI BRAIN is fully instrumented.** Fortunes,
-> PetStudio and BlinkingLed are still at zero `IHost.Log` calls and remain open, which is why this
-> section is still PARTLY DONE rather than closed. None of the three fails silently by construction,
-> so they stay lower value.
->
-> - **Item 2, availability transitions.** `NoteBackendAvailability` + `CheckBackendAvailableAsync` log on
->   the TRANSITION only, never per probe, because the ask path checks before every turn and logging the
->   state would write a line each idle tick. The first check logs (null to known is a transition) since
->   the launch answer is what a "it never speaks" report most needs. `CheckBackendAvailableAsync`
->   deliberately RETHROWS instead of returning false: both callers already have handlers, and swallowing
->   would take the exception away from them. `PrepareAsync`'s bare `catch { return false; }` now records
->   the category first, and the `EnsureServerAsync` branch is distinguished in the reason, because
->   "auto-start ran and it is still absent" is a different user problem from "it was never running".
-> - **Item 4, request outcome.** Latency, attempt count and reply length on success; the retried-and-gave-up
->   case the item called invisible now logs both error categories. A DETERMINISTIC failure skips the retry
->   filter entirely and used to produce no outcome line at all, so it gained its own. Cancellation is
->   excluded explicitly, because `IsRetryable` returns false once the token is cancelled and an ordinary
->   cancel would otherwise be recorded as a failure it is not. `reply parse:` distinguishes empty-reply
->   from unusable-shape from ok, which is the Readme's "permanently, silently mute" captioner case.
-> - **Item 5, the vision path.** `ocr engine:` records which engine actually ran and whether Tesseract was
->   configured or merely found (a companion reading through Windows OCR while the user believes they
->   installed Tesseract is a silent accuracy downgrade, not an error). `ResolveTesseract`'s throw is
->   captured rather than swallowed. Every one of the tesseract path's five `return ""` exits now says why:
->   process-did-not-start, timeout-8s, output-drain-timeout-2s, exit-N, or an error category. `vision
->   payload:` records cap width, shot size and PNG KB, so a disappointing remark can be checked against
->   the Readme's width/accuracy table.
->
-> **Proven, not assumed.** `CheckRequestOutcomeInstrumentation` in `AiEngineProbe.Security.cs` drives the
-> real retry helper with the real classifier and asserts the LINES. Mutation-tested by deleting the
-> retried-and-failed `Log` call: exactly the two retry-log assertions failed, the behavioural assertions
-> ("was attempted twice") still passed, and the line-count assertion independently caught the drop from
-> three lines to two. That count assertion also caught its own author: it was first written `>= 4` and the
-> true count is 3, because the cancellation case contributes nothing by design.
->
-> The "never log" list was honoured and is now partly ASSERTED rather than trusted: a probe assertion
-> fails if a window title reaches the prompt string, and the log records endpoint HOSTS rather than URLs
-> because a base URL can carry a key in its query.
+**AI Brain is DONE and this section no longer asks for anything from it.** All six items of the
+original "what to record" list shipped (1, 3 and 6 with the BUG-002/003 fixes on 2026-09-10; 2, 4 and
+5 on 2026-09-11), plus the capture-uniformity check, plus the retry-outcome instrumentation that
+`CheckRequestOutcomeInstrumentation` in `AiEngineProbe.Security.cs` mutation-tests by driving the real
+retry helper and asserting the LINES. What was recorded, the four design calls inside it (log the
+TRANSITION not the probe, rethrow rather than swallow, distinguish auto-start-ran from never-running,
+exclude cancellation), and the assertion that caught its own author are all in
+[`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md). **The design question this section used to
+carry is settled: AI lines stay under `Modules`** and rely on the existing per-module mute; a new
+`LogCategory` was not justified by the volume these calls produce.
 
-**The plumbing already exists and is barely used.** `IHost.Log(moduleId, message)`
-(`PluginApi.cs:552`) routes a module's line into the same rotating diagnostic log the host writes,
-under the `Modules` category, with per-module muting already keyed on the module id
-(`DiagnosticLog.IsEnabled(category, moduleId)`). Nothing needs building for a module to be
-diagnosable. Current usage:
+**What is left is three modules at zero.** The plumbing needs nothing built:
+`IHost.Log(moduleId, message)` (`PluginApi.cs:552`) routes a module's line into the same rotating
+diagnostic log the host writes, under the `Modules` category, with per-module muting already keyed on
+the module id (`DiagnosticLog.IsEnabled(category, moduleId)`).
 
-| module | `IHost.Log` calls |
-|---|---:|
-| Remembrance | 8 |
-| Reminder | 4 |
-| **AiBrain** | **1** |
-| Fortunes | 0 |
-| PetStudio | 0 |
-| BlinkingLed | 0 |
+- 📌 **Fortunes, PetStudio and BlinkingLed emit nothing — no `IHost.Log`, no sink.** They should
+  follow AI Brain's pattern. Lower value than AI Brain was, and for a real reason rather than a
+  shrug: none of the three fails silently by construction, so "it does nothing" from a user of one of
+  these already comes with a visible error, where AI Brain's `catch { return null; }` made every
+  failure look identical to normal quiet operation.
 
-**AI Brain first, because it is the module that fails by design.** `AskAboutScreenAsync` ends in a
-bare `catch { return null; }` and the caller treats null as "nothing to say", so every failure mode
-looks identical to normal quiet operation. What to record, in rough value order:
+| module | diagnostic lines it can emit | how it was counted |
+|---|---:|---|
+| **AiBrain** | **27** | 26 `Log(...)` call sites in `engine/AiBrain.cs` routed through the static `LogSink` that `AiBrainModule.cs:159` wires to `IHost.Log`, plus one direct `host.Log` at `AiBrainModule.cs:1080` |
+| Remembrance | 8 | direct `_host.Log` call sites, all in `RemembranceModule.cs` |
+| AgentFlow | 7 | 5 through a private `Log` wrapper + 2 through `Explain`, all reaching one `IHost.Log` at `AgentFlowModule.cs:519` |
+| Reminder | 4 | direct `_host.Log` call sites, all in `ReminderModule.cs` |
+| Fortunes | 0 | no `IHost.Log`, no sink |
+| PetStudio | 0 | no `IHost.Log`, no sink |
+| BlinkingLed | 0 | no `IHost.Log`, no sink |
 
-1. **The swallowed exception itself** — model, endpoint host, and error category, at the catch in
-   `AiBrain.cs:257-262`. This is the whole of BUG-002's diagnosability and should land first.
-2. **Backend availability transitions** — `IsAvailableAsync` flipping, with the reason. Currently a
-   `catch { return false; }`.
-3. **Model resolution** — what was configured, what was normalized, and whether the backend actually
-   offers it. This is where BUG-002 becomes obvious at a glance rather than after an investigation.
-4. **Request outcome** — latency, retry count, whether a retry was attempted, and the parse result.
-   `ChatWithRetryAsync` swallows retryable exceptions with `catch (Exception ex) when
-   (AiEndpointPolicy.IsRetryable(ex, ct)) { }`, so a request that retried and gave up is invisible.
-5. **Vision-specific path** — capture size, whether OCR or vision was used, and whether Tesseract was
-   resolved. `ResolveTesseract` is wrapped in `catch { }`.
-6. **Capture selection, for BUG-003** — the chosen monitor rect, whether the foreground window or the
-   companion's own monitor won it, and a cheap uniformity check on the resulting bitmap. That last one
-   turns "it captured the wallpaper" from a user report into a fact. This item now gates two bugs.
+**Counted 2026-09-17. If this table is edited again, count the SINK as well as the direct calls.**
+The AiBrain row read `1` for a week after the module was fully instrumented, and it contradicted the
+paragraph directly above it, because a raw grep for `IHost.Log` call sites in `modules/AiBrain/` finds
+**2** — one of which is the sink wiring that carries all 26 engine lines. Two of the four modules that
+log anything route their lines through a helper, so a call-site grep is the wrong instrument here.
 
 **Never log:** prompt text, screen-capture content, OCR output, model replies, or API keys. The
 diagnostic log is explicitly "no message text" in the Preferences label and `SUPPORT.md` tells users
-they can attach it to an issue. This is the one part of the item that must not be got wrong: the AI
-module is the one place where careless logging would export the contents of the user's screen.
-
-**Open design question.** Whether AI lines want their own `LogCategory` (currently App, Companions,
-Modules, Tray, Network, Audio, Animation) or stay under `Modules` and rely on the existing per-module
-mute. Per-module muting probably suffices, and a category is only worth adding if AI volume would bury
-the rest -- in which case follow the `Animation` precedent and default it off. Decide before writing
-the calls, not after.
-
-Fortunes, PetStudio and BlinkingLed are at zero and should follow, but none of them fail silently by
-construction, so they are lower value.
+they can attach it to an issue. AI Brain's version of this rule is now partly ASSERTED rather than
+trusted — a probe assertion fails if a window title reaches the prompt string, and the log records
+endpoint HOSTS rather than URLs because a base URL can carry a key in its query. Copy that shape, not
+just the rule.
 
 ---
 
@@ -642,41 +603,38 @@ there.
 
 ---
 
+## Open: the MSI upgrade path, and the installed build's About window (unblocked 2026-09-17)
+
+**Was in [`docs/BLOCKED.md`](docs/BLOCKED.md) as T2 / T49; the blocker is gone.** It sat there needing
+"a real reinstall of the MSI over a previous install", and both halves of that now exist on this box:
+the app **is** installed at **1.1.4** under `%LOCALAPPDATA%\Programs\Desktop AI Companion\`
+(`DesktopAICompanion.exe` reports FileVersion `1.1.4.0`), so there is a previous install to upgrade
+over, and **WiX 5.0.2 is installed as a global dotnet tool**, so an MSI can be built here. Verified
+2026-09-17. Two verification gaps, both actionable now:
+
+- 📌 **The UPGRADE path has never been exercised.** The v1.1.4 install was onto a machine with no
+  registered install, so it tested first-install only, and `SMOKETEST.md` is explicit that the
+  upgrade path is the one users take. Section K of [`SMOKETEST.md`](SMOKETEST.md) is the script.
+  Install-over-1.1.4 is the case: upgrade code honoured, no second entry in Programs and Features,
+  settings and installed companions surviving, the tray icon appearing on the FIRST add (BUG-001's
+  own repro), and modules left by the earlier install still loading at their older versions.
+- 📌 **The full A-E walk has never been walked on an installed build.** It covers speech routing, the
+  poke ladder, drag, multi-monitor pinning and fullscreen stand-down, none of which was touched at
+  the v1.1.4 tag. This is the same gap the live-smoke-test item below records; the upgrade install is
+  the natural occasion to do both in one sitting.
+- 📌 **The About / Help window has only ever been eyeballed as a rendered PNG.** The WPF rebuild was
+  verified by rendering the window to an image, not by opening it from the tray on an installed
+  build, and the capture followed this box's dark OS setting, so the light-theme variant is
+  unobserved. Worth a glance on the next reinstall.
+
+Both original entries in full, with the pre-tag verification that WAS performed beside the gap:
+[`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md).
+
+---
+
 ## Post-v1 backlog (added 2026-07-29)
 
 ### Open, found 2026-09-01 while chasing companion behaviour
-
-- 📌 **A one-frame animation with `repeat="0"` is effectively invisible — and the fix this entry
-  proposed is now ruled out by its own prerequisite measurement.** Hornet's `Grapple3` was the report: a
-  single frame with no repeat renders for ONE tick (`TotalSteps` is 1, so `AnimationStep >= lastStep` fires
-  on the first one) and cannot be seen. It is reachable and it "plays"; it just never appears, which is
-  indistinguishable from a bug to a user and invisible to the reachability check that guards the corpus.
-  **Measured 2026-09-17, which is what the entry asked for before choosing:** across all 31 shipping
-  converted skins, **54 non-magic single-frame sequences sit under 500ms of on-screen time, across 26
-  companions**. Method, so it is reproducible: for every `<animation>` with exactly one `<frame>` in its
-  `<sequence>`, take `(1 + repeat) * <start><interval>`, and exclude the four magic names
-  (`kill`/`sync`/`fall`/`drag`) — `sync` is legitimately a 100ms no-op and accounts for 25 more on its own.
-  **That count refutes the proposed fix.** 25 of the 54 are the emitter's SYNTHETIC `turn` at 120ms, whose
-  whole job is to be instantaneous, and most of the remainder are `*Blink`, `*Transit` and `*End` poses that
-  are meant to be brief. A blanket minimum dwell would put a visible stall into every converted companion's
-  facing change; refusing to emit would break facing outright. `Grapple3` does not appear in the measurement
-  at all, so the original example has already been re-emitted away.
-  **What is actually left is narrower:** the decision belongs to the pose ROLE, not the frame count. The
-  emitter already gives rest poses a dwell; the open question is whether any other role wants one, and
-  nothing in the measurement says one does. Do not spend on this without an observed case that is not a
-  `turn` or a blink.
-
-- 📌 **A converted companion's ceiling art can read as "standing sideways in mid-air", and it is not a bug.**
-  Hornet's skin draws its ceiling cling as a body lying flat against the ceiling (rotated 90 degrees,
-  top-anchored) rather than upside down. The original Shimeji shows the same thing; it only became visible
-  once a climb could actually reach a ceiling. An attempt to "fix" it by swapping the wall and ceiling frame
-  sets was WRONG and was reverted — the anchoring proves the mapping: ceiling art is composited flush to the
-  cell TOP (it hangs), wall/floor art flush to the BOTTOM (it stands), so moving indices between regions
-  moves art into a cell position it was never aligned for, and the companion floats 60px above its own feet.
-  **The lesson, worth keeping:** a sprite's ROTATION says which surface it was drawn for, and its ANCHOR says
-  the same thing independently. Consulting only one made it possible to be confidently wrong. Options if the
-  look is ever judged unacceptable: rotate ceiling art in the compositor, or drop the ceiling region for
-  skins whose ceiling art reads badly. Not a defect to fix by moving pixels between regions.
 
 - 📌 **The live smoke test has never been walked, across TEN releases (v1.9.4 → v1.9.13).** Everything
   shipped in that span rests on the gate, the behaviour soaks and the mutation suites — none of which opens a
@@ -685,12 +643,13 @@ there.
   saw something: a UFO over a fullscreen game, a companion on the wrong monitor, a companion walking in place. Every one
   was a first-thirty-seconds-of-looking bug that the whole automated suite passed straight over. The gate
   proves the code does what it says; nothing yet proves the code says the right thing.
-  **Written out properly on 2026-09-02 as [`SMOKETEST.md`](SMOKETEST.md)** (66 checks in eleven sections, a
+  **Written out properly on 2026-09-02 as [`SMOKETEST.md`](SMOKETEST.md)** — lettered sections with a
   12-minute Core pass, and a regression watchlist mapping each bug that reached users to the row that would
-  have caught it). The ten-row table in `docs/RELEASE-CHECKLIST.md` that it replaces had not grown with the
+  have caught it. Read the counts off that file rather than from here; the figures that used to sit in this
+  sentence were both stale within two weeks of being written.
+  The ten-row table in `docs/RELEASE-CHECKLIST.md` that it replaces had not grown with the
   product since before companions could climb — part of why walking it never felt worth the time. Handed to the
   maintainer the same day; **still unwalked until a report comes back.**
-
 
 - 📌 **Companion Studio's behaviour-timeline Run button has no automated coverage.** There is no way to drive the
   tray from a test, previews auto-hide under a fullscreen foreground window, and an isolated
@@ -710,43 +669,6 @@ there.
   across a DPI change is the second hazard.
   Pinning (v1.9.12) is the escape hatch meanwhile: a pinned companion stays put by construction.
 
-- 📌 **The converter emits a sprite cell per frame REFERENCE, not per unique image, so 26 of 31 converted
-  companions carry duplicate cells.** Measured 2026-09-02 by hashing every cell of every sheet. Deduping and
-  re-encoding the whole corpus saves **7.0 MB of 48.4 MB (14.6%)**, and it is heavily concentrated: eleven
-  companions save 17-29%, the other twenty save under 6% and six save nothing.
-  **Two causes, and only one is ours.**
-  1. *Ours, and it affects every future import.* A reversed sequence is emitted as fresh cells.
-     `shimeji-brq51bkr`'s `descend_left` uses frames 62-87, which are frames 61-36 (its `climb_left`) in
-     exact reverse: 26 duplicated cells, 1.08 MB, to express "play the climb backwards". `<sequence>`
-     already accepts an arbitrary frame list, so a reversed list costs ZERO cells. Same palindromic
-     signature in `06n2wuu6`, `1l2yvz73`, `88f9sqb5`, `kinitopet`.
-  2. *The source's.* Seven companions (`08dkbwmb`, `36po5aw2`, `3x56f4pl`, `55atqs1b`, `7gb3ediv`, `9qc0h184`,
-     `dqjd9s2d`) have a byte-identical duplicate structure, so they came from one Android-Shimeji template
-     that ships duplicate sprite FILES. Luffy's source sprites 52-59 are byte-identical to its climb set.
-     The converter faithfully gave each source index its own cell.
-  **✅ DONE the same day (2026-09-02, format 1.6 -> 1.8, master at `65eb2c0`).** I first recommended NOT
-  re-migrating, on the grounds that changing every `sha256` makes existing users re-download ~40 MB to save
-  7 MB. The maintainer overruled it in one line: there are no users but them. **That is the
-  no-users-until-10-stars rule, and I should have applied it before recommending a deferral -- the whole
-  point of it is that blast-radius arguments are void at 0 stars.** Checked
-  after the fact: 0 stars, 0 forks.
-  Shipped as two migrations plus the emitter fixes that stop both causes recurring: `dedupe` (1.6 -> 1.7)
-  collapses cells by CONTENT and re-grids, `undirect` (1.7 -> 1.8) drops the suffix. Catalog companion content
-  80.1 MB -> 69.3 MB (13.5% across all 53, 20.0% across the 31 converted); 559 cells dropped, 232 renames,
-  0 refused. `SpriteSheetBuilder` now keys cells on content rather than image name, so a fresh import
-  matches the migrated corpus. No app release: the host does not reference the converter.
-  **Three things worth keeping from doing it:**
-  * **Re-gridding can compress WORSE.** `gengar` came out 1 KB bigger, and five companions whose only duplicates
-    are blank cells save nothing because the grid does not shrink. Each companion keeps its original sheet unless
-    the new one actually wins.
-  * **`Graphics.DrawImage` resamples even a 1:1 blit** -- the default `InterpolationMode` is bilinear -- so
-    the first pack altered edge pixels and the equivalence check rejected all 31 companions. That was the guard
-    working before it had anything real to guard. Raw row copy instead.
-  * **A migration that can legitimately no-op must still stamp the version**, or it strands the companion for
-    every later migration. `3g8t9v4e` has no duplicate cells and 8 names wanting renaming, and `dedupe`
-    left it at 1.6 so `undirect` skipped it. The version marks "has been through the pass", not "was
-    changed by it". The five older migrations happen to always change something, so this never bit before.
-
 ### Shimeji conversion: the open remainder
 
 Phases 0 and A to E all shipped in 2026-08, and every original estimate is kept beside its correction
@@ -757,7 +679,8 @@ here, because four of the five estimates were wrong in a way that is informative
 code. What remains open:
 
 - **Not a gap:** "moves the user's windows" (48 actions) is refused deliberately — desktopPet "cannot and
-  should not move the user's windows". No work.
+  should not move the user's windows". No work. Kept here so it is not re-scoped as missing coverage;
+  the decision itself is in [`docs/DESIGN-REGISTER.md`](docs/DESIGN-REGISTER.md).
 
 - ⬜ **CONVENTION: every tray entry carries its own unique icon — the check now exists in ModuleKit, and
   the one edit that would enforce it everywhere is in the HOST, not in five modules.** The tray is shared
@@ -787,21 +710,6 @@ code. What remains open:
   `alipheese`'s `TeleportStart`/`TeleportEnd`, the seven sheep's `bathd`, `negima`'s `fall`, `pingus`'s
   `fall2c`. They are how a companion goes invisible. The blank-tile assertion therefore lives on the SYNTHETIC
   fixture only. If a corpus-wide check is ever wanted it needs an allowlist keyed by animation name.
-
-
-### Known ABI gaps (add when the module that needs them is written — see handoff.md's host contract)
-
-- 📌 **A module cannot draw on or near the companion.** No ABI for overlay/decoration. Nothing planned needs it yet;
-  noted so it is not mistaken for an oversight if something does.
-
-- ⬜ **A module cannot push a live value into an open options pane or tray menu.** Found while porting the
-  standalone app's "Next blink" countdown, which refreshed every 250ms because that app owned its own menu.
-  A module ships DATA and the host renders it, so the best available is a snapshot: `TrayItem.DynamicText`
-  is re-evaluated when the menu opens, and `SettingKind.Info` is read when the pane loads or a
-  `PaneAction` with `ReloadPaneAfter` runs. Good enough for state that changes slowly, useless for a
-  countdown. The readouts were dropped rather than shipped stale. If a live readout is ever wanted this
-  needs an ABI addition (a push channel or a pane-refresh tick) and therefore a host release, which was not
-  worth it for one diagnostic.
 
 ### Module SDK follow-ups
 
@@ -891,160 +799,89 @@ rather than restarting, for the same reason.
     much more painful than designing the storage key as companion-type-aware from day one, even if the UI stays
     global-only for its first cut.
 
-17. ✅ **MOSTLY SUPERSEDED (2026-09-01) by the Remembrance module** — checked, not assumed. Remembrance
-    already records BOTH directions (`WasapiLoopbackCapture` for system output + `WasapiCapture` for the mic,
-    `modules/Remembrance/AudioRecorder.cs`), with per-direction device pickers and a start/stop hotkey. TWO
-    gaps remain against the original wording, both deliberate in Remembrance and both real if the goal is
-    *listening* rather than transcribing: the output is **WAV, downmixed to mono 16 kHz** (tuned for Whisper —
-    see the `StereoToMonoSampleProvider` + `WdlResamplingSampleProvider(…, 16000)` chain), not MP3 at
-    listenable quality; and it is a hotkey rather than a one-click tray entry. Reduced scope if wanted: an
-    output-format choice on Remembrance, not a new module. Original note:
-    scoped; came out of an audio-capture research pass). The want: click a tray item, it records the mic
-    **and** system/loopback audio to a single MP3 (a meeting, a call), click again to stop. Filed here
-    because desktopPet is already the .NET 10 tray app with the pieces to reuse — a tray-contribution ABI
-    (`TrayItem`), a module loader with its own `AssemblyLoadContext`, an `Audio` permission, and **NAudio 3
-    already in the base** for `AudioOutput`. Could ship as a module (`modules/Recorder`) or, honestly, as
-    its own standalone tray app — a meeting recorder isn't "companion" behaviour, so decide that before building;
-    the reuse argument is the tray/module/audio scaffolding, not a conceptual fit with a desktop companion.
-    Real things to scope, not assume:
-    - **Capture is two streams.** Mic = `WaveInEvent`/`WasapiCapture`; system output = `WasapiLoopbackCapture`
-      (WASAPI loopback, no "Stereo Mix" needed). Mix to one file via a `MixingSampleProvider`, or record two
-      tracks and mix on stop. **Watch the format mismatch** — loopback runs at the render device's rate/channels
-      and the mic at its own; resample both to a common `WaveFormat` before mixing.
-    - **The WASAPI payload question is already on file.** The base **rejected WASAPI for _playback_** over a
-      ~25 MB SDK-projection payload cost (see the S5 note up top; DirectSound won, NAudio 3 stayed). Capture is
-      the other direction — confirm whether NAudio 3's `WasapiLoopbackCapture`/`WasapiCapture` pull in that same
-      projection cost before committing, since that was the deciding factor last time.
-    - **Silence stalls loopback.** `WasapiLoopbackCapture.DataAvailable` doesn't fire while nothing is playing;
-      the standard fix is to play silence through the device for the recording's duration.
-    - **MP3 encoding.** NAudio can go WAV → MP3 via `MediaFoundationEncoder`, or shell out to the **ffmpeg
-      already in the DevToolbox** (`WAV → -codec:a libmp3lame`). Record WAV, encode on stop.
-    - **A new, more sensitive permission.** The existing `ModulePermissions.Audio` is for _playback_. Recording
-      the user's mic + everything they hear is categorically different — a distinct capture/record permission
-      with a **visible recording-in-progress indicator** (tray state), not a silent grant.
-    - **Legal constraint, not a nicety.** Recordings can contain confidential or consent-regulated audio — many
-      jurisdictions require all-party consent, and meeting/call content is often privileged — so this must be
-      **local-only** (no cloud upload path, ever) and should make "you are recording" obvious. This rules out the cloud note-taker design
-      entirely and is a first-class requirement, not a later polish. Off-the-shelf alternatives evaluated in the
-      same research: Meetily (local, OSS, pairs with the box's Ollama) and Bandicam (paid) — this item is the
-      build-it-ourselves option.
+17. 📌 **SUPERSEDED by the Remembrance module — all three phases shipped, one gap left.** The want was: click a tray
+    item, record the mic **and** system/loopback audio, click again to stop, then transcribe and
+    summarize. Checked at source 2026-09-17 rather than assumed, because this entry was wrong about
+    its own residuals once already:
+    - **P1, trigger + capture.** `modules/Remembrance/AudioRecorder.cs` records both directions
+      (`WasapiLoopbackCapture` at `:52`, `WasapiCapture` at `:57`) with per-direction device pickers.
+      `RemembranceModule.cs:700` contributes the one-click tray entry, `Click = ToggleRecording`, whose
+      `DynamicText` reads "Start recording a meeting" and then "● Recording: … (click to stop)" — that
+      is both the click-to-stop trigger and the recording-in-progress indicator this entry asked for.
+      A hotkey exists as well, and `ModulePermissions` gained the honest flags: `Microphone` and
+      `SystemAudio`, declared by `remembrance` in `modules.json`.
+    - **P2, transcription.** Local Whisper via `Transcriber.cs` + `WhisperInstaller.cs`. The download
+      and the whisper-cli run are verified live on the dev box — see
+      [`docs/BLOCKED.md`](docs/BLOCKED.md), which records that independently of this entry.
+    - **P3, summary.** `OllamaSummarizer.SummarizeAsync` at `:246`, writing the `.summary.txt` path
+      `CaptureStore.cs:48` builds. The map-reduce is verified live too.
 
-    **Fuller vision (2026-08-20 discussion) — the companion as a record → transcribe → summarize orchestrator.**
-    The real pitch isn't "a recorder that happens to live near a companion"; it's that the companion is the always-on
-    interface and trigger, and on stop it runs a pipeline: capture → auto-transcribe to a file → optionally an
-    AI-brain summary file. The companion framing is genuinely supported by the ABI, and it also gives a status surface
-    a plain tray app doesn't — but two things in the code make "just use its AI brain" more than a wiring job:
-    - **The companion-as-trigger part is real and already expressible.** `IHost.RegisterPokeResponder` /
-      `RegisterCompanionPokeResponder` (poke the sheep to start/stop), `RegisterHotkey` (a global "record now" combo,
-      Hotkey permission), and `AddTrayItems` (a tray entry) all exist today. And the companion earns its keep beyond a
-      launcher: it already has **speech bubbles** (Speech/Voice) + **animations**, so it can show "🔴 recording",
-      "transcribing", "summary ready" ambiently — that's the actual argument for doing this in the companion.
-    - **FRICTION 1 (the important one): modules are isolated and there is NO summarize/LLM verb on `IHost`**
-      (grep-verified across `PluginApi.cs` — the only "brain" mentions are comments; the AI brain is itself a
-      MODULE that consumes host events, not a service other modules can call, and each module runs in its own
-      `AssemblyLoadContext`). So a recorder module cannot hand a transcript to "the brain." Two clean paths:
-      **(a)** the recorder carries its **own Ollama call to `localhost:11434`** (the box already runs it; AiBrain's
-      `OllamaClient.cs` is the pattern) — self-contained, zero cross-module coupling, the right v1; or **(b)** add a
-      host-level text-generation service to the ABI so one brain config serves every module — cleaner long-term but
-      a deliberate ABI extension and a new "modules share a service" pattern. **Do not design assuming
-      module→module calls; they don't exist.**
-    - **FRICTION 2: there is NO speech-to-text anywhere in the repo** (grep-verified — the only "whisper" hits are
-      fortune-pack text). Transcription is the biggest new dependency, bigger than capture or summary. Windows'
-      built-in speech (what #14 used for OCR) is dictation-grade and weak on multi-speaker meeting audio, so
-      realistically a Whisper-class engine (whisper.cpp / faster-whisper — also Meetily's choice), shipped as a
-      model-beside-the-exe like the bundled bge-small ONNX.
-      - *Browser Web Speech API — considered + REJECTED (2026-08-20).* Clever but wrong for this on three
-        independent counts: (1) it transcribes a **live mic only**, not a file or the system-loopback stream, so
-        it can't ingest the recorded mix or hear the far-end participants — disqualifying alone for a meeting
-        recorder; (2) classic mode is **cloud (Google)** and `webkitSpeechRecognition` works only in
-        Google-branded Chrome — Electron/WebView2 throw a `network` error because Google restricts the endpoint,
-        so an embedded browser can't use it; (3) it would **re-add the WebView2 engine S5b-3 deliberately
-        removed**. Chrome 139's on-device mode (`processLocally` + `install()` language packs, Aug 2025) fixes the
-        cloud/privacy count but not the mic-only or browser-dependency counts, and was flaky at release. Native
-        `Windows.Media.SpeechRecognition` (the OS STT twin of the #14 OCR pattern) is local + browser-free but
-        dictation-grade and live/stream-oriented — weak on a long multi-speaker call. **Whisper-class on the
-        recorded file stays the pick.**
-    - **Phase it — four subsystems (trigger/UI, capture, STT, summarize), built in independently-useful slices:**
-      **P1** poke/tray/hotkey → capture mic+system → MP3 + recording indicator (the item above);
-      **P2** on stop → local Whisper → transcript file beside the MP3;
-      **P3** → local Ollama → summary file. Ship P1 first; it proves the capture stack and is useful alone.
-    - Everything stays **local-only** (consent-regulated / privileged audio) — no cloud STT or summary path, ever.
+    **ONE gap remains against the original wording**, deliberate in Remembrance and real only if the
+    goal is *listening* rather than transcribing: the output is **two WAV files downmixed to mono
+    16 kHz** (`.mic.wav` and `.system.wav`, tuned for Whisper — the `StereoToMonoSampleProvider` +
+    `WdlResamplingSampleProvider(…, 16000)` chain at `AudioRecorder.cs:128-132`), not one MP3 at
+    listenable quality. **Reduced scope if wanted: an output-format choice on Remembrance, not a new
+    module.**
 
-18. **Consolidate standalone tray utilities into companion modules — candidate evaluation** (2026-08-20, not
-    scoped). The companion is an always-on tray host with a plugin ABI, so it's a natural home for the small
-    single-purpose tray apps in this account. Three were assessed against the module model (in-proc .NET 10
-    C# `IModule` in its own ALC, talking only to `IHost`; user surface = tray items + declarative pane, no
-    self-shipped WinForms/WPF):
-    - **LightHost (`bigfnj/LightHost`) — NOT a fit for the Microphone module.** It's a C++/JUCE realtime
-      VST/VST3 *effects host* (routes device-in → plugin graph → device-out live); grep-confirmed it has
-      **zero capture/record/encode code** — no `AudioFormatWriter`, no WAV/MP3, and it doesn't do
-      system/loopback at all. Can't be an in-proc C# module (C++ app, no DLL/C ABI), and as a separate
-      process it emits nothing to record. Also GPLv3 via bundled JUCE + VST SDK (would infect the MIT companion).
-      Mic capture → **NAudio (already in the base)** does mic + WASAPI-loopback natively. Only revisit
-      LightHost if realtime VST mic-cleanup (noise-suppression/EQ before transcription) ever becomes a hard
-      requirement, and then as a separate GPL-isolated process, never in-proc. (Relates to #17.)
-    - **blinkingLED (`bigfnj/blinkingLED`) — port-with-work.** Same stack. Blink `Forms.Timer` loop stays in
-      the module; rate presets + on/off ms → declarative pane; enable/pause → a tray item. Its Win32
-      (`SendInput` VK_SCROLL, `IsKeyLocked`) is plain P/Invoke, ALC-safe. Work = flip EXE→Library, drop
-      `Program.Main`/single-instance/DPI (host owns those), strip self-shipped UI (icon-picker
-      `OpenFileDialog`, uninstall `MessageBox`, balloons, Start-with-Windows reg key), and re-base
-      "quit when Caps ON" → "pause when Caps ON" (a module can't quit the host). **No LICENSE file — add MIT
-      before bundling.** Companion framing: the Scroll-Lock LED as a heartbeat tell ("I'm awake and watching").
-    - **IdleLauncherTray (`bigfnj/IdleLauncherTray`) — port-with-work, but licensing gates it.** The idle
-      engine (`PhysicalIdle`: global `WH_KEYBOARD_LL`/`WH_MOUSE_LL` hooks reading the `LLKHF_INJECTED` flag to
-      tell physical input from `SendKeys`/automation, `GetTickCount64` monotonic timing, XInput gamepad poll,
-      `GetLastInputInfo` fail-safe) is dependency-free P/Invoke and drops straight into a module timer; config
-      → pane, target-file chooser → `IHost.PickFilesToOpen` (host owns the dialog). **Biggest technical care:
-      the low-level hook is global but injection-free, so an ALC-loaded lib CAN install it on the host UI
-      thread — but it MUST be `UnhookWindowsHookEx`'d in `Shutdown()` or an ALC unload leaks a dangling hook.**
-      **Biggest blocker is licensing: it's GPLv2, the companion is MIT — relicense (bigfnj-owned) before any
-      engineering.** Companion framing: the sheep sleeps after N genuine-idle minutes (not fooled by anti-idle
-      jiggles), launches your target on wake/poke, and locks the PC when it closes.
+    ⚠ **The second residual this entry used to name was already closed and the entry had not
+    noticed** — it said "a hotkey rather than a one-click tray entry" while
+    `BuildRecordTrayItem` had shipped. Measured 2026-09-17. A superseded entry keeps rotting after the
+    thing that superseded it moves on, which is the argument for deleting rather than annotating.
 
-    **Two cross-cutting findings (these matter more than any single port):**
-    - **The permission enum needs new capability flags — and this gates #17 too.** `ModulePermissions`
-      (Speech/Animation/ScreenContext/Network/Hotkey/Storage/Companions/Audio/Voice) has NO flag for what these
-      modules actually do: audio **capture** (today's `Audio` is playback-only), **synthetic keyboard input**
-      (blinkingLED), **global input monitoring** + **arbitrary process launch** (IdleLauncherTray). Modules run
-      in-process at full privilege with no sandbox, so they'd all *work* — but the consent screen would
-      silently under-disclose. If the companion becomes a utility suite, add flags along the lines of
-      `AudioCapture` / `InputSynthesis` / `InputMonitoring` / `LaunchProcess` so consent stays honest. Likely
-      its own work item; additive to the enum (safe).
-    - **Licensing is a recurring gate.** Companion is MIT. LightHost = GPLv3 (from JUCE — *not* ours to relicense →
-      don't bundle). IdleLauncherTray = GPLv2, blinkingLED = unlicensed — both bigfnj-owned, so both need a
-      deliberate MIT relicense before shipping as modules.
+    *(The design constraints this entry accumulated are settled and now live in
+    [`docs/DESIGN-REGISTER.md`](docs/DESIGN-REGISTER.md): module→module calls do not exist and nothing
+    should be designed assuming them, and the browser Web Speech API path was rejected on three
+    independent counts. Local-only — no cloud STT or summary path, ever — is a shipped property of
+    Remembrance, not a queued requirement.)*
 
-    **Reusable port recipe (for any same-stack tray app):** keep the dependency-free engine, discard the
-    WinForms shell (`Program`/`Main`/single-instance/`NotifyIcon`/`OpenFileDialog`/`MessageBox`/custom Forms),
-    rebuild the surface as tray items + a declarative pane, and be disciplined about tearing down OS-global
-    state on ALC unload (hooks, Scroll-Lock state, audio devices).
+18. **Consolidate standalone tray utilities into companion modules — one candidate left** (2026-08-20,
+    not scoped). The companion is an always-on tray host with a plugin ABI, so it is a natural home
+    for the small single-purpose tray apps in this account. Three were assessed against the module
+    model (in-proc .NET 10 C# `IModule` in its own ALC, talking only to `IHost`; user surface = tray
+    items + declarative pane, no self-shipped WinForms/WPF). **Two of the three are resolved:**
+    blinkingLED was ported and ships as `modules/BlinkingLed/`, gated by
+    `--module-selftest=blinkingled` in both `tests/run-gate.ps1` and `.github/workflows/build.yml`;
+    LightHost was refused and its reasoning is in
+    [`docs/DESIGN-REGISTER.md`](docs/DESIGN-REGISTER.md).
 
----
+    - **IdleLauncherTray (`bigfnj/IdleLauncherTray`) — port-with-work, but licensing gates it, so the
+      item itself is in [`docs/BLOCKED.md`](docs/BLOCKED.md) (T58).** The technical assessment is kept
+      here because BLOCKED.md points at it: the idle engine (`PhysicalIdle`: global
+      `WH_KEYBOARD_LL`/`WH_MOUSE_LL` hooks reading the `LLKHF_INJECTED` flag to tell physical input
+      from `SendKeys`/automation, `GetTickCount64` monotonic timing, XInput gamepad poll,
+      `GetLastInputInfo` fail-safe) is dependency-free P/Invoke and drops straight into a module
+      timer; config → pane, target-file chooser → `IHost.PickFilesToOpen` (host owns the dialog).
+      **Biggest technical care: the low-level hook is global but injection-free, so an ALC-loaded lib
+      CAN install it on the host UI thread — but it MUST be `UnhookWindowsHookEx`'d in `Shutdown()`
+      or an ALC unload leaks a dangling hook.** Companion framing: the sheep sleeps after N
+      genuine-idle minutes (not fooled by anti-idle jiggles), launches your target on wake/poke, and
+      locks the PC when it closes.
 
-## Settled decisions — do not re-propose
+    **The cross-cutting finding, half of it now closed:**
 
-A refused design that is not written down gets proposed again. These are closed by decision, not by
-neglect.
+    - 📌 **`ModulePermissions` still cannot disclose synthetic input, input monitoring or process
+      launch.** The audio half of this finding is DONE — `Microphone = 1 << 9` and
+      `SystemAudio = 1 << 10` were added for Remembrance, splitting what this entry called
+      `AudioCapture` into the two things a user actually consents to separately, and
+      `AgentTranscripts = 1 << 11` followed the same pattern for AgentFlow. What is left is real and
+      live in a SHIPPED module: `BlinkingLedModule.cs:59` declares
+      `ModulePermissions.Speech | ModulePermissions.Storage` while
+      `engine/ScrollLockBlinker.cs` P/Invokes `SendInput`, and `:57` says so in a comment — *"There is
+      no ModulePermissions flag for synthesizing input, so the consent screen cannot state it."* So
+      the consent screen under-discloses today, in the one place it can be checked. Add
+      `InputSynthesis`, and `InputMonitoring` / `LaunchProcess` if IdleLauncherTray is ever
+      unblocked. Additive to the enum, so safe; per the enum's own comment these are DISCLOSURE flags
+      rather than gates, and `docs/module-ecosystem-roadmap.md` settles why containment would be
+      security theatre. **Decide the flag per channel, not once for a module** — the AgentFlow
+      section at the top of this file reaches the same conclusion from the other direction.
+    - **Licensing is a recurring gate**, and it is what is left of this item: IdleLauncherTray is
+      GPLv2 against an MIT companion, and it is bigfnj-owned so the relicense is the maintainer's to
+      do. blinkingLED was unlicensed and got MIT before bundling. LightHost is GPLv3 from JUCE, which
+      is *not* ours to relicense — hence the refusal rather than a deferral.
 
-- **No "Browse" button on the model fields.** Asked for, then declined by the maintainer on
-  2026-08-11 after reconsidering: *"i think i mis-understood the 'browse' question, if ollama doesnt
-  support custom pathing, then why are we adding it?"* Ollama cannot be pointed at an un-imported
-  file through chat requests at all — that needs a `Modelfile` plus `ollama create`, a real
-  registration step, confirmed against Ollama's own docs — and a bare llama.cpp server's model is
-  fixed at launch (`--model <path>`), not swappable per request. An "informational" file picker would
-  add a cosmetic, functionally inert control. **Don't re-propose one without this context:**
-  `ollama pull` plus the existing "Refresh models" action already cover real usage. The full entry,
-  including the label↔id dictionary the VRAM-size prefix forced, is in
-  [`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md).
-- **The AgentFlow detector is C# inside this module**, not a consumer of the node/JS sibling. Reasoning
-  in the AgentFlow section at the top of this file.
-- **Also settled, and recorded with the items they belong to:** `totalCount` is DO NOT BUILD — zero
-  occurrences across the 31 shipping skins, now stated in `ActionClassifier`'s own reason text and pinned by
-  a `ClassifierSelfTest` assertion that no classifier reason may promise unscheduled work; moving the user's
-  windows is refused rather than missing ("Shimeji conversion" above);
-  LightHost is NOT a fit for a microphone module, being a C++/JUCE effects host with zero capture code
-  and GPLv3 besides (feature idea 18); module→module calls do not exist and nothing should be designed
-  assuming them (feature idea 17); a browser Web Speech API transcription path was considered and
-  rejected on three independent counts (feature idea 17). Third-party module code-signing (stream S7)
-  and TTS as a feature were both dropped on 2026-08-13 and are recorded in
-  [`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md).
+    **Reusable port recipe (for any same-stack tray app), validated by the blinkingLED port:** keep
+    the dependency-free engine, discard the WinForms shell
+    (`Program`/`Main`/single-instance/`NotifyIcon`/`OpenFileDialog`/`MessageBox`/custom Forms),
+    rebuild the surface as tray items + a declarative pane, and be disciplined about tearing down
+    OS-global state on ALC unload (hooks, Scroll-Lock state, audio devices).
+

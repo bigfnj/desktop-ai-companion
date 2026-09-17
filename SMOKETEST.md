@@ -4,6 +4,16 @@
 repo (the gate, 96 source invariants, 19 self-tests, two soaks, the mutation suites) proves the code does
 what it says. Nothing in it proves the code says the right thing.
 
+*(Those two numbers were wrong three times, so they are now GATE-ENFORCED rather than maintained:
+`tests/runtime-hardening-selftest.ps1` counts its own line-start `Assert-True` sites and the flag
+table in `tests/Invoke-SelfTests.ps1`, and fails if either figure here disagrees. Both drift
+directions are mutation-tested. Deleting the numbers was the other option and the weaker one — a
+reader wants the size of the suite, and a number that re-measures itself cannot go stale. Read them
+as static CALL SITES: the runtime PASS count is higher because ten sites sit inside `foreach` loops,
+and a bare `grep -c 'Assert-True'` overshoots both, counting the helper's own definition and a
+comment mentioning it. `tests/DesktopAICompanion.CoreTests/Program.cs:87` is the in-repo model for
+this whole class of problem: it counts its groups rather than hardcoding them.)*
+
 **Why it exists.** Five of the eleven releases v1.9.4 through v1.9.14 shipped a bug that the full automated
 suite passed straight over, and every one of those bugs was visible in the first thirty seconds of use:
 

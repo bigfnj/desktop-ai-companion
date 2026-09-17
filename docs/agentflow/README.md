@@ -618,8 +618,8 @@ which is exactly the one case the code was written for.
 **The recall measurement was scored against the wrong ground truth for a full session's worth of
 conclusions.** `toolDenialKind` has five values and the harness read one of them, so it graded the
 rule matcher on human refusals (which no rule predicts) while ignoring `permission-rule` (which is
-precisely what it predicts). Corrected recall is 87% against a measured 38%, and the earlier
-explanation for the misses — the naive splitter — was itself wrong. The lesson is narrow and
+precisely what it predicts). Corrected recall is 93% (28 of 30) against a measured 38%, and the
+earlier explanation for the misses — the naive splitter — was itself wrong. The lesson is narrow and
 reusable: before trusting a precision or recall figure, enumerate every value the label field
 actually takes. One `collections.Counter` over the corpus would have caught this at the start.
 
@@ -639,7 +639,7 @@ to total-differencing returns −450 for a case whose true answer is 50.
 
 ## Next step
 
-**The one open measurement is default-mode precision.** Recall is settled at 87%, and the splitter
+**The one open measurement is default-mode precision.** Recall is settled at 93%, and the splitter
 and the mode attribution are both done (see the corrections above). What no corpus on this box can
 supply is precision in `default`: there are **zero** rule-caused denials in that mode across 120
 transcripts, because this box runs auto. Generate it the only way it can be generated — work

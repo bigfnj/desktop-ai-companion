@@ -3,7 +3,8 @@
 The completed-work record for **Desktop AI Companion** from v1.0.0 onward, extracted from
 `BACKLOG.md` so that file can hold **only open work**. Nothing in here needs doing:
 [`../BACKLOG.md`](../BACKLOG.md) is the backlog, [`BLOCKED.md`](BLOCKED.md) holds what cannot be
-actioned yet, and [`HISTORY-pre-1.0.0.md`](HISTORY-pre-1.0.0.md) is this same archive for the
+actioned yet, [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md) holds what is closed by decision and exists
+to be consulted, and [`HISTORY-pre-1.0.0.md`](HISTORY-pre-1.0.0.md) is this same archive for the
 repository that preceded v1.0.0.
 
 Kept in full rather than summarised, for one reason: most of these entries record **what an estimate
@@ -17,7 +18,8 @@ open", describe the state when the entry was written. The product was rebased to
 repository on 2026-09-04, so any `1.4.x`, `1.8.x` or `1.9.x` number below is pre-rebase numbering.
 Where an entry says "above", "below" or "in this file" it means `BACKLOG.md` as it stood before this
 split; anything it names as still open now lives in [`../BACKLOG.md`](../BACKLOG.md) or
-[`BLOCKED.md`](BLOCKED.md).
+[`BLOCKED.md`](BLOCKED.md), and anything it names as closed BY DECISION rather than by work is in
+[`DESIGN-REGISTER.md`](DESIGN-REGISTER.md).
 
 Ordered oldest first, by the earliest date each block covers. Entries inside a block keep their
 original order, which is usually newest first.
@@ -1233,12 +1235,19 @@ own residue reports rather than estimated:
   > and every one of these was a bar on the NUMBERS. Reachability proved the jump could play; nothing proved it
   > looked like a jump. Where a converter synthesises a physical quantity, assert the quantity.
 
-*(The ⬜ and ⚠️ items interleaved through the rest of this section are open work and live in
-[`../BACKLOG.md`](../BACKLOG.md): the unreachable screen ceiling, `totalCount` (do not build), the
-unique-tray-icon convention, the 1px sprite line, the blank-frame gate, the live-value ABI gap, the
-orphan `RandomDrop` fields, and the two measurements the jump arc left open. `ChaseMouse` /
-`ChaseMouse2` — the only item on the phase list never built — is in [`BLOCKED.md`](BLOCKED.md),
-because what it needs first is a judgement call rather than code.)*
+*(The ⬜ and ⚠️ items interleaved through the rest of this section were open when this entry was
+written; where each went is worth being precise about, because this pointer had already gone stale
+once by naming items that were nowhere. **Still open in [`../BACKLOG.md`](../BACKLOG.md):** the
+unique-tray-icon convention, the 1px sprite line on Jesus Our Lord's fall frame, and the blank-frame
+gate. **Closed by decision and now in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md):** `totalCount` is
+do-not-build, and the live-value ABI gap is noted rather than scheduled. **`ChaseMouse` /
+`ChaseMouse2`** — the only item on the phase list never built — is in [`BLOCKED.md`](BLOCKED.md),
+because what it needs first is a judgement call rather than code. **Gone from the backlog, and in git
+only:** the unreachable screen ceiling and the two jump-arc measurements went in `143e389`, the
+3168→860-line restructure, as entries whose open text was already superseded elsewhere in the file;
+the orphan `RandomDrop` trio was deleted for real in `79ddfd3` — not quite unreferenced, since
+`AiEngineProbe`'s clamp assertion had been using the fields as a stand-in. The `RandomDrop` thread is
+also recorded in [`HISTORY-pre-1.0.0.md`](HISTORY-pre-1.0.0.md).)*
 
 ---
 
@@ -1792,7 +1801,9 @@ simple version.
 
 ## 🚢 Released: v1.1.4 (2026-09-11)
 
-Host **1.1.4** plus six module publishes. Leak soak PASS before the tag: `SettledGrowth` GDI **0**,
+Host **1.1.4** plus six module publishes — one per published module, which is what the table below
+and `modules-dist/modules.json` both list; "seven" sat here and in the header table until 2026-09-17.
+Leak soak PASS before the tag: `SettledGrowth` GDI **0**,
 USER **0**, handles **−9** (cycle 40 → 80, bounds 16 each), private bytes **+10.9 MB** on raw samples
 (bound 64 MB). GDI sat at exactly 46 and USER at exactly 57 at both settled samples, matching BUG-004's
 finding that this build settles flat.
@@ -1831,5 +1842,7 @@ stand-down, none of which was touched. Recorded rather than glossed, because tha
 lists the bugs that reached users precisely because this step was skipped.
 
 *(The two verification gaps this entry records — the full `SMOKETEST.md` A-E walk and the upgrade
-path — are in [`BLOCKED.md`](BLOCKED.md). Both need a real reinstall of the MSI over a previous
-install.)*
+path — were in [`BLOCKED.md`](BLOCKED.md) and moved to [`../BACKLOG.md`](../BACKLOG.md) on
+2026-09-17, as actionable. The blocker was "needs a real reinstall of the MSI over a previous
+install", and by then there was one: 1.1.4 is installed on the dev box and WiX 5.0.2 is a global
+dotnet tool.)*
