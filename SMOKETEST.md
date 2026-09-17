@@ -1,8 +1,16 @@
 ﻿# Live smoke test
 
 **What this is.** The checks that require a human to open the app and look at it. Everything else in this
-repo (the gate, 84 source invariants, 18 self-tests, two soaks, the mutation suites) proves the code does
+repo — the gate, every `Assert-True` source invariant in `tests/runtime-hardening-selftest.ps1`, the
+self-tests the gate's own flag table registers, two soaks, the mutation suites — proves the code does
 what it says. Nothing in it proves the code says the right thing.
+
+*(That sentence used to carry an invariant COUNT and the count was wrong three times, so it now names
+what to read instead. If you want the number: the static call-site count and the runtime PASS count
+are different figures, because ten of the sites sit inside `foreach` loops, and a bare
+`grep -c 'Assert-True'` over that file overshoots both — it also counts the helper's own definition
+and a comment mentioning it. `tests/DesktopAICompanion.CoreTests/Program.cs:87` is the in-repo answer
+to this whole class of problem: it counts its groups rather than hardcoding them.)*
 
 **Why it exists.** Five of the eleven releases v1.9.4 through v1.9.14 shipped a bug that the full automated
 suite passed straight over, and every one of those bugs was visible in the first thirty seconds of use:
