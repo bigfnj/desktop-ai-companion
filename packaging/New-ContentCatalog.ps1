@@ -1,4 +1,18 @@
-#requires -Version 5
+# PowerShell 7+, and it is not a preference: ConvertTo-Json formats differently under Desktop 5.1,
+# which rewrites all 2,234 lines of a file that is SERVED TO EVERY USER from master. 5.1 indents with
+# four spaces and puts two after each colon; 7 uses two and one. Nothing verifies catalog.json's
+# formatting, so the churn is invisible until it buries the one line that actually changed in a
+# review -- measured 2026-09-17, bumping app.version from 1.1.4 to 1.1.5: under powershell.exe the
+# diff was 2234 insertions / 2234 deletions, under pwsh it was exactly one line.
+#
+# Normalizing the text afterwards was the other option and is worse: pet and pack names are free
+# text that can contain runs of spaces, so a regex over serialized JSON could corrupt a VALUE in a
+# file whose hashes users verify downloads against. Refusing to run is the honest guard, and #requires
+# makes 5.1 itself say so before the script starts.
+#
+# This is the one place in the repo where the usual rule inverts. Every other .ps1 that writes a file
+# must be exercised under powershell.exe, because that is what 5.1-only CI and double-click use.
+#requires -Version 7
 <#
 .SYNOPSIS
     Regenerate catalog.json, the runtime-fetched content catalog for online pet /

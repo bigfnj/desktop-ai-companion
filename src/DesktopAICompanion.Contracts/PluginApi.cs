@@ -69,6 +69,30 @@ namespace DesktopAICompanion.Modules
         // flag is the only place a user can see this coming. A module doing this read while
         // declaring only Speech|Storage would be technically functional and dishonest.
         AgentTranscripts = 1 << 11,
+
+        // Synthesizes keyboard or mouse input into the OS -- SendInput, keybd_event, SendKeys.
+        //
+        // Added in host 1.1.5, and it is the same patch-level disclosure-not-capability addition as
+        // AgentTranscripts above: a module could always P/Invoke SendInput, so the flag buys the
+        // user a sentence on the consent screen rather than any new access.
+        //
+        // Written because a SHIPPED module was already doing it and saying so only in a code
+        // comment. modules/BlinkingLed synthesizes a Scroll Lock keypress through SendInput, and
+        // its own source said "There is no ModulePermissions flag for synthesizing input, so the
+        // consent screen cannot state it; the module name and description carry that disclosure
+        // instead." A module name is not a permission disclosure: the pane prints "wants: Speech,
+        // Storage" beside it, which is an affirmative claim that those are the two things it does.
+        //
+        // Declaring it does NOT strand users on an older host. Catalog permissions travel as NAMES
+        // and RemoteCatalog.TryParsePermissions deliberately ignores a name it does not know ("a
+        // flag from a newer host"), while ModulesPaneControl.PermissionsText enumerates only the
+        // flags its own build defines. So a 1.1.4 host shows what it understands and drops this
+        // one, which is exactly what it does today, and MinHostVersion does not have to move.
+        //
+        // The obvious next holder is any module that automates another application. Note what it
+        // does NOT cover: Hotkey is the reverse direction (the module RECEIVES a keypress through
+        // the host), and this is the module PRESSING one.
+        InputSynthesis = 1 << 12,
     }
 
     /// <summary>An on-screen pet, as seen by a module (opaque handle over the host's FormCompanion).</summary>

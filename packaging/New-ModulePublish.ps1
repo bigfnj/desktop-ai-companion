@@ -1,4 +1,7 @@
-#requires -Version 5
+# 7+, because this script CALLS New-ContentCatalog.ps1 (see the reasoning in its header) and does so
+# near the end -- after the zips are written and staged. Under 5.1 the publish would therefore produce
+# artifacts and then refuse at the last step. Fail before anything is written instead.
+#requires -Version 7
 <#
 .SYNOPSIS
     Publish one module: build it, zip it, register it in modules.json, and regenerate catalog.json — in the
