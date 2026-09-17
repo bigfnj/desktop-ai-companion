@@ -72,24 +72,69 @@ namespace DesktopAICompanion.AgentFlow
         private static readonly string[] CodexOutputTypes =
             { "custom_tool_call_output", "function_call_output" };
 
+        /// <summary>Environment override for the Claude transcript root.</summary>
+        public const string ClaudeRootVariable = "AGENTFLOW_CLAUDE_ROOT";
+        /// <summary>Environment override for the Codex transcript root.</summary>
+        public const string CodexRootVariable = "AGENTFLOW_CODEX_ROOT";
+
+        /// <summary>
+        /// Where Claude Code writes its transcripts, overridable by
+        /// <see cref="ClaudeRootVariable"/>.
+        ///
+        /// The override exists for two reasons, and the second is why it is not just test
+        /// scaffolding. An agent can be configured to keep its state somewhere other than
+        /// %USERPROFILE%\.claude, in which case the default here finds nothing and the module
+        /// would silently appear broken. And it is the only way to exercise this module
+        /// end-to-end without writing a fabricated session file into the user's REAL transcript
+        /// store, which is both intrusive and indistinguishable from tampering with their history.
+        ///
+        /// Must be FULLY QUALIFIED, matching the rule the app applies to its own
+        /// DESKTOP_AI_COMPANION_DATA_ROOT override: a relative or drive-relative path is ignored
+        /// rather than resolved against whatever the working directory happens to be.
+        /// </summary>
         public static string ClaudeRoot
         {
             get
             {
+                string over = FullyQualifiedOverride(ClaudeRootVariable);
+                if (over != null) return over;
                 return Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                     ".claude", "projects");
             }
         }
 
+        /// <summary>Where Codex writes its rollouts, overridable by <see cref="CodexRootVariable"/>.</summary>
         public static string CodexRoot
         {
             get
             {
+                string over = FullyQualifiedOverride(CodexRootVariable);
+                if (over != null) return over;
                 return Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                     ".codex", "sessions");
             }
+        }
+
+        /// <summary>An override only when it is set AND fully qualified; otherwise null.</summary>
+        internal static string FullyQualifiedOverride(string variable)
+        {
+            string value;
+            try { value = Environment.GetEnvironmentVariable(variable); }
+            catch (System.Security.SecurityException) { return null; }
+            if (string.IsNullOrEmpty(value)) return null;
+            value = value.Trim().Trim('"');
+            if (value.Length == 0) return null;
+            try
+            {
+                // Path.IsPathFullyQualified rejects both "foo\bar" and "\foo\bar" (drive-relative),
+                // which is the distinction that matters: the latter LOOKS absolute and resolves
+                // against the current drive.
+                if (!Path.IsPathFullyQualified(value)) return null;
+            }
+            catch (ArgumentException) { return null; }
+            return value;
         }
 
         /// <summary>

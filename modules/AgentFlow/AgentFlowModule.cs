@@ -1,9 +1,10 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using DesktopAICompanion.ModuleKit;
+using DesktopAICompanion.ModuleKit.Testing;
 using DesktopAICompanion.Modules;
 using Timer = System.Windows.Forms.Timer;
 
@@ -60,6 +61,23 @@ namespace DesktopAICompanion.AgentFlow
         private SynchronizationContext _ui;
         private NotifyBudget _budget;
         private TrayItem _trayEntry;
+        private Action<ICompanion> _spawnHandler;
+
+        /// <summary>
+        /// Companions this module has seen spawn, so it can tell whether anything is on screen to
+        /// speak for it.
+        ///
+        /// This exists because of a defect found by watching the real app rather than by any test.
+        /// IHost.SayAll routes through StartUp.DefaultSpeaker(), which returns null when no
+        /// companion is out, and the host then drops the line SILENTLY. The module's first poll
+        /// runs inside Init, which is BEFORE startup has put a companion on screen -- so the very
+        /// first notification after launch was spoken into nothing, while the budget recorded it as
+        /// announced and the one-shot then suppressed it forever. The log said "notified" because
+        /// the line was written after the SayAll call returned, which it always does.
+        ///
+        /// A user would have seen precisely nothing and had no way to tell why.
+        /// </summary>
+        private readonly List<ICompanion> _companions = new List<ICompanion>();
 
         // Written on the UI thread only, read by the tray's DynamicText on the UI thread.
         private string _status = "no agents seen yet";
@@ -216,6 +234,9 @@ namespace DesktopAICompanion.AgentFlow
                 },
             });
 
+            _spawnHandler = OnCompanionSpawned;
+            host.CompanionSpawned += _spawnHandler;
+
             _tickHandler = OnTick;
             _timer = new Timer { Interval = TickMilliseconds };
             _timer.Tick += _tickHandler;
@@ -232,11 +253,41 @@ namespace DesktopAICompanion.AgentFlow
                 _timer.Dispose();
                 _timer = null;
             }
+            if (_host != null && _spawnHandler != null)
+                _host.CompanionSpawned -= _spawnHandler;
+            _spawnHandler = null;
+            _companions.Clear();
             _tickHandler = null;
             _trayEntry = null;
             _budget = null;
             _ui = null;
             _host = null;
+        }
+
+        private void OnCompanionSpawned(ICompanion companion)
+        {
+            if (companion != null) _companions.Add(companion);
+        }
+
+        /// <summary>
+        /// Is there a companion on screen that could actually show a bubble?
+        ///
+        /// There is no CompanionRemoved event, so the list only ever grows; IsCompanionAlive is
+        /// what makes it truthful, and dead entries are pruned here rather than accumulating for
+        /// the life of the session.
+        /// </summary>
+        private bool AnyCompanionCanSpeak()
+        {
+            IHost host = _host;
+            if (host == null) return false;
+            for (int index = _companions.Count - 1; index >= 0; index--)
+            {
+                bool alive;
+                try { alive = host.IsCompanionAlive(_companions[index]); }
+                catch (Exception) { alive = false; }
+                if (!alive) _companions.RemoveAt(index);
+            }
+            return _companions.Count > 0;
         }
 
         // ---- polling --------------------------------------------------------
@@ -309,7 +360,7 @@ namespace DesktopAICompanion.AgentFlow
         }
 
         /// <summary>UI thread: speak at most one line, and refresh the tray label.</summary>
-        private void Apply(List<Detection> results)
+        internal void Apply(List<Detection> results)
         {
             if (_host == null || _budget == null) return;   // shut down while the scan was running
 
@@ -358,19 +409,36 @@ namespace DesktopAICompanion.AgentFlow
             string line = BlockedDetector.Describe(speakThis);
             if (string.IsNullOrEmpty(line)) return;
 
-            if (_host.SpeechEnabled)
+            // Both of these are checked BEFORE the budget is consumed, because a notification the
+            // user cannot possibly have seen must remain pending rather than being spent. The
+            // companion check is the one that was missing and swallowed the first notice after
+            // every launch; SpeechEnabled has the same shape, so it is treated the same way.
+            if (!_host.SpeechEnabled)
             {
-                // SayAll, not Say: this is a message to the USER, not a companion reacting to
-                // something. The host routes it to exactly one companion, so several on screen do
-                // not chant it in unison.
-                _host.SayAll(line);
-                if (Animate)
-                {
-                    _host.PlayAnimationAll(new List<string> { "boing", "jump", "run" });
-                }
+                Log("deferred a notice about " + (speakThis.ToolName ?? "?")
+                    + ": speech is switched off");
+                return;
+            }
+            if (!AnyCompanionCanSpeak())
+            {
+                Log("deferred a notice about " + (speakThis.ToolName ?? "?")
+                    + ": no companion on screen to say it");
+                return;
+            }
+
+            // SayAll, not Say: this is a message to the USER, not a companion reacting to
+            // something. The host routes it to exactly one companion, so several on screen do
+            // not chant it in unison.
+            _host.SayAll(line);
+            if (Animate)
+            {
+                _host.PlayAnimationAll(new List<string> { "boing", "jump", "run" });
             }
             _budget.Record(speakThis, now);
-            Log("notified: " + (speakThis.ToolName ?? "?") + " waiting "
+            // "spoke" rather than "notified", and only on the path where a companion was on screen
+            // and speech was on. The previous wording was a log line that could not fail: it was
+            // written after SayAll returned, which it does whether or not anything was shown.
+            Log("spoke about " + (speakThis.ToolName ?? "?") + " waiting "
                 + ((int)Math.Round(speakThis.IdleSeconds)).ToString(CultureInfo.InvariantCulture)
                 + "s in session " + Short(speakThis.Session));
         }
@@ -668,9 +736,66 @@ namespace DesktopAICompanion.AgentFlow
                     probe.Check("info rows are not persisted",
                         !clamped.ContainsKey("aboutAnswering"));
 
+                    // ---- the defect found by watching the real app, not by a test --------------
+                    //
+                    // The module's first poll runs inside Init, BEFORE startup has put a companion
+                    // on screen. IHost.SayAll then finds no speaker and the host drops the line
+                    // silently, so the first notification after every launch was spoken into
+                    // nothing -- and because the budget had already recorded it, the one-shot
+                    // suppressed that prompt forever. The user saw nothing and had no way to know.
+                    //
+                    // Found by capturing frames of the real app and looking: the log said
+                    // "notified" while no bubble ever appeared, because the log line was written
+                    // after SayAll returned, which it always does.
+                    var freshHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    using (var freshStorage =
+                               new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow2"))
+                    {
+                        freshHost.UseStorage("agentflow", freshStorage);
+                        var second = new AgentFlowModule();
+                        second.Init(freshHost);
+
+                        List<Detection> blockedNow = OneBlockedDetection();
+                        second.Apply(blockedNow);
+                        probe.Check("WITNESS says nothing when no companion is on screen",
+                            freshHost.SaidLines.Count == 0 && freshHost.BroadcastLines.Count == 0);
+
+                        // ...and the notification must still be PENDING, not spent. This is the
+                        // half that made the bug permanent rather than merely late.
+                        freshHost.RaiseCompanionSpawned(new FakeCompanion());
+                        second.Apply(OneBlockedDetection());
+                        probe.Check("WITNESS the held notice is still delivered once a companion appears",
+                            freshHost.BroadcastLines.Count == 1);
+
+                        // A second identical poll must NOT repeat it, or the fix trades one bug
+                        // for the repetition the one-shot exists to prevent.
+                        second.Apply(OneBlockedDetection());
+                        probe.Check("and is not repeated afterwards",
+                            freshHost.BroadcastLines.Count == 1);
+
+                        // Same shape for speech being switched off: held, not spent.
+                        var mutedHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                        mutedHost.UseStorage("agentflow", freshStorage);
+                        mutedHost.SpeechEnabled = false;
+                        var third = new AgentFlowModule();
+                        third.Init(mutedHost);
+                        mutedHost.RaiseCompanionSpawned(new FakeCompanion());
+                        third.Apply(OneBlockedDetection());
+                        probe.Check("WITNESS says nothing while speech is switched off",
+                            mutedHost.BroadcastLines.Count == 0);
+                        mutedHost.SpeechEnabled = true;
+                        third.Apply(OneBlockedDetection());
+                        probe.Check("...and delivers it once speech is switched back on",
+                            mutedHost.BroadcastLines.Count == 1);
+                        third.Shutdown();
+                        second.Shutdown();
+                    }
+
                     module.Shutdown();
                     probe.Check("shutdown clears the host reference", module._host == null);
                     probe.Check("shutdown disposes the timer", module._timer == null);
+                    probe.Check("shutdown forgets the companions it was tracking",
+                        module._companions.Count == 0);
                 }
             }
             catch (Exception exception)
@@ -920,6 +1045,20 @@ namespace DesktopAICompanion.AgentFlow
         }
 
         // ---- self-test helpers ----------------------------------------------
+
+        /// <summary>One freshly-built BLOCKED detection, rebuilt per call so nothing carries over.</summary>
+        private static List<Detection> OneBlockedDetection()
+        {
+            DateTime now = DateTime.UtcNow;
+            var rules = new RuleSet();
+            AgentSession session = Session(now.AddSeconds(-300), now.AddSeconds(-300),
+                                           "curl https://example.com", "default");
+            session.Cwd = @"D:\work\demo";
+            return new List<Detection>
+            {
+                BlockedDetector.Evaluate(session, rules, 30, now),
+            };
+        }
 
         private static AgentSession Session(DateTime written, DateTime started, string command)
         {

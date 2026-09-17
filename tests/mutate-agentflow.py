@@ -46,8 +46,9 @@ SPLITTER = os.path.join(MODULE_DIR, "CommandSplitter.cs")
 RULES = os.path.join(MODULE_DIR, "PermissionRules.cs")
 DETECTOR = os.path.join(MODULE_DIR, "BlockedDetector.cs")
 BUDGET = os.path.join(MODULE_DIR, "NotifyBudget.cs")
+MODULE = os.path.join(MODULE_DIR, "AgentFlowModule.cs")
 
-TARGETS = (SPLITTER, RULES, DETECTOR, BUDGET)
+TARGETS = (SPLITTER, RULES, DETECTOR, BUDGET, MODULE)
 
 # (name, file, find, replace, expected fragment of the assertion that must fail)
 CASES = (
@@ -155,6 +156,31 @@ CASES = (
         "            string where = ShortProject(detection.Session != null ? detection.Session.Cwd : null);",
         "            string where = detection.Session != null ? detection.Session.Cwd : null;",
         "spoken line carries no full path",
+    ),
+    # The defect the real app exposed and no test had caught: notifying before a companion is
+    # on screen, where the host drops the line silently and the budget spends it anyway.
+    (
+        "speaks with no companion on screen (the swallowed-first-notice bug)",
+        MODULE,
+        "            if (!AnyCompanionCanSpeak())",
+        "            if (false)",
+        "says nothing when no companion is on screen",
+    ),
+    (
+        "speaks while speech is switched off",
+        MODULE,
+        "            if (!_host.SpeechEnabled)",
+        "            if (false)",
+        "says nothing while speech is switched off",
+    ),
+    # The other half of that fix, and the half that made the bug PERMANENT rather than merely
+    # late: consuming the budget for a notice nobody could have seen.
+    (
+        "the budget is spent even when the notice was deferred",
+        MODULE,
+        '                Log("deferred a notice about " + (speakThis.ToolName ?? "?")\n                    + ": no companion on screen to say it");\n                return;',
+        '                Log("deferred a notice about " + (speakThis.ToolName ?? "?")\n                    + ": no companion on screen to say it");\n                _budget.Record(speakThis, now);\n                return;',
+        "held notice is still delivered once a companion appears",
     ),
 )
 
