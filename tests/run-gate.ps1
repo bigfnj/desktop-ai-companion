@@ -49,7 +49,10 @@ try {
     # looks identical to a clean run (the self-test skip-PASSES on a missing folder, which is correct for a
     # payload with no dev modules and useless as a gate). reminder + remembrance were absent from this list
     # until 2026-08-27, so either could have vanished from the build unnoticed.
-    foreach ($moduleId in 'testmodule', 'fortunes', 'aibrain', 'petstudio', 'reminder', 'remembrance') {
+    # blinkingled was missing from this list until 2026-09-17 and was the ONE module whose self-test
+    # could skip-pass unnoticed, for the same reason reminder and remembrance could before 2026-08-27.
+    foreach ($moduleId in 'testmodule', 'fortunes', 'aibrain', 'petstudio', 'reminder', 'remembrance',
+                          'blinkingled', 'agentflow') {
         if (-not (Test-Path -LiteralPath (Join-Path $outputRoot "modules\$moduleId"))) {
             throw "Module '$moduleId' is missing from the build output; its self-test would skip-pass."
         }
@@ -88,6 +91,12 @@ try {
         '--module-selftest=reminder'         = $null
         '--module-selftest=remembrance'      = $null
         '--module-selftest=blinkingled'      = $null
+        # Registered WITH its marker file, which the three above are not. ModuleConventionSelfTest.cs
+        # writes dp-module-<id>-selftest.txt and docs\module-authoring.md tells a new module author to
+        # register it, so this is the documented shape; the $null entries above predate that and mean
+        # the gate checks only their exit code, which a missing-folder SKIP also satisfies.
+        # Retrofitting those three is filed in BACKLOG.md rather than done here.
+        '--module-selftest=agentflow'        = 'dp-module-agentflow-selftest.txt'
     }
 
     Write-Host '=== app self-tests' -ForegroundColor Cyan
@@ -184,7 +193,7 @@ try {
         foreach ($failure in $failures) { Write-Host "  - $failure" -ForegroundColor Red }
         exit 1
     }
-    Write-Host 'GATE PASSED (build 0 warnings, core tests, 16 self-tests with no skips, invariants, payloads, template, shimeji verify + selftest).' -ForegroundColor Green
+    Write-Host 'GATE PASSED (build 0 warnings, core tests, 18 self-tests with no skips, invariants, payloads, template, shimeji verify + selftest).' -ForegroundColor Green
 }
 finally {
     Pop-Location

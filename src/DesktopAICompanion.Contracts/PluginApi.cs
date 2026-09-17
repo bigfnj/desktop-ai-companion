@@ -46,6 +46,25 @@ namespace DesktopAICompanion.Modules
                                 // showing the bubble (IHost.RegisterSpeechResponder)
         Microphone = 1 << 9,    // captures the microphone (records audio input)
         SystemAudio = 1 << 10,  // captures the system audio output / loopback (records what you hear)
+
+        // Reads the on-disk transcripts a coding agent writes about its own session --
+        // Claude Code's %USERPROFILE%\.claude\projects\<slug>\<session>.jsonl and Codex's
+        // %USERPROFILE%\.codex\sessions\... -- added in host 1.2.0 for the AgentFlow module.
+        //
+        // This is a DISCLOSURE flag, not a gate, and the distinction is deliberate rather than an
+        // omission. Like Microphone and SystemAudio, nothing in the host enforces it: a module is an
+        // ordinary in-process assembly with the user's full privileges, there is no host API that
+        // performs this read on a module's behalf, and so there is nothing to intercept. See
+        // docs/module-ecosystem-roadmap.md, which settles that the model here is attribution plus
+        // informed consent rather than containment, because containment would be security theatre.
+        //
+        // It exists because those files are the most sensitive thing any module has ever read. They
+        // contain every command the user ran, every path they touched, and the full text of what
+        // they typed to the agent. The Modules pane shows declared permissions BEFORE a download,
+        // and a module that later widens its set re-prompts rather than widening silently, so the
+        // flag is the only place a user can see this coming. A module doing this read while
+        // declaring only Speech|Storage would be technically functional and dishonest.
+        AgentTranscripts = 1 << 11,
     }
 
     /// <summary>An on-screen pet, as seen by a module (opaque handle over the host's FormCompanion).</summary>

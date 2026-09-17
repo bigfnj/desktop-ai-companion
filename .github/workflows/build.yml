@@ -77,7 +77,8 @@ jobs:
               # Keep in sync with tests\run-gate.ps1.
               '--module-selftest=reminder',
               '--module-selftest=remembrance',
-              '--module-selftest=blinkingled')) {
+              '--module-selftest=blinkingled',
+              '--module-selftest=agentflow')) {
             $process = Start-Process -FilePath $exe -ArgumentList $test -Wait -PassThru -NoNewWindow
             if ($process.ExitCode -ne 0) { throw "$test failed (exit $($process.ExitCode))." }
           }

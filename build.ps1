@@ -219,7 +219,11 @@ $moduleProjects = @(
     (Join-Path $repoRoot 'modules\Remembrance\Remembrance.csproj'),
     #   - BlinkingLed: blinks the keyboard's Scroll Lock light so the machine reads as active. A port of the
     #     standalone BlinkingLED tray app; the host supplies the tray item, options pane and settings.
-    (Join-Path $repoRoot 'modules\BlinkingLed\BlinkingLed.csproj')
+    (Join-Path $repoRoot 'modules\BlinkingLed\BlinkingLed.csproj'),
+    #   - AgentFlow: notices when a coding agent (Claude Code, Codex) is sitting blocked on a permission
+    #     prompt and has the companion say so. Reads the agents' own JSONL transcripts, which is why it
+    #     declares ModulePermissions.AgentTranscripts. Observe-only by decision: it never answers a prompt.
+    (Join-Path $repoRoot 'modules\AgentFlow\AgentFlow.csproj')
 )
 foreach ($moduleProject in $moduleProjects) {
     if (Test-Path -LiteralPath $moduleProject) {
