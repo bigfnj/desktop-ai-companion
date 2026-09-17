@@ -37,6 +37,11 @@ namespace DesktopAICompanion.Ai
         private bool _warmComplete;  // the whole pool finished embedding (not just a warmed prefix)
         private int _indexed;        // matchable (embedded + valid) lines published so far
         private bool _disposed;
+        // Not a metric -- a latch. Nothing reads its VALUE; the only use is the Interlocked.CompareExchange
+        // in DisposeEmbedderUnderLock, which is what stops _embed.Dispose() running twice when both disposal
+        // paths (Dispose and the warm-task continuation from QueueEmbedderDisposal) reach it. The accessor
+        // that used to expose it was dead and is gone; the latch is not, and deleting it as "an unobservable
+        // counter" would reintroduce the double dispose.
         private int _embedderDisposalCount;
         private CancellationTokenSource _warmCancellation;
         private Task _warmTask = Task.CompletedTask;
@@ -112,24 +117,6 @@ namespace DesktopAICompanion.Ai
                 complete = live && _warmComplete;
                 indexed = live ? _indexed : 0;
                 total = live && _pool != null ? _pool.Count : 0;
-            }
-        }
-
-        internal int EmbedderDisposalCountForDiagnostics
-        {
-            get { return Volatile.Read(ref _embedderDisposalCount); }
-        }
-
-        internal void HoldEmbedLockForDiagnostics(
-            ManualResetEventSlim entered,
-            ManualResetEventSlim release)
-        {
-            if (entered == null) throw new ArgumentNullException("entered");
-            if (release == null) throw new ArgumentNullException("release");
-            lock (_embedLock)
-            {
-                entered.Set();
-                release.Wait();
             }
         }
 

@@ -664,6 +664,11 @@ namespace DesktopAICompanion.FortunesModule
         // Last browse result (catalog packs not on disk yet) and the subset the user ticked for download.
         // Both are in-memory only: browsing writes nothing, and ticking writes nothing — the download
         // button is the only thing that touches the network or the disk.
+        //
+        // UI THREAD ONLY. Neither is synchronized, and both are read and written by the pane callbacks
+        // (LoadAvailablePackItems, SetPackSelected, SelectAllPacksAsync, SelectNoPacksAsync) which the host
+        // always calls on the UI thread. Anything that awaits before touching them must resume there too --
+        // which is why the two awaits in this section have no ConfigureAwait(false).
         private readonly List<CatalogItem> _availablePacks = new List<CatalogItem>();
         private readonly HashSet<string> _selectedPacks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -720,7 +725,15 @@ namespace DesktopAICompanion.FortunesModule
             if (host == null) return "No host.";
             try
             {
-                IReadOnlyList<CatalogItem> items = await host.FetchCatalogItemsAsync(CatalogKinds.Pack).ConfigureAwait(false);
+                // NO ConfigureAwait(false) here, deliberately, and the same at the download below. The host
+                // invokes a PaneAction from a button's Click handler on the UI thread (OptionsWindow
+                // .BuildActionRow), so the bare await resumes there -- which is where CacheMissingPacks has to
+                // run, because it clears and refills _availablePacks and RemoveWhere's _selectedPacks, and
+                // those are the same collections LoadAvailablePackItems / SetPackSelected touch from checkbox
+                // clicks. The packs card sets DeferChanges false on purpose, so a tick fires SetPackSelected
+                // immediately and can land mid-fetch. The network call itself still runs off the UI thread:
+                // that is FetchCatalogItemsAsync's business, and it is the only blocking part.
+                IReadOnlyList<CatalogItem> items = await host.FetchCatalogItemsAsync(CatalogKinds.Pack);
                 int available = CacheMissingPacks(items);
                 if (items.Count == 0) return "The catalog lists no fortune packs.";
                 return available == 0
@@ -757,7 +770,11 @@ namespace DesktopAICompanion.FortunesModule
                     try
                     {
                         if (!IsPlainPackId(item.Id)) { failed++; continue; }
-                        byte[] bytes = await host.DownloadCatalogItemAsync(CatalogKinds.Pack, item.Id).ConfigureAwait(false);
+                        // Bare await (see CheckPacksOnlineAsync): everything after it is UI-thread work.
+                        // _selectedPacks.Remove below, and RebuildEngine + CacheMissingPacks after the loop,
+                        // all touch state the checkbox handlers own -- and RebuildEngine reaches
+                        // IHost.GetSettings, which PluginApi's IHost contract requires on the UI thread.
+                        byte[] bytes = await host.DownloadCatalogItemAsync(CatalogKinds.Pack, item.Id);
                         if (bytes == null || bytes.Length == 0) { failed++; continue; }
                         File.WriteAllBytes(Path.Combine(directory, item.Id + ".txt"), bytes);
                         _selectedPacks.Remove(item.Id);
