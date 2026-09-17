@@ -6,27 +6,11 @@ machine and this session cannot supply. They are filed away from
 [`../BACKLOG.md`](../BACKLOG.md) so the backlog reads as work that can actually be picked up, and
 listed here rather than deleted so none of them is rediscovered from scratch.
 
----
-
-## T2 / T49 — the MSI upgrade path, and the installed build's About window
-
-**Blocker: needs a real reinstall of the MSI over a previous install.**
-
-Two verification gaps, one blocker. From the v1.1.4 release record:
-
-> **⚠ Still NOT done: the full `SMOKETEST.md` A-E walk, and the UPGRADE path.** The install above was
-> onto a machine with no registered install, so it exercised first-install rather than
-> install-over-previous, and the checklist is explicit that the upgrade path is the one users take. The
-> A-E script also covers speech routing, the poke ladder, drag, multi-monitor pinning and fullscreen
-> stand-down, none of which was touched.
-
-And from the About/Help WPF rebuild, which was eyeballed by rendering the window to a PNG rather than
-on an installed build:
-
-> **Still worth a glance on the next reinstall:** the live tray → About / Help path on the installed
-> MSI, and the light-theme variant (the capture followed this box's dark OS setting).
-
-Both entries in full: [`HISTORY-post-1.0.0.md`](HISTORY-post-1.0.0.md).
+**An item leaves when its blocker goes, and the blocker is a claim to re-check rather than trust.**
+T2 / T49 (the MSI upgrade path and the installed build's About window) moved back to
+[`../BACKLOG.md`](../BACKLOG.md) on 2026-09-17: it needed "a real reinstall of the MSI over a previous
+install", and both halves of that now exist here — the app is installed at 1.1.4 and WiX 5.0.2 is a
+global dotnet tool. Re-measure the line under each heading below before assuming it still holds.
 
 ---
 
@@ -68,10 +52,12 @@ and nobody else's, but it has not been done and no engineering should start befo
 > any engineering.**
 
 The technical assessment is done and favourable — the idle engine is dependency-free P/Invoke and
-drops straight into a module timer — and it is recorded with the other two candidate ports in
-[`../BACKLOG.md`](../BACKLOG.md), feature idea 18, including the one piece of real technical care
-(the low-level hook must be `UnhookWindowsHookEx`'d in `Shutdown()` or an ALC unload leaks a dangling
-hook). Only the licence blocks it.
+drops straight into a module timer — and it is recorded in [`../BACKLOG.md`](../BACKLOG.md), feature
+idea 18, including the one piece of real technical care (the low-level hook must be
+`UnhookWindowsHookEx`'d in `Shutdown()` or an ALC unload leaks a dangling hook). This is the last of
+the three candidate ports still open: blinkingLED was ported and ships as `modules/BlinkingLed/`, and
+LightHost was refused (the reasoning is in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md)). Only the
+licence blocks it.
 
 ---
 

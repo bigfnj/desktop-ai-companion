@@ -2,8 +2,10 @@
 
 The four numbered bugs found after the v1.0.0 rebase, extracted from `BACKLOG.md` so that file can
 hold only open work. **All four are fixed**, so nothing here is a work item —
-[`../BACKLOG.md`](../BACKLOG.md) is the backlog. The pre-1.0.0 equivalent is
-[`ISSUES-pre-1.0.0.md`](ISSUES-pre-1.0.0.md).
+[`../BACKLOG.md`](../BACKLOG.md) is the backlog. The one-line "none open" summary and the
+fixed-in table live in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md), which is where a reader goes to
+check whether a bug number is taken; the post-mortems themselves stay here. The pre-1.0.0 equivalent
+is [`ISSUES-pre-1.0.0.md`](ISSUES-pre-1.0.0.md).
 
 **The diagnosis text is kept in full, including the parts that turned out to be WRONG** — the
 strikethrough in BUG-001 included. Two of them were wrong in instructive ways: BUG-003(a)'s suspected
@@ -285,8 +287,10 @@ a model should say so, or clear the setting, rather than leaving it pointing at 
 **The part that makes it undiagnosable:** modules reach the log through `IHost.Log`, and all of
 `modules/AiBrain/` contains **one** such call. The log added in Phase 4b to make invisible faults
 visible has effectively no instrumentation in the one subsystem that fails by returning null on
-purpose. See the diagnostics work item in [`../BACKLOG.md`](../BACKLOG.md), "instrument the modules,
-AI Brain first".
+purpose. **That was true when this was written and is no longer:** AI Brain is fully instrumented as
+of 2026-09-11 (27 diagnostic lines, routed through a static `LogSink`), and what remains of that work
+item — Fortunes, PetStudio and BlinkingLed, all still at zero — is "instrument the three modules
+still at zero" in [`../BACKLOG.md`](../BACKLOG.md).
 
 **Fix, in order of value:**
 
@@ -379,9 +383,10 @@ if it is this, a plain Notepad window will capture fine while a browser or a vid
 
 **Both are blocked on instrumentation, for the same reason as BUG-002.** Nothing records the chosen
 rect, which monitor won, or whether the resulting bitmap was uniform, so this is currently unfalsifiable
-from a user report. See "instrument the modules, AI Brain first" in [`../BACKLOG.md`](../BACKLOG.md)
-— log the selected bounds, the
-foreground-vs-companion decision, and a cheap uniformity check on the bitmap.
+from a user report — log the selected bounds, the foreground-vs-companion decision, and a cheap
+uniformity check on the bitmap. **Since shipped**, with the rest of the AI Brain instrumentation; the
+surviving half of that work item is "instrument the three modules still at zero" in
+[`../BACKLOG.md`](../BACKLOG.md).
 
 **Privacy constraint on any diagnostic here:** never write capture content, OCR text or a bitmap into
 the diagnostic log. Users attach it to issues. If a visual dump is needed to diagnose this, it must be a
