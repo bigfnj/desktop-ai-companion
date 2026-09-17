@@ -53,20 +53,68 @@ restricting to prompt-capable tools barely moves it. Half the real prompts are a
 
 The join asks a second, independent question about the same call: *would this command have prompted
 at all?*, answered by evaluating it against the permission rules already on disk (deny → ask →
-allow, managed tier merged in). `agentflow_join.py` measures it, split by permission mode:
+allow, managed tier merged in). `agentflow_join.py` measures it.
+
+**⚠ The numbers below replace the first set, which were measured against the wrong ground truth and
+with a broken splitter. Both were corrected 2026-09-17 and the conclusion moved.** The original
+table (auto 0.09% precision, default 19%, recall unmeasured per mode) is superseded; do not cite it.
+
+Two corrections, and the first is the one that matters:
+
+**`toolDenialKind` has five values, not one.** This harness treated `user-rejected` as "a prompt
+happened". Over the 120 most recent transcripts:
+
+| value | n | what it means |
+|---|---|---|
+| `permission-rule` | 30 | blocked **by a permission rule** — the class the matcher is accountable for |
+| `automode-blocked` | 25 | blocked by the auto-mode model-side classifier |
+| `user-rejected` | 16 | a human declined, rule-driven or not |
+| `interrupted` / `cancelled` | 4 | not prompts at all |
+
+Using `user-rejected` was wrong in both directions: it ignored `permission-rule` entirely, the one
+class the rules are supposed to predict and nearly twice as numerous, and it counted human refusals
+of calls the rules *allow*. That is why the misses clustered on `echo` and `cd` — commands the
+managed allow-list covers, declined by a person anyway. No rule matcher predicts someone changing
+their mind, and the earlier note blaming those misses on the splitter was wrong.
+
+**The splitter was also replaced**, with the quote- and depth-aware one ported from
+`permission-wildcarding` (`--difftest` checks the port against the JS original; **19,260 cases
+agree**, 19,237 of them real commands harvested from transcripts). The naive regex had been
+*inflating* `wouldPrompt` by about a third, because over-splitting invents fragments that match no
+allow rule and "nothing matched" defaults to would-prompt.
+
+Corrected, and now reproducible from the committed harness rather than attributed by hand:
 
 ```
-mode            calls  wouldPrompt    %   realPrompts   precision
-auto            21758         8684   40%            8       0.09%
-acceptEdits      4855         1844   38%            0
-plan             1274          464   36%            0
-default            85           31   36%            6      19%
+mode            calls  wouldPrompt    %   realPrompts   precision   recall
+auto            23188         5637   24%           23       0.41%      87%
+acceptEdits      4964         1530   31%            6       0.39%      83%
+plan             1175          276   23%            1       0.36%     100%
+default            83           20   24%            0           -       -
+
+kind                  n   wouldPrompt   hit-rate
+permission-rule      30            26        87%
+automode-blocked     25            11        44%
+user-rejected        16             6        38%
 ```
 
-In **default mode** the rules *are* the gate and the join is ~19% precise, roughly 4 false alarms
-per real prompt, which combined with a stall threshold is usable. In **auto mode** a model-side
-classifier sits in front of the rules and approves the overwhelming majority, so the rules stop
-predicting anything: 8,684 predictions, 8 real prompts.
+**Recall is 87%, not 38%.** That is the axis that decides whether this is shippable, because a miss
+means the companion stays silent while the agent sits blocked, and this harness's own preamble says
+a matcher trading recall for precision is worse than none. The four misses are `cd` ×2, `git`,
+`docker`.
+
+**What moved in the conclusion.** "In auto mode the rules stop predicting anything" is **wrong** as
+stated. Rules still cause prompts in auto mode — 23 of the 30 rule-caused denials are there, and the
+matcher catches 87% of them. What collapses in auto mode is **precision**: 5,637 predictions for 23
+real prompts, roughly 245 false per real. So AgentFlow is still a default-mode feature, but for a
+different reason than recorded, and the honest state of the default-mode claim is *unmeasured*: this
+corpus contains **zero** rule-caused denials in `default` mode, so its precision column is empty
+rather than promising. That is exactly what the default-mode hour is for.
+
+`automode-blocked` existing as its own label is the quieter find. The auto-mode conclusion had been
+*inferred* by evaluating rules; the transcript states outright which denials came from the model-side
+gate, and the rules predict only 44% of those — so it is a genuinely different population, measured
+rather than argued.
 
 **Consequence for the product: AgentFlow is a default-mode feature.** When the transcript reports
 `permissionMode: auto`, it should say so and stand down rather than firing constantly — the same
@@ -485,7 +533,7 @@ transcript. Any production code has to hold the same line, especially out of the
 |---|---|---|
 | `agentflow-probe.py` | Live: is an agent blocked right now? | `python agentflow-probe.py --threshold 15` |
 | `agentflow_backtest.py` | Does wait time alone separate prompts from slow tools? | `python agentflow_backtest.py --files 120` |
-| `agentflow_join.py` | Does knowing the permission rules kill the false alarms? | `python agentflow_join.py --files 120` |
+| `agentflow_join.py` | Does knowing the permission rules kill the false alarms? | `python agentflow_join.py --files 120 \| --selftest \| --difftest` |
 | `agentflow_classifier.py` | Which prompt option is safe to press? | `python agentflow_classifier.py --selftest \| --audit \| --mutate` |
 | `agentflow_cpu.py` | Does agent CPU separate blocked from working? | `python agentflow_cpu.py --verify \| --attribute \| --validate \| --interval 2 --count 20 --csv out.csv \| --report out.csv` |
 
@@ -500,7 +548,7 @@ cannot classify one of them. `--mutate` breaks the classifier five ways and prov
 catches each; a clean run with no mutation firing means the suite is blind, not that the code is
 good. Current state: 25/25 self-test, audit clean, 5/5 mutations fired.
 
-### Three defects these found that would otherwise have shipped
+### Four defects these found that would otherwise have shipped
 
 **Single-newest-transcript tracking is wrong.** The probe originally watched only the most recently
 modified transcript. With two sessions live it flipped between them every poll, attributed one
@@ -515,6 +563,14 @@ a template, so the realistic way to see one is OCR truncating `Yes, allow access
 window edge — meaning the row was not fully read. The original assertion demanded approve-once and
 would have pressed a half-read option. Kept as a witness test, because the tempting fix is to add a
 bare exact entry.
+
+**The recall measurement was scored against the wrong ground truth for a full session's worth of
+conclusions.** `toolDenialKind` has five values and the harness read one of them, so it graded the
+rule matcher on human refusals (which no rule predicts) while ignoring `permission-rule` (which is
+precisely what it predicts). Corrected recall is 87% against a measured 38%, and the earlier
+explanation for the misses — the naive splitter — was itself wrong. The lesson is narrow and
+reusable: before trusting a precision or recall figure, enumerate every value the label field
+actually takes. One `collections.Counter` over the corpus would have caught this at the start.
 
 **Differencing tree CPU totals across samples yields NEGATIVE CPU.** The first live run of
 `agentflow_cpu.py` printed `cores=-5.9000`. A tree's membership changes constantly while an agent
@@ -532,14 +588,13 @@ to total-differencing returns −450 for a case whose true answer is 50.
 
 ## Next step
 
-The `default` sample is n=85 with 6 real prompts, so the 19% precision figure is promising rather
-than measured. Generate real default-mode data: switch a session out of auto mode, work normally
-for an hour, rerun `agentflow_join.py`.
+**The one open measurement is default-mode precision.** Recall is settled at 87%, and the splitter
+and the mode attribution are both done (see the corrections above). What no corpus on this box can
+supply is precision in `default`: there are **zero** rule-caused denials in that mode across 120
+transcripts, because this box runs auto. Generate it the only way it can be generated — work
+normally in default mode for an hour, then rerun `agentflow_join.py`, which now reports the split
+itself instead of needing it attributed by hand.
 
-Two other things are known-incomplete. The compound-command splitter in `agentflow_join.py` is
-naive — it does not handle a bare `&`, and a `;` inside quotes splits wrongly — which caused most
-of the recall failure (misses clustered on roots `echo`, `cd` and `&`). A correct splitter exists
-already in the sibling `permission-wildcarding` project and should be reused rather than rewritten.
 Process CPU is no longer untried: `agentflow_cpu.py` exists, the mechanism is verified, and the
 unit turned out to be the process **tree** rather than the process (see above). What it has not
 done yet is produce a separation number, because that needs samples taken alongside labelled
