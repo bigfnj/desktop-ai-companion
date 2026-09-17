@@ -1,4 +1,4 @@
-#requires -Version 5
+﻿#requires -Version 5
 <#
 .SYNOPSIS
     Fail when a module's published zip is older than the module's source.
@@ -176,6 +176,28 @@ $ids = @()
 foreach ($m in (Get-Content -LiteralPath $modulesJson -Raw | ConvertFrom-Json).modules) {
     $ids += $m.id
 }
+
+# Deliberately-unpublished modules. This check derives its id list from modules.json, so a module
+# absent from that file produces ZERO findings -- its version parity and payload freshness are simply
+# never examined. That is correct for a module nobody ships and wrong for one somebody forgot, and
+# until this list existed the check could not tell the two apart. Adding a module to modules/ without
+# publishing it now requires saying so here, once.
+#
+#   testmodule  a throwaway plugin-pipeline proof, dev and self-test only, never catalogued
+#   agentflow   built and gated, deliberately not published; see BACKLOG.md's AgentFlow section
+$deliberatelyUnpublished = @('testmodule', 'agentflow')
+
+$sourceIds = @()
+foreach ($proj in @(Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'modules') -Directory)) {
+    $sourceIds += $proj.Name.ToLowerInvariant()
+}
+$unaccounted = @($sourceIds | Where-Object { ($ids -notcontains $_) -and ($deliberatelyUnpublished -notcontains $_) })
+if ($unaccounted.Count -gt 0) {
+    throw ("These modules exist under modules\ but are neither listed in modules.json nor declared " +
+           "deliberately unpublished, so nothing checks their version parity or payload freshness: " +
+           ($unaccounted -join ', ') + ". Publish them, or add them to " +
+           "`$deliberatelyUnpublished in packaging\Test-ModulePublishFreshness.ps1 with a reason.")
+}
 if ($ModuleId) {
     if ($ids -notcontains $ModuleId) { throw "Module '$ModuleId' is not listed in modules.json." }
     $ids = @($ModuleId)
@@ -237,6 +259,7 @@ if ($catalogAppVersion -ne $productVersion) {
 Write-Host "OK   app -- catalog.json app.version $catalogAppVersion agrees with ProductVersion.props"
 
 $stale = @()
+$degraded = @()
 $mismatched = @()
 foreach ($id in $ids) {
     # The module's source directory is capitalized (modules\Fortunes) while its id and zip are not;
@@ -306,7 +329,16 @@ foreach ($id in $ids) {
     $watch = Get-ModuleWatchSet -RepoRoot $RepoRoot -ModuleDirectory $sourceDirectory.FullName
     # Fail loudly rather than silently narrowing: a watch set that shrinks without saying so is how this
     # check was blind to source-linked files for months.
-    foreach ($note in $watch.Degraded) { Write-Warning "$id -- watch set degraded: $note" }
+    #
+    # This said exactly that and then called Write-Warning, which sets no exit code, throws nothing,
+    # is unaffected by $ErrorActionPreference and never reached $stale. Both callers judge this script
+    # by failure alone, so the watch set COULD silently narrow -- a $(Property) in an Include, an
+    # out-of-repo link, an unparseable csproj or a missing referenced project all degrade coverage and
+    # still printed OK. The comment was right and the code did the opposite of it.
+    foreach ($note in $watch.Degraded) {
+        Write-Warning "$id -- watch set degraded: $note"
+        $degraded += "$id -- watch set degraded: $note"
+    }
 
     $watchedPathspecs = @($modulePathspec) + @($watch.External)
     $newer = @(& git -C $RepoRoot log --format='%h %s' "$zipCommit..HEAD" -- @watchedPathspecs)
@@ -340,6 +372,16 @@ if ($mismatched.Count -gt 0) {
            ". Bump modules-dist\modules.json to match the module's ModuleInfo.Version, then regenerate " +
            "the catalog (packaging\New-ContentCatalog.ps1). The in-app Update button compares these, so a " +
            "mismatch either offers an update forever or never offers one at all.")
+}
+
+# A narrowed watch set is a failure in its own right, not a note. It means this check is now
+# examining LESS than it believes it is, which is the state it was written to prevent.
+if ($degraded.Count -gt 0) {
+    Write-Host ''
+    Write-Host 'Watch set degraded -- this check is examining less than it should:' -ForegroundColor Red
+    foreach ($note in $degraded) { Write-Host "  - $note" -ForegroundColor Red }
+    throw ("$($degraded.Count) module watch set(s) degraded. Coverage narrowed silently, which is " +
+           "how this check was blind to source-linked files for months.")
 }
 
 if ($stale.Count -gt 0) {
