@@ -45,19 +45,6 @@ try {
     $outputRoot = Join-Path $repoRoot 'build\DesktopAICompanionPortable\bin\Release\x64'
     $exe = Join-Path $outputRoot 'DesktopAICompanion.exe'
     if (-not (Test-Path -LiteralPath $exe)) { throw "The built executable is missing: $exe" }
-    # Every module with a self-test below must be listed here, or a build that silently failed to produce it
-    # looks identical to a clean run (the self-test skip-PASSES on a missing folder, which is correct for a
-    # payload with no dev modules and useless as a gate). reminder + remembrance were absent from this list
-    # until 2026-08-27, so either could have vanished from the build unnoticed.
-    # blinkingled was missing from this list until 2026-09-17 and was the ONE module whose self-test
-    # could skip-pass unnoticed, for the same reason reminder and remembrance could before 2026-08-27.
-    foreach ($moduleId in 'testmodule', 'fortunes', 'aibrain', 'petstudio', 'reminder', 'remembrance',
-                          'blinkingled', 'agentflow') {
-        if (-not (Test-Path -LiteralPath (Join-Path $outputRoot "modules\$moduleId"))) {
-            throw "Module '$moduleId' is missing from the build output; its self-test would skip-pass."
-        }
-    }
-
     Write-Host '=== core regression tests' -ForegroundColor Cyan
     & dotnet build (Join-Path $repoRoot 'tests\DesktopAICompanion.CoreTests\DesktopAICompanion.CoreTests.csproj') `
         -c Release --nologo -v:minimal
@@ -65,95 +52,25 @@ try {
     & (Join-Path $repoRoot 'tests\DesktopAICompanion.CoreTests\bin\Release\DesktopAICompanion.CoreTests.exe')
     if ($LASTEXITCODE -ne 0) { $failures.Add('CoreTests') }
 
-    # Flag -> the marker file it writes, so a SKIP can be detected. Keep in sync with build.yml.
-    $flags = [ordered]@{
-        '--security-selftest'                = $null
-        '--catalog-selftest'                 = $null
-        '--fullscreen-selftest'              = $null
-        '--pettyperegistry-selftest'         = 'dp-pettyperegistry-selftest.txt'
-        '--hardening-selftest'               = $null
-        '--audio-selftest'                   = 'dp-audio-selftest.txt'
-        '--module-host-selftest'             = 'dp-module-host-selftest.txt'
-        '--fortunes-selftest'                = 'dp-fortunes-selftest.txt'
-        '--fortunes-engine-selftest'         = 'dp-fortunes-engine-selftest.txt'
-        '--aibrain-selftest'                 = 'dp-aibrain-selftest.txt'
-        '--petstudio-selftest'               = 'dp-petstudio-selftest.txt'
-        '--wpf-options-selftest'             = $null
-        # BUG-001's recovery wiring: the TaskbarCreated listener and the WM_CLOSE orderly exit.
-        # Both fail SILENTLY when got wrong (a message-only window is never sent the shell
-        # broadcast), so they are asserted rather than eyeballed.
-        '--traywatcher-selftest'             = $null
-        '--fortunes-smart-progress-selftest' = 'dp-fortunes-smart-progress-selftest.txt'
-        # Convention-based (--module-selftest=<id>): loads the module through the REAL loader and calls its
-        # public static bool SelfTest(out string). Needs no host edit per module. Both of these modules
-        # shipped to the catalog with NO self-test at all; Reminder in particular had six pure helpers whose
-        # internal checks nothing ever ran, which is indistinguishable from having none.
-        '--module-selftest=reminder'         = $null
-        '--module-selftest=remembrance'      = $null
-        '--module-selftest=blinkingled'      = $null
-        # Registered WITH its marker file, which the three above are not. ModuleConventionSelfTest.cs
-        # writes dp-module-<id>-selftest.txt and docs\module-authoring.md tells a new module author to
-        # register it, so this is the documented shape; the $null entries above predate that and mean
-        # the gate checks only their exit code, which a missing-folder SKIP also satisfies.
-        # Retrofitting those three is filed in BACKLOG.md rather than done here.
-        '--module-selftest=agentflow'        = 'dp-module-agentflow-selftest.txt'
-    }
-
-    Write-Host '=== app self-tests' -ForegroundColor Cyan
-    foreach ($flag in $flags.Keys) {
-        $marker = $flags[$flag]
-        if ($marker) {
-            $markerPath = Join-Path $env:TEMP $marker
-            # [IO.File]::Delete rather than Remove-Item, and no Test-Path guard (Delete is a no-op on a
-            # missing file). Remove-Item still performs ~ home-directory expansion even under -LiteralPath,
-            # so it fails outright when $env:TEMP holds a path containing a tilde -- which is the norm on
-            # Windows whenever the account name exceeds 8 characters and TEMP is set to the 8.3 short form.
-            # It reported "An object at the specified path ... does not exist" for a path Test-Path had just
-            # confirmed existed. Latent until the second gate run on such a box, because run one has no
-            # marker to delete -- which is why this survived unnoticed.
-            [System.IO.File]::Delete($markerPath)
+    # The flag table, the marker map and the skip detection all live in one place now, called
+    # by BOTH this gate and .github\workflows\build.yml. They used to be duplicated, under a
+    # comment in build.yml telling a human to keep them in sync -- and they drifted: the flag
+    # lists stayed equal while the marker map and the skip detection existed only here, so CI
+    # checked nothing but exit codes and ten of the eighteen flags skip-PASSED there.
+    #
+    # -OutputRoot makes it assert every module folder is present, because a self-test whose
+    # module is missing SKIPS and exits 0. Failures are COLLECTED rather than thrown, so one
+    # missing module no longer hides every check after it.
+    # Filtered on the sentinel rather than taking the whole pipeline: Write-Host collapses onto
+    # stdout for any caller that is not PowerShell, so an unfiltered read turns progress lines
+    # into failures. Explicit beats implicit here even though this particular caller IS
+    # PowerShell and would have been fine.
+    $selfTestOutput = @(& (Join-Path $repoRoot 'tests\Invoke-SelfTests.ps1') `
+        -ExecutablePath $exe -OutputRoot $outputRoot)
+    foreach ($line in $selfTestOutput) {
+        if ($line -like 'SELFTEST-FAILURE:*') {
+            $failures.Add($line.Substring('SELFTEST-FAILURE: '.Length))
         }
-        # A GUI exe does not block PowerShell, so wait explicitly. Child output is captured rather than
-        # inherited: these self-tests print hundreds of PASS lines each, which buries the summary. The log is
-        # echoed only when something fails.
-        $log = Join-Path $env:TEMP ("dp-gate-" + $flag.Trim('-') + ".log")
-        $process = Start-Process -FilePath $exe -ArgumentList $flag -Wait -PassThru -NoNewWindow `
-            -RedirectStandardOutput $log -RedirectStandardError "$log.err"
-        if ($process.ExitCode -ne 0) {
-            $failures.Add("$flag (exit $($process.ExitCode))")
-            Write-Host ("  FAIL  {0}" -f $flag) -ForegroundColor Red
-            foreach ($logPath in @($log, "$log.err")) {
-                if (Test-Path -LiteralPath $logPath) {
-                    Get-Content -LiteralPath $logPath | Select-Object -Last 40 | ForEach-Object { Write-Host "        $_" }
-                }
-            }
-            continue
-        }
-        if ($marker) {
-            $markerPath = Join-Path $env:TEMP $marker
-            if (-not (Test-Path -LiteralPath $markerPath)) {
-                $failures.Add("$flag (wrote no marker file)")
-                Write-Host ("  FAIL  {0} -- no marker" -f $flag) -ForegroundColor Red
-                continue
-            }
-            # '^\s*SKIP:' and NOT '^SKIP:', which is what this was until 2026-09-17.
-        # Two report writers indent the lines they re-emit: ModuleConventionSelfTest.cs
-        # prefixes every module line with '  [<id>] ', and AiBrainModuleSelfTest.cs indents the
-        # engine probe's report by four spaces. So AiEngineProbe's two real skips -- the DPAPI
-        # round-trip and the Windows OCR recognizer, the latter called 'the standing proof that
-        # the WinRT projection resolves there' in its own comment -- were INVISIBLE to this
-        # grep, and a machine lacking either silently ran fewer assertions and printed ok.
-        # SelfTestProbe.Skip()'s doc comment promises the gate fails on a SKIP; with the old
-        # anchor that promise was false for every module, since none of their lines start at
-        # column zero.
-        $skips = @(Select-String -LiteralPath $markerPath -Pattern '^\s*SKIP:')
-            if ($skips.Count -gt 0) {
-                $failures.Add("$flag (SKIPPED: $($skips[0].Line.Trim()))")
-                Write-Host ("  FAIL  {0} -- skipped, did not actually run" -f $flag) -ForegroundColor Red
-                continue
-            }
-        }
-        Write-Host ("  ok    {0}" -f $flag) -ForegroundColor DarkGray
     }
 
     # try/catch, NOT $LASTEXITCODE, for these three. Corrected 2026-09-17 after an audit.

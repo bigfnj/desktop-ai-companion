@@ -1,4 +1,4 @@
-name: build
+﻿name: build
 
 on:
   push:
@@ -45,45 +45,41 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Core tests failed (exit $LASTEXITCODE)." }
 
       - name: Run product self-tests
-        # The product is a GUI-subsystem exe, so Start-Process -Wait is required to block for its
-        # exit code -- `& $exe` returns immediately with no exit code for a GUI application. (The
-        # former PowerShell reflection harnesses are now in-process flags; nothing is LoadFrom-ed.)
+        # Calls the SAME script tests\run-gate.ps1 calls, rather than carrying its own copy of
+        # the flag list. The previous version duplicated that list under a comment reading
+        # "Keep in sync with tests\run-gate.ps1" -- an instruction to a human, which drifted:
+        # the lists stayed equal while the MARKER MAP and the SKIP DETECTION lived only in the
+        # gate. So this step checked exit codes alone, and a self-test whose module folder is
+        # absent skips and exits 0. Ten of the eighteen flags passed that way, which is exactly
+        # the failure run-gate.ps1's own doc block was written about -- closed locally and left
+        # open in the one place that gates every pull request.
+        #
+        # -OutputRoot is what makes a missing module a failure here too.
         shell: pwsh
         run: |
-          $exe = 'build\DesktopAICompanionPortable\bin\Release\x64\DesktopAICompanion.exe'
-          foreach ($test in @(
-              '--security-selftest',
-              '--catalog-selftest',
-              '--fullscreen-selftest',
-              '--pettyperegistry-selftest',
-              '--hardening-selftest',
-              # Module audio: the decode seam and the barge-in ramp. Deliberately device-independent, so it
-              # runs here even though the runner has no playback device.
-              '--audio-selftest',
-              '--module-host-selftest',
-              '--fortunes-selftest',
-              '--fortunes-engine-selftest',
-              '--aibrain-selftest',
-              '--petstudio-selftest',
-              '--wpf-options-selftest',
-              # BUG-001: the tray recovery wiring. Needs a real window station, which the runner has.
-              '--traywatcher-selftest',
-              # Cold-cache embed of a 1,500-line sample (~18s locally). Kept out of the local default
-              # gate list for speed, but run here -- being merely "opt-in" is how it sat orphaned with
-              # no caller at all from the S3d module move until 2026-08-12.
-              '--fortunes-smart-progress-selftest',
-              # Convention-based: --module-selftest=<id> loads the module through the real loader and calls
-              # its public static bool SelfTest(out string), so a new module needs no edit in Program.cs.
-              # Keep in sync with tests\run-gate.ps1.
-              '--module-selftest=reminder',
-              '--module-selftest=remembrance',
-              '--module-selftest=blinkingled',
-              '--module-selftest=agentflow')) {
-            $process = Start-Process -FilePath $exe -ArgumentList $test -Wait -PassThru -NoNewWindow
-            if ($process.ExitCode -ne 0) { throw "$test failed (exit $($process.ExitCode))." }
+          $outputRoot = 'build\DesktopAICompanionPortable\bin\Release\x64'
+          $exe = Join-Path $outputRoot 'DesktopAICompanion.exe'
+          $failures = @(& .\tests\Invoke-SelfTests.ps1 -ExecutablePath $exe -OutputRoot $outputRoot |
+            Where-Object { $_ -like 'SELFTEST-FAILURE:*' })
+          if ($failures.Count -gt 0) {
+            foreach ($failure in $failures) { Write-Host "FAIL: $failure" }
+            throw "$($failures.Count) self-test failure(s)."
           }
           # Source-text invariant checks (no assembly load; the reflection half is --hardening-selftest).
           .\tests\runtime-hardening-selftest.ps1
+
+      - name: Convert and verify the shipped companion corpus
+        # The local gate runs these and CI did not, so a regression in the shipped Companions
+        # corpus or in the Shimeji converter was invisible on every pull request.
+        shell: pwsh
+        run: |
+          dotnet build tools\ShimejiConvert\ShimejiConvert.csproj -c Release --nologo -v:minimal
+          if ($LASTEXITCODE -ne 0) { throw 'ShimejiConvert build failed.' }
+          $convert = 'tools\ShimejiConvert\bin\Release\net10.0-windows\ShimejiConvert.exe'
+          & $convert verify Companions
+          if ($LASTEXITCODE -ne 0) { throw 'ShimejiConvert verify failed.' }
+          & $convert selftest
+          if ($LASTEXITCODE -ne 0) { throw 'ShimejiConvert selftest failed.' }
 
       - name: Check published module payloads are current
         # modules-dist\<id>.zip is a committed artifact the in-app catalog serves, and nothing rebuilds
