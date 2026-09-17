@@ -162,7 +162,7 @@ real install and a real model:
 
 ## Previous START HERE (2026-09-10, eleventh session) — all four known bugs fixed, 1.1.0 ready to tag
 
-BUG-001 to BUG-004 are **fixed and verified** (full write-ups in [`BACKLOG.md`](BACKLOG.md)). What a
+BUG-001 to BUG-004 are **fixed and verified** (full write-ups in [`docs/ISSUES-post-1.0.0.md`](docs/ISSUES-post-1.0.0.md)). What a
 future reader most needs to know is the parts that were *wrong* before being fixed, because two of them
 would otherwise be repeated:
 
@@ -284,13 +284,15 @@ rather than technical. A green gate and a passing smoke test measure something e
 
 ### What landed this session
 
-See `BACKLOG.md`, the `DONE (2026-09-10, tagged v1.0.0)` block — corpus 26 sources to 2, categories 12 to
+See [`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md), the
+`DONE (2026-09-10, tagged v1.0.0)` block — corpus 26 sources to 2, categories 12 to
 7, a fabricated licence removed 165 times, 629 files of inherited documentation deleted,
 `build-corpus.sh` rewritten, Select all/none restored, and Phase 6 completed. Not duplicated here.
 
 ### Open, in the order it will cost you
 
-- **BUG-001 and BUG-002 are filed in `BACKLOG.md` under "Known bugs (post-1.0.0)"** and both have a
+- **BUG-001 and BUG-002 are filed in [`docs/ISSUES-post-1.0.0.md`](docs/ISSUES-post-1.0.0.md) under
+  "Known bugs (post-1.0.0)"** and both have a
   reliable repro. BUG-001 is the tray icon after an MSI install; BUG-002 is the vision feature failing
   silently when the configured model is not installed. Its diagnosability is filed separately as
   **"Open: instrument the modules, AI Brain first"** -- `IHost.Log` already routes a module's lines into
@@ -672,7 +674,7 @@ A live report ("Hornet seems to land in one of the sit poses; shouldn't she land
 four converter fixes, a migration, a behaviour debugger, and one **engine** fix that the first change flushed
 out. Header format **1.2 → 1.3**, applied by the new `ShimejiConvert rejump <PetsDir>` migration to 31 companions
 (30 jumps re-arced, 2 weak rises flattened). Companion Studio 1.4.17 → **1.5.0**. Full detail in
-[`BACKLOG.md`](BACKLOG.md) under PHASE 0.
+[`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md) under PHASE 0.
 
 ### The one that matters most: fixing a jump exposed a companion trap in yesterday's release
 
@@ -846,7 +848,7 @@ after the v1.9.4 tag with no release at all.
    must answer synchronously so Fortunes can take the tick; the comparison is async), so on a static screen
    the companion now comments anyway. `AiBrain.ScreenChanged` is kept, unused and labelled, as the primitive a
    future "only when something changed" option would need.
-8. **New module: Blinking LED** (see BACKLOG). The interesting part is what a port does NOT need to carry.
+8. **New module: Blinking LED** (see [`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md)). The interesting part is what a port does NOT need to carry.
 
 ### Traps from the module passes
 
@@ -1025,8 +1027,8 @@ Catalog now: **fortunes 1.2.4, aibrain 1.2.2, petstudio 1.4.1, reminder 1.7.0, r
 
 **Shipped v1.8.0's feature payload: a fourth catalog module (Reminder), a module-owned styled-speech
 platform, and two global audio toggles — on `feat/reminder-and-fixes`, pushed to `master`, Reminder in the
-catalog.** ProductVersion is `1.8.0`; host ABI grew (additively) to `1.8.0`. Full detail in BACKLOG.md
-("v1.8.0 — shipped"). In one breath:
+catalog.** ProductVersion is `1.8.0`; host ABI grew (additively) to `1.8.0`. Full detail in
+[`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md) ("v1.8.0 — shipped"). In one breath:
 
 > **The Reminder module has since grown to 1.5.0, all catalog-only (no host release needed).** 1.3.0 = up to
 > five calendar slots each with its own name + speech style; 1.4.x = a browsable, per-calendar chime with a
@@ -1250,7 +1252,7 @@ routing alone would not have fixed it, because two Pearls share a routing key.
   round-trip: it read UTF-8 as ANSI and re-encoded, producing 25 mojibake sequences. Caught it, reverted the
   file, redid the edits with the editor. **Never round-trip a `.cs` file through PowerShell here.**
 - **The window-soak reported a false leak** (one rooted window per segment, always the last). Not a leak — the
-  strong reference escaped the cycle method into the caller's stack slot. See the BACKLOG entry.
+  strong reference escaped the cycle method into the caller's stack slot. See the entry in [`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md).
 
 ---
 
@@ -1447,7 +1449,8 @@ module-update path + the monthly auto-check above.
 **History was scrubbed (2026-08-13):** non-project author metadata on the 10 fork-day commits was removed via
 `git filter-repo --mailmap` (→ `bigfnj` (personal identity)); master + the v1.2.1/1.2.2/1.2.3 tags were
 force-pushed. **Residual:** GitHub's immutable `refs/pull/*/head` refs still hold the old commits — a
-force-push can't remove them; fully purging needs a GitHub Support "remove sensitive data" request (in BACKLOG).
+force-push can't remove them; fully purging needs a GitHub Support "remove sensitive data" request (in
+[`docs/BLOCKED.md`](docs/BLOCKED.md), T48).
 
 **S6p2 (Companions-as-a-module) was built, then FULLY REVERTED (2026-08-14).** The whole stream — an `ICompanionManager`
 ABI + CompanionHost bridge, a `modules/Companions` plugin owning the Options→Companions pane + tray, per-row action buttons,

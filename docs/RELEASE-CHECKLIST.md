@@ -41,7 +41,7 @@ Desktop AI Companion ships **unsigned** Windows x64 builds. To cut a release:
    Record `SettledGrowth` in the release notes, **not** `Growth`. The raw `Growth` numbers are a
    sawtooth — `Bitmap`, `Font`, `Icon` and `Form` release their native handles only when a finalizer
    runs — and on one unchanged build GDI came out +81, +206, −22 and −3 depending purely on run
-   length. See BUG-004 in [`BACKLOG.md`](../BACKLOG.md); the pre-1.0.0 "GDI −24" baseline in
+   length. See BUG-004 in [`ISSUES-post-1.0.0.md`](ISSUES-post-1.0.0.md); the pre-1.0.0 "GDI −24" baseline in
    [`HISTORY-pre-1.0.0.md`](HISTORY-pre-1.0.0.md) is one of those coin flips, not a target. This is the only gate that catches an
    undisposed HWND, Bitmap, Font or Icon: it drives the app from outside and watches the OS counters, so no
    in-process self-test substitutes for it. It is deliberately not in the blocking CI path (it needs a real
