@@ -56,9 +56,17 @@ CASES = [
      "File.Move(Current(i - 1), Current(i));", "File.Delete(Current(i - 1));",
      "gate", "keeps at least the previous run"),
 
-    ("the tray path stops recording its outcome", PROCICON,
-     '"tray icon set: success="', '"tray icon attempted"',
-     "gate", "SetIcon records its outcome"),
+    # This case was STALE and had been a no-op since 1.1.1: it looked for
+    # '"tray icon set: success="', which is the weak line that hid BUG-001 and was replaced by
+    # 'noThrow=' plus 'shellHasIt=' when the invariant was strengthened. The harness printed
+    # "pattern matched 0 times", and nothing ran it for long enough to read that -- so a
+    # mutation suite reported 19 cases while covering 18 of them. The mutation now drops the
+    # SHELL's verdict from the line, which is the half the strengthened invariant exists for:
+    # noThrow alone cannot tell a dropped NIM_ADD from a working one.
+    ("the tray line stops carrying the shell's verdict", PROCICON,
+     '" shellHasIt=" + (shellHasIt.HasValue ? shellHasIt.Value.ToString() : "unknown") +',
+     '" shell=" + (shellHasIt.HasValue ? shellHasIt.Value.ToString() : "unknown") +',
+     "gate", "SetIcon records the SHELL"),
 
     # --- behaviour: these need the binary rebuilt -------------------------------------------
     ("the pane reads the muted list as an ALLOW list", OPTIONS,

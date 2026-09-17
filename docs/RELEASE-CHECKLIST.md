@@ -63,14 +63,19 @@ Desktop AI Companion ships **unsigned** Windows x64 builds. To cut a release:
    |---|---|---|
    | [`tests/mutate-agentflow.py`](../tests/mutate-agentflow.py) | `--module-selftest=agentflow` is not a rubber stamp | `23/23 fired.` |
    | [`tests/mutate-selftest-guards.py`](../tests/mutate-selftest-guards.py) | the host self-test assertions that were previously unfailable | `4/4 fired.` |
-   | [`tests/mutate-hardening-guards.py`](../tests/mutate-hardening-guards.py) | the source invariants in `runtime-hardening-selftest.ps1` | all fired |
-   | [`tests/mutate-diagnostics.py`](../tests/mutate-diagnostics.py) | the diagnostic-log guards | `14/14 fired.` |
+   | [`tests/mutate-hardening-guards.py`](../tests/mutate-hardening-guards.py) | the source invariants in `runtime-hardening-selftest.ps1` | `5/5 fired.` |
+   | [`tests/mutate-diagnostics.py`](../tests/mutate-diagnostics.py) | the diagnostic-log guards | `20/20 fired.` |
 
    A clean `0/N fired` is a red flag and never a result — it usually means the harness rebuilt the wrong
    project, which is why each case names its own csproj and asserts the artifact's timestamp advanced.
    Three of these four had **zero inbound references from anywhere in the repo** until 2026-09-17, which is
    how `tests/runtime-resource-soak.ps1` once got deleted as "an unreferenced script" three hours after CI
    stopped calling it, leaving the only leak gate unrunnable. This table is the reference.
+
+   Every count above was measured on 2026-09-17, and running them is what found the reason to write this
+   step down: `mutate-diagnostics.py` came back **19/20**, because one case had searched for a log line
+   that was rewritten in 1.1.1. It printed `NO-OP pattern matched 0 times` every run, honestly, to nobody.
+   A mutation suite that is not itself run rots into a suite that reports more coverage than it has.
 6. **Walk the live smoke script** below. Everything above is a self-test: it proves invariants, not that the
    app still works. This is the class of check that caught the S6p2 UI, a stale install being debugged as if
    it were current, and the OCR mojibake — none of which any automated gate noticed.

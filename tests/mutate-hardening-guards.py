@@ -13,6 +13,8 @@ import sys
 REPO = r"D:\.ai-work\projects\desktop-ai-companion"
 HARDENING = os.path.join(REPO, "tests", "runtime-hardening-selftest.ps1")
 APPUPDATE = os.path.join(REPO, "src", "dotNet", "AppUpdateCheck.cs")
+SMOKETEST = os.path.join(REPO, "SMOKETEST.md")
+SELFTESTS = os.path.join(REPO, "tests", "Invoke-SelfTests.ps1")
 
 
 def read(p):
@@ -54,6 +56,25 @@ CASES = (
         b"$wxsFiles = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'installer') -Filter '*.wxs' -File)",
         b"$wxsFiles = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'installer') -Filter '*.nosuchext' -File)",
         "at least one .wxs",
+    ),
+    # The doc-count invariants. Both directions matter: the count going stale in the DOC, and the
+    # count changing in the SOURCE without the doc following. One mutation each, because a check
+    # written against only one side would pass while the other drifted -- which is how
+    # "84 source invariants" and "18 self-tests" both survived being wrong.
+    (
+        "DOC DRIFT: SMOKETEST.md quotes the wrong invariant count",
+        SMOKETEST,
+        b"93 source invariants",
+        b"61 source invariants",
+        "source-invariant count matches this file",
+    ),
+    (
+        "SOURCE DRIFT: a self-test flag is added and no doc follows",
+        SELFTESTS,
+        b"    '--security-selftest'                = $null",
+        b"    '--security-selftest'                = $null\n"
+        b"    '--invented-selftest'                = $null",
+        "self-test count matches Invoke-SelfTests.ps1",
     ),
 )
 

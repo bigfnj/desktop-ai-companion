@@ -134,7 +134,11 @@ try {
         foreach ($failure in $failures) { Write-Host "  - $failure" -ForegroundColor Red }
         exit 1
     }
-    Write-Host 'GATE PASSED (build 0 warnings, core tests, 18 self-tests with no skips, invariants, payloads, template, shimeji verify + selftest).' -ForegroundColor Green
+    # Counted, not typed. This line said 18 while the table held 19, which is the same drift
+    # the doc-count invariants now catch -- and a gate that miscounts its own coverage is the
+    # least convincing place to have it.
+    Write-Host ("GATE PASSED (build 0 warnings, core tests, $($SelfTestFlags.Count) self-tests "
+        + 'with no skips, invariants, payloads, template, shimeji verify + selftest).') -ForegroundColor Green
 }
 finally {
     Pop-Location

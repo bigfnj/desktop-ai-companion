@@ -1048,4 +1048,43 @@ Assert-True ($xsdHashes[0] -eq $xsdHashes[1]) (
     "the two animations.xsd copies are byte-identical (embedded $($xsdPaths[1]) vs documented $($xsdPaths[0]))" +
     $(if ($xsdHashes[0] -ne $xsdHashes[1]) { " -- $($xsdHashes[0].Substring(0,12)) vs $($xsdHashes[1].Substring(0,12)); copy the one you edited over the other" } else { '' }))
 
+# ---- the numbers the docs quote about this suite are re-measured, not trusted ----
+# A number nobody re-measures goes stale. SMOKETEST.md and Readme.md both quote how many source
+# invariants and how many self-tests exist, and both were wrong again within one session of being
+# corrected -- because adding an assertion is exactly the moment nobody thinks about a prose line in
+# another file. tests\DesktopAICompanion.CoreTests\Program.cs is the model: it COUNTS its groups.
+# These two assertions move the same discipline to a doc claim, so the drift fails the gate that
+# caused it instead of being found by a later audit.
+$hardeningOwnSource = Get-Content -LiteralPath $MyInvocation.MyCommand.Path -Raw
+# Line-start calls only, which excludes this file's own `function Assert-True` definition and the one
+# comment that names it. The pattern is written mid-line on purpose so it cannot match itself.
+$assertSiteCount = ([regex]::Matches($hardeningOwnSource, '(?m)^[ \t]*Assert-True')).Count
+$selfTestsSource = Get-Content -LiteralPath (Join-Path $testsRoot 'Invoke-SelfTests.ps1') -Raw
+$selfTestFlagCount = ([regex]::Matches($selfTestsSource, "(?m)^\s+'--[a-z0-9=-]+'\s+=")).Count
+$smokeSource = Get-Content -LiteralPath (Join-Path $repoRoot 'SMOKETEST.md') -Raw
+$readmeSource = Get-Content -LiteralPath (Join-Path $repoRoot 'Readme.md') -Raw
+
+Assert-True ($assertSiteCount -gt 50) (
+    "this file's own assertion sites are countable (found $assertSiteCount)")
+Assert-True ($selfTestFlagCount -gt 10) (
+    "Invoke-SelfTests.ps1's flag table is countable (found $selfTestFlagCount)")
+
+$documentedInvariants = [regex]::Match($smokeSource, '(\d+) source invariants')
+Assert-True ($documentedInvariants.Success) 'SMOKETEST.md states a source-invariant count'
+Assert-True ([int] $documentedInvariants.Groups[1].Value -eq $assertSiteCount) (
+    "SMOKETEST.md's source-invariant count matches this file" +
+    $(if ([int] $documentedInvariants.Groups[1].Value -ne $assertSiteCount) {
+        " -- it says $($documentedInvariants.Groups[1].Value), there are $assertSiteCount" } else { '' }))
+
+foreach ($docPair in @(@{ Name = 'SMOKETEST.md'; Text = $smokeSource },
+                       @{ Name = 'Readme.md';    Text = $readmeSource })) {
+    $documentedSelfTests = [regex]::Match($docPair.Text, '(\d+) self-tests')
+    Assert-True ($documentedSelfTests.Success) "$($docPair.Name) states a self-test count"
+    Assert-True ([int] $documentedSelfTests.Groups[1].Value -eq $selfTestFlagCount) (
+        "$($docPair.Name)'s self-test count matches Invoke-SelfTests.ps1" +
+        $(if ([int] $documentedSelfTests.Groups[1].Value -ne $selfTestFlagCount) {
+            " -- it says $($documentedSelfTests.Groups[1].Value), the table has $selfTestFlagCount" } else { '' }))
+}
+
 Write-Host 'PASS: runtime hardening source invariants.'
+

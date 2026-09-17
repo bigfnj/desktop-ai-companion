@@ -89,13 +89,11 @@ jobs:
           }
           Write-Host "Version $version confirmed for tag ${{ steps.tag.outputs.tag }}."
 
-      - name: Select Visual Studio MSBuild
-        # Vestigial: build.ps1 no longer probes MSBuild/VS and the MSI is built by the `wix` dotnet tool.
-        # Deliberately kept for now rather than removed on the release path -- see BACKLOG.
-        uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce
-        with:
-          vs-version: '[17.0,19.0)'
-          msbuild-architecture: x64
+      # The "Select Visual Studio MSBuild" step was removed 2026-09-17. Its own comment already
+      # called it vestigial: build.ps1 stopped probing MSBuild/VS, and the MSI is built by the `wix`
+      # dotnet tool, so nothing in this workflow or any script it calls invokes msbuild -- verified
+      # by grep across .github/, build.ps1, packaging/, installer/ and tests/. All it did was put a
+      # third-party action, pinned by sha, on the release path to set a PATH nobody read.
 
       # Signing is SCAFFOLDING until a certificate exists. With no SIGNING_PFX_BASE64 secret this imports
       # nothing, leaves the thumbprint output empty, and every build below signs nothing -- a warning, not a

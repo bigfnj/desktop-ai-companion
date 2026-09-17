@@ -32,6 +32,19 @@
     <LangVersion>7.3</LangVersion>
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+    <!--
+      Same two as src/Directory.Build.props, and the same reasoning as everything above: the gap
+      existed because modules/ never reached src/, not because anyone decided modules should build
+      to a laxer standard. Added 2026-09-17 after a forced full recompile of all eight module
+      projects came back 0 warnings, so this is free today and only bites on a NEW warning.
+
+      What it does NOT buy, measured rather than assumed: a write-only private field assigned from
+      a non-constant does not raise CS0414 anywhere in this repo, src/ included, where warnings
+      are already errors. An earlier note in BACKLOG.md credited that silence to this file's
+      missing TreatWarningsAsErrors. That was wrong; the compiler simply does not report it.
+    -->
+    <WarningLevel>4</WarningLevel>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">

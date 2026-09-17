@@ -25,7 +25,7 @@ original order, which is usually newest first.
 | | |
 |---|---|
 | Covers | 2026-07-27 to 2026-09-11 |
-| Ends at | host v1.1.4 plus seven module publishes |
+| Ends at | host v1.1.4 plus six module publishes |
 
 ---
 
@@ -1792,7 +1792,7 @@ simple version.
 
 ## 🚢 Released: v1.1.4 (2026-09-11)
 
-Host **1.1.4** plus seven module publishes. Leak soak PASS before the tag: `SettledGrowth` GDI **0**,
+Host **1.1.4** plus six module publishes. Leak soak PASS before the tag: `SettledGrowth` GDI **0**,
 USER **0**, handles **−9** (cycle 40 → 80, bounds 16 each), private bytes **+10.9 MB** on raw samples
 (bound 64 MB). GDI sat at exactly 46 and USER at exactly 57 at both settled samples, matching BUG-004's
 finding that this build settles flat.
