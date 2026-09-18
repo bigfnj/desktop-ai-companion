@@ -639,21 +639,20 @@ namespace DesktopAICompanion
         // debugging "why doesn't the badge show the offer" would have chased this. Its twin
         // GetModuleUpdateLastCheckUtc IS read, which is what made the pair look symmetric.
 
-        /// <summary>Record a module check: when it ran, and what it found.</summary>
-        public bool SetModuleUpdateResult(DateTimeOffset checkedUtc, string offers)
+        /// <summary>Record WHEN a module check last ran. Not what it found: see the note in
+        /// AppSettingsStore about the offers key, which was written on every check and read by
+        /// nothing. The timestamp is read -- it is what keeps the check on a schedule.</summary>
+        public bool SetModuleUpdateResult(DateTimeOffset checkedUtc)
         {
             string stamp = checkedUtc.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture);
-            string value = Clamp(offers);
             return Update(
                 delegate
                 {
-                    return !string.Equals(_settings.ModuleUpdateLastCheckUtc, stamp, StringComparison.Ordinal)
-                        || !string.Equals(_settings.ModuleUpdateOffers, value, StringComparison.Ordinal);
+                    return !string.Equals(_settings.ModuleUpdateLastCheckUtc, stamp, StringComparison.Ordinal);
                 },
                 delegate
                 {
                     _settings.ModuleUpdateLastCheckUtc = stamp;
-                    _settings.ModuleUpdateOffers = value;
                 });
         }
 
@@ -763,21 +762,19 @@ namespace DesktopAICompanion
         // GetPetUpdateStaleIds was removed 2026-09-17, same shape as GetModuleUpdateOffers above:
         // written on every companion update check, read by nothing.
 
-        /// <summary>Record a pet check: when it ran, and which ids were stale.</summary>
-        public bool SetPetUpdateResult(DateTimeOffset checkedUtc, string staleIds)
+        /// <summary>Record WHEN a companion check last ran. Same shape as SetModuleUpdateResult
+        /// above: the stale-id list it used to persist alongside was read by nothing.</summary>
+        public bool SetPetUpdateResult(DateTimeOffset checkedUtc)
         {
             string stamp = checkedUtc.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture);
-            string value = Clamp(staleIds);
             return Update(
                 delegate
                 {
-                    return !string.Equals(_settings.PetUpdateLastCheckUtc, stamp, StringComparison.Ordinal)
-                        || !string.Equals(_settings.PetUpdateStaleIds, value, StringComparison.Ordinal);
+                    return !string.Equals(_settings.PetUpdateLastCheckUtc, stamp, StringComparison.Ordinal);
                 },
                 delegate
                 {
                     _settings.PetUpdateLastCheckUtc = stamp;
-                    _settings.PetUpdateStaleIds = value;
                 });
         }
 

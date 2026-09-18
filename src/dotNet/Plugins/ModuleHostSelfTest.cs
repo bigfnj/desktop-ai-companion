@@ -395,26 +395,12 @@ namespace DesktopAICompanion.Plugins
             ok &= Check(sb, "weekly: switching the check off stops it regardless of the stamp",
                 !AppUpdateCheck.ShouldCheck(false, DateTimeOffset.MinValue, now, week));
 
-            // The cached result has to survive a round trip, or a pane renders nothing on open.
-            var offers = new List<ModuleUpdateOffer>
-            {
-                new ModuleUpdateOffer { Offered = new CatalogModule { Id = "aibrain", Version = "1.4.1" } },
-                new ModuleUpdateOffer { Offered = new CatalogModule { Id = "fortunes", Version = "1.2.8" } },
-            };
-            string encoded = ModuleUpdateScan.Encode(offers);
-            ok &= Check(sb, "weekly: offers encode as id=version;id=version",
-                encoded == "aibrain=1.4.1;fortunes=1.2.8");
-            Dictionary<string, string> decoded = ModuleUpdateScan.Decode(encoded);
-            ok &= Check(sb, "weekly: offers decode back to the same pairs",
-                decoded.Count == 2 && decoded["aibrain"] == "1.4.1" && decoded["fortunes"] == "1.2.8");
-            ok &= Check(sb, "weekly: an empty cache decodes to nothing rather than throwing",
-                ModuleUpdateScan.Decode("").Count == 0 && ModuleUpdateScan.Decode(null).Count == 0);
-            // A cache is not user data: a malformed entry costs one redundant check, so it is skipped rather
-            // than thrown on.
-            ok &= Check(sb, "weekly: malformed cache entries are skipped, not fatal",
-                ModuleUpdateScan.Decode("garbage;=1.0;aibrain=;good=2.0").Count == 1);
-            ok &= Check(sb, "weekly: nothing to offer encodes as empty",
-                ModuleUpdateScan.Encode(new List<ModuleUpdateOffer>()) == "" && ModuleUpdateScan.Encode(null) == "");
+            // The six encode/decode assertions here went with Encode and Decode themselves on
+            // 2026-09-17. They asserted that a cache round-tripped, and nothing read the cache: the
+            // settings key was write-only, so the format was correct and pointless. An assertion
+            // whose subject has no consumer is not coverage, it is ballast that makes a suite look
+            // thorough -- and it would have kept the dead code alive by appearing to justify it.
+
             return ok;
         }
 

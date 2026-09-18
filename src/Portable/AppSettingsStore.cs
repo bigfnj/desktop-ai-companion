@@ -189,9 +189,19 @@ namespace DesktopAICompanion
         [JsonPropertyName("moduleUpdateLastCheckUtc"), JsonPropertyOrder(37)]
         public string ModuleUpdateLastCheckUtc;
 
-        // "id=version;id=version", e.g. "aibrain=1.4.1;fortunes=1.2.8".
-        [JsonPropertyName("moduleUpdateOffers"), JsonPropertyOrder(38)]
-        public string ModuleUpdateOffers;
+        // moduleUpdateOffers (order 38) and companionUpdateStaleIds (order 41) were REMOVED
+        // 2026-09-17. Both were written on every update check and read by nothing: their getters had
+        // zero call sites while their *LastCheckUtc twins are read, which is what made each pair look
+        // symmetric. They were visible in the user's settings.json and looked like the data source
+        // for an update badge; the pane and the notification both read the live scan instead, so
+        // anyone debugging "why doesn't the badge show the offer" would have chased a write-only
+        // string.
+        //
+        // The orders are deliberately NOT renumbered. JsonPropertyOrder controls serialisation order
+        // only, a gap in it means nothing, and shifting every later field would churn the key order
+        // in every user's file for no reason. An old file that still carries either key loads fine:
+        // System.Text.Json ignores unknown properties, so the orphan sits there inert until the file
+        // is next rewritten.
 
         // Nullable for the same reason as the two above it: a doc written before this field existed must
         // read as absent and be treated as ON, not as an explicit false.
@@ -200,10 +210,6 @@ namespace DesktopAICompanion
 
         [JsonPropertyName("companionUpdateLastCheckUtc"), JsonPropertyOrder(40)]
         public string PetUpdateLastCheckUtc;
-
-        // "id;id", the catalog pets whose installed copy no longer matches the catalog hash.
-        [JsonPropertyName("companionUpdateStaleIds"), JsonPropertyOrder(41)]
-        public string PetUpdateStaleIds;
 
         // Nullable, absent-reads-as-ON, for the same reason as the update checks above: the log is the only
         // record of a fault nobody predicted, so a doc written before this field existed must keep logging
@@ -277,10 +283,8 @@ namespace DesktopAICompanion
                 AppUpdateLastCheckUtc = "",
                 AppUpdateLatestVersion = "",
                 ModuleUpdateLastCheckUtc = "",
-                ModuleUpdateOffers = "",
                 PetUpdateCheck = true,
                 PetUpdateLastCheckUtc = "",
-                PetUpdateStaleIds = "",
                 DiagnosticLog = true,
                 DiagnosticLogMaxKilobytes = 512,
                 DiagnosticLogKeep = 2,
@@ -1086,14 +1090,10 @@ namespace DesktopAICompanion
                 target.AppUpdateLatestVersion = current.AppUpdateLatestVersion;
             if (all || !string.Equals(current.ModuleUpdateLastCheckUtc, baseline.ModuleUpdateLastCheckUtc, StringComparison.Ordinal))
                 target.ModuleUpdateLastCheckUtc = current.ModuleUpdateLastCheckUtc;
-            if (all || !string.Equals(current.ModuleUpdateOffers, baseline.ModuleUpdateOffers, StringComparison.Ordinal))
-                target.ModuleUpdateOffers = current.ModuleUpdateOffers;
             if (all || current.PetUpdateCheck != baseline.PetUpdateCheck)
                 target.PetUpdateCheck = current.PetUpdateCheck;
             if (all || !string.Equals(current.PetUpdateLastCheckUtc, baseline.PetUpdateLastCheckUtc, StringComparison.Ordinal))
                 target.PetUpdateLastCheckUtc = current.PetUpdateLastCheckUtc;
-            if (all || !string.Equals(current.PetUpdateStaleIds, baseline.PetUpdateStaleIds, StringComparison.Ordinal))
-                target.PetUpdateStaleIds = current.PetUpdateStaleIds;
             if (all || current.DiagnosticLog != baseline.DiagnosticLog)
                 target.DiagnosticLog = current.DiagnosticLog;
             if (all || current.DiagnosticLogMaxKilobytes != baseline.DiagnosticLogMaxKilobytes)
@@ -1162,10 +1162,8 @@ namespace DesktopAICompanion
                 AppUpdateLastCheckUtc = source.AppUpdateLastCheckUtc,
                 AppUpdateLatestVersion = source.AppUpdateLatestVersion,
                 ModuleUpdateLastCheckUtc = source.ModuleUpdateLastCheckUtc,
-                ModuleUpdateOffers = source.ModuleUpdateOffers,
                 PetUpdateCheck = source.PetUpdateCheck,
                 PetUpdateLastCheckUtc = source.PetUpdateLastCheckUtc,
-                PetUpdateStaleIds = source.PetUpdateStaleIds,
                 DiagnosticLog = source.DiagnosticLog,
                 DiagnosticLogMaxKilobytes = source.DiagnosticLogMaxKilobytes,
                 DiagnosticLogKeep = source.DiagnosticLogKeep,

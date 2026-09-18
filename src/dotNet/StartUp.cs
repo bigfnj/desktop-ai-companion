@@ -1673,7 +1673,7 @@ namespace DesktopAICompanion
                 if (disposed) return;
                 LocalData data = Program.MyData;
                 if (data == null) return;
-                data.SetPetUpdateResult(DateTimeOffset.UtcNow, string.Join(";", stale.ToArray()));
+                data.SetPetUpdateResult(DateTimeOffset.UtcNow);
                 AddDebugInfo(DEBUG_TYPE.info, stale.Count == 0
                     ? "[pets] update check: every installed pet is current"
                     : "[pets] update check: " + stale.Count + " pet(s) have a newer version");
@@ -1737,7 +1737,7 @@ namespace DesktopAICompanion
             {
                 // Nothing installed to compare. Stamp anyway: the answer "no updates" is correct and
                 // re-asking every tick would be pointless traffic.
-                data.SetModuleUpdateResult(DateTimeOffset.UtcNow, "");
+                data.SetModuleUpdateResult(DateTimeOffset.UtcNow);
                 return;
             }
 
@@ -1749,8 +1749,7 @@ namespace DesktopAICompanion
                     .ConfigureAwait(true);
                 if (disposed) return;
                 var offers = DesktopAICompanion.Plugins.ModuleUpdateScan.FindUpdates(catalog, modules);
-                data.SetModuleUpdateResult(DateTimeOffset.UtcNow,
-                    DesktopAICompanion.Plugins.ModuleUpdateScan.Encode(offers));
+                data.SetModuleUpdateResult(DateTimeOffset.UtcNow);
                 if (offers.Count == 0)
                 {
                     AddDebugInfo(DEBUG_TYPE.info, "[module] update check: everything is current");
