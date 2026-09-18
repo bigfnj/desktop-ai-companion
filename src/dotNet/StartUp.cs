@@ -1856,7 +1856,18 @@ namespace DesktopAICompanion
             if (state.Count >= PokeSassFrom)        // 5-11: verbal sass
             {
                 string s = PokeReactions.RandomSass();
-                if (!string.IsNullOrWhiteSpace(s)) subject.Say(s);
+                // Offered to the speech responders first, exactly as SayAll does. Until 2026-09-17
+                // this called FormCompanion.Say directly, which draws a bubble and raises nothing --
+                // so a voice module would have spoken fortunes, reminders and AI answers and then
+                // gone SILENT on the sass, while a bubble appeared anyway. RegisterSpeechResponder's
+                // own ABI comment promises it is "offered every utterance BEFORE any bubble is
+                // drawn", and this was the one user-facing line in the base that broke that promise.
+                // Nothing registered => RaiseSpeechRequest returns false immediately and behaviour is
+                // unchanged, which is why no existing module notices.
+                if (!string.IsNullOrWhiteSpace(s))
+                {
+                    if (Host == null || !Host.RaiseSpeechRequest(subject, s)) subject.Say(s);
+                }
                 return;
             }
             if (state.Count >= PokeIgnoreFrom)      // 3-4: ignore — turn away, no bubble

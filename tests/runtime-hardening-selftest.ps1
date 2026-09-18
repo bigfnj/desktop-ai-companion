@@ -1117,6 +1117,36 @@ Assert-True ($xsdHashes[0] -eq $xsdHashes[1]) (
     "the two animations.xsd copies are byte-identical (embedded $($xsdPaths[1]) vs documented $($xsdPaths[0]))" +
     $(if ($xsdHashes[0] -ne $xsdHashes[1]) { " -- $($xsdHashes[0].Substring(0,12)) vs $($xsdHashes[1].Substring(0,12)); copy the one you edited over the other" } else { '' }))
 
+# ---- every user-facing line in the BASE must be offered to the speech responders ----
+# RegisterSpeechResponder's ABI comment promises the chain is "offered every utterance BEFORE any
+# bubble is drawn". The poke sass broke that: it called FormCompanion.Say directly, which draws a
+# bubble and raises nothing, so a voice module would have spoken fortunes, reminders and AI answers
+# and then gone silent on the sass -- with a bubble appearing anyway. Found by an ABI audit
+# 2026-09-17; no module registers a responder yet, so nothing was visibly wrong.
+#
+# An ORDER check inside the sliced sass branch, not a presence one: a RaiseSpeechRequest somewhere
+# else in the file says nothing about this call site, and the bubble must be the fallback rather than
+# the first thing that happens.
+$pokeSass = [regex]::Match(
+    $startUpSource,
+    '(?s)PokeReactions\.RandomSass\(\).*?return;')
+Assert-True ($pokeSass.Success) 'the poke-sass branch exists and could be sliced out for inspection'
+# LINE COMMENTS STRIPPED FIRST, and this is not defensive tidying -- it is the mutation result. The
+# first version of this check SURVIVED reverting the fix, because the comment explaining the fix
+# contains the word RaiseSpeechRequest and sits above the call: the index found the COMMENT, the
+# order held, and the check passed over code that had gone back to calling Say directly. A
+# source-text check that a comment can satisfy is a check that measures its own documentation.
+$pokeSassCode = [regex]::Replace($pokeSass.Value, '(?m)^\s*//.*$', '')
+$sassOfferIndex = $pokeSassCode.IndexOf('RaiseSpeechRequest')
+$sassSayIndex = $pokeSassCode.IndexOf('.Say(')
+Assert-True ($sassOfferIndex -ge 0) (
+    'the poke sass is offered to the speech responders, not spoken straight into a bubble')
+Assert-True ($sassSayIndex -ge 0) (
+    'the poke sass still falls back to a bubble (the anchor for the order below)')
+Assert-True ($sassOfferIndex -lt $sassSayIndex) (
+    'the poke sass reaches the speech responders BEFORE the bubble' +
+    " (offer at $sassOfferIndex, bubble at $sassSayIndex)")
+
 # ---- an update that WIDENS a module's permissions must reach the consent prompt ----
 # ModulePermissionConsent is pure and its table is asserted in --hardening-selftest. What a table
 # cannot reach is whether the PANE consults it, and that half is the whole feature: the promise in

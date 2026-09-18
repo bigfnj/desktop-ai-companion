@@ -70,6 +70,13 @@ CASES = (
     # count changing in the SOURCE without the doc following. One mutation each, because a check
     # written against only one side would pass while the other drifted -- which is how
     # "84 source invariants" and "18 self-tests" both survived being wrong.
+    # The sass bypass, restored: this is the code as it shipped, calling FormCompanion.Say directly.
+    ("the poke sass goes straight to a bubble again",
+     STARTUP,
+     b"                    if (Host == null || !Host.RaiseSpeechRequest(subject, s)) subject.Say(s);",
+     b"                    subject.Say(s);",
+     "the poke sass is offered to the speech responders"),
+
     # The consent ORDER check, mutated the way it would actually regress: the download moves AHEAD
     # of the consult. "Prefetch the payload while the user reads the prompt" is a plausible
     # optimisation, and it is precisely what the order assertion exists to forbid, because bytes on
