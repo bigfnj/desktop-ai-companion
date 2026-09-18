@@ -87,7 +87,9 @@ namespace DesktopAICompanion
 
             /// <summary>Forces the next <see cref="Play"/> onto a specific display (relocation); -1 = none.</summary>
         int _forcedDisplayIndex = -1;
-        DateTime _lastFullscreenScanUtc = DateTime.MinValue;
+        // No per-instance scan timestamp: the fullscreen scan is throttled once for the whole desktop in
+        // StartUp.BlockedMonitorsForStandDown, and the ENFORCEMENT here is deliberately un-throttled.
+        // See CheckFullScreen.
         DateTime _lastRelocateUtc = DateTime.MinValue;
         bool _fullscreenHidden = false;   // hidden because every monitor is blocked (no free screen)
 
@@ -1769,10 +1771,10 @@ namespace DesktopAICompanion
         /// <summary>
         /// Record that the fullscreen check gave up, at most once per reason per process.
         ///
-        /// Rate-limited by reason rather than unconditional, because this sits behind a 300ms
-        /// throttle on the animation timer and one companion can be on screen for hours -- an
-        /// unconditional line would bury the log it is meant to make readable, and LogCategory's
-        /// own doc warns about exactly that for per-frame categories.
+        /// Rate-limited by reason rather than unconditional, because this sits on the animation
+        /// timer -- every tick, since the throttle moved to the shared scan -- and one companion can
+        /// be on screen for hours. An unconditional line would bury the log it is meant to make
+        /// readable, and LogCategory's own doc warns about exactly that for per-frame categories.
         /// </summary>
         private static readonly HashSet<string> _fullscreenStandDownsNoted =
             new HashSet<string>(StringComparer.Ordinal);
@@ -1792,12 +1794,32 @@ namespace DesktopAICompanion
             catch { }
         }
 
+        /// <summary>
+        /// Stand this companion down if a fullscreen window owns the monitor it is on, and undo that the
+        /// moment the monitor frees up.
+        ///
+        /// TWO CADENCES, deliberately different, and the reason the 300ms throttle that used to open this
+        /// method is gone:
+        ///
+        ///   * the SCAN is throttled, once per 300ms for the whole desktop, in
+        ///     <c>StartUp.BlockedMonitorsForStandDown</c>. It was throttled here instead, per instance,
+        ///     which multiplied one desktop-wide answer by the number of companions -- 16 z-order walks
+        ///     per cycle at MAX_SHEEPS, and a walk costs 781 user32/dwmapi calls on this box whenever a
+        ///     monitor's centre is uncovered and the early exit cannot fire.
+        ///
+        ///   * the ENFORCEMENT is NOT throttled, and must not be. A hidden companion keeps ticking, so its
+        ///     animation can reach a respawn whose Play() shows the window again; the correction has to be
+        ///     able to run before the next scan, or the flag-latch bug this method's own comments describe
+        ///     comes back wearing a timestamp instead of a bool. Enforcing per tick also means the
+        ///     stand-down still lands within 300ms of a game appearing, exactly as it did when each
+        ///     companion scanned for itself -- the latency did not move, only the walk.
+        ///
+        /// So the per-tick cost is a cached array read plus, only when something IS fullscreen somewhere,
+        /// the monitor lookup. "Nothing fullscreen anywhere" -- the state a desktop is in essentially all
+        /// of the time -- is answered from the array without asking the OS anything at all.
+        /// </summary>
         private void CheckFullScreen()
         {
-            DateTime now = DateTime.UtcNow;
-            if ((now - _lastFullscreenScanUtc).TotalMilliseconds < 300) return;  // decouple from frame rate
-            _lastFullscreenScanUtc = now;
-
             Screen[] screens = Screen.AllScreens;
             if (screens.Length == 0)
             {
@@ -1811,12 +1833,15 @@ namespace DesktopAICompanion
                 return;
             }
 
+            // The shared scan, which is also what feeds the host's module-facing state: a module asking
+            // "is a game running" means ANY monitor, not the one this particular companion stands on, so
+            // the collapse happens there and the per-monitor array comes back here intact.
             bool[] blocked;
             try
             {
-                HashSet<IntPtr> pets =
-                    Program.Mainthread != null ? Program.Mainthread.SheepHandles() : null;
-                blocked = FullscreenScan.BlockedMonitors(pets);
+                blocked = Program.Mainthread != null
+                    ? Program.Mainthread.BlockedMonitorsForStandDown()
+                    : null;
             }
             catch (Exception ex)
             {
@@ -1834,16 +1859,23 @@ namespace DesktopAICompanion
                                         + " results for " + screens.Length + " screens");
                 return;
             }
-            // Hand the whole picture to the host before narrowing to this pet's monitor. A module asking
-            // "is a game running" means ANY monitor, not the one this particular pet happens to stand on.
-            if (Program.Mainthread != null) Program.Mainthread.NoteFullscreenScan(blocked);
+
+            // Which monitor this companion is on only matters if SOME monitor is blocked. When none is,
+            // blocked[current] is false whatever current turns out to be, so the answer is already in
+            // hand -- and skipping the lookup keeps a MonitorFromRect/GetMonitorInfo pair (176 bytes
+            // allocated, measured) off the tick in the state a desktop is in almost all of the time.
+            bool anyBlocked = false;
+            for (int i = 0; i < blocked.Length; i++) if (blocked[i]) { anyBlocked = true; break; }
 
             int current = 0;
-            string device = Screen.FromRectangle(Bounds).DeviceName;
-            for (int i = 0; i < screens.Length; i++)
-                if (screens[i].DeviceName == device) { current = i; break; }
+            if (anyBlocked)
+            {
+                string device = Screen.FromRectangle(Bounds).DeviceName;
+                for (int i = 0; i < screens.Length; i++)
+                    if (screens[i].DeviceName == device) { current = i; break; }
+            }
 
-            if (!blocked[current])
+            if (!anyBlocked || !blocked[current])
             {
                 // Monitor is clear again: undo any hide/suppression and resume normal top-most.
                 if (_fullscreenHidden) { _fullscreenHidden = false; if (!Visible) Visible = true; }
@@ -1877,6 +1909,7 @@ namespace DesktopAICompanion
 
             if (target >= 0)
             {
+                DateTime now = DateTime.UtcNow;
                 if ((now - _lastRelocateUtc).TotalMilliseconds < 1200) return;   // no rapid bouncing
                 _lastRelocateUtc = now;
                 _fullscreenHidden = false;

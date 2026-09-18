@@ -725,31 +725,80 @@ namespace DesktopAICompanion
             return false;
         }
 
-        // Host-level fullscreen state, fed by the scan each pet already runs every 300ms (see
-        // FormCompanion.CheckFullScreen). Piggybacking rather than adding a second timer: the scan is the expensive
-        // part and it is already happening, so this costs one array walk. With no pets on screen nobody is
-        // scanning, so IsFullscreenActive falls back to an on-demand scan below.
+        // The one fullscreen scan, shared by every companion and by the module-facing predicate.
+        //
+        // The z-order walk is the expensive half and it used to be run PER COMPANION: the 300ms throttle
+        // lived in FormCompanion, so at MAX_SHEEPS the desktop was walked 16 times per cycle for one
+        // answer that does not depend on which companion asked. Counted on this box (679 top-level
+        // windows): 37 user32/dwmapi calls per walk when the early exit fires, and 781 when it cannot --
+        // which is any monitor showing bare desktop, a common state, not a corner case. 53 walks/s
+        // became 3.3.
+        //
+        // WHAT IS CACHED IS THE WHOLE PER-MONITOR ARRAY, not the collapsed "any monitor" bool. That
+        // distinction is the reason this is safe: the companion stand-down must stay per-monitor -- a
+        // companion on monitor 2 is not hidden because monitor 1 has a game -- and a cache that could
+        // only answer "somewhere" would have re-shipped a bug that already reached users. Companions
+        // read `_fullscreenBlocked`; modules read the collapse of it.
+        //
+        // The coalescing window is the SAME 300ms the per-companion throttle used, so the answer a
+        // companion acts on is no older than it was before. What moved is only who walks.
+        private bool[] _fullscreenBlocked;
         private bool _fullscreenActive;
         private DateTime _fullscreenSeenUtc = DateTime.MinValue;
+        private DateTime _fullscreenScanUtc = DateTime.MinValue;
         private static readonly TimeSpan FullscreenCacheLife = TimeSpan.FromSeconds(2);
+        internal static readonly TimeSpan FullscreenScanInterval = TimeSpan.FromMilliseconds(300);
 
         /// <summary>
-        /// Record the result of a pet's fullscreen scan, and raise <c>FullscreenChanged</c> when the answer
-        /// flips. Called by every pet; the first one each cycle sets the value and the rest agree with it.
+        /// Record the result of a fullscreen scan, and raise <c>FullscreenChanged</c> when the collapsed
+        /// answer flips. Every scan lands here, wherever it came from -- the shared cycle below, or the
+        /// deliberately un-cached spawn-time check in <c>FormCompanion.MonitorIsBlockedNow</c> -- so a
+        /// companion appearing refreshes the picture for everybody, including the next cycle.
         /// </summary>
         internal void NoteFullscreenScan(bool[] blocked)
         {
             if (blocked == null) return;
             bool any = false;
             foreach (bool b in blocked) if (b) { any = true; break; }
+            _fullscreenBlocked = blocked;
             _fullscreenSeenUtc = DateTime.UtcNow;
+            _fullscreenScanUtc = _fullscreenSeenUtc;
             if (any == _fullscreenActive) return;
             _fullscreenActive = any;
             if (Host != null) Host.RaiseFullscreenChanged(any);
         }
 
         /// <summary>
-        /// Whether a fullscreen window exists on any monitor. Answers from the pets' own scan while that is
+        /// Per-monitor blocked flags for the companion stand-down: true at index i when a fullscreen
+        /// window occupies <c>Screen.AllScreens[i]</c>. One walk per cycle for the whole desktop,
+        /// however many companions ask.
+        ///
+        /// Returns whatever the current cycle already established, which on a first call or after the
+        /// window expires means walking. May return <c>null</c> (no scan has ever succeeded) or an array
+        /// of the wrong length (a display was plugged in mid-cycle); the caller reports both as a
+        /// skipped stand-down rather than guessing, and the next cycle re-walks.
+        ///
+        /// The ATTEMPT is stamped before the walk, separately from <c>_fullscreenSeenUtc</c>, which
+        /// still records only a SUCCESS. Without that a scan that throws would be retried on every
+        /// animation tick of every companion; with it, a failing scan is retried once per cycle and a
+        /// module still gets the on-demand refresh it is entitled to below.
+        ///
+        /// Called on the UI thread by the companions. <c>IsFullscreenActive</c> can reach
+        /// <c>NoteFullscreenScan</c> from a module's worker thread, so a reader takes one snapshot of
+        /// the field rather than indexing it twice -- the same unsynchronised-but-atomic handoff the
+        /// collapsed flag has always used.
+        /// </summary>
+        internal bool[] BlockedMonitorsForStandDown()
+        {
+            if (DateTime.UtcNow - _fullscreenScanUtc < FullscreenScanInterval) return _fullscreenBlocked;
+            _fullscreenScanUtc = DateTime.UtcNow;
+            bool[] fresh = FullscreenScan.BlockedMonitors(SheepHandles());
+            NoteFullscreenScan(fresh);
+            return fresh;
+        }
+
+        /// <summary>
+        /// Whether a fullscreen window exists on any monitor. Answers from the shared scan while that is
         /// fresh, and scans on demand when it is not -- otherwise a module asking with no pets on screen (or
         /// during startup, before the first scan) would get a stale "no".
         /// </summary>

@@ -27,8 +27,18 @@ namespace DesktopAICompanion
         Network = 4,
         /// <summary>Sound output and device selection.</summary>
         Audio = 5,
-        /// <summary>Per-frame animation churn. Off by default: it repeats forever and would bury
-        /// everything else, but a companion author debugging a skin wants exactly this.</summary>
+        /// <summary>
+        /// Animation churn: a line per animation TRANSITION -- "new animation", "animation is
+        /// over", "border detected", "gravity detected" -- not one per frame, which is what this
+        /// comment used to claim. Off by default: it repeats for as long as the app runs and would
+        /// bury everything else, but a companion author debugging a skin wants exactly this.
+        ///
+        /// Measured 2026-09-17 from the shipped binary, 16 companions on screen, steady state over
+        /// a 45s window: 12.07 lines/s with this category unmuted, and 0.00 lines/s with it muted
+        /// as shipped (20 lines for the entire session, all of them from startup). The per-frame
+        /// reading is what made the write path look like a hot loop; it is not one, and
+        /// <see cref="Write"/> says what follows from that.
+        /// </summary>
         Animation = 6,
     }
 
@@ -138,7 +148,38 @@ namespace DesktopAICompanion
             }
         }
 
-        /// <summary>Append one line. Never throws; silence is the failure mode.</summary>
+        /// <summary>
+        /// Append one line. Never throws; silence is the failure mode.
+        ///
+        /// A STAT AND AN OPEN/WRITE/CLOSE PER LINE, DELIBERATELY. It reads like an obvious thing to
+        /// replace with a retained writer, so here is the arithmetic that says not to, measured
+        /// 2026-09-17 on this box rather than reasoned about.
+        ///
+        /// Per line, cold, 10 fresh interleaved processes writing under %LOCALAPPDATA% (the real
+        /// log's volume and filter-driver path, not a temp directory): this shape costs a median
+        /// 339us, a retained StreamWriter with AutoFlush costs 8.86us. 38x, which is the number
+        /// that makes the change look obvious.
+        ///
+        /// What it is multiplied by is the part that matters. At MAX_SHEEPS, as shipped, the whole
+        /// session writes 20 lines and the steady-state rate is 0.00 lines/s -- so the saving is
+        /// 38x of nothing. Unmute Animation, the noisiest category there is, and the rate is
+        /// 12.07 lines/s: 4.1ms per second of wall clock, 0.4% of one core, for a user who went
+        /// looking for it. The busiest second anywhere in a run is the startup burst, 63 lines,
+        /// worth ~21ms -- and the retained variant's own FIRST line measured SLOWER (9.56ms median
+        /// vs 7.41ms, it has a FileStream and a StreamWriter to build), so it does not pay for
+        /// itself until roughly line 30.
+        ///
+        /// Against 4ms/s it would have to keep AutoFlush on, or it loses precisely the lines that
+        /// explain the fault -- see this class's own summary on why the previous run has to survive
+        /// a restart -- which leaves only the stat and the open/close saved, not the write. And it
+        /// would add cached state to invalidate on rotation, on Configure changing the cap, and on
+        /// a factory reset deleting the directory: three ways to go wrong where today every line
+        /// re-resolves the file and none of them exists.
+        ///
+        /// The rate figure rests on Animation being muted by default, which WpfOptionsSelfTest
+        /// asserts rather than assumes. If that default ever changes, re-measure before trusting
+        /// any of the above.
+        /// </summary>
         internal static void Write(LogCategory category, string level, string moduleId, string text)
         {
             lock (Sync)

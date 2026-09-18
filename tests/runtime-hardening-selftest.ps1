@@ -351,14 +351,16 @@ Assert-True (
     $loadAt -ge 0 -and $saveAt -gt $loadAt -and $optionsAt -gt $loadAt -and $optionsAt -lt $saveAt
 ) 'the speaker dropdown refreshes its options inside Load, not only at construction'
 
-# The host-level fullscreen answer must come from the scan the PETS already run, not a second detector.
-# Two implementations of "is a game running" would drift, and only one of them has --fullscreen-selftest
-# behind it. FormCompanion hands the whole blocked-monitor array up before narrowing to its own monitor, because a
-# module asking the question means ANY monitor -- an alt-tabbed game still owns its VRAM.
+# There is ONE fullscreen detector and every scan lands in NoteFullscreenScan. Two implementations of
+# "is a game running" would drift, and only one of them has --fullscreen-selftest behind it. The
+# spawn-time check in FormCompanion deliberately scans for itself (a companion appearing on a blocked
+# monitor cannot wait for the next cycle) and so it has to hand the whole blocked-monitor array up,
+# before narrowing to its own monitor -- a module asking the question means ANY monitor, and an
+# alt-tabbed game still owns its VRAM.
 Assert-True (
     $formPetSource -match '(?s)FullscreenScan\.BlockedMonitors\([\s\S]{0,600}?NoteFullscreenScan\(blocked\)' -and
     $startUpSource -match '(?s)internal void NoteFullscreenScan\([\s\S]{0,900}?RaiseFullscreenChanged\('
-) 'the module-facing fullscreen state comes from the pets own scan, and raises on change'
+) 'the module-facing fullscreen state comes from a companion scan, and raises on change'
 
 # ...and that asking with no pets on screen still scans rather than answering from a stale cache. With no
 # pets nobody is polling, so a cached "no game running" could be arbitrarily old -- and the module would
@@ -460,6 +462,44 @@ Assert-True (
     $checkFsBody -notmatch 'else if \(!_fullscreenHidden\)' -and
     $checkFsBody -match 'if \(Visible\) Visible = false;'
 ) 'hiding for a fullscreen app is enforced every scan, not latched behind a flag'
+
+# The z-order walk is shared. It used to be throttled PER COMPANION, so one desktop-wide answer was
+# recomputed once per companion per cycle -- 16 walks at MAX_SHEEPS, and a walk costs 781
+# user32/dwmapi calls whenever no window covers some monitor's centre and the early exit cannot fire.
+# Asserted in both directions, because either half alone is satisfiable by broken code: the tick path
+# must READ the shared answer, and it must not keep its own walk beside it.
+#
+# The cache has to hold the PER-MONITOR ARRAY. Collapsing it to "a game is running somewhere" would
+# hide a companion on monitor 2 because monitor 1 has a game -- and "anything visible over a
+# fullscreen game" is already on SMOKETEST.md's regression watchlist in the other direction, so this
+# is the half where a plausible optimisation re-ships a shipped bug. `_fullscreenBlocked = blocked`
+# is what keeps per-monitor per-monitor; drop it and the field stays null for ever, which reads as
+# "no scan has succeeded" and skips the stand-down on every tick.
+Assert-True (
+    $checkFsStart -gt 0 -and
+    $checkFsBody -match 'BlockedMonitorsForStandDown\(' -and
+    $checkFsBody -notmatch 'FullscreenScan\.BlockedMonitors\(' -and
+    $startUpSource -match '(?s)internal void NoteFullscreenScan\([\s\S]{0,400}?_fullscreenBlocked = blocked;' -and
+    $startUpSource -match '(?s)internal bool\[\] BlockedMonitorsForStandDown\([\s\S]{0,400}?FullscreenScanInterval[\s\S]{0,200}?FullscreenScan\.BlockedMonitors\('
+) 'the fullscreen z-order walk is shared per cycle, and what it caches is per MONITOR'
+
+# ...and the half that pays for that: the ENFORCEMENT must still run on every tick. The scan may be
+# throttled; the correction may not. A hidden companion keeps ticking and can reach a respawn that
+# shows its window again, which is the bug above -- so re-introducing a per-instance time gate here
+# would resurrect it with a timestamp in place of the bool, and would also push the stand-down out to
+# two cycles (the companion's own gate plus the shared one) rather than the one it has always been.
+#
+# An ORDER assertion, not a presence one: the relocation rate-limit legitimately compares elapsed
+# milliseconds, so what is forbidden is any such comparison BEFORE the scan is consulted. Comments are
+# stripped first, or the paragraph explaining the rule would satisfy it.
+$checkFsCode     = Remove-LineComments $checkFsBody
+$standDownScanAt = $checkFsCode.IndexOf('BlockedMonitorsForStandDown(')
+$firstElapsedAt  = $checkFsCode.IndexOf('TotalMilliseconds')
+Assert-True (
+    $standDownScanAt -ge 0 -and
+    ($firstElapsedAt -lt 0 -or $firstElapsedAt -gt $standDownScanAt) -and
+    $formPetSource -notmatch '_lastFullscreenScanUtc'
+) 'the fullscreen stand-down is enforced every tick, not re-throttled per companion'
 
 # ...and a RESPAWN must not walk back onto a blocked monitor at all. Correcting it one tick later is a visible
 # flash; before the enforcement fix it was permanent. Play() has to decide at spawn time.
@@ -1098,13 +1138,6 @@ Assert-True ($assertSiteCount -gt 50) (
 Assert-True ($selfTestFlagCount -gt 10) (
     "Invoke-SelfTests.ps1's flag table is countable (found $selfTestFlagCount)")
 
-$documentedInvariants = [regex]::Match($smokeSource, '(\d+) source invariants')
-Assert-True ($documentedInvariants.Success) 'SMOKETEST.md states a source-invariant count'
-Assert-True ([int] $documentedInvariants.Groups[1].Value -eq $assertSiteCount) (
-    "SMOKETEST.md's source-invariant count matches this file" +
-    $(if ([int] $documentedInvariants.Groups[1].Value -ne $assertSiteCount) {
-        " -- it says $($documentedInvariants.Groups[1].Value), there are $assertSiteCount" } else { '' }))
-
 foreach ($docPair in @(@{ Name = 'SMOKETEST.md'; Text = $smokeSource },
                        @{ Name = 'Readme.md';    Text = $readmeSource })) {
     $documentedSelfTests = [regex]::Match($docPair.Text, '(\d+) self-tests')
@@ -1114,6 +1147,19 @@ foreach ($docPair in @(@{ Name = 'SMOKETEST.md'; Text = $smokeSource },
         $(if ([int] $documentedSelfTests.Groups[1].Value -ne $selfTestFlagCount) {
             " -- it says $($documentedSelfTests.Groups[1].Value), the table has $selfTestFlagCount" } else { '' }))
 }
+
+# LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
+# invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
+# adds one carries this failure until then. The self-test aborts at its first failure, so whatever
+# stands here masks every assertion after it: mutate-hardening-guards.py scored a real case as
+# SURVIVED when the self-test-count block sat below this one and was never reached. Nothing that
+# needs to be reachable on a branch may be placed after this point.
+$documentedInvariants = [regex]::Match($smokeSource, '(\d+) source invariants')
+Assert-True ($documentedInvariants.Success) 'SMOKETEST.md states a source-invariant count'
+Assert-True ([int] $documentedInvariants.Groups[1].Value -eq $assertSiteCount) (
+    "SMOKETEST.md's source-invariant count matches this file" +
+    $(if ([int] $documentedInvariants.Groups[1].Value -ne $assertSiteCount) {
+        " -- it says $($documentedInvariants.Groups[1].Value), there are $assertSiteCount" } else { '' }))
 
 Write-Host 'PASS: runtime hardening source invariants.'
 
