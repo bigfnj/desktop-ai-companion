@@ -54,8 +54,9 @@ MODULE = os.path.join(MODULE_DIR, "AgentFlowModule.cs")
 READER = os.path.join(MODULE_DIR, "TranscriptReader.cs")
 CDP = os.path.join(MODULE_DIR, "CdpApprover.cs")
 PROMPTOPTS = os.path.join(MODULE_DIR, "PromptOptions.cs")
+BUDGETPRESS = os.path.join(MODULE_DIR, "PressBudget.cs")
 
-TARGETS = (SPLITTER, RULES, DETECTOR, BUDGET, MODULE, READER, CDP, PROMPTOPTS)
+TARGETS = (SPLITTER, RULES, DETECTOR, BUDGET, MODULE, READER, CDP, PROMPTOPTS, BUDGETPRESS)
 
 # (name, file, find, replace, expected fragment of the assertion that must fail)
 CASES = (
@@ -373,6 +374,51 @@ CASES = (
         '            return JsonSerializer.Serialize(text ?? "");',
         '            return "' + BS + '"" + (text ?? "") + "' + BS + '"";',
         "an option label cannot break out of the click expression",
+    ),
+    # The press budget -- the death-loop guard BACKLOG.md asked for before this could press.
+    # The last case is the important one: every other assertion about the budget passes just
+    # as well when nothing calls it.
+    (
+        "the repeat cap is off by one, in the permissive direction",
+        BUDGETPRESS,
+        "                if (_identical >= MaxIdenticalPresses)",
+        "                if (_identical > MaxIdenticalPresses)",
+        "the same prompt again past the cap is refused",
+    ),
+    (
+        "the rate cap is off by one, in the permissive direction",
+        BUDGETPRESS,
+        "            if (_presses.Count >= MaxPressesPerWindow)",
+        "            if (_presses.Count > MaxPressesPerWindow)",
+        "the rate cap stops an unattended run",
+    ),
+    (
+        "the rate window never expires, so the cap latches forever",
+        BUDGETPRESS,
+        "            while (_presses.Count > 0 && nowUtc - _presses[0] > Window) _presses.RemoveAt(0);",
+        "            while (false) _presses.RemoveAt(0);",
+        "the rate cap expires rather than latching forever",
+    ),
+    (
+        "a prompt is identified by its tool alone",
+        BUDGETPRESS,
+        "            if (options != null)",
+        "            if (options == null)",
+        "different options are different prompts",
+    ),
+    (
+        "the switch no longer clears a stand-down",
+        BUDGETPRESS,
+        "            _presses.Clear();\n            _identical = 0;\n            _lastSignature = null;",
+        "            if (false) _presses.Clear();",
+        "clears a stand-down",
+    ),
+    (
+        "nothing consults the budget before pressing",
+        MODULE,
+        "            if (budget != null)",
+        "            if (false)",
+        "Decide consults the budget before it presses anything",
     ),
 )
 

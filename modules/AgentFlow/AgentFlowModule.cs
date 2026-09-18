@@ -442,8 +442,13 @@ namespace DesktopAICompanion.AgentFlow
                 string approvalNote = null;
                 if (autoApprove && answering)
                 {
-                    try { approvalNote = TryApproveOnce(cdpPort); }
+                    if (_resetPressBudget) { _resetPressBudget = false; _pressBudget.Reset(); }
+                    try { approvalNote = TryApproveOnce(cdpPort, _pressBudget); }
                     catch (Exception) { approvalNote = null; }
+                    // Nothing found means the last press landed, or there was never
+                    // anything there. Either way the prompt in front of it is gone, so the
+                    // repeat counter has nothing left to be suspicious about.
+                    if (approvalNote == null) _pressBudget.NotePromptCleared();
                 }
 
                 // Posted unconditionally, unlike the detections. A scan that threw left
@@ -483,9 +488,9 @@ namespace DesktopAICompanion.AgentFlow
         /// lightweight, and a guess about which button to press is the one kind of wrong this
         /// feature cannot afford.
         /// </summary>
-        internal static string TryApproveOnce(int port)
+        internal static string TryApproveOnce(int port, PressBudget budget)
         {
-            return CdpApprover.Sweep(port, view => Decide(port, view), 1500);
+            return CdpApprover.Sweep(port, view => Decide(port, view, budget), 1500);
         }
 
         /// <summary>
@@ -493,7 +498,7 @@ namespace DesktopAICompanion.AgentFlow
         /// exercised without an editor: everything above it is sockets, and everything in it is
         /// the decision, which is the half worth asserting.
         /// </summary>
-        internal static string Decide(int port, PromptView view)
+        internal static string Decide(int port, PromptView view, PressBudget budget)
         {
             if (view == null || view.Options.Count == 0) return null;
 
@@ -504,6 +509,17 @@ namespace DesktopAICompanion.AgentFlow
             // because the request is already being answered is not an invitation.
             if (decision.Index < view.Disabled.Count && view.Disabled[decision.Index])
                 return "refused: the approve-once row is disabled";
+
+            // Last gate before anything is pressed, and deliberately AFTER the classifier:
+            // a prompt this refuses to understand must not spend budget, or a screen full
+            // of unrecognised options would exhaust the allowance and mask a real loop.
+            if (budget != null)
+            {
+                string refusal;
+                if (!budget.TryPress(PressBudget.Signature(view.ToolName, view.Options),
+                                     DateTime.UtcNow, out refusal))
+                    return refusal;
+            }
 
             string outcome = CdpApprover.Click(port, view.TargetId, decision.Index,
                                                decision.ChosenRaw, 1500);
@@ -534,6 +550,21 @@ namespace DesktopAICompanion.AgentFlow
 
         /// <summary>The last line written, so a standing refusal is not repeated every tick.</summary>
         private string _lastApprovalNote;
+
+        /// <summary>
+        /// How much pressing this is still willing to do. Touched ONLY from the poll thread.
+        /// </summary>
+        private readonly PressBudget _pressBudget = new PressBudget();
+
+        /// <summary>
+        /// Set from the UI thread when the switch moves, consumed by the poll.
+        ///
+        /// A flag rather than calling Reset() from the tray handler, because the budget owns
+        /// a List that the poll thread mutates and reaching into it from the UI thread would
+        /// be a data race on a type with no locking -- for a reset that can perfectly well
+        /// wait one tick.
+        /// </summary>
+        private volatile bool _resetPressBudget;
 
         /// <summary>
         /// Write what the approver did, and do it once per distinct outcome.
@@ -1211,6 +1242,8 @@ namespace DesktopAICompanion.AgentFlow
             // switch came back on, claiming a reachable editor nobody has checked for. Amber
             // until a probe earns it, which takes at most one tick.
             _portAnswering = false;
+            // The switch moving is the user saying "try again", which clears a stand-down.
+            _resetPressBudget = true;
 
             // Said out loud, because pressing buttons on someone's behalf is not a silent
             // setting and the tray label is only visible while the menu is open. INTENT only:
@@ -1324,6 +1357,7 @@ namespace DesktopAICompanion.AgentFlow
                               && SelfCheckVsCodeSetup(probe)
                               && SelfCheckAutoApprove(probe)
                               && SelfCheckApprover(probe)
+                              && SelfCheckPressBudget(probe)
                               && SelfCheckCacheBound(probe);
                     probe.Check("every logic group ran", ok);
 
@@ -2074,8 +2108,9 @@ namespace DesktopAICompanion.AgentFlow
             // case below that REFUSES never gets that far in the first place.
             const int ClosedPort = 1;
 
+            var budget = new PressBudget();
             string unknown = Decide(ClosedPort, Fake(
-                new[] { "Yes", "Do the thing I have not heard of" }));
+                new[] { "Yes", "Do the thing I have not heard of" }), budget);
             probe.Check("WITNESS one unrecognised option refuses the whole prompt",
                 unknown != null && unknown.StartsWith("refused:", StringComparison.Ordinal));
             // The refusal is the line that gets LOGGED, and the diagnostic log is meant to be
@@ -2085,19 +2120,19 @@ namespace DesktopAICompanion.AgentFlow
                 && unknown.IndexOf("Do the thing", StringComparison.Ordinal) < 0);
 
             string noApprove = Decide(ClosedPort, Fake(
-                new[] { "Yes, and don't ask again", "Yes, and auto-accept" }));
+                new[] { "Yes, and don't ask again", "Yes, and auto-accept" }), budget);
             probe.Check("WITNESS a prompt offering only wider grants is refused",
                 noApprove != null && noApprove.IndexOf("no approve-once",
                     StringComparison.Ordinal) >= 0);
 
-            string ambiguous = Decide(ClosedPort, Fake(new[] { "Yes", "Allow" }));
+            string ambiguous = Decide(ClosedPort, Fake(new[] { "Yes", "Allow" }), budget);
             probe.Check("WITNESS two approve-once rows is ambiguous, so nothing is pressed",
                 ambiguous != null && ambiguous.IndexOf("ambiguous",
                     StringComparison.Ordinal) >= 0);
 
             PromptView greyed = Fake(new[] { "Yes", "Yes, and don't ask again" });
             greyed.Disabled[0] = true;
-            string disabled = Decide(ClosedPort, greyed);
+            string disabled = Decide(ClosedPort, greyed, budget);
             probe.Check("WITNESS a greyed-out approve row is not pressed",
                 disabled != null && disabled.IndexOf("disabled",
                     StringComparison.Ordinal) >= 0);
@@ -2107,7 +2142,7 @@ namespace DesktopAICompanion.AgentFlow
             // note reading "approved" when nothing was pressed would be the log line that
             // cannot fail.
             string pressed = Decide(ClosedPort, Fake(
-                new[] { "Yes", "Yes, and don't ask again", "No, and tell Claude what to do differently" }));
+                new[] { "Yes", "Yes, and don't ask again", "No, and tell Claude what to do differently" }), budget);
             probe.Check("WITNESS an unreachable editor is reported, not called success",
                 pressed != null && pressed.IndexOf("gone", StringComparison.Ordinal) >= 0
                 && pressed.IndexOf("approve-once", StringComparison.Ordinal) >= 0);
@@ -2146,6 +2181,103 @@ namespace DesktopAICompanion.AgentFlow
             for (int i = 0; i < text.Length; i++)
                 if (text[i] == '"' && (i == 0 || text[i - 1] != '\\')) count++;
             return count;
+        }
+        /// <summary>
+        /// The press budget: the only thing standing between a click that stops landing and a
+        /// machine that approved everything asked of it overnight.
+        ///
+        /// Time is a parameter, so all of this is real coverage rather than a sleep. The two
+        /// limits are asserted at their boundaries in BOTH directions -- allowed up to the cap,
+        /// refused past it -- because an off-by-one in the permissive direction is the whole
+        /// failure this guard exists to prevent and would look identical to working.
+        /// </summary>
+        private static bool SelfCheckPressBudget(SelfTestProbe probe)
+        {
+            DateTime t0 = new DateTime(2026, 9, 18, 12, 0, 0, DateTimeKind.Utc);
+            string refusal;
+
+            // ---- the repeat limit, which is the one that catches a broken click ------
+            var budget = new PressBudget();
+            string same = PressBudget.Signature("Bash", new[] { "Yes", "No" });
+            int allowed = 0;
+            for (int i = 0; i < PressBudget.MaxIdenticalPresses; i++)
+                if (budget.TryPress(same, t0.AddSeconds(i * 10), out refusal)) allowed++;
+            probe.Check("the same prompt may be pressed up to the repeat cap",
+                allowed == PressBudget.MaxIdenticalPresses);
+            probe.Check("WITNESS the same prompt again past the cap is refused",
+                !budget.TryPress(same, t0.AddSeconds(40), out refusal)
+                && refusal != null
+                && refusal.IndexOf("standing down", StringComparison.Ordinal) >= 0);
+
+            // ...and a DIFFERENT prompt is not the loop, so it goes through.
+            probe.Check("WITNESS a different prompt is not the loop and is still pressed",
+                budget.TryPress(PromptSignature("Edit"), t0.AddSeconds(50), out refusal));
+
+            // The prompt going away is what success looks like; it clears the suspicion.
+            var cleared = new PressBudget();
+            for (int i = 0; i < PressBudget.MaxIdenticalPresses; i++)
+            {
+                cleared.TryPress(same, t0.AddSeconds(i), out refusal);
+                cleared.NotePromptCleared();
+            }
+            probe.Check("WITNESS a prompt that goes away each time never trips the repeat cap",
+                cleared.TryPress(same, t0.AddSeconds(30), out refusal));
+
+            // ---- the rate limit, the backstop ----------------------------------------
+            var rate = new PressBudget();
+            int pressed = 0;
+            for (int i = 0; i < PressBudget.MaxPressesPerWindow + 5; i++)
+            {
+                // A fresh signature each time, so ONLY the rate limit can stop this.
+                if (rate.TryPress(PromptSignature("tool" + i.ToString(CultureInfo.InvariantCulture)),
+                                  t0.AddSeconds(i), out refusal))
+                    pressed++;
+            }
+            probe.Check("WITNESS the rate cap stops an unattended run of distinct prompts",
+                pressed == PressBudget.MaxPressesPerWindow);
+
+            // ...and it is a WINDOW, not a lifetime total: past it, work resumes.
+            probe.Check("WITNESS the rate cap expires rather than latching forever",
+                rate.TryPress(PromptSignature("later"),
+                    t0.Add(PressBudget.Window).AddMinutes(1), out refusal));
+
+            // ---- the switch is the way out -------------------------------------------
+            var stuck = new PressBudget();
+            for (int i = 0; i < PressBudget.MaxIdenticalPresses + 2; i++)
+                stuck.TryPress(same, t0.AddSeconds(i), out refusal);
+            probe.Check("a stood-down budget stays down", !stuck.TryPress(same, t0.AddSeconds(99), out refusal));
+            stuck.Reset();
+            probe.Check("WITNESS switching auto-approve off and on clears a stand-down",
+                stuck.TryPress(same, t0.AddSeconds(100), out refusal));
+
+            // ---- what counts as the same prompt --------------------------------------
+            // Keying on the tool alone would read an ordinary run of shell commands as one
+            // prompt repeating, and stand down in the middle of normal work.
+            probe.Check("WITNESS two Bash prompts with different options are different prompts",
+                PressBudget.Signature("Bash", new[] { "Yes", "Yes, allow Bash(npm test)" })
+                != PressBudget.Signature("Bash", new[] { "Yes", "Yes, allow Bash(npm run lint)" }));
+            probe.Check("...and the identical prompt is the same prompt",
+                PressBudget.Signature("Bash", new[] { "Yes", "No" })
+                == PressBudget.Signature("Bash", new[] { "Yes", "No" }));
+
+            // ---- and it has to be WIRED IN, not merely correct -----------------------
+            // Everything above passes just as well when Decide never calls it. This is the
+            // assertion that fails if the guard is bypassed, which is the only way it ever
+            // gets bypassed: by someone deleting four lines that looked defensive.
+            var spent = new PressBudget();
+            for (int i = 0; i < PressBudget.MaxPressesPerWindow; i++)
+                spent.TryPress(PromptSignature("t" + i.ToString(CultureInfo.InvariantCulture)),
+                               DateTime.UtcNow, out refusal);
+            string blocked = Decide(1, Fake(new[] { "Yes", "Yes, and don't ask again" }), spent);
+            probe.Check("WITNESS Decide consults the budget before it presses anything",
+                blocked != null
+                && blocked.IndexOf("standing down", StringComparison.Ordinal) >= 0);
+            return true;
+        }
+
+        private static string PromptSignature(string tool)
+        {
+            return PressBudget.Signature(tool, new[] { "Yes", "No" });
         }
         private static bool SelfCheckCacheBound(SelfTestProbe probe)
         {

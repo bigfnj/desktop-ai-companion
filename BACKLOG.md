@@ -86,8 +86,18 @@ runnable harnesses live beside it.
   entirely. That gap is covered for now by the catalog DESCRIPTION, which every host renders and
   which states the transcript read in prose. Once v1.1.5 ships, raise the floor and the prose
   becomes belt-and-braces instead of the only disclosure.
-- ⬜ The answering half. Four actuation channels, none of which needs synthetic input, and a
-  death-loop guard belongs in whichever version first presses anything. Not scoped.
+- 📌 **The answering half is BUILT but has never seen a real prompt.** `CdpApprover.cs` reads the
+  pending prompt out of the Claude Code webview and presses the approve-once row; `PressBudget.cs`
+  is the death-loop guard this entry asked for (three identical presses, or ten in five minutes,
+  and it stands down until the switch is toggled). Selectors were read out of the shipped bundle
+  rather than guessed, the transport is the BROWSER endpoint plus `Target.attachToTarget` because
+  the per-target socket answers 500 here, and the press re-checks the row's label so it cannot
+  drift onto the permanent-grant row sitting next to it.
+  **What is open is the evidence, not the code.** No permission prompt has been on screen since it
+  was written, because `curl` no longer prompts in `auto` mode and this box runs `auto`. To close:
+  tick auto-approve, work in a `default`-mode session until something prompts, and confirm the
+  diagnostic log carries an `auto-approve clicked for <tool>` line. Until then the self-test's own
+  doc comment says the press path is only exercised against a closed port.
 - ⬜ CPU as a second discriminator. Per-tree CPU separates 240x and is mode-independent, but it is
   blocked on attributing a process to a session: activity alignment is never WRONG (0 of 4
   gradings) and its coverage flips run to run. The transcript-only detector needs none of this,
