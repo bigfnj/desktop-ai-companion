@@ -59,9 +59,10 @@ DOT = os.path.join(MODULE_DIR, "StatusDot.cs")
 MODE = os.path.join(MODULE_DIR, "AgentMode.cs")
 QUIPS = os.path.join(MODULE_DIR, "Quips.cs")
 FEED = os.path.join(MODULE_DIR, "ApprovalFeed.cs")
+PETANIM = os.path.join(MODULE_DIR, "PetAnimations.cs")
 
 TARGETS = (SPLITTER, RULES, DETECTOR, BUDGET, MODULE, READER, CDP, PROMPTOPTS, BUDGETPRESS,
-           DOT, MODE, QUIPS, FEED)
+           DOT, MODE, QUIPS, FEED, PETANIM)
 
 # (name, file, find, replace, expected fragment of the assertion that must fail)
 CASES = (
@@ -301,9 +302,9 @@ CASES = (
     # first is the one that would matter most if it ever regressed.
     (
         "auto-approve defaults ON",
-        MODULE,
-        "            get { return _settings != null && _settings.GetBool(SettingAutoApprove, false); }",
-        "            get { return _settings == null || _settings.GetBool(SettingAutoApprove, true); }",
+        MODE,
+        "        public static bool Presses(string mode) { return mode == AutoApprove; }",
+        "        public static bool Presses(string mode) { return mode != Off; }",
         "auto-approve is OFF until it is asked for",
     ),
     (
@@ -574,6 +575,35 @@ CASES = (
         "                string root = RootExecutable(call);",
         "                string root = call.Command ?? RootExecutable(call);",
         "the tally the log is built from carries no command text",
+    ),
+    # Reading a pet's own animations. The last case is the defect this replaces.
+    (
+        "a duplicated animation is listed twice",
+        PETANIM,
+        "                    if (!seen.Add(name)) continue;",
+        "                    seen.Add(name);",
+        "a duplicated animation is offered once, not twice",
+    ),
+    (
+        "an empty animation name is offered as a blank row",
+        PETANIM,
+        "                    if (name.Length == 0) continue;",
+        "                    if (false) continue;",
+        "an empty name is legal XML and is skipped anyway",
+    ),
+    (
+        "the chosen animation is not tried first",
+        PETANIM,
+        '            if (!string.IsNullOrEmpty(animation) && animation != AnyPet) list.Add(animation);',
+        "            if (false) list.Add(animation);",
+        "the chosen animation is tried first",
+    ),
+    (
+        "the any-pet list goes back to the one-pet animation",
+        PETANIM,
+        '            get { return new[] { "walk", "sit", "turn", "stand", "jump", "run" }; }',
+        '            get { return new[] { "boing", "jump", "run" }; }',
+        "the any-pet list no longer leads with a one-pet animation",
     ),
 )
 

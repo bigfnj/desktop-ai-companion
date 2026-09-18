@@ -48,6 +48,14 @@ namespace DesktopAICompanion.AgentFlow
         private const string SettingCooldown = "cooldownSeconds";
         private const string SettingAnimate = "animate";
 
+        /// <summary>The one choice that replaces `enabled` + `autoApprove`. See AgentMode.</summary>
+        private const string SettingMode = "mode";
+        private const string SettingNotifySound = "notifySound";
+        private const string SettingNotifySpeak = "notifySpeak";
+        private const string SettingAnimPet = "animPet";
+        private const string SettingAnimName = "animName";
+        private const string FieldApprovals = "aboutApprovals";
+
         /// <summary>How often the transcripts are re-read. Cheap: a few small files, off the UI thread.</summary>
         private const int TickMilliseconds = 10 * 1000;
 
@@ -888,7 +896,11 @@ namespace DesktopAICompanion.AgentFlow
 
         // ---- settings -------------------------------------------------------
 
-        private bool Enabled { get { return _settings == null || _settings.GetBool(SettingEnabled, true); } }
+        /// <summary>
+        /// Whether the poll does anything at all. Now derived from the mode, so the dozen
+        /// existing `if (!Enabled) return;` guards keep their meaning without being touched.
+        /// </summary>
+        private bool Enabled { get { return AgentMode.Scans(Mode); } }
         private bool WatchClaude { get { return _settings == null || _settings.GetBool(SettingWatchClaude, true); } }
         /// <summary>
         /// OFF by default, and the reason is not caution. Codex's rollout transcript records no
@@ -1029,9 +1041,37 @@ namespace DesktopAICompanion.AgentFlow
         private const string SettingCdpPort = "cdpPort";
 
         /// <summary>The user's INTENT. Separate from whether the module CAN act, deliberately.</summary>
-        private bool AutoApprove
+        /// <summary>
+        /// The mode, migrated from the legacy pair when this install predates it.
+        ///
+        /// Read through AgentMode.Migrate on EVERY read rather than rewritten once at Init.
+        /// A one-time rewrite has to decide what to do when the write fails, and gets it
+        /// wrong quietly; deriving it every time is cheap and cannot half-happen. The new
+        /// key is written the first time the user touches the pane, and until then the old
+        /// keys keep working exactly as they did.
+        /// </summary>
+        internal string Mode
         {
-            get { return _settings != null && _settings.GetBool(SettingAutoApprove, false); }
+            get
+            {
+                if (_settings == null) return AgentMode.Notify;
+                return AgentMode.Migrate(
+                    _settings.Get(SettingMode, ""),
+                    _settings.GetBool(SettingEnabled, true),
+                    _settings.GetBool(SettingAutoApprove, false));
+            }
+        }
+
+        private bool AutoApprove { get { return AgentMode.Presses(Mode); } }
+
+        private bool NotifySoundOn
+        {
+            get { return _settings != null && _settings.GetBool(SettingNotifySound, false); }
+        }
+
+        private bool NotifySpeakOn
+        {
+            get { return _settings == null || _settings.GetBool(SettingNotifySpeak, true); }
         }
 
         /// <summary>
@@ -1488,6 +1528,7 @@ namespace DesktopAICompanion.AgentFlow
                               && SelfCheckMode(probe)
                               && SelfCheckQuips(probe)
                               && SelfCheckApprovalFeed(probe)
+                              && SelfCheckPetAnimations(probe)
                               && SelfCheckCacheBound(probe);
                     probe.Check("every logic group ran", ok);
 
@@ -2770,6 +2811,66 @@ namespace DesktopAICompanion.AgentFlow
                 Command = command,
             });
             return session;
+        }
+        /// <summary>
+        /// Reading a pet's own animation names out of its XML.
+        ///
+        /// This exists because there is no list that works for every pet: measured across the
+        /// 53 bundled companions, 709 distinct names and an EMPTY intersection. The four that
+        /// come closest are the engine's reserved lifecycle animations, so the "safe" list is
+        /// also the one you must not offer.
+        /// </summary>
+        private static bool SelfCheckPetAnimations(SelfTestProbe probe)
+        {
+            const string Xml =
+                "<animations><animations>"
+                + "<animation><name>walk</name></animation>"
+                + "<animation><name>sit</name></animation>"
+                + "<animation><name>walk_top_corner</name></animation>"
+                + "<animation><name>walk_top_corner</name></animation>"
+                + "<animation><name></name></animation>"
+                + "<animation><id>7</id></animation>"
+                + "</animations></animations>";
+            List<string> names = PetAnimations.FromXml(Xml);
+
+            probe.Check("reads the names a pet declares",
+                names.Contains("walk") && names.Contains("sit"));
+            // The seven sheep recolours each declare walk_top_corner TWICE and the engine takes
+            // the first match, so listing it twice offers a choice that does not exist.
+            probe.Check("WITNESS a duplicated animation is offered once, not twice",
+                names.FindAll(delegate(string n) { return n == "walk_top_corner"; }).Count == 1);
+            // The schema validates name LENGTH only, 0 to 128, so an empty name is legal XML
+            // and would render as a blank dropdown row.
+            probe.Check("WITNESS an empty name is legal XML and is skipped anyway",
+                !names.Contains("") && names.Count == 3);
+            probe.Check("an animation with no name element is skipped",
+                names.Count == 3);
+            probe.Check("the list is sorted, so the dropdown is not in file order",
+                names[0] == "sit");
+
+            probe.Check("WITNESS unreadable pet XML contributes nothing and does not throw",
+                PetAnimations.FromXml("<animations><not closed").Count == 0
+                && PetAnimations.FromXml("").Count == 0
+                && PetAnimations.FromXml(null).Count == 0);
+
+            // The chosen name leads, then the coverage fallbacks -- so a pet that has been
+            // swapped since the choice was made degrades instead of doing nothing.
+            IReadOnlyList<string> candidates = PetAnimations.Candidates("shimeji-cyn", "wave");
+            probe.Check("WITNESS the chosen animation is tried first",
+                candidates.Count > 1 && candidates[0] == "wave");
+            probe.Check("...and a fallback follows it, so a swapped pet still animates",
+                candidates.Count > 1);
+            probe.Check("choosing no pet still yields the coverage list",
+                PetAnimations.Candidates(PetAnimations.AnyPet, PetAnimations.AnyPet).Count > 1);
+
+            // WITNESS the defect this replaces. The shipped list was boing,jump,run: boing is
+            // on ONE of 53 pets, so "Play an animation" was a silent no-op on nineteen of them.
+            bool stillBoing = false;
+            foreach (string candidate in PetAnimations.AnyPetCandidates)
+                if (candidate == "boing") stillBoing = true;
+            probe.Check("WITNESS the any-pet list no longer leads with a one-pet animation",
+                !stillBoing && PetAnimations.AnyPetCandidates[0] == "walk");
+            return true;
         }
         private static bool SelfCheckCacheBound(SelfTestProbe probe)
         {
