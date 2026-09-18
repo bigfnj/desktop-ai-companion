@@ -116,3 +116,25 @@ Neither happens by leaving it here.
     (`Program`/`Main`/single-instance/`NotifyIcon`/`OpenFileDialog`/`MessageBox`/custom Forms),
     rebuild the surface as tray items + a declarative pane, and be disciplined about tearing down
     OS-global state on ALC unload (hooks, Scroll-Lock state, audio devices).
+
+## Render the last known update offers with no network
+
+Filed 2026-09-17, when the machinery that would have served it was deleted.
+
+`moduleUpdateOffers` and `companionUpdateStaleIds` recorded what the last update check found, and
+`ModuleUpdateScan.Encode`/`Decode` serialised the first of them. Nothing read either: the Modules
+pane and the Companions pane both re-fetch the catalog on open and render the live answer, so a
+launch with no network shows nothing at all rather than "AI Brain 1.1.4 was available when we last
+looked". All of it was removed rather than left as a write-only key with a codec and six assertions
+behind it.
+
+The feature it was presumably meant to support is real and small: on open, render the last known
+offers immediately, marked with WHEN they were seen, then replace them when the fetch returns. Two
+things to get right, both of which are why this is a feature rather than a bug fix:
+
+- a cached offer that has since been installed must not keep appearing, so the render has to diff
+  against what is installed NOW rather than trusting the cache
+- the timestamp has to be shown, or a user reads a stale offer as a current one
+
+The code that did the serialisation is in git history at the commit that removed it (search for
+`ModuleUpdateScan.Encode`), which is cheaper than keeping a format alive against the possibility.

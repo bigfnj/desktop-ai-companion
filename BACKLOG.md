@@ -158,6 +158,30 @@ from the sibling is the transcript parsing and the compound-command splitter, po
 
 ---
 
+## Open: second full-repo audit, 2026-09-17 (release machinery + plugin ABI)
+
+Two read-only audits ran over the release machinery and the plugin ABI after the first cycle's work
+landed. Between them they raised 28 findings; 24 are fixed in this cycle and the reasoning is in the
+commits. What is left is here, and the three that are DECISIONS rather than work are in
+[`docs/DESIGN-REGISTER.md`](docs/DESIGN-REGISTER.md) instead.
+
+- 📌 **`packaging/legal-files.json` has no consumer, and 7 of its 8 pinned notices do not ship.**
+  127 lines with eight `sha256` digests that nothing verifies, so they can rot silently, and only
+  `NAUDIO_LICENSE.txt` appears in [`packaging/runtime-files.txt`](packaging/runtime-files.txt).
+  `docs/ISSUES-pre-1.0.0.md:960` already called it orphaned, so this is confirmation rather than
+  news. Not a code decision: whether those seven third-party notices are REQUIRED to ship is a
+  licensing question about what the portable zip and the MSI are obliged to carry. Answer that
+  first, then either wire the file into the payload manifest or delete it. Deleting a file of
+  licence digests because nothing reads it is exactly the wrong reflex if the answer is "yes".
+
+- 📌 **Fortunes still cannot report a smart picker that fails for the second reason.**
+  The instrumentation added `smart=on model=present|ABSENT`, which catches the shipping-level cause.
+  It does not catch "model present, native onnxruntime fails to load": `SmartFortunes.WarmCore`
+  returns silently when the embedder is not ready, `_ready` stays false for ever, and
+  `SmartStatusFor` reports "indexing in the background" indefinitely. Needs a second static sink on
+  `SmartFortunes`; judged under the "small number of genuinely useful lines" bar when the rest was
+  written, and recorded rather than forgotten.
+
 ## Open: full-repo audit, 2026-09-17
 
 Three read-only audits run in parallel after the AgentFlow merge: dead code and calls that go

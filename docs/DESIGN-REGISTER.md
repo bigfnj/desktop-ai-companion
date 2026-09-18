@@ -131,6 +131,51 @@ neglect.
 
 ---
 
+
+### ModuleKit carries helpers no shipped module uses, and they stay (2026-09-17)
+
+`JsonSettingsStore<T>` (128 lines) has no module consumer at all -- its only reference in the repo
+is the host's test project -- and `ModulePaths` has none either: only the template uses it, and the
+template assigns `_paths` without reading it. Both are copied into all six published module zips.
+
+They stay, for a reason that is not sentiment. ModuleKit is the module AUTHOR's surface, and an
+out-of-tree author cannot be surveyed: "no in-tree consumer" is not "no consumer". Removing them
+would also mark all six payloads stale for a saving of a few KB in a zip that already carries an
+ONNX runtime in one case. The asymmetry recorded below is what makes this cheap to reconsider: if
+they ever DO need to go, it costs a republish, so it goes in the same batch as something else.
+
+What does not stay is a member that lies about what it does. `JsonSettingsStore.Path_` is unread by
+anything and was left alone for the same reason as the rest.
+
+### The unexercised speech and audio surface is for out-of-tree modules (2026-09-17)
+
+`RegisterSpeechResponder`, `SpeechRequest` with its `ShowBubble`/`SuppressBubble`,
+`ModulePermissions.Voice` (declared by nobody), `IHost.StopSound` (no caller anywhere) and
+`IHost.Volume` (read by no module) are all host-implemented with zero in-tree consumers. Same for
+`ICompanionManager.SpawnOne`/`RemoveOne`/`UninstallType`/`MaxCompanions`/`IsAtMax`,
+`PokeInfo.PokeCount`, `ICompanion.IsBusy` and `CatalogKinds.Pet`.
+
+Kept, and the case rests on being unexercised rather than on anything being wrong. The obvious
+holder is the TTS module `handoff.md` predicts, and the audit that found this also found the defect
+that WOULD have bitten it: the poke sass bypassed the responder chain entirely, so a voice module
+would have gone silent on one line while a bubble appeared anyway. That is fixed and pinned by an
+order invariant. The surface being quiet is not the same as the surface being broken, and one of
+those two was true.
+
+### Fortunes does not declare Network, and that is correct (2026-09-17)
+
+Fortunes triggers real HTTPS catalog fetches and pack downloads (`FortunesModule.cs:736` and `:777`)
+while its shipped consent line reads "Speech, ScreenContext, Storage". Raised by the ABI audit as a
+possible under-declaration, ranked low by it, and settled here as NOT one.
+
+The flag gates `IHost.OpenLink` and nothing else. The catalog verbs are the HOST's: the host owns the
+fetch, the size bound, the hash verification and the write, and neither `PluginApi.cs` nor
+`docs/module-authoring.md` asks for a flag to call them. If they did, every module with a Download
+button would declare Network and the flag would stop distinguishing anything. The line to hold is
+the one already written down: declare what YOU do, not what you ask the host to do on your behalf.
+Contrast Remembrance, which genuinely declares it, because it reaches GitHub and a loopback Ollama
+with its own client.
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
