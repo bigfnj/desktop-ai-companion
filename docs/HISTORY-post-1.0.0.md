@@ -50,8 +50,10 @@ original order, which is usually newest first.
 ## Feature ideas 1 to 15 — closed (queued from 2026-07-29)
 
 The numbering is load-bearing: `handoff.md` and the pre-1.0.0 history cite these as "BACKLOG #4",
-"#7", "#12", "#13", "#14" and "#15". Items **16, 17 and 18 are still open** and stay in
-[`../BACKLOG.md`](../BACKLOG.md) under "Feature ideas", with their original numbers.
+"#7", "#12", "#13", "#14" and "#15". Items **16, 17 and 18 are still open** and live in
+[`IDEAS.md`](IDEAS.md), with their original numbers. They were moved out of `../BACKLOG.md` on
+2026-09-17, which keeps the heading as a forwarding stub: an unscoped product idea is not
+actionable engineering work, and mixing the two is what let that file reach 3,169 lines.
 
 1. ✅ **DONE (2026-08) — Fortunes-selection UX.** The flat source list is now a grouped `TreeView`
    (collection → sources, tri-state) with a filter box and a live "N of M sources · L lines" total; the
