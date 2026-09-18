@@ -233,6 +233,11 @@ namespace DesktopAICompanion.Modules
         public string Label { get; set; }
         public SettingKind Kind { get; set; }
         public string[] Options { get; set; }   // for Enum
+        // For Int. The HOST clamps the value it hands back to Save into this range, so a bound
+        // declared here is a bound the module gets -- as of host 1.1.5. Before that nothing read
+        // either property and they were decoration; a module written against an older host should
+        // keep validating in its own Save, which is also how it rejects rather than clamps.
+        // Leave both at 0 for "no bounds": an Int field with Min == Max is treated as unset.
         public int Min { get; set; }             // for Int
         public int Max { get; set; }             // for Int
         // Optional grouping: fields (and PaneActions) sharing a Group name render in one titled card, and

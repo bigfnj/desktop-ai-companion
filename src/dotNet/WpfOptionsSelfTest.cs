@@ -131,6 +131,35 @@ namespace DesktopAICompanion
                     DiagnosticLog.Infer("new pet...") == LogCategory.Companions);
                 ok &= Check(sb, "the tray outcome line is still Tray",
                     DiagnosticLog.Infer("tray icon set: success=True") == LogCategory.Tray);
+
+            // SettingField.Min/Max are HONOURED as of 1.1.5. They had no reader anywhere before
+            // that: an author declared bounds, the host rendered a plain TextBox, and the value went
+            // through untouched, so two ABI members did nothing. The one module that set them
+            // (AgentFlow) was safe only because it clamps again in its own Save.
+            //
+            // Both ends, plus the three pass-through cases, because a clamp that is too eager is its
+            // own defect: it would invent a value the user never typed.
+            var boundedField = new SettingField
+            {
+                Id = "threshold", Kind = SettingKind.Int, Label = "Threshold", Min = 10, Max = 600,
+            };
+                ok &= Check(sb, "bounds: a value above Max is clamped down",
+                    DesktopAICompanion.Wpf.PaneView.ClampIfBounded(boundedField, "9000") == "600");
+                ok &= Check(sb, "bounds: a value below Min is clamped up",
+                    DesktopAICompanion.Wpf.PaneView.ClampIfBounded(boundedField, "1") == "10");
+                ok &= Check(sb, "bounds: WITNESS a value inside the range is untouched",
+                    DesktopAICompanion.Wpf.PaneView.ClampIfBounded(boundedField, "45") == "45");
+                ok &= Check(sb, "bounds: unparseable text is left for the module's own fallback, not turned into Min",
+                    DesktopAICompanion.Wpf.PaneView.ClampIfBounded(boundedField, "abc") == "abc"
+                    && DesktopAICompanion.Wpf.PaneView.ClampIfBounded(boundedField, "") == "");
+                ok &= Check(sb, "bounds: a field that declares no range is untouched",
+                    DesktopAICompanion.Wpf.PaneView.ClampIfBounded(
+                    new SettingField { Id = "n", Kind = SettingKind.Int, Min = 0, Max = 0 }, "9000")
+                        == "9000");
+                ok &= Check(sb, "bounds: a non-Int field is untouched even with a range set",
+                    DesktopAICompanion.Wpf.PaneView.ClampIfBounded(
+                    new SettingField { Id = "t", Kind = SettingKind.Text, Min = 1, Max = 2 }, "9000")
+                        == "9000");
                 ok &= Check(sb, "a module line is still Modules",
                     DiagnosticLog.Infer("[module] module loaded: aibrain 1.0.0") == LogCategory.Modules);
                 ok &= Check(sb, "an unrecognised line still lands in App rather than vanishing",

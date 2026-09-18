@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
@@ -724,6 +724,31 @@ namespace DesktopAICompanion.Wpf
             return row;
         }
 
+        /// <summary>
+        /// An Int field's declared Min/Max, applied to what the pane hands back.
+        ///
+        /// Non-Int fields, unparseable text and an unset range (Min == Max) all pass through
+        /// untouched. Unparseable rather than clamped on purpose: "" and "abc" are for the module's
+        /// own GetInt fallback to resolve, and turning them into Min would silently invent a value
+        /// the user never typed.
+        ///
+        /// Clamped on READ rather than on keystroke, because rejecting characters as they are typed
+        /// makes it impossible to replace "300" with "45" -- you would have to pass through "30",
+        /// "3" and "" -- and this pane has no per-field error channel to explain a refusal.
+        /// </summary>
+        internal static string ClampIfBounded(SettingField f, string text)
+        {
+            if (f == null || f.Kind != SettingKind.Int) return text;
+            if (f.Min == f.Max) return text;
+            int value;
+            if (!int.TryParse((text ?? "").Trim(), out value)) return text;
+            int low = Math.Min(f.Min, f.Max);
+            int high = Math.Max(f.Min, f.Max);
+            if (value < low) value = low;
+            if (value > high) value = high;
+            return value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
         private FrameworkElement BuildRow(SettingField f, string cur)
         {
             var row = new DockPanel { Margin = new Thickness(0, 3, 0, 3), LastChildFill = true };
@@ -783,15 +808,28 @@ namespace DesktopAICompanion.Wpf
                     row.Children.Add(pw);
                     break;
                 }
-                default: // Int + Text both edit as text (Int is validated by the module on Save).
+                default: // Int + Text both edit as text.
                 {
+                    // For an Int, Min/Max are now HONOURED here rather than left to the module.
+                    // They had no reader anywhere until 2026-09-17: an author set bounds, the host
+                    // rendered a plain TextBox, and the value went through untouched -- so the two
+                    // properties were an ABI member that did nothing, and the only module using them
+                    // (AgentFlow) was safe purely because it clamps again in its own Save.
+                    //
+                    // Clamped on READ, not on keystroke: rejecting characters as they are typed makes
+                    // it impossible to replace "300" with "45" (you would have to pass through "30",
+                    // "3", ""), and this pane has no per-field error channel to explain a refusal.
+                    // A module that wants to reject rather than clamp still can -- Save returning
+                    // false is unchanged -- and one that declares no bounds is untouched, because
+                    // Min == Max == 0 means "unset" for a flags-free int.
                     // Center, not the DockPanel's default Stretch. The label beside it is a fixed 165px
                     // and wraps, so a long one makes the row two lines tall and LastChildFill grows the
                     // editor to match -- a one-line value like "512" sitting in a double-height box, out
                     // of line with every single-line field above it. The checkbox and status rows already
                     // pin Center for the same reason.
                     var tb = new TextBox { Text = cur, VerticalAlignment = VerticalAlignment.Center };
-                    _readers[f.Id] = () => tb.Text ?? "";
+                    SettingField bounded = f;
+                    _readers[f.Id] = () => ClampIfBounded(bounded, tb.Text ?? "");
                     tb.TextChanged += delegate { Dirty(); };
                     row.Children.Add(tb);
                     break;

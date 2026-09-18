@@ -27,6 +27,7 @@ EXE = os.path.join(ROOT, "build", "DesktopAICompanionPortable", "bin", "Release"
 WPF_RESULT = os.path.join(os.environ.get("TEMP", ""), "dp-wpf-options-selftest.txt")
 
 OPTIONS = "src/Portable/Wpf/OptionsShell.cs"
+OPTIONSWINDOW = "src/Portable/Wpf/OptionsWindow.cs"
 DIAG = "src/dotNet/DiagnosticLog.cs"
 STARTUP = "src/dotNet/StartUp.cs"
 SETTINGS = "src/Portable/AppSettingsStore.cs"
@@ -67,6 +68,19 @@ CASES = [
      '" shellHasIt=" + (shellHasIt.HasValue ? shellHasIt.Value.ToString() : "unknown") +',
      '" shell=" + (shellHasIt.HasValue ? shellHasIt.Value.ToString() : "unknown") +',
      "gate", "SetIcon records the SHELL"),
+
+    # SettingField.Min/Max are honoured as of 1.1.5, after an audit found them read by nothing.
+    # Both directions: a clamp that never fires leaves the ABI members decorative again, and one
+    # that fires on unparseable text invents a value the user never typed.
+    ("the declared Int bounds stop being applied", OPTIONSWINDOW,
+     "            if (f.Min == f.Max) return text;",
+     "            if (f.Min != f.Max) return text;",
+     "wpf", "a value above Max is clamped down"),
+
+    ("unparseable text is clamped into the range instead of being left alone", OPTIONSWINDOW,
+     "            if (!int.TryParse((text ?? \"\").Trim(), out value)) return text;",
+     "            if (!int.TryParse((text ?? \"\").Trim(), out value)) value = f.Min;",
+     "wpf", "left for the module's own fallback"),
 
     # --- behaviour: these need the binary rebuilt -------------------------------------------
     ("the pane reads the muted list as an ALLOW list", OPTIONS,
