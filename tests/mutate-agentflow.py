@@ -241,9 +241,27 @@ def write(path, text):
 
 
 def build():
-    """Build the MODULE, not the host. Returns True when it compiled."""
+    """Build the MODULE, not the host. Returns True when it compiled.
+
+    TreatWarningsAsErrors is turned OFF for the mutation builds only, and that is a fix rather
+    than a loosening. modules/Directory.Build.props gained WarningLevel 4 and
+    TreatWarningsAsErrors on 2026-09-17, which is right for real code -- and it silently broke
+    NINE of this file's cases, taking the suite from 23/23 to 14/23 with the other nine reporting
+    BROKEN (does not compile). The cause is that several mutations disable a line with
+    `if (false)`, which is CS0162 unreachable code: a warning, and therefore now an error.
+
+    A mutation is a deliberate temporary break whose only job is to make one assertion fail. Its
+    build has nothing to prove about warning policy, and the BASELINE build below still runs under
+    the real settings, so a genuine new warning in the real source still fails there.
+
+    Recorded at length because of how it was found: the suite was run in full as the last step of
+    a session, having been run case-by-case for hours. A suite nobody runs whole is a suite that
+    reports more coverage than it has, which is the exact defect this file caught in
+    mutate-diagnostics.py earlier the same day.
+    """
     proc = subprocess.run(
-        ["dotnet", "build", CSPROJ, "-c", "Release", "--nologo", "-v:quiet"],
+        ["dotnet", "build", CSPROJ, "-c", "Release", "--nologo", "-v:quiet",
+         "-p:TreatWarningsAsErrors=false"],
         capture_output=True, text=True, timeout=900)
     return proc.returncode == 0, proc.stdout or ""
 
