@@ -46,7 +46,7 @@
             "id": "agentflow",
             "name": "AgentFlow",
             "desc": "Notices when a coding agent (Claude Code, Codex) has been sitting blocked on a permission prompt and tells you. READS YOUR CODING-AGENT TRANSCRIPTS AND PERMISSION SETTINGS to do it: those files contain every command you ran and everything you typed to the agent. It never answers a prompt, and it never speaks command text or a file path.",
-            "version": "1.0.0",
+            "version": "1.0.1",
             "permissions": "Speech, Animation, Storage, AgentTranscripts"
         }
     ]
