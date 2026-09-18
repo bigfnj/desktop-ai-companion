@@ -52,9 +52,10 @@ and nobody else's, but it has not been done and no engineering should start befo
 > any engineering.**
 
 The technical assessment is done and favourable — the idle engine is dependency-free P/Invoke and
-drops straight into a module timer — and it is recorded in [`../BACKLOG.md`](../BACKLOG.md), feature
-idea 18, including the one piece of real technical care (the low-level hook must be
-`UnhookWindowsHookEx`'d in `Shutdown()` or an ALC unload leaks a dangling hook). This is the last of
+drops straight into a module timer — and it is recorded in [`IDEAS.md`](IDEAS.md), idea 18
+(it was in `../BACKLOG.md` until 2026-09-17), including the one piece of real technical care (the
+low-level hook must be `UnhookWindowsHookEx`'d in `Shutdown()` or an ALC unload leaks a dangling
+hook). This is the last of
 the three candidate ports still open: blinkingLED was ported and ships as `modules/BlinkingLed/`, and
 LightHost was refused (the reasoning is in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md)). Only the
 licence blocks it.

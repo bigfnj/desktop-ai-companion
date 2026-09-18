@@ -4,8 +4,14 @@ namespace DesktopAICompanion.Ai
 {
     /// <summary>
     /// One turn of output from the pet's brain: a short line to speak plus an emotion hint.
-    /// The emotion is a loose lowercase string (not an enum) so new emotions can be added
-    /// without recompiling — see BACKLOG "Decisions locked in".
+    /// The emotion is a lowercase string rather than an enum because the emotion -> animation-name
+    /// mapping belongs to the CALLER and not to this type, which is what the ABI states at
+    /// IHost.PlayAnimationAll ("the caller owns the emotion->animation-name mapping").
+    /// The accepted vocabulary is NOT open-ended: AiBrain.NormalizeEmotion is a closed allowlist of
+    /// six names and folds anything else to "neutral", so adding one is a code change there.
+    /// Corrected 2026-09-17: this comment cited a BACKLOG "Decisions locked in" section that no
+    /// longer exists anywhere, and claimed new emotions could be added without recompiling, which
+    /// NormalizeEmotion refutes.
     /// </summary>
     internal sealed class BrainResponse
     {

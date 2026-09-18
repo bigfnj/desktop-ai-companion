@@ -673,6 +673,21 @@ namespace DesktopAICompanion.Modules
         // (Pre-rebase 1.9.0.)
         void PublishContext(string moduleId, string key, string valueJson);
         string ReadContext(string key);
+
+        // READ AT USE, unless you must act ON the change -- and that distinction is why ContextChanged has no
+        // in-repo subscriber. Decided 2026-09-17; the reasoning is in docs/DESIGN-REGISTER.md under "Settled
+        // decisions". The host RETAINS every published value for the life of the process, so ReadContext at the
+        // instant you need the value cannot miss anything, needs no cached field, and needs no unsubscribe in
+        // Shutdown. A SUBSCRIBER sees only changes that happen while it is attached, and a publisher may
+        // legitimately publish once an hour before the value is wanted (Reminder publishes meeting.current only
+        // when the JSON changes), so a module that loads late, or that only cares at the moment a user presses
+        // something, has nothing to gain here and one more handler to detach. Remembrance is the shipped
+        // example of the pull: it calls ReadContext inside StartRecording.
+        //
+        // This event is therefore for the OTHER kind of reader -- one that must do something the moment the
+        // fact changes rather than the moment it is used -- including out-of-tree modules, which is why it
+        // stays on the ABI with no consumer in this repo. ModuleKit.Testing.RecordingHost raises it exactly as
+        // the host does, so a subscriber can be unit-tested against the shipped double.
         event Action<string> ContextChanged;
 
         // ---- contributions (register in Init) ----
