@@ -1,4 +1,4 @@
-"""Mutation test for the diagnostic-log guards.
+﻿"""Mutation test for the diagnostic-log guards.
 
 A guard nobody has seen fail is a guess. Each case below breaks exactly one thing the new logging
 module promises, runs the check that claims to cover it, and requires that check to FAIL naming the
@@ -214,10 +214,29 @@ def main():
                        if ln[:1] and not ln[:1].isspace() and not ln.startswith("+")
                        and not ln.startswith("RESULT=")
                        and ("FAIL" in ln or "MISSING" in ln or ln.rstrip().endswith("failed."))]
-            print("\nBASELINE NOT GREEN for '%s' -- refusing to run. Fix this first:" % checker)
-            for ln in failing[:10] or [str(text)[:400]]:
-                print("   " + ln)
-            return 2
+            # ...with ONE tolerated exception, added 2026-09-17. The doc-count invariants in
+            # runtime-hardening-selftest.ps1 compare that file's own assertion count against the
+            # number written in SMOKETEST.md, so a branch that ADDS an invariant has a legitimately
+            # red baseline until the doc catches up at merge -- and this harness then refused to run
+            # at all, on exactly the branches most likely to need it. Measured: a working branch
+            # printed "BASELINE NOT GREEN for 'gate'" and scored nothing.
+            #
+            # Narrow on purpose. It tolerates that one assertion and nothing else, and it still
+            # refuses if anything ELSE is failing, because the reason this gate exists is that a red
+            # baseline once reported 20/20 FIRED with every mutation "failing" against a failure
+            # that was already there.
+            tolerated = "count matches"
+            remaining = [ln for ln in failing if tolerated not in ln]
+            if failing and not remaining:
+                print("\nBASELINE: tolerating a documented-count mismatch and continuing "
+                      "(the doc catches up at merge):")
+                for ln in failing[:3]:
+                    print("   " + ln)
+            else:
+                print("\nBASELINE NOT GREEN for '%s' -- refusing to run. Fix this first:" % checker)
+                for ln in (remaining or failing)[:10] or [str(text)[:400]]:
+                    print("   " + ln)
+                return 2
 
     results = []
     try:

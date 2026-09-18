@@ -21,6 +21,7 @@ APPUPDATE = os.path.join(REPO, "src", "dotNet", "AppUpdateCheck.cs")
 SMOKETEST = os.path.join(REPO, "SMOKETEST.md")
 SELFTESTS = os.path.join(REPO, "tests", "Invoke-SelfTests.ps1")
 PETSPANE = os.path.join(REPO, "src", "Portable", "Wpf", "CompanionsPaneControl.cs")
+PETSPANE_MODULES = os.path.join(REPO, "src", "Portable", "Wpf", "ModulesPaneControl.cs")
 FORMPET = os.path.join(REPO, "src", "dotNet", "FormCompanion.cs")
 STARTUP = os.path.join(REPO, "src", "dotNet", "StartUp.cs")
 
@@ -69,6 +70,25 @@ CASES = (
     # count changing in the SOURCE without the doc following. One mutation each, because a check
     # written against only one side would pass while the other drifted -- which is how
     # "84 source invariants" and "18 self-tests" both survived being wrong.
+    # The consent ORDER check, mutated the way it would actually regress: the download moves AHEAD
+    # of the consult. "Prefetch the payload while the user reads the prompt" is a plausible
+    # optimisation, and it is precisely what the order assertion exists to forbid, because bytes on
+    # disk before consent is a notification rather than a prompt.
+    #
+    # The first attempt at this case SURVIVED, and the reason is worth keeping: it wrapped the
+    # consult in `if (false)`, which leaves the text exactly where it was, so the ORDER was still
+    # correct. That mutation was aimed at REACHABILITY, which no source-text check can see -- the
+    # assertion was not vacuous, the mutation was testing something else. Presence is covered by
+    # the separate "consults ModulePermissionConsent at all" assertion beside it.
+    (
+        "the module payload is downloaded BEFORE the permission prompt",
+        PETSPANE_MODULES,
+        b"            ModulePermissions added = DesktopAICompanion.Plugins.ModulePermissionConsent.NewlyRequested(",
+        b"            byte[] prefetched = await RemoteCatalogClient.DownloadVerifiedAsync(\n"
+        b"                module.Url, module.Sha256, RemoteCatalogClient.MaximumModuleBytes, _netCts.Token);\n"
+        b"            ModulePermissions added = DesktopAICompanion.Plugins.ModulePermissionConsent.NewlyRequested(",
+        "BEFORE the update is downloaded",
+    ),
     (
         "DOC DRIFT: SMOKETEST.md quotes the wrong invariant count",
         SMOKETEST,

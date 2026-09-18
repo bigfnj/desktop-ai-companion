@@ -1117,6 +1117,31 @@ Assert-True ($xsdHashes[0] -eq $xsdHashes[1]) (
     "the two animations.xsd copies are byte-identical (embedded $($xsdPaths[1]) vs documented $($xsdPaths[0]))" +
     $(if ($xsdHashes[0] -ne $xsdHashes[1]) { " -- $($xsdHashes[0].Substring(0,12)) vs $($xsdHashes[1].Substring(0,12)); copy the one you edited over the other" } else { '' }))
 
+# ---- an update that WIDENS a module's permissions must reach the consent prompt ----
+# ModulePermissionConsent is pure and its table is asserted in --hardening-selftest. What a table
+# cannot reach is whether the PANE consults it, and that half is the whole feature: the promise in
+# ModulePermissions' doc block ("a module that later widens its set re-prompts rather than widening
+# silently") went years with a helper's worth of nothing behind it.
+#
+# An ORDER check, not a presence one. A consult that happens after the bytes are downloaded and
+# staged is not consent, it is a notification -- and asserting merely that the call APPEARS in the
+# file is satisfied by a call sitting unreachable below a return.
+$modulesPaneSource = Get-Content -Raw (Join-Path $repoRoot 'src\Portable\Wpf\ModulesPaneControl.cs')
+$updateBody = [regex]::Match(
+    $modulesPaneSource,
+    '(?s)private async Task UpdateModuleAsync\(.*?
+        \}')
+Assert-True ($updateBody.Success) 'UpdateModuleAsync exists and could be sliced out for inspection'
+$consentIndex = $updateBody.Value.IndexOf('ModulePermissionConsent.NewlyRequested')
+$downloadIndex = $updateBody.Value.IndexOf('DownloadVerifiedAsync')
+Assert-True ($consentIndex -ge 0) (
+    'the module update path consults ModulePermissionConsent at all')
+Assert-True ($downloadIndex -ge 0) (
+    'the module update path still downloads through DownloadVerifiedAsync (the anchor for the order below)')
+Assert-True ($consentIndex -lt $downloadIndex) (
+    'a widened permission set is put to the user BEFORE the update is downloaded' +
+    " (consent at $consentIndex, download at $downloadIndex)")
+
 # ---- the numbers the docs quote about this suite are re-measured, not trusted ----
 # A number nobody re-measures goes stale. SMOKETEST.md and Readme.md both quote how many source
 # invariants and how many self-tests exist, and both were wrong again within one session of being
