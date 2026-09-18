@@ -488,6 +488,24 @@ namespace DesktopAICompanion
                 delegate { _settings.NotificationSoundsEnabled = enabled; });
         }
 
+        /// <summary>The sound file the user chose for notifications; "" = the built-in chime. The switch
+        /// above still wins: a chosen file is silent while notification sounds are off.</summary>
+        public string GetNotificationSoundPath()
+        {
+            lock (_sync) return AppSettingsDocument.NormalizeNotificationSoundPath(_settings.NotificationSoundPath);
+        }
+
+        /// <summary>Persist a chosen sound, or "" to go back to the built-in. Takes the path as given: the
+        /// caller validates that the file is DECODABLE before getting here (OptionsShell), because the only
+        /// place that can tell the user their pick was refused is the place they picked it.</summary>
+        public bool SetNotificationSoundPath(string path)
+        {
+            string value = AppSettingsDocument.NormalizeNotificationSoundPath(path);
+            return Update(
+                delegate { return !string.Equals(AppSettingsDocument.NormalizeNotificationSoundPath(_settings.NotificationSoundPath), value, StringComparison.Ordinal); },
+                delegate { _settings.NotificationSoundPath = value; });
+        }
+
         public bool GetSpeechEnabled()
         {
             lock (_sync) return _settings.SpeechEnabled;

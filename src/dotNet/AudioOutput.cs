@@ -58,6 +58,7 @@ namespace DesktopAICompanion
         private DirectSoundOut _output;
         private Guid _deviceId = Guid.Empty;   // Guid.Empty = the default playback device ("Primary Sound Driver")
         private float[] _testTone;
+        private float[] _builtInChime;   // the notification default, synthesized on first use
         private bool _started;
         private bool _unavailable;
         private bool _disposed;
@@ -168,8 +169,46 @@ namespace DesktopAICompanion
             return any;
         }
 
+        /// <summary>
+        /// Play the application's shared notification sound: <paramref name="chosen"/> is the user's own
+        /// file, already read to bytes (a self-describing WAV or MP3), or null for the built-in chime.
+        /// False means nothing will be heard, the same contract as <see cref="PlayOwned"/>.
+        ///
+        /// A chosen file that will not decode falls back to the built-in instead of returning false. The
+        /// user cannot pick an undecodable file — OptionsShell refuses it at pick time — so arriving here
+        /// with rubbish means the file CHANGED underneath them, and the whole job of a notification is to
+        /// be heard. The opposite choice turns "I re-saved that wav as a video" into a reminder that goes
+        /// quiet with no way to find out why.
+        ///
+        /// The built-in is cached and the chosen file is not, for the reason <see cref="PlayOwned"/>
+        /// spells out: <see cref="_cache"/> is keyed by byte[] reference identity and cleared only in
+        /// Dispose, so holding an 8 MiB pick there would pin it plus a mixer-format buffer several times
+        /// its size for the life of the process. The chime is one small array that never varies.
+        /// </summary>
+        public bool PlayNotification(string owner, byte[] chosen, double volume)
+        {
+            if (volume <= 0.0) return false;
+            lock (_sync)
+            {
+                // Device first, exactly as in PlayOwned: a box with no output must not pay for a decode
+                // before finding that out.
+                if (_disposed || !EnsureStarted()) return false;
+                // Synthesized even when a chosen file is about to win. It costs ~33k samples once per
+                // process, and having it in hand is what lets the fallback be a pure function -- which is
+                // the only way "no choice plays the built-in" is assertable without a device.
+                if (_builtInChime == null)
+                    _builtInChime = NotificationSound.BuiltInChime(MixFormat.SampleRate, MixFormat.Channels);
+                float[] samples = NotificationSound.Resolve(chosen, _builtInChime);
+                if (samples == null || samples.Length == 0) return false;
+                AddInput(samples, 0, (float)Math.Max(0.0, Math.Min(1.0, volume)), owner ?? "");
+                return true;
+            }
+        }
+
         /// <summary>Play a short test tone through the current device at a fixed audible level (the Preferences
-        /// "Test sound" button). Ignores the mute setting — the user explicitly asked to hear the device.</summary>
+        /// "Test output device" button). Ignores the mute setting — the user explicitly asked to hear the
+        /// device, which is also why it is no longer what "Test sound" plays: that one previews the chosen
+        /// notification sound and must obey the settings this deliberately ignores.</summary>
         public void PlayTestTone()
         {
             lock (_sync)
@@ -422,6 +461,225 @@ namespace DesktopAICompanion
             public static readonly ReferenceComparer Instance = new ReferenceComparer();
             public bool Equals(byte[] x, byte[] y) { return ReferenceEquals(x, y); }
             public int GetHashCode(byte[] obj) { return RuntimeHelpers.GetHashCode(obj); }
+        }
+    }
+
+    /// <summary>Why a notification was or was not heard. The caller that can act on it is the Preferences
+    /// preview button, which has to tell the user WHICH setting silenced their test; a module only ever
+    /// sees the bool this collapses to, because "your chime was refused because the user muted you" is not
+    /// a module's business.</summary>
+    internal enum NotificationOutcome
+    {
+        Played,
+        /// <summary>The notificationSounds master switch is off.</summary>
+        SwitchedOff,
+        /// <summary>Master volume is 0 — the slider's own mute position.</summary>
+        Muted,
+        /// <summary>Nothing to play through: no device, a torn-down output, or a sound that would not decode.</summary>
+        NoDevice,
+        /// <summary>Settings are not loaded — a self-test, or the part of launch that runs before them.</summary>
+        NoSettings,
+        /// <summary>Something threw. Kept distinct from NoDevice so a real fault cannot masquerade as a
+        /// laptop with the speakers disabled.</summary>
+        Failed,
+    }
+
+    /// <summary>
+    /// The application's notification sound: which sound it is, whether it may be heard, and the built-in
+    /// that plays before the user has chosen anything.
+    ///
+    /// Deliberately not folded into StartUp. The three layers a notification has to honour — the
+    /// notificationSounds master switch, the master volume, and the output device — are ORDERED, and the
+    /// order is the half that fails silently: check the device first and a muted user gets "no device",
+    /// the module falls back to a bubble it would have fallen back to anyway, and every symptom looks
+    /// identical to the correct behaviour. So the decision is one static function that reports which layer
+    /// stopped it, and it is asserted on a machine with no audio device at all (--audio-selftest) — the
+    /// same reason <see cref="AudioOutput.DecodeModuleAudio"/> is static and side-effect free.
+    /// </summary>
+    internal static class NotificationSound
+    {
+        /// <summary>Biggest file a user may choose. Half of <see cref="AudioOutput.MaximumModuleAudioBytes"/>
+        /// and the same number Reminder enforces on its own chime, so a pick that would sail past this one
+        /// and die at the mixer's cap is refused where there is still a person to tell. A notification is a
+        /// second of sound; anything approaching this is already the wrong file.</summary>
+        internal const long MaximumCustomFileBytes = 8 * 1024 * 1024;
+
+        // The built-in chime: G5 -> C6, two struck notes, ~0.75 s. The same two notes Reminder's embedded
+        // clip plays, so a user who has both does not hear two unrelated sounds for the same kind of event.
+        //
+        // SYNTHESIZED rather than carried as a base64 MP3 the way Reminder carries its one. Reminder had no
+        // choice: a module can only hand the host encoded BYTES across the ABI, so its chime has to exist
+        // as a file-format blob. The host is on the other side of that boundary — it owns the mixer and can
+        // hand it float samples directly — so embedding ~12 KB of base64 here would buy a clip that is
+        // itself only two faded sine tones (read Chime.cs's own comment), at the cost of an MP3 decode
+        // through the OS ACM codec on every play and a literal nobody can review. The numbers below are
+        // reviewable; a base64 blob is not.
+        private const double FirstNoteHz = 783.99;      // G5
+        private const double SecondNoteHz = 1046.50;    // C6
+        private const double SecondNoteDelaySeconds = 0.18;
+        private const double ChimeSeconds = 0.75;
+        private const double DecaySeconds = 0.16;       // exponential, so the note reads as struck, not held
+        private const double PeakAmplitude = 0.7;       // headroom: the mixer SUMS inputs, and the pet may be talking
+
+        /// <summary>
+        /// Decide and play, honouring every layer in the order that matters. Never throws: a notification
+        /// is a nicety and the caller is usually inside a module's tick.
+        ///
+        /// <paramref name="output"/> may be null (no audio subsystem yet) and <paramref name="data"/> may
+        /// be null (settings not loaded). Both answer "did not play" — but through DIFFERENT outcomes than
+        /// the two user settings do, which is what lets the self-test prove the switch is read before the
+        /// device rather than inferring it from a shared false.
+        /// </summary>
+        internal static NotificationOutcome Play(LocalData data, AudioOutput output, string owner)
+        {
+            try
+            {
+                // No settings means no master volume to scale by. CompanionHost.Volume already answers 0.0
+                // in that state and every module sound is silent, so playing here would make the shared
+                // notification the one sound that ignores a condition the rest of the app treats as mute.
+                if (data == null) return NotificationOutcome.NoSettings;
+                if (!data.GetNotificationSoundsEnabled()) return NotificationOutcome.SwitchedOff;
+                double volume = data.GetVolume();
+                if (double.IsNaN(volume) || volume <= 0.0) return NotificationOutcome.Muted;
+                if (output == null) return NotificationOutcome.NoDevice;
+                // The user's slider IS the level, with no per-sound fraction on top. A module's own PlaySound
+                // is scaled down because the module chose that number and must not be able to out-shout the
+                // pet; this sound is the user's own pick played at the user's own volume, and quietly
+                // halving it would make the Preferences preview disagree with the slider beside it.
+                return output.PlayNotification(owner ?? "", ReadChosen(data.GetNotificationSoundPath()), volume)
+                    ? NotificationOutcome.Played
+                    : NotificationOutcome.NoDevice;
+            }
+            catch (Exception ex)
+            {
+                // The only outcome here that is a FAULT rather than a setting, so it is the only one worth
+                // a line. Written because the Preferences button tells the user to look in the log, and a
+                // message pointing at a record that was never made is worse than no message at all.
+                // Audio category, so it filters with every other sound line rather than hiding under App.
+                try
+                {
+                    DiagnosticLog.Write(LogCategory.Audio, "warning", null,
+                        "notification sound failed: " + ex.GetType().Name + ": " + ex.Message);
+                }
+                catch { }
+                return NotificationOutcome.Failed;
+            }
+        }
+
+        /// <summary>
+        /// The chosen file as bytes, or null meaning "use the built-in". Every failure answers null: a
+        /// blank path, a file that moved, an unplugged drive, a size past the cap, another process holding
+        /// it open. None of those is worth failing a notification over, and the fallback is audible, so the
+        /// user finds out by hearing the default instead of by hearing nothing.
+        /// </summary>
+        internal static byte[] ReadChosen(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return null;
+            try
+            {
+                var info = new FileInfo(path);
+                if (!info.Exists || info.Length <= 0 || info.Length > MaximumCustomFileBytes) return null;
+                return File.ReadAllBytes(path);
+            }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// Pick-time validation: null when the mixer can actually play this file, otherwise the reason to
+        /// put in front of the user. It DECODES, rather than trusting the extension, because "is it named
+        /// .wav" is not the question — a renamed video, a 24-bit 6-channel studio export and a zero-byte
+        /// placeholder all pass a name check and none of them will ever make a sound.
+        ///
+        /// The alternative is discovering it at play time, where the only report available is silence,
+        /// three days later, from a reminder the user is no longer standing next to.
+        /// </summary>
+        internal static string Validate(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return "no file was chosen.";
+            FileInfo info;
+            try { info = new FileInfo(path.Trim()); }
+            catch (Exception ex) { return "that path can't be read (" + ex.GetType().Name + ")."; }
+            if (!info.Exists) return "that file isn't there any more.";
+            if (info.Length <= 0) return "that file is empty.";
+            if (info.Length > MaximumCustomFileBytes)
+                return "that file is over 8 MiB; pick a short notification sound.";
+            byte[] bytes;
+            try { bytes = File.ReadAllBytes(info.FullName); }
+            catch (Exception ex) { return "couldn't read that file: " + ex.Message; }
+            if (AudioOutput.DecodeModuleAudio(bytes) == null)
+                return "that isn't a sound this app can play — use a WAV or MP3 (mono or stereo).";
+            return null;
+        }
+
+        /// <summary>
+        /// Which samples a notification will actually sound: the chosen file decoded, or
+        /// <paramref name="builtIn"/> when there is no choice or the choice will not decode. Returning the
+        /// built-in ARRAY (not a copy) is what lets a caller assert the fallback by reference.
+        /// </summary>
+        internal static float[] Resolve(byte[] chosen, float[] builtIn)
+        {
+            if (chosen != null && chosen.Length > 0)
+            {
+                float[] decoded = AudioOutput.DecodeModuleAudio(chosen);
+                if (decoded != null && decoded.Length > 0) return decoded;
+            }
+            return builtIn;
+        }
+
+        /// <summary>
+        /// The built-in chime as interleaved samples at the mixer's own format, ready to add with no decode
+        /// step at all. Pure and parameterised by format so it can be asserted without an audio device.
+        /// </summary>
+        internal static float[] BuiltInChime(int sampleRate, int channels)
+        {
+            if (sampleRate <= 0 || channels < 1 || channels > 2) return new float[0];
+            int frames = (int)(sampleRate * ChimeSeconds);
+            if (frames <= 0) return new float[0];
+
+            var mono = new double[frames];
+            AddStruckNote(mono, sampleRate, FirstNoteHz, 0.0);
+            AddStruckNote(mono, sampleRate, SecondNoteHz, SecondNoteDelaySeconds);
+
+            // The decay has not reached zero when the buffer ends, and a buffer that stops mid-waveform
+            // clicks. Same ~10 ms tail, and the same reason, as MakeTone's fade.
+            int fade = Math.Min(frames / 8, sampleRate / 100);
+            for (int i = 0; i < fade; i++) mono[frames - 1 - i] *= (double)i / fade;
+
+            // Normalize to a fixed peak instead of trusting the arithmetic above. The two notes overlap and
+            // each carries partials, so the sum's peak depends on phase; guessing it wrong clips, and a
+            // clipped chime is not reported as clipping, it is reported as the app sounding cheap.
+            double peak = 0.0;
+            for (int i = 0; i < frames; i++) { double a = Math.Abs(mono[i]); if (a > peak) peak = a; }
+            double gain = peak > 0.0 ? PeakAmplitude / peak : 0.0;
+
+            var buffer = new float[frames * channels];
+            for (int f = 0; f < frames; f++)
+            {
+                float s = (float)(mono[f] * gain);
+                for (int c = 0; c < channels; c++) buffer[f * channels + c] = s;
+            }
+            return buffer;
+        }
+
+        /// <summary>One note: a fundamental with two quiet partials under an exponential decay, which is
+        /// what makes it read as struck rather than as the 440 Hz test tone with a different number.</summary>
+        private static void AddStruckNote(double[] mono, int sampleRate, double hz, double startSeconds)
+        {
+            int start = (int)(startSeconds * sampleRate);
+            if (start >= mono.Length) return;
+            int attack = Math.Max(1, sampleRate / 400);   // ~2.5 ms: enough to kill the onset click, short enough to still be a strike
+            for (int i = start; i < mono.Length; i++)
+            {
+                int n = i - start;
+                double t = (double)n / sampleRate;
+                double envelope = Math.Exp(-t / DecaySeconds);
+                if (n < attack) envelope *= (double)n / attack;
+                mono[i] +=
+                    envelope *
+                    (Math.Sin(2.0 * Math.PI * hz * t) +
+                     0.35 * Math.Sin(2.0 * Math.PI * hz * 2.0 * t) +
+                     0.12 * Math.Sin(2.0 * Math.PI * hz * 3.0 * t));
+            }
         }
     }
 }

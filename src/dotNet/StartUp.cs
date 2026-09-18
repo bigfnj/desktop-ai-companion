@@ -1575,17 +1575,32 @@ namespace DesktopAICompanion
         }
 
         /// <summary>
-        /// Play the user's chosen notification sound. Returns false when it did not play.
+        /// Play the user's chosen notification sound. False when it did not play, for any reason, and the
+        /// module is never told which -- the contract on IHost.PlayNotificationSound.
         ///
-        /// NOT YET IMPLEMENTED -- the setting, the built-in chime and the Preferences
-        /// picker land with the notification-sound work. It returns false rather than
-        /// throwing because the contract on IHost.PlayNotificationSound is "false when it
-        /// did not play, and the module is not told why"; a module calling this against
-        /// this build gets silence, which is exactly what it must do.
+        /// A two-line adapter on purpose. Every layer, the order they are checked in, and the never-throw
+        /// live in <see cref="NotificationSound.Play"/>, which is the only form of them that can be
+        /// asserted on a box with no audio device (--audio-selftest); a copy of that reasoning here would
+        /// be a copy nothing tests. Owner is the MODULE id, matching PlayModuleSound, so the existing
+        /// "notification sounds off cuts what is mid-play" path in the Preferences Save reaches this sound
+        /// too, and so a module's own StopSound can cut the chime it just asked for.
         /// </summary>
         internal bool PlayNotificationSound(string moduleId)
         {
-            return false;
+            return NotificationSound.Play(Program.MyData, audioOutput, moduleId ?? "") == NotificationOutcome.Played;
+        }
+
+        /// <summary>
+        /// The Preferences "Test sound" button: the same sound through the same three layers a module's
+        /// notification passes, reporting WHICH layer stopped it so the pane can say so rather than
+        /// leaving the user to guess between a muted slider and a dead output.
+        ///
+        /// Owned by the engine rather than by a module id: nothing can cut a preview the user explicitly
+        /// asked for, and there is no module in the story to attribute it to.
+        /// </summary>
+        internal NotificationOutcome PreviewNotificationSound()
+        {
+            return NotificationSound.Play(Program.MyData, audioOutput, AudioOutput.EngineOwner);
         }
 
         internal bool PlayModuleSound(string owner, byte[] audio, double volume)
