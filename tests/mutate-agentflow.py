@@ -52,8 +52,10 @@ DETECTOR = os.path.join(MODULE_DIR, "BlockedDetector.cs")
 BUDGET = os.path.join(MODULE_DIR, "NotifyBudget.cs")
 MODULE = os.path.join(MODULE_DIR, "AgentFlowModule.cs")
 READER = os.path.join(MODULE_DIR, "TranscriptReader.cs")
+CDP = os.path.join(MODULE_DIR, "CdpApprover.cs")
+PROMPTOPTS = os.path.join(MODULE_DIR, "PromptOptions.cs")
 
-TARGETS = (SPLITTER, RULES, DETECTOR, BUDGET, MODULE, READER)
+TARGETS = (SPLITTER, RULES, DETECTOR, BUDGET, MODULE, READER, CDP, PROMPTOPTS)
 
 # (name, file, find, replace, expected fragment of the assertion that must fail)
 CASES = (
@@ -334,6 +336,43 @@ CASES = (
         "            _portAnswering = false;",
         "            if (false) _portAnswering = false;",
         "switching it on discards the last probe",
+    ),
+    # The approve half. These are the safety properties: everything here is a way for the
+    # module to press something it should not, or to write something it should not.
+    (
+        "a greyed-out approve row is pressed anyway",
+        MODULE,
+        "            if (decision.Index < view.Disabled.Count && view.Disabled[decision.Index])",
+        "            if (false)",
+        "a greyed-out approve row is not pressed",
+    ),
+    (
+        "a short disabled list is left short",
+        CDP,
+        "                    while (view.Disabled.Count < view.Options.Count) view.Disabled.Add(false);",
+        "                    if (false) view.Disabled.Add(false);",
+        "a short disabled list is padded",
+    ),
+    (
+        "the refusal quotes the option text into the log",
+        PROMPTOPTS,
+        '                    "refused: {0} of {1} options unrecognised -- either the capture misread "',
+        '                    "refused: {0} of {1} options unrecognised " + decision.UnsafeDetail + " -- either the capture misread "',
+        "the refusal does not quote what it read",
+    ),
+    (
+        "the tool name is logged however it reads",
+        MODULE,
+        '                if (!ok) return "an unrecognised tool";',
+        '                if (!ok) return name;',
+        "a tool name carrying anything else is not logged verbatim",
+    ),
+    (
+        "the click expression quotes the label by hand",
+        CDP,
+        '            return JsonSerializer.Serialize(text ?? "");',
+        '            return "' + BS + '"" + (text ?? "") + "' + BS + '"";',
+        "an option label cannot break out of the click expression",
     ),
 )
 

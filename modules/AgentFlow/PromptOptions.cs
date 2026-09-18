@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
@@ -30,8 +30,28 @@ namespace DesktopAICompanion.AgentFlow
         public int Index = -1;
         /// <summary>Why, written so it can say the run REFUSED rather than reporting success by omission.</summary>
         public string Reason;
-        /// <summary>The option text that was chosen. Safe to log: it is one of the table's strings.</summary>
+        /// <summary>
+        /// The TABLE ENTRY the chosen row matched -- "yes", "yes, allow ", and so on. Safe to
+        /// log, because it comes from this file rather than from the screen.
+        ///
+        /// This used to hold the raw label, under a comment claiming the same safety, and the
+        /// claim was false for the three prefix templates: "yes, allow " matches a row reading
+        /// "Yes, allow Bash(npm test)", so the logged string carried the command. The
+        /// diagnostic log is meant to be attachable to a public issue.
+        /// </summary>
         public string Chosen;
+        /// <summary>
+        /// The row's text exactly as it was read off the screen. NEVER LOG THIS. It exists
+        /// for one job: the click re-checks that the row still reads what it read, so the
+        /// text has to travel with the index.
+        /// </summary>
+        public string ChosenRaw;
+        /// <summary>
+        /// Unrecognised option text, for showing the USER on screen when they ask why nothing
+        /// was pressed. NEVER LOG THIS either -- an option nobody anticipated can say
+        /// anything. Named so that logging it has to be a decision rather than an accident.
+        /// </summary>
+        public string UnsafeDetail;
         public bool WillPress { get { return Index >= 0; } }
     }
 
@@ -200,6 +220,7 @@ namespace DesktopAICompanion.AgentFlow
             }
 
             var kinds = new OptionKind[options.Count];
+            var matchedKeys = new string[options.Count];
             var unknown = new List<string>();
             var approvals = new List<int>();
             int widerOrMode = 0;
@@ -207,6 +228,7 @@ namespace DesktopAICompanion.AgentFlow
             {
                 string matched;
                 kinds[i] = Classify(options[i], out matched);
+                matchedKeys[i] = matched;
                 switch (kinds[i])
                 {
                     case OptionKind.Unknown: unknown.Add(options[i] ?? ""); break;
@@ -220,10 +242,14 @@ namespace DesktopAICompanion.AgentFlow
             {
                 var shown = new List<string>();
                 for (int i = 0; i < unknown.Count && i < 3; i++) shown.Add(Quote(unknown[i]));
+                // The text goes to UnsafeDetail, not into Reason. Reason is the line that gets
+                // logged, and an option nobody anticipated is exactly the string least safe to
+                // put in a file meant to be attachable to a public issue.
+                decision.UnsafeDetail = string.Join("; ", shown.ToArray());
                 decision.Reason = string.Format(CultureInfo.InvariantCulture,
-                    "refused: {0} of {1} options unrecognised ({2}) -- either the capture misread "
+                    "refused: {0} of {1} options unrecognised -- either the capture misread "
                     + "the prompt or the agent shipped a new option; not pressing anything",
-                    unknown.Count, options.Count, string.Join("; ", shown.ToArray()));
+                    unknown.Count, options.Count);
                 return decision;
             }
             if (approvals.Count == 0)
@@ -242,9 +268,11 @@ namespace DesktopAICompanion.AgentFlow
             }
 
             decision.Index = approvals[0];
-            decision.Chosen = options[approvals[0]];
+            decision.ChosenRaw = options[approvals[0]];
+            decision.Chosen = matchedKeys[approvals[0]];
             decision.Reason = string.Format(CultureInfo.InvariantCulture,
-                "pressing option {0} {1} (approve-once); declined {2} wider or mode option(s)",
+                "pressing option {0}, recognised as {1} (approve-once); declined {2} wider or "
+                + "mode option(s)",
                 decision.Index + 1, Quote(decision.Chosen), widerOrMode);
             return decision;
         }

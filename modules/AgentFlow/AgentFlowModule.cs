@@ -123,10 +123,19 @@ namespace DesktopAICompanion.AgentFlow
             // called, and the comment above enumerated four flags it does not need without noticing
             // the one it does. Reminder's declaration is the worked example: it declares Animation
             // for exactly this call.
+            // InputSynthesis and Network are both here for the approve half, and both are
+            // declared even though neither is ENFORCED, because the consent screen is an
+            // affirmative claim about what a module does. PluginApi.cs names "any module
+            // that automates another application" as InputSynthesis's obvious next holder;
+            // this presses buttons in the editor. Network is loopback only -- a debugging
+            // port on 127.0.0.1 -- but "makes network requests" is what the flag says and a
+            // user deciding whether to install this should not have to know the difference.
             Permissions = ModulePermissions.Speech
                           | ModulePermissions.Animation
                           | ModulePermissions.Storage
-                          | ModulePermissions.AgentTranscripts,
+                          | ModulePermissions.AgentTranscripts
+                          | ModulePermissions.InputSynthesis
+                          | ModulePermissions.Network,
         };
 
         public void Init(IHost host)
@@ -427,20 +436,119 @@ namespace DesktopAICompanion.AgentFlow
                 }
                 catch { answering = false; }
 
-                if (results != null)
+                // Press, if asked to and if there is anything to press. Behind BOTH the
+                // user's switch and a port that answered this tick: either one missing and
+                // this does not run at all.
+                string approvalNote = null;
+                if (autoApprove && answering)
+                {
+                    try { approvalNote = TryApproveOnce(cdpPort); }
+                    catch (Exception) { approvalNote = null; }
+                }
+
+                // Posted unconditionally, unlike the detections. A scan that threw left
+                // results null, and the port state used to be inside that guard -- so one
+                // bad scan would freeze the tray dot on whatever it last said, which is the
+                // stale-capability report this design exists to avoid.
                 {
                     Dictionary<string, int> forUi = approved;
+                    List<Detection> forApply = results;
                     bool portUp = answering;
+                    string note = approvalNote;
                     PostToUi(() =>
                     {
                         _portAnswering = portUp;
-                        Apply(results);
-                        LogApprovals(forUi);
+                        if (forApply != null)
+                        {
+                            Apply(forApply);
+                            LogApprovals(forUi);
+                        }
+                        LogApprovalAttempt(note);
                     });
                 }
             });
         }
 
+        /// <summary>
+        /// Look for a pending permission prompt and press the approve-once row, once.
+        ///
+        /// Returns a line worth logging, or null when there was nothing to do. Null is the
+        /// normal answer: a prompt is rare and a line every ten seconds saying "nothing"
+        /// would bury the log this module exists to make readable.
+        ///
+        /// THE DECISION IS NOT MADE HERE. This reads text, hands it to PromptOptions, and does
+        /// what it is told; PromptOptions refuses anything it does not recognise, refuses a
+        /// prompt with no approve-once row, and refuses one with more than one. There is no
+        /// heuristic in this method and there should never be: the module was asked to be
+        /// lightweight, and a guess about which button to press is the one kind of wrong this
+        /// feature cannot afford.
+        /// </summary>
+        internal static string TryApproveOnce(int port)
+        {
+            return CdpApprover.Sweep(port, view => Decide(port, view), 1500);
+        }
+
+        /// <summary>
+        /// What to do about one prompt that was read. Split out from the sweep so it can be
+        /// exercised without an editor: everything above it is sockets, and everything in it is
+        /// the decision, which is the half worth asserting.
+        /// </summary>
+        internal static string Decide(int port, PromptView view)
+        {
+            if (view == null || view.Options.Count == 0) return null;
+
+            PromptDecision decision = PromptOptions.Choose(view.Options);
+            if (!decision.WillPress) return decision.Reason;
+
+            // The UI's own disabled flag wins over anything the text says. A row greyed out
+            // because the request is already being answered is not an invitation.
+            if (decision.Index < view.Disabled.Count && view.Disabled[decision.Index])
+                return "refused: the approve-once row is disabled";
+
+            string outcome = CdpApprover.Click(port, view.TargetId, decision.Index,
+                                               decision.ChosenRaw, 1500);
+            return "auto-approve " + outcome + " for " + SafeToolName(view.ToolName)
+                   + ": " + decision.Reason;
+        }
+
+        /// <summary>
+        /// The tool name, reduced to something that cannot carry content.
+        ///
+        /// It is read out of the prompt header, so it is text from the screen even though in
+        /// practice it is always a tool identifier like Bash or Edit. Letters, digits, dash and
+        /// underscore only, truncated -- a name that fails that is reported as unknown rather
+        /// than passed through, because the log is meant to be attachable to a public issue.
+        /// </summary>
+        internal static string SafeToolName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return "an unnamed tool";
+            if (name.Length > 32) return "an unrecognised tool";
+            foreach (char c in name)
+            {
+                bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                          || (c >= '0' && c <= '9') || c == '-' || c == '_';
+                if (!ok) return "an unrecognised tool";
+            }
+            return name;
+        }
+
+        /// <summary>The last line written, so a standing refusal is not repeated every tick.</summary>
+        private string _lastApprovalNote;
+
+        /// <summary>
+        /// Write what the approver did, and do it once per distinct outcome.
+        ///
+        /// The repeat guard matters more than it looks. A prompt the classifier refuses stays
+        /// on screen until the user answers it, so without this the same refusal would be
+        /// written every ten seconds for as long as they were away from the keyboard.
+        /// </summary>
+        private void LogApprovalAttempt(string note)
+        {
+            if (string.IsNullOrEmpty(note)) { _lastApprovalNote = null; return; }
+            if (string.Equals(note, _lastApprovalNote, StringComparison.Ordinal)) return;
+            _lastApprovalNote = note;
+            Log(note);
+        }
         /// <summary>
         /// Read every live transcript and evaluate it. Pure enough to call from a worker: no host,
         /// no UI, no module state beyond the settings snapshot handed in.
@@ -1195,9 +1303,11 @@ namespace DesktopAICompanion.AgentFlow
                     // declaring only Speech|Storage would work perfectly and disclose nothing.
                     probe.Check("WITNESS declares AgentTranscripts, which is the whole disclosure",
                         module.Info.Permissions.HasFlag(ModulePermissions.AgentTranscripts));
+                    probe.Check("WITNESS declares that it PRESSES things, and reaches a port",
+                        module.Info.Permissions.HasFlag(ModulePermissions.InputSynthesis)
+                        && module.Info.Permissions.HasFlag(ModulePermissions.Network));
                     probe.Check("declares no permission it does not use",
-                        !module.Info.Permissions.HasFlag(ModulePermissions.Network)
-                        && !module.Info.Permissions.HasFlag(ModulePermissions.ScreenContext)
+                        !module.Info.Permissions.HasFlag(ModulePermissions.ScreenContext)
                         && !module.Info.Permissions.HasFlag(ModulePermissions.Hotkey)
                         && !module.Info.Permissions.HasFlag(ModulePermissions.Audio));
 
@@ -1213,6 +1323,7 @@ namespace DesktopAICompanion.AgentFlow
                               && SelfCheckPromptOptions(probe)
                               && SelfCheckVsCodeSetup(probe)
                               && SelfCheckAutoApprove(probe)
+                              && SelfCheckApprover(probe)
                               && SelfCheckCacheBound(probe);
                     probe.Check("every logic group ran", ok);
 
@@ -1924,6 +2035,118 @@ namespace DesktopAICompanion.AgentFlow
             return true;
         }
 
+        /// <summary>
+        /// The approve half, minus the sockets.
+        ///
+        /// Two things are asserted here and the rest of the file cannot be, without a running
+        /// editor showing a real prompt: that the reader turns a CDP reply into a view without
+        /// trusting its shape, and that the decision refuses everything it is supposed to
+        /// refuse. The press path is exercised against a closed port, which is enough to prove
+        /// it composes -- it is NOT evidence that a real prompt is ever found, and nothing here
+        /// should be read as though it were.
+        /// </summary>
+        private static bool SelfCheckApprover(SelfTestProbe probe)
+        {
+            // ---- reading -------------------------------------------------------------
+            PromptView view = CdpApprover.Parse("t1",
+                "{\"tool\":\"Bash\",\"options\":[\"Yes\",\"Yes, and don't ask again\",\"No\"],"
+                + "\"disabled\":[false,false,false]}");
+            probe.Check("reads the options off a CDP reply",
+                view != null && view.Options.Count == 3 && view.ToolName == "Bash");
+
+            // A short disabled list must not make a row look enabled by omission, and must not
+            // throw on an index lookup either.
+            PromptView padded = CdpApprover.Parse("t1",
+                "{\"options\":[\"Yes\",\"No\"],\"disabled\":[true]}");
+            probe.Check("WITNESS a short disabled list is padded, not left to throw",
+                padded != null && padded.Disabled.Count == padded.Options.Count
+                && padded.Disabled[0] && !padded.Disabled[1]);
+
+            probe.Check("malformed JSON is no answer, not a crash",
+                CdpApprover.Parse("t1", "{not json") == null);
+            probe.Check("a reply with no options array is no answer",
+                CdpApprover.Parse("t1", "{\"tool\":\"Bash\"}") == null);
+            probe.Check("a reply that is not an object is no answer",
+                CdpApprover.Parse("t1", "[1,2,3]") == null);
+
+            // ---- deciding ------------------------------------------------------------
+            // Port 1 is closed, so the press path returns without reaching an editor. Every
+            // case below that REFUSES never gets that far in the first place.
+            const int ClosedPort = 1;
+
+            string unknown = Decide(ClosedPort, Fake(
+                new[] { "Yes", "Do the thing I have not heard of" }));
+            probe.Check("WITNESS one unrecognised option refuses the whole prompt",
+                unknown != null && unknown.StartsWith("refused:", StringComparison.Ordinal));
+            // The refusal is the line that gets LOGGED, and the diagnostic log is meant to be
+            // attachable to a public issue. An option nobody anticipated can say anything.
+            probe.Check("WITNESS the refusal does not quote what it read",
+                unknown != null
+                && unknown.IndexOf("Do the thing", StringComparison.Ordinal) < 0);
+
+            string noApprove = Decide(ClosedPort, Fake(
+                new[] { "Yes, and don't ask again", "Yes, and auto-accept" }));
+            probe.Check("WITNESS a prompt offering only wider grants is refused",
+                noApprove != null && noApprove.IndexOf("no approve-once",
+                    StringComparison.Ordinal) >= 0);
+
+            string ambiguous = Decide(ClosedPort, Fake(new[] { "Yes", "Allow" }));
+            probe.Check("WITNESS two approve-once rows is ambiguous, so nothing is pressed",
+                ambiguous != null && ambiguous.IndexOf("ambiguous",
+                    StringComparison.Ordinal) >= 0);
+
+            PromptView greyed = Fake(new[] { "Yes", "Yes, and don't ask again" });
+            greyed.Disabled[0] = true;
+            string disabled = Decide(ClosedPort, greyed);
+            probe.Check("WITNESS a greyed-out approve row is not pressed",
+                disabled != null && disabled.IndexOf("disabled",
+                    StringComparison.Ordinal) >= 0);
+
+            // The press path. Against a closed port the click cannot land, and the note says
+            // so rather than claiming success -- which is the property that matters, because a
+            // note reading "approved" when nothing was pressed would be the log line that
+            // cannot fail.
+            string pressed = Decide(ClosedPort, Fake(
+                new[] { "Yes", "Yes, and don't ask again", "No, and tell Claude what to do differently" }));
+            probe.Check("WITNESS an unreachable editor is reported, not called success",
+                pressed != null && pressed.IndexOf("gone", StringComparison.Ordinal) >= 0
+                && pressed.IndexOf("approve-once", StringComparison.Ordinal) >= 0);
+
+            // ---- the tool name, which is text off the screen --------------------------
+            probe.Check("an ordinary tool name passes through", SafeToolName("Bash") == "Bash");
+            probe.Check("WITNESS a tool name carrying anything else is not logged verbatim",
+                SafeToolName("Bash(rm -rf /home/someone)") == "an unrecognised tool"
+                && SafeToolName("C:\\Users\\someone\\x") == "an unrecognised tool");
+            probe.Check("an empty tool name is named, not blank",
+                SafeToolName("") == "an unnamed tool");
+
+            // The click re-check embeds a label read off the screen into an expression. A
+            // label that broke out of its quotes would be script running in the renderer.
+            probe.Check("WITNESS an option label cannot break out of the click expression",
+                CdpApprover.JsonEncode("a\" + alert(1) + \"b")
+                    .IndexOf("alert(1)", StringComparison.Ordinal) > 0
+                && CdpApprover.JsonEncode("a\" + alert(1) + \"b").StartsWith("\"",
+                    StringComparison.Ordinal)
+                && CountUnescapedQuotes(CdpApprover.JsonEncode("a\" + alert(1) + \"b")) == 2);
+            return true;
+        }
+
+        /// <summary>A prompt view with no editor behind it, for the assertions above.</summary>
+        private static PromptView Fake(string[] options)
+        {
+            var view = new PromptView { TargetId = "t1", ToolName = "Bash" };
+            foreach (string option in options) { view.Options.Add(option); view.Disabled.Add(false); }
+            return view;
+        }
+
+        /// <summary>Quotes not preceded by a backslash: a JSON string should have exactly two.</summary>
+        private static int CountUnescapedQuotes(string text)
+        {
+            int count = 0;
+            for (int i = 0; i < text.Length; i++)
+                if (text[i] == '"' && (i == 0 || text[i - 1] != '\\')) count++;
+            return count;
+        }
         private static bool SelfCheckCacheBound(SelfTestProbe probe)
         {
             int normalized, compiled, limit;
