@@ -75,6 +75,15 @@ Desktop AI Companion ships **unsigned** Windows x64 builds. To cut a release:
    | [`tests/mutate-selftest-guards.py`](../tests/mutate-selftest-guards.py) | the host self-test assertions that were previously unfailable | `15/15 fired.` |
    | [`tests/mutate-hardening-guards.py`](../tests/mutate-hardening-guards.py) | the source invariants in `runtime-hardening-selftest.ps1` | `13/13 fired.` |
    | [`tests/mutate-diagnostics.py`](../tests/mutate-diagnostics.py) | the diagnostic-log guards | `22/22 fired.` |
+   | [`tests/difftest-prompt-options.py`](../tests/difftest-prompt-options.py) | the C# prompt-option classifier still agrees with the Python reference | `no disagreements` |
+   | [`docs/agentflow/agentflow_classifier.py --audit`](../docs/agentflow/agentflow_classifier.py) | the option table still covers the INSTALLED Claude Code bundle | `audit OK: all 12 bundle options classified.` |
+
+   The last two are not mutation suites and are cheap, but they belong in the same step: the
+   classifier is what decides whether AgentFlow presses a button, its table is transcribed BY HAND
+   from a bundle that auto-updates underneath us, and `--audit` is the only thing that notices a new
+   option string. An unclassified option is not a cosmetic gap -- one of them refuses the whole
+   prompt, which is the designed behaviour, so the module silently stops approving anything until
+   the table is updated.
 
    A clean `0/N fired` is a red flag and never a result — it usually means the harness rebuilt the wrong
    project, which is why each case names its own csproj and asserts the artifact's timestamp advanced.

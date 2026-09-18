@@ -866,6 +866,7 @@ namespace DesktopAICompanion.AgentFlow
                               && SelfCheckBudget(probe)
                               && SelfCheckPrivacy(probe)
                               && SelfCheckApprovals(probe)
+                              && SelfCheckPromptOptions(probe)
                               && SelfCheckCacheBound(probe);
                     probe.Check("every logic group ran", ok);
 
@@ -1205,6 +1206,110 @@ namespace DesktopAICompanion.AgentFlow
                 StartedUtc = new DateTime(2026, 9, 18, 11, 0, 0, DateTimeKind.Utc),
                 Mode = "auto",
             };
+        }
+
+        /// <summary>
+        /// The prompt-option classifier, which is the safety mechanism for pressing anything.
+        ///
+        /// Every case below is also run through the Python reference by
+        /// tests/difftest-prompt-options.py, which parses this table out of this file, so the two
+        /// implementations cannot drift. The reference carries the bundle transcription and an
+        /// --audit mode that re-derives the option set from whatever Claude Code is installed.
+        ///
+        /// The cases are chosen so that a WRONG implementation fails at least one of them. A
+        /// classifier that answered ApproveOnce for everything, or Unknown for everything, or that
+        /// prefix-matched "yes", fails here.
+        /// </summary>
+        private static bool SelfCheckPromptOptions(SelfTestProbe probe)
+        {
+            // ---- the three that mean "approve this one call" -----------------------------
+            probe.Check("WITNESS a bare Yes is approve-once",
+                KindOf("Yes") == OptionKind.ApproveOnce);
+            probe.Check("WITNESS a rendered template is approve-once",
+                KindOf("Yes, allow access to example.com") == OptionKind.ApproveOnce
+                && KindOf("Yes, allow curl") == OptionKind.ApproveOnce);
+
+            // ---- the seven that are WIDER or change the mode -----------------------------
+            // Every one of these is a string the bundle really ships, and pressing any of them is
+            // the failure all four public tools were measured committing.
+            probe.Check("WITNESS 'and don't ask again' is a WIDER grant, never pressed",
+                KindOf("Yes, and don't ask again") == OptionKind.ApproveWider);
+            probe.Check("WITNESS 'all edits this session' is a WIDER grant",
+                KindOf("Yes, allow all edits this session") == OptionKind.ApproveWider);
+            probe.Check("WITNESS 'set auto mode as my default' is a MODE change",
+                KindOf("Yes, set auto mode as my default") == OptionKind.ModeChange);
+            probe.Check("WITNESS the other three mode changes are mode changes",
+                KindOf("Yes, and auto-accept") == OptionKind.ModeChange
+                && KindOf("Yes, and manually approve edits") == OptionKind.ModeChange
+                && KindOf("Yes, return to normal mode") == OptionKind.ModeChange);
+
+            // ---- normalization, and the one that decides a permanent grant ---------------
+            // A capture renders an apostrophe as U+2019 about as often as U+0027, and this is the
+            // string where that decides whether a WIDER grant is recognised or silently Unknown.
+            probe.Check("WITNESS a curly apostrophe still reads as the wider grant",
+                KindOf("Yes, and don\u2019t ask again") == OptionKind.ApproveWider);
+            probe.Check("list chrome and casing are stripped",
+                KindOf("  2. YES  ") == OptionKind.ApproveOnce
+                && KindOf("\u276F Yes") == OptionKind.ApproveOnce);
+            probe.Check("a trailing ellipsis is decoration",
+                KindOf("Other\u2026") == OptionKind.FreeText);
+
+            // ---- the allowlist: anything else refuses ------------------------------------
+            probe.Check("WITNESS an unseen 'Yes, ...' variant is UNKNOWN, not approve",
+                KindOf("Yes, and trust this publisher forever") == OptionKind.Unknown);
+            probe.Check("empty and null are UNKNOWN",
+                KindOf("") == OptionKind.Unknown && KindOf(null) == OptionKind.Unknown);
+            // A prefix match on the bare word would make this approve-once, and it is exactly how a
+            // prefix implementation ends up pressing "set auto mode as my default".
+            probe.Check("WITNESS 'yes' is EXACT, so a longer unknown string starting with it refuses",
+                KindOf("Yes please") == OptionKind.Unknown);
+
+            // ---- Choose: the row actually pressed ----------------------------------------
+            var real = new List<string>
+            {
+                "Yes",
+                "Yes, and don't ask again",
+                "No, and tell Claude what to do differently",
+            };
+            PromptDecision chosen = PromptOptions.Choose(real);
+            probe.Check("WITNESS a real prompt presses the approve-once row",
+                chosen.WillPress && chosen.Index == 0);
+            probe.Check("...and says what it declined",
+                chosen.Reason != null && chosen.Reason.IndexOf("declined 1", StringComparison.Ordinal) >= 0);
+
+            // ONE UNKNOWN POISONS THE PROMPT. This is the rule that makes text matching safe: a
+            // misread capture or a new bundle string stops the module rather than being ignored.
+            var poisoned = new List<string> { "Yes", "Yes, and something new", "No" };
+            PromptDecision refused = PromptOptions.Choose(poisoned);
+            probe.Check("WITNESS one unrecognised option refuses the WHOLE prompt",
+                !refused.WillPress && refused.Reason.IndexOf("unrecognised", StringComparison.Ordinal) >= 0);
+
+            probe.Check("a prompt with no approve-once row is refused",
+                !PromptOptions.Choose(new List<string> { "Yes, and don't ask again", "No" }).WillPress);
+            probe.Check("WITNESS two approve-once rows are refused as ambiguous rather than guessed",
+                !PromptOptions.Choose(new List<string> { "Yes", "Allow", "No" }).WillPress);
+            probe.Check("no options at all is refused",
+                !PromptOptions.Choose(new List<string>()).WillPress
+                && !PromptOptions.Choose(null).WillPress);
+
+            // The mode is never ours to change, asserted directly rather than left as a
+            // consequence of the filter: no option set may ever produce a mode-change press.
+            var everyModeChange = new List<string>
+            {
+                "Yes, and auto-accept", "Yes, and manually approve edits",
+                "Yes, return to normal mode", "Yes, set auto mode as my default",
+            };
+            PromptDecision never = PromptOptions.Choose(everyModeChange);
+            probe.Check("WITNESS a prompt of ONLY mode changes presses nothing",
+                !never.WillPress);
+            return true;
+        }
+
+        /// <summary>Classification of one option, for the assertions above.</summary>
+        private static OptionKind KindOf(string text)
+        {
+            string matched;
+            return PromptOptions.Classify(text, out matched);
         }
 
         private static bool SelfCheckCacheBound(SelfTestProbe probe)
