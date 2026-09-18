@@ -221,13 +221,23 @@ namespace DesktopAICompanion.AgentFlow
                     // Info rather than a switch, and that is the point: this is not a setting.
                     new SettingField
                     {
-                        Id = "aboutAnswering",
-                        Label = "AgentFlow never answers a prompt for you. It only tells you one "
-                                + "is waiting. Every comparable tool that does answer was found to "
-                                + "press a wider grant than it advertises, so answering is not "
-                                + "offered here and is not a switch you can turn on.",
+                        Id = "aboutSetup",
+                        Label = SetupStatusLine(),
                         Kind = SettingKind.Info,
-                        Group = "What it will not do",
+                        Group = "What it will and will not press",
+                    },
+                    new SettingField
+                    {
+                        Id = "aboutAnswering",
+                        Label = "AgentFlow only ever presses the option that approves THIS ONE "
+                                + "CALL. It never presses “don’t ask again”, never "
+                                + "“allow all edits this session”, and never anything "
+                                + "that changes your permission mode. Every comparable tool was "
+                                + "read at source level and all four press wider than they "
+                                + "advertise. If it cannot recognise even one option on a prompt, "
+                                + "it touches nothing.",
+                        Kind = SettingKind.Info,
+                        Group = "What it will and will not press",
                     },
                     new SettingField
                     {
@@ -258,6 +268,29 @@ namespace DesktopAICompanion.AgentFlow
                         Label = "Check now",
                         InvokeAsync = CheckNowAsync,
                         Group = "AgentFlow",
+                    },
+                    // The setup group. Separate from "Check now" because these WRITE, and to
+                    // another application's configuration at that.
+                    new PaneAction
+                    {
+                        Label = "Enable approving (edits VS Code)",
+                        InvokeAsync = EnableCdpAsync,
+                        Group = "Approving",
+                        ReloadPaneAfter = true,
+                    },
+                    new PaneAction
+                    {
+                        Label = "Disable approving",
+                        InvokeAsync = DisableCdpAsync,
+                        Group = "Approving",
+                        ReloadPaneAfter = true,
+                    },
+                    new PaneAction
+                    {
+                        Label = "Find argv.json...",
+                        InvokeAsync = BrowseForArgvAsync,
+                        Group = "Approving",
+                        ReloadPaneAfter = true,
                     },
                 },
             });
@@ -698,6 +731,165 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>How many distinct executables one audit line names before it says "+N more".</summary>
         private const int ApprovalNamesPerLine = 8;
 
+        // ---- setting up the approve half -------------------------------------------------
+
+        /// <summary>Where the user pointed us, when the usual places did not have argv.json.</summary>
+        private const string SettingArgvPath = "argvPath";
+        /// <summary>The port to ask VS Code for. Stored so a collision can be moved off.</summary>
+        private const string SettingCdpPort = "cdpPort";
+
+        private string ArgvPath
+        {
+            get { return _settings == null ? "" : _settings.Get(SettingArgvPath, ""); }
+        }
+
+        private int CdpPort
+        {
+            get
+            {
+                int stored = _settings == null
+                    ? VsCodeSetup.DefaultPort
+                    : _settings.GetInt(SettingCdpPort, VsCodeSetup.DefaultPort);
+                return stored > 0 && stored <= 65535 ? stored : VsCodeSetup.DefaultPort;
+            }
+        }
+
+        /// <summary>
+        /// One line for the pane saying whether approving can work, and it is allowed to say NO.
+        ///
+        /// The states are deliberately four and not two. "argv.json asks for the port" and "the
+        /// port answers" are different facts: VS Code applies the key at LAUNCH, so between the
+        /// edit and the restart the first is true and the second is false, and a status that
+        /// collapsed them would report success for a setup that cannot work yet.
+        /// </summary>
+        private string SetupStatusLine()
+        {
+            SetupReport report = VsCodeSetup.Inspect(ArgvPath, 250);
+            switch (report.State)
+            {
+                case SetupState.Listening:
+                    return "Approving can work: port " + report.Port + " is answering.";
+                case SetupState.On:
+                    return "Waiting for a VS Code restart. " + report.Detail;
+                case SetupState.Off:
+                    return "Not set up. Press \u201cEnable approving\u201d, then restart VS Code.";
+                case SetupState.Unreadable:
+                    return "Cannot use " + (report.Path ?? "argv.json") + ": " + report.Detail;
+                default:
+                    return report.Detail ?? "No argv.json found.";
+            }
+        }
+
+        /// <summary>
+        /// Write the port into VS Code's argv.json, or explain why not.
+        ///
+        /// It refuses while VS Code is RUNNING, and the reason is not file contention: VS Code
+        /// rewrites argv.json itself, and the restart is what applies the key. Writing under a live
+        /// editor risks the edit being overwritten and guarantees the user thinks it took effect
+        /// when it did not.
+        ///
+        /// It never claims success. The last thing it says is what has to happen next, because the
+        /// write is not the outcome -- the port is, and the port does not exist until a restart.
+        /// </summary>
+        private Task<string> EnableCdpAsync()
+        {
+            string overridePath = ArgvPath;
+            int port = CdpPort;
+            return Task.Run(() =>
+            {
+                if (VsCodeSetup.IsVsCodeRunning())
+                {
+                    return "VS Code is running. Close it first: it rewrites this file itself, and "
+                           + "the change only takes effect at launch, so editing it now would look "
+                           + "like it worked and would not.";
+                }
+                SetupReport report = VsCodeSetup.Inspect(overridePath, 250);
+                if (report.State == SetupState.NotFound)
+                    return report.Detail + " Use \u201cFind argv.json\u201d to point at it.";
+                if (report.State == SetupState.Unreadable)
+                    return "Not touching it: " + report.Detail;
+
+                string original;
+                try { original = System.IO.File.ReadAllText(report.Path); }
+                catch (Exception exception)
+                {
+                    return "Could not read " + report.Path + ": " + exception.Message;
+                }
+                string updated = VsCodeSetup.WithPort(original, port);
+                if (updated == null)
+                    return "Refusing to edit " + report.Path + ": it is not a file this can change "
+                           + "safely.";
+                if (string.Equals(updated, original, StringComparison.Ordinal))
+                    return "Already asking for port " + port + ". Restart VS Code if it is not "
+                           + "answering yet.";
+                // Atomic, and with a BACKUP, because a half-written argv.json stops VS Code
+                // reading ANY of it -- the user would lose their crash-reporter id and every
+                // comment along with the port. TryWriteAllText returns false rather than throwing,
+                // which is the shape a module is supposed to degrade with.
+                if (!DesktopAICompanion.ModuleKit.AtomicFile.TryWriteAllText(
+                        report.Path, updated, report.Path + ".agentflow-backup"))
+                {
+                    return "Could not write " + report.Path + ". Nothing was changed.";
+                }
+                return "Wrote port " + port + " into " + report.Path
+                       + ". START VS CODE and press \u201cCheck now\u201d: until it is answering, "
+                       + "approving cannot work. The port stays open on every launch until you "
+                       + "press \u201cDisable approving\u201d.";
+            });
+        }
+
+        /// <summary>Take the key out again, and say so. As reachable as Enable, on purpose.</summary>
+        private Task<string> DisableCdpAsync()
+        {
+            string overridePath = ArgvPath;
+            return Task.Run(() =>
+            {
+                if (VsCodeSetup.IsVsCodeRunning())
+                    return "VS Code is running. Close it first, for the same reason as enabling.";
+                SetupReport report = VsCodeSetup.Inspect(overridePath, 250);
+                if (report.State == SetupState.NotFound || report.State == SetupState.Unreadable)
+                    return report.Detail;
+                string original;
+                try { original = System.IO.File.ReadAllText(report.Path); }
+                catch (Exception exception) { return "Could not read it: " + exception.Message; }
+                string updated = VsCodeSetup.WithoutPort(original);
+                if (string.Equals(updated, original, StringComparison.Ordinal))
+                    return "It was not asking for a port, so nothing to remove.";
+                if (!DesktopAICompanion.ModuleKit.AtomicFile.TryWriteAllText(
+                        report.Path, updated, report.Path + ".agentflow-backup"))
+                {
+                    return "Could not write it. Nothing was changed.";
+                }
+                return "Removed the debugging port from " + report.Path
+                       + ". It stops opening after the next VS Code restart.";
+            });
+        }
+
+        /// <summary>
+        /// Let the user point at argv.json when it is somewhere this does not look.
+        ///
+        /// A portable install puts it under VSCODE_PORTABLE and a dev build under .vscode-dev, and
+        /// both are checked -- but guessing is not the same as knowing, and an unfound file is a
+        /// worse answer than a file picker.
+        /// </summary>
+        private Task<string> BrowseForArgvAsync()
+        {
+            IHost host = _host;
+            if (host == null || _settings == null)
+                return Task.FromResult("Not ready.");
+            IReadOnlyList<string> picked = host.PickFilesToOpen(
+                "Find VS Code's argv.json", "VS Code runtime arguments", new[] { ".json" });
+            if (picked == null || picked.Count == 0)
+                return Task.FromResult("No file chosen; nothing changed.");
+            string path = picked[0];
+            SetupReport report = VsCodeSetup.Inspect(path, 250);
+            if (report.State == SetupState.Unreadable)
+                return Task.FromResult("That file cannot be used: " + report.Detail);
+            _settings.Set(SettingArgvPath, path);
+            _settings.Save();
+            return Task.FromResult("Using " + path + ". " + report.Detail);
+        }
+
         private Task<string> CheckNowAsync()
         {
             bool watchClaude = WatchClaude, watchCodex = WatchCodex;
@@ -867,6 +1059,7 @@ namespace DesktopAICompanion.AgentFlow
                               && SelfCheckPrivacy(probe)
                               && SelfCheckApprovals(probe)
                               && SelfCheckPromptOptions(probe)
+                              && SelfCheckVsCodeSetup(probe)
                               && SelfCheckCacheBound(probe);
                     probe.Check("every logic group ran", ok);
 
@@ -1310,6 +1503,185 @@ namespace DesktopAICompanion.AgentFlow
         {
             string matched;
             return PromptOptions.Classify(text, out matched);
+        }
+
+        // Assembled rather than written as literals so the assertions below stay readable.
+        private const string NL_ = "\n";
+        private const string TAB_ = "\t";
+        private const string QT_ = "\"";
+
+        /// <summary>
+        /// Editing VS Code's argv.json without destroying it.
+        ///
+        /// The fixture below is the REAL shape: the file VS Code ships carries fourteen comment
+        /// lines, including its own "PLEASE DO NOT CHANGE WITHOUT UNDERSTANDING THE IMPACT", and a
+        /// strict JSON parse of it FAILS. So every assertion here is about a text edit that leaves
+        /// those comments alone, and the first one is the one that matters: parse-then-reserialize
+        /// would have silently deleted Microsoft's documentation out of the user's config.
+        /// </summary>
+        private static bool SelfCheckVsCodeSetup(SelfTestProbe probe)
+        {
+            // The shipped file, comments and tabs and all.
+            string shipped =
+                "// This configuration file allows you to pass permanent command line arguments." + NL_ +
+                "//" + NL_ +
+                "// PLEASE DO NOT CHANGE WITHOUT UNDERSTANDING THE IMPACT" + NL_ +
+                "{" + NL_ +
+                TAB_ + "// Allows to disable crash reporting." + NL_ +
+                TAB_ + QT_ + "enable-crash-reporter" + QT_ + ": true," + NL_ +
+                TAB_ + QT_ + "crash-reporter-id" + QT_ + ": " + QT_ + "abc" + QT_ + NL_ +
+                "}" + NL_;
+
+            probe.Check("WITNESS the shipped file is JSONC, so the module must not parse it",
+                VsCodeSetup.StripLineComments(shipped).IndexOf("PLEASE DO NOT", StringComparison.Ordinal) < 0
+                && shipped.IndexOf("PLEASE DO NOT", StringComparison.Ordinal) >= 0);
+
+            string enabled = VsCodeSetup.WithPort(shipped, 9321);
+            probe.Check("the port is added as a STRING, because a number is silently ignored",
+                enabled != null
+                && enabled.IndexOf(QT_ + "remote-debugging-port" + QT_ + ": " + QT_ + "9321" + QT_,
+                                   StringComparison.Ordinal) >= 0);
+            // The whole point of a text edit. Every comment line survives, and so do the other keys.
+            probe.Check("WITNESS every comment line survives the edit",
+                CountOccurrences(enabled, "//") == CountOccurrences(shipped, "//")
+                && enabled.IndexOf("PLEASE DO NOT CHANGE", StringComparison.Ordinal) >= 0);
+            probe.Check("...and so do the keys that were already there",
+                enabled.IndexOf("enable-crash-reporter", StringComparison.Ordinal) >= 0
+                && enabled.IndexOf("crash-reporter-id", StringComparison.Ordinal) >= 0);
+            probe.Check("the result reads back as the port that was written",
+                VsCodeSetup.ReadPort(enabled) == 9321);
+
+            // Idempotent: enabling twice must not add a second key.
+            string twice = VsCodeSetup.WithPort(enabled, 9321);
+            probe.Check("WITNESS enabling twice does not add a second key",
+                CountOccurrences(twice, "remote-debugging-port") == 1);
+            string moved = VsCodeSetup.WithPort(enabled, 9999);
+            probe.Check("changing the port replaces the value rather than appending",
+                VsCodeSetup.ReadPort(moved) == 9999
+                && CountOccurrences(moved, "remote-debugging-port") == 1);
+
+            // Disable must leave the file valid, which means no dangling comma.
+            string off = VsCodeSetup.WithoutPort(enabled);
+            probe.Check("WITNESS disabling removes the key",
+                VsCodeSetup.ReadPort(off) == 0
+                && off.IndexOf("remote-debugging-port", StringComparison.Ordinal) < 0);
+            probe.Check("...and leaves the comments and the other keys alone",
+                CountOccurrences(off, "//") == CountOccurrences(shipped, "//")
+                && off.IndexOf("crash-reporter-id", StringComparison.Ordinal) >= 0);
+
+            // An empty object is the other real shape: VS Code writes one on first run.
+            string bare = "{" + NL_ + "}" + NL_;
+            string bareOn = VsCodeSetup.WithPort(bare, 9321);
+            probe.Check("an argv.json with no members gets the key with NO leading comma",
+                bareOn != null && VsCodeSetup.ReadPort(bareOn) == 9321
+                && bareOn.IndexOf(",", StringComparison.Ordinal) < 0);
+
+            // A `//` inside a string value must not be treated as a comment, or a Windows path in
+            // some other key would truncate the line and hide a real setting.
+            string pathy = "{" + NL_ + TAB_ + QT_ + "proxy-bypass-list" + QT_ + ": "
+                           + QT_ + "http://x" + QT_ + "," + NL_
+                           + TAB_ + QT_ + "remote-debugging-port" + QT_ + ": " + QT_ + "7777" + QT_
+                           + NL_ + "}" + NL_;
+            probe.Check("WITNESS a // inside a string value is not mistaken for a comment",
+                VsCodeSetup.ReadPort(pathy) == 7777);
+
+            // REFUSALS. A file that is not an argv.json must not be overwritten with a fresh one.
+            probe.Check("WITNESS a file with no top-level object is refused, not replaced",
+                VsCodeSetup.WithPort("this is not json at all", 9321) == null);
+            probe.Check("an out-of-range port is refused",
+                VsCodeSetup.WithPort(shipped, 0) == null
+                && VsCodeSetup.WithPort(shipped, 70000) == null);
+
+            // CRLF must survive, or the whole file shows as modified in a diff.
+            string crlf = "{\r\n}\r\n";
+            string crlfOn = VsCodeSetup.WithPort(crlf, 9321);
+            probe.Check("CRLF line endings are preserved",
+                crlfOn != null && crlfOn.IndexOf("\r\n", StringComparison.Ordinal) >= 0);
+
+            // The port default must not be the one every Chromium tool grabs.
+            probe.Check("WITNESS the default port is not 9222, which Chrome and Edge take",
+                VsCodeSetup.DefaultPort != 9222);
+
+            // Probing is the only thing that means "working", and it must say NO for a dead port.
+            probe.Check("WITNESS a port nothing listens on probes as closed",
+                !VsCodeSetup.Probe(1, 250) && !VsCodeSetup.Probe(0, 250));
+
+            // THE ROUND TRIP, AGAINST THE REAL FILE ON THIS MACHINE. Read-only: the assertion is
+            // that enabling and then disabling returns the user's argv.json BYTE FOR BYTE, which is
+            // the property that says the edit is surgical rather than a rewrite. The fixtures above
+            // cannot prove it, because I wrote them; this file I did not.
+            //
+            // DEGRADED and said out loud when there is no argv.json, rather than skipped: VS Code
+            // writes one on first run, so its absence is a legitimate state on a machine that has
+            // never opened it.
+            string realPath = null;
+            foreach (string candidate in VsCodeSetup.CandidatePaths())
+            {
+                try { if (System.IO.File.Exists(candidate)) { realPath = candidate; break; } }
+                catch { }
+            }
+            if (realPath == null)
+            {
+                probe.Note("DEGRADED: no argv.json on this machine, so the round trip against a "
+                           + "file this module did not write was NOT exercised");
+            }
+            else
+            {
+                string original = null;
+                try { original = System.IO.File.ReadAllText(realPath); }
+                catch { }
+                if (original == null)
+                {
+                    probe.Note("DEGRADED: argv.json could not be read, so the round trip was NOT "
+                               + "exercised");
+                }
+                else
+                {
+                    int had = VsCodeSetup.ReadPort(original);
+                    string on = VsCodeSetup.WithPort(original, 9321);
+                    probe.Check("WITNESS the real argv.json accepts the key (" + realPath + ")",
+                        on != null && VsCodeSetup.ReadPort(on) == 9321);
+                    if (on != null)
+                    {
+                        probe.Check("WITNESS every comment in the REAL file survives",
+                            CountOccurrences(on, "//") == CountOccurrences(original, "//"));
+                        // Only a round trip from a file that did NOT already have the key can come
+                        // back identical; if it had one, restoring it is the comparison instead.
+                        string restored = VsCodeSetup.WithoutPort(on);
+                        if (had <= 0)
+                        {
+                            probe.Check("WITNESS enable-then-disable returns the real file BYTE FOR BYTE",
+                                string.Equals(restored, original, StringComparison.Ordinal));
+                        }
+                        else
+                        {
+                            probe.Check("the real file already asks for a port, so the round trip "
+                                        + "restores that value rather than removing it",
+                                VsCodeSetup.ReadPort(VsCodeSetup.WithPort(restored, had)) == had);
+                        }
+                    }
+                }
+            }
+
+            // Inspect on a path that does not exist reports NotFound with a reason, never throws.
+            SetupReport missing = VsCodeSetup.Inspect(
+                System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dp-no-such-argv.json"), 100);
+            probe.Check("a missing argv.json reports NotFound and says what to do",
+                missing.State == SetupState.NotFound
+                && !string.IsNullOrEmpty(missing.Detail));
+            return true;
+        }
+
+        private static int CountOccurrences(string text, string needle)
+        {
+            if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(needle)) return 0;
+            int count = 0, at = 0;
+            while ((at = text.IndexOf(needle, at, StringComparison.Ordinal)) >= 0)
+            {
+                count++;
+                at += needle.Length;
+            }
+            return count;
         }
 
         private static bool SelfCheckCacheBound(SelfTestProbe probe)
