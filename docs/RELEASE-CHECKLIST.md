@@ -72,9 +72,9 @@ Desktop AI Companion ships **unsigned** Windows x64 builds. To cut a release:
    | harness | proves | expect |
    |---|---|---|
    | [`tests/mutate-agentflow.py`](../tests/mutate-agentflow.py) | `--module-selftest=agentflow` is not a rubber stamp | `23/23 fired.` |
-   | [`tests/mutate-selftest-guards.py`](../tests/mutate-selftest-guards.py) | the host self-test assertions that were previously unfailable | `6/6 fired.` |
-   | [`tests/mutate-hardening-guards.py`](../tests/mutate-hardening-guards.py) | the source invariants in `runtime-hardening-selftest.ps1` | `7/7 fired.` |
-   | [`tests/mutate-diagnostics.py`](../tests/mutate-diagnostics.py) | the diagnostic-log guards | `20/20 fired.` |
+   | [`tests/mutate-selftest-guards.py`](../tests/mutate-selftest-guards.py) | the host self-test assertions that were previously unfailable | `15/15 fired.` |
+   | [`tests/mutate-hardening-guards.py`](../tests/mutate-hardening-guards.py) | the source invariants in `runtime-hardening-selftest.ps1` | `13/13 fired.` |
+   | [`tests/mutate-diagnostics.py`](../tests/mutate-diagnostics.py) | the diagnostic-log guards | `22/22 fired.` |
 
    A clean `0/N fired` is a red flag and never a result — it usually means the harness rebuilt the wrong
    project, which is why each case names its own csproj and asserts the artifact's timestamp advanced.
@@ -82,7 +82,13 @@ Desktop AI Companion ships **unsigned** Windows x64 builds. To cut a release:
    how `tests/runtime-resource-soak.ps1` once got deleted as "an unreferenced script" three hours after CI
    stopped calling it, leaving the only leak gate unrunnable. This table is the reference.
 
-   Every count above was measured on 2026-09-17, and running them is what found the reason to write this
+   **Run each one WHOLE, not the cases you touched.** Measured 2026-09-18: running
+   `mutate-agentflow.py` in full at the end of a session reported 14/23, because
+   `TreatWarningsAsErrors` had been turned on for module projects that morning and nine of its
+   mutations disable a line with `if (false)`, which is CS0162. Hours of per-case runs had all
+   looked green. The counts above are the numbers a whole run must print.
+
+   Every count was measured on 2026-09-17, and running them is what found the reason to write this
    step down: `mutate-diagnostics.py` came back **19/20**, because one case had searched for a log line
    that was rewritten in 1.1.1. It printed `NO-OP pattern matched 0 times` every run, honestly, to nobody.
    A mutation suite that is not itself run rots into a suite that reports more coverage than it has.
