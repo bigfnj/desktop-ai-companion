@@ -37,6 +37,7 @@ HOST = os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs")
 FORTUNES_MODULE = os.path.join(REPO, "modules", "Fortunes", "FortunesModule.cs")
 FORTUNE_PROVIDER = os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneProvider.cs")
 FRESHNESS = os.path.join(REPO, "src", "dotNet", "CompanionFreshness.cs")
+COMPANION_HOST = os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs")
 
 TEMP = os.environ.get("TEMP", ".")
 
@@ -102,12 +103,31 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--hardening-selftest", "dp-hardening-selftest.txt",
      "own hash is NOT offered as an update"),
+
+    # The shared-context PUSH half, which had never executed before 2026-09-17. The raise, and the
+    # best-effort promise its own comment makes.
+    ("publishing context stops raising ContextChanged",
+     COMPANION_HOST,
+     b"            if (handler != null) { try { handler(key); } catch { } }",
+     b"            if (handler == null) { try { handler(key); } catch { } }",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "publishing RAISES ContextChanged"),
+
+    ("a throwing subscriber takes down the publisher's tick",
+     COMPANION_HOST,
+     b"            if (handler != null) { try { handler(key); } catch { } }",
+     b"            if (handler != null) { handler(key); }",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "THROWING subscriber does not take down"),
 )
 
 BASELINES = (
     ("--hardening-selftest", "dp-hardening-selftest.txt"),
     ("--aibrain-selftest", "dp-aibrain-selftest.txt"),
     ("--fortunes-selftest", "dp-fortunes-selftest.txt"),
+    ("--module-host-selftest", "dp-module-host-selftest.txt"),
 )
 
 

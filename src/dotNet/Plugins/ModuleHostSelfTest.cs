@@ -53,6 +53,7 @@ namespace DesktopAICompanion.Plugins
                 ok &= WeeklyCheckSchedule(sb);
                 ok &= UpdateScanVersionRule(sb);
                 ok &= ScratchSweep(sb);
+                ok &= SharedContextChannel(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
             return Finish(sb, ok);
@@ -193,6 +194,63 @@ namespace DesktopAICompanion.Plugins
                 if (!SelfTestScratch.TryRelease(root, out releaseDetail))
                     sb.AppendLine("NOTE: scratch left for the next sweep (" + releaseDetail + ")");
             }
+            return ok;
+        }
+
+        /// <summary>
+        /// The shared-context channel, both halves, against the REAL CompanionHost.
+        ///
+        /// Written 2026-09-17 because the PUSH half had never executed. `ContextChanged` is raised by
+        /// exactly one publisher (Reminder) and subscribed by nothing in the repo -- the one plausible
+        /// consumer, Remembrance, reads `ReadContext` at the moment it uses the value instead. That is
+        /// the right design and it is now recorded as a decision in docs/DESIGN-REGISTER.md, but it
+        /// left an ABI event that had never been delivered to anyone.
+        ///
+        /// The last two assertions are the ones that make that decision CHECKABLE rather than a
+        /// paragraph: the host retains every value, so a reader arriving late still gets it, while a
+        /// SUBSCRIBER arriving late gets nothing at all. If those two ever stop being true, the reason
+        /// Remembrance reads at use is gone and the register entry is wrong.
+        /// </summary>
+        private static bool SharedContextChannel(StringBuilder sb)
+        {
+            var host = new CompanionHost(null);
+            var delivered = new System.Collections.Generic.List<string>();
+            Action<string> subscriber = key => delivered.Add(key);
+            host.ContextChanged += subscriber;
+
+            host.PublishContext("a-module", "meeting", "{\"title\":\"standup\"}");
+            bool ok = Check(sb, "context: publishing RAISES ContextChanged with the key",
+                delivered.Count == 1 && delivered[0] == "meeting");
+            ok &= Check(sb, "context: ...and the value reads back",
+                host.ReadContext("meeting") == "{\"title\":\"standup\"}");
+
+            // The raise is documented as best-effort: "a throwing subscriber must not take down the
+            // publisher's tick". A module that throws in a handler would otherwise break Reminder.
+            Action<string> thrower = key => { throw new InvalidOperationException("subscriber blew up"); };
+            host.ContextChanged += thrower;
+            bool publishSurvived = true;
+            try { host.PublishContext("a-module", "meeting", "{}"); }
+            catch { publishSurvived = false; }
+            ok &= Check(sb, "context: a THROWING subscriber does not take down the publisher",
+                publishSurvived);
+            host.ContextChanged -= thrower;
+            host.ContextChanged -= subscriber;
+
+            ok &= Check(sb, "context: an empty key publishes nothing and reads back empty",
+                host.ReadContext("") == "" && host.ReadContext(null) == "");
+
+            // The retain guarantee, and its mirror. These two together are why reading at use beats
+            // subscribing for a consumer that only needs the CURRENT value.
+            int deliveredBefore = delivered.Count;
+            host.PublishContext("a-module", "late", "42");
+            var lateSubscriber = new System.Collections.Generic.List<string>();
+            Action<string> late = key => lateSubscriber.Add(key);
+            host.ContextChanged += late;
+            ok &= Check(sb, "context: WITNESS a reader arriving after the publish still gets the value",
+                host.ReadContext("late") == "42");
+            ok &= Check(sb, "context: WITNESS a SUBSCRIBER arriving after the publish gets nothing",
+                lateSubscriber.Count == 0 && delivered.Count == deliveredBefore);
+            host.ContextChanged -= late;
             return ok;
         }
 

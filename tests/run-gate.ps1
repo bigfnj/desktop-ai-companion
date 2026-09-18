@@ -67,10 +67,22 @@ try {
     # PowerShell and would have been fine.
     $selfTestOutput = @(& (Join-Path $repoRoot 'tests\Invoke-SelfTests.ps1') `
         -ExecutablePath $exe -OutputRoot $outputRoot)
+    # The count comes back on stdout rather than being read out of the child's scope. It used to be
+    # $SelfTestFlags.Count, which that script sets and this one cannot see -- see the comment beside
+    # $CountPrefix there for why that broke only the PASSING run.
+    $selfTestCount = 0
     foreach ($line in $selfTestOutput) {
         if ($line -like 'SELFTEST-FAILURE:*') {
             $failures.Add($line.Substring('SELFTEST-FAILURE: '.Length))
         }
+        elseif ($line -like 'SELFTEST-COUNT:*') {
+            $selfTestCount = [int]$line.Substring('SELFTEST-COUNT: '.Length)
+        }
+    }
+    # A summary that can print "0 self-tests" is the same failure one level up: it would report a
+    # green gate over a self-test runner that never ran anything.
+    if ($selfTestCount -le 0) {
+        $failures.Add('Invoke-SelfTests.ps1 reported no self-test count, so the runner did not run')
     }
 
     # try/catch, NOT $LASTEXITCODE, for these three. Corrected 2026-09-17 after an audit.
@@ -137,7 +149,7 @@ try {
     # Counted, not typed. This line said 18 while the table held 19, which is the same drift
     # the doc-count invariants now catch -- and a gate that miscounts its own coverage is the
     # least convincing place to have it.
-    Write-Host ("GATE PASSED (build 0 warnings, core tests, $($SelfTestFlags.Count) self-tests " +
+    Write-Host ("GATE PASSED (build 0 warnings, core tests, $selfTestCount self-tests " +
         'with no skips, invariants, payloads, template, shimeji verify + selftest).') -ForegroundColor Green
 }
 finally {

@@ -58,6 +58,18 @@ Set-StrictMode -Version Latest
 
 # Every failure line carries this. See .OUTPUTS for why a sentinel rather than the pipeline.
 $FailurePrefix = 'SELFTEST-FAILURE: '
+# How many self-tests this table registers, reported to the CALLER on stdout.
+#
+# It exists because a caller cannot see $SelfTestFlags. This script is invoked with & (a child
+# scope), so run-gate.ps1's summary line read an unset variable -- and under
+# Set-StrictMode -Version Latest that is a TERMINATING error, not an empty string. The gate
+# therefore worked on failure, where it exits before the summary, and threw on SUCCESS. It shipped
+# that way for hours because the gate is red for an unrelated reason (module payload freshness), so
+# the success path was never reached. Found by an audit, not by a run.
+#
+# Emitted BEFORE any work, so it is present even on the early return below: a caller reporting
+# "0 self-tests" instead of failing would be the same class of bug one level up.
+$CountPrefix = 'SELFTEST-COUNT: '
 
 if (-not $LogDirectory) { $LogDirectory = $env:TEMP }
 
@@ -110,6 +122,8 @@ $SelfTestFlags = [ordered]@{
     '--module-selftest=blinkingled'      = 'dp-module-blinkingled-selftest.txt'
     '--module-selftest=agentflow'        = 'dp-module-agentflow-selftest.txt'
 }
+
+Write-Output ($CountPrefix + $SelfTestFlags.Count)
 
 if (-not (Test-Path -LiteralPath $ExecutablePath)) {
     Write-Output ($FailurePrefix + "the executable is missing: $ExecutablePath")

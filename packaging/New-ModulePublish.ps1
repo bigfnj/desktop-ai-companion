@@ -112,9 +112,13 @@ if ($permissionsMatch.Success) {
 
 # Publish AFTER the module's source is committed, never before. Test-ModulePublishFreshness compares commit
 # RECENCY, so a zip committed ahead of the source it was built from reads as stale even though its bytes are
-# correct -- and because the zip is deterministic, re-zipping then produces identical bytes, leaving no new
-# commit available to fix the ordering. The only ways out are rewriting history or a dummy commit, so refuse
-# up front instead. (This bit me publishing the ModuleKit migration.)
+# correct -- and re-zipping under the SAME PowerShell then produces identical bytes, leaving no new commit
+# available to fix the ordering. The only ways out are rewriting history or a dummy commit, so refuse up
+# front instead. (This bit me publishing the ModuleKit migration.)
+#
+# 'the zip is deterministic' used to be stated without the qualifier and it is not true across editions:
+# measured 2026-09-17, the same payload zips to 63,580 bytes under 5.1 and 64,271 under pwsh 7. That is why
+# both zip scripts now require 7, and why this reads 'the same PowerShell' rather than 'deterministic'.
 Push-Location $repoRoot
 # The parentheses around the concatenation are load-bearing: without them PowerShell splits
 # 'modules/' + $moduleDir.Name into TWO array elements, so git received the pathspecs `modules/` and

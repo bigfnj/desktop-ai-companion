@@ -1,4 +1,15 @@
-#requires -Version 5
+# 7+, and MEASURED rather than assumed. This script's whole promise is byte-reproducible output, and
+# System.IO.Compression does not keep it across PowerShell editions: the same 262,144-byte payload,
+# the same entry name, the same 1980-01-01 LastWriteTime and ExternalAttributes=0 produced 63,580
+# bytes under Windows PowerShell 5.1.26100 and 64,271 bytes under pwsh 7.6.5, with different SHA-256
+# (E14D9AAF64B4... vs E63670FE570A...). The deflate implementation differs; nothing in the entry
+# metadata does.
+#
+# That matters because these zips are COMMITTED, served off master, and hashed in catalog.json. A
+# hand re-zip under powershell.exe churns a binary every user downloads and forces a new catalog
+# hash for no functional change. Today's committed zips are consistent only because the automated
+# path runs through New-ModulePublish.ps1, which is already 7+.
+#requires -Version 7
 <#
     Zips one module's build output into packaging/modules-dist/<id>.zip -- the exact shape
     ModulesPaneControl's install flow extracts directly into modules/<id>/ (files at the

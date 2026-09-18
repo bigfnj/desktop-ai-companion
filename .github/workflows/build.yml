@@ -75,7 +75,16 @@ jobs:
         run: |
           dotnet build tools\ShimejiConvert\ShimejiConvert.csproj -c Release --nologo -v:minimal
           if ($LASTEXITCODE -ne 0) { throw 'ShimejiConvert build failed.' }
-          $convert = 'tools\ShimejiConvert\bin\Release\net10.0-windows\ShimejiConvert.exe'
+          # No TFM folder: the csproj sets AppendTargetFrameworkToOutputPath=false and
+          # OutputPath=bin\Release\. The path here named bin\Release\net10.0-windows\, which has
+          # never existed, so this step could only ever fail to find the exe, and it was worse than
+          # that: $LASTEXITCODE still held 0 from the dotnet build above, so if pwsh's
+          # $ErrorActionPreference were not 'stop' on GitHub's runners, BOTH guards below would pass
+          # and the step would exit 0 having verified nothing. run-gate.ps1 has always had the path
+          # right, which is why the local gate caught corpus regressions and CI did not.
+          # Existence is asserted rather than assumed, so a future output-path change fails loudly.
+          $convert = 'tools\ShimejiConvert\bin\Release\ShimejiConvert.exe'
+          if (-not (Test-Path -LiteralPath $convert)) { throw "ShimejiConvert.exe missing after build: $convert" }
           & $convert verify Companions
           if ($LASTEXITCODE -ne 0) { throw 'ShimejiConvert verify failed.' }
           & $convert selftest
@@ -90,7 +99,7 @@ jobs:
         run: .\packaging\Test-ModulePublishFreshness.ps1
 
       - name: Check the module template still scaffolds a module that builds
-        # Nothing else builds templates\desktoppet-module, so a rename in the ABI or ModuleKit would leave it
+        # Nothing else builds templates\desktop-ai-companion-module, so a rename in the ABI or ModuleKit would leave it
         # broken and nobody would find out until someone tried to start a module. Scaffolds a throwaway
         # module, asserts every placeholder was substituted and that ModuleKit ships beside it while
         # Contracts does not, builds it, then removes it. tests\run-gate.ps1 runs this too.
