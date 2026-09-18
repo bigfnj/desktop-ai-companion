@@ -237,8 +237,14 @@ namespace DesktopAICompanion.AgentFlow
         /// `alreadyCounted` is consumed AND updated, so a call is counted once however many times
         /// the transcript is re-read. The caller owns pruning it.
         /// </summary>
+        /// <param name="recent">
+        /// Optional. When given, each approved call is appended here WITH ITS COMMAND, for the
+        /// approvals card in the options pane and nothing else. Null for every other caller,
+        /// which is the default and keeps the command text where it has always stayed.
+        /// </param>
         public static Dictionary<string, int> ApprovedSince(AgentSession session, RuleSet rules,
-                                                            HashSet<string> alreadyCounted)
+                                                            HashSet<string> alreadyCounted,
+                                                            IList<ApprovalEntry> recent)
         {
             var tally = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
             if (session == null || session.Completed == null) return tally;
@@ -255,6 +261,15 @@ namespace DesktopAICompanion.AgentFlow
                 // "everything that ran", which is not an approval record.
                 if (verdict != RuleVerdict.WouldAllow) continue;
                 string root = RootExecutable(call);
+                if (recent != null)
+                {
+                    recent.Add(new ApprovalEntry
+                    {
+                        WhenLocal = DateTime.Now,
+                        Root = root,
+                        Command = call.Command ?? "",
+                    });
+                }
                 int current;
                 tally.TryGetValue(root, out current);
                 tally[root] = current + 1;

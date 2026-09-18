@@ -411,10 +411,13 @@ namespace DesktopAICompanion.AgentFlow
             {
                 List<Detection> results = null;
                 Dictionary<string, int> approved = null;
+                // Collected on the worker, handed to the UI thread, and never touched from
+                // both: the feed itself is only ever mutated inside PostToUi.
+                var freshApprovals = new List<ApprovalEntry>();
                 try
                 {
                     results = Scan(watchClaude, watchCodex, threshold, _approvalsCounted,
-                                   out approved);
+                                   out approved, freshApprovals);
                 }
                 catch (Exception)
                 {
@@ -462,10 +465,13 @@ namespace DesktopAICompanion.AgentFlow
                     bool portUp = answering;
                     bool panelUp = sawPanel;
                     string note = approvalNote;
+                    List<ApprovalEntry> forFeed = freshApprovals;
                     PostToUi(() =>
                     {
                         _portAnswering = portUp;
                         _panelReadable = panelUp;
+                        foreach (ApprovalEntry entry in forFeed)
+                            _approvalFeed.Record(entry.WhenLocal, entry.Root, entry.Command);
                         if (forApply != null)
                         {
                             Apply(forApply);
@@ -659,7 +665,7 @@ namespace DesktopAICompanion.AgentFlow
         internal static List<Detection> Scan(bool watchClaude, bool watchCodex, double threshold)
         {
             Dictionary<string, int> ignored;
-            return Scan(watchClaude, watchCodex, threshold, null, out ignored);
+            return Scan(watchClaude, watchCodex, threshold, null, out ignored, null);
         }
 
         /// <summary>
@@ -671,7 +677,8 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         internal static List<Detection> Scan(bool watchClaude, bool watchCodex, double threshold,
                                              HashSet<string> approvalsCounted,
-                                             out Dictionary<string, int> approved)
+                                             out Dictionary<string, int> approved,
+                                             IList<ApprovalEntry> recent)
         {
             int sources;
             RuleSet rules = RuleLoader.Load(RuleLoader.DefaultPaths(), out sources);
@@ -688,7 +695,7 @@ namespace DesktopAICompanion.AgentFlow
                     AgentSession session = TranscriptReader.ReadClaude(path);
                     Detection detection = BlockedDetector.Evaluate(session, rules, threshold, now);
                     if (detection != null) results.Add(detection);
-                    Tally(session, rules, approvalsCounted, approved, live);
+                    Tally(session, rules, approvalsCounted, approved, live, recent);
                 }
             }
             if (watchCodex)
@@ -699,7 +706,7 @@ namespace DesktopAICompanion.AgentFlow
                     AgentSession session = TranscriptReader.ReadCodex(path);
                     Detection detection = BlockedDetector.Evaluate(session, rules, threshold, now);
                     if (detection != null) results.Add(detection);
-                    Tally(session, rules, approvalsCounted, approved, live);
+                    Tally(session, rules, approvalsCounted, approved, live, recent);
                 }
             }
 
@@ -718,7 +725,8 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>Fold one session's newly-approved calls into the running tally.</summary>
         private static void Tally(AgentSession session, RuleSet rules,
                                   HashSet<string> approvalsCounted,
-                                  Dictionary<string, int> approved, HashSet<string> live)
+                                  Dictionary<string, int> approved, HashSet<string> live,
+                                  IList<ApprovalEntry> recent)
         {
             if (session == null) return;
             if (session.Completed != null)
@@ -727,7 +735,7 @@ namespace DesktopAICompanion.AgentFlow
                         live.Add(session.SessionId + "/" + call.Id);
             if (approvalsCounted == null) return;
             Dictionary<string, int> tally =
-                BlockedDetector.ApprovedSince(session, rules, approvalsCounted);
+                BlockedDetector.ApprovedSince(session, rules, approvalsCounted, recent);
             foreach (KeyValuePair<string, int> entry in tally)
             {
                 int current;
@@ -974,6 +982,15 @@ namespace DesktopAICompanion.AgentFlow
         /// than a running total, and conflating them would tie the audit to the speech cooldown.
         /// </summary>
         private readonly HashSet<string> _approvalsCounted = new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// The last few approvals, WITH their command text, for the options pane only.
+        ///
+        /// UI thread only. The scan collects into a throwaway list on the worker and the
+        /// UI thread folds it in, so this object is never touched from two threads -- the
+        /// same discipline the rest of the poll already follows.
+        /// </summary>
+        private readonly ApprovalFeed _approvalFeed = new ApprovalFeed();
 
         /// <summary>
         /// Write what the rules approved since the last poll. UI thread, because IHost.Log is.
@@ -1470,6 +1487,7 @@ namespace DesktopAICompanion.AgentFlow
                               && SelfCheckPressBudget(probe)
                               && SelfCheckMode(probe)
                               && SelfCheckQuips(probe)
+                              && SelfCheckApprovalFeed(probe)
                               && SelfCheckCacheBound(probe);
                     probe.Check("every logic group ran", ok);
 
@@ -1718,7 +1736,7 @@ namespace DesktopAICompanion.AgentFlow
             session.NoteCompleted(Completed("c5", "jq ."));
 
             var counted = new HashSet<string>(StringComparer.Ordinal);
-            Dictionary<string, int> tally = BlockedDetector.ApprovedSince(session, rules, counted);
+            Dictionary<string, int> tally = BlockedDetector.ApprovedSince(session, rules, counted, null);
 
             probe.Check("WITNESS approvals are counted per executable, not per call",
                 tally.Count == 2 && tally.ContainsKey("git") && tally["git"] == 2
@@ -1734,7 +1752,7 @@ namespace DesktopAICompanion.AgentFlow
 
             // Counted once, however often the transcript is re-read. The module re-reads on every
             // poll, so without this the log would repeat the same approvals every few seconds.
-            Dictionary<string, int> again = BlockedDetector.ApprovedSince(session, rules, counted);
+            Dictionary<string, int> again = BlockedDetector.ApprovedSince(session, rules, counted, null);
             probe.Check("WITNESS a second read of the same transcript counts nothing again",
                 again.Count == 0);
 
@@ -1754,7 +1772,7 @@ namespace DesktopAICompanion.AgentFlow
             var pathRules = new RuleSet();
             pathRules.Allow.Add("Bash(/usr/local/secret-dir/git *)");
             Dictionary<string, int> pathTally =
-                BlockedDetector.ApprovedSince(pathy, pathRules, new HashSet<string>(StringComparer.Ordinal));
+                BlockedDetector.ApprovedSince(pathy, pathRules, new HashSet<string>(StringComparer.Ordinal), null);
             probe.Check("WITNESS an executable given by PATH is logged as its leaf only",
                 pathTally.ContainsKey("git") && !pathTally.ContainsKey("/usr/local/secret-dir/git"));
 
@@ -2663,6 +2681,95 @@ namespace DesktopAICompanion.AgentFlow
         {
             return !string.IsNullOrEmpty(line)
                    && line.IndexOf('{') < 0 && line.IndexOf('}') < 0;
+        }
+        /// <summary>
+        /// The approvals feed: the one place in this module that keeps command text.
+        ///
+        /// Every assertion here is about CONTAINMENT rather than about the list working. The
+        /// module's standing rule is that a command never leaves TranscriptReader, and this
+        /// is the first thing that holds one, so what has to be proven is that the pane can
+        /// see it and nothing else can.
+        /// </summary>
+        private static bool SelfCheckApprovalFeed(SelfTestProbe probe)
+        {
+            var feed = new ApprovalFeed();
+            probe.Check("an empty feed says so rather than rendering blank",
+                feed.Render().IndexOf("Nothing approved", StringComparison.Ordinal) >= 0);
+
+            DateTime t0 = new DateTime(2026, 9, 18, 13, 42, 0, DateTimeKind.Local);
+            for (int i = 0; i < ApprovalFeed.Cap + 7; i++)
+                feed.Record(t0.AddMinutes(i), "git",
+                    "git commit -m " + i.ToString(CultureInfo.InvariantCulture));
+            probe.Check("WITNESS the feed is bounded, so it cannot grow for the life of the app",
+                feed.Count == ApprovalFeed.Cap);
+
+            IReadOnlyList<ApprovalEntry> recent = feed.Recent();
+            probe.Check("WITNESS the newest approval is first, and the oldest fell off",
+                recent.Count == ApprovalFeed.Cap
+                && recent[0].Command.EndsWith("16", StringComparison.Ordinal)
+                && recent[recent.Count - 1].Command.EndsWith("7", StringComparison.Ordinal));
+
+            // The pane IS allowed the command. That is the whole point of the card: a list of
+            // bare executables cannot tell two git calls apart, and reviewing approvals is
+            // what an approval module is for.
+            probe.Check("WITNESS the pane can see the command, which is why the card exists",
+                feed.Render().IndexOf("git commit -m 16", StringComparison.Ordinal) >= 0);
+
+            // ...and a single pasted script must not push the other nine off the card.
+            var wide = new ApprovalFeed();
+            wide.Record(t0, "bash", "line one\nline two\nline three");
+            probe.Check("WITNESS a multi-line command is flattened to one row",
+                wide.Render().Split(new[] { '\n' }).Length == 1);
+            var longOne = new ApprovalFeed();
+            longOne.Record(t0, "bash", new string('x', 400));
+            probe.Check("WITNESS a very long command is capped, and says it was cut",
+                longOne.Render().Length < 200
+                && longOne.Render().IndexOf('\u2026') > 0);
+
+            // ---- the containment ------------------------------------------------------
+            // A real scan, through the real detector, against a transcript carrying a command
+            // that is recognisable if it ever escapes.
+            const string Secret = "curl -H authorization:token-abc123 https://example.invalid";
+            var collected = new List<ApprovalEntry>();
+            AgentSession session = OneApprovedCall(Secret);
+            var rules = new RuleSet();
+            rules.Allow.Add("Bash(curl *)");
+            Dictionary<string, int> tally = BlockedDetector.ApprovedSince(
+                session, rules, new HashSet<string>(StringComparer.Ordinal), collected);
+
+            probe.Check("the collector received the approved call",
+                collected.Count == 1 && collected[0].Command == Secret);
+            // WITNESS: the TALLY -- which is what gets logged -- carries the executable only.
+            bool tallyClean = true;
+            foreach (string key in tally.Keys)
+                if (key.IndexOf("token-abc123", StringComparison.Ordinal) >= 0) tallyClean = false;
+            probe.Check("WITNESS the tally the log is built from carries no command text",
+                tallyClean);
+            string line = BlockedDetector.DescribeApprovals(tally, 8);
+            probe.Check("WITNESS the logged approval line carries no command text",
+                line != null && line.IndexOf("token-abc123", StringComparison.Ordinal) < 0
+                && line.IndexOf("curl -H", StringComparison.Ordinal) < 0);
+
+            // ...and passing no collector keeps the old behaviour exactly: nothing is kept.
+            var none = new List<ApprovalEntry>();
+            BlockedDetector.ApprovedSince(OneApprovedCall(Secret), rules,
+                new HashSet<string>(StringComparer.Ordinal), null);
+            probe.Check("WITNESS a caller that asks for nothing is handed nothing",
+                none.Count == 0);
+            return true;
+        }
+
+        /// <summary>A session with exactly one completed call carrying the given command.</summary>
+        private static AgentSession OneApprovedCall(string command)
+        {
+            var session = new AgentSession { SessionId = "feed-test", Cwd = "D:\\work\\proj" };
+            session.Completed.Add(new OutstandingCall
+            {
+                Id = "call-1",
+                Tool = "Bash",
+                Command = command,
+            });
+            return session;
         }
         private static bool SelfCheckCacheBound(SelfTestProbe probe)
         {

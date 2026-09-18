@@ -58,9 +58,10 @@ BUDGETPRESS = os.path.join(MODULE_DIR, "PressBudget.cs")
 DOT = os.path.join(MODULE_DIR, "StatusDot.cs")
 MODE = os.path.join(MODULE_DIR, "AgentMode.cs")
 QUIPS = os.path.join(MODULE_DIR, "Quips.cs")
+FEED = os.path.join(MODULE_DIR, "ApprovalFeed.cs")
 
 TARGETS = (SPLITTER, RULES, DETECTOR, BUDGET, MODULE, READER, CDP, PROMPTOPTS, BUDGETPRESS,
-           DOT, MODE, QUIPS)
+           DOT, MODE, QUIPS, FEED)
 
 # (name, file, find, replace, expected fragment of the assertion that must fail)
 CASES = (
@@ -535,6 +536,44 @@ CASES = (
         "                if (quip.NeedsProject && !hasProject) continue;",
         "                if (false) continue;",
         "an unknown project never leaves a hole in the sentence",
+    ),
+    # The approvals feed. The last case is the one that matters: it is the only thing in this
+    # module that holds command text, so the assertion worth having is that the LOG still
+    # does not.
+    (
+        "the approvals feed grows for the life of the app",
+        FEED,
+        "            while (_entries.Count > Cap) _entries.RemoveAt(0);",
+        "            while (false) _entries.RemoveAt(0);",
+        "the feed is bounded",
+    ),
+    (
+        "the feed shows the oldest approval first",
+        FEED,
+        "            copy.Reverse();",
+        "            if (false) copy.Reverse();",
+        "the newest approval is first",
+    ),
+    (
+        "a pasted script is not flattened onto one row",
+        FEED,
+        "            string flat = command.Replace('\\r', ' ').Replace('\\n', ' ').Replace('\\t', ' ');",
+        "            string flat = command;",
+        "a multi-line command is flattened to one row",
+    ),
+    (
+        "a very long command is not capped",
+        FEED,
+        '            return flat.Length <= Max ? flat : flat.Substring(0, Max - 1) + "\u2026";',
+        "            return flat;",
+        "a very long command is capped",
+    ),
+    (
+        "the command reaches the tally the log is built from",
+        DETECTOR,
+        "                string root = RootExecutable(call);",
+        "                string root = call.Command ?? RootExecutable(call);",
+        "the tally the log is built from carries no command text",
     ),
 )
 
