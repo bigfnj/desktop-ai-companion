@@ -1,7 +1,6 @@
 ﻿# AgentFlow — research notes and measurement harnesses
 
-**Status: the module is BUILT, gated, and RUNNING in the maintainer's real install.** It is not
-published. `modules/AgentFlow/` ships the notify half; `modules-dist/` and `catalog.json` are
+**Status: PUBLISHED as 1.0.0 on 2026-09-17, and running in the maintainer's real install.** `modules/AgentFlow/` ships the notify half; `modules-dist/` and `catalog.json` are
 untouched, so no existing user is offered it.
 
 **Verified in the installed app on 2026-09-17**, which is a different claim from "the self-test

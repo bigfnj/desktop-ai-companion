@@ -45,18 +45,27 @@ Anything closed that still carries standing value was extracted rather than dele
 
 ---
 
-## 🚧 AgentFlow — BUILT, not published (notify half, 2026-09-17)
+## 🚢 AgentFlow — PUBLISHED (notify half, 2026-09-17)
 
-**Status: the module exists and is gated. It is NOT published.** `modules/AgentFlow/` is built by
-`build.ps1`, `tests/Invoke-SelfTests.ps1` fails if its folder is missing from the build output
-(`$RequiredModules`, read by both the gate and CI), and `--module-selftest=agentflow` runs in both.
-`modules-dist/` and `catalog.json` are deliberately untouched, so no existing user is offered it —
-the same arrangement `TestModule` has, and `packaging/Test-ModulePublishFreshness.ps1` now names
-both in `$deliberatelyUnpublished` so the omission is declared rather than silent.
+**Status: published as 1.0.0 and live in the catalog.** `modules/AgentFlow/` is built by `build.ps1`,
+`tests/Invoke-SelfTests.ps1` fails if its folder is missing from the build output (`$RequiredModules`,
+read by both the gate and CI), `--module-selftest=agentflow` runs in both, and
+`modules-dist/agentflow.zip` plus `catalog.json` now offer it to every user.
+
+Verified in the real install before publishing, which is a different claim from "the self-test
+passes": host 1.1.5 installed over 1.1.4 by MSI, the module folder copied into the install's
+`modules\agentflow\`, and the module found three concurrent live sessions in the maintainer's real
+transcript store and stood down on all three because none was in `default` mode. 79 assertions pass
+when the INSTALLED host loads it through the real loader.
+
+**To see it speak you need a session in `default` permission mode**, blocked longer than the
+threshold. In `auto`, `acceptEdits` or `plan` it stands down by design, because measured precision
+outside `default` is ~0.4%.
 
 This heading said "research only, nothing built" until 2026-09-17, six commits after the module
 landed, while the same section already said "Built, 25/25 self-test" further down. Recorded because
-status words in this file are load-bearing and that one contradicted itself.
+status words in this file are load-bearing and that one contradicted itself -- and then it was wrong
+in the other direction for half a day, reading "not published" after the publish.
 
 Read [`docs/agentflow/README.md`](docs/agentflow/README.md) before proposing work — it carries the
 measurements, and several obvious designs are ruled out by numbers rather than opinion. Five
@@ -69,8 +78,14 @@ runnable harnesses live beside it.
   cannot be measured on this box: 120 transcripts contain **zero** rule-caused denials in that mode,
   because this machine runs `auto`. Generate it the only way it can be generated — work normally in
   default mode for an hour — then rerun `agentflow_join.py`, which now reports the split itself.
-- 📌 **`MinHostVersion` must be raised from `1.0.0` before this module is ever published,** and
-  `ProductVersion.props` bumped with it. See the ABI item below; the two are one decision.
+- 📌 **Raise `MinHostVersion` to `1.1.5` at the next AgentFlow release.** It was published on
+  2026-09-17 still declaring `1.0.0`, deliberately: raising it would have made the module
+  uninstallable for everyone, because v1.1.5 has not been tagged. The cost of leaving it is that a
+  host older than 1.1.5 has no name for permission bit 11, so
+  `RemoteCatalog.TryParsePermissions` drops it and the consent line omits `AgentTranscripts`
+  entirely. That gap is covered for now by the catalog DESCRIPTION, which every host renders and
+  which states the transcript read in prose. Once v1.1.5 ships, raise the floor and the prose
+  becomes belt-and-braces instead of the only disclosure.
 - ⬜ The answering half. Four actuation channels, none of which needs synthetic input, and a
   death-loop guard belongs in whichever version first presses anything. Not scoped.
 - ⬜ CPU as a second discriminator. Per-tree CPU separates 240x and is mode-independent, but it is
@@ -182,116 +197,35 @@ commits. What is left is here, and the three that are DECISIONS rather than work
   `SmartFortunes`; judged under the "small number of genuinely useful lines" bar when the rest was
   written, and recorded rather than forgotten.
 
-## Open: full-repo audit, 2026-09-17
+## CLOSED: full-repo audit, 2026-09-17 (all nineteen items)
 
-Three read-only audits run in parallel after the AgentFlow merge: dead code and calls that go
-nowhere, resource leaks and regression risk, and checks that cannot fail. What was cheap and
-unambiguous was fixed in the same session and is not listed here. What remains is below, worst
-first. Each entry says what input would make the thing fail, because "no such input" is the finding.
+Three read-only audits ran in parallel after the AgentFlow merge: dead code and calls that go
+nowhere, resource leaks and regression risk, and checks that cannot fail. **All nineteen items are
+closed as of 2026-09-17**, each re-verified against the tree rather than taken from its commit
+message — which mattered, because four of my own "this is done" claims were measured FALSE on that
+pass and one of them (item 5) was only half done.
 
-**Numbers are not reused, so a gap means an item closed.** Nineteen were filed; four are still open,
-and the four below are them. Everything else was fixed the same day and deleted — each one
-re-verified against the tree on 2026-09-17 rather than taken from its commit message. Where a closed
-item left knowledge worth consulting it went to
+The last four to close, and what closed them:
+
+- **5** — the two write-only settings KEYS are gone, not just their getters, and they took a
+  serialisation format and six assertions with them: `ModuleUpdateScan.Encode`/`Decode` existed
+  solely to write the key nothing read.
+- **16** — both optimizations MEASURED. `CheckFullScreen`'s walk is now shared per cycle and cached
+  per monitor (53 walks/s to 3.3 at MAX_SHEEPS, stand-down latency same or better on every
+  statistic). `DiagnosticLog.Write` was **declined with numbers**: 38x per line and it multiplies
+  0.00 lines/s in the shipped configuration, and the item's premise that `LogCategory.Animation` is
+  per-frame is measurably false — those lines fire per TRANSITION.
+- **17** — `ContextChanged`'s raise is exercised, with the two assertions that make the recorded
+  decision checkable: a late READER still gets the value, a late SUBSCRIBER gets nothing.
+- **19** — the six modules were republished with version bumps and the gate is green. The item's own
+  prediction came true first and is worth keeping: a permanently-red check camouflaged a day of real
+  module fixes, and its attribution table was already stale at the commit it cited.
+
+Where a closed item left knowledge worth consulting it went to
 [`docs/DESIGN-REGISTER.md`](docs/DESIGN-REGISTER.md) rather than into a DONE annotation: item 14's
-CS0414 measurement and the `--no-incremental` warning-count trap (under "Measurements that corrected
-an explanation"), the reason a ModuleKit addition costs a six-module republish (item 13), item 17's
-`ContextChanged` decision, and item 15's make-the-code-count rule. Item 19 was added after the
-others and is not in worst-first order; it is the one check in the gate that is failing today.
-
-### 📌 5. Two settings keys are still written on every update check and read by nothing
-
-**The dangerous half is closed.** The two public getters with zero call sites are gone, and
-`src/Portable/LocalData.cs:636` and `:763` carry the reason in their place: each read as the data
-source for an update badge while the pane and the notification both use the scan's live result, so
-anyone debugging "why doesn't the badge show the offer" would have chased them.
-
-**What is left is the keys.** `AppSettingsStore.cs:193` `moduleUpdateOffers` and `:205`
-`companionUpdateStaleIds` are still written on every check by `SetModuleUpdateResult` /
-`SetPetUpdateResult`, and the only thing that reads either is its own change comparison, so the
-value is persisted for no reader. Drop both keys, or state in `AppSettingsStore.cs` why a persisted
-value with no reader is deliberate — it is a schema change either way, which is why deleting the
-getters was split from it.
-
-### 📌 16. Optimization, worth measuring rather than assumed
-
-Framed as measurements to take, per the standing rule that a performance claim needs a cold
-purpose-built baseline. None of these is a claimed saving.
-
-- `DiagnosticLog.Write` (`:142-171`) does a `FileInfo` stat plus an open/write/close **per line**,
-  inside a global lock. `LogCategory.Animation` is documented as per-frame, and
-  `runtime-hardening-selftest.ps1:534-540` *enforces* that this runs first on all 57
-  `AddDebugInfo` call sites. Worth measuring: a retained writer, cold, with Animation on at
-  MAX_SHEEPS.
-- `CheckFullScreen` runs a full `EnumWindows` walk **per companion** — the 300ms throttle at
-  `FormCompanion.cs:1772` is per-instance, not global — while `StartUp.cs:734` already holds a 2s
-  shared cache one call away and its comment already says *"Called by every pet; the first one each
-  cycle sets the value and the rest agree with it."* The redundancy is acknowledged, not collapsed.
-
-### 📌 17. `ContextChanged` is raised by the host and exercised by nothing
-
-**The decision this item asked for is made**, and it is recorded under "Settled decisions" in
-[`docs/DESIGN-REGISTER.md`](docs/DESIGN-REGISTER.md): the event is the push half for a reader that
-must act ON a change, Remembrance's read-at-use `ReadContext` call is the correct pattern for what
-Remembrance does and is not the bug, and `PluginApi.cs` now says so in the channel's own comment.
-
-**The work left is one assertion.** `CompanionHost.PublishContext`'s raise
-(`src/dotNet/Plugins/CompanionHost.cs:709-710`) has never run in a test or under any shipped module,
-because no module subscribes. `ModuleHostSelfTest` already stands up the real `CompanionHost`
-(`src/dotNet/Plugins/ModuleHostSelfTest.cs:201`), so subscribe, publish, and assert the key arrives
-— a push channel nothing has ever pushed through is a channel nobody has proved delivers.
-
-### 📌 19. The publish-freshness check is red for all six modules, and the recorded reason is only half of it
-
-**The gate has one failing check right now** and it is this one: `Test-ModulePublishFreshness.ps1`
-reports fortunes, aibrain, petstudio, reminder, remembrance and blinkingled all behind their source.
-`d780812`'s commit message and every note since attribute that entirely to `TrayConventions.cs` being
-added to ModuleKit (`8083d52`), which every published module bundles as a `ProjectReference`
-**without** `Private="false"` — that is what puts ModuleKit in the watch set, and the cost of an
-addition there is now recorded in
-[`docs/DESIGN-REGISTER.md`](docs/DESIGN-REGISTER.md). **It is the sufficient cause for all six and
-the SOLE cause for only two.** Measured per module with HEAD at `d780812`, by running the check and
-reading its own culprit attribution:
-
-| module | culprit paths → commits |
-|---|---|
-| fortunes | `modules/Fortunes` → `d780812`; ModuleKit → `8083d52` |
-| aibrain | `modules/AiBrain` → `8083d52` **and `79ddfd3`**; ModuleKit → `8083d52` |
-| petstudio | `modules/PetStudio` → **`1178331`**; `tools/ShimejiConvert.Engine/Shimeji/ActionClassifier.cs` → **`79ddfd3`**; ModuleKit → `8083d52` |
-| reminder | ModuleKit → `8083d52` ONLY |
-| remembrance | ModuleKit → `8083d52` ONLY |
-| blinkingled | `modules/BlinkingLed` → `d780812`, `8083d52`; ModuleKit → `8083d52` |
-
-**Measured again at `8083d52~1`, i.e. before `TrayConventions.cs` existed: aibrain and petstudio were
-ALREADY stale, both from `79ddfd3`** — aibrain through its own module directory, petstudio through the
-source-linked `ActionClassifier.cs` in its external watch set. `1178331` and `d780812` landed *after*
-`8083d52`, so they are additional drift the red check has been absorbing since, not the original
-cause. **A permanently-red check camouflages exactly the real drift it exists to catch**, which is the
-whole argument against "accept a red freshness check on master until the next deliberate publish":
-the next reader sees one known-and-explained failure and stops reading, and petstudio's classifier
-change is invisible inside it.
-
-**Re-measured at `ab1cd0c`, and that camouflage has now actually happened.** The table above is a
-snapshot of `d780812` and two of its rows are already false: `reminder` and `remembrance` are no
-longer ModuleKit-only. `cb1505d` (Reminder's `_seenPets` bound) and `fe6ed35` (Remembrance's four
-capture-path leaks) are real changes to shipped payloads, and fortunes took two more on top of
-`d780812` (`66f3186`, `01dd84a`). So a day of module fixes landed inside a check that was already
-red for a reason nobody was re-reading — which is the argument, demonstrated rather than predicted.
-**Read the attribution off the check, not off this table**: `Test-ModulePublishFreshness.ps1` prints
-its own culprit paths and commit counts per module, and a hand-copied table of them goes stale in
-hours.
-
-**Reverting cannot clear it, and this closes off one of the three options that were recorded.** The
-check compares **commit EXISTENCE** in `zipCommit..HEAD` (`packaging/Test-ModulePublishFreshness.ps1`,
-the `git log --format='%h %s' "$zipCommit..HEAD" -- @watchedPathspecs` call), never bytes. A forward
-commit deleting `TrayConventions.cs` is itself a commit touching the watched ModuleKit directory, so
-it makes the count worse — two commits where there was one — and leaves aibrain and petstudio red
-regardless. Only a history rewrite would clear it. **So the options are republish, or accept it with
-the check's own attribution in hand; revert is not one of them.** Republishing is outward-facing (merging
-`modules-dist/` to master IS the publish, and it reaches every existing user via
-`raw.githubusercontent`), which is why it has not been done from a work session.
-
----
+CS0414 measurement and the `--no-incremental` warning-count trap, the reason a ModuleKit addition
+costs a seven-module republish (item 13), item 17's `ContextChanged` decision, and item 15's
+make-the-code-count rule.
 
 ## Open: findings from the v1.1.0 wrap-up audit (filed 2026-09-10)
 
@@ -484,7 +418,18 @@ the app **is** installed at **1.1.4** under `%LOCALAPPDATA%\Programs\Desktop AI 
 over, and **WiX 5.0.2 is installed as a global dotnet tool**, so an MSI can be built here. Verified
 2026-09-17. Two verification gaps, both actionable now:
 
-- 📌 **The UPGRADE path has never been exercised.** The v1.1.4 install was onto a machine with no
+- ✅ **The UPGRADE path was exercised on 2026-09-17.** 1.1.4 → 1.1.5 by MSI, `msiexec` exit 0, and
+  the installed `DesktopAICompanion.Contracts.dll` read back **FileVersion 1.1.5.0** carrying both
+  new `ModulePermissions` members (verified by name in the installed binary, with a control string
+  absent). That read is the exact failure host-contract rule 3 exists to prevent -- Windows
+  Installer SKIPS a file whose `FileVersion` did not move -- and it had never once been performed
+  here. The installed build then passed its own `--hardening-selftest`, 187 assertions.
+
+  What is still unexercised: an upgrade that CROSSES a `ModulePermissions` addition with a module
+  installed that declares the new flag, and an upgrade onto a machine where a module update is
+  already staged in `PendingModuleUpdates`.
+
+- 📌 **The pre-1.1.4 upgrade path has never been exercised.** The v1.1.4 install was onto a machine with no
   registered install, so it tested first-install only, and `SMOKETEST.md` is explicit that the
   upgrade path is the one users take. Section K of [`SMOKETEST.md`](SMOKETEST.md) is the script.
   Install-over-1.1.4 is the case: upgrade code honoured, no second entry in Programs and Features,
@@ -584,7 +529,7 @@ code. Two decisions that used to sit here are in
 
 ### Module SDK follow-ups
 
-- 📌 **`ModulePermissions` still cannot disclose synthetic input, input monitoring or process
+- 📌 **`ModulePermissions` cannot disclose input monitoring or process
   launch, and a SHIPPED module under-discloses because of it.** `BlinkingLedModule.cs:59` declares
   `ModulePermissions.Speech | ModulePermissions.Storage` while `engine/ScrollLockBlinker.cs`
   P/Invokes `SendInput`, and `:57` says so in a comment — *"There is no ModulePermissions flag for
