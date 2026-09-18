@@ -100,7 +100,8 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.0.0",   // 1.0.0: first version. Notify half only, observe-only by decision.
+            Version = "1.0.1",   // 1.0.1: logs what the rules APPROVE, not only what would block.
+                                 // 1.0.0: first version. Notify half only, observe-only by decision.
             // 1.0.0 rather than the release that first ships AgentTranscripts, because a module
             // binds the HOST's single shared Contracts.dll and at development time that is this
             // repo's build, which already has the flag.
@@ -334,9 +335,11 @@ namespace DesktopAICompanion.AgentFlow
             Task.Run(() =>
             {
                 List<Detection> results = null;
+                Dictionary<string, int> approved = null;
                 try
                 {
-                    results = Scan(watchClaude, watchCodex, threshold);
+                    results = Scan(watchClaude, watchCodex, threshold, _approvalsCounted,
+                                   out approved);
                 }
                 catch (Exception)
                 {
@@ -348,7 +351,11 @@ namespace DesktopAICompanion.AgentFlow
                 {
                     Volatile.Write(ref _scanning, 0);
                 }
-                if (results != null) PostToUi(() => Apply(results));
+                if (results != null)
+                {
+                    Dictionary<string, int> forUi = approved;
+                    PostToUi(() => { Apply(results); LogApprovals(forUi); });
+                }
             });
         }
 
@@ -358,10 +365,27 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         internal static List<Detection> Scan(bool watchClaude, bool watchCodex, double threshold)
         {
+            Dictionary<string, int> ignored;
+            return Scan(watchClaude, watchCodex, threshold, null, out ignored);
+        }
+
+        /// <summary>
+        /// As <see cref="Scan(bool,bool,double)"/>, and also tally what the rules APPROVED.
+        ///
+        /// `approvalsCounted` is the set of call ids already accounted for, consumed and updated in
+        /// place so a call is counted once however often the transcript is re-read. Pass null to
+        /// skip the audit entirely, which the self-tests do when they only care about detection.
+        /// </summary>
+        internal static List<Detection> Scan(bool watchClaude, bool watchCodex, double threshold,
+                                             HashSet<string> approvalsCounted,
+                                             out Dictionary<string, int> approved)
+        {
             int sources;
             RuleSet rules = RuleLoader.Load(RuleLoader.DefaultPaths(), out sources);
             DateTime now = DateTime.UtcNow;
             var results = new List<Detection>();
+            approved = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var live = new HashSet<string>(StringComparer.Ordinal);
 
             if (watchClaude)
             {
@@ -371,6 +395,7 @@ namespace DesktopAICompanion.AgentFlow
                     AgentSession session = TranscriptReader.ReadClaude(path);
                     Detection detection = BlockedDetector.Evaluate(session, rules, threshold, now);
                     if (detection != null) results.Add(detection);
+                    Tally(session, rules, approvalsCounted, approved, live);
                 }
             }
             if (watchCodex)
@@ -381,9 +406,41 @@ namespace DesktopAICompanion.AgentFlow
                     AgentSession session = TranscriptReader.ReadCodex(path);
                     Detection detection = BlockedDetector.Evaluate(session, rules, threshold, now);
                     if (detection != null) results.Add(detection);
+                    Tally(session, rules, approvalsCounted, approved, live);
                 }
             }
+
+            // Drop ids no live transcript mentions any more, so the counted set is bounded by what
+            // is on disk in the active window rather than by how long the app has been running.
+            // NotifyBudget.Retain solves the same problem for the one-shot and this mirrors it.
+            if (approvalsCounted != null)
+            {
+                var stale = new List<string>();
+                foreach (string key in approvalsCounted) if (!live.Contains(key)) stale.Add(key);
+                foreach (string key in stale) approvalsCounted.Remove(key);
+            }
             return results;
+        }
+
+        /// <summary>Fold one session's newly-approved calls into the running tally.</summary>
+        private static void Tally(AgentSession session, RuleSet rules,
+                                  HashSet<string> approvalsCounted,
+                                  Dictionary<string, int> approved, HashSet<string> live)
+        {
+            if (session == null) return;
+            if (session.Completed != null)
+                foreach (OutstandingCall call in session.Completed)
+                    if (call != null && !string.IsNullOrEmpty(call.Id))
+                        live.Add(session.SessionId + "/" + call.Id);
+            if (approvalsCounted == null) return;
+            Dictionary<string, int> tally =
+                BlockedDetector.ApprovedSince(session, rules, approvalsCounted);
+            foreach (KeyValuePair<string, int> entry in tally)
+            {
+                int current;
+                approved.TryGetValue(entry.Key, out current);
+                approved[entry.Key] = current + entry.Value;
+            }
         }
 
         /// <summary>UI thread: speak at most one line, and refresh the tray label.</summary>
@@ -609,6 +666,38 @@ namespace DesktopAICompanion.AgentFlow
             return ok;
         }
 
+        /// <summary>
+        /// Call ids whose approval has already been written to the log, so a poll reports only what
+        /// is NEW. Pruned inside Scan against what the live transcripts still mention.
+        ///
+        /// Not in NotifyBudget: this is not a budget. The notify one-shot exists to stop the
+        /// companion repeating itself out loud; this exists so the audit line is a delta rather
+        /// than a running total, and conflating them would tie the audit to the speech cooldown.
+        /// </summary>
+        private readonly HashSet<string> _approvalsCounted = new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Write what the rules approved since the last poll. UI thread, because IHost.Log is.
+        ///
+        /// This is the half an approval module owes the user and did not have. The detector reports
+        /// what it would have STOPPED; nothing reported what went through, and on this machine that
+        /// is thousands of commands a day nobody sees. It also makes the module verifiable in auto
+        /// mode, where the notify half stands down by design: the log fills up immediately, so
+        /// "is it working?" has an answer that does not require waiting for a blocked prompt.
+        ///
+        /// Silent when nothing new was approved. A line per poll saying "approved 0" would bury the
+        /// log it exists to make readable, which LogCategory's own doc warns about.
+        /// </summary>
+        private void LogApprovals(Dictionary<string, int> approved)
+        {
+            if (approved == null || approved.Count == 0) return;
+            string line = BlockedDetector.DescribeApprovals(approved, ApprovalNamesPerLine);
+            if (!string.IsNullOrEmpty(line)) Log(line);
+        }
+
+        /// <summary>How many distinct executables one audit line names before it says "+N more".</summary>
+        private const int ApprovalNamesPerLine = 8;
+
         private Task<string> CheckNowAsync()
         {
             bool watchClaude = WatchClaude, watchCodex = WatchCodex;
@@ -631,9 +720,25 @@ namespace DesktopAICompanion.AgentFlow
                     }
                 }
                 if (results.Count == 0) return "No coding agent has written a transcript recently.";
+
+                // How many of the stood-down sessions WOULD have been flagged. A user pressing
+                // "Check now" has asked a direct question, and "2 in auto mode" is not an answer to
+                // it -- it is unfalsifiable from the outside, and on a machine that never leaves
+                // auto it made the module impossible to judge. The stand-down still governs whether
+                // the companion SPEAKS; this only governs what the pane says when asked.
+                int wouldHave = 0;
+                foreach (Detection detection in results)
+                    if (detection.Outcome == DetectionOutcome.StoodDownAutoMode
+                        && detection.WouldHaveBeen == DetectionOutcome.Blocked)
+                        wouldHave++;
+
                 return string.Format(CultureInfo.InvariantCulture,
-                    "{0} session(s): {1} waiting for you, {2} working, {3} idle, {4} in auto mode.",
-                    results.Count, blocked, working, idle, stoodDown);
+                    "{0} session(s): {1} waiting for you, {2} working, {3} idle, {4} in auto mode{5}.",
+                    results.Count, blocked, working, idle, stoodDown,
+                    wouldHave > 0
+                        ? " (" + wouldHave.ToString(CultureInfo.InvariantCulture)
+                          + " of them would have been flagged in default mode)"
+                        : "");
             });
         }
 
@@ -760,6 +865,7 @@ namespace DesktopAICompanion.AgentFlow
                               && SelfCheckDetector(probe)
                               && SelfCheckBudget(probe)
                               && SelfCheckPrivacy(probe)
+                              && SelfCheckApprovals(probe)
                               && SelfCheckCacheBound(probe);
                     probe.Check("every logic group ran", ok);
 
@@ -983,6 +1089,124 @@ namespace DesktopAICompanion.AgentFlow
         ///
         /// Runs last, because filling the cache to its cap empties it for every other caller.
         /// </summary>
+        /// <summary>
+        /// The approval audit: what the rules let through, which is the half an approval module
+        /// owes the user and did not have until 2026-09-18.
+        ///
+        /// The privacy assertion here is the load-bearing one. This writes to the diagnostic log,
+        /// and SUPPORT.md invites users to attach that log to a GitHub issue, so a full command
+        /// would put arguments, paths and occasionally a token into a file destined for a public
+        /// tracker. The rule is the same one the spoken half holds and the same one AiBrain holds
+        /// by logging endpoint HOSTS rather than URLs: the executable NAME, nothing else.
+        /// </summary>
+        private static bool SelfCheckApprovals(SelfTestProbe probe)
+        {
+            var rules = new RuleSet();
+            rules.Allow.Add("Bash(git *)");
+            rules.Allow.Add("Bash(rg *)");
+            rules.Ask.Add("Bash(curl *)");
+
+            var session = new AgentSession { SessionId = "s1", Agent = TranscriptReader.AgentClaude };
+            session.NoteCompleted(Completed("c1", "git status"));
+            session.NoteCompleted(Completed("c2", "git push --force-with-lease"));
+            session.NoteCompleted(Completed("c3", "rg needle src"));
+            session.NoteCompleted(Completed("c4", "curl https://example.invalid"));
+            session.NoteCompleted(Completed("c5", "jq ."));
+
+            var counted = new HashSet<string>(StringComparer.Ordinal);
+            Dictionary<string, int> tally = BlockedDetector.ApprovedSince(session, rules, counted);
+
+            probe.Check("WITNESS approvals are counted per executable, not per call",
+                tally.Count == 2 && tally.ContainsKey("git") && tally["git"] == 2
+                && tally.ContainsKey("rg") && tally["rg"] == 1);
+            // The two the rules do NOT allow must be absent. A call that would have prompted and
+            // completed anyway was answered by a human or auto-accepted by the agent's mode, and
+            // neither is the RULES approving it -- counting those would turn this into "everything
+            // that ran", which is not an approval record.
+            probe.Check("WITNESS a call the rules would prompt for is NOT counted as approved",
+                !tally.ContainsKey("curl"));
+            probe.Check("...nor is one no rule matches at all",
+                !tally.ContainsKey("jq"));
+
+            // Counted once, however often the transcript is re-read. The module re-reads on every
+            // poll, so without this the log would repeat the same approvals every few seconds.
+            Dictionary<string, int> again = BlockedDetector.ApprovedSince(session, rules, counted);
+            probe.Check("WITNESS a second read of the same transcript counts nothing again",
+                again.Count == 0);
+
+            // PRIVACY. The command text is what the rules match on and must never reach the log.
+            string line = BlockedDetector.DescribeApprovals(tally, 8);
+            probe.Check("WITNESS the approval line carries no command text",
+                line != null && line.IndexOf("--force-with-lease", StringComparison.Ordinal) < 0
+                && line.IndexOf("needle", StringComparison.Ordinal) < 0
+                && line.IndexOf("status", StringComparison.Ordinal) < 0);
+            probe.Check("...while still naming what was approved, or it is not an audit",
+                line.IndexOf("git", StringComparison.Ordinal) >= 0
+                && line.IndexOf("rg", StringComparison.Ordinal) >= 0
+                && line.IndexOf("3", StringComparison.Ordinal) >= 0);
+            // A path in argv[0] would disclose a directory layout.
+            var pathy = new AgentSession { SessionId = "s2", Agent = TranscriptReader.AgentClaude };
+            pathy.NoteCompleted(Completed("p1", "/usr/local/secret-dir/git status"));
+            var pathRules = new RuleSet();
+            pathRules.Allow.Add("Bash(/usr/local/secret-dir/git *)");
+            Dictionary<string, int> pathTally =
+                BlockedDetector.ApprovedSince(pathy, pathRules, new HashSet<string>(StringComparer.Ordinal));
+            probe.Check("WITNESS an executable given by PATH is logged as its leaf only",
+                pathTally.ContainsKey("git") && !pathTally.ContainsKey("/usr/local/secret-dir/git"));
+
+            probe.Check("nothing approved produces no line at all, rather than 'approved 0'",
+                BlockedDetector.DescribeApprovals(
+                    new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase), 8) == null);
+
+            // The completed list is bounded, because a long session pairs thousands of calls and
+            // this is re-read from disk every poll.
+            var big = new AgentSession { SessionId = "s3", Agent = TranscriptReader.AgentClaude };
+            for (int i = 0; i < AgentSession.CompletedCap + 50; i++)
+                big.NoteCompleted(Completed("b" + i.ToString(CultureInfo.InvariantCulture), "git status"));
+            probe.Check("WITNESS the completed-call list is bounded and keeps the most recent",
+                big.Completed.Count == AgentSession.CompletedCap
+                && big.Completed[big.Completed.Count - 1].Id
+                    == "b" + (AgentSession.CompletedCap + 49).ToString(CultureInfo.InvariantCulture));
+
+            // And the shadow verdict, which is what makes the module judgeable in auto mode.
+            DateTime now = new DateTime(2026, 9, 18, 12, 0, 0, DateTimeKind.Utc);
+            var askRules = new RuleSet();
+            askRules.Ask.Add("Bash(curl *)");
+            Detection stoodDown = BlockedDetector.Evaluate(
+                Session(now.AddSeconds(-600), now.AddSeconds(-600), "curl https://x", "auto"),
+                askRules, 30, now);
+            probe.Check("WITNESS an auto-mode session still stands down",
+                stoodDown.Outcome == DetectionOutcome.StoodDownAutoMode);
+            probe.Check("WITNESS ...but records that it WOULD have been flagged",
+                stoodDown.WouldHaveBeen == DetectionOutcome.Blocked);
+            // The negative case has to be an EXPLICITLY ALLOWED command, and the first draft of
+            // this assertion got it wrong: it used `echo hi` against a rule set with no allow
+            // entry, and nothing-matched PROMPTS by design, so the shadow verdict was Blocked and
+            // correct. The assertion failed and the code was right -- which is the outcome a
+            // non-degenerate negative is supposed to produce when it is written badly.
+            askRules.Allow.Add("Bash(echo *)");
+            Detection quiet = BlockedDetector.Evaluate(
+                Session(now.AddSeconds(-600), now.AddSeconds(-600), "echo hi", "auto"),
+                askRules, 30, now);
+            probe.Check("...and does not claim it would have, when the rules allow the call",
+                quiet.Outcome == DetectionOutcome.StoodDownAutoMode
+                && quiet.WouldHaveBeen == DetectionOutcome.StalledButAllowed);
+            return true;
+        }
+
+        /// <summary>A finished call, for the approval assertions above.</summary>
+        private static OutstandingCall Completed(string id, string command)
+        {
+            return new OutstandingCall
+            {
+                Id = id,
+                Tool = "Bash",
+                Command = command,
+                StartedUtc = new DateTime(2026, 9, 18, 11, 0, 0, DateTimeKind.Utc),
+                Mode = "auto",
+            };
+        }
+
         private static bool SelfCheckCacheBound(SelfTestProbe probe)
         {
             int normalized, compiled, limit;

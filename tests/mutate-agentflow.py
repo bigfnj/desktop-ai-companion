@@ -33,6 +33,10 @@ import subprocess
 import sys
 import time
 
+# The backslash is built from a code point rather than written as an escape: this file is edited
+# by patch scripts, and a literal \\ does not survive every pipeline that has touched it.
+BS = chr(92)
+
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODULE_DIR = os.path.join(REPO, "modules", "AgentFlow")
 CSPROJ = os.path.join(MODULE_DIR, "AgentFlow.csproj")
@@ -47,8 +51,9 @@ RULES = os.path.join(MODULE_DIR, "PermissionRules.cs")
 DETECTOR = os.path.join(MODULE_DIR, "BlockedDetector.cs")
 BUDGET = os.path.join(MODULE_DIR, "NotifyBudget.cs")
 MODULE = os.path.join(MODULE_DIR, "AgentFlowModule.cs")
+READER = os.path.join(MODULE_DIR, "TranscriptReader.cs")
 
-TARGETS = (SPLITTER, RULES, DETECTOR, BUDGET, MODULE)
+TARGETS = (SPLITTER, RULES, DETECTOR, BUDGET, MODULE, READER)
 
 # (name, file, find, replace, expected fragment of the assertion that must fail)
 CASES = (
@@ -226,6 +231,63 @@ CASES = (
         "                if (CompiledRules.Count >= MatchCacheLimit) CompiledRules.Clear();",
         "                if (false) CompiledRules.Clear();",
         "evict instead of growing without bound",
+    ),
+    # ---- the approval audit, added 2026-09-18 ------------------------------------------
+    # This is the half an approval module owes the user: what it LET THROUGH. The privacy case is
+    # the one that matters, because this line goes to a log SUPPORT.md tells users to attach to a
+    # public issue tracker.
+    (
+        "the approval line carries the whole command",
+        DETECTOR,
+        "                string root = RootExecutable(call);",
+        "                string root = call.Command ?? RootExecutable(call);",
+        "approval line carries no command text",
+    ),
+    (
+        "an executable given by an absolute path keeps the path",
+        DETECTOR,
+        "            int slash = first.LastIndexOfAny(new[] { '/', '" + BS + BS + "' });\n"
+        "            if (slash >= 0 && slash < first.Length - 1) first = first.Substring(slash + 1);",
+        "            int slash = -1;\n"
+        "            if (slash >= 0 && slash < first.Length - 1) first = first.Substring(slash + 1);",
+        "logged as its leaf only",
+    ),
+    (
+        "calls that would PROMPT are counted as approved too",
+        DETECTOR,
+        "                if (verdict != RuleVerdict.WouldAllow) continue;",
+        "                if (verdict == RuleVerdict.Undecidable) continue;",
+        "would prompt for is NOT counted as approved",
+    ),
+    (
+        "every re-read counts the same approvals again",
+        DETECTOR,
+        "                if (alreadyCounted != null && !alreadyCounted.Add(key)) continue;",
+        "                if (alreadyCounted != null) alreadyCounted.Add(key);",
+        "second read of the same transcript counts nothing again",
+    ),
+    (
+        "the completed-call list grows without bound",
+        READER,
+        "            if (Completed.Count > CompletedCap) Completed.RemoveAt(0);",
+        "            if (false) Completed.RemoveAt(0);",
+        "completed-call list is bounded",
+    ),
+    # The shadow verdict, which is what makes the module judgeable in auto mode. Both directions:
+    # never recording it, and recording Blocked for a call the rules allow.
+    (
+        "the stand-down records nothing about what it skipped",
+        DETECTOR,
+        "                detection.WouldHaveBeen = shadow.Outcome;",
+        "                detection.WouldHaveBeen = DetectionOutcome.Idle;",
+        "but records that it WOULD have been flagged",
+    ),
+    (
+        "the stand-down claims everything would have been flagged",
+        DETECTOR,
+        "                detection.WouldHaveBeen = shadow.Outcome;",
+        "                detection.WouldHaveBeen = DetectionOutcome.Blocked;",
+        "when the rules allow the call",
     ),
 )
 

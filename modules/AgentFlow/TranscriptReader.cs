@@ -40,6 +40,29 @@ namespace DesktopAICompanion.AgentFlow
         public bool SawAnyCall;       // false means the adapter may be stale
         public List<OutstandingCall> Outstanding = new List<OutstandingCall>();
 
+        /// <summary>
+        /// Calls that PAIRED, i.e. finished. The detector does not look at these -- a finished call
+        /// is not blocking anyone -- but an approval module owes the user an account of what ran on
+        /// their behalf WITHOUT asking, and that is exactly this list filtered to WouldAllow.
+        ///
+        /// Bounded at <see cref="CompletedCap"/> and keeping the MOST RECENT, because a long session
+        /// pairs thousands of calls and this is re-read from disk on every poll. The bound is a
+        /// memory bound, not an audit window: the module tallies each call id once and remembers
+        /// that it has, so a call that falls off this list has already been counted.
+        /// </summary>
+        public List<OutstandingCall> Completed = new List<OutstandingCall>();
+
+        /// <summary>How many completed calls one session keeps. See <see cref="Completed"/>.</summary>
+        public const int CompletedCap = 2000;
+
+        /// <summary>Record a paired call, dropping the oldest once the cap is reached.</summary>
+        public void NoteCompleted(OutstandingCall call)
+        {
+            if (call == null) return;
+            Completed.Add(call);
+            if (Completed.Count > CompletedCap) Completed.RemoveAt(0);
+        }
+
         /// <summary>Seconds since the transcript was last written.</summary>
         public double IdleSeconds(DateTime nowUtc)
         {
@@ -260,7 +283,17 @@ namespace DesktopAICompanion.AgentFlow
                     {
                         session.SawAnyCall = true;
                         string id = GetString(block, "tool_use_id");
-                        if (!string.IsNullOrEmpty(id)) pending.Remove(id);
+                        if (!string.IsNullOrEmpty(id))
+                        {
+                            // MOVED, not dropped. The call finished, so it is not blocking anyone --
+                            // and it is the raw material for the approval audit, because a call that
+                            // completed without a prompt is a call the rules approved on the user's
+                            // behalf. Dropping it here is why the module could only ever report what
+                            // it STOPPED.
+                            OutstandingCall finished;
+                            if (pending.TryGetValue(id, out finished)) session.NoteCompleted(finished);
+                            pending.Remove(id);
+                        }
                     }
                 }
             }
@@ -315,7 +348,12 @@ namespace DesktopAICompanion.AgentFlow
                 {
                     session.SawAnyCall = true;
                     string id = GetString(payload, "call_id");
-                    if (!string.IsNullOrEmpty(id)) pending.Remove(id);
+                    if (!string.IsNullOrEmpty(id))
+                    {
+                        OutstandingCall finished;
+                        if (pending.TryGetValue(id, out finished)) session.NoteCompleted(finished);
+                        pending.Remove(id);
+                    }
                 }
                 else if (kind == "session_meta")
                 {

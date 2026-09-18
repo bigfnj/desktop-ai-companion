@@ -32,6 +32,18 @@ namespace DesktopAICompanion.AgentFlow
         public RuleVerdict Verdict;
         public string Reason;             // short, loggable, never carries command text
 
+        /// <summary>
+        /// What the outcome WOULD have been if the mode gate had not stood down, and `Idle` when
+        /// the gate never fired. Nothing in the notify path may read this: the stand-down governs
+        /// unsolicited speech and `Outcome` is the only thing that decides whether the companion
+        /// says anything.
+        ///
+        /// It exists so a user who PRESSES "Check now" gets a real answer instead of "2 sessions in
+        /// auto mode", which is unfalsifiable from the outside. Asking is not being interrupted, so
+        /// it does not need the precision an interruption needs.
+        /// </summary>
+        public DetectionOutcome WouldHaveBeen;
+
         /// <summary>The tool name, safe to speak and log. Never the command.</summary>
         public string ToolName { get { return Call != null ? Call.Tool : null; } }
     }
@@ -128,18 +140,56 @@ namespace DesktopAICompanion.AgentFlow
             string mode = oldest.Mode ?? session.Mode;
             if (!string.Equals(mode, ModeDefault, StringComparison.OrdinalIgnoreCase))
             {
+                // Stand down, but WORK OUT THE ANSWER ANYWAY and keep it in WouldHaveBeen.
+                //
+                // The stand-down governs unsolicited speech, and it should: measured over 36,497
+                // auto-mode calls, acting here would be right 0.3% to 0.4% of the time, and
+                // narrowing it to only the MANAGED ask/deny tier does not help (0.3% precision, 6%
+                // recall -- that tier is 193 rules across four tools, not a needle).
+                //
+                // But a user who presses "Check now" has ASKED, and an answer to a direct question
+                // does not need 90% precision the way an interruption does. Without this the pane
+                // could only say "2 in auto mode", which is unfalsifiable from the outside and made
+                // the module untestable on a machine that never leaves auto -- the maintainer's
+                // machine, and the reason this exists.
+                //
+                // Nothing downstream may key on this: the notify path reads Outcome, and Outcome is
+                // StoodDownAutoMode here whatever the shadow says.
+                var shadow = new Detection
+                {
+                    Session = session,
+                    Call = oldest,
+                    IdleSeconds = detection.IdleSeconds,
+                };
+                Decide(shadow, oldest, rules, thresholdSeconds);
+                detection.WouldHaveBeen = shadow.Outcome;
+                detection.Verdict = shadow.Verdict;
                 detection.Outcome = DetectionOutcome.StoodDownAutoMode;
                 detection.Reason = (string.IsNullOrEmpty(mode) ? "unknown" : mode)
-                                   + " mode: rules predict prompts at ~0.4% precision outside default";
+                                   + " mode: rules predict prompts at ~0.4% precision outside default"
+                                   + (shadow.Outcome == DetectionOutcome.Blocked
+                                        ? " (would have flagged it in default mode)" : "");
                 return detection;
             }
 
+            Decide(detection, oldest, rules, thresholdSeconds);
+            return detection;
+        }
+
+        /// <summary>
+        /// Everything after the mode gate: threshold, then rule verdict. Extracted so the
+        /// stand-down path can run it into a throwaway Detection and keep the answer without
+        /// acting on it. One implementation, so the shadow answer cannot drift from the real one.
+        /// </summary>
+        private static void Decide(Detection detection, OutstandingCall oldest, RuleSet rules,
+                                   double thresholdSeconds)
+        {
             if (detection.IdleSeconds < thresholdSeconds)
             {
                 detection.Outcome = DetectionOutcome.Working;
                 detection.Reason = "outstanding for " + Format(detection.IdleSeconds)
                                    + ", under the " + Format(thresholdSeconds) + " threshold";
-                return detection;
+                return;
             }
 
             detection.Verdict = PermissionRules.EvaluateCall(
@@ -149,7 +199,7 @@ namespace DesktopAICompanion.AgentFlow
                 detection.Outcome = DetectionOutcome.StalledButAllowed;
                 detection.Reason = "stalled " + Format(detection.IdleSeconds)
                                    + " but the rules allow this call, so it is slow, not blocked";
-                return detection;
+                return;
             }
             if (detection.Verdict == RuleVerdict.Undecidable)
             {
@@ -159,13 +209,107 @@ namespace DesktopAICompanion.AgentFlow
                 detection.Reason = "stalled " + Format(detection.IdleSeconds) + " on "
                                    + (oldest.Tool ?? "?")
                                    + ", which carries nothing the permission rules can judge";
-                return detection;
+                return;
             }
 
             detection.Outcome = DetectionOutcome.Blocked;
             detection.Reason = "stalled " + Format(detection.IdleSeconds) + " on "
                                + (oldest.Tool ?? "?") + ", which the rules say would prompt";
-            return detection;
+            return;
+        }
+
+        /// <summary>
+        /// What the rules APPROVED on the user's behalf, per session, since a given call id set was
+        /// last counted.
+        ///
+        /// This is the other half of an approval module, and it was missing. The detector reports
+        /// what it would have STOPPED; nothing reported what went through. On a machine with 517
+        /// user allow rules plus a managed policy, running in auto mode, that is thousands of
+        /// commands a day the user never sees -- and "never sees" is precisely what an audit trail
+        /// is for. It answers a question the notify half cannot: not "am I blocked?" but "what has
+        /// been run for me?"
+        ///
+        /// Keyed by the ROOT EXECUTABLE, never the command. `git`, `rg`, `dotnet` -- the same line
+        /// AiBrain holds by logging endpoint HOSTS rather than URLs, and the same line the spoken
+        /// half holds. A full command in the diagnostic log would put arguments, paths and
+        /// occasionally a token into a file SUPPORT.md invites users to attach to an issue.
+        ///
+        /// `alreadyCounted` is consumed AND updated, so a call is counted once however many times
+        /// the transcript is re-read. The caller owns pruning it.
+        /// </summary>
+        public static Dictionary<string, int> ApprovedSince(AgentSession session, RuleSet rules,
+                                                            HashSet<string> alreadyCounted)
+        {
+            var tally = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            if (session == null || session.Completed == null) return tally;
+            foreach (OutstandingCall call in session.Completed)
+            {
+                if (call == null || string.IsNullOrEmpty(call.Id)) continue;
+                string key = session.SessionId + "/" + call.Id;
+                if (alreadyCounted != null && !alreadyCounted.Add(key)) continue;
+                RuleVerdict verdict = PermissionRules.EvaluateCall(
+                    call.Tool, call.Command, call.Argument, rules);
+                // WouldAllow only. A call that would have PROMPTED and completed anyway was either
+                // answered by the user or auto-accepted by the agent's own mode, and neither is the
+                // rules approving it -- claiming otherwise would inflate this into a count of
+                // "everything that ran", which is not an approval record.
+                if (verdict != RuleVerdict.WouldAllow) continue;
+                string root = RootExecutable(call);
+                int current;
+                tally.TryGetValue(root, out current);
+                tally[root] = current + 1;
+            }
+            return tally;
+        }
+
+        /// <summary>
+        /// The executable a call runs, or the tool name when there is no command. Safe to log: it
+        /// is one token with no arguments, no path and no user text.
+        /// </summary>
+        public static string RootExecutable(OutstandingCall call)
+        {
+            if (call == null) return "?";
+            string command = call.Command;
+            if (string.IsNullOrEmpty(command)) return call.Tool ?? "?";
+            string stripped = PermissionRules.StripEnvPrefix(command);
+            List<string> parts = CommandSplitter.Split(
+                stripped, string.Equals(call.Tool, "PowerShell", StringComparison.OrdinalIgnoreCase)
+                    ? CommandSplitter.ShellPowerShell : CommandSplitter.ShellBash);
+            string first = parts.Count > 0 ? parts[0] : stripped;
+            first = PermissionRules.StripEnvPrefix(first).Trim();
+            if (first.Length == 0) return call.Tool ?? "?";
+            int space = first.IndexOfAny(new[] { ' ', '\t', '\n', '\r' });
+            if (space > 0) first = first.Substring(0, space);
+            // A path would leak a directory layout, so keep the leaf only: /usr/bin/git -> git.
+            int slash = first.LastIndexOfAny(new[] { '/', '\\' });
+            if (slash >= 0 && slash < first.Length - 1) first = first.Substring(slash + 1);
+            return first.Length == 0 ? (call.Tool ?? "?") : first;
+        }
+
+        /// <summary>One line for the diagnostic log: "approved 14: git x6, rg x5, dotnet x3".
+        /// Highest count first, capped so one busy poll cannot write a paragraph.</summary>
+        public static string DescribeApprovals(Dictionary<string, int> tally, int cap)
+        {
+            if (tally == null || tally.Count == 0) return null;
+            var names = new List<string>(tally.Keys);
+            names.Sort(delegate(string left, string right)
+            {
+                int byCount = tally[right].CompareTo(tally[left]);
+                return byCount != 0 ? byCount : string.CompareOrdinal(left, right);
+            });
+            int total = 0;
+            foreach (int count in tally.Values) total += count;
+            var parts = new List<string>();
+            for (int i = 0; i < names.Count && i < cap; i++)
+                parts.Add(names[i] + " x" + tally[names[i]].ToString(
+                    System.Globalization.CultureInfo.InvariantCulture));
+            string more = names.Count > cap
+                ? ", +" + (names.Count - cap).ToString(
+                    System.Globalization.CultureInfo.InvariantCulture) + " more"
+                : "";
+            return "approved " + total.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                   + " call(s) the rules allow without asking: " + string.Join(", ", parts.ToArray())
+                   + more;
         }
 
         private static string Format(double seconds)

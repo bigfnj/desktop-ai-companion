@@ -337,6 +337,125 @@ def load_rules():
 _COMMAND_TOOLS = ("Bash", "PowerShell")
 
 
+def load_one_tier(path):
+    """(deny, ask, allow) for a SINGLE settings file, unmerged.
+
+    load_rules() merges the tiers because that is what the agent evaluates. This does not,
+    because the question below is about one tier specifically: a rule in the MANAGED file is
+    one the user's own `allow` cannot reach and auto-accept cannot override.
+    """
+    buckets = {k: collections.defaultdict(list) for k in ("deny", "ask", "allow")}
+    try:
+        with open(path, "r", encoding="utf-8-sig") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError):
+        return buckets, 0
+    count = 0
+    perms = data.get("permissions") or {}
+    for key in buckets:
+        for entry in perms.get(key) or []:
+            entry = entry.strip()
+            match = _RULE.match(entry)
+            if match:
+                buckets[key][match.group(1)].append(match.group(2))
+            else:
+                buckets[key][entry].append("*")
+            count += 1
+    return buckets, count
+
+
+def addressable_parts(tool, tool_input):
+    """The strings a rule can match against, mirroring classify_call's decomposition."""
+    if tool in _COMMAND_TOOLS:
+        command = (tool_input or {}).get("command")
+        if not isinstance(command, str) or not command.strip():
+            return []
+        parts = split_command_segments(
+            command, "powershell" if tool == "PowerShell" else "bash")
+        out = []
+        for part in parts:
+            part = _ENV_PREFIX.sub("", part).strip()
+            if part:
+                out.append(part)
+        return out
+    for key in ("file_path", "path", "notebook_path", "url", "pattern"):
+        value = (tool_input or {}).get(key)
+        if isinstance(value, str) and value:
+            return [value]
+    return [""]
+
+
+def blocked_by_one_tier(tool, tool_input, tier):
+    """True when an ask or deny pattern IN THAT TIER matches any addressable part.
+
+    Allow is ignored on purpose: an allow in the managed file is not a reason to expect a
+    prompt, and a managed `ask` is not cancelled by a user `allow` (deny -> ask -> allow).
+    """
+    for part in addressable_parts(tool, tool_input):
+        for key in ("deny", "ask"):
+            for pattern in tier[key].get(tool, ()):
+                if matches(tool, pattern, part):
+                    return True
+    return False
+
+
+def tier_report(files, buckets):
+    """Does the auto-mode stand-down throw away prompts a MANAGED rule guarantees?
+
+    The stand-down is an allow-list of exactly `default`, on a measured ~0.4% precision
+    everywhere else. The objection worth testing: a managed `ask` beats auto-accept, so a curl
+    call blocks in auto mode as well, and standing down there discards a CERTAINTY rather than a
+    prediction.
+
+    Two predictors over the same corpus and the same ground truth
+    (`toolDenialKind == "permission-rule"`):
+
+      WIDE    what the module ships: any WouldPrompt or WouldDeny from the merged rules
+      MANAGED only a call an ask/deny rule in remote-settings.json matches
+    """
+    managed, managed_rules = load_one_tier(MANAGED_SETTINGS)
+    _user, user_rules = load_one_tier(USER_SETTINGS)
+    print("rules: %d user, %d managed" % (user_rules, managed_rules))
+    managed_tools = sorted(set(list(managed["ask"]) + list(managed["deny"])))
+    print("managed ask/deny tools: %s" % (", ".join(managed_tools) or "(none)"))
+    print("transcripts: %d\n" % len(files))
+
+    stats = collections.defaultdict(collections.Counter)
+    hits = collections.defaultdict(list)
+    for path in files:
+        for tool, _wait, denial, result, _root, mode, tool_input in walk(path, buckets):
+            counter = stats[mode or "unknown"]
+            counter["calls"] += 1
+            truth = denial == DENIAL_BY_RULE
+            wide = result in (WOULD_PROMPT, WOULD_DENY)
+            narrow = blocked_by_one_tier(tool, tool_input, managed)
+            if truth:
+                counter["real"] += 1
+            if wide:
+                counter["wide"] += 1
+                counter["wide_hit"] += 1 if truth else 0
+            if narrow:
+                counter["narrow"] += 1
+                if truth:
+                    counter["narrow_hit"] += 1
+                    if len(hits[mode]) < 4:
+                        hits[mode].append((tool, str(tool_input)[:64]))
+
+    print("%-12s %8s %5s %9s %8s %8s %8s %8s"
+          % ("mode", "calls", "real", "wide", "wide P", "managed", "mgd P", "mgd R"))
+    for mode in sorted(stats, key=lambda m: -stats[m]["calls"]):
+        c = stats[mode]
+        wp = (100.0 * c["wide_hit"] / c["wide"]) if c["wide"] else 0.0
+        mp = (100.0 * c["narrow_hit"] / c["narrow"]) if c["narrow"] else 0.0
+        mr = (100.0 * c["narrow_hit"] / c["real"]) if c["real"] else 0.0
+        print("%-12s %8d %5d %9d %7.2f%% %8d %7.1f%% %7.0f%%"
+              % (mode, c["calls"], c["real"], c["wide"], wp, c["narrow"], mp, mr))
+    print()
+    for mode in sorted(hits):
+        for tool, shown in hits[mode]:
+            print("  %-11s managed rule caught a real block: %-8s %s" % (mode, tool, shown))
+
+
 @functools.lru_cache(maxsize=8192)
 def _compiled(pattern):
     """`*` is the only wildcard; every other metacharacter is a literal."""
@@ -426,7 +545,7 @@ def parse_ts(value):
 
 
 def walk(path, buckets):
-    """[(tool, wait_seconds, denial, verdict, root, permission_mode)] for one transcript.
+    """[(tool, wait_seconds, denial, verdict, root, permission_mode, tool_input)] per transcript.
 
     The permission mode is CARRIED FORWARD positionally, by file order, and that is not
     a shortcut. Measured 2026-09-17 over the 60 most recent transcripts:
@@ -489,7 +608,7 @@ def walk(path, buckets):
                         continue
                     result, root = classify_call(started[1], started[2], buckets)
                     out.append((started[1], wait, denial, result, root,
-                                started[3] or "unknown"))
+                                started[3] or "unknown", started[2]))
     return out
 
 
@@ -695,6 +814,8 @@ def main():
                         help="verify the compound-command splitter")
     parser.add_argument("--difftest", action="store_true",
                         help="compare the splitter against the JS original under node")
+    parser.add_argument("--tiers", action="store_true",
+                        help="score a MANAGED-tier-only predictor against the wide one, per mode")
     args = parser.parse_args()
 
     if args.selftest:
@@ -703,6 +824,9 @@ def main():
         return splitter_difftest(args.files)
 
     buckets, sources = load_rules()
+    if args.tiers:
+        tier_report(sorted(glob.glob(CLAUDE_GLOB), key=os.path.getmtime)[-args.files:], buckets)
+        return
     counts = {k: sum(len(v) for v in buckets[k].values()) for k in buckets}
     print("rules loaded from %d source(s): deny=%d ask=%d allow=%d"
           % (sources, counts["deny"], counts["ask"], counts["allow"]))
@@ -721,7 +845,7 @@ def main():
     by_denial = collections.defaultdict(lambda: collections.Counter())
 
     for path in paths:
-        for tool, wait, denial, result, root, mode in walk(path, buckets):
+        for tool, wait, denial, result, root, mode, _input in walk(path, buckets):
             total += 1
             verdict_tally[result] += 1
             bucket = by_mode[mode]
