@@ -31,6 +31,10 @@
   <!-- Tray icon, read at Init via EmbeddedResources.LoadBytes (matches on the trailing file name). -->
   <ItemGroup>
     <EmbeddedResource Include="Resources\agentflow.png" />
+    <!-- Tray icon for the module's own entry. Downscaled to 32x32 from the 640x640 original at
+         https://aiexplained.app/brand-mascot.png, fetched 2026-09-18 at the maintainer's request;
+         1.4 KB embedded rather than 155 KB, because this is only ever drawn at menu size. -->
+    <EmbeddedResource Include="Resources\brand-mascot.png" />
   </ItemGroup>
 
 </Project>

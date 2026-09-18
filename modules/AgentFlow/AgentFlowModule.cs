@@ -158,7 +158,7 @@ namespace DesktopAICompanion.AgentFlow
                     Label = "AgentFlow",
                     Group = 40,
                     Order = 5,
-                    IconPng = LoadIconResource("agentflow.png"),
+                    IconPng = LoadIconResource("brand-mascot.png"),
                     // The host re-evaluates this every time the menu opens, which is the only push
                     // channel a module has into the tray. A module cannot update an OPEN menu, so
                     // this is a snapshot by design rather than a live counter.
@@ -440,11 +440,12 @@ namespace DesktopAICompanion.AgentFlow
                 // user's switch and a port that answered this tick: either one missing and
                 // this does not run at all.
                 string approvalNote = null;
+                bool sawPanel = false;
                 if (autoApprove && answering)
                 {
                     if (_resetPressBudget) { _resetPressBudget = false; _pressBudget.Reset(); }
-                    try { approvalNote = TryApproveOnce(cdpPort, _pressBudget); }
-                    catch (Exception) { approvalNote = null; }
+                    try { approvalNote = TryApproveOnce(cdpPort, _pressBudget, out sawPanel); }
+                    catch (Exception) { approvalNote = null; sawPanel = false; }
                     // Nothing found means the last press landed, or there was never
                     // anything there. Either way the prompt in front of it is gone, so the
                     // repeat counter has nothing left to be suspicious about.
@@ -459,10 +460,12 @@ namespace DesktopAICompanion.AgentFlow
                     Dictionary<string, int> forUi = approved;
                     List<Detection> forApply = results;
                     bool portUp = answering;
+                    bool panelUp = sawPanel;
                     string note = approvalNote;
                     PostToUi(() =>
                     {
                         _portAnswering = portUp;
+                        _panelReadable = panelUp;
                         if (forApply != null)
                         {
                             Apply(forApply);
@@ -488,9 +491,10 @@ namespace DesktopAICompanion.AgentFlow
         /// lightweight, and a guess about which button to press is the one kind of wrong this
         /// feature cannot afford.
         /// </summary>
-        internal static string TryApproveOnce(int port, PressBudget budget)
+        internal static string TryApproveOnce(int port, PressBudget budget, out bool sawPanel)
         {
-            return CdpApprover.Sweep(port, view => Decide(port, view, budget), 1500);
+            return CdpApprover.Sweep(port, view => Decide(port, view, budget), 1500,
+                                     out sawPanel);
         }
 
         /// <summary>
@@ -523,7 +527,7 @@ namespace DesktopAICompanion.AgentFlow
 
             string outcome = CdpApprover.Click(port, view.TargetId, decision.Index,
                                                decision.ChosenRaw, 1500);
-            return "auto-approve " + outcome + " for " + SafeToolName(view.ToolName)
+            return "auto-approve " + outcome + " for " + DescribeSubject(view)
                    + ": " + decision.Reason;
         }
 
@@ -535,6 +539,74 @@ namespace DesktopAICompanion.AgentFlow
         /// underscore only, truncated -- a name that fails that is reported as unknown rather
         /// than passed through, because the log is meant to be attachable to a public issue.
         /// </summary>
+        /// <summary>
+        /// The static half of each prompt header this agent renders, and what it is safe to
+        /// call it in a log line.
+        ///
+        /// Read out of the shipped bundle on 2026-09-18: FIVE shapes, and only the last names
+        /// its tool in a &lt;strong&gt;. The other four supply their own renderer --
+        /// "Make this edit to &lt;path&gt;?" and friends -- which is why the first real prompt
+        /// pressed logged itself as "an unnamed tool".
+        ///
+        /// An ALLOWLIST, for the same reason PromptOptions is one: a header shape nobody has
+        /// seen yet can contain anything, and the safe response to not recognising it is to
+        /// say so rather than to echo it into a file meant to be attachable to a public issue.
+        /// </summary>
+        private static readonly KeyValuePair<string, string>[] KnownHeaders =
+        {
+            new KeyValuePair<string, string>("make this edit to", "an edit"),
+            new KeyValuePair<string, string>("allow reading from", "a file read"),
+            new KeyValuePair<string, string>("allow write to", "a file write"),
+            new KeyValuePair<string, string>("use skill", "a skill"),
+        };
+
+        /// <summary>
+        /// What was approved, in terms safe to write down.
+        ///
+        /// Order matters: a tool named in &lt;strong&gt; is the most precise answer and the
+        /// generic header carries nothing else, so it wins. Otherwise the header shape names
+        /// the action and the file EXTENSION qualifies it -- ".ps1" says what kind of thing
+        /// was touched while naming no person, which a file name cannot promise.
+        /// </summary>
+        internal static string DescribeSubject(PromptView view)
+        {
+            if (view == null) return "an unrecognised prompt";
+
+            string tool = SafeToolName(view.ToolName);
+            if (view.ToolName != null && view.ToolName.Length > 0) return tool;
+
+            string header = (view.UnsafeHeader ?? "").Trim().ToLowerInvariant();
+            foreach (KeyValuePair<string, string> known in KnownHeaders)
+            {
+                if (!header.StartsWith(known.Key, StringComparison.Ordinal)) continue;
+                string extension = SafeExtension(view.PathExtension);
+                return extension.Length == 0
+                    ? known.Value
+                    : known.Value + " (." + extension + ")";
+            }
+            return "an unrecognised prompt";
+        }
+
+        /// <summary>
+        /// An extension, or nothing. Letters and digits only, eight at most.
+        ///
+        /// The filter is not decoration. This value is read off the screen, and the span it
+        /// comes from holds a full absolute path on Windows -- upstream splits on "/" to take
+        /// the leaf, which splits nothing here. Anything that does not look like an extension
+        /// is dropped rather than trimmed, because a half-parsed path is still a path.
+        /// </summary>
+        internal static string SafeExtension(string extension)
+        {
+            if (string.IsNullOrEmpty(extension) || extension.Length > 8) return "";
+            foreach (char c in extension)
+            {
+                bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                          || (c >= '0' && c <= '9');
+                if (!ok) return "";
+            }
+            return extension.ToLowerInvariant();
+        }
+
         internal static string SafeToolName(string name)
         {
             if (string.IsNullOrEmpty(name)) return "an unnamed tool";
@@ -956,6 +1028,18 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         private volatile bool _portAnswering;
 
+        /// <summary>
+        /// Whether the last sweep could actually SEE the conversation.
+        ///
+        /// Separate from _portAnswering because they fail differently and the user can only
+        /// fix one of them: the port not answering means VS Code is closed or was started
+        /// without the flag, while the port answering and the panel being unreadable means
+        /// the editor is there but the approver cannot get at it. Both are orange -- it
+        /// cannot press either way -- but conflating them into one flag is what produced a
+        /// module that reported "no prompt" while blind.
+        /// </summary>
+        private volatile bool _panelReadable;
+
         private string ArgvPath
         {
             get { return _settings == null ? "" : _settings.Get(SettingArgvPath, ""); }
@@ -1196,6 +1280,7 @@ namespace DesktopAICompanion.AgentFlow
                     // PRESSING. Those are different kinds of decision and the menu should not
                     // read as a list of peers.
                     Label = AutoApproveTrayLabel(),
+                    IconPng = StatusDot.For(AutoApproveState),
                     Group = 1,
                     Order = 0,
                     Click = ToggleAutoApproveFromTray,
@@ -1219,12 +1304,36 @@ namespace DesktopAICompanion.AgentFlow
         /// A coloured GLYPH rather than a coloured menu item because a WinForms menu label is
         /// plain text: tinting one needs owner-draw, and the dot reads the same at a glance.
         /// </summary>
-        private string AutoApproveTrayLabel()
+        internal ApproveState AutoApproveState
         {
-            if (!AutoApprove) return "🔴 Auto-approve: off";
-            return _portAnswering
-                ? "🟢 Auto-approve: on"
-                : "🟡 Auto-approve: on, waiting for the debugging port";
+            get
+            {
+                if (!AutoApprove) return ApproveState.Off;
+                return _portAnswering && _panelReadable
+                    ? ApproveState.Able
+                    : ApproveState.CannotSee;
+            }
+        }
+
+        /// <summary>
+        /// The row text. The COLOUR now lives in the icon, not in the string.
+        ///
+        /// It used to be a coloured emoji, which the tray menu renders in the menu font as a
+        /// flat grey ring -- all three states looked the same, so the row could not say the one
+        /// thing it exists to say. The words still distinguish them, for anyone reading rather
+        /// than glancing and for a screen reader, which an icon tells nothing at all.
+        /// </summary>
+        internal string AutoApproveTrayLabel()
+        {
+            switch (AutoApproveState)
+            {
+                case ApproveState.Able: return "Auto-approve: on";
+                case ApproveState.CannotSee:
+                    return _portAnswering
+                        ? "Auto-approve: on, but cannot see the Claude Code panel"
+                        : "Auto-approve: on, waiting for VS Code";
+                default: return "Auto-approve: off";
+            }
         }
 
         /// <summary>Flip the user's intent from the tray, and say what happened out loud.</summary>
@@ -1242,6 +1351,7 @@ namespace DesktopAICompanion.AgentFlow
             // switch came back on, claiming a reachable editor nobody has checked for. Amber
             // until a probe earns it, which takes at most one tick.
             _portAnswering = false;
+            _panelReadable = false;
             // The switch moving is the user saying "try again", which clears a stand-down.
             _resetPressBudget = true;
 
@@ -2014,39 +2124,62 @@ namespace DesktopAICompanion.AgentFlow
                     !module.AutoApprove);
                 probe.Check("WITNESS the pane agrees it is off, rather than not saying",
                     pane.Load()[SettingAutoApprove] == "false");
-                probe.Check("the tray says off, in red",
-                    module.AutoApproveTrayLabel().StartsWith("🔴", StringComparison.Ordinal)
+                probe.Check("the tray says off, and the dot is the off one",
+                    module.AutoApproveState == ApproveState.Off
                     && module.AutoApproveTrayLabel().IndexOf("off", StringComparison.Ordinal) >= 0);
 
                 // On, with nothing answering: AMBER, and it has to SAY it cannot act yet.
                 module.ToggleAutoApproveFromTray();
                 probe.Check("the tray toggle turns it on", module.AutoApprove);
-                probe.Check("WITNESS on-but-unreachable is amber and says what it waits for",
-                    module.AutoApproveTrayLabel().StartsWith("🟡", StringComparison.Ordinal)
-                    && module.AutoApproveTrayLabel().IndexOf("waiting", StringComparison.Ordinal) >= 0);
+                probe.Check("WITNESS on-but-unreachable is the orange state, not the green one",
+                    module.AutoApproveState == ApproveState.CannotSee
+                    && module.AutoApproveTrayLabel().IndexOf("waiting for VS Code",
+                        StringComparison.Ordinal) >= 0);
                 probe.Check("WITNESS the pane reports what the tray just did",
                     pane.Load()[SettingAutoApprove] == "true");
 
+                // The port answering is NOT enough on its own, and this is the assertion
+                // that says so: the module spent an afternoon with a live port and a panel
+                // it could not read, reporting itself healthy the whole time.
                 module._portAnswering = true;
-                probe.Check("WITNESS green means on AND reachable, nothing less",
-                    module.AutoApproveTrayLabel().StartsWith("🟢", StringComparison.Ordinal));
+                probe.Check("WITNESS a live port with an unreadable panel is still orange",
+                    module.AutoApproveState == ApproveState.CannotSee
+                    && module.AutoApproveTrayLabel().IndexOf("cannot see",
+                        StringComparison.Ordinal) >= 0);
+                module._panelReadable = true;
+                probe.Check("WITNESS green means the port answered AND the panel was read",
+                    module.AutoApproveState == ApproveState.Able);
+                probe.Check("the three states get three different dots",
+                    !SameBytes(StatusDot.For(ApproveState.Off), StatusDot.For(ApproveState.CannotSee))
+                    && !SameBytes(StatusDot.For(ApproveState.CannotSee), StatusDot.For(ApproveState.Able))
+                    && !SameBytes(StatusDot.For(ApproveState.Off), StatusDot.For(ApproveState.Able)));
+                probe.Check("WITNESS the dot is cached, not redrawn on every menu open",
+                    ReferenceEquals(StatusDot.For(ApproveState.Able),
+                                    StatusDot.For(ApproveState.Able)));
                 module._portAnswering = false;
+                module._panelReadable = false;
 
                 // The other direction: the pane must be able to switch it off again.
                 pane.Save(new Dictionary<string, string> { { SettingAutoApprove, "false" } });
                 probe.Check("WITNESS saving the pane switches it off",
                     !module.AutoApprove);
-                probe.Check("...and the tray goes back to red",
-                    module.AutoApproveTrayLabel().StartsWith("🔴", StringComparison.Ordinal));
+                probe.Check("...and the tray goes back to the off state",
+                    module.AutoApproveState == ApproveState.Off);
 
                 // Turning it back ON must not inherit the green it had before. The port is
                 // only probed while the switch is on, so a leftover true is not evidence --
                 // and this is the one path where the tray could claim a capability nobody
                 // ever checked for.
                 module._portAnswering = true;
+                module._panelReadable = true;
                 module.ToggleAutoApproveFromTray();
+                // BOTH flags, individually. Asserting only the resulting state was too weak: the
+                // toggle clears two things, so disabling either clear on its own still left the
+                // state correct and a mutation survived. What is being claimed is that nothing
+                // learned before the switch moved survives it.
                 probe.Check("WITNESS switching it on discards the last probe, so green is earned",
-                    module.AutoApproveTrayLabel().StartsWith("🟡", StringComparison.Ordinal));
+                    !module._portAnswering && !module._panelReadable
+                    && module.AutoApproveState == ApproveState.CannotSee);
                 module.ToggleAutoApproveFromTray();
 
                 // The tray has to OFFER it, carry the same text as the helper, and sit in its
@@ -2179,6 +2312,57 @@ namespace DesktopAICompanion.AgentFlow
                 pressed != null && pressed.IndexOf("gone", StringComparison.Ordinal) >= 0
                 && pressed.IndexOf("approve-once", StringComparison.Ordinal) >= 0);
 
+            // ---- what got approved, said safely --------------------------------------
+            // The first real prompt this module ever pressed logged itself as "an unnamed
+            // tool", because four of the five prompt shapes render their own header with no
+            // <strong> in it. These assert the replacement, and that it cannot leak a path.
+            probe.Check("an edit prompt is named as an edit, with the kind of file",
+                DescribeSubject(Header("make this edit to ?", "ps1")) == "an edit (.ps1)");
+            probe.Check("the other three header shapes are named too",
+                DescribeSubject(Header("allow reading from ?", "md")) == "a file read (.md)"
+                && DescribeSubject(Header("allow write to ?", "")) == "a file write"
+                && DescribeSubject(Header("use skill ?", "")) == "a skill");
+            probe.Check("a tool named in the header still wins, and is not overridden",
+                DescribeSubject(Tool("Bash")) == "Bash");
+
+            // The allowlist half: a header shape nobody has seen must not be echoed.
+            PromptView novel = Header("Grant everlasting access to the thing at ?", "txt");
+            probe.Check("WITNESS an unrecognised header is named, not quoted",
+                DescribeSubject(novel) == "an unrecognised prompt");
+            probe.Check("WITNESS ...so none of its text reaches the line that gets logged",
+                DescribeSubject(novel).IndexOf("everlasting", StringComparison.Ordinal) < 0);
+
+            // The extension is the ONLY thing taken from the path span, and the span holds a
+            // full absolute path on Windows: upstream takes the leaf with split("/"), which
+            // splits nothing here. Anything not shaped like an extension is dropped whole.
+            // Both guards, separately. The first version of this assertion used three inputs that
+            // were all LONGER than the cap, so every one of them was rejected on length and the
+            // character filter was never exercised at all -- a mutation that made it return the
+            // input verbatim survived. The short cases below are the ones that reach it.
+            probe.Check("WITNESS a long path in the extension slot is dropped, not trimmed",
+                SafeExtension("\\server\\share\\secret.txt") == ""
+                && SafeExtension("D:/work/plan.md") == "");
+            probe.Check("WITNESS a SHORT value with anything but letters and digits is dropped",
+                SafeExtension("a/b") == "" && SafeExtension(".ps1") == ""
+                && SafeExtension("p s1") == "" && SafeExtension("a\\b") == "");
+            probe.Check("...while a real extension survives, lowercased",
+                SafeExtension("PS1") == "ps1" && SafeExtension("cs") == "cs");
+            probe.Check("an absurd extension is dropped rather than truncated",
+                SafeExtension("abcdefghij") == "");
+
+            // End to end: the whole logged line, for the prompt that actually happened.
+            PromptView edit = Header("make this edit to ?", "ps1");
+            edit.Options.Add("Yes");
+            edit.Options.Add("No");
+            edit.Disabled.Add(false);
+            edit.Disabled.Add(false);
+            string line = Decide(ClosedPort, edit, new PressBudget());
+            probe.Check("WITNESS the audit line says WHAT was approved",
+                line != null && line.IndexOf("an edit (.ps1)", StringComparison.Ordinal) >= 0);
+            probe.Check("...and still carries no path",
+                line != null && line.IndexOf(":\\", StringComparison.Ordinal) < 0
+                && line.IndexOf("/", StringComparison.Ordinal) < 0);
+
             // ---- the tool name, which is text off the screen --------------------------
             probe.Check("an ordinary tool name passes through", SafeToolName("Bash") == "Bash");
             probe.Check("WITNESS a tool name carrying anything else is not logged verbatim",
@@ -2196,6 +2380,29 @@ namespace DesktopAICompanion.AgentFlow
                     StringComparison.Ordinal)
                 && CountUnescapedQuotes(CdpApprover.JsonEncode("a\" + alert(1) + \"b")) == 2);
             return true;
+        }
+
+        private static bool SameBytes(byte[] left, byte[] right)
+        {
+            if (left == null || right == null) return left == right;
+            if (left.Length != right.Length) return false;
+            for (int i = 0; i < left.Length; i++) if (left[i] != right[i]) return false;
+            return true;
+        }
+
+        /// <summary>A prompt whose header names no tool, the way four of the five shapes do.</summary>
+        private static PromptView Header(string header, string extension)
+        {
+            return new PromptView
+            {
+                TargetId = "t1", ToolName = "", UnsafeHeader = header, PathExtension = extension,
+            };
+        }
+
+        /// <summary>A prompt that does name its tool, the way the generic shape does.</summary>
+        private static PromptView Tool(string tool)
+        {
+            return new PromptView { TargetId = "t1", ToolName = tool };
         }
 
         /// <summary>A prompt view with no editor behind it, for the assertions above.</summary>

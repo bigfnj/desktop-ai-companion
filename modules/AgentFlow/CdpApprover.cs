@@ -18,6 +18,18 @@ namespace DesktopAICompanion.AgentFlow
     {
         public string TargetId;
         public string ToolName = "";
+        /// <summary>
+        /// The header's static text with the path removed -- "Make this edit to ?" and so on.
+        /// NEVER LOG THIS. Four of the five prompt shapes render their own header, and a shape
+        /// nobody has seen yet can put anything in it. It exists to be MATCHED against a table,
+        /// and the table's answer is what gets logged.
+        /// </summary>
+        public string UnsafeHeader = "";
+        /// <summary>
+        /// The file extension, lowercased, with no dot. Safe: an extension names a kind of file
+        /// and never a person. Computed in the renderer precisely so the path stays there.
+        /// </summary>
+        public string PathExtension = "";
         public List<string> Options = new List<string>();
         /// <summary>Options the UI itself has disabled. Never pressable, whatever they say.</summary>
         public List<bool> Disabled = new List<bool>();
@@ -139,9 +151,28 @@ namespace DesktopAICompanion.AgentFlow
   if (!c) return 'none';
   var bc = c.querySelector('[class*=""buttonContainer""]');
   if (!bc) return 'none';
-  var out = { tool: '', options: [], disabled: [] };
-  var h = c.querySelector('[class*=""permissionRequestHeader""] strong');
-  if (h) out.tool = (h.textContent || '').trim();
+  var out = { tool: '', header: '', ext: '', options: [], disabled: [] };
+  var hd = c.querySelector('[class*=""permissionRequestHeader""]');
+  if (hd) {
+    var st = hd.querySelector('strong');
+    if (st) out.tool = (st.textContent || '').trim();
+    // The header MINUS the path. Only four of the five prompt shapes name a tool in <strong>;
+    // the rest say 'Make this edit to <path>?' and friends, so the static half is the only
+    // thing that identifies them. Taken off a clone with the path spans removed, because the
+    // point is to leave the path behind rather than to trim it afterwards.
+    var clone = hd.cloneNode(true);
+    var ps = clone.querySelectorAll('[class*=""permissionPath""]');
+    for (var pi = 0; pi < ps.length; pi++) ps[pi].parentNode.removeChild(ps[pi]);
+    out.header = (clone.textContent || '').replace(/\s+/g, ' ').trim();
+    // The EXTENSION is computed here, in the renderer, and the path itself never crosses the
+    // wire. Upstream does file_path.split('/').pop(), which on Windows splits nothing, so this
+    // span holds a full absolute path -- exactly the thing the diagnostic log must never carry.
+    var p = hd.querySelector('[class*=""permissionPath""]');
+    if (p) {
+      var m = (p.textContent || '').trim().match(/\.([A-Za-z0-9]{1,8})$/);
+      if (m) out.ext = m[1].toLowerCase();
+    }
+  }
   var btns = bc.querySelectorAll('button');
   for (var i = 0; i < btns.length; i++) {
     var b = btns[i];
@@ -214,17 +245,19 @@ namespace DesktopAICompanion.AgentFlow
         /// 2026-09-18 -- which is what a target that already has a client looks like. Target.
         /// attachToTarget with flatten works on the same targets the direct socket refuses.
         /// </summary>
-        public static string Sweep(int port, Func<PromptView, string> press, int timeoutMs)
+        public static string Sweep(int port, Func<PromptView, string> press, int timeoutMs,
+                                   out bool sawPanel)
         {
+            sawPanel = false;
             List<string> targetIds = ClaudeTargetIds(port, timeoutMs);
             if (targetIds.Count == 0) return null;
 
             string browserUrl = BrowserSocketUrl(port, timeoutMs);
             if (string.IsNullOrEmpty(browserUrl)) return null;
 
+            bool sawReadable = false;
             try
             {
-                bool sawReadable = false;
                 using (var session = new CdpSession(browserUrl, timeoutMs))
                 {
                     foreach (string targetId in targetIds)
@@ -250,10 +283,6 @@ namespace DesktopAICompanion.AgentFlow
                         finally { session.Detach(sessionId); }
                     }
                 }
-                if (!sawReadable)
-                    return "cannot see inside the Claude Code panel: the debugging port answers, "
-                           + "but nothing in it exposes the conversation. Approving cannot work "
-                           + "until that is fixed -- it is not the same as 'no prompt waiting'.";
             }
             catch (Exception)
             {
@@ -261,8 +290,17 @@ namespace DesktopAICompanion.AgentFlow
                 // mid-read: all mean the same thing to the caller, which is that there is no
                 // answer, so do nothing. An approver that threw on a closed editor would take the
                 // poll down with it.
+                sawPanel = false;
                 return null;
             }
+            // Assigned from the local AFTER the try, so a throw half way through a sweep reports
+            // "could not see" rather than leaving a stale true behind: the tray dot goes green on
+            // this, and green has to mean a panel was read on THIS pass.
+            sawPanel = sawReadable;
+            if (!sawReadable)
+                return "cannot see inside the Claude Code panel: the debugging port answers, "
+                       + "but nothing in it exposes the conversation. Approving cannot work "
+                       + "until that is fixed -- it is not the same as 'no prompt waiting'.";
             return null;
         }
 
@@ -312,7 +350,13 @@ namespace DesktopAICompanion.AgentFlow
                 {
                     JsonElement root = document.RootElement;
                     if (root.ValueKind != JsonValueKind.Object) return null;
-                    var view = new PromptView { TargetId = targetId, ToolName = Str(root, "tool") };
+                    var view = new PromptView
+                    {
+                        TargetId = targetId,
+                        ToolName = Str(root, "tool"),
+                        UnsafeHeader = Str(root, "header"),
+                        PathExtension = Str(root, "ext"),
+                    };
                     JsonElement options;
                     if (!root.TryGetProperty("options", out options)
                         || options.ValueKind != JsonValueKind.Array)

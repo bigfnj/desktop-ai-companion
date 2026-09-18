@@ -55,8 +55,10 @@ READER = os.path.join(MODULE_DIR, "TranscriptReader.cs")
 CDP = os.path.join(MODULE_DIR, "CdpApprover.cs")
 PROMPTOPTS = os.path.join(MODULE_DIR, "PromptOptions.cs")
 BUDGETPRESS = os.path.join(MODULE_DIR, "PressBudget.cs")
+DOT = os.path.join(MODULE_DIR, "StatusDot.cs")
 
-TARGETS = (SPLITTER, RULES, DETECTOR, BUDGET, MODULE, READER, CDP, PROMPTOPTS, BUDGETPRESS)
+TARGETS = (SPLITTER, RULES, DETECTOR, BUDGET, MODULE, READER, CDP, PROMPTOPTS, BUDGETPRESS,
+           DOT)
 
 # (name, file, find, replace, expected fragment of the assertion that must fail)
 CASES = (
@@ -311,24 +313,22 @@ CASES = (
     (
         "the tray shows green whatever the port is doing",
         MODULE,
-        '            return _portAnswering\n'
-        '                ? "🟢 Auto-approve: on"\n'
-        '                : "🟡 Auto-approve: on, waiting for the debugging port";',
-        '            return "🟢 Auto-approve: on";',
-        "on-but-unreachable is amber",
+        "                case ApproveState.CannotSee:\n                    return _portAnswering\n                        ? \"Auto-approve: on, but cannot see the Claude Code panel\"\n                        : \"Auto-approve: on, waiting for VS Code\";",
+        "                case ApproveState.CannotSee: return \"Auto-approve: on\";",
+        "on-but-unreachable is the orange state",
     ),
     (
         "the tray shows it as on while it is off",
         MODULE,
-        '            if (!AutoApprove) return "🔴 Auto-approve: off";',
-        '            if (false) return "🔴 Auto-approve: off";',
-        "the tray says off, in red",
+        "                if (!AutoApprove) return ApproveState.Off;",
+        "                if (false) return ApproveState.Off;",
+        "the tray says off, and the dot is the off one",
     ),
     (
         "pressing is listed as a peer of watching",
         MODULE,
-        "                    Label = AutoApproveTrayLabel(),\n                    Group = 1,",
-        "                    Label = AutoApproveTrayLabel(),\n                    Group = 0,",
+        "                    Label = AutoApproveTrayLabel(),\n                    IconPng = StatusDot.For(AutoApproveState),\n                    Group = 1,",
+        "                    Label = AutoApproveTrayLabel(),\n                    IconPng = StatusDot.For(AutoApproveState),\n                    Group = 0,",
         "in its own group",
     ),
     (
@@ -436,6 +436,51 @@ CASES = (
         "      try { if (frames[fi].contentDocument) docs.push(frames[fi].contentDocument); } catch (e) { }",
         "      try { if (false) docs.push(document); } catch (e) { }",
         "the reader descends into the nested webview frame",
+    ),
+    # Saying what was approved, safely. Four of the five prompt shapes name no tool, which is
+    # why the first prompt ever pressed logged itself as "an unnamed tool".
+    (
+        "the header table is never consulted",
+        MODULE,
+        "                if (!header.StartsWith(known.Key, StringComparison.Ordinal)) continue;",
+        "                if (true) continue;",
+        "an edit prompt is named as an edit",
+    ),
+    (
+        "an unrecognised header is echoed into the log",
+        MODULE,
+        '            return "an unrecognised prompt";',
+        "            return header;",
+        "an unrecognised header is named, not quoted",
+    ),
+    (
+        "the extension filter passes a path through",
+        MODULE,
+        '                if (!ok) return "";',
+        "                if (!ok) return extension;",
+        "a SHORT value with anything but letters and digits is dropped",
+    ),
+    # The dot. Its whole job is to be three different colours for three different states.
+    (
+        "the able dot is the same colour as the off dot",
+        DOT,
+        "                        return _able ?? (_able = Draw(Color.FromArgb(60, 190, 90)));",
+        "                        return _able ?? (_able = Draw(Color.FromArgb(215, 65, 65)));",
+        "three states get three different dots",
+    ),
+    (
+        "the dot is redrawn on every menu open",
+        DOT,
+        "                        return _able ?? (_able = Draw(Color.FromArgb(60, 190, 90)));",
+        "                        return Draw(Color.FromArgb(60, 190, 90));",
+        "the dot is cached, not redrawn on every menu open",
+    ),
+    (
+        "green ignores whether the panel could be read",
+        MODULE,
+        "                return _portAnswering && _panelReadable",
+        "                return _portAnswering",
+        "a live port with an unreadable panel is still orange",
     ),
 )
 
