@@ -294,11 +294,14 @@ See [`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md), the
 - **BUG-001 and BUG-002 are filed in [`docs/ISSUES-post-1.0.0.md`](docs/ISSUES-post-1.0.0.md) under
   "Known bugs (post-1.0.0)"** and both have a
   reliable repro. BUG-001 is the tray icon after an MSI install; BUG-002 is the vision feature failing
-  silently when the configured model is not installed. Its diagnosability is filed separately as
-  **"Open: instrument the modules, AI Brain first"** -- `IHost.Log` already routes a module's lines into
-  the diagnostic log with per-module muting, and all of `modules/AiBrain/` uses it once. Start there;
-  everything else in that module is guesswork until it logs. Never log prompt text, capture content,
-  OCR output or replies -- users attach this file to issues.
+  silently when the configured model is not installed. Its diagnosability is filed separately, under
+  the heading that section carries today: **"Open: instrument the three modules still at zero"** in
+  `BACKLOG.md` (it was titled "Open: instrument the modules, AI Brain first" when this was written).
+  `IHost.Log` already routes a module's lines into the diagnostic log with per-module muting, and all
+  of `modules/AiBrain/` uses it once. Start there; everything else in that module is guesswork until
+  it logs. Never log prompt text, capture content, OCR output or replies -- users attach this file to
+  issues. **AI Brain's half is DONE since 2026-09-11**, at 27 diagnostic lines; the three modules
+  still at zero are Fortunes, PetStudio and BlinkingLed.
 - **The tray icon.** Reported missing again after installing a fresh MSI. The diagnostic log, built
   precisely for this, says the app did everything right on both runs: `success=True icon=True
   visible=True`, and the shell's `NotifyIconSettings` entry has `IsPromoted=1` for the exact install path,
@@ -306,9 +309,13 @@ See [`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md), the
   is the installer's `TerminateProcess` path killing the old instance without a
   `Shell_NotifyIcon(NIM_DELETE)`, leaving Explorer holding a stale slot; the honest fix is the installer
   removing the icon before terminating. Two logged runs exist to diff.
-- **`BACKLOG.md:1480`** still says "12 named collections". It is 7.
-- **The docs-debt section** in `BACKLOG.md` is otherwise unchanged, minus `Changelog.md`, which was deleted
-  with the Jekyll site.
+- **Both docs-debt items this session filed are closed, and both of their targets are gone.**
+  Corrected 2026-09-17, because the two bullets that stood here cited a line and a section that no
+  longer exist: `BACKLOG.md` has no "12 named collections" line (it is seven, and
+  [`docs/FORTUNE-CATEGORIES-PROPOSAL.md`](docs/FORTUNE-CATEGORIES-PROPOSAL.md) is where that now
+  lives -- *"`packs/collections.json` has carried the seven collections since"*), and the file no
+  longer runs to 1480 lines or has a docs-debt section at all, both having gone when `BACKLOG.md`
+  was cut back to open work only. `Changelog.md` was deleted with the Jekyll site.
 - **The portable ZIP has no freshness gate.** `Test-ModulePublishFreshness.ps1` covers module payloads
   only. A truncated `build.ps1` run this session produced a fresh MSI beside an hour-old ZIP and nothing
   would have caught it. Consider asserting inputs are newer than the output in
@@ -1475,8 +1482,10 @@ aibrain via the in-app update to 1.1.2. `DesktopAICompanion.Contracts.dll` refre
 ## Big picture (2026-08-12) — historical
 
 **Released as `v1.2.3` (2026-08-12).** Backlog #9 (Fortunes clarity) plus three real bugs it turned up.
-Read the two OPEN items at the top of BACKLOG.md's "Bugs & maintenance" before the next release — both
-are decisions waiting on the user, not work waiting on a keyboard.
+Read BACKLOG.md's "Bugs & maintenance" section before the next release. **No count in this sentence
+on purpose** -- it used to carry one ("the two OPEN items … both are decisions waiting on the
+user"), and by 2026-09-17 both halves of that were false: there were four, and none of them was
+waiting on the user. Read the section instead.
 
 **The one thing to internalise from this session:** `modules-dist/<id>.zip` is a **committed artifact
 that the live catalog serves from `master`**, and nothing rebuilds it for you. Merging to master *is*

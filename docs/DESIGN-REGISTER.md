@@ -3,8 +3,8 @@
 **What this is.** Closed knowledge that exists to be READ, not done. Every entry here came out of
 [`../BACKLOG.md`](../BACKLOG.md) because it is a register rather than a queue: a refused design kept
 beside the reasoning that refused it, an ABI gap noted so it is not mistaken for an oversight, a
-behaviour that reads like a defect until you know why it is not, and a bug log whose entries are all
-closed.
+behaviour that reads like a defect until you know why it is not, a measurement that refuted the
+explanation everyone had written down, and a bug log whose entries are all closed.
 
 **[`../BACKLOG.md`](../BACKLOG.md) holds only open work.** Nothing in this file needs doing, and
 nothing in it should be deleted either — the knowledge is the point. It was extracted rather than
@@ -23,10 +23,11 @@ fix was attempted and had to be reverted.
 | file a converted companion's look as a bug | [Decisions that read as defects](#decisions-that-read-as-defects) |
 | cite a bug number, or file a new one | [Known bugs (post-1.0.0)](#known-bugs-post-100) — the next number filed is BUG-005 |
 | write a count into a document | [Numbers in documentation](#numbers-in-documentation) |
+| explain why a warning did not fire, or trust a warning count | [Measurements that corrected an explanation](#measurements-that-corrected-an-explanation) |
 
 The completed-work record is [`HISTORY-post-1.0.0.md`](HISTORY-post-1.0.0.md); the post-mortems are
 [`ISSUES-post-1.0.0.md`](ISSUES-post-1.0.0.md); what cannot be actioned from this machine is
-[`BLOCKED.md`](BLOCKED.md).
+[`BLOCKED.md`](BLOCKED.md); product ideas that are not engineering debt are [`IDEAS.md`](IDEAS.md).
 
 ---
 
@@ -86,6 +87,47 @@ neglect.
   the recorded file stays the pick**, and is what shipped in Remembrance.
 - **Third-party module code-signing (stream S7) and TTS as a feature** were both dropped on
   2026-08-13; the reasoning is in [`HISTORY-post-1.0.0.md`](HISTORY-post-1.0.0.md).
+- **`IHost.ContextChanged` is the push half for a reader that must REACT to a change, and
+  Remembrance reading `ReadContext` instead is NOT the bug.** Decided 2026-09-17, after an audit
+  found the event has zero subscribers anywhere in the repo. Reminder publishes `meeting.current`
+  (`modules/Reminder/ReminderModule.cs:929`); Remembrance, the only consumer, calls
+  `ReadContext` (`modules/Remembrance/RemembranceModule.cs:175`). The two readings on the table were
+  "it exists for out-of-tree modules" and "Remembrance should subscribe, so the polling is the bug".
+  It is the first, and the deciding detail is that Remembrance does **not poll**: it reads once,
+  inside `StartRecording()`, at the instant the value is used. Three reasons that pull is the
+  stronger pattern for this consumer, each readable in the code rather than argued:
+  1. The host RETAINS the value. `CompanionHost._context`
+     (`src/dotNet/Plugins/CompanionHost.cs:699`) is a dictionary that outlives every raise, so a
+     reader arriving late still gets the current value, while a late SUBSCRIBER gets nothing until
+     the next publish.
+  2. The publisher publishes **only on change** (`ReminderModule.cs:927` returns early when the
+     JSON is unchanged). One meeting publishes once, possibly an hour before the user presses
+     Record, so "wait for the next event" is not a substitute for "read the value now".
+  3. A subscription is one more handler `Shutdown` has to detach, and a handler that outlived
+     `Shutdown` is the exact defect Remembrance shipped with on `HostShutdown` and fixed in
+     `fe6ed35`. Taking on that hazard to obtain a value it can already read for free is a bad
+     trade.
+  So the channel's push half is for a module that must act ON THE CHANGE, which no module in this
+  repo does yet, and `PluginApi.cs` now says so in the channel's own comment. **What the decision
+  leaves open** is the raise itself: `CompanionHost.PublishContext`'s raise has never run in a test
+  or under any shipped module, and that one assertion is the only part still filed in
+  [`../BACKLOG.md`](../BACKLOG.md). The shipped test double already mirrors the raise
+  (`ModuleKit.Testing.RecordingHost.PublishContext`), so an out-of-tree author can test a subscriber
+  today; it is the host's own raise that nothing exercises.
+- **A test-observation member that only the host needs goes on the HOST's fake, never on
+  `ModuleKit.Testing.RecordingHost`.** Measured cost, 2026-09-17: all seven modules that reference
+  ModuleKit do so **without** `Private="false"`, on purpose, so its DLL is copied into each module
+  folder and ships in every `modules-dist/*.zip` (only TestModule references no ModuleKit at all;
+  `modules/AiBrain/AiBrain.csproj:41-42` states the reason: "the host
+  shares one contract, but the support library ships inside this module's folder so each load
+  context carries its own copy"). `packaging/Test-ModulePublishFreshness.ps1` watches every
+  ProjectReference that is not `Private="false"`, so **one added member in ModuleKit marks all six
+  published payloads stale** and costs a six-module republish. That is precisely what adding
+  `TrayConventions.cs` did, and it is why the unsubscribe assertion added to
+  `ModuleConventionSelfTest` put its four `…HasSubs` properties on that file's own host-side fake
+  instead. The contract assembly is the free one to edit: `DesktopAICompanion.Contracts` IS
+  `Private="false"` in every module csproj, so the watch-set builder skips it and a change there
+  marks nothing stale.
 
 ---
 
@@ -118,8 +160,16 @@ preview, are both there.
 
 ## Decisions that read as defects
 
-Both of these were filed as bugs. Neither is one, and one of them records a fix that had to be
-reverted.
+Each of these was filed as a bug, or would have been. None is one, and one of them records a fix
+that had to be reverted.
+
+- **A blank frame in a converted companion is legitimate, so "no blank tiles" cannot be a
+  corpus-wide gate.** A sweep of all 50 companions found intentional transparent frames in
+  hand-authored ones: `ssj-goku`'s `Instant_Transmission`, `alipheese`'s
+  `TeleportStart`/`TeleportEnd`, the seven sheep's `bathd`, `negima`'s `fall`, `pingus`'s `fall2c`.
+  They are how a companion goes invisible. The blank-tile assertion therefore lives on the
+  SYNTHETIC fixture only. If a corpus-wide check is ever wanted it needs an allowlist keyed by
+  animation name, and the allowlist is the whole cost.
 
 - **A one-frame animation with `repeat="0"` is effectively invisible — and the fix once proposed for
   it is ruled out by its own prerequisite measurement.** Hornet's `Grapple3` was the report: a single
@@ -178,6 +228,32 @@ today. **The next one filed is BUG-005**, and it is filed in [`../BACKLOG.md`](.
 Three of the four were found by the maintainer running a real install, and none by a gate. That is
 why [`../SMOKETEST.md`](../SMOKETEST.md) exists, and why the A-E walk is tracked as open work in
 [`../BACKLOG.md`](../BACKLOG.md) rather than dropped.
+
+---
+
+## Measurements that corrected an explanation
+
+Two facts about the C# compiler in this repo, measured 2026-09-17 because an audit item was about to
+be closed on the wrong reason. Both correct explanations that had already been written down, one of
+them in a commit message.
+
+- **CS0414 does not fire for a write-only field assigned from a non-constant, anywhere in this repo
+  -- `src/` included, where warnings are already errors.** `private int _probeNeverRead = 1;` (a
+  constant initializer, never read) **does** warn in a module build. `private int _blockedCount;`
+  assigned only as `_blockedCount = blocked;` from a local, and never read, **does not**, in a full
+  `--no-incremental` rebuild. So the earlier claim that modules escaped this class because
+  `modules/Directory.Build.props` omitted `TreatWarningsAsErrors` was wrong, and so was the claim
+  that an incremental build hid it. The compiler simply does not report that shape. Both warning
+  properties were added to `modules/Directory.Build.props` anyway on 2026-09-17 (a forced full
+  recompile of all eight module projects emitted 0 warnings, so it was free), and that file's own
+  comment carries this correction beside them. **The false comfort to avoid: do not treat a clean
+  warning build as evidence that no field is write-only.**
+- **A module build reporting `0 Warning(s)` right after a code change is almost always an
+  up-to-date incremental build that never ran the compiler.** An injected
+  `private int _probeNeverRead = 1;` in `AiSettings` produced `warning CS0414 ... 1 Warning(s)` from
+  a plain `dotnet build` and `error CS0414 ... 1 Error(s)` with `-warnaserror`, so a module build
+  genuinely does report the class. Pass `--no-incremental` before believing a warning count, in
+  this repo or any other. Same defect shape as a log line that cannot fail.
 
 ---
 
