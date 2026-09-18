@@ -180,16 +180,25 @@ foreach ($flag in $SelfTestFlags.Keys) {
             Write-Host ('  FAIL  {0} -- no marker' -f $flag) -ForegroundColor Red
             continue
         }
-        # '^\s*SKIP:' and NOT '^SKIP:', which is what this was until 2026-09-17. Two report writers
-        # indent the lines they re-emit: ModuleConventionSelfTest prefixes every module line with
-        # '  [<id>] ', and AiBrainModuleSelfTest indents the engine probe's report by four spaces.
-        # So AiEngineProbe's two real skips -- the DPAPI round-trip, and the Windows OCR recognizer
-        # that its own comment calls "the standing proof that the WinRT projection resolves there"
-        # -- were INVISIBLE, and a machine lacking either silently ran fewer assertions and printed
-        # ok. SelfTestProbe.Skip()'s doc comment promises the gate fails on a SKIP; under the old
-        # anchor that promise was false for every module, since none of their lines start at column
-        # zero.
-        $skips = @(Select-String -LiteralPath $markerPath -Pattern '^\s*SKIP:')
+        # Leading whitespace AND an optional '[<id>] ' tag, because two report writers reshape the
+        # lines they re-emit: AiBrainModuleSelfTest indents the engine probe's report by four
+        # spaces, and ModuleConventionSelfTest prefixes every module line with '  [<id>] '
+        # (ModuleConventionSelfTest.cs:170). SelfTestProbe.Skip() writes a bare 'SKIP: ' with no
+        # indent of its own, so whatever the re-emitter puts in front of it is all that stands
+        # between a skip and this pattern.
+        #
+        # History, because the second half of it is the interesting part. Until 2026-09-17 this was
+        # '^SKIP:', which missed BOTH shapes: AiEngineProbe's two real skips -- the DPAPI round-trip
+        # and the Windows OCR recognizer its own comment calls "the standing proof that the WinRT
+        # projection resolves there" -- were invisible, so a machine lacking either ran fewer
+        # assertions and printed ok. That day's fix to '^\s*SKIP:' recovered the four-space case and
+        # its comment claimed the '[<id>] ' case too. It did not: after \s* the next character is
+        # '[', not 'S'. So for the FOUR convention-based flags -- reminder, remembrance,
+        # blinkingled, agentflow, i.e. every module that reaches the gate through the real loader --
+        # SelfTestProbe.Skip()'s promise that the gate fails on a skip stayed false for another day.
+        # Caught 2026-09-18 by running the pattern against the three real line shapes instead of
+        # re-reading the comment. A regex is worth about as much as the input you tested it on.
+        $skips = @(Select-String -LiteralPath $markerPath -Pattern '^\s*(\[[^\]]*\]\s*)?SKIP:')
         if ($skips.Count -gt 0) {
             Write-Output ($FailurePrefix + ('{0} (SKIPPED: {1})' -f $flag, $skips[0].Line.Trim()))
             Write-Host ('  FAIL  {0} -- skipped, did not actually run' -f $flag) -ForegroundColor Red

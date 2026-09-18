@@ -100,7 +100,8 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.0.1",   // 1.0.1: logs what the rules APPROVE, not only what would block.
+            Version = "1.0.2",   // 1.0.2: the approve half. Option classifier + the argv.json setup.
+                                 // 1.0.1: logs what the rules APPROVE, not only what would block.
                                  // 1.0.0: first version. Notify half only, observe-only by decision.
             // 1.0.0 rather than the release that first ships AgentTranscripts, because a module
             // binds the HOST's single shared Contracts.dll and at development time that is this
@@ -221,8 +222,26 @@ namespace DesktopAICompanion.AgentFlow
                     // Info rather than a switch, and that is the point: this is not a setting.
                     new SettingField
                     {
+                        Id = SettingAutoApprove,
+                        Label = "Approve the prompt for me (one call at a time)",
+                        Kind = SettingKind.Bool,
+                        Group = "What it will and will not press",
+                    },
+                    new SettingField
+                    {
                         Id = "aboutSetup",
-                        Label = SetupStatusLine(),
+                        // STATIC on purpose, and this is the correction of a real defect rather
+                        // than a preference. SettingField.Label is a string and the ABI has no
+                        // Func<string> for it, so whatever goes here is evaluated ONCE, when Init
+                        // builds the schema. The first version called SetupStatusLine() here and
+                        // therefore showed the state at APP START for the life of the process: the
+                        // port came up fifteen minutes later and the row still said "not set up",
+                        // which is worse than saying nothing. The live state is only available
+                        // through an action's return value, so that is where it now lives.
+                        Label = "Approving needs VS Code started with a debugging port. Close VS "
+                                + "Code, press \u201cEnable approving\u201d, reopen it, then press "
+                                + "\u201cCheck now\u201d -- that is the only thing here that "
+                                + "reports the LIVE state.",
                         Kind = SettingKind.Info,
                         Group = "What it will and will not press",
                     },
@@ -276,21 +295,33 @@ namespace DesktopAICompanion.AgentFlow
                         Label = "Enable approving (edits VS Code)",
                         InvokeAsync = EnableCdpAsync,
                         Group = "Approving",
-                        ReloadPaneAfter = true,
+                        // NO ReloadPaneAfter. OptionsWindow writes this action's result next to the
+                        // button and then, if the flag is set, rebuilds the pane -- which destroys
+                        // the TextBlock holding it. Every one of these three buttons appeared to do
+                        // nothing for exactly that reason, while "Check now" worked because it is
+                        // the one action that never asked for a reload.
                     },
                     new PaneAction
                     {
                         Label = "Disable approving",
                         InvokeAsync = DisableCdpAsync,
                         Group = "Approving",
-                        ReloadPaneAfter = true,
+                        // NO ReloadPaneAfter. OptionsWindow writes this action's result next to the
+                        // button and then, if the flag is set, rebuilds the pane -- which destroys
+                        // the TextBlock holding it. Every one of these three buttons appeared to do
+                        // nothing for exactly that reason, while "Check now" worked because it is
+                        // the one action that never asked for a reload.
                     },
                     new PaneAction
                     {
                         Label = "Find argv.json...",
                         InvokeAsync = BrowseForArgvAsync,
                         Group = "Approving",
-                        ReloadPaneAfter = true,
+                        // NO ReloadPaneAfter. OptionsWindow writes this action's result next to the
+                        // button and then, if the flag is set, rebuilds the pane -- which destroys
+                        // the TextBlock holding it. Every one of these three buttons appeared to do
+                        // nothing for exactly that reason, while "Check now" worked because it is
+                        // the one action that never asked for a reload.
                     },
                 },
             });
@@ -362,6 +393,8 @@ namespace DesktopAICompanion.AgentFlow
 
             double threshold = ThresholdSeconds;
             bool watchClaude = WatchClaude, watchCodex = WatchCodex;
+            bool autoApprove = AutoApprove;
+            int cdpPort = CdpPort;
 
             // Reading and parsing transcripts is file IO plus JSON, so it never runs on the tick.
             // Nothing inside this task touches _host.
@@ -384,10 +417,26 @@ namespace DesktopAICompanion.AgentFlow
                 {
                     Volatile.Write(ref _scanning, 0);
                 }
+                // Refresh the cached port state on the same beat, so the tray can show whether
+                // approving could actually happen without probing a socket on menu open.
+                bool answering = false;
+                try
+                {
+                    if (autoApprove)
+                        answering = VsCodeSetup.Probe(cdpPort, 200);
+                }
+                catch { answering = false; }
+
                 if (results != null)
                 {
                     Dictionary<string, int> forUi = approved;
-                    PostToUi(() => { Apply(results); LogApprovals(forUi); });
+                    bool portUp = answering;
+                    PostToUi(() =>
+                    {
+                        _portAnswering = portUp;
+                        Apply(results);
+                        LogApprovals(forUi);
+                    });
                 }
             });
         }
@@ -665,6 +714,12 @@ namespace DesktopAICompanion.AgentFlow
                 { SettingWatchClaude, WatchClaude ? "true" : "false" },
                 { SettingWatchCodex, WatchCodex ? "true" : "false" },
                 { SettingAnimate, Animate ? "true" : "false" },
+                // Without this line the checkbox rendered from the schema but read nothing: it
+                // showed UNCHECKED however the setting actually stood, and because SavePaneValues
+                // writes back every key the pane hands it, closing the settings window would then
+                // store "false" and silently switch auto-approve off again. Two controls for one
+                // setting means Load has to carry it, not just Save.
+                { SettingAutoApprove, AutoApprove ? "true" : "false" },
             };
         }
 
@@ -734,9 +789,33 @@ namespace DesktopAICompanion.AgentFlow
         // ---- setting up the approve half -------------------------------------------------
 
         /// <summary>Where the user pointed us, when the usual places did not have argv.json.</summary>
+        /// <summary>
+        /// Whether the user has asked for prompts to be approved. OFF by default and it stays off
+        /// until asked: this is the one setting in the module that presses a button on the user's
+        /// behalf, and a default-on switch for that would be indefensible.
+        /// </summary>
+        private const string SettingAutoApprove = "autoApprove";
+
         private const string SettingArgvPath = "argvPath";
         /// <summary>The port to ask VS Code for. Stored so a collision can be moved off.</summary>
         private const string SettingCdpPort = "cdpPort";
+
+        /// <summary>The user's INTENT. Separate from whether the module CAN act, deliberately.</summary>
+        private bool AutoApprove
+        {
+            get { return _settings != null && _settings.GetBool(SettingAutoApprove, false); }
+        }
+
+        /// <summary>
+        /// Whether the debugging port answered at the last poll.
+        ///
+        /// CACHED, and the reason is the tray menu. Tray labels are rebuilt on every menu open, so
+        /// probing the port there would put a blocking TCP connect with a timeout in the path of
+        /// the user's right-click -- on a dead port that is a visible stall every time they open
+        /// the menu. The poll already runs on its own timer, so it refreshes this and the menu
+        /// reads a field.
+        /// </summary>
+        private volatile bool _portAnswering;
 
         private string ArgvPath
         {
@@ -799,28 +878,28 @@ namespace DesktopAICompanion.AgentFlow
             {
                 if (VsCodeSetup.IsVsCodeRunning())
                 {
-                    return "VS Code is running. Close it first: it rewrites this file itself, and "
+                    return "\u2717 VS Code is running. Close it first: it rewrites this file itself, and "
                            + "the change only takes effect at launch, so editing it now would look "
                            + "like it worked and would not.";
                 }
                 SetupReport report = VsCodeSetup.Inspect(overridePath, 250);
                 if (report.State == SetupState.NotFound)
-                    return report.Detail + " Use \u201cFind argv.json\u201d to point at it.";
+                    return "\u2717 " + report.Detail + " Use \u201cFind argv.json\u201d to point at it.";
                 if (report.State == SetupState.Unreadable)
-                    return "Not touching it: " + report.Detail;
+                    return "\u2717 Not touching it: " + report.Detail;
 
                 string original;
                 try { original = System.IO.File.ReadAllText(report.Path); }
                 catch (Exception exception)
                 {
-                    return "Could not read " + report.Path + ": " + exception.Message;
+                    return "\u2717 Could not read " + report.Path + ": " + exception.Message;
                 }
                 string updated = VsCodeSetup.WithPort(original, port);
                 if (updated == null)
-                    return "Refusing to edit " + report.Path + ": it is not a file this can change "
+                    return "\u2717 Refusing to edit " + report.Path + ": it is not a file this can change "
                            + "safely.";
                 if (string.Equals(updated, original, StringComparison.Ordinal))
-                    return "Already asking for port " + port + ". Restart VS Code if it is not "
+                    return "\u2713 Already asking for port " + port + ". Restart VS Code if it is not "
                            + "answering yet.";
                 // Atomic, and with a BACKUP, because a half-written argv.json stops VS Code
                 // reading ANY of it -- the user would lose their crash-reporter id and every
@@ -829,12 +908,17 @@ namespace DesktopAICompanion.AgentFlow
                 if (!DesktopAICompanion.ModuleKit.AtomicFile.TryWriteAllText(
                         report.Path, updated, report.Path + ".agentflow-backup"))
                 {
-                    return "Could not write " + report.Path + ". Nothing was changed.";
+                    return "\u2717 Could not write " + report.Path + ". Nothing was changed.";
                 }
-                return "Wrote port " + port + " into " + report.Path
-                       + ". START VS CODE and press \u201cCheck now\u201d: until it is answering, "
-                       + "approving cannot work. The port stays open on every launch until you "
-                       + "press \u201cDisable approving\u201d.";
+                // Re-inspect and report the state AFTER the write, because the write is not the
+                // outcome: the port appears at the next VS Code launch, so the honest answer here
+                // is "written, not yet live" and the button is the only place that can say it.
+                SetupReport after = VsCodeSetup.Inspect(overridePath, 250);
+                return "\u2713 Wrote port " + port + " into " + report.Path
+                       + ". Now START VS CODE, then press \u201cCheck now\u201d. Current state: "
+                       + after.Detail
+                       + " The port opens on every launch until you press \u201cDisable "
+                       + "approving\u201d.";
             });
         }
 
@@ -845,22 +929,22 @@ namespace DesktopAICompanion.AgentFlow
             return Task.Run(() =>
             {
                 if (VsCodeSetup.IsVsCodeRunning())
-                    return "VS Code is running. Close it first, for the same reason as enabling.";
+                    return "\u2717 VS Code is running. Close it first, for the same reason as enabling.";
                 SetupReport report = VsCodeSetup.Inspect(overridePath, 250);
                 if (report.State == SetupState.NotFound || report.State == SetupState.Unreadable)
-                    return report.Detail;
+                    return "\u2717 " + report.Detail;
                 string original;
                 try { original = System.IO.File.ReadAllText(report.Path); }
-                catch (Exception exception) { return "Could not read it: " + exception.Message; }
+                catch (Exception exception) { return "\u2717 Could not read it: " + exception.Message; }
                 string updated = VsCodeSetup.WithoutPort(original);
                 if (string.Equals(updated, original, StringComparison.Ordinal))
-                    return "It was not asking for a port, so nothing to remove.";
+                    return "\u2713 It was not asking for a port, so nothing to remove.";
                 if (!DesktopAICompanion.ModuleKit.AtomicFile.TryWriteAllText(
                         report.Path, updated, report.Path + ".agentflow-backup"))
                 {
-                    return "Could not write it. Nothing was changed.";
+                    return "\u2717 Could not write it. Nothing was changed.";
                 }
-                return "Removed the debugging port from " + report.Path
+                return "\u2713 Removed the debugging port from " + report.Path
                        + ". It stops opening after the next VS Code restart.";
             });
         }
@@ -876,18 +960,18 @@ namespace DesktopAICompanion.AgentFlow
         {
             IHost host = _host;
             if (host == null || _settings == null)
-                return Task.FromResult("Not ready.");
+                return Task.FromResult("\u2717 Not ready.");
             IReadOnlyList<string> picked = host.PickFilesToOpen(
                 "Find VS Code's argv.json", "VS Code runtime arguments", new[] { ".json" });
             if (picked == null || picked.Count == 0)
-                return Task.FromResult("No file chosen; nothing changed.");
+                return Task.FromResult("\u2717 No file chosen; nothing changed.");
             string path = picked[0];
             SetupReport report = VsCodeSetup.Inspect(path, 250);
             if (report.State == SetupState.Unreadable)
-                return Task.FromResult("That file cannot be used: " + report.Detail);
+                return Task.FromResult("\u2717 That file cannot be used: " + report.Detail);
             _settings.Set(SettingArgvPath, path);
             _settings.Save();
-            return Task.FromResult("Using " + path + ". " + report.Detail);
+            return Task.FromResult("\u2713 Using " + path + ". " + report.Detail);
         }
 
         private Task<string> CheckNowAsync()
@@ -924,13 +1008,19 @@ namespace DesktopAICompanion.AgentFlow
                         && detection.WouldHaveBeen == DetectionOutcome.Blocked)
                         wouldHave++;
 
+                // The SETUP state goes here too, because this is the only live channel a pane
+                // has: an Info row's Label is a string evaluated once at Init, so it cannot report
+                // whether the port is answering. This action can, and it is the one the user
+                // already presses.
+                string setup = SetupStatusLine();
                 return string.Format(CultureInfo.InvariantCulture,
-                    "{0} session(s): {1} waiting for you, {2} working, {3} idle, {4} in auto mode{5}.",
+                    "{0} session(s): {1} waiting for you, {2} working, {3} idle, {4} in auto mode{5}. {6}",
                     results.Count, blocked, working, idle, stoodDown,
                     wouldHave > 0
                         ? " (" + wouldHave.ToString(CultureInfo.InvariantCulture)
                           + " of them would have been flagged in default mode)"
-                        : "");
+                        : "",
+                    setup);
             });
         }
 
@@ -961,7 +1051,69 @@ namespace DesktopAICompanion.AgentFlow
                     Order = 1,
                     Click = () => SetEnabledFromTray(false),
                 },
+                new TrayItem
+                {
+                    // Its own GROUP, so the host draws a separator between watching and
+                    // PRESSING. Those are different kinds of decision and the menu should not
+                    // read as a list of peers.
+                    Label = AutoApproveTrayLabel(),
+                    Group = 1,
+                    Order = 0,
+                    Click = ToggleAutoApproveFromTray,
+                },
             };
+        }
+
+        /// <summary>
+        /// THREE states, not two, and the middle one is the whole point.
+        ///
+        /// A red/green pair can only report what the user ASKED FOR, and this module has a
+        /// second fact that matters just as much: whether it CAN act. Auto-approve switched on
+        /// with no debugging port answering does nothing whatsoever, and a green dot there
+        /// would be the same lie the pane status row told on 2026-09-18 -- reporting intent as
+        /// capability, which is the defect that made the user think nothing had happened.
+        ///
+        ///   red     off
+        ///   amber   on, but the port is not answering, so nothing will be pressed
+        ///   green   on, and able to press
+        ///
+        /// A coloured GLYPH rather than a coloured menu item because a WinForms menu label is
+        /// plain text: tinting one needs owner-draw, and the dot reads the same at a glance.
+        /// </summary>
+        private string AutoApproveTrayLabel()
+        {
+            if (!AutoApprove) return "🔴 Auto-approve: off";
+            return _portAnswering
+                ? "🟢 Auto-approve: on"
+                : "🟡 Auto-approve: on, waiting for the debugging port";
+        }
+
+        /// <summary>Flip the user's intent from the tray, and say what happened out loud.</summary>
+        internal void ToggleAutoApproveFromTray()
+        {
+            if (_settings == null) return;
+            bool next = !AutoApprove;
+            _settings.Set(SettingAutoApprove, next ? "true" : "false");
+            _settings.Save();
+            Log("auto-approve turned " + (next ? "ON" : "OFF") + " from the tray");
+
+            // Forget what the last probe said. Whatever was true before the switch moved is
+            // not evidence about now: the port is only probed while auto-approve is ON, so a
+            // true left over from an earlier spell would paint the tray GREEN the instant the
+            // switch came back on, claiming a reachable editor nobody has checked for. Amber
+            // until a probe earns it, which takes at most one tick.
+            _portAnswering = false;
+
+            // Said out loud, because pressing buttons on someone's behalf is not a silent
+            // setting and the tray label is only visible while the menu is open. INTENT only:
+            // capability is the tray dot's job and the pane's, and one line of speech cannot
+            // report a fact that was just invalidated on the line above.
+            if (_host != null && _host.SpeechEnabled && AnyCompanionCanSpeak())
+            {
+                _host.SayAll(next
+                    ? "Auto-approve is on. I will only press single-call approvals."
+                    : "I will stop approving prompts.");
+            }
         }
 
         internal void SetEnabledFromTray(bool enabled)
@@ -1060,6 +1212,7 @@ namespace DesktopAICompanion.AgentFlow
                               && SelfCheckApprovals(probe)
                               && SelfCheckPromptOptions(probe)
                               && SelfCheckVsCodeSetup(probe)
+                              && SelfCheckAutoApprove(probe)
                               && SelfCheckCacheBound(probe);
                     probe.Check("every logic group ran", ok);
 
@@ -1682,6 +1835,93 @@ namespace DesktopAICompanion.AgentFlow
                 at += needle.Length;
             }
             return count;
+        }
+
+        /// <summary>
+        /// Auto-approve: the switch, the tray row, and the two controls agreeing.
+        ///
+        /// The first assertion is the one that matters. This is the only setting in the module
+        /// that presses a button on the user's behalf, so a default of ON would be
+        /// indefensible -- and "it defaults off" is exactly the kind of claim that stops being
+        /// true when someone later adds a convenience.
+        ///
+        /// The tray label is asserted in all THREE states because the middle one is the design:
+        /// on-but-unable must not look like on-and-working. Reporting intent as capability is
+        /// the defect the pane status row already shipped once.
+        ///
+        /// The pane/tray agreement checks are here because this setting has TWO controls, and
+        /// the first version of it failed exactly that way: LoadPaneValues did not carry the
+        /// key, so the checkbox read unchecked while the tray said on, and saving the pane
+        /// wrote the checkbox's lie back over the setting.
+        /// </summary>
+        private static bool SelfCheckAutoApprove(SelfTestProbe probe)
+        {
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            using (var storage =
+                       new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-aa"))
+            {
+                host.UseStorage("agentflow", storage);
+                var module = new AgentFlowModule();
+                module.Init(host);
+                OptionsPane pane = host.OptionsPanes[0];
+
+                probe.Check("WITNESS auto-approve is OFF until it is asked for",
+                    !module.AutoApprove);
+                probe.Check("WITNESS the pane agrees it is off, rather than not saying",
+                    pane.Load()[SettingAutoApprove] == "false");
+                probe.Check("the tray says off, in red",
+                    module.AutoApproveTrayLabel().StartsWith("🔴", StringComparison.Ordinal)
+                    && module.AutoApproveTrayLabel().IndexOf("off", StringComparison.Ordinal) >= 0);
+
+                // On, with nothing answering: AMBER, and it has to SAY it cannot act yet.
+                module.ToggleAutoApproveFromTray();
+                probe.Check("the tray toggle turns it on", module.AutoApprove);
+                probe.Check("WITNESS on-but-unreachable is amber and says what it waits for",
+                    module.AutoApproveTrayLabel().StartsWith("🟡", StringComparison.Ordinal)
+                    && module.AutoApproveTrayLabel().IndexOf("waiting", StringComparison.Ordinal) >= 0);
+                probe.Check("WITNESS the pane reports what the tray just did",
+                    pane.Load()[SettingAutoApprove] == "true");
+
+                module._portAnswering = true;
+                probe.Check("WITNESS green means on AND reachable, nothing less",
+                    module.AutoApproveTrayLabel().StartsWith("🟢", StringComparison.Ordinal));
+                module._portAnswering = false;
+
+                // The other direction: the pane must be able to switch it off again.
+                pane.Save(new Dictionary<string, string> { { SettingAutoApprove, "false" } });
+                probe.Check("WITNESS saving the pane switches it off",
+                    !module.AutoApprove);
+                probe.Check("...and the tray goes back to red",
+                    module.AutoApproveTrayLabel().StartsWith("🔴", StringComparison.Ordinal));
+
+                // Turning it back ON must not inherit the green it had before. The port is
+                // only probed while the switch is on, so a leftover true is not evidence --
+                // and this is the one path where the tray could claim a capability nobody
+                // ever checked for.
+                module._portAnswering = true;
+                module.ToggleAutoApproveFromTray();
+                probe.Check("WITNESS switching it on discards the last probe, so green is earned",
+                    module.AutoApproveTrayLabel().StartsWith("🟡", StringComparison.Ordinal));
+                module.ToggleAutoApproveFromTray();
+
+                // The tray has to OFFER it, carry the same text as the helper, and sit in its
+                // own group so the host draws a separator between watching and PRESSING.
+                TrayItem row = null;
+                foreach (TrayItem item in host.TrayItems[0].BuildChildren())
+                {
+                    if (item.Label != null
+                        && item.Label.IndexOf("Auto-approve", StringComparison.Ordinal) >= 0)
+                        row = item;
+                }
+                probe.Check("WITNESS the tray menu offers auto-approve at all", row != null);
+                probe.Check("the tray row shows the same state the helper reports",
+                    row != null && row.Label == module.AutoApproveTrayLabel());
+                probe.Check("...in its own group, so pressing is separated from watching",
+                    row != null && row.Group != 0 && row.Click != null);
+
+                module.Shutdown();
+            }
+            return true;
         }
 
         private static bool SelfCheckCacheBound(SelfTestProbe probe)

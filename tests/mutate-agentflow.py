@@ -289,6 +289,52 @@ CASES = (
         "                detection.WouldHaveBeen = DetectionOutcome.Blocked;",
         "when the rules allow the call",
     ),
+    # Auto-approve: the only setting in this module that PRESSES something. Five cases, and the
+    # first is the one that would matter most if it ever regressed.
+    (
+        "auto-approve defaults ON",
+        MODULE,
+        "            get { return _settings != null && _settings.GetBool(SettingAutoApprove, false); }",
+        "            get { return _settings == null || _settings.GetBool(SettingAutoApprove, true); }",
+        "auto-approve is OFF until it is asked for",
+    ),
+    (
+        "the pane reports a constant instead of the switch it owns",
+        MODULE,
+        '                { SettingAutoApprove, AutoApprove ? "true" : "false" },',
+        '                { SettingAutoApprove, "false" },',
+        "the pane reports what the tray just did",
+    ),
+    (
+        "the tray shows green whatever the port is doing",
+        MODULE,
+        '            return _portAnswering\n'
+        '                ? "🟢 Auto-approve: on"\n'
+        '                : "🟡 Auto-approve: on, waiting for the debugging port";',
+        '            return "🟢 Auto-approve: on";',
+        "on-but-unreachable is amber",
+    ),
+    (
+        "the tray shows it as on while it is off",
+        MODULE,
+        '            if (!AutoApprove) return "🔴 Auto-approve: off";',
+        '            if (false) return "🔴 Auto-approve: off";',
+        "the tray says off, in red",
+    ),
+    (
+        "pressing is listed as a peer of watching",
+        MODULE,
+        "                    Label = AutoApproveTrayLabel(),\n                    Group = 1,",
+        "                    Label = AutoApproveTrayLabel(),\n                    Group = 0,",
+        "in its own group",
+    ),
+    (
+        "the toggle keeps whatever the last probe said",
+        MODULE,
+        "            _portAnswering = false;",
+        "            if (false) _portAnswering = false;",
+        "switching it on discards the last probe",
+    ),
 )
 
 
