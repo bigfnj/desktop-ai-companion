@@ -107,6 +107,15 @@ try {
     try { & (Join-Path $repoRoot 'packaging\Test-ModulePublishFreshness.ps1') }
     catch { $failures.Add('Test-ModulePublishFreshness.ps1: ' + $_.Exception.Message) }
 
+    # The freshness check above is about module VERSIONS. Nothing verified the catalog's asset
+    # HASHES until 2026-09-17, so editing any companion or fortune pack without regenerating the
+    # catalog left a recorded sha256 that no longer matched the blob raw.githubusercontent.com
+    # serves -- and then the app correctly REFUSES every user's download of that asset while every
+    # gate stays green. ~17s for 217 assets.
+    Write-Host '=== catalog integrity' -ForegroundColor Cyan
+    try { & (Join-Path $repoRoot 'packaging\Test-ContentCatalogIntegrity.ps1') }
+    catch { $failures.Add('Test-ContentCatalogIntegrity.ps1: ' + $_.Exception.Message) }
+
     # The module template is built by nothing else, so it would rot unnoticed: this scaffolds a throwaway
     # module from it, builds it, and removes it again.
     Write-Host '=== module template' -ForegroundColor Cyan

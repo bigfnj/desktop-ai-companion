@@ -60,54 +60,11 @@ $owner = 'bigfnj'
 $repo = 'desktop-ai-companion'
 $rawBase = "https://raw.githubusercontent.com/$owner/$repo/$Branch"
 
-# raw.githubusercontent.com serves the git blob verbatim, and these assets were
-# committed with mixed line endings (some CRLF, some LF), so neither the
-# working-tree copy nor a normalized copy is universally correct. Hash the actual
-# committed blob. If the file is not yet committed (a brand-new pet/pack), fall
-# back to the LF-normalized working-tree bytes, matching how git stores a new
-# text asset on commit (.gitattributes: * text=auto eol=lf).
-function Get-CatalogAsset([string]$RepoRoot, [string]$RelPath, [string]$FullPath) {
-    $bytes = $null
-    try {
-        $psi = New-Object System.Diagnostics.ProcessStartInfo
-        $psi.FileName = 'git'
-        $psi.Arguments = "-C `"$RepoRoot`" cat-file blob `"HEAD:$RelPath`""
-        $psi.UseShellExecute = $false
-        $psi.RedirectStandardOutput = $true
-        $psi.RedirectStandardError = $true
-        $psi.CreateNoWindow = $true
-        $process = [System.Diagnostics.Process]::Start($psi)
-        $memory = New-Object System.IO.MemoryStream
-        $process.StandardOutput.BaseStream.CopyTo($memory)
-        [void]$process.StandardError.ReadToEnd()
-        $process.WaitForExit()
-        if ($process.ExitCode -eq 0) { $bytes = $memory.ToArray() }
-    }
-    catch {
-        $bytes = $null
-    }
+# The asset hashing lives in ContentCatalogAssets.ps1, shared with
+# Test-ContentCatalogIntegrity.ps1 so the generator and the check cannot disagree about which bytes
+# a recorded sha256 describes.
+. (Join-Path $PSScriptRoot 'ContentCatalogAssets.ps1')
 
-    if ($null -eq $bytes) {
-        $raw = [IO.File]::ReadAllBytes($FullPath)
-        $out = New-Object 'System.Collections.Generic.List[byte]' ($raw.Length)
-        for ($i = 0; $i -lt $raw.Length; $i++) {
-            if ($raw[$i] -eq 13 -and ($i + 1) -lt $raw.Length -and $raw[$i + 1] -eq 10) {
-                continue   # drop CR in a CRLF pair; git stores LF for a new text file
-            }
-            $out.Add($raw[$i])
-        }
-        $bytes = $out.ToArray()
-    }
-
-    $sha = [Security.Cryptography.SHA256]::Create()
-    try {
-        $hash = ([BitConverter]::ToString($sha.ComputeHash($bytes)) -replace '-', '').ToLowerInvariant()
-    }
-    finally {
-        $sha.Dispose()
-    }
-    return [pscustomobject]@{ Sha256 = $hash; Bytes = $bytes.Length }
-}
 function Get-PrettyName([string]$Id) {
     $parts = @($Id -split '[_-]' | Where-Object { $_ })
     (($parts | ForEach-Object {

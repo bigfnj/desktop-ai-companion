@@ -98,6 +98,15 @@ jobs:
         shell: pwsh
         run: .\packaging\Test-ModulePublishFreshness.ps1
 
+      - name: Check catalog.json still describes the committed content
+        # The step above is about module VERSIONS. This one hashes every asset the catalog offers
+        # against the COMMITTED blob, which is what raw.githubusercontent.com serves. Without it,
+        # a companion or fortune pack edited without regenerating the catalog leaves a recorded
+        # sha256 the app rightly refuses, with nothing failing here. Needs full history for
+        # `git cat-file`, which the fetch-depth: 0 checkout above already provides.
+        shell: pwsh
+        run: .\packaging\Test-ContentCatalogIntegrity.ps1
+
       - name: Check the module template still scaffolds a module that builds
         # Nothing else builds templates\desktop-ai-companion-module, so a rename in the ABI or ModuleKit would leave it
         # broken and nobody would find out until someone tried to start a module. Scaffolds a throwaway
