@@ -246,7 +246,8 @@ namespace DesktopAICompanion.Wpf
                     Margin = new Thickness(0, 0, 6, 0),
                     VerticalAlignment = VerticalAlignment.Center,
                 };
-                update.Click += async delegate { await UpdateModuleAsync(newer, update); };
+                ModuleInfo installedInfo = info;
+                update.Click += async delegate { await UpdateModuleAsync(newer, update, installedInfo); };
                 sp.Children.Add(update);
             }
 
@@ -289,9 +290,35 @@ namespace DesktopAICompanion.Wpf
         /// module's data directory is deliberately untouched, unlike an uninstall: settings, keys and history
         /// surviving an update is the whole point.
         /// </summary>
-        private async Task UpdateModuleAsync(CatalogModule module, Button update)
+        private async Task UpdateModuleAsync(CatalogModule module, Button update, ModuleInfo installed)
         {
             if (module == null) return;
+
+            // Consent BEFORE the download, and before anything is staged. ModulePermissions' own doc
+            // block promises that "a module that later widens its set re-prompts rather than widening
+            // silently", which is the justification for the whole disclosure model -- and until
+            // 2026-09-17 it had no implementation anywhere: the "wants: ..." line was rendered only on
+            // the pre-install row, and neither this path nor the background scan compared the sets. An
+            // update could go from "wants: Speech, Storage" to adding AgentTranscripts, the most
+            // sensitive read in the application, with no more ceremony than a version bump.
+            //
+            // Silent when nothing widened, which is almost every update: a prompt on each one trains
+            // the user to click through it, and then the prompt that matters is clicked through too.
+            ModulePermissions added = DesktopAICompanion.Plugins.ModulePermissionConsent.NewlyRequested(
+                installed != null ? installed.Permissions : ModulePermissions.None, module.Permissions);
+            if (added != ModulePermissions.None)
+            {
+                if (MessageBox.Show(
+                        DesktopAICompanion.Plugins.ModulePermissionConsent.PromptText(module.Name, module.Version, added),
+                        "Update " + (module.Name ?? module.Id) + "?",
+                        MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+                {
+                    _status.Text = "Left " + (module.Name ?? module.Id) + " as it is. It was asking for: "
+                                   + DesktopAICompanion.Plugins.ModulePermissionConsent.Describe(added) + ".";
+                    return;
+                }
+            }
+
             update.IsEnabled = false;
             _status.Text = "Downloading " + module.Name + " v" + module.Version + "…";
             try

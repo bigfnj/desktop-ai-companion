@@ -37,6 +37,7 @@ HOST = os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs")
 FORTUNES_MODULE = os.path.join(REPO, "modules", "Fortunes", "FortunesModule.cs")
 FORTUNE_PROVIDER = os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneProvider.cs")
 FRESHNESS = os.path.join(REPO, "src", "dotNet", "CompanionFreshness.cs")
+CONSENT = os.path.join(REPO, "src", "dotNet", "Plugins", "ModulePermissionConsent.cs")
 COMPANION_HOST = os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs")
 BLINKINGLED_MODULE = os.path.join(REPO, "modules", "BlinkingLed", "BlinkingLedModule.cs")
 PETSTUDIO_MODULE = os.path.join(REPO, "modules", "PetStudio", "PetStudioModule.cs")
@@ -167,6 +168,36 @@ CASES = (
      PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
      "--petstudio-selftest", "dp-petstudio-selftest.txt",
      "recorded in the diagnostic log"),
+
+    # The permission-widening diff. Both directions, because a check that only asserts the widening
+    # is satisfied by a function that reports EVERY update as a widening, and one that only asserts
+    # the silent case is satisfied by a function that never reports anything -- which is precisely
+    # the state this replaced.
+    ("no permission widening is ever detected",
+     CONSENT,
+     b"            return offered & ~installed;",
+     b"            return ModulePermissions.None;",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "adding AgentTranscripts is reported as newly requested"),
+
+    ("every update reports the whole new set as newly requested",
+     CONSENT,
+     b"            return offered & ~installed;",
+     b"            return offered;",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "asking for nothing new is silent"),
+
+    # The prompt has to name what it found. A correct diff behind a message that does not say what
+    # changed is still a silent widening from the reader's side.
+    ("the consent prompt stops naming the added permissions",
+     CONSENT,
+     b'                          + "    " + Describe(added)',
+     b'                          + "    " + ""',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt",
+     "the prompt names the module, the version and every added flag"),
 )
 
 BASELINES = (

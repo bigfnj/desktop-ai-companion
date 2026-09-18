@@ -956,6 +956,53 @@ namespace DesktopAICompanion
                     !FormCompanion.GripMustRelease(FormCompanion.WindowGrip.None, true, 10, 10) &&
                     !FormCompanion.GripMustRelease(FormCompanion.WindowGrip.None, false, 0, 0));
 
+                // PERMISSION WIDENING ON UPDATE. ModulePermissions' own doc block promises that "a
+                // module that later widens its set re-prompts rather than widening silently", which is
+                // the justification for a model that is disclosure rather than containment. It had no
+                // implementation at all until 2026-09-17: the "wants: ..." line was rendered on the
+                // pre-install row only, and neither the update path nor the background scan compared
+                // the sets, so an update could add AgentTranscripts -- the most sensitive read here --
+                // with no more ceremony than a version bump.
+                //
+                // Pure, so the whole table is asserted without a window. Both directions matter: a
+                // check that only fires on a widening is satisfied by a function that fires on
+                // EVERYTHING, and one that only checks the silent case is satisfied by a function that
+                // never fires at all, which is the state this is fixing.
+                const DesktopAICompanion.Modules.ModulePermissions speechStorage = DesktopAICompanion.Modules.ModulePermissions.Speech | DesktopAICompanion.Modules.ModulePermissions.Storage;
+                Check("consent: an update asking for nothing new is silent",
+                    DesktopAICompanion.Plugins.ModulePermissionConsent.NewlyRequested(speechStorage, speechStorage)
+                        == DesktopAICompanion.Modules.ModulePermissions.None);
+                Check("consent: WITNESS adding AgentTranscripts is reported as newly requested",
+                    DesktopAICompanion.Plugins.ModulePermissionConsent.NewlyRequested(
+                        speechStorage, speechStorage | DesktopAICompanion.Modules.ModulePermissions.AgentTranscripts)
+                        == DesktopAICompanion.Modules.ModulePermissions.AgentTranscripts);
+                Check("consent: only the ADDED flags are reported, not the whole new set",
+                    DesktopAICompanion.Plugins.ModulePermissionConsent.NewlyRequested(
+                        DesktopAICompanion.Modules.ModulePermissions.Speech, speechStorage | DesktopAICompanion.Modules.ModulePermissions.Microphone)
+                        == (DesktopAICompanion.Modules.ModulePermissions.Storage | DesktopAICompanion.Modules.ModulePermissions.Microphone));
+                // A narrowing is strictly less alarming and must not prompt, or every update that
+                // tidies a declaration costs the user a dialog.
+                Check("consent: DROPPING a permission is not a widening",
+                    DesktopAICompanion.Plugins.ModulePermissionConsent.NewlyRequested(speechStorage, DesktopAICompanion.Modules.ModulePermissions.Speech)
+                        == DesktopAICompanion.Modules.ModulePermissions.None);
+                Check("consent: an update to a module that declared nothing reports the whole set",
+                    DesktopAICompanion.Plugins.ModulePermissionConsent.NewlyRequested(DesktopAICompanion.Modules.ModulePermissions.None, speechStorage)
+                        == speechStorage);
+                // The prompt has to NAME what changed. A correct diff behind a message that does not
+                // say what it found is still a silent widening from the reader's side. And it must
+                // name it: a flags enum renders an unknown bit as a number, and asking a user to
+                // approve "4096" is worse than not asking.
+                string promptText = DesktopAICompanion.Plugins.ModulePermissionConsent.PromptText(
+                    "Some Module", "2.0.0", DesktopAICompanion.Modules.ModulePermissions.AgentTranscripts | DesktopAICompanion.Modules.ModulePermissions.Microphone);
+                Check("consent: WITNESS the prompt names the module, the version and every added flag",
+                    promptText.Contains("Some Module") && promptText.Contains("2.0.0")
+                    && promptText.Contains("AgentTranscripts") && promptText.Contains("Microphone"));
+                Check("consent: the prompt says the flags are not enforced, because they are not",
+                    promptText.IndexOf("enforce", StringComparison.OrdinalIgnoreCase) >= 0);
+                Check("consent: Describe never renders a bare number",
+                    DesktopAICompanion.Plugins.ModulePermissionConsent.Describe(DesktopAICompanion.Modules.ModulePermissions.Speech) == "Speech"
+                    && DesktopAICompanion.Plugins.ModulePermissionConsent.Describe(DesktopAICompanion.Modules.ModulePermissions.None) == "");
+
                 // PET FRESHNESS. The Pets pane used to diff the catalog by ID alone, so a pet you already had
                 // was filtered out however much its CONTENT had changed: a corrected pet reached new downloads
                 // only, and the pane reported "you already have every available pet" for ever. There is no
