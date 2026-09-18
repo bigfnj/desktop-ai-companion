@@ -40,6 +40,7 @@ namespace DesktopAICompanion.PetStudioModule
                 ok &= RepeatMakesDistinctNodes(sb, fixturePetXml, report);
                 ok &= StartsFacingRightOnlyWhenAsked(sb, fixturePetXml, report);
                 ok &= LimitsHold(sb, fixturePetXml, report);
+                ok &= TheOpenFailureIsDiagnosable(sb);
             }
             catch (Exception ex)
             {
@@ -54,6 +55,71 @@ namespace DesktopAICompanion.PetStudioModule
         {
             sb.AppendLine((pass ? "  ok   " : "  FAIL ") + what);
             return pass;
+        }
+
+        /// <summary>
+        /// A Studio that cannot open reaches the diagnostic log, not only the speech path.
+        ///
+        /// <para>Why it is asserted HERE, in a type named for the behaviour chain: this is the only
+        /// module-side entry point <c>--petstudio-selftest</c> invokes, and the type name it looks for is
+        /// hardcoded host-side, so a second one would need a host edit. The alternative — adding a
+        /// <c>SelfTest(out string)</c> to this assembly for <c>--module-selftest=petstudio</c> — would be an
+        /// entry point the gate does not run, which is worse than an oddly-placed assertion that it does.</para>
+        ///
+        /// <para>What it pins is the WIRING: <see cref="PetStudioModule.ReportFailure"/> must put a line
+        /// into <c>IHost.Log</c>, because the bubble it also shows is dropped outright when no companion is
+        /// on screen (<c>StartUp.ShowBubbleOnAll</c> needs a speaker) and both ways into this module are
+        /// reachable in that state. Drop the <c>host.Log</c> call and this fails; drop the <c>SayAll</c> and
+        /// the last check fails.</para>
+        /// </summary>
+        private static bool TheOpenFailureIsDiagnosable(StringBuilder sb)
+        {
+            bool ok = true;
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            var module = new PetStudioModule();
+            try
+            {
+                module.Init(host);
+                ok &= Check(sb, "Init is not chatty: nothing is logged until something fails",
+                    host.LoggedLines.Count == 0);
+
+                // A real WPF window cannot be constructed here, so the reporter is driven directly with the
+                // kind of exception the window's construction actually throws.
+                module.ReportFailure("could not open", new InvalidOperationException(
+                    @"C:\Users\someone\AppData\Local\Whatever\petstudio.xaml is not a valid resource"));
+
+                ok &= Check(sb, "a failed open is recorded in the diagnostic log",
+                    host.LoggedLines.Count == 1);
+                string line = host.LoggedLines.Count > 0 ? host.LoggedLines[0] : "";
+                // The module id is what the per-module log mute keys on, so a mistagged line cannot be
+                // found or silenced.
+                ok &= Check(sb, "the line is tagged with this module's id",
+                    line.StartsWith("petstudio: ", StringComparison.Ordinal));
+                ok &= Check(sb, "it names the failure and its category",
+                    line.IndexOf("could not open: invalid-state", StringComparison.Ordinal) >= 0);
+                // THE RULE, asserted rather than trusted: the exception message quotes the path it failed
+                // on, and this log is what SUPPORT.md tells users they may attach to a public issue.
+                // line.Length > 0 is load-bearing -- without it this passes on an EMPTY log, which is the
+                // one state it must not be able to certify.
+                ok &= Check(sb, "the exception message, which carries a path, does NOT reach the log",
+                    line.Length > 0 &&
+                    line.IndexOf("AppData", StringComparison.OrdinalIgnoreCase) < 0 &&
+                    line.IndexOf("someone", StringComparison.OrdinalIgnoreCase) < 0 &&
+                    line.IndexOf(":\\", StringComparison.Ordinal) < 0);
+                // The user still gets the full message on their own screen -- the log line replaces nothing.
+                ok &= Check(sb, "the user is still told, with the message, on their own screen",
+                    host.BroadcastLines.Count == 1 &&
+                    host.BroadcastLines[0].IndexOf("could not open", StringComparison.Ordinal) >= 0);
+            }
+            catch (Exception ex)
+            {
+                ok &= Check(sb, "the diagnostics check ran (" + ex.GetType().Name + ": " + ex.Message + ")", false);
+            }
+            finally
+            {
+                try { module.Shutdown(); } catch { }
+            }
+            return ok;
         }
 
         /// <summary>

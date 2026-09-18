@@ -128,6 +128,11 @@ namespace DesktopAICompanion.FortunesModule
         /// Options pane saves, so a settings change (or a pack added to the folder) applies without a restart.</summary>
         private void RebuildEngine()
         {
+            // Gathered inside the try, FORMATTED outside it (see the Log call at the bottom).
+            int fortunes = 0, disabledSources = 0;
+            string level = null;
+            bool smart = false, modelPresent = false;
+            List<FortuneEntry> pool = null;
             try
             {
                 FortuneSettings settings = LoadFortuneSettings(_host);
@@ -139,15 +144,75 @@ namespace DesktopAICompanion.FortunesModule
                 if (settings.SmartFortunes)
                 {
                     var sm = new SmartFortunes();
-                    List<FortuneEntry> pool = _provider.PoolEntries();
+                    List<FortuneEntry> warming = _provider.PoolEntries();
                     // Recorded before the warm starts: it names the pool being indexed, which is what a
                     // later "is this still current?" question compares against.
-                    _indexedSignature = PoolSignature(pool);
-                    sm.Warm(pool);
+                    _indexedSignature = PoolSignature(warming);
+                    sm.Warm(warming);
                     _smart = sm;
                 }
+                fortunes = _provider.Count;
+                pool = _provider.PoolEntries();
+                disabledSources = settings.DisabledSources == null ? 0 : settings.DisabledSources.Count;
+                level = settings.ContentLevel;
+                smart = settings.SmartFortunes;
+                modelPresent = smart && Embedder.ModelPresent;
             }
-            catch { _provider = null; _smart = null; _indexedSignature = null; }
+            catch (Exception ex)
+            {
+                _provider = null; _smart = null; _indexedSignature = null;
+                // The total failure, which was the one state nothing anywhere reported: a null provider
+                // makes SpeakFortune return false on every land, poke and drop, so the companion simply
+                // never says a fortune again and the pane's own status reads "the fortune engine isn't
+                // loaded" only if the user happens to open it.
+                // ASCII only in a logged string, like every other module's lines: this file is read back
+                // by whoever opens the attachment, not rendered by the app.
+                Log("engine rebuild failed: " + Categorize(ex) + " (no fortunes will be spoken)");
+                return;
+            }
+
+            // OUTSIDE the try, deliberately. Counting and formatting the line above would put a fault in
+            // the DIAGNOSTIC inside the catch that nulls the provider — i.e. a bug in a log line would
+            // silence the companion permanently, which is precisely the failure this line exists to
+            // report. Nothing here touches the engine; the values are already in hand.
+            Log(DescribeEngine(fortunes, CountPoolSources(pool), disabledSources, level, smart, modelPresent));
+        }
+
+        /// <summary>
+        /// The one line that answers the three complaints this module actually gets: "it never says
+        /// anything", "the same fortune keeps coming back", and "I downloaded packs and nothing changed".
+        /// Pure, so the wording is asserted rather than eyeballed.
+        ///
+        /// <para>Every field is either a count or a fixed vocabulary word. No pack names, no paths, and no
+        /// fortune text ever: this is the module whose whole payload is content a user chose to install, and
+        /// the diagnostic log is what SUPPORT.md tells them they can attach to a public issue.</para>
+        ///
+        /// <para><paramref name="disabledSources"/> rather than a total, because the total costs a second
+        /// full corpus load (<c>FortuneProvider.Sources()</c> re-reads every pack) and carries no extra
+        /// information: packs=33 off=157 says what "33 of 190" says. <paramref name="modelPresent"/> is the
+        /// silent-degradation case — with smart picks ON and the bge-small asset missing from the payload,
+        /// <c>SmartFortunes</c> can never become ready, every pick quietly falls back to random, and the
+        /// pane goes on reporting "indexing in the background" for as long as the user keeps it open.</para>
+        /// </summary>
+        internal static string DescribeEngine(int fortunes, int enabledSources, int disabledSources,
+            string contentLevel, bool smart, bool modelPresent)
+        {
+            return "engine: fortunes=" + Invariant(fortunes) +
+                   " packs=" + Invariant(enabledSources) +
+                   " off=" + Invariant(disabledSources) +
+                   " level=" + (string.IsNullOrEmpty(contentLevel) ? "(unset)" : contentLevel) +
+                   " smart=" + (smart ? "on model=" + (modelPresent ? "present" : "ABSENT") : "off");
+        }
+
+        /// <summary>How many distinct packs survived the filters, counted over the pool that was just built
+        /// rather than by re-scanning the folder.</summary>
+        private static int CountPoolSources(List<FortuneEntry> pool)
+        {
+            if (pool == null) return 0;
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (FortuneEntry e in pool)
+                if (!string.IsNullOrEmpty(e.Source)) seen.Add(e.Source);
+            return seen.Count;
         }
 
         // The first pet of the session gets a personalized greeting; later spawns don't re-welcome.
@@ -764,24 +829,38 @@ namespace DesktopAICompanion.FortunesModule
                     if (item != null && _selectedPacks.Contains(item.Id)) pending.Add(item);
 
                 int installed = 0, failed = 0;
+                // The three failure CAUSES, counted apart. Two of them produce no reason anywhere today:
+                // a refused id and an empty payload both land in the user's "N packs failed" with nothing
+                // after it, because only the exception branch fills lastError. See DescribeDownload.
+                int rejectedId = 0, emptyPayload = 0, threw = 0;
                 string lastError = "";
+                string lastCategory = "";
                 foreach (CatalogItem item in pending)
                 {
                     try
                     {
-                        if (!IsPlainPackId(item.Id)) { failed++; continue; }
+                        if (!IsPlainPackId(item.Id)) { failed++; rejectedId++; continue; }
                         // Bare await (see CheckPacksOnlineAsync): everything after it is UI-thread work.
                         // _selectedPacks.Remove below, and RebuildEngine + CacheMissingPacks after the loop,
                         // all touch state the checkbox handlers own -- and RebuildEngine reaches
                         // IHost.GetSettings, which PluginApi's IHost contract requires on the UI thread.
                         byte[] bytes = await host.DownloadCatalogItemAsync(CatalogKinds.Pack, item.Id);
-                        if (bytes == null || bytes.Length == 0) { failed++; continue; }
+                        if (bytes == null || bytes.Length == 0) { failed++; emptyPayload++; continue; }
                         File.WriteAllBytes(Path.Combine(directory, item.Id + ".txt"), bytes);
                         _selectedPacks.Remove(item.Id);
                         installed++;
                     }
-                    catch (Exception ex) { failed++; lastError = Short(ex.Message); }
+                    catch (Exception ex)
+                    {
+                        failed++; threw++;
+                        lastError = Short(ex.Message);       // the user's own screen, which is not the log
+                        lastCategory = Categorize(ex);       // the log gets the bucket, never the message
+                    }
                 }
+
+                // Logged BEFORE the rebuild, so this line and the engine line that follows it read in the
+                // order the work happened.
+                Log(DescribeDownload(pending.Count, installed, rejectedId, emptyPayload, threw, lastCategory));
 
                 RebuildEngine();   // the new packs join the pool (and the smart index) right away
                 // Drop the installed ones from the available list so the card shows what's still missing.
@@ -792,7 +871,43 @@ namespace DesktopAICompanion.FortunesModule
                         (lastError.Length > 0 ? " (" + lastError + ")" : "") + ".";
                 return status;
             }
-            catch (Exception ex) { return "✗ Download failed: " + Short(ex.Message); }
+            catch (Exception ex)
+            {
+                // The whole batch fell over (the folder could not be created, the host refused the catalog
+                // kind), which the loop's per-item counters never see.
+                Log("pack download failed: " + Categorize(ex));
+                return "✗ Download failed: " + Short(ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// What a download batch actually did, per CAUSE rather than as one total. Pure, so the wording is
+        /// asserted rather than eyeballed.
+        ///
+        /// <para>The reason this is worth a line: the user is told "3 packs failed" and, for two of the
+        /// three ways that happens, nothing else at all. Only the exception branch fills the reason shown
+        /// beside that count, so a catalog id this module refuses to write and a payload the host handed
+        /// back empty (a hash mismatch, a truncated response) are indistinguishable from each other and
+        /// from a disk error — and the status text is gone the moment the pane closes, while the log is
+        /// what goes on the issue.</para>
+        ///
+        /// <para>ONE line per batch, not one per pack: selecting all 158 catalog packs is a normal thing to
+        /// do, and a per-pack line would make a single click the largest thing in the file. Pack ids are
+        /// deliberately absent too — they are the user's content choices, and the counts are what identify
+        /// the fault.</para>
+        /// </summary>
+        internal static string DescribeDownload(int requested, int installed, int rejectedId,
+            int emptyPayload, int threw, string lastCategory)
+        {
+            string line = "pack download: requested=" + Invariant(requested) +
+                          " installed=" + Invariant(installed);
+            int failed = rejectedId + emptyPayload + threw;
+            if (failed == 0) return line + " failed=0";
+            line += " failed=" + Invariant(failed) +
+                    " (rejected-id=" + Invariant(rejectedId) +
+                    " empty-payload=" + Invariant(emptyPayload) +
+                    " error=" + Invariant(threw) + ")";
+            return string.IsNullOrEmpty(lastCategory) ? line : line + " last=" + lastCategory;
         }
 
         /// <summary>Replace the cached browse result with the catalog packs that aren't on disk yet, and
@@ -838,6 +953,41 @@ namespace DesktopAICompanion.FortunesModule
             if (string.IsNullOrEmpty(message)) return "";
             message = message.Trim();
             return message.Length > 160 ? message.Substring(0, 160) + "…" : message;
+        }
+
+        // ---- diagnostics (IHost.Log) -----------------------------------------------------------------
+
+        /// <summary>
+        /// One line into the app's diagnostic log. Never throws: the module must not be punished for the
+        /// log being unavailable, which is <c>IHost.Log</c>'s own contract.
+        /// </summary>
+        private void Log(string message)
+        {
+            IHost host = _host;
+            if (host == null || string.IsNullOrEmpty(message)) return;
+            try { host.Log(Info.Id, message); } catch { }
+        }
+
+        /// <summary>
+        /// A swallowed exception as a short, non-identifying category, following
+        /// <c>AiBrain.DescribeError</c>. The message is deliberately dropped: this module's IO exceptions
+        /// name the pack file they failed on, i.e. a full path inside the user's profile.
+        /// </summary>
+        private static string Categorize(Exception ex)
+        {
+            if (ex == null) return "none";
+            if (ex is UnauthorizedAccessException) return "access-denied";
+            if (ex is System.IO.DirectoryNotFoundException) return "directory-missing";
+            if (ex is System.IO.IOException) return "io";
+            if (ex is System.Text.Json.JsonException) return "bad-json";
+            if (ex is InvalidOperationException) return "invalid-state";
+            if (ex is OperationCanceledException) return "cancelled";
+            return ex.GetType().Name;
+        }
+
+        private static string Invariant(int value)
+        {
+            return value.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
         private string GetSetting(string key)

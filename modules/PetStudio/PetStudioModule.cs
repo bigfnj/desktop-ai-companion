@@ -213,8 +213,54 @@ namespace DesktopAICompanion.PetStudioModule
             }
             catch (Exception ex)
             {
-                if (_host != null) _host.SayAll("Companion Studio could not open: " + ex.Message);
+                ReportFailure("could not open", ex);
             }
+        }
+
+        /// <summary>
+        /// Report a failure both ways: a bubble for the user, and a line in the diagnostic log.
+        ///
+        /// THE LOG LINE IS NOT REDUNDANT WITH THE BUBBLE, and it is the only reason this module logs at all.
+        /// <c>IHost.SayAll</c> reaches <c>StartUp.ShowBubbleOnAll</c>, which asks <c>DefaultSpeaker()</c> for
+        /// a companion to speak through and silently DROPS the message when that returns null — i.e. whenever
+        /// no companion is on screen. Both entry points into this module are reachable in exactly that
+        /// state: the tray entry is always present, and the host's Companions pane deep-links
+        /// <see cref="OpenForImport"/>. So "Companion Studio does nothing when I click it" was a report with
+        /// no evidence anywhere, which is the same defect the host fixed in 1.4.8 for a module that fails to
+        /// LOAD.
+        ///
+        /// Everything else this module can get wrong is reported by the window's own status bar to a user who
+        /// is looking straight at it, which is why there is one line here and not a set.
+        ///
+        /// The bubble keeps the exception MESSAGE — the user is entitled to it on their own screen — and the
+        /// log gets a category only, because a WPF or IO failure here names a path inside their profile.
+        /// Internal so the module's self-check can drive it without a window.
+        /// </summary>
+        internal void ReportFailure(string what, Exception ex)
+        {
+            IHost host = _host;
+            if (host == null) return;
+            // Log first: it is the report that survives a speech path that has nobody to speak through, and
+            // neither call is allowed to throw into the host.
+            try { host.Log(Info.Id, what + ": " + Categorize(ex)); } catch { }
+            try { host.SayAll("Companion Studio " + what + ": " + (ex == null ? "unknown error" : ex.Message)); }
+            catch { }
+        }
+
+        /// <summary>
+        /// A swallowed exception as a short, non-identifying category, following
+        /// <c>AiBrain.DescribeError</c>. The message is dropped on purpose: the failures reachable here are
+        /// WPF construction and file IO, whose messages quote the path they failed on.
+        /// </summary>
+        private static string Categorize(Exception ex)
+        {
+            if (ex == null) return "none";
+            if (ex is UnauthorizedAccessException) return "access-denied";
+            if (ex is System.IO.FileNotFoundException) return "assembly-or-file-missing";
+            if (ex is System.IO.IOException) return "io";
+            if (ex is InvalidOperationException) return "invalid-state";
+            if (ex is TypeInitializationException) return "type-init";
+            return ex.GetType().Name;
         }
 
         /// <summary>Open the studio (or bring it forward) and immediately start the Shimeji import flow. Public
@@ -224,7 +270,7 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Open();
             try { if (_window != null) _window.BeginImport(); }
-            catch (Exception ex) { if (_host != null) _host.SayAll("Companion Studio import could not start: " + ex.Message); }
+            catch (Exception ex) { ReportFailure("import could not start", ex); }
         }
 
         public void Shutdown()

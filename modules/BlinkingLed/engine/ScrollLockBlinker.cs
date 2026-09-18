@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
@@ -51,6 +52,60 @@ namespace DesktopAICompanion.BlinkingLed
         internal bool IsRunning { get { return _running; } }
         internal bool StopOnCapsLock { get; set; }
 
+        /// <summary>
+        /// Where this engine's diagnostic lines go. <c>BlinkingLedModule</c> points it at
+        /// <c>IHost.Log(Info.Id, ...)</c>; left null (a self-test constructing the blinker directly) the
+        /// lines are discarded.
+        ///
+        /// Static, following the <c>AiBrain.LogSink</c> precedent: the blinker is constructed by the module
+        /// and by its self-test, and threading a sink through the constructor would change more call sites
+        /// than it is worth.
+        /// </summary>
+        internal static Action<string> LogSink;
+
+        /// <summary>
+        /// Emit one diagnostic line. Never throws: a broken sink must not be able to stop the blink, which
+        /// is the whole reason every path in here swallows in the first place.
+        /// </summary>
+        private static void Log(string message)
+        {
+            if (string.IsNullOrEmpty(message)) return;
+            Action<string> sink = LogSink;
+            if (sink == null) return;
+            try { sink(message); } catch { }
+        }
+
+        /// <summary>
+        /// Last known SendInput outcome, or null before the first attempt. Exists so delivery is recorded on
+        /// the TRANSITION rather than per toggle: Hyper toggles once a second, so a line per attempt would
+        /// bury every other module's diagnostics inside a day.
+        /// </summary>
+        private bool? _lastDeliveryOk;
+
+        /// <summary>
+        /// Record whether Windows accepted the synthesized keypress, logging only when it CHANGED.
+        ///
+        /// This is the module's one genuinely invisible failure. <c>SendInput</c> returning 0 -- UIPI
+        /// refusing a lower-integrity sender, a locked or disconnected session, an elevated foreground
+        /// window -- leaves the LED dark after the pet has already said "Keeping the lights on for you",
+        /// and the only place that error was ever reported is the pane's "Blink once now" button, which a
+        /// user has to know to press. The first attempt logs whichever way it went (null to known is a
+        /// transition), because "did this ever work in this session" is the question a dead-LED report
+        /// needs answered, and the answer is as interesting when it is yes.
+        ///
+        /// Internal so the self-test can drive BOTH outcomes without depending on whether the machine it
+        /// runs on accepts synthesized input at all -- the same reason that self-test asserts nothing about
+        /// the LED itself.
+        /// </summary>
+        internal void NoteDelivery(bool ok, int win32Error)
+        {
+            if (_lastDeliveryOk.HasValue && _lastDeliveryOk.Value == ok) return;
+            bool first = !_lastDeliveryOk.HasValue;
+            _lastDeliveryOk = ok;
+            Log("blink delivery " + (ok ? "accepted" : "refused") +
+                (first ? " (first attempt)" : " (was " + (ok ? "refused" : "accepted") + ")") +
+                (ok ? "" : " win32=" + win32Error.ToString(CultureInfo.InvariantCulture)));
+        }
 
         internal static void DurationsFor(string rate, out int onMs, out int offMs)
         {
@@ -115,7 +170,7 @@ namespace DesktopAICompanion.BlinkingLed
         internal void BlinkOnce()
         {
             try { Toggle(); }
-            catch { LastWin32Error = -1; }
+            catch { LastWin32Error = -1; NoteDelivery(false, -1); }
         }
 
         private void OnTick(object sender, EventArgs e)
@@ -136,8 +191,11 @@ namespace DesktopAICompanion.BlinkingLed
             }
             catch
             {
-                // Record the failure so "Blink once now" can still report it, and keep ticking.
+                // Record the failure so "Blink once now" can still report it, and keep ticking. -1 is this
+                // module's marker for "threw" rather than "Windows said no", so the log distinguishes the
+                // two without carrying a message that could name a path.
                 LastWin32Error = -1;
+                NoteDelivery(false, -1);
             }
         }
 
@@ -153,6 +211,9 @@ namespace DesktopAICompanion.BlinkingLed
             uint sent = SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT)));
             LastWin32Error = sent == 0 ? Marshal.GetLastWin32Error() : 0;
             if (sent != 0) ToggleCount++;
+            // Read from the RESULT rather than from a flag, so a refusal is reported as one: sent == 0 is
+            // exactly what Windows says when it drops the input.
+            NoteDelivery(sent != 0, LastWin32Error);
         }
 
         internal static bool IsCapsLockOn() { return Control.IsKeyLocked(Keys.CapsLock); }

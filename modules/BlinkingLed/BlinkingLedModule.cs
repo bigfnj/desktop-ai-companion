@@ -63,6 +63,17 @@ namespace DesktopAICompanion.BlinkingLed
         {
             _host = host;
 
+            // Give the engine a way into the diagnostic log, BEFORE it exists, so the very first toggle it
+            // attempts is already recorded. Until this was wired the module's entire diagnostic story was
+            // silence: a Scroll Lock press Windows refuses leaves the LED dark with the pet having just
+            // announced it was keeping the lights on.
+            ScrollLockBlinker.LogSink = delegate(string line)
+            {
+                IHost h = _host;
+                if (h == null) return;
+                try { h.Log(Info.Id, line); } catch { }
+            };
+
             _blinker = new ScrollLockBlinker();
             _blinker.CapsLockStopRequested += OnCapsLockStop;
 
@@ -146,6 +157,9 @@ namespace DesktopAICompanion.BlinkingLed
                 _blinker.Dispose();
                 _blinker = null;
             }
+            // Drop the sink with the host it closes over: the field is static, so leaving it set would hand
+            // a reloaded module's engine a delegate pointing at the previous instance.
+            ScrollLockBlinker.LogSink = null;
             _host = null;
         }
 
@@ -320,6 +334,17 @@ namespace DesktopAICompanion.BlinkingLed
             return _lastQuip;
         }
 
+        /// <summary>
+        /// One diagnostic line from the module itself (the engine has its own sink). Never throws, and never
+        /// carries anything but the module's own vocabulary: rate names, counts, error numbers.
+        /// </summary>
+        private void Log(string message)
+        {
+            IHost host = _host;
+            if (host == null || string.IsNullOrEmpty(message)) return;
+            try { host.Log(Info.Id, message); } catch { }
+        }
+
         private void Say(string line)
         {
             if (_host == null || string.IsNullOrEmpty(line)) return;
@@ -422,6 +447,14 @@ namespace DesktopAICompanion.BlinkingLed
         /// to update: the tray entry reads its state through DynamicText when the menu next opens.</summary>
         private void OnCapsLockStop()
         {
+            // The blinking has ALREADY stopped -- the engine stops before raising this -- so the line
+            // records a transition that has happened, whatever the settings write below does.
+            //
+            // This is the one state change the user is never told about: the remark is deliberately
+            // suppressed (they pressed the key, and it can fire mid-typing) and the OFF is PERSISTED, so a
+            // week later the feature is off, the tray agrees it is off, and nothing anywhere says that Caps
+            // Lock did it. "It stops switching itself on" is a plausible bug report with no other evidence.
+            Log("caps lock is on: stopped blinking and saved it as off");
             try
             {
                 IModuleSettings s = Settings();
@@ -430,7 +463,27 @@ namespace DesktopAICompanion.BlinkingLed
                 // Deliberately silent: the user hit Caps Lock, which IS the feedback, and this can fire while
                 // they are typing.
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // A different state from the line above, and worth telling apart: the blinker is stopped but
+                // the setting still says on, so the next ApplyState (a settings visit, a restart) starts it
+                // again and the stop looks like it never happened.
+                Log("caps lock stop was not persisted (" + Categorize(ex) + "), so it will start again");
+            }
+        }
+
+        /// <summary>
+        /// A swallowed exception as a short, non-identifying category. The message itself can name a file
+        /// path (the settings store writes one), and the diagnostic log is what SUPPORT.md tells users to
+        /// attach to a public issue, so only the bucket is recorded.
+        /// </summary>
+        private static string Categorize(Exception ex)
+        {
+            if (ex == null) return "none";
+            if (ex is UnauthorizedAccessException) return "access-denied";
+            if (ex is System.IO.IOException) return "io";
+            if (ex is InvalidOperationException) return "invalid-state";
+            return ex.GetType().Name;
         }
 
         private System.Threading.Tasks.Task<string> BlinkOnceAsync()
@@ -732,11 +785,89 @@ namespace DesktopAICompanion.BlinkingLed
                     });
                     probe.Check("respects the announce setting", host.SaidLines.Count == before);
 
+                    // ---- diagnostics (IHost.Log) ------------------------------------------------------
+                    // THE WIRING, not the wording. This module emitted nothing at all until the sink in
+                    // Init existed, so the assertion that matters is that a blink attempt reaches
+                    // IHost.Log; unwire the delegate and the four checks below are the ones that fail.
+
+                    // A blink attempt records its outcome WHICHEVER WAY IT WENT, which is what lets this be
+                    // asserted at all: the first attempt is a null-to-known transition either way, so this
+                    // holds on a machine that accepts synthesized input and on a headless runner that
+                    // refuses it. (>= 1 rather than == 1 because the blink timer may already have toggled
+                    // once by now if something is pumping messages.)
+                    module._blinker.BlinkOnce();
+                    probe.Check("a blink attempt records whether Windows accepted it",
+                        CountLogged(host.LoggedLines, "blink delivery") >= 1);
+                    // Put the key back where the machine had it. Scroll Lock is inert, but leaving a
+                    // developer's LED lit because a self-test ran is still litter. The second attempt has
+                    // the same outcome as the first, so it adds no line.
+                    module._blinker.BlinkOnce();
+
+                    // Transition-only, driven through the engine's own notifier so both outcomes are
+                    // exercised on any machine. Three calls, one repeat: two lines, not three.
+                    var deliveryProbe = new ScrollLockBlinker();
+                    int loggedBefore = host.LoggedLines.Count;
+                    deliveryProbe.NoteDelivery(false, 5);
+                    deliveryProbe.NoteDelivery(false, 5);
+                    deliveryProbe.NoteDelivery(true, 0);
+                    deliveryProbe.Dispose();
+                    probe.Check("delivery is logged on the transition, not once per blink",
+                        host.LoggedLines.Count - loggedBefore == 2);
+                    probe.Check("a refusal is reported as one, with the Win32 error",
+                        LastLoggedMatching(host.LoggedLines, "blink delivery refused") != null &&
+                        LastLoggedMatching(host.LoggedLines, "blink delivery refused").Contains("win32=5"));
+                    probe.Check("and so is the recovery",
+                        LastLoggedMatching(host.LoggedLines, "blink delivery accepted") != null);
+
+                    // Caps Lock stopping the blinker is the one state change the user is never told about:
+                    // the remark is suppressed on purpose and the OFF is persisted, so a week later the
+                    // feature is off, the tray agrees, and nothing says why.
+                    pane.Save(new Dictionary<string, string>
+                    {
+                        { "enabled", "true" }, { "rate", "Slow" },
+                        { "capsStops", "true" }, { "announce", "false" },
+                    });
+                    loggedBefore = host.LoggedLines.Count;
+                    module.OnCapsLockStop();
+                    probe.Check("a Caps Lock stop is recorded, since nothing else reports it",
+                        CountLogged(host.LoggedLines, "caps lock is on") == 1 &&
+                        host.LoggedLines.Count - loggedBefore == 1);
+                    probe.Check("...and it really did switch off", pane.Load()["enabled"] == "false");
+
+                    // Every line carries this module's id, which is what the per-module log mute keys on.
+                    bool allTagged = true;
+                    foreach (string line in host.LoggedLines)
+                        if (line == null || !line.StartsWith("blinkingled: ", StringComparison.Ordinal))
+                            allTagged = false;
+                    probe.Check("every logged line is tagged with this module's id",
+                        host.LoggedLines.Count > 0 && allTagged);
+
                     module.Shutdown();
                 }
             }
             catch (Exception ex) { probe.Exception(ex); }
             return probe.Finish(out detail);
+        }
+
+        /// <summary>How many recorded lines mention <paramref name="needle"/>. RecordingHost stores each as
+        /// "&lt;moduleId&gt;: &lt;message&gt;", so the module id is asserted separately.</summary>
+        private static int CountLogged(List<string> lines, string needle)
+        {
+            int n = 0;
+            if (lines == null) return 0;
+            foreach (string line in lines)
+                if (line != null && line.IndexOf(needle, StringComparison.Ordinal) >= 0) n++;
+            return n;
+        }
+
+        /// <summary>The most recent recorded line mentioning <paramref name="needle"/>, or null.</summary>
+        private static string LastLoggedMatching(List<string> lines, string needle)
+        {
+            if (lines == null) return null;
+            for (int i = lines.Count - 1; i >= 0; i--)
+                if (lines[i] != null && lines[i].IndexOf(needle, StringComparison.Ordinal) >= 0)
+                    return lines[i];
+            return null;
         }
     }
 }
