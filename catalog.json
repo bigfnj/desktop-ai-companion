@@ -2176,61 +2176,71 @@
       "id": "fortunes",
       "name": "Fortunes",
       "desc": "Offline smart fortunes and speech bubbles, picked contextually by a bundled bge-small embedding model. Ships a built-in corpus of ~3,200 lines (Classic Fortunes plus Dad Jokes), so it has something to say before you download a single pack.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/fortunes.zip",
-      "sha256": "cbc3a3d1b02d733d67dcccc574984657517d17748efefb175ac2c2f64376c7dd",
-      "bytes": 30445495,
+      "sha256": "df734c8a974b0801bad894ee3ac663693a40524d5309c531c58ace8f2d3d99ed",
+      "bytes": 30447994,
       "permissions": "Speech, ScreenContext, Storage"
     },
     {
       "id": "aibrain",
       "name": "AI Brain",
       "desc": "An optional, off-by-default screen-commentary AI brain (local Ollama/llama.cpp or an optional cloud provider). Reads the screen with Windows' built-in OCR, so it needs no separate Tesseract install.",
-      "version": "1.1.4",
+      "version": "1.1.5",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/aibrain.zip",
-      "sha256": "c433aab20675486cfd6eabd818e8b57d7e2a562fa0bb0b17bf70ade5c2cc7172",
-      "bytes": 6754385,
+      "sha256": "17c05964c2b0fd7a31ef46255dc900f0339ec88976fcfae2aa8df2b035b45881",
+      "bytes": 6756723,
       "permissions": "Speech, Animation, ScreenContext, Network, Hotkey, Storage"
     },
     {
       "id": "petstudio",
       "name": "Companion Studio",
       "desc": "Check a companion's animations.xml before you use it: what the host would reject, which animations can never play, and how it actually looks running on your desktop. Edit the XML in place, watch any animation's real sprite frames, preview the companion temporarily on your desktop, then install it.",
-      "version": "1.0.2",
+      "version": "1.0.3",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/petstudio.zip",
-      "sha256": "a924c18be86767b508b8fdabbe290ec1dcb85ccdb86d83fd10c93c5591ae9dc4",
-      "bytes": 384072,
-      "permissions": "Companions, Storage"
+      "sha256": "514fbc65b1390aa58280bc70210e6bd22cca51f4d7d5c92d675fc5d077afe996",
+      "bytes": 386615,
+      "permissions": "Speech, Companions, Storage"
     },
     {
       "id": "reminder",
       "name": "Reminder",
       "desc": "Your companion announces upcoming calendar events and reads your agenda. Watches up to five calendars (local file, ICS URL, or running Outlook), each with its own name, style, and chime; one-click Join for Teams/Zoom/Meet links; a daily morning briefing; typed personal reminders; skips declined and all-day events; lead times, quiet hours, and hush-while-presenting.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/reminder.zip",
-      "sha256": "b500c418fb2343c5c327d7661a9ceccb9cd8722a07e7dd7abfb26b494fd5d81f",
-      "bytes": 399431,
+      "sha256": "12f6e4cc7b8bbb9398f14e452f68ed99d603618b92f5aab85c863083b199068a",
+      "bytes": 400320,
       "permissions": "Speech, Storage, Network, Companions, Audio, Animation"
     },
     {
       "id": "remembrance",
       "name": "Remembrance",
       "desc": "Records a meeting (your microphone + the system output over WASAPI loopback), transcribes it offline with a local Whisper, names it from your calendar (via the Reminder module) or a timestamp, snapshots the screen on a hotkey, and purges the audio + snapshots after 72 hours while keeping the transcript. Needs a local Whisper (whisper-cli + a model) set up in options, and the machine's own console - a Remote Desktop session presents no real microphone.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/remembrance.zip",
-      "sha256": "fca30397525ea7d6618dc16ba9c8064b6d54183c295bb2120c63ada2930b2ac3",
-      "bytes": 7057081,
-      "permissions": "Microphone, SystemAudio, ScreenContext, Hotkey, Storage, Network"
+      "sha256": "c6ea44ce0d53941ca7da353fa2f5067018d42bef934f25555e6d96abcca74cab",
+      "bytes": 7058213,
+      "permissions": "Speech, Microphone, SystemAudio, ScreenContext, Hotkey, Storage, Network"
     },
     {
       "id": "blinkingled",
       "name": "Blinking LED",
       "desc": "Blinks your keyboard's Scroll Lock light so the machine reads as active. Six speeds from Glacial to Hyper, switchable from the tray, and your companion has an opinion about each one. It works by pressing Scroll Lock, a key no application acts on, so nothing is ever typed anywhere; Windows still counts it as activity, which is the whole point. Caps Lock stops it.",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/blinkingled.zip",
-      "sha256": "1f744bcf3f565f99559f1036d514ff44fe2ab3651303a06132922d760b760807",
-      "bytes": 46757,
-      "permissions": "Speech, Storage"
+      "sha256": "ebd9efc2c847b4913c12035716ffe7e35e1f5b3e3232d9588e200b9c9b6228a0",
+      "bytes": 48768,
+      "permissions": "Speech, Storage, InputSynthesis"
+    },
+    {
+      "id": "agentflow",
+      "name": "AgentFlow",
+      "desc": "Notices when a coding agent (Claude Code, Codex) has been sitting blocked on a permission prompt and tells you. READS YOUR CODING-AGENT TRANSCRIPTS AND PERMISSION SETTINGS to do it: those files contain every command you ran and everything you typed to the agent. It never answers a prompt, and it never speaks command text or a file path.",
+      "version": "1.0.0",
+      "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/agentflow.zip",
+      "sha256": "bcf279716b54b2d6bcede818a4c25ee3cf3e910cb65b769d9161dc59c608a228",
+      "bytes": 59611,
+      "permissions": "Speech, Animation, Storage, AgentTranscripts"
     }
   ]
 }
