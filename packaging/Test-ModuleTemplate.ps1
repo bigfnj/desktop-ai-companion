@@ -1,4 +1,4 @@
-#requires -Version 5
+﻿#requires -Version 5
 <#
 .SYNOPSIS
     Prove the module template still scaffolds a module that compiles.
@@ -80,6 +80,35 @@ foreach ($symbolName in 'minHostVersion', 'packageVersion') {
                "(packageVersion). Lower it to a version that exists.")
     }
     Write-Host ("OK   template $symbolName default '$declared' is not above the host '$productVersion'")
+}
+
+# A default must not contradict its own description, which is the check that would have caught a
+# real corruption on 2026-09-18 and did not exist.
+#
+# minHostVersion's description says "Leave it at 1.0.0 unless you actually call a newer ABI member".
+# A mutation test of the block below mutated packageVersion to 1.0.0 and restored it with an
+# unguarded string replace, which by then also matched minHostVersion -- so the template shipped
+# telling authors to use 1.0.0 while defaulting to 1.1.4, and every scaffolded module would have
+# demanded a host no older than 1.1.4 for no reason. Nothing failed, because 1.1.4 is not ABOVE the
+# shipped host, which is the only thing the checks above look at.
+#
+# So: where a description states the value in the form "Leave it at X", X and the default must agree.
+# This is self-consistency, not a hardcoded expectation -- change the description and the check
+# follows it.
+foreach ($symbolName in 'minHostVersion', 'packageVersion') {
+    $symbol = $symbols.$symbolName
+    $stated = [regex]::Match([string]$symbol.description, 'Leave it at ([0-9]+\.[0-9]+\.[0-9]+)')
+    if (-not $stated.Success) {
+        Write-Host ("OK   template $symbolName's description states no value to contradict")
+        continue
+    }
+    $declared = [string]$symbol.defaultValue
+    if ($stated.Groups[1].Value -cne $declared) {
+        throw ("template.json's $symbolName defaults to '$declared' while its own description tells " +
+               "the author to leave it at '$($stated.Groups[1].Value)'. One of the two is wrong, and " +
+               "a scaffolded module gets the DEFAULT.")
+    }
+    Write-Host ("OK   template $symbolName default '$declared' agrees with its own description")
 }
 
 # packageVersion needs a second, sharper check, because "not above the host" is satisfied by every
