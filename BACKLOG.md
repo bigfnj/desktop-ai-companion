@@ -180,14 +180,25 @@ landed. Between them they raised 28 findings; 24 are fixed in this cycle and the
 commits. What is left is here, and the three that are DECISIONS rather than work are in
 [`docs/DESIGN-REGISTER.md`](docs/DESIGN-REGISTER.md) instead.
 
-- 📌 **`packaging/legal-files.json` has no consumer, and 7 of its 8 pinned notices do not ship.**
-  127 lines with eight `sha256` digests that nothing verifies, so they can rot silently, and only
-  `NAUDIO_LICENSE.txt` appears in [`packaging/runtime-files.txt`](packaging/runtime-files.txt).
-  `docs/ISSUES-pre-1.0.0.md:960` already called it orphaned, so this is confirmation rather than
-  news. Not a code decision: whether those seven third-party notices are REQUIRED to ship is a
-  licensing question about what the portable zip and the MSI are obliged to carry. Answer that
-  first, then either wire the file into the payload manifest or delete it. Deleting a file of
-  licence digests because nothing reads it is exactly the wrong reflex if the answer is "yes".
+- ✅ **`packaging/legal-files.json` is deleted (2026-09-18), and nothing was missing.** The
+  question it raised was answerable rather than a judgement call, and the answer is that the file
+  is a fossil of the self-contained era. Three of its eight notices ship, and they are exactly the
+  three for components this app REDISTRIBUTES:
+
+  | notice | ships? | why |
+  |---|---|---|
+  | `NAUDIO_LICENSE.txt` | yes, in the payload | four `NAudio.*.dll` are in `runtime-files.txt` |
+  | `ONNXRUNTIME_LICENSE.txt` | yes, in `fortunes.zip` | the module bundles `onnxruntime.dll` |
+  | `ONNXRUNTIME_THIRD_PARTY_NOTICES.txt` | yes, in `fortunes.zip` | same |
+  | `DOTNET_RUNTIME_LICENSE.txt` | no, and correctly | `SelfContained=false`: the .NET 10 Desktop runtime is a PREREQUISITE the user installs |
+  | `DOTNET_{5,6,8,10}_THIRD_PARTY_NOTICES.txt` | no, and correctly | same, and four of them are for runtime versions this app has never targeted |
+
+  So the five that do not ship describe a runtime we do not convey, and shipping them would claim
+  to pass on something we never hand over. The file dates from `0936658` ("Desktop AI Companion
+  1.0.0") when the build was self-contained; nothing has read it since, which is why its eight
+  digests could rot unnoticed. [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) is the
+  human-facing inventory and ships in the payload, and it already says in its own words that it is
+  not a rights clearance.
 
 - 📌 **Fortunes still cannot report a smart picker that fails for the second reason.**
   The instrumentation added `smart=on model=present|ABSENT`, which catches the shipping-level cause.
