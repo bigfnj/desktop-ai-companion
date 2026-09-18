@@ -11,12 +11,18 @@ import re
 import subprocess
 import sys
 
-REPO = r"D:\.ai-work\projects\desktop-ai-companion"
+# Derived from this file's own location, never hard-coded. The absolute path that used to sit here
+# meant every run from a git worktree mutated the MAIN checkout instead -- editing files a
+# concurrent session was working in, and scoring the wrong tree's assertions. The three sibling
+# mutation harnesses already do it this way.
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HARDENING = os.path.join(REPO, "tests", "runtime-hardening-selftest.ps1")
 APPUPDATE = os.path.join(REPO, "src", "dotNet", "AppUpdateCheck.cs")
 SMOKETEST = os.path.join(REPO, "SMOKETEST.md")
 SELFTESTS = os.path.join(REPO, "tests", "Invoke-SelfTests.ps1")
 PETSPANE = os.path.join(REPO, "src", "Portable", "Wpf", "CompanionsPaneControl.cs")
+FORMPET = os.path.join(REPO, "src", "dotNet", "FormCompanion.cs")
+STARTUP = os.path.join(REPO, "src", "dotNet", "StartUp.cs")
 
 
 def read(p):
@@ -97,17 +103,71 @@ CASES = (
         b"            CompanionFreshness freshness = FreshnessOf(entry.Pet);",
         "instead of re-hashing",
     ),
+    # The fullscreen stand-down, whose two properties pull in opposite directions: the SCAN must be
+    # shared (it was per companion, so one desktop-wide answer cost 16 z-order walks per cycle at
+    # MAX_SHEEPS) while the ENFORCEMENT must not be throttled at all. A change that helps one and
+    # breaks the other looks like an optimisation and re-ships "anything visible over a fullscreen
+    # game", which is on SMOKETEST.md's regression watchlist. One mutation per direction.
+    (
+        "each companion walks the z-order for itself again",
+        FORMPET,
+        b"                blocked = Program.Mainthread != null\n"
+        b"                    ? Program.Mainthread.BlockedMonitorsForStandDown()\n"
+        b"                    : null;",
+        b"                blocked = FullscreenScan.BlockedMonitors(\n"
+        b"                    Program.Mainthread != null ? Program.Mainthread.SheepHandles() : null);",
+        "shared per cycle",
+    ),
+    (
+        "the shared cache forgets which MONITOR was blocked",
+        STARTUP,
+        b"            _fullscreenBlocked = blocked;\n",
+        b"",
+        "per MONITOR",
+    ),
+    (
+        "a per-companion time gate is re-added ahead of the scan",
+        FORMPET,
+        b"            bool[] blocked;\n            try\n",
+        b"            if ((DateTime.UtcNow - _lastRelocateUtc).TotalMilliseconds < 300) return;\n"
+        b"            bool[] blocked;\n            try\n",
+        "not re-throttled per companion",
+    ),
 )
+
+
+# The ONE baseline failure a branch is allowed to carry, and the reason it is safe to score
+# against. The self-test compares SMOKETEST.md's "N source invariants" figure to its own
+# assertion count, so a branch that ADDS an assertion cannot be green until the doc is updated --
+# which happens at the merge, in a file the branch may not own.
+#
+# What makes tolerating it rigorous rather than convenient: the self-test runs under
+# ErrorActionPreference = Stop and Assert-True throws, so it aborts at its FIRST failing
+# assertion -- and the doc-count invariants are its LAST two. Seeing this text in the output is
+# therefore proof that every assertion before it passed. A mutated assertion aborts the run
+# earlier and prints its own text instead of this one, so the two cannot be confused.
+DOC_COUNT_DRIFT = "source-invariant count matches this file"
+
+
+def saw_doc_count_drift(out):
+    return any(DOC_COUNT_DRIFT in line and not line.strip().startswith("PASS:")
+               for line in out.splitlines())
 
 
 def main():
     print("baseline: the hardening self-test must pass before anything is scored")
     code, out = run()
-    if code != 0:
+    degraded = code != 0 and saw_doc_count_drift(out)
+    if code != 0 and not degraded:
         print("BASELINE NOT GREEN, refusing to score.")
         print(out[-1200:])
         return 2
-    print("  baseline PASS (%d assertions)\n" % out.count("PASS:"))
+    if degraded:
+        print("  *** BASELINE DEGRADED: SMOKETEST.md's invariant count is not updated yet. ***")
+        print("  Scoring continues: the self-test aborts at its FIRST failure and the doc count is")
+        print("  its LAST assertion, so everything this harness scores ran and passed.")
+    print("  baseline %s (%d assertions)\n"
+          % ("DEGRADED" if degraded else "PASS", out.count("PASS:")))
 
     fired = 0
     for name, path, old, new, expect in CASES:
@@ -139,15 +199,22 @@ def main():
         # It also puts `throw "$Name failed."` (the helper's own source) in the rendering, which a
         # naive match picks up; mutate-diagnostics.py records that half of the trap.
         #
-        # The baseline is green, so a non-zero exit means this mutation broke something. It broke
-        # the RIGHT thing when the expected assertion text appears anywhere in the output on a line
-        # that is not a PASS.
+        # A non-zero exit means this mutation broke something -- unless the baseline was degraded,
+        # in which case the doc-count failure is there whatever the mutation did. It broke the RIGHT
+        # thing when the expected assertion text appears anywhere in the output on a line that is
+        # not a PASS.
         bad = [l.strip() for l in out.splitlines()
                if expect in l and not l.strip().startswith("PASS:")]
         if bad:
             fired += 1
             print("  %-46s FIRED" % name)
             print("        %s" % bad[0][:150])
+        elif degraded and saw_doc_count_drift(out):
+            # The run reached the LAST assertion, so nothing this mutation touched was noticed.
+            # Reported as SURVIVED and not as WRONG: with a degraded baseline a non-zero exit is
+            # not evidence of anything on its own, and calling it "failed on something else" would
+            # read as a harness fault rather than as a vacuous assertion.
+            print("  %-46s SURVIVED -- only the baseline doc-count failure" % name)
         else:
             print("  %-46s WRONG -- failed on something else" % name)
             other = [l.strip() for l in out.splitlines() if "failed" in l][:2]
