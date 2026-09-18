@@ -43,7 +43,7 @@ namespace DesktopAICompanion.FortunesModule
         {
             Id = "fortunes",
             Name = "Fortunes",
-            Version = "1.0.1",   // 1.0.1: republished so the bundled ModuleKit.dll no longer carries the
+            Version = "1.0.2",   // 1.0.1: republished so the bundled ModuleKit.dll no longer carries the
                                  //        maintainer's absolute build path (Contracts + ModuleKit moved to
                                  //        DebugType=embedded, which also gives authors symbols the discarded
                                  //        .snupkg never delivered). NO functional change here. The bump exists

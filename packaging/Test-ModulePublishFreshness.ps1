@@ -184,8 +184,11 @@ foreach ($m in (Get-Content -LiteralPath $modulesJson -Raw | ConvertFrom-Json).m
 # publishing it now requires saying so here, once.
 #
 #   testmodule  a throwaway plugin-pipeline proof, dev and self-test only, never catalogued
-#   agentflow   built and gated, deliberately not published; see BACKLOG.md's AgentFlow section
-$deliberatelyUnpublished = @('testmodule', 'agentflow')
+#
+# agentflow was on this list until 2026-09-17 and came off it when it was published, which is the
+# point of keeping the list short: an entry here is a claim that nobody ships the module, and a stale
+# one would quietly exempt a PUBLISHED module from every freshness and parity check in this file.
+$deliberatelyUnpublished = @('testmodule')
 
 $sourceIds = @()
 foreach ($proj in @(Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'modules') -Directory)) {
