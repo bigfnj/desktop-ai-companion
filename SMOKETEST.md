@@ -300,6 +300,35 @@ Every one of these shipped. Each is one glance, and each is the reason a row abo
 | 12 | "you already have every available companion" when a companion was corrected | G4 |
 | 13 | hundreds of `dp-*` directories in `%TEMP%` | J1 |
 
+## Walk log — record a completed pass HERE
+
+**This file had nowhere to say it had been walked, and that is why a completed walk was tracked as
+outstanding for a week.** 77 checkboxes, none of them ever ticked, and ticking them would mean
+committing a modified tracked file on every pass. So a walk left no trace, `BACKLOG.md` kept an item
+saying the walk had never happened, and two backlog restructurings carried that item forward
+verbatim. The maintainer had done it; nothing recorded it.
+
+One row per pass. The BUILD matters as much as the date: a walk is evidence about the build it was
+walked on, and a later change to the code a section covers retires it for that section.
+
+| date | build | sections | by | notes |
+|---|---|---|---|---|
+| (undated) | at or before 1.1.4 | A-E | maintainer | Reported 2026-09-18, after the fact. No date or exact build recorded, because nothing in the repo or the diagnostic log could supply one -- the log keeps two runs and both had been consumed. Recorded as evidence anyway: an undated pass is worth more than a missing one. |
+| 2026-09-18 | 1.1.5 | K (5 of 6 rows) | agent | Upgrade 1.1.4 to 1.1.5: `msiexec` exit 0, exactly one entry in Programs and Features, settings and companion mix surviving, tray icon `shellHasIt=True`, modules from the earlier install still loading at older versions. |
+| 2026-09-18 | 1.1.5 | K (the last row), H, I | maintainer | Tray icon reported correct, which closes K. Corroborated by `tray icon set: noThrow=True icon=True visible=True shellHasIt=True` at that launch -- the SHELL's verdict, which is the half that was missing when BUG-001 hid behind a line reading `success=True`. |
+| 2026-09-18 | 1.1.5 | H, I (update path) | maintainer | Fortunes and AI Brain both NOTIFIED and updated correctly from the republished catalog. Log: `updated module 'fortunes'`, then `aibrain 1.1.5` and `fortunes 1.0.2` on the next launch -- the staged swap, which is how an in-place module update has to work while the old DLL is loaded and locked. Both now current with the catalog. |
+
+**What retires a row.** If a section's code changes after the walk, that section is no longer covered
+by it. As of 1.1.5 that applies to **D** (the fullscreen stand-down became one shared scan per cycle
+with per-monitor caching), **E** (the poke sass now goes through the speech responder chain) and
+**G** (the Companions pane hashes once, off the UI thread). A pass recorded against 1.1.4 or earlier
+does not speak to those three.
+
+That is a statement about coverage, not a request to walk A-E again. D is the one with automated
+cover: `tests/fullscreen-standdown-probe/` drives relocate, hide and restore in the real app on two
+monitors and was run against this build. E and G are the two where a human glance is still the only
+evidence -- one poke past the fifth, and one press of "Check for companions and updates".
+
 ## Reporting
 
 For each failure, the useful report is three lines: what you did, what you expected, what happened. A

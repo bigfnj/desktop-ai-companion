@@ -420,14 +420,13 @@ there.
 
 ---
 
-## Open: the MSI upgrade path, and the installed build's About window (unblocked 2026-09-17)
+## MOSTLY CLOSED: the MSI upgrade path (done), the About window (one glance left)
 
-**Was in [`docs/BLOCKED.md`](docs/BLOCKED.md) as T2 / T49; the blocker is gone.** It sat there needing
-"a real reinstall of the MSI over a previous install", and both halves of that now exist on this box:
-the app **is** installed at **1.1.4** under `%LOCALAPPDATA%\Programs\Desktop AI Companion\`
-(`DesktopAICompanion.exe` reports FileVersion `1.1.4.0`), so there is a previous install to upgrade
-over, and **WiX 5.0.2 is installed as a global dotnet tool**, so an MSI can be built here. Verified
-2026-09-17. Two verification gaps, both actionable now:
+**Was in [`docs/BLOCKED.md`](docs/BLOCKED.md) as T2 / T49; the blocker went on 2026-09-17 and the
+work went on 2026-09-18.** It had sat there needing "a real reinstall of the MSI over a previous
+install", which needed an installed build to upgrade over and a way to build an MSI here. Both
+existed by then, so the upgrade ran: 1.1.4 → 1.1.5, verified below. What is left is one glance at a
+window.
 
 - ✅ **The UPGRADE path was exercised on 2026-09-17.** 1.1.4 → 1.1.5 by MSI, `msiexec` exit 0, and
   the installed `DesktopAICompanion.Contracts.dll` read back **FileVersion 1.1.5.0** carrying both
@@ -440,21 +439,29 @@ over, and **WiX 5.0.2 is installed as a global dotnet tool**, so an MSI can be b
   installed that declares the new flag, and an upgrade onto a machine where a module update is
   already staged in `PendingModuleUpdates`.
 
-- 📌 **The upgrade path is now MOSTLY exercised; one item of section K is left.** 1.1.4 → 1.1.5 ran
-  on 2026-09-18 and five of the six things section K of [`SMOKETEST.md`](SMOKETEST.md) asks for were
-  observed: upgrade code honoured (`msiexec` exit 0), **exactly one** entry in Programs and Features
-  (`Desktop AI Companion v1.1.5`, HKLM, measured), settings and the installed companion mix
-  surviving, the tray icon registering with the shell (`shellHasIt=True`), and modules left by the
-  earlier install still loading at their OLDER versions (`aibrain 1.1.1`, `fortunes 1.0.0` against a
-  catalog now offering 1.1.5 and 1.0.2 — which is the case that row exists for).
+- ✅ **The upgrade path and section K are DONE (2026-09-18).** 1.1.4 → 1.1.5: `msiexec` exit 0,
+  exactly one entry in Programs and Features, settings and the companion mix surviving, modules from
+  the earlier install loading at their older versions and then updating, and the tray icon correct --
+  reported by the maintainer and corroborated by `shellHasIt=True`, the SHELL's verdict, which is
+  the half that was missing when BUG-001 hid behind a line reading `success=True`.
 
-  What is left is **the tray icon appearing on the FIRST companion add**, which is BUG-001's own
-  repro and needs a hand on the mouse: the install above was driven headlessly, so no companion was
-  added interactively. One click, on the next reinstall.
-- 📌 **The full A-E walk has never been walked on an installed build.** It covers speech routing, the
-  poke ladder, drag, multi-monitor pinning and fullscreen stand-down, none of which was touched at
-  the v1.1.4 tag. This is the same gap the live-smoke-test item below records; the upgrade install is
-  the natural occasion to do both in one sitting.
+- ✅ **Sections H and I are DONE (2026-09-18), on the republished catalog.** Fortunes and AI Brain
+  both notified and updated correctly: `updated module 'fortunes'`, then `aibrain 1.1.5` and
+  `fortunes 1.0.2` on the next launch. That is the staged swap working, which is how an in-place
+  module update has to happen while the old DLL is loaded and locked, and it is the end-to-end proof
+  that bumping each module's version was the right call -- without it the fixed payloads would have
+  reached new installs only.
+
+- ✅ **Sections A-E were walked by the maintainer, at or before 1.1.4.** Undated, because nothing
+  recorded it: `SMOKETEST.md` had 77 checkboxes and no way to say a pass had happened, so the walk
+  left no trace and two backlog restructurings carried an item forward claiming it never occurred.
+  The file now has a walk log, which is the actual fix.
+
+  Coverage, not a re-walk request: **D**, **E** and **G** changed after that pass. D has automated
+  cover (`tests/fullscreen-standdown-probe/`, run against 1.1.5 on two monitors). E and G are the
+  two where a glance is the only evidence -- one poke past the fifth, one press of "Check for
+  companions and updates".
+
 - 📌 **The About / Help window has only ever been eyeballed as a rendered PNG.** The WPF rebuild was
   verified by rendering the window to an image, not by opening it from the tray on an installed
   build, and the capture followed this box's dark OS setting, so the light-theme variant is
