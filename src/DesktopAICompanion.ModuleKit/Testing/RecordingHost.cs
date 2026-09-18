@@ -290,6 +290,16 @@ namespace DesktopAICompanion.ModuleKit.Testing
             return PlaySoundResult;
         }
 
+        /// <summary>Counted, not recorded as bytes: the audio belongs to the host, so there
+        /// is nothing module-side to capture. A module self-test asserts it was ASKED.</summary>
+        public int NotificationSoundsPlayed { get; private set; }
+
+        public bool PlayNotificationSound(string moduleId)
+        {
+            NotificationSoundsPlayed++;
+            return PlaySoundResult;
+        }
+
         public bool StopSound(string moduleId)
         {
             StoppedSoundOwners.Add(moduleId ?? "");

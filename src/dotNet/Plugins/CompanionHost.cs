@@ -335,6 +335,22 @@ namespace DesktopAICompanion.Plugins
             return AddResponder(_pokeResponders, moduleId, priority, onPoke);
         }
 
+        /// <summary>
+        /// Play the sound the USER chose for notifications. Same gate and the same three
+        /// layers as PlaySound -- Audio declared, master volume, the notificationSounds
+        /// switch -- with the difference that the BYTES are the app's, not the module's.
+        /// </summary>
+        public bool PlayNotificationSound(string moduleId)
+        {
+            try
+            {
+                if (!ModuleDeclares(moduleId, ModulePermissions.Audio)) return false;
+                if (_startUp == null) return false;   // host not running (self-test path)
+                return _startUp.PlayNotificationSound(moduleId ?? "");
+            }
+            catch (Exception) { return false; }
+        }
+
         public bool PlaySound(string moduleId, byte[] audio, double volume)
         {
             try
