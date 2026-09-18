@@ -2103,6 +2103,38 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("a reply that is not an object is no answer",
                 CdpApprover.Parse("t1", "[1,2,3]") == null);
 
+            // ---- "no prompt" must not be the same answer as "cannot see" -------------
+            // This is the assertion the module did not have on 2026-09-18, and its absence
+            // cost an afternoon. The reader queried the OUTER webview document, which holds
+            // eight elements and a nested iframe, so it reported "no prompt" with a prompt
+            // plainly on screen -- and "no prompt" is what a healthy idle module says, so
+            // nothing looked wrong. Four outcomes, all distinct, asserted by name.
+            // Asserting the VALUE, not merely that the two differ. The inequality form passed a
+            // mutation that deleted the Unreachable branch entirely -- "unreachable" then fell
+            // through to Prompt, which is still different from NoPrompt and still wrong. The
+            // mutation harness caught that this assertion was weaker than its own name.
+            probe.Check("WITNESS an unreachable panel is not reported as no prompt",
+                CdpApprover.Interpret("unreachable") == ReadOutcome.Unreachable
+                && CdpApprover.Interpret("none") == ReadOutcome.NoPrompt);
+            probe.Check("the four read outcomes are told apart",
+                CdpApprover.Interpret(null) == ReadOutcome.NoAnswer
+                && CdpApprover.Interpret("unreachable") == ReadOutcome.Unreachable
+                && CdpApprover.Interpret("none") == ReadOutcome.NoPrompt
+                && CdpApprover.Interpret("{\"options\":[]}") == ReadOutcome.Prompt);
+
+            // ...and the expression has to LOOK in the nested frame, in that order: decide
+            // reachability first, because a container query against the outer shell can only
+            // ever answer no.
+            string expression = CdpApprover.ReadExpressionForSelfTest;
+            int descends = expression.IndexOf("contentDocument", StringComparison.Ordinal);
+            int gaveUp = expression.IndexOf("unreachable", StringComparison.Ordinal);
+            int queried = expression.IndexOf("permissionRequestContainer",
+                                             StringComparison.Ordinal);
+            probe.Check("WITNESS the reader descends into the nested webview frame",
+                descends > 0);
+            probe.Check("WITNESS it settles reachability BEFORE it looks for a prompt",
+                gaveUp > 0 && queried > 0 && gaveUp < queried && descends < queried);
+
             // ---- deciding ------------------------------------------------------------
             // Port 1 is closed, so the press path returns without reaching an editor. Every
             // case below that REFUSES never gets that far in the first place.

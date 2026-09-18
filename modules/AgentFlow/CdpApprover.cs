@@ -46,8 +46,46 @@ namespace DesktopAICompanion.AgentFlow
     /// "shortcutNum" span carrying the keyboard digit. The hash suffix ("_qlaBag") is regenerated
     /// per build, so every selector here matches the semantic PREFIX and never the whole class.
     /// </summary>
+    /// <summary>What a read of one target actually told us. Four answers, not two.</summary>
+    internal enum ReadOutcome
+    {
+        /// <summary>The target did not answer at all.</summary>
+        NoAnswer,
+        /// <summary>It answered, but the conversation was not reachable inside it.</summary>
+        Unreachable,
+        /// <summary>The conversation was reachable and there is no prompt waiting.</summary>
+        NoPrompt,
+        /// <summary>There is a prompt.</summary>
+        Prompt,
+    }
+
     internal static class CdpApprover
     {
+        /// <summary>
+        /// Turn a raw read result into what it means.
+        ///
+        /// A function rather than three inline string comparisons, because the bug this file
+        /// shipped on 2026-09-18 was exactly the collapse of two of these into one. The reader
+        /// queried the OUTER webview document, which contains nothing but a nested iframe, so it
+        /// answered "no prompt" whether or not a prompt was on screen. Everything downstream was
+        /// correct; it was simply never given a prompt to be correct about, and the module looked
+        /// like it was working because "nothing to do" is what a healthy idle module says.
+        ///
+        /// Separating Unreachable from NoPrompt is what makes that sayable out loud, and having
+        /// it as a named function is what makes it assertable without a browser.
+        /// </summary>
+        internal static ReadOutcome Interpret(string raw)
+        {
+            if (string.IsNullOrEmpty(raw)) return ReadOutcome.NoAnswer;
+            if (string.Equals(raw, "unreachable", StringComparison.Ordinal))
+                return ReadOutcome.Unreachable;
+            if (string.Equals(raw, "none", StringComparison.Ordinal)) return ReadOutcome.NoPrompt;
+            return ReadOutcome.Prompt;
+        }
+
+        /// <summary>The read expression, exposed so a self-test can assert it looks where it must.</summary>
+        internal static string ReadExpressionForSelfTest { get { return ReadExpression; } }
+
         /// <summary>
         /// Returns a JSON string describing the prompt, or the string "none".
         ///
@@ -55,9 +93,49 @@ namespace DesktopAICompanion.AgentFlow
         /// answers "none", while a target that could not be reached at all yields no value. Only
         /// the second is worth reporting as a fault.
         /// </summary>
+        /// <summary>
+        /// Resolve the document the conversation is actually IN, and say so when it cannot.
+        ///
+        /// VS Code nests webviews. The vscode-webview:// target this attaches to holds eight
+        /// elements and nothing else: an index.html whose body is a sandboxed same-origin iframe
+        /// ("./fake.html"), and the extension's entire UI lives inside THAT. A querySelector on the
+        /// outer document therefore finds nothing, ever -- measured 2026-09-18 with a real prompt
+        /// on screen: outer 8 elements, inner 6100, four permissionRequest nodes in the inner one.
+        ///
+        /// The sandbox carries allow-same-origin, so contentDocument is reachable from the parent
+        /// and no separate CDP target or isolated world is needed.
+        ///
+        /// It picks the RICHEST document rather than assuming depth one, and reports the element
+        /// count so the caller can tell "I looked and there is no prompt" from "I could not see
+        /// anything to look at". That distinction is the whole reason this function exists as
+        /// something other than a one-liner: the first version of this file returned 'none' in
+        /// both cases, so it answered identically whether or not a prompt was up, and a test that
+        /// cannot fail is what let the bug ship.
+        /// </summary>
+        private const string DocumentPrelude = @"
+  function appDocument() {
+    var docs = [document];
+    var frames = document.querySelectorAll('iframe');
+    for (var fi = 0; fi < frames.length; fi++) {
+      try { if (frames[fi].contentDocument) docs.push(frames[fi].contentDocument); } catch (e) { }
+    }
+    var best = null, bestCount = -1;
+    for (var di = 0; di < docs.length; di++) {
+      var n = docs[di].querySelectorAll('*').length;
+      if (n > bestCount) { bestCount = n; best = docs[di]; }
+    }
+    return { doc: best, elements: bestCount };
+  }
+  // The bare webview shell is eight elements. A panel with any conversation in it is thousands.
+  // Anything under this floor means the content was not reachable, not that it was empty.
+  var MinElements = 30;
+";
+
         private const string ReadExpression = @"
-(function () {
-  var c = document.querySelector('[class*=""permissionRequestContainer""]');
+(function () {" + DocumentPrelude + @"
+  var a = appDocument();
+  if (!a.doc || a.elements < MinElements) return 'unreachable';
+  var c = a.doc.querySelector('[class*=""permissionRequestContainer""]');
   if (!c) return 'none';
   var bc = c.querySelector('[class*=""buttonContainer""]');
   if (!bc) return 'none';
@@ -91,7 +169,22 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         private const string ClickExpressionFormat = @"
 (function () {{
-  var c = document.querySelector('[class*=""permissionRequestContainer""]');
+  function appDocument() {{
+    var docs = [document];
+    var frames = document.querySelectorAll('iframe');
+    for (var fi = 0; fi < frames.length; fi++) {{
+      try {{ if (frames[fi].contentDocument) docs.push(frames[fi].contentDocument); }} catch (e) {{ }}
+    }}
+    var best = null, bestCount = -1;
+    for (var di = 0; di < docs.length; di++) {{
+      var n = docs[di].querySelectorAll('*').length;
+      if (n > bestCount) {{ bestCount = n; best = docs[di]; }}
+    }}
+    return best;
+  }}
+  var d = appDocument();
+  if (!d) return 'gone';
+  var c = d.querySelector('[class*=""permissionRequestContainer""]');
   if (!c) return 'gone';
   var bc = c.querySelector('[class*=""buttonContainer""]');
   if (!bc) return 'gone';
@@ -131,6 +224,7 @@ namespace DesktopAICompanion.AgentFlow
 
             try
             {
+                bool sawReadable = false;
                 using (var session = new CdpSession(browserUrl, timeoutMs))
                 {
                     foreach (string targetId in targetIds)
@@ -140,7 +234,14 @@ namespace DesktopAICompanion.AgentFlow
                         try
                         {
                             string raw = session.Evaluate(sessionId, ReadExpression);
-                            if (string.IsNullOrEmpty(raw) || raw == "none") continue;
+                            ReadOutcome outcome = Interpret(raw);
+                            // Unreachable is NOT "no prompt", and the difference is load-bearing:
+                            // conflating them is precisely how this shipped unable to see anything
+                            // while looking healthy.
+                            if (outcome == ReadOutcome.NoAnswer
+                                || outcome == ReadOutcome.Unreachable) continue;
+                            sawReadable = true;
+                            if (outcome == ReadOutcome.NoPrompt) continue;
                             PromptView view = Parse(targetId, raw);
                             if (view == null || view.Options.Count == 0) continue;
                             string note = press(view);
@@ -149,6 +250,10 @@ namespace DesktopAICompanion.AgentFlow
                         finally { session.Detach(sessionId); }
                     }
                 }
+                if (!sawReadable)
+                    return "cannot see inside the Claude Code panel: the debugging port answers, "
+                           + "but nothing in it exposes the conversation. Approving cannot work "
+                           + "until that is fixed -- it is not the same as 'no prompt waiting'.";
             }
             catch (Exception)
             {

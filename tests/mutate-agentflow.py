@@ -420,6 +420,23 @@ CASES = (
         "            if (false)",
         "Decide consults the budget before it presses anything",
     ),
+    # Seeing the prompt at all. The first two reproduce the exact defect that shipped on
+    # 2026-09-18 -- a reader pointed at the outer webview shell, which contains nothing but a
+    # nested iframe, answering "no prompt" with a prompt plainly on screen.
+    (
+        "unreachable is folded back into no-prompt",
+        CDP,
+        "            if (string.Equals(raw, \"unreachable\", StringComparison.Ordinal))\n                return ReadOutcome.Unreachable;",
+        "            if (false) return ReadOutcome.Unreachable;",
+        "an unreachable panel is not reported as no prompt",
+    ),
+    (
+        "the reader stops descending into the nested frame",
+        CDP,
+        "      try { if (frames[fi].contentDocument) docs.push(frames[fi].contentDocument); } catch (e) { }",
+        "      try { if (false) docs.push(document); } catch (e) { }",
+        "the reader descends into the nested webview frame",
+    ),
 )
 
 
