@@ -586,6 +586,8 @@ namespace DesktopAICompanion.Plugins
             public int PlaySoundCount;
             public int StopSoundCount;
             public bool PlaySound(string moduleId, byte[] audio, double volume) { PlaySoundCount++; return false; }
+            public int NotificationSoundCount;
+            public bool PlayNotificationSound(string moduleId) { NotificationSoundCount++; return false; }
             public bool StopSound(string moduleId) { StopSoundCount++; return false; }
             public IDisposable RegisterSpeechResponder(string moduleId, int priority, Func<SpeechRequest, bool> onSpeech) { return new NoopDisposable(); }
             public System.Threading.Tasks.Task<IReadOnlyList<CatalogItem>> FetchCatalogItemsAsync(string kind) { return System.Threading.Tasks.Task.FromResult((IReadOnlyList<CatalogItem>)new List<CatalogItem>()); }

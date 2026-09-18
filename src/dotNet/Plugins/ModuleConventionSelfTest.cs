@@ -276,6 +276,7 @@ namespace DesktopAICompanion.Plugins
                 var h = FullscreenChanged; if (h != null) h(on);
             }
             public bool PlaySound(string moduleId, byte[] audio, double volume) { return false; }
+            public bool PlayNotificationSound(string moduleId) { return false; }
             public bool StopSound(string moduleId) { return false; }
             public IDisposable RegisterSpeechResponder(string moduleId, int priority, Func<SpeechRequest, bool> onSpeech) { return new Noop(); }
             public System.Threading.Tasks.Task<IReadOnlyList<CatalogItem>> FetchCatalogItemsAsync(string kind)

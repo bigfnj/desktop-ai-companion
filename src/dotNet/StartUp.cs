@@ -1574,6 +1574,20 @@ namespace DesktopAICompanion
             return first;
         }
 
+        /// <summary>
+        /// Play the user's chosen notification sound. Returns false when it did not play.
+        ///
+        /// NOT YET IMPLEMENTED -- the setting, the built-in chime and the Preferences
+        /// picker land with the notification-sound work. It returns false rather than
+        /// throwing because the contract on IHost.PlayNotificationSound is "false when it
+        /// did not play, and the module is not told why"; a module calling this against
+        /// this build gets silence, which is exactly what it must do.
+        /// </summary>
+        internal bool PlayNotificationSound(string moduleId)
+        {
+            return false;
+        }
+
         internal bool PlayModuleSound(string owner, byte[] audio, double volume)
         {
             // Global "notification sounds" master switch: off => PlaySound is a no-op and the module falls

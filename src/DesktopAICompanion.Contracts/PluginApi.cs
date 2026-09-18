@@ -238,7 +238,14 @@ namespace DesktopAICompanion.Modules
     // so a module can explain state the user can't otherwise see (e.g. "no fortunes match your filters, so
     // the pet will stay silent") instead of failing quietly. A value starting with ✓/✗ is coloured like an
     // action result, matching what the buttons already do.
-    public enum SettingKind { Bool, Int, Text, Enum, Secret, Info }
+    // Radio and Header added in 1.1.6, both additive and both inert for a module that never names
+    // them. Radio stores exactly what Enum stores -- the chosen string out of Options -- so a module
+    // can move a field from one to the other without touching its settings file or migrating
+    // anything; only the rendering differs. Header is display-only like Info, but renders its Label
+    // as a bold paragraph heading inside the card, which was previously impossible: the only bold
+    // text the host emitted was chrome it owned, so "a group name is your only header" and a header
+    // cost you a whole card.
+    public enum SettingKind { Bool, Int, Text, Enum, Secret, Info, Radio, Header }
 
     public sealed class SettingField
     {
@@ -257,6 +264,33 @@ namespace DesktopAICompanion.Modules
         // cards flow into responsive columns. null/"" => an untitled default card. Additive since the
         // grouped-settings layout; older modules that don't set it get one default card.
         public string Group { get; set; }
+
+        // ---- 1.1.6 additions. All four are inert when unset, which is what six shipped modules rely on.
+
+        // "otherFieldId=value", e.g. "mode=notify". Null/empty => always enabled.
+        //
+        // The host greys this control out whenever the named field's value ON SCREEN is not the one
+        // given, and re-enables it live as that field changes -- so a dependent setting can be shown
+        // in context rather than vanishing. It disables the EDITOR only: the value is still collected
+        // and handed to Save unchanged, because a disabled field that quietly wrote "" over a stored
+        // setting would destroy data the user never touched.
+        public string EnabledWhen { get; set; }
+
+        // Card-level, both read from the FIRST field of a group and ignored on every other field.
+        //
+        // Cards are laid out by a masonry panel that drops each into the currently shortest column,
+        // so before these there was no way to say "this one is wide" or "this one goes first" -- a
+        // module could not predict which column anything landed in. FullWidth spans every column;
+        // PinTop sorts the card ahead of the unpinned ones, preserving relative order within each.
+        public bool FullWidth { get; set; }
+        public bool PinTop { get; set; }
+
+        // Changing this field rebuilds the pane, so a LATER field can depend on the value just chosen.
+        //
+        // This is what makes a cascade possible ("pick the pet, then pick that pet's animation"):
+        // without it the second dropdown could only be rebuilt by applying and reopening. The rebuild
+        // goes through OptionsPane.LoadPending, so the new value is visible before it is saved.
+        public bool ReloadOnChange { get; set; }
     }
 
     /// <summary>An action button on an options pane (e.g. "Test connection", "Clear history"). The host
@@ -275,6 +309,21 @@ namespace DesktopAICompanion.Modules
         // also set this from inside InvokeAsync — the host reads it after awaiting — so an action can decline
         // the reload (e.g. when the user cancels a confirmation).
         public bool ReloadPaneAfter { get; set; }
+
+        // Treat this action's return value as a FILE PATH to reveal in Explorer rather than a
+        // message to show beside the button. Default false. Added 1.1.6, for "show me the log".
+        //
+        // DELIBERATELY NOT a general "open this path" verb. The host refuses any path outside the
+        // app's own data root or the calling module's storage directory, and refuses anything that
+        // is not an existing file: an unrestricted open-a-path handed to plugins is a shell-exec
+        // primitive wearing a different name. A refused path is reported beside the button like any
+        // other failure, so a module cannot tell the difference between "refused" and "opened" by
+        // watching the user, only by reading what the host said.
+        //
+        // A returned value that is empty, or that starts with the usual ✓/✗ result markers, is
+        // treated as an ordinary message -- so an action can still report a failure the normal way
+        // instead of being forced to produce a path it does not have.
+        public bool RevealsPath { get; set; }
     }
 
     /// <summary>One checkable row in a <see cref="ListCard"/>: a stable <see cref="Id"/> (passed back to the
@@ -468,6 +517,24 @@ namespace DesktopAICompanion.Modules
         // stored one). Save returns false if persistence failed. Null Load/Save => a display-only pane.
         public Func<IReadOnlyDictionary<string, string>> Load { get; set; }
         public Func<IReadOnlyDictionary<string, string>, bool> Save { get; set; }
+
+        // As Load, but handed the values currently ON SCREEN -- including edits the user has not
+        // applied yet. Null => the host calls Load exactly as before, so this is inert for every
+        // module that does not set it. Added 1.1.6.
+        //
+        // Two things become possible with it, and neither could be done before:
+        //
+        //   A CASCADE. The host already calls Load BEFORE it reads Schema on every build, which is
+        //   how the core pane varies its options per open. What was missing was the PENDING value:
+        //   a pane could vary itself from what was SAVED, never from what was just picked. With a
+        //   ReloadOnChange field feeding this, "choose a pet, then choose that pet's animation"
+        //   works without an Apply and a reopen.
+        //
+        //   A PREVIEW. This is the channel BACKLOG.md specified for the long-standing "the pane
+        //   cannot preview an unapplied dropdown value" item -- "a member carrying the pane's
+        //   pending values, which the host already has to hand (it passes the same dictionary to
+        //   Save on Apply)". Every "preview what I just chose" affordance in every module hit that.
+        public Func<IReadOnlyDictionary<string, string>, IReadOnlyDictionary<string, string>> LoadPending { get; set; }
     }
 
     /// <summary>Per-module writable data folder (host-provisioned, path-isolated).</summary>
@@ -658,6 +725,22 @@ namespace DesktopAICompanion.Modules
         // refusing a module the right to go quiet is nonsense, and it is strictly weaker than what it already
         // did to make the sound. True when something was actually cut.
         bool StopSound(string moduleId);
+
+        // Play the notification sound THE USER CHOSE, in Preferences, for the whole application.
+        // Gated on ModulePermissions.Audio exactly like PlaySound, and it honours the same three
+        // layers: the notificationSounds master switch, the master volume, and the output device.
+        // Added 1.1.6.
+        //
+        // It exists because before it, "the app's notification sound" was not a thing a module
+        // could reach -- or a thing that existed at all. The only audio a module could make was
+        // bytes it shipped itself, so Reminder embedded its own chime, and any second module
+        // wanting to chime would have embedded a different one. Four modules, four chimes, none of
+        // them the one the user picked.
+        //
+        // Returns false when it did not play, and deliberately does not say why -- same contract as
+        // PlaySound. A module that wants its OWN sound still uses PlaySound; this is for the shared
+        // one.
+        bool PlayNotificationSound(string moduleId);
 
         // ---- speech interception (host 1.0.0+, pre-rebase 1.6.0) ----
         // Offered every utterance BEFORE any bubble is drawn, highest priority first, until one responder
