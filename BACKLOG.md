@@ -335,9 +335,9 @@ the module id (`DiagnosticLog.IsEnabled(category, moduleId)`).
 | Remembrance | 8 | direct `_host.Log` call sites, all in `RemembranceModule.cs` |
 | AgentFlow | 7 | 5 through a private `Log` wrapper + 2 through `Explain`, all reaching one `IHost.Log` at `AgentFlowModule.cs:519` |
 | Reminder | 4 | direct `_host.Log` call sites, all in `ReminderModule.cs` |
-| Fortunes | 0 | no `IHost.Log`, no sink |
-| PetStudio | 0 | no `IHost.Log`, no sink |
-| BlinkingLed | 0 | no `IHost.Log`, no sink |
+| Fortunes | 4 | 4 `Log(...)` call sites in `FortunesModule.cs` (engine rebuild + its catch, pack download + its catch) through a private `Log` wrapper reaching one `IHost.Log` at `FortunesModule.cs:968` |
+| BlinkingLed | 3 | 1 `Log(...)` in `ScrollLockBlinker.NoteDelivery`, reached from three toggle paths and routed through the static `LogSink` that `BlinkingLedModule.cs:74` wires to `IHost.Log`, plus 2 module-side call sites through a private `Log` wrapper (`BlinkingLedModule.cs:345`) |
+| PetStudio | 2 | one `host.Log` inside `PetStudioModule.ReportFailure`, reached from the two catches that are its only entry points (`Open`, `OpenForImport`) |
 
 **Counted 2026-09-17. If this table is edited again, count the SINK as well as the direct calls.**
 The AiBrain row read `1` for a week after the module was fully instrumented, and it contradicted the

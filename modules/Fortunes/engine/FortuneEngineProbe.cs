@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 using DesktopAICompanion.Ai;
 using DesktopAICompanion.ModuleKit;   // AtomicFile / CrossSessionLock / UnicodeTextProgress
+using DesktopAICompanion.Modules;     // IModuleSettings, for the diagnostics wiring check
 
 namespace DesktopAICompanion.FortunesModule
 {
@@ -215,6 +216,9 @@ namespace DesktopAICompanion.FortunesModule
                 ok &= Check(sb, "signature: swapping a line of the same count changes it",
                     FortunesModule.PoolSignature(poolA) != FortunesModule.PoolSignature(poolC));
 
+                // Diagnostics: the module reached IHost.Log at all, and the lines say the bad outcome.
+                ok &= DiagnosticsAreWired(sb);
+
                 // The engine's full self-test suite, running in the module's context.
                 bool filter = FortuneProvider.FilterSelfTest();
                 ok &= Check(sb, "engine FilterSelfTest (dedup/classifier/parser/ingestion/importer/embedded-taxonomy)", filter);
@@ -281,6 +285,102 @@ namespace DesktopAICompanion.FortunesModule
             Check(sb, "SmartFortunes.ProgressiveSelfTest (cold-cache progressive warm)", ok);
             AppendReport(sb, "dp-smart-progress-selftest.txt");
             detail = sb.ToString();
+            return ok;
+        }
+
+        /// <summary>
+        /// The module reaches <c>IHost.Log</c>, and the lines it writes can say the bad outcome.
+        ///
+        /// <para>The load-bearing half is the first assertion. This module logged NOTHING until
+        /// <c>RebuildEngine</c> started reporting the pool it had just built, and a diagnostic line that is
+        /// never emitted is indistinguishable from the module having no diagnostics at all — so what has to
+        /// be pinned is that a real <c>Init</c> against a real host produces the line. Neutralize the
+        /// module's <c>Log</c> helper and this is the assertion that fails.</para>
+        ///
+        /// <para>It lives here rather than in <c>--fortunes-selftest</c> because the host side of that one
+        /// invokes named module members by reflection, and adding a member to its list is a host edit; this
+        /// probe is the module's own test surface and the gate runs it on every pass.</para>
+        ///
+        /// <para>NO STORAGE is registered on the recording host on purpose: <c>GetStorage</c> then returns
+        /// null, <c>FortunePaths.SetRoot</c> is never called, and the engine's static root is left exactly
+        /// as the rest of this probe expects to find it.</para>
+        /// </summary>
+        private static bool DiagnosticsAreWired(StringBuilder sb)
+        {
+            bool ok = true;
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            // Smart picks OFF, so Init does no ONNX work and the line is deterministic. The smart layer
+            // gets its own coverage further down this probe.
+            IModuleSettings settings = host.GetSettings("fortunes");
+            settings.Set("smartFortunes", "false");
+            settings.Save();
+
+            var module = new FortunesModule();
+            try
+            {
+                module.Init(host);
+
+                // Exactly one, not "at least one". Init builds the engine once, so a second line here means
+                // something new started logging on a path that runs at startup for every user.
+                ok &= Check(sb, "Init produces exactly one diagnostic line", host.LoggedLines.Count == 1);
+                string line = host.LoggedLines.Count > 0 ? host.LoggedLines[0] : "";
+                // RecordingHost records "<moduleId>: <message>", and the id is what the per-module log mute
+                // keys on, so a line tagged with the wrong one cannot be muted or found.
+                ok &= Check(sb, "the line is tagged with this module's id",
+                    line.StartsWith("fortunes: ", StringComparison.Ordinal));
+                ok &= Check(sb, "Init reports the pool it built (engine line reached IHost.Log)",
+                    line.IndexOf("engine: fortunes=", StringComparison.Ordinal) >= 0 &&
+                    line.IndexOf(" packs=", StringComparison.Ordinal) >= 0 &&
+                    line.IndexOf(" smart=off", StringComparison.Ordinal) >= 0);
+                sb.AppendLine("    " + line);
+            }
+            catch (Exception ex)
+            {
+                ok &= Check(sb, "Init ran against a recording host (" + ex.GetType().Name + ": " + ex.Message + ")", false);
+            }
+            finally
+            {
+                try { module.Shutdown(); } catch { }
+            }
+
+            // The engine line has to be able to report the BAD outcome, or it is only evidence of success.
+            // fortunes=0 is the silent companion, and packs=1 off=157 is the collapsed pool behind "the
+            // same joke keeps coming back" -- both are the same line, not a separate happy path.
+            string silent = FortunesModule.DescribeEngine(0, 0, 3, ContentLevels.Clean, false, false);
+            ok &= Check(sb, "the engine line can report an empty pool",
+                silent.IndexOf("fortunes=0", StringComparison.Ordinal) >= 0 &&
+                silent.IndexOf("off=3", StringComparison.Ordinal) >= 0);
+            string collapsed = FortunesModule.DescribeEngine(2794, 1, 157, ContentLevels.Clean, true, true);
+            ok &= Check(sb, "the engine line can report a collapsed pool",
+                collapsed.IndexOf("fortunes=2794", StringComparison.Ordinal) >= 0 &&
+                collapsed.IndexOf("packs=1", StringComparison.Ordinal) >= 0 &&
+                collapsed.IndexOf("off=157", StringComparison.Ordinal) >= 0);
+            // Smart picks ON with the model asset missing is the silent downgrade: every pick falls back to
+            // random while the pane reports "indexing in the background" indefinitely.
+            string degraded = FortunesModule.DescribeEngine(900, 4, 0, ContentLevels.Everything, true, false);
+            ok &= Check(sb, "the engine line names a missing smart-picker model",
+                degraded.IndexOf("smart=on model=ABSENT", StringComparison.Ordinal) >= 0);
+            ok &= Check(sb, "...and says so only when smart picks are on",
+                FortunesModule.DescribeEngine(900, 4, 0, ContentLevels.Everything, false, false)
+                    .IndexOf("model=", StringComparison.Ordinal) < 0);
+
+            // The download line's whole reason for existing: two of the three ways a pack fails produce no
+            // reason anywhere else, so they must be told apart here.
+            ok &= Check(sb, "a clean download batch says so",
+                FortunesModule.DescribeDownload(4, 4, 0, 0, 0, "").IndexOf("failed=0", StringComparison.Ordinal) >= 0);
+            string mixed = FortunesModule.DescribeDownload(4, 1, 1, 1, 1, "io");
+            ok &= Check(sb, "a failed download batch separates the three causes",
+                mixed.IndexOf("installed=1", StringComparison.Ordinal) >= 0 &&
+                mixed.IndexOf("failed=3", StringComparison.Ordinal) >= 0 &&
+                mixed.IndexOf("rejected-id=1", StringComparison.Ordinal) >= 0 &&
+                mixed.IndexOf("empty-payload=1", StringComparison.Ordinal) >= 0 &&
+                mixed.IndexOf("error=1", StringComparison.Ordinal) >= 0 &&
+                mixed.IndexOf("last=io", StringComparison.Ordinal) >= 0);
+            // A rejected id or an empty payload throws nothing, so there is no category to report -- and an
+            // empty "last=" would read as one having been lost.
+            ok &= Check(sb, "no category is invented when nothing threw",
+                FortunesModule.DescribeDownload(2, 0, 1, 1, 0, "")
+                    .IndexOf("last=", StringComparison.Ordinal) < 0);
             return ok;
         }
 
