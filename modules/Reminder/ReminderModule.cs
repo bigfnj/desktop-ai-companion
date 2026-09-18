@@ -104,7 +104,7 @@ namespace DesktopAICompanion.ReminderModule
             // (1.8.0) and PlaySound (1.6.0) are older. 1.9.0 is the floor.
             MinHostVersion = "1.0.0",
             // Animation is declared for the reaction added in 1.7.0. The host does not actually gate
-            // PlayAnimationAll on it (only Audio and Network are enforced in CompanionHost), but the pre-install
+            // PlayAnimationAll on it (only Audio, Voice, Network and Companions are enforced in CompanionHost), but the pre-install
             // consent list is built from THIS field, so leaving it off would under-disclose what the module
             // does to the user's pets. Declare what you use.
             Permissions = ModulePermissions.Speech | ModulePermissions.Storage | ModulePermissions.Network | ModulePermissions.Companions

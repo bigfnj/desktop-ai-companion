@@ -70,7 +70,13 @@ namespace DesktopAICompanion.RemembranceModule
             // from its GitHub release + Hugging Face, and talking to a LOOPBACK Ollama for the summary. There
             // is deliberately no cloud transcription or cloud summary path, because a recording can be
             // privileged or consent-regulated audio.
-            Permissions = ModulePermissions.Microphone | ModulePermissions.SystemAudio
+            // Speech was MISSING until 2026-09-17, found by an ABI audit. Announce() is how this
+            // module reports everything it does -- "Recording started", "Transcript ready", "Summary
+            // ready", "Snapshot saved" -- and it goes through IHost.SayAll from eight call sites. The
+            // consent line is an affirmative claim about what a module does, and speech was absent
+            // from it while being this module's only user-visible channel.
+            Permissions = ModulePermissions.Speech
+                | ModulePermissions.Microphone | ModulePermissions.SystemAudio
                 | ModulePermissions.ScreenContext | ModulePermissions.Hotkey | ModulePermissions.Storage
                 | ModulePermissions.Network,
         };

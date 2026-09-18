@@ -82,6 +82,42 @@ foreach ($symbolName in 'minHostVersion', 'packageVersion') {
     Write-Host ("OK   template $symbolName default '$declared' is not above the host '$productVersion'")
 }
 
+# packageVersion needs a second, sharper check, because "not above the host" is satisfied by every
+# version that ever existed and by plenty that did not.
+#
+# The author packages are attached to GITHUB RELEASES rather than pushed to nuget.org, and
+# release.yml prunes to the 3 most recent releases (tags are retained). So a default that drifts more
+# than three releases behind names a package with no distribution point, and --standalone stops
+# restoring for every third-party author -- silently, from their point of view, and with nothing in
+# this repo failing. That is how it got to 1.1.3 with the host at 1.1.5.
+#
+# Tags are the local proxy for releases: every release is cut from one, and a pruned release keeps
+# its tag. Needs full history, which CI has (fetch-depth: 0). Degrades LOUDLY rather than skipping.
+$keptReleases = 3
+$tagOutput = @(& git -C $repoRoot tag --list 'v*' 2>$null)
+if ($LASTEXITCODE -ne 0 -or $tagOutput.Count -eq 0) {
+    Write-Host ("DEGRADED  no v* tags are reachable, so packageVersion could not be checked against the " +
+                "releases that still have assets (shallow clone?)") -ForegroundColor Yellow
+}
+else {
+    $tagVersions = @()
+    foreach ($tag in $tagOutput) {
+        $candidate = $null
+        if ([version]::TryParse($tag.TrimStart('v'), [ref]$candidate)) { $tagVersions += $candidate }
+    }
+    $recent = @($tagVersions | Sort-Object -Descending | Select-Object -First $keptReleases)
+    $packageDeclared = [version]([string]$symbols.packageVersion.defaultValue)
+    if ($recent -notcontains $packageDeclared) {
+        throw ("template.json's packageVersion default is '$packageDeclared', which is not among the " +
+               "$keptReleases most recent releases (" + (($recent | ForEach-Object { "v$_" }) -join ', ') +
+               "). release.yml prunes older releases, and the Contracts/ModuleKit nupkgs live on the " +
+               "release rather than on nuget.org, so a scaffolded --standalone module would fail to " +
+               "restore. Raise it to a released version inside that window.")
+    }
+    Write-Host ("OK   template packageVersion default 'v$packageDeclared' is still within the " +
+                "$keptReleases releases that keep their assets")
+}
+
 # The loader check below needs the real host. Fail loudly rather than skipping: this script's whole
 # history is of passing while the thing it guards was broken.
 $hostExe = Join-Path $repoRoot ("build\DesktopAICompanionPortable\bin\$Configuration\x64\DesktopAICompanion.exe")

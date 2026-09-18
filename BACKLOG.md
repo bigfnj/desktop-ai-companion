@@ -303,7 +303,7 @@ than assumed:
 
 ---
 
-## Open: instrument the three modules still at zero (filed 2026-09-10)
+## CLOSED: every module now records what went wrong (filed 2026-09-10, closed 2026-09-17)
 
 BUG-002 was undiagnosable for a reason that is not specific to BUG-002, so it is worth its own item.
 
@@ -318,16 +318,36 @@ exclude cancellation), and the assertion that caught its own author are all in
 carry is settled: AI lines stay under `Modules`** and rely on the existing per-module mute; a new
 `LogCategory` was not justified by the volume these calls produce.
 
-**What is left is three modules at zero.** The plumbing needs nothing built:
-`IHost.Log(moduleId, message)` (`PluginApi.cs:552`) routes a module's line into the same rotating
-diagnostic log the host writes, under the `Modules` category, with per-module muting already keyed on
-the module id (`DiagnosticLog.IsEnabled(category, moduleId)`).
+**Fortunes, PetStudio and BlinkingLed were the last three at zero, and they were instrumented on
+2026-09-17.** Nine lines, every one a transition or a per-batch summary rather than a per-pick or
+per-frame line, each mutation-tested by breaking the wiring and requiring the naming assertion to
+fail. The plumbing needed nothing built: `IHost.Log(moduleId, message)` routes a module's line into
+the same rotating diagnostic log the host writes, under `Modules`, with per-module muting already
+keyed on the module id.
 
-- 📌 **Fortunes, PetStudio and BlinkingLed emit nothing — no `IHost.Log`, no sink.** They should
-  follow AI Brain's pattern. Lower value than AI Brain was, and for a real reason rather than a
-  shrug: none of the three fails silently by construction, so "it does nothing" from a user of one of
-  these already comes with a visible error, where AI Brain's `catch { return null; }` made every
-  failure look identical to normal quiet operation.
+The value was lower than AI Brain's and for a real reason rather than a shrug: none of the three
+fails silently by construction, so "it does nothing" already comes with a visible error, where AI
+Brain's `catch { return null; }` made every failure look identical to normal quiet operation. What
+the instrumentation found is that each of the three had exactly one exception to that -- a failure
+the user CANNOT see -- and those are the lines that were written:
+
+- Fortunes: `smart=on model=ABSENT` is a silent downgrade. With `bge-small` missing the smart picker
+  can never become ready, every pick falls back to random, and the pane says "indexing in the
+  background" for ever. Plus `catch { _provider = null; }`, which speaks nothing on every land, poke
+  and drop and reported it nowhere.
+- BlinkingLed: `SendInput` returning 0 (UIPI, a locked session, an elevated foreground window)
+  leaves the LED dark immediately after the companion said "Keeping the lights on for you". And the
+  Caps Lock stop, which is suppressed on purpose AND persisted, so a week later the module is off,
+  the tray agrees, and nothing ever said Caps Lock did it.
+- PetStudio: failing to OPEN the window was reported only through `SayAll`, which drops the message
+  silently when no companion is on screen -- and both the tray entry and the Companions-pane deep
+  link are reachable in that state.
+
+One residual gap is deliberately NOT closed, and is the only thing left here: "model present but
+the native onnxruntime fails to load" still leaves the smart picker permanently unready with no
+line, because `SmartFortunes.WarmCore` returns silently when the embedder is not ready. Closing it
+needs a second static sink on `SmartFortunes`, which was judged under the "small number of genuinely
+useful lines" bar. Written down rather than forgotten.
 
 | module | diagnostic lines it can emit | how it was counted |
 |---|---:|---|
@@ -339,7 +359,8 @@ the module id (`DiagnosticLog.IsEnabled(category, moduleId)`).
 | BlinkingLed | 3 | 1 `Log(...)` in `ScrollLockBlinker.NoteDelivery`, reached from three toggle paths and routed through the static `LogSink` that `BlinkingLedModule.cs:74` wires to `IHost.Log`, plus 2 module-side call sites through a private `Log` wrapper (`BlinkingLedModule.cs:345`) |
 | PetStudio | 2 | one `host.Log` inside `PetStudioModule.ReportFailure`, reached from the two catches that are its only entry points (`Open`, `OpenForImport`) |
 
-**Counted 2026-09-17. If this table is edited again, count the SINK as well as the direct calls.**
+**Counted 2026-09-17, then recounted the same day after the three were instrumented. If this table is
+edited again, count the SINK as well as the direct calls.**
 The AiBrain row read `1` for a week after the module was fully instrumented, and it contradicted the
 paragraph directly above it, because a raw grep for `IHost.Log` call sites in `modules/AiBrain/` finds
 **2** — one of which is the sink wiring that carries all 26 engine lines. Two of the four modules that

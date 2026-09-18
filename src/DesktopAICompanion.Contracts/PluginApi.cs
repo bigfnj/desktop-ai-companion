@@ -396,7 +396,7 @@ namespace DesktopAICompanion.Modules
         // Read an installed pet type's animations.xml by id -- the writable library, then the bundled pets
         // beside the exe, then the built-in default -- so an authoring/analysis module can open a pet the user
         // already has without knowing (or being able to reach) the host's folder layout. Returns false with a
-        // reason when the id is unknown/unsafe or the Pets permission is missing. Added in 1.8.0; a module that
+        // reason when the id is unknown/unsafe or the Companions permission is missing. Added in 1.8.0; a module that
         // calls it must declare MinHostVersion 1.0.0 or the load gate refuses it. (Pre-rebase 1.8.0.)
         bool TryReadTypeXml(string typeId, out string animationsXml, out string error);
         // Live pets counted by type, in first-appearance order. PREVIEW pets are deliberately not counted,
@@ -416,7 +416,7 @@ namespace DesktopAICompanion.Modules
         bool ValidateXml(string animationsXml, out string error);
         // Spawn a transient preview pet from an arbitrary, not-yet-installed animations.xml (validated first,
         // by that same parser). Returns null with a reason when the XML is rejected, the pet cap is reached,
-        // too many previews are already up, or the Pets permission is missing. The caller OWNS the returned
+        // too many previews are already up, or the Companions permission is missing. The caller OWNS the returned
         // handle and must remove it.
         ICompanionPreview SpawnPreview(string animationsXml, out string error);
         // Install an authored (or downloaded and decoded) pet type into the user's pet library — the host
@@ -458,8 +458,25 @@ namespace DesktopAICompanion.Modules
         string DataDirectory { get; }
     }
 
-    /// <summary>Per-module persisted settings (string values; the host owns the atomic/locked writer and
-    /// encrypts values whose field Kind is Secret).</summary>
+    /// <summary>
+    /// Per-module persisted settings, as strings, in the module's own data folder.
+    ///
+    /// This said "the host owns the atomic/locked writer and encrypts values whose field Kind is
+    /// Secret". Corrected 2026-09-17 after an audit: BOTH halves were false, and a module author
+    /// relying on either got the opposite of what they read.
+    ///
+    /// `Save()` is a plain `File.WriteAllText` -- no temp-and-replace, no lock -- so an interrupted
+    /// write can truncate the file, and two `GetSettings` calls hand back two INDEPENDENT in-memory
+    /// dictionaries, so the last `Save` wins silently. If you need atomicity, `ModuleKit.AtomicFile`
+    /// is in the DLL that ships beside you; if you need cross-process safety, so is
+    /// `ModuleKit.CrossSessionLock`.
+    ///
+    /// Nothing here is ENCRYPTED. This type never sees the settings schema, so it cannot know which
+    /// key was declared `SettingKind.Secret` -- the pane's Secret kind controls how a value is
+    /// DISPLAYED (write-only, "leave blank to keep it"), not how it is stored. A value you put here
+    /// is cleartext JSON on disk. The one module that stores an API key does its own DPAPI
+    /// (`modules/AiBrain`), which is the pattern to copy.
+    /// </summary>
     public interface IModuleSettings
     {
         string Get(string key, string fallback);
@@ -510,8 +527,16 @@ namespace DesktopAICompanion.Modules
         // ---- host services ----
         // Say(pet, ...) is the DEFAULT for anything that is a reaction -- a poke, a drop, an answer, a landing
         // greeting. It belongs to one pet. SayAll is for announcements to the USER rather than to a pet (the
-        // tray's speech test, a once-per-session welcome); with several pets on screen it makes all of them
-        // say the same line at the same instant, which reads as a bug, because it mostly was one.
+        // tray's speech test, a once-per-session welcome).
+        //
+        // SayAll does NOT make every pet speak at once. It used to, and this comment used to warn about it;
+        // corrected 2026-09-17, because StartUp.ShowBubbleOnAll now picks exactly ONE speaker via
+        // DefaultSpeaker(). Two consequences worth knowing before you choose a verb: the old reason to
+        // avoid SayAll is gone, and -- the trap -- SayAll DROPS the message silently when no companion is
+        // on screen, which is reachable from a tray entry or a pane. If the line matters, check that a
+        // companion exists first. PlayAnimationAll really does hit every pet, so it is no longer the
+        // parallel of SayAll despite the name.
+        //
         // Speaking to a pet that has gone away is dropped, not redirected -- see IsCompanionAlive.
         void Say(ICompanion pet, string text);
         void SayAll(string text);
@@ -523,8 +548,13 @@ namespace DesktopAICompanion.Modules
         void SayAll(string text, SpeechStyle style);
         bool TryPlayAnimation(ICompanion pet, string animationName);
         // Play an emotion on every live pet: for each pet, the first candidate its XML actually
-        // defines wins (the caller owns the emotion->animation-name mapping). Parallels SayAll.
+        // defines wins (the caller owns the emotion->animation-name mapping). Unlike SayAll, which
+        // picks one speaker, this really does reach every persistent pet.
         void PlayAnimationAll(IReadOnlyList<string> animationCandidates);
+        // Returns NULL for a pet that has gone away or a window handle the host cannot resolve, not an
+        // empty ScreenContext. Documented 2026-09-17: both in-tree callers had discovered it by crashing
+        // and now guard, and every other nullable member in this file says so explicitly, so the silence
+        // here read as "never null".
         ScreenContext CaptureScreenContext(ICompanion pet);
         IDisposable RegisterHotkey(string combo, Action onPressed);
         IModuleStorage GetStorage(string moduleId);

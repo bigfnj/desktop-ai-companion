@@ -147,8 +147,8 @@ check return values; do not assume success.
 enforced, all through one predicate (`CompanionHost.ModuleDeclares`): `Audio` gates `PlaySound`, `Voice` gates
 your speech responder being offered a line, `Network` gates `OpenLink`, and `Companions` gates
 `GetCompanionManager`. The rest — `Speech`, `Animation`, `ScreenContext`, `Hotkey`, `Storage`, `Microphone`,
-`SystemAudio`, `AgentTranscripts` — are **disclosure only**. Nothing stops you using those capabilities
-without declaring them.
+`SystemAudio`, `AgentTranscripts`, `InputSynthesis` — are **disclosure only**. Nothing stops you using
+those capabilities without declaring them.
 
 That is deliberate, not an oversight. A module is an ordinary in-process assembly running with the user's
 full privileges; there is no sandbox and pretending otherwise would be security theatre (see
@@ -160,7 +160,8 @@ thing that would make this system worthless.
 |---|---|---|
 | `Microphone` | 1.0.0 | you record audio input |
 | `SystemAudio` | 1.0.0 | you record what they hear |
-| `AgentTranscripts` | **1.2.0** | you read the transcripts a coding agent writes about its own session |
+| `AgentTranscripts` | **1.1.5** | you read the transcripts a coding agent writes about its own session |
+| `InputSynthesis` | **1.1.5** | you synthesize keyboard or mouse input into the OS |
 
 > ⚠️ **`AgentTranscripts` covers the most sensitive read in this application.** Claude Code's
 > `%USERPROFILE%\.claude\projects\<slug>\<session>.jsonl` and Codex's `%USERPROFILE%\.codex\sessions\...`

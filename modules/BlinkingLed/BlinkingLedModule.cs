@@ -52,11 +52,20 @@ namespace DesktopAICompanion.BlinkingLed
             // and SayAll are all original. Deliberately NOT raised to the current host, so this installs on
             // whatever the user already has.
             MinHostVersion = "1.0.0",
-            // Storage for its settings, Speech for the on/off line. The Scroll Lock keypress needs no
-            // permission because it never goes through the host -- the module P/Invokes SendInput itself.
-            // There is no ModulePermissions flag for synthesizing input, so the consent screen cannot state
-            // it; the module name and description carry that disclosure instead.
-            Permissions = ModulePermissions.Speech | ModulePermissions.Storage,
+            // Storage for its settings, Speech for the on/off line, InputSynthesis for the Scroll
+            // Lock keypress. That last one needs no permission to WORK -- it never goes through the
+            // host, the module P/Invokes SendInput itself -- which is exactly why the flag is a
+            // disclosure and not a gate.
+            //
+            // Until 2026-09-17 there was no flag for synthesizing input, and this comment said "the
+            // module name and description carry that disclosure instead". A module name is not a
+            // permission disclosure: the pane prints "wants: Speech, Storage" beside it, which is an
+            // affirmative claim that those are the two things the module does. MinHostVersion stays
+            // at 1.0.0 -- a 1.1.4 host drops a permission name it does not know and keeps the entry,
+            // so declaring this strands nobody.
+            Permissions = ModulePermissions.Speech
+                          | ModulePermissions.Storage
+                          | ModulePermissions.InputSynthesis,
         };
 
         public void Init(IHost host)

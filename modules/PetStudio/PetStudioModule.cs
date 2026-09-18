@@ -142,7 +142,12 @@ namespace DesktopAICompanion.PetStudioModule
             // ICompanionManager.CompanionsDirectory, which the file dialog still uses.) Declaring it means an older host
             // refuses this module with a legible reason instead of loading it and failing at a missing member.
             MinHostVersion = "1.0.0",
-            Permissions = ModulePermissions.Companions | ModulePermissions.Storage,
+            // Speech added 2026-09-17, found by an ABI audit. Only the two error paths use it
+            // (failing to open the window, failing to start an import), which is a smaller blast
+            // radius than Remembrance's but the same defect: the companion speaks for a module whose
+            // consent line said it does not.
+            Permissions = ModulePermissions.Speech
+                          | ModulePermissions.Companions | ModulePermissions.Storage,
         };
 
         public void Init(IHost host)

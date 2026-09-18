@@ -112,10 +112,17 @@ namespace DesktopAICompanion.AgentFlow
             // cannot catch that for us: the enum value is a compile-time literal in this
             // assembly's IL, so an old host loads the module happily and just mislabels it.
             MinHostVersion = "1.0.0",
-            // Speech for the bubble, Storage for its own settings, AgentTranscripts for the read
-            // that is the whole feature. Nothing else: no Network (it never makes a request), no
-            // ScreenContext (it does not look at the screen), no Hotkey, no Audio.
+            // Speech for the bubble, Animation for the attention wiggle, Storage for its own
+            // settings, AgentTranscripts for the read that is the whole feature. Nothing else: no
+            // Network (it never makes a request), no ScreenContext (it does not look at the screen),
+            // no Hotkey, no Audio.
+            //
+            // Animation was MISSING until 2026-09-17 while IHost.PlayAnimationAll was already being
+            // called, and the comment above enumerated four flags it does not need without noticing
+            // the one it does. Reminder's declaration is the worked example: it declares Animation
+            // for exactly this call.
             Permissions = ModulePermissions.Speech
+                          | ModulePermissions.Animation
                           | ModulePermissions.Storage
                           | ModulePermissions.AgentTranscripts,
         };

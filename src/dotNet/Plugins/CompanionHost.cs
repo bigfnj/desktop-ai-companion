@@ -985,7 +985,10 @@ namespace DesktopAICompanion.Plugins
     /// <summary>What a module without ModulePermissions.Companions gets: every verb refuses, nothing throws.</summary>
     internal sealed class DenyingCompanionManager : ICompanionManager
     {
-        private const string Denied = "This module has not declared the Pets permission.";
+        // "Companions", not "Pets": the flag was renamed by the 1.0.0 rebase and this string is the
+        // `out string error` the ABI promises as the REASON, so an author who reads it greps the enum
+        // for a member that does not exist. Corrected 2026-09-17.
+        private const string Denied = "This module has not declared the Companions permission.";
         public int MaxCompanions { get { return StartUp.MAX_SHEEPS; } }
         public bool IsAtMax { get { return true; } }
         public string CompanionsDirectory { get { return ""; } }

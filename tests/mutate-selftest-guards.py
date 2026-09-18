@@ -38,6 +38,12 @@ FORTUNES_MODULE = os.path.join(REPO, "modules", "Fortunes", "FortunesModule.cs")
 FORTUNE_PROVIDER = os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneProvider.cs")
 FRESHNESS = os.path.join(REPO, "src", "dotNet", "CompanionFreshness.cs")
 COMPANION_HOST = os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs")
+BLINKINGLED_MODULE = os.path.join(REPO, "modules", "BlinkingLed", "BlinkingLedModule.cs")
+PETSTUDIO_MODULE = os.path.join(REPO, "modules", "PetStudio", "PetStudioModule.cs")
+BLINKINGLED_DLL = os.path.join(BIN, "modules", "blinkingled", "BlinkingLed.dll")
+PETSTUDIO_DLL = os.path.join(BIN, "modules", "petstudio", "PetStudio.dll")
+BLINKINGLED_CSPROJ = os.path.join(REPO, "modules", "BlinkingLed", "BlinkingLed.csproj")
+PETSTUDIO_CSPROJ = os.path.join(REPO, "modules", "PetStudio", "PetStudio.csproj")
 
 TEMP = os.environ.get("TEMP", ".")
 
@@ -121,6 +127,46 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "THROWING subscriber does not take down"),
+
+    # The module instrumentation added 2026-09-17. The track that wrote it mutation-tested by hand
+    # and asked for these to be recorded here, which is the whole point of this file: a mutation
+    # proved once in a transcript is a mutation nobody can re-run.
+    #
+    # Four modules log through a wrapper or a static sink rather than calling IHost.Log directly, so
+    # the mutation is to break the WIRING, not a call site: that is the single point where all of a
+    # module's lines disappear at once, and it is the failure the assertions exist to catch.
+    ("Fortunes' log wrapper stops reaching IHost.Log",
+     FORTUNES_MODULE,
+     b"            try { host.Log(Info.Id, message); } catch { }",
+     b"            try { if (message == null) host.Log(Info.Id, message); } catch { }",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--fortunes-engine-selftest", "dp-fortunes-engine-selftest.txt",
+     "engine line reached IHost.Log"),
+
+    ("BlinkingLed's engine sink is never wired",
+     BLINKINGLED_MODULE,
+     b"            ScrollLockBlinker.LogSink = delegate(string line)",
+     b"            ScrollLockBlinker.LogSink = null;\n"
+     b"            Action<string> unusedSink = delegate(string line)",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "records whether Windows accepted it"),
+
+    ("BlinkingLed's module-side log wrapper stops reaching IHost.Log",
+     BLINKINGLED_MODULE,
+     b"            if (host == null || string.IsNullOrEmpty(message)) return;",
+     b"            if (host == null || string.IsNullOrEmpty(message) || message.Length > 0) return;",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "Caps Lock stop is recorded"),
+
+    ("PetStudio's failure report stops reaching IHost.Log",
+     PETSTUDIO_MODULE,
+     b"            try { host.Log(Info.Id, what + \": \" + Categorize(ex)); } catch { }",
+     b"            try { if (what == null) host.Log(Info.Id, what + \": \" + Categorize(ex)); } catch { }",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--petstudio-selftest", "dp-petstudio-selftest.txt",
+     "recorded in the diagnostic log"),
 )
 
 BASELINES = (
@@ -128,6 +174,9 @@ BASELINES = (
     ("--aibrain-selftest", "dp-aibrain-selftest.txt"),
     ("--fortunes-selftest", "dp-fortunes-selftest.txt"),
     ("--module-host-selftest", "dp-module-host-selftest.txt"),
+    ("--fortunes-engine-selftest", "dp-fortunes-engine-selftest.txt"),
+    ("--petstudio-selftest", "dp-petstudio-selftest.txt"),
+    ("--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt"),
 )
 
 
@@ -148,7 +197,7 @@ def build(csproj):
 
 
 def build_all():
-    for csproj in (HOST_CSPROJ, FORTUNES_CSPROJ):
+    for csproj in (HOST_CSPROJ, FORTUNES_CSPROJ, BLINKINGLED_CSPROJ, PETSTUDIO_CSPROJ):
         ok, out = build(csproj)
         if not ok:
             return False, out
@@ -219,8 +268,15 @@ def main():
         if report is None:
             print("  %-52s BROKEN (no marker written)" % name)
             continue
+        # NOT startswith("FAIL"). A module's own assertions are re-emitted by
+        # ModuleConventionSelfTest with a '  [<id>] ' prefix, so a real firing reads
+        # '  [blinkingled] FAIL: ...' and never starts with FAIL at all -- which made two correct
+        # cases report WRONG, pointing at the outer 'the module's own self-test passed' instead.
+        # mutate-agentflow.py already carried this scar; this file had not learned it.
+        # Excluding PASS lines is what keeps it honest: an assertion label can contain the word
+        # 'failed' and several do.
         hit = [l.strip() for l in report.splitlines()
-               if l.strip().startswith("FAIL") and expect in l]
+               if "FAIL" in l and expect in l and not l.strip().startswith("PASS")]
         if hit:
             fired += 1
             print("  %-52s FIRED" % name)

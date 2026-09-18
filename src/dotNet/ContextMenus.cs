@@ -414,7 +414,7 @@ namespace DesktopAICompanion
         /// entry of its own shows the all-pets choice, which is what actually happens).
         ///
         /// Host-owned rather than module-contributed: per-pet preferences belong to the host by an existing
-        /// decision, a module cascade would need the Pets permission just to enumerate, and TrayItem has no
+        /// decision, a module cascade would need the Companions permission just to enumerate, and TrayItem has no
         /// Checked. Pets come from OnScreenMix(), the one enumeration that already excludes previews.
         /// </summary>
         void PetSpeechMenu_Opening(object sender, EventArgs e)

@@ -504,7 +504,7 @@ namespace DesktopAICompanion.PetStudioModule
         }
 
         // Fill the installed-pet dropdown from the host. A leading placeholder keeps "nothing chosen" distinct
-        // from a real pet; the picker is disabled when the Pets permission (hence the pet service) is absent or
+        // from a real pet; the picker is disabled when the Companions permission (hence the pet service) is absent or
         // nothing is installed. Called at build time and again whenever the list drops open, so a pet installed
         // while the window is up shows up without a reopen.
         private void PopulateInstalledPicker()
