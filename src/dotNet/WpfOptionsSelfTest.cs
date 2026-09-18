@@ -407,6 +407,422 @@ namespace DesktopAICompanion
                     log.Clear();
                     ok &= Check(sb, "a second Apply replays nothing", deferredView.Save() && log.Count == 1 && log[0] == "SAVE");
                 }
+
+                // ================= the six additive 1.1.6 ABI members, rendered here for the first time =====
+
+                // 7) SettingKind.Radio. The kind exists so three options can be three visible choices
+                // instead of a dropdown; what makes it safe to ADOPT is that it stores exactly what Enum
+                // stores, so moving a field between the two is a rendering change and not a settings
+                // migration. Both kinds are therefore asserted side by side on the same Options and the
+                // same stored value, including the stored value that matches no option at all: that is the
+                // case where two plausible implementations disagree (nothing selected, or the first one).
+                int radioDirty = 0;
+                var radioPane = new OptionsPane
+                {
+                    Title = "Radio",
+                    Schema = new[]
+                    {
+                        new SettingField { Id = "r", Label = "Radio", Kind = SettingKind.Radio, Options = new[] { "alpha", "beta", "gamma" } },
+                        new SettingField { Id = "e", Label = "Enum", Kind = SettingKind.Enum, Options = new[] { "alpha", "beta", "gamma" } },
+                        new SettingField { Id = "r2", Label = "Radio (stale)", Kind = SettingKind.Radio, Options = new[] { "a", "b" } },
+                        new SettingField { Id = "e2", Label = "Enum (stale)", Kind = SettingKind.Enum, Options = new[] { "a", "b" } },
+                    },
+                    Load = delegate
+                    {
+                        return new Dictionary<string, string>(StringComparer.Ordinal)
+                        { { "r", "beta" }, { "e", "beta" }, { "r2", "gone" }, { "e2", "gone" } };
+                    },
+                };
+                var radioView = new DesktopAICompanion.Wpf.PaneView(radioPane, null, delegate { radioDirty++; });
+                var radioRoot = radioView.Build() as System.Windows.DependencyObject;
+                var radios = new List<System.Windows.Controls.RadioButton>();
+                CollectAll(radioRoot, radios);
+                ok &= Check(sb, "Radio renders one RadioButton per option", radios.Count == 5);
+                Dictionary<string, string> rc = radioView.Collect();
+                ok &= Check(sb, "Radio collects the stored option, identically to Enum",
+                    rc.ContainsKey("r") && rc["r"] == "beta" && rc["r"] == rc["e"]);
+                ok &= Check(sb, "a stored value matching no option collects as empty for BOTH kinds",
+                    rc["r2"] == "" && rc["r2"] == rc["e2"]);
+                if (radios.Count >= 3)
+                {
+                    // Read before the ComboBox below is touched. Measured against a running total it
+                    // passed with the radio's change handler deleted outright, because the Enum edit two
+                    // lines later had already raised the flag.
+                    int dirtyBeforeRadio = radioDirty;
+                    radios[2].IsChecked = true;   // "gamma"
+                    ok &= Check(sb, "a radio click marks the pane dirty, like every other editor",
+                        radioDirty > dirtyBeforeRadio);
+                    var radioCombos = new List<System.Windows.Controls.ComboBox>();
+                    CollectAll(radioRoot, radioCombos);
+                    radioCombos[0].SelectedItem = "gamma";
+                    rc = radioView.Collect();
+                    ok &= Check(sb, "Radio and Enum still agree after the user moves both",
+                        rc["r"] == "gamma" && rc["r"] == rc["e"]);
+                }
+
+                // 8) SettingKind.Header. Display-only like Info, so the trap is the same one Info has:
+                // a heading that collected itself would arrive at the module's Save as a settings value
+                // it never declared.
+                var headerPane = new OptionsPane
+                {
+                    Title = "Header",
+                    Schema = new[]
+                    {
+                        new SettingField { Id = "h", Label = "Where your files live", Kind = SettingKind.Header },
+                        new SettingField { Id = "t", Label = "Folder", Kind = SettingKind.Text },
+                    },
+                    Load = delegate
+                    {
+                        return new Dictionary<string, string>(StringComparer.Ordinal)
+                        { { "h", "Everything below is written beside the app." }, { "t", "kept" } };
+                    },
+                    Save = delegate { return true; },
+                };
+                var headerView = new DesktopAICompanion.Wpf.PaneView(headerPane);
+                var headerRoot = headerView.Build() as System.Windows.DependencyObject;
+                var headerBlocks = new List<System.Windows.Controls.TextBlock>();
+                CollectAll(headerRoot, headerBlocks);
+                bool boldHeading = false, plainParagraph = false;
+                foreach (System.Windows.Controls.TextBlock tb in headerBlocks)
+                {
+                    if (tb.Text == "Where your files live" && tb.FontWeight == System.Windows.FontWeights.Bold) boldHeading = true;
+                    if (tb.Text == "Everything below is written beside the app." && tb.FontWeight != System.Windows.FontWeights.Bold) plainParagraph = true;
+                }
+                ok &= Check(sb, "Header renders its Label as a bold heading", boldHeading);
+                ok &= Check(sb, "Header renders the loaded value as a plain paragraph beneath it", plainParagraph);
+                Dictionary<string, string> hc = headerView.Collect();
+                ok &= Check(sb, "Header registers no reader, so Collect never sends it to Save",
+                    !hc.ContainsKey("h") && hc.ContainsKey("t") && hc["t"] == "kept");
+
+                // 9) SettingField.EnabledWhen. The grey-out is the visible half; the half that destroys
+                // data if it is wrong is invisible, so it is asserted twice over: the value survives
+                // Collect AND it survives all the way into the module's Save.
+                var gateSaved = new Dictionary<string, string>(StringComparer.Ordinal);
+                var gatePane = new OptionsPane
+                {
+                    Title = "Gate",
+                    Schema = new[]
+                    {
+                        new SettingField { Id = "mode", Label = "Mode", Kind = SettingKind.Enum, Options = new[] { "off", "notify" } },
+                        new SettingField { Id = "target", Label = "Notify", Kind = SettingKind.Text, EnabledWhen = "mode=notify" },
+                        // Names a field declared AFTER it, and is SATISFIED by that field's loaded value.
+                        // Deliberately that way round: a forward reference that quietly read nothing would
+                        // also leave the row greyed out, so asserting "greyed out" here would pass for
+                        // precisely the reason it is meant to catch.
+                        new SettingField { Id = "early", Label = "Early", Kind = SettingKind.Text, EnabledWhen = "late=yes" },
+                        new SettingField { Id = "late", Label = "Late", Kind = SettingKind.Enum, Options = new[] { "yes", "no" } },
+                        // Gated on a display-only field, which registers no reader at all, so the loaded
+                        // value is the only thing that can answer it.
+                        new SettingField { Id = "note", Label = "Note", Kind = SettingKind.Info },
+                        new SettingField { Id = "gatedOnInfo", Label = "Gated", Kind = SettingKind.Text, EnabledWhen = "note=ready" },
+                    },
+                    Load = delegate
+                    {
+                        return new Dictionary<string, string>(StringComparer.Ordinal)
+                        {
+                            { "mode", "off" }, { "target", "someone@example.invalid" }, { "early", "kept" },
+                            { "late", "yes" }, { "note", "ready" }, { "gatedOnInfo", "alsokept" },
+                        };
+                    },
+                    Save = delegate(IReadOnlyDictionary<string, string> v)
+                    {
+                        foreach (KeyValuePair<string, string> kv in v) gateSaved[kv.Key] = kv.Value;
+                        return true;
+                    },
+                };
+                var gateView = new DesktopAICompanion.Wpf.PaneView(gatePane);
+                var gateRoot = gateView.Build() as System.Windows.DependencyObject;
+                ok &= Check(sb, "an unmet EnabledWhen greys its field out",
+                    gateView.RowFor("target") != null && !gateView.RowFor("target").IsEnabled);
+                ok &= Check(sb, "EnabledWhen naming a field declared LATER is still evaluated",
+                    gateView.RowFor("early") != null && gateView.RowFor("early").IsEnabled);
+                ok &= Check(sb, "EnabledWhen can name a display-only field, which has no reader of its own",
+                    gateView.RowFor("gatedOnInfo") != null && gateView.RowFor("gatedOnInfo").IsEnabled);
+                ok &= Check(sb, "WITNESS a field with no EnabledWhen is left enabled",
+                    gateView.RowFor("mode") != null && gateView.RowFor("mode").IsEnabled);
+                Dictionary<string, string> gc = gateView.Collect();
+                ok &= Check(sb, "a greyed-out field's value is STILL collected, unchanged",
+                    gc.ContainsKey("target") && gc["target"] == "someone@example.invalid");
+                ok &= Check(sb, "...and still reaches Save, so a disabled editor cannot blank a stored setting",
+                    gateView.Save() && gateSaved.ContainsKey("target") && gateSaved["target"] == "someone@example.invalid");
+                var gateCombos = new List<System.Windows.Controls.ComboBox>();
+                CollectAll(gateRoot, gateCombos);
+                if (gateCombos.Count == 2)
+                {
+                    gateCombos[0].SelectedItem = "notify";
+                    bool targetWentLive = gateView.RowFor("target").IsEnabled;
+                    ok &= Check(sb, "the grey-out lifts LIVE as the field it depends on changes", targetWentLive);
+                    ok &= Check(sb, "...and an unrelated dependent is left alone by that edit",
+                        gateView.RowFor("early").IsEnabled);
+                    gateCombos[1].SelectedItem = "no";
+                    ok &= Check(sb, "the later-declared dependency updates live too",
+                        !gateView.RowFor("early").IsEnabled);
+                    gateCombos[0].SelectedItem = "off";
+                    // Asserted as a TRANSITION, not as a final state. "Ends up greyed out" is also what a
+                    // pane with no live refresh at all looks like, so on its own it passed with the whole
+                    // per-edit refresh deleted.
+                    ok &= Check(sb, "and it greys out again when the value moves away",
+                        targetWentLive && !gateView.RowFor("target").IsEnabled);
+                }
+                else ok &= Check(sb, "gate probe rendered both dropdowns", false);
+
+                // 10) SettingField.FullWidth / PinTop, both card-level and both read from the group's
+                // FIRST field. Alpha sets both on its SECOND field, which must change nothing: a card
+                // cannot be half wide, and letting any member vote would make the layout depend on schema
+                // order in a way the module author never sees.
+                var layoutPane = new OptionsPane
+                {
+                    Title = "Layout",
+                    Schema = new[]
+                    {
+                        new SettingField { Id = "a1", Label = "A1", Kind = SettingKind.Text, Group = "Alpha" },
+                        new SettingField { Id = "a2", Label = "A2", Kind = SettingKind.Text, Group = "Alpha", PinTop = true, FullWidth = true },
+                        new SettingField { Id = "b1", Label = "B1", Kind = SettingKind.Text, Group = "Beta" },
+                        new SettingField { Id = "c1", Label = "C1", Kind = SettingKind.Text, Group = "Gamma", PinTop = true },
+                        new SettingField { Id = "d1", Label = "D1", Kind = SettingKind.Text, Group = "Delta", FullWidth = true },
+                        new SettingField { Id = "e1", Label = "E1", Kind = SettingKind.Text, Group = "Epsilon", PinTop = true },
+                    },
+                    Load = delegate { return new Dictionary<string, string>(StringComparer.Ordinal); },
+                };
+                var layoutRoot = new DesktopAICompanion.Wpf.PaneView(layoutPane).Build() as System.Windows.DependencyObject;
+                var masonry = new List<DesktopAICompanion.Wpf.MasonryPanel>();
+                CollectAll(layoutRoot, masonry);
+                var cardTitles = new List<string>();
+                var cardSpans = new List<bool>();
+                if (masonry.Count == 1)
+                    foreach (System.Windows.UIElement card in masonry[0].Children)
+                    {
+                        cardTitles.Add(CardTitle(card as System.Windows.Controls.Border));
+                        cardSpans.Add(DesktopAICompanion.Wpf.MasonryPanel.GetSpanAllColumns(card));
+                    }
+                ok &= Check(sb, "PinTop on a group's first field moves that card ahead, stably",
+                    string.Join(",", cardTitles) == "Gamma,Epsilon,Alpha,Beta,Delta");
+                ok &= Check(sb, "FullWidth on a group's first field makes the card span every column",
+                    cardTitles.IndexOf("Delta") >= 0 && cardSpans[cardTitles.IndexOf("Delta")]);
+                ok &= Check(sb, "PinTop and FullWidth on a field that is NOT the group's first are ignored",
+                    cardTitles.IndexOf("Alpha") == 2 && !cardSpans[cardTitles.IndexOf("Alpha")]);
+
+                // ...and the panel genuinely lays a spanning card across the whole width with nothing
+                // sliding up beside it. A flag that no layout pass reads would satisfy all three above.
+                var probe = new DesktopAICompanion.Wpf.MasonryPanel();
+                var probeLeft = new System.Windows.Controls.Border { Width = 360, Height = 100 };
+                var probeRight = new System.Windows.Controls.Border { Width = 360, Height = 100 };
+                var probeWide = new System.Windows.Controls.Border { Height = 50, HorizontalAlignment = System.Windows.HorizontalAlignment.Stretch };
+                var probeAfter = new System.Windows.Controls.Border { Width = 360, Height = 100 };
+                DesktopAICompanion.Wpf.MasonryPanel.SetSpanAllColumns(probeWide, true);
+                probe.Children.Add(probeLeft);
+                probe.Children.Add(probeRight);
+                probe.Children.Add(probeWide);
+                probe.Children.Add(probeAfter);
+                probe.Measure(new System.Windows.Size(1000, double.PositiveInfinity));
+                probe.Arrange(new System.Windows.Rect(0, 0, 1000, probe.DesiredSize.Height));
+                System.Windows.Rect leftSlot = System.Windows.Controls.Primitives.LayoutInformation.GetLayoutSlot(probeLeft);
+                System.Windows.Rect rightSlot = System.Windows.Controls.Primitives.LayoutInformation.GetLayoutSlot(probeRight);
+                System.Windows.Rect wideSlot = System.Windows.Controls.Primitives.LayoutInformation.GetLayoutSlot(probeWide);
+                System.Windows.Rect afterSlot = System.Windows.Controls.Primitives.LayoutInformation.GetLayoutSlot(probeAfter);
+                ok &= Check(sb, "a spanning card is laid out across the whole panel from x = 0",
+                    wideSlot.X == 0 && wideSlot.Width == 1000);
+                ok &= Check(sb, "WITNESS an ordinary card still takes a single column",
+                    leftSlot.X == 0 && rightSlot.X == 368 && leftSlot.Width == 360);
+                ok &= Check(sb, "nothing is placed beside a spanning card, before it or after it",
+                    wideSlot.Y >= leftSlot.Y + leftSlot.Height && afterSlot.Y >= wideSlot.Y + wideSlot.Height);
+
+                // 11) OptionsPane.LoadPending and SettingField.ReloadOnChange. First the unchanged case,
+                // which is what every shipped module depends on: no LoadPending means Load, and values are
+                // still obtained BEFORE Schema is read (the core Companions pane rebuilds a field's Options
+                // from inside Load, so the other order would render the previous open's list).
+                int loadOnlyCalls = 0;
+                var lateField = new SettingField { Id = "who", Label = "Who", Kind = SettingKind.Enum, Options = new string[0] };
+                var loadOnlyPane = new OptionsPane
+                {
+                    Title = "LoadOnly",
+                    Schema = new[] { lateField },
+                    Load = delegate
+                    {
+                        loadOnlyCalls++;
+                        lateField.Options = new[] { "chosen-at-load" };
+                        return new Dictionary<string, string>(StringComparer.Ordinal) { { "who", "chosen-at-load" } };
+                    },
+                };
+                var loadOnlyView = new DesktopAICompanion.Wpf.PaneView(loadOnlyPane);
+                loadOnlyView.Build();
+                ok &= Check(sb, "with LoadPending null, Load is still the source of values", loadOnlyCalls == 1);
+                ok &= Check(sb, "values are still obtained BEFORE Schema is read",
+                    loadOnlyView.Collect()["who"] == "chosen-at-load");
+
+                var petField = new SettingField { Id = "pet", Label = "Pet", Kind = SettingKind.Enum, Options = new[] { "cat", "dog" }, ReloadOnChange = true };
+                var animField = new SettingField { Id = "anim", Label = "Animation", Kind = SettingKind.Enum, Options = new string[0] };
+                int cascadeLoadCalls = 0;
+                IReadOnlyDictionary<string, string> seenPending = null;
+                var cascadePane = new OptionsPane
+                {
+                    Title = "Cascade",
+                    Schema = new[] { petField, animField },
+                    Load = delegate { cascadeLoadCalls++; return new Dictionary<string, string>(StringComparer.Ordinal) { { "pet", "cat" } }; },
+                    LoadPending = delegate(IReadOnlyDictionary<string, string> onScreen)
+                    {
+                        seenPending = onScreen;
+                        string pet;
+                        if (onScreen == null || !onScreen.TryGetValue("pet", out pet) || string.IsNullOrEmpty(pet)) pet = "cat";
+                        animField.Options = pet == "dog" ? new[] { "fetch", "bark" } : new[] { "purr", "nap" };
+                        return new Dictionary<string, string>(StringComparer.Ordinal) { { "pet", pet }, { "anim", animField.Options[0] } };
+                    },
+                };
+                var firstBuild = new DesktopAICompanion.Wpf.PaneView(cascadePane);
+                firstBuild.Build();
+                ok &= Check(sb, "LoadPending replaces Load on a pane that supplies one", cascadeLoadCalls == 0);
+                ok &= Check(sb, "the first build hands LoadPending an empty dictionary (nothing on screen yet)",
+                    seenPending != null && seenPending.Count == 0);
+                ok &= Check(sb, "...and what it answers drives the controls", firstBuild.Collect()["anim"] == "purr");
+
+                var cascadeEvents = new List<string>();
+                DesktopAICompanion.Wpf.PaneView rebuilt = null;
+                // Exactly what the window does on RequestReload: throw the view away, build a fresh one.
+                Action rebuild = delegate
+                {
+                    cascadeEvents.Add("rebuild");
+                    rebuilt = new DesktopAICompanion.Wpf.PaneView(cascadePane);
+                    rebuilt.Build();
+                };
+                var cascadeView = new DesktopAICompanion.Wpf.PaneView(cascadePane, rebuild, delegate { cascadeEvents.Add("dirty"); });
+                var cascadeRoot = cascadeView.Build() as System.Windows.DependencyObject;
+                var cascadeCombos = new List<System.Windows.Controls.ComboBox>();
+                CollectAll(cascadeRoot, cascadeCombos);
+                if (cascadeCombos.Count == 2)
+                {
+                    cascadeCombos[0].SelectedItem = "dog";
+                    ok &= Check(sb, "changing a ReloadOnChange field rebuilds the pane",
+                        cascadeEvents.Contains("rebuild") && rebuilt != null);
+                    ok &= Check(sb, "the rebuild reaches LoadPending carrying the value just chosen",
+                        seenPending != null && seenPending.ContainsKey("pet") && seenPending["pet"] == "dog");
+                    ok &= Check(sb, "...so a later field is rebuilt from a choice that is not saved yet",
+                        rebuilt != null && rebuilt.Collect()["anim"] == "fetch");
+                    // The host greys Apply out at the END of a rebuild, so a signal raised before it is
+                    // thrown away and the user is left unable to save the value they just picked.
+                    ok &= Check(sb, "the unsaved-edit signal is re-raised AFTER the rebuild, so Apply stays live",
+                        cascadeEvents.Count >= 3 &&
+                        cascadeEvents[cascadeEvents.Count - 1] == "dirty" &&
+                        cascadeEvents[cascadeEvents.Count - 2] == "rebuild");
+                    int rebuildsSoFar = cascadeEvents.FindAll(delegate(string e) { return e == "rebuild"; }).Count;
+                    cascadeCombos[1].SelectedItem = "nap";
+                    ok &= Check(sb, "WITNESS a field without ReloadOnChange rebuilds nothing",
+                        cascadeEvents.FindAll(delegate(string e) { return e == "rebuild"; }).Count == rebuildsSoFar);
+                    ok &= Check(sb, "Load is never called on a pane that supplies LoadPending", cascadeLoadCalls == 0);
+                }
+                else ok &= Check(sb, "cascade probe rendered both dropdowns", false);
+
+                // 12) PaneAction.RevealsPath. The refusals are the feature: an unrestricted "open this
+                // path" handed to plugins is a shell execution primitive under another name. Every path
+                // below lives in TEMP, which is outside the real data root, so the button-level assertions
+                // exercise the refusal and this self-test never opens an Explorer window.
+                string revealRoot = Path.Combine(Path.GetTempPath(), "dp-wpf-reveal-" + Guid.NewGuid().ToString("N"));
+                string revealSibling = revealRoot + "-outside";
+                try
+                {
+                    Directory.CreateDirectory(revealRoot);
+                    Directory.CreateDirectory(revealSibling);
+                    string insideFile = Path.Combine(revealRoot, "companion.log");
+                    File.WriteAllText(insideFile, "x");
+                    string outsideFile = Path.Combine(revealSibling, "notes.txt");
+                    File.WriteAllText(outsideFile, "x");
+
+                    string refusal;
+                    ok &= Check(sb, "WITNESS RevealsPath allows an existing file inside the permitted root",
+                        DesktopAICompanion.Wpf.PaneView.ResolveRevealTarget(insideFile, revealRoot, out refusal) == insideFile && refusal == null);
+                    // The sibling's name deliberately STARTS with the root's, which is the containment bug
+                    // a bare StartsWith would ship with.
+                    ok &= Check(sb, "RevealsPath REFUSES a file outside the permitted roots",
+                        DesktopAICompanion.Wpf.PaneView.ResolveRevealTarget(outsideFile, revealRoot, out refusal) == null &&
+                        refusal != null && refusal.StartsWith("✗"));
+                    string outsideMessage = refusal;
+                    ok &= Check(sb, "...including one reached by climbing out of the root",
+                        DesktopAICompanion.Wpf.PaneView.ResolveRevealTarget(
+                            Path.Combine(revealRoot, "..", Path.GetFileName(revealSibling), "notes.txt"), revealRoot, out refusal) == null);
+                    ok &= Check(sb, "RevealsPath refuses a path inside the root that is not an existing file",
+                        DesktopAICompanion.Wpf.PaneView.ResolveRevealTarget(Path.Combine(revealRoot, "absent.log"), revealRoot, out refusal) == null);
+                    // A directory INSIDE the root, so containment passes and the existence rule is the
+                    // only thing left to refuse it. Handing the root itself made this pass off the
+                    // containment check with the existence rule deleted.
+                    string insideDir = Path.Combine(revealRoot, "nested");
+                    Directory.CreateDirectory(insideDir);
+                    ok &= Check(sb, "RevealsPath refuses a directory, which is not a file",
+                        DesktopAICompanion.Wpf.PaneView.ResolveRevealTarget(insideDir, revealRoot, out refusal) == null);
+                    // Containment is answered BEFORE existence on purpose: the other order turns the
+                    // refusal text into a free "does this file exist?" oracle for any path on the disk.
+                    DesktopAICompanion.Wpf.PaneView.ResolveRevealTarget(
+                        Path.Combine(revealSibling, "never-created.txt"), revealRoot, out refusal);
+                    ok &= Check(sb, "an outside path is refused identically whether or not it exists",
+                        refusal != null && refusal == outsideMessage);
+
+                    // A reparse point inside the root must not become a way out of it.
+                    //
+                    // Tested with a JUNCTION, not a symbolic link, and that is the whole point. A symlink
+                    // needs Developer Mode or elevation, so the symlink test skipped on this account --
+                    // and a check that skips is a check the gate cannot enforce. A junction needs
+                    // neither, which also makes it the CHEAPER escape and therefore the one that had to
+                    // be covered. mklink /J is used because .NET has no junction API.
+                    string junction = Path.Combine(revealRoot, "escape");
+                    var mk = new System.Diagnostics.ProcessStartInfo("cmd.exe",
+                        "/c mklink /J \"" + junction + "\" \"" + Path.GetDirectoryName(outsideFile) + "\"")
+                    { UseShellExecute = false, CreateNoWindow = true,
+                      RedirectStandardOutput = true, RedirectStandardError = true };
+                    using (System.Diagnostics.Process p = System.Diagnostics.Process.Start(mk)) p.WaitForExit();
+
+                    string throughJunction = Path.Combine(junction, Path.GetFileName(outsideFile));
+                    ok &= Check(sb, "the junction escape is actually set up (so the next check is not vacuous)",
+                        Directory.Exists(junction) && File.Exists(throughJunction));
+                    // WITNESS: this is the case File.ResolveLinkTarget could not see, because the reparse
+                    // point is part way ALONG the path rather than at the end of it.
+                    ok &= Check(sb, "RevealsPath refuses a path that leaves the root through a junction",
+                        DesktopAICompanion.Wpf.PaneView.ResolveRevealTarget(throughJunction, revealRoot, out refusal) == null
+                        && refusal != null);
+
+                    // ...and a symlink too, where the OS allows one to be made. No SKIP either way: the
+                    // junction above already covers the property, so this is an extra rather than the
+                    // only coverage, and a check that vanishes on some machines is not a check.
+                    string linkPath = Path.Combine(revealRoot, "shortcut.log");
+                    bool linkMade = false;
+                    try { File.CreateSymbolicLink(linkPath, outsideFile); linkMade = true; } catch { }
+                    ok &= Check(sb, linkMade
+                            ? "RevealsPath refuses a symlink inside the root whose target is outside it"
+                            : "RevealsPath refuses a symlink (DEGRADED: this account cannot create one, junction case covered it)",
+                        !linkMade
+                        || DesktopAICompanion.Wpf.PaneView.ResolveRevealTarget(linkPath, revealRoot, out refusal) == null);
+
+                    // ...and through the button, which is where the empty / already-a-result pass-throughs
+                    // live: an action must still be able to report a failure the ordinary way.
+                    var revealPane = new OptionsPane
+                    {
+                        Title = "Reveal",
+                        Load = delegate { return new Dictionary<string, string>(StringComparer.Ordinal); },
+                        Actions = new[]
+                        {
+                            new PaneAction { Label = "Show log", RevealsPath = true, InvokeAsync = delegate { return System.Threading.Tasks.Task.FromResult(outsideFile); } },
+                            new PaneAction { Label = "Already fine", RevealsPath = true, InvokeAsync = delegate { return System.Threading.Tasks.Task.FromResult("✓ nothing to show"); } },
+                            new PaneAction { Label = "Nothing", RevealsPath = true, InvokeAsync = delegate { return System.Threading.Tasks.Task.FromResult(""); } },
+                        },
+                    };
+                    var revealTree = new DesktopAICompanion.Wpf.PaneView(revealPane).Build() as System.Windows.DependencyObject;
+                    var revealButtons = new List<System.Windows.Controls.Button>();
+                    CollectAll(revealTree, revealButtons);
+                    if (revealButtons.Count == 3)
+                    {
+                        foreach (System.Windows.Controls.Button b in revealButtons)
+                            b.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                        ok &= Check(sb, "a RevealsPath action returning a refused path reports the refusal beside the button",
+                            StatusOf(revealButtons[0]) != null && StatusOf(revealButtons[0]).Text.StartsWith("✗"));
+                        ok &= Check(sb, "a RevealsPath return that already carries a result marker is shown as a message",
+                            StatusOf(revealButtons[1]) != null && StatusOf(revealButtons[1]).Text == "✓ nothing to show");
+                        ok &= Check(sb, "a RevealsPath action that returns nothing shows nothing",
+                            StatusOf(revealButtons[2]) != null && StatusOf(revealButtons[2]).Text == "");
+                    }
+                    else ok &= Check(sb, "reveal probe rendered three action buttons", false);
+                }
+                finally
+                {
+                    try { Directory.Delete(revealRoot, true); } catch { }
+                    try { Directory.Delete(revealSibling, true); } catch { }
+                }
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
 
@@ -427,6 +843,46 @@ namespace DesktopAICompanion
             if (exp != null) { found.Add(exp); return; }   // groups never nest
             foreach (object child in System.Windows.LogicalTreeHelper.GetChildren(node))
                 CollectExpanders(child as System.Windows.DependencyObject, found);
+        }
+
+        // Unlike the two collectors above, this keeps descending PAST a hit: a radio group sits inside a
+        // row that also carries the field label, and a pane has several cards each holding several of
+        // whatever is being looked for.
+        private static void CollectAll<T>(System.Windows.DependencyObject node, List<T> found) where T : class
+        {
+            if (node == null) return;
+            var hit = node as T;
+            if (hit != null) found.Add(hit);
+            foreach (object child in System.Windows.LogicalTreeHelper.GetChildren(node))
+                CollectAll<T>(child as System.Windows.DependencyObject, found);
+        }
+
+        // A schema group renders as a Border wrapping a StackPanel whose first TextBlock is the group
+        // heading, which is the only thing naming a card once it has been laid out.
+        private static string CardTitle(System.Windows.Controls.Border card)
+        {
+            var panel = card == null ? null : card.Child as System.Windows.Controls.Panel;
+            if (panel == null) return "";
+            foreach (System.Windows.UIElement child in panel.Children)
+            {
+                var tb = child as System.Windows.Controls.TextBlock;
+                if (tb != null) return tb.Text ?? "";
+            }
+            return "";
+        }
+
+        // An action row is a DockPanel holding the button and its status line. That status line is the
+        // only channel a RevealsPath refusal is ever reported through, so it is what has to be read.
+        private static System.Windows.Controls.TextBlock StatusOf(System.Windows.Controls.Button button)
+        {
+            var panel = button == null ? null : button.Parent as System.Windows.Controls.Panel;
+            if (panel == null) return null;
+            foreach (System.Windows.UIElement child in panel.Children)
+            {
+                var tb = child as System.Windows.Controls.TextBlock;
+                if (tb != null) return tb;
+            }
+            return null;
         }
 
         private static void CollectCheckBoxes(System.Windows.DependencyObject node, List<System.Windows.Controls.CheckBox> found)
