@@ -48,6 +48,16 @@ Desktop AI Companion ships **unsigned** Windows x64 builds. To cut a release:
    window station, and growth thresholds flake on a headless runner) — run it here, or trigger the
    **resource-soak** job via workflow dispatch. Record the numbers in the release notes so the next release
    has something to compare against.
+   Then **run the fullscreen stand-down probe**, which belongs here for the same reasons as the
+   soaks (an interactive desktop, ~20s, and it puts a fullscreen window up):
+   `dotnet run --project testsullscreen-standdown-probe\walkcount.csproj -c Release -- standdown`
+   It is the only automatic end-to-end check on regression watchlist row 9, "anything visible over a
+   fullscreen game", and it checks the invariant that actually holds -- no companion VISIBLE on a
+   blocked monitor -- rather than "the companion hides", which passes a build that hides when it
+   should have relocated to a free monitor. See its
+   [README](../tests/fullscreen-standdown-probe/README.md) for why that distinction is measured
+   rather than theoretical.
+
    Then, if any module owns a window, **run the module-window soak too**:
    `.\tests\module-window-soak.ps1` → expect `RESULT=PASS`. The soak above cannot reach a module window at
    all — it drives the shipped app from outside and the app's churn loop never opens one — so this is the only

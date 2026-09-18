@@ -1,4 +1,4 @@
-#requires -Version 5
+﻿#requires -Version 5
 
 # Shared filesystem helpers for packaging staging work.
 #
@@ -500,6 +500,27 @@ function Copy-DesktopAICompanionValidatedInputFile {
     return $destinationFull
 }
 
+<#
+.SYNOPSIS
+    Move a staged file into its published location, having first checked the things the CALLERS
+    already compute and pass.
+
+.DESCRIPTION
+    This took ELEVEN parameters and read TWO of them. Found by an audit on 2026-09-17: it
+    canonicalised both paths, checked the temp file existed, and called Move-Item -Force. Every
+    other parameter -- the trusted root, the protected paths, the expected hashes, the
+    must-be-absent switch -- was accepted and discarded.
+
+    That is worse than a function with two parameters, because build-installer.ps1 stated in a
+    comment that the seal hash is what "Publish-DesktopAICompanionAtomicFile enforces on the way
+    into dist\", and a reader had no reason to doubt it. Passing a 64-zero ExpectedTemporarySha256
+    together with -DestinationMustBeAbsent against an existing destination published anyway.
+
+    The checks below are the ones with real inputs at all four call sites. Two parameters were
+    DELETED instead: ExpectedTemporaryIdentity and ExpectedDestinationIdentity had no caller
+    anywhere, so there was nothing to compare against, and keeping a parameter that names a check
+    nobody performs is how this function got into this state.
+#>
 function Publish-DesktopAICompanionAtomicFile {
     [CmdletBinding()]
     param(
@@ -509,9 +530,7 @@ function Publish-DesktopAICompanionAtomicFile {
         [string[]]$ProtectedPaths = @(),
         [string[]]$ProtectedDirectories = @(),
         [object]$SealedTemporaryFile,
-        [object]$ExpectedTemporaryIdentity,
         [string]$ExpectedTemporarySha256,
-        [object]$ExpectedDestinationIdentity,
         [string]$ExpectedDestinationSha256,
         [switch]$DestinationMustBeAbsent
     )
@@ -526,6 +545,65 @@ function Publish-DesktopAICompanionAtomicFile {
     if (-not (Test-Path -LiteralPath $temporaryFull -PathType Leaf)) {
         throw "Atomic publication temporary file is missing: $temporaryFull"
     }
+
+    # Both ends inside the trusted root. $TrustedRoot was mandatory and unread, which is the most
+    # misleading combination available: a caller cannot omit it and it did nothing.
+    [void](Assert-DesktopAICompanionPathChainSafe -Path $temporaryFull -TrustedRoot $TrustedRoot)
+    [void](Assert-DesktopAICompanionPathChainSafe -Path $destinationFull -TrustedRoot $TrustedRoot)
+
+    # The destination must not BE one of the inputs this build read. Not "must not be inside a
+    # protected directory" -- the destination legitimately lives inside $outputDirectory, which is on
+    # that list -- but "must not clobber one of them", which is what a mis-wired destination would do.
+    foreach ($protected in @($ProtectedPaths)) {
+        if ([string]::IsNullOrWhiteSpace($protected)) { continue }
+        $protectedFull = Get-DesktopAICompanionCanonicalPath -Path $protected
+        if ($destinationFull.Equals($protectedFull, [StringComparison]::OrdinalIgnoreCase)) {
+            throw ("Atomic publication would overwrite a protected build input: $destinationFull")
+        }
+    }
+    foreach ($protectedDirectory in @($ProtectedDirectories)) {
+        if ([string]::IsNullOrWhiteSpace($protectedDirectory)) { continue }
+        $protectedDirectoryFull = Get-DesktopAICompanionCanonicalPath -Path $protectedDirectory
+        if ($destinationFull.Equals($protectedDirectoryFull, [StringComparison]::OrdinalIgnoreCase)) {
+            throw ("Atomic publication destination is a protected directory: $destinationFull")
+        }
+    }
+
+    # The staged bytes must still be the bytes the caller hashed. Between the hash and this move the
+    # file has been signed, normalised and validated by several steps, each of which rewrites it, so
+    # "the hash the validation copy was compared against" is a real invariant and not a formality.
+    if (-not [string]::IsNullOrWhiteSpace($ExpectedTemporarySha256)) {
+        $actualTemporary = [DesktopAICompanionPackagingHashUtil]::HashFile($temporaryFull, 'SHA256')
+        if (-not $actualTemporary.Equals(
+                $ExpectedTemporarySha256.Replace('-', ''),
+                [StringComparison]::OrdinalIgnoreCase)) {
+            throw ("Atomic publication refused: the staged file changed after it was sealed. " +
+                   "Expected $($ExpectedTemporarySha256.Substring(0, [Math]::Min(12, $ExpectedTemporarySha256.Length)))..., " +
+                   "found $($actualTemporary.Substring(0, 12))... at $temporaryFull")
+        }
+    }
+
+    $destinationExists = Test-Path -LiteralPath $destinationFull -PathType Leaf
+    if ($DestinationMustBeAbsent -and $destinationExists) {
+        throw ("Atomic publication refused: the caller asserted the destination was absent, and it " +
+               "exists: $destinationFull")
+    }
+    # And if the caller saw a destination, it must still be the one it saw. This is the TOCTOU half:
+    # the decision to overwrite was taken against those bytes.
+    if ($destinationExists -and -not [string]::IsNullOrWhiteSpace($ExpectedDestinationSha256)) {
+        $actualDestination = [DesktopAICompanionPackagingHashUtil]::HashFile($destinationFull, 'SHA256')
+        if (-not $actualDestination.Equals(
+                $ExpectedDestinationSha256.Replace('-', ''),
+                [StringComparison]::OrdinalIgnoreCase)) {
+            throw ("Atomic publication refused: the destination changed since the caller inspected " +
+                   "it: $destinationFull")
+        }
+    }
+
+    # $SealedTemporaryFile is deliberately NOT dereferenced. It is the caller's handle on the staged
+    # file and taking it as a parameter keeps it alive across this call; the audit that found the
+    # rest of this is right that it holds no OS lock, so it is a lifetime anchor and nothing more.
+    # Named here so the next reader does not have to work that out from its absence.
 
     # Write-temp-then-move. Move-Item -Force is atomic enough for an unsigned
     # hobby artifact and replaces any existing destination in place.

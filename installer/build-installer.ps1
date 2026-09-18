@@ -1,4 +1,4 @@
-#requires -Version 5
+﻿#requires -Version 5
 <#
 .SYNOPSIS
     Build and validate the per-user Desktop AI Companion x64 MSI.
@@ -339,7 +339,9 @@ if ($LASTEXITCODE -ne 0) { throw "WiX build failed (exit $LASTEXITCODE)." }
 #     already-signed MSI rather than silently breaking one, so signing before it is a hard error.
 #   * It cannot be later. The next statement seals the staged file and takes the hash the validation copy is
 #     compared against and that Publish-DesktopAICompanionAtomicFile enforces on the way into dist\. Signing after
-#     that changes bytes those checks have already committed to.
+#     that changes bytes those checks have already committed to. (That enforcement claim was FALSE until
+#     2026-09-17: the publish helper accepted the hash and discarded it, along with eight of its other
+#     nine parameters. It performs the check now.)
 #
 # Between the two, every downstream hash is computed over the SIGNED bytes and nothing else needs to know.
 if (-not [string]::IsNullOrWhiteSpace($SigningCertThumbprint)) {
