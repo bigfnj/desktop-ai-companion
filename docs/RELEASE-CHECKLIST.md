@@ -50,7 +50,7 @@ Desktop AI Companion ships **unsigned** Windows x64 builds. To cut a release:
    has something to compare against.
    Then **run the fullscreen stand-down probe**, which belongs here for the same reasons as the
    soaks (an interactive desktop, ~20s, and it puts a fullscreen window up):
-   `dotnet run --project testsullscreen-standdown-probe\walkcount.csproj -c Release -- standdown`
+   `dotnet run --project tests\fullscreen-standdown-probe\walkcount.csproj -c Release -- standdown`
    It is the only automatic end-to-end check on regression watchlist row 9, "anything visible over a
    fullscreen game", and it checks the invariant that actually holds -- no companion VISIBLE on a
    blocked monitor -- rather than "the companion hides", which passes a build that hides when it

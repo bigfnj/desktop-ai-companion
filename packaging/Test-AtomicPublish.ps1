@@ -5,7 +5,7 @@
 
 .DESCRIPTION
     That function took eleven parameters and read TWO of them until 2026-09-17, while
-    installeruild-installer.ps1 stated in a comment that it enforced the seal hash "on the way
+    installer\build-installer.ps1 stated in a comment that it enforced the seal hash "on the way
     into dist\". Five checks now exist; this is the file that proves each one can refuse, because a
     check nobody has seen fail is a guess -- and this particular set had been a guess for months.
 
