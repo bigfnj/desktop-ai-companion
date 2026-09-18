@@ -72,8 +72,17 @@ namespace DesktopAICompanion.SampleModule
             });
 
             // A settings pane. You declare fields as DATA and the host renders them, so a module needs no UI
-            // framework. Load/Save round-trip through IModuleSettings, which the host persists (and encrypts
-            // for a Secret field).
+            // framework. Load/Save round-trip through IModuleSettings, which the host persists as plain JSON
+            // in your own data folder.
+            //
+            // It does NOT encrypt a Secret field, and this comment said it did until 2026-09-17. Secret
+            // controls how the value is DISPLAYED (write-only, "leave blank to keep it"); IModuleSettings
+            // never sees the schema, so it cannot know which key you declared that way. If you store an API
+            // key, encrypt it yourself -- modules/AiBrain uses DPAPI and is the worked example. Save() is
+            // also a plain write with no lock: ModuleKit.AtomicFile and CrossSessionLock ship beside you.
+            //
+            // An Int field's Min/Max ARE honoured by the host as of 1.1.5, and were decoration before that,
+            // so keep validating in your own Save if you support an older host.
             host.AddOptionsPane(new OptionsPane
             {
                 Title = "SAMPLE_DISPLAY_NAME",

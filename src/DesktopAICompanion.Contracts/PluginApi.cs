@@ -47,7 +47,16 @@ namespace DesktopAICompanion.Modules
         Microphone = 1 << 9,    // captures the microphone (records audio input)
         SystemAudio = 1 << 10,  // captures the system audio output / loopback (records what you hear)
 
-        // Reads the on-disk transcripts a coding agent writes about its own session --
+        // Reads what a coding agent writes on disk about its own work. TWO kinds of file, and the
+        // second was missing from this description until 2026-09-17: the session transcripts, and
+        // the agent's own permission CONFIGURATION beside them (%USERPROFILE%\.claude\settings.json
+        // and its managed and local variants), which AgentFlow reads to know which commands would
+        // prompt. An audit pointed out that a strict reading of "transcripts" did not cover those.
+        // They are the same disclosure in kind -- one file says what the user did, the other says
+        // what they allow -- and a flag whose text omits something the module touches is precisely
+        // the failure this flag exists to prevent.
+        //
+        // The transcripts --
         // Claude Code's %USERPROFILE%\.claude\projects\<slug>\<session>.jsonl and Codex's
         // %USERPROFILE%\.codex\sessions\... -- added in host 1.1.5 for the AgentFlow module.
         //
@@ -211,7 +220,11 @@ namespace DesktopAICompanion.Modules
         public string Label { get; set; }                 // display text ('&' marks the mnemonic)
         public int Group { get; set; }                    // items are grouped (separators between groups)
         public int Order { get; set; }                    // order within a group
-        public Func<bool> Visible { get; set; }           // re-evaluated when the host signals a state change (null => always)
+        // Evaluated on every menu OPEN, the same cadence as DynamicText below: the host rebuilds the
+        // whole module section each time the tray menu is shown. This said "re-evaluated when the host
+        // signals a state change" until 2026-09-17, which pointed at a verb that does not exist on
+        // IHost. The truth is simpler and stronger -- you get a fresh evaluation without asking.
+        public Func<bool> Visible { get; set; }           // null => always visible
         public Func<string> DynamicText { get; set; }     // overrides Label each show (e.g. Enable/Disable) (null => Label)
         public Action Click { get; set; }                 // leaf action (null for a pure submenu)
         public Func<IEnumerable<TrayItem>> BuildChildren { get; set; } // lazy submenu, rebuilt on open (null for a leaf)

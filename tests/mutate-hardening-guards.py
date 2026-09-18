@@ -24,6 +24,7 @@ PETSPANE = os.path.join(REPO, "src", "Portable", "Wpf", "CompanionsPaneControl.c
 PETSPANE_MODULES = os.path.join(REPO, "src", "Portable", "Wpf", "ModulesPaneControl.cs")
 FORMPET = os.path.join(REPO, "src", "dotNet", "FormCompanion.cs")
 STARTUP = os.path.join(REPO, "src", "dotNet", "StartUp.cs")
+BUILDPS1 = os.path.join(REPO, "build.ps1")
 
 
 def read(p):
@@ -70,6 +71,14 @@ CASES = (
     # count changing in the SOURCE without the doc following. One mutation each, because a check
     # written against only one side would pass while the other drifted -- which is how
     # "84 source invariants" and "18 self-tests" both survived being wrong.
+    # The signing guard, with the -not dropped: every PR build would then call signtool with an
+    # EMPTY thumbprint. The old form of this invariant matched the WORDS and survived exactly this.
+    ("the signing guard fires on an EMPTY thumbprint",
+     BUILDPS1,
+     b"if (-not [string]::IsNullOrWhiteSpace($SigningCertThumbprint)) {",
+     b"if ([string]::IsNullOrWhiteSpace($SigningCertThumbprint)) {",
+     "guards signing on a NON-EMPTY thumbprint"),
+
     # The sass bypass, restored: this is the code as it shipped, calling FormCompanion.Say directly.
     ("the poke sass goes straight to a bubble again",
      STARTUP,

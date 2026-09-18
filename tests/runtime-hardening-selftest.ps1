@@ -957,13 +957,35 @@ $signtoolScript = Get-Content -LiteralPath (Join-Path $repoRoot 'packaging\Invok
 
 # Opt-in on BOTH scripts. build.yml runs both on every pull request with no certificate, so an unguarded
 # call would fail every PR.
+# THE CONDITION, not the presence of the words. This asserted only that the two strings appeared
+# somewhere in the file, which survives dropping the `-not` -- `IsNullOrWhiteSpace($x)` still matches
+# `if (IsNullOrWhiteSpace($x))`, so every PR build would call signtool with an EMPTY thumbprint while
+# this check stayed green. It also survives moving the signtool call out of the guarded block and
+# leaving the block behind. Found by an audit 2026-09-17; nothing is mis-signed today only because no
+# certificate exists, which is the same reason the rot was invisible.
+#
+# What is required now: the signtool invocation must sit INSIDE a block guarded by
+# `-not [string]::IsNullOrWhiteSpace($SigningCertThumbprint)`, proven by position -- the guard opens
+# before the call, and the call comes before the guard's matching close.
 foreach ($pair in @(
         @{ Name = 'build.ps1'; Text = $buildScript },
         @{ Name = 'installer\build-installer.ps1'; Text = $installerScript })) {
-    Assert-True (
-        $pair.Text -match '\$SigningCertThumbprint' -and
-        $pair.Text -match 'IsNullOrWhiteSpace\(\$SigningCertThumbprint\)'
-    ) "$($pair.Name) only signs when a thumbprint is supplied"
+    # COMMENTS STRIPPED FIRST. Both scripts mention Invoke-Signtool.ps1 in a header comment,
+    # ABOVE the guard, and IndexOf finds the first occurrence -- so the first version of this
+    # check compared a comment's position against the guard's and failed a correct file. That is
+    # the fifth time in this file prose describing a check has defeated it; stripping is now the
+    # default for anything positional.
+    $code = [regex]::Replace($pair.Text, '(?m)^\s*#.*$', '')
+    $guard = [regex]::Match(
+        $code, 'if \(-not \[string\]::IsNullOrWhiteSpace\(\$SigningCertThumbprint\)\)')
+    Assert-True ($guard.Success) (
+        "$($pair.Name) guards signing on a NON-EMPTY thumbprint (the -not is the whole check)")
+    # The CALL, in the form it is actually written, not the bare file name.
+    $callAt = $code.IndexOf("& (Join-Path `$repoRoot 'packaging\Invoke-Signtool.ps1')")
+    Assert-True ($callAt -gt 0) "$($pair.Name) still invokes packaging\Invoke-Signtool.ps1"
+    Assert-True ($guard.Index -lt $callAt) (
+        "$($pair.Name) opens the thumbprint guard BEFORE it invokes signtool" +
+        " (guard at $($guard.Index), call at $callAt)")
 }
 
 # The MSI signature has exactly one legal position: after Normalize-MsiDeterminism (which rewrites the whole
