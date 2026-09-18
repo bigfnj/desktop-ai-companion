@@ -1468,6 +1468,8 @@ namespace DesktopAICompanion.AgentFlow
                               && SelfCheckAutoApprove(probe)
                               && SelfCheckApprover(probe)
                               && SelfCheckPressBudget(probe)
+                              && SelfCheckMode(probe)
+                              && SelfCheckQuips(probe)
                               && SelfCheckCacheBound(probe);
                     probe.Check("every logic group ran", ok);
 
@@ -2517,6 +2519,150 @@ namespace DesktopAICompanion.AgentFlow
         private static string PromptSignature(string tool)
         {
             return PressBudget.Signature(tool, new[] { "Yes", "No" });
+        }
+        /// <summary>
+        /// The mode, and the migration onto it.
+        ///
+        /// The migration is the half that matters. AgentFlow is published, so the two legacy
+        /// booleans are on real installs, and this function is the only thing between an
+        /// upgrade and a module that silently reverts to defaults on somebody else's machine.
+        /// </summary>
+        private static bool SelfCheckMode(SelfTestProbe probe)
+        {
+            probe.Check("a stored mode is used as-is",
+                AgentMode.Migrate(AgentMode.Log, false, false) == AgentMode.Log
+                && AgentMode.Migrate(AgentMode.Off, true, true) == AgentMode.Off);
+
+            // WITNESS: the three legacy shapes, which is every combination a 1.0.x install
+            // can actually be in. A recognised new value always wins over them.
+            probe.Check("WITNESS a disabled 1.0.x install migrates to Off, not to a default",
+                AgentMode.Migrate("", false, false) == AgentMode.Off
+                && AgentMode.Migrate("", false, true) == AgentMode.Off);
+            probe.Check("WITNESS an approving install keeps approving",
+                AgentMode.Migrate("", true, true) == AgentMode.AutoApprove);
+            probe.Check("WITNESS a plain watching install becomes Notify",
+                AgentMode.Migrate("", true, false) == AgentMode.Notify);
+            probe.Check("an unrecognised stored value falls back to the booleans",
+                AgentMode.Migrate("wat", true, false) == AgentMode.Notify);
+            // Nobody is silently moved into a mode that did not exist before.
+            probe.Check("WITNESS no legacy state migrates into Log",
+                AgentMode.Migrate("", true, true) != AgentMode.Log
+                && AgentMode.Migrate("", true, false) != AgentMode.Log
+                && AgentMode.Migrate("", false, false) != AgentMode.Log);
+
+            probe.Check("only auto-approve presses anything",
+                AgentMode.Presses(AgentMode.AutoApprove)
+                && !AgentMode.Presses(AgentMode.Notify)
+                && !AgentMode.Presses(AgentMode.Log) && !AgentMode.Presses(AgentMode.Off));
+            // Auto-approve still speaks, about what it REFUSED. A prompt it will not touch
+            // sits there forever, and silence about it is the failure the notify half exists
+            // to prevent.
+            probe.Check("WITNESS auto-approve still speaks, so a refusal is not silent",
+                AgentMode.Speaks(AgentMode.AutoApprove));
+            probe.Check("Log is the quiet one, and Off does not even scan",
+                !AgentMode.Speaks(AgentMode.Log) && AgentMode.Scans(AgentMode.Log)
+                && !AgentMode.Scans(AgentMode.Off));
+            probe.Check("every mode has a label and round-trips through it",
+                AgentMode.Displays().Length == AgentMode.All.Length
+                && AgentMode.FromDisplay(AgentMode.ToDisplay(AgentMode.Log)) == AgentMode.Log
+                && AgentMode.FromDisplay(AgentMode.ToDisplay(AgentMode.Off)) == AgentMode.Off);
+            return true;
+        }
+
+        /// <summary>
+        /// The quips. Asserted at the TABLE level, because the properties that matter are
+        /// properties of all thirty-six at once and no amount of sampling Next() finds them.
+        /// </summary>
+        private static bool SelfCheckQuips(SelfTestProbe probe)
+        {
+            probe.Check("there are three dozen of them, give or take",
+                QuipPicker.Count >= 30);
+
+            // The privacy property, and the only one that could leak. A quip that USES
+            // {project} without declaring it would be picked for a session with no project
+            // and render the token raw; worse, any placeholder nobody vetted could be added
+            // later and filled from anywhere. Declared-vs-used is checked both ways.
+            int undeclaredProject = 0, undeclaredTool = 0, unknownToken = 0, unfillable = 0;
+            foreach (Quip quip in QuipPicker.Table)
+            {
+                bool usesProject = quip.Text.IndexOf(QuipPicker.ProjectToken,
+                    StringComparison.Ordinal) >= 0;
+                bool usesTool = quip.Text.IndexOf(QuipPicker.ToolToken,
+                    StringComparison.Ordinal) >= 0;
+                if (usesProject != quip.NeedsProject) undeclaredProject++;
+                if (usesTool != quip.NeedsTool) undeclaredTool++;
+
+                // Any brace at all that is not one of the three known tokens.
+                string stripped = quip.Text
+                    .Replace(QuipPicker.ProjectToken, "").Replace(QuipPicker.ToolToken, "")
+                    .Replace(QuipPicker.DurationToken, "");
+                if (stripped.IndexOf('{') >= 0 || stripped.IndexOf('}') >= 0) unknownToken++;
+
+                if (QuipPicker.Fill(quip.Text, "p", "t", "9m").IndexOf('{',
+                        StringComparison.Ordinal) >= 0) unfillable++;
+            }
+            probe.Check("WITNESS every quip declares exactly the placeholders it uses",
+                undeclaredProject == 0 && undeclaredTool == 0);
+            probe.Check("WITNESS no quip carries a placeholder nobody vetted",
+                unknownToken == 0);
+            probe.Check("...and every quip fills completely, leaving no raw token on screen",
+                unfillable == 0);
+
+            // The floor. Without an unconditional pool, a session whose project and tool are
+            // both unknown gets silence instead of a notice.
+            int unconditional = 0;
+            foreach (Quip quip in QuipPicker.Table)
+                if (!quip.NeedsProject && !quip.NeedsTool) unconditional++;
+            probe.Check("WITNESS there is always a pool, even knowing neither project nor tool",
+                unconditional >= 5);
+
+            var picker = new QuipPicker(1234);
+            probe.Check("a line with neither known still comes back, fully filled",
+                IsFilled(picker.Next(null, null, "45s")));
+            probe.Check("a line with both known comes back too",
+                IsFilled(picker.Next("myproject", "Bash", "9m")));
+
+            // WITNESS: never the same line twice running. The notify budget lets one notice
+            // through every couple of minutes, so consecutive draws are the ones a user hears
+            // back to back -- and that is the difference between a pet and an alarm.
+            var norepeat = new QuipPicker(7);
+            string previous = null;
+            int repeats = 0;
+            for (int i = 0; i < 200; i++)
+            {
+                string line = norepeat.Next(null, null, "1m");
+                if (previous != null && line == previous) repeats++;
+                previous = line;
+            }
+            probe.Check("WITNESS it never says the same thing twice in a row", repeats == 0);
+
+            // ...and it does not just cycle two of them either.
+            var spread = new QuipPicker(99);
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < 200; i++) seen.Add(spread.Next(null, null, "1m"));
+            probe.Check("...and it uses the pool rather than alternating two lines",
+                seen.Count >= 8);
+
+            // A quip needing a project must never be handed one that is missing.
+            var poolOnly = new QuipPicker(3);
+            bool leaked = false;
+            for (int i = 0; i < 200; i++)
+            {
+                string line = poolOnly.Next("", "", "30s");
+                if (line == null || line.Trim().Length == 0) { leaked = true; break; }
+                // An eligible-pool bug shows up as a double space or a stray colon where the
+                // empty value was substituted in.
+                if (line.IndexOf("  ", StringComparison.Ordinal) >= 0) { leaked = true; break; }
+            }
+            probe.Check("WITNESS an unknown project never leaves a hole in the sentence",
+                !leaked);
+            return true;
+        }
+
+        private static bool IsFilled(string line)
+        {
+            return !string.IsNullOrEmpty(line)
+                   && line.IndexOf('{') < 0 && line.IndexOf('}') < 0;
         }
         private static bool SelfCheckCacheBound(SelfTestProbe probe)
         {

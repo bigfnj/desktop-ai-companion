@@ -56,9 +56,11 @@ CDP = os.path.join(MODULE_DIR, "CdpApprover.cs")
 PROMPTOPTS = os.path.join(MODULE_DIR, "PromptOptions.cs")
 BUDGETPRESS = os.path.join(MODULE_DIR, "PressBudget.cs")
 DOT = os.path.join(MODULE_DIR, "StatusDot.cs")
+MODE = os.path.join(MODULE_DIR, "AgentMode.cs")
+QUIPS = os.path.join(MODULE_DIR, "Quips.cs")
 
 TARGETS = (SPLITTER, RULES, DETECTOR, BUDGET, MODULE, READER, CDP, PROMPTOPTS, BUDGETPRESS,
-           DOT)
+           DOT, MODE, QUIPS)
 
 # (name, file, find, replace, expected fragment of the assertion that must fail)
 CASES = (
@@ -481,6 +483,58 @@ CASES = (
         "                return _portAnswering && _panelReadable",
         "                return _portAnswering",
         "a live port with an unreadable panel is still orange",
+    ),
+    # The mode migration. It runs ONCE, on someone else's machine, months from now, and it is
+    # the only thing between an upgrade and a module that silently reverts to defaults.
+    (
+        "the migration ignores that the user had it switched off",
+        MODE,
+        "            if (!legacyEnabled) return Off;",
+        "            if (false) return Off;",
+        "a disabled 1.0.x install migrates to Off",
+    ),
+    (
+        "the migration forgets they were auto-approving",
+        MODE,
+        "            return legacyAutoApprove ? AutoApprove : Notify;",
+        "            return Notify;",
+        "an approving install keeps approving",
+    ),
+    (
+        "a stored mode no longer wins over the legacy booleans",
+        MODE,
+        "            if (IsKnown(stored)) return stored;",
+        "            if (false) return stored;",
+        "a stored mode is used as-is",
+    ),
+    (
+        "auto-approve goes silent about what it refused",
+        MODE,
+        "            return mode == Notify || mode == AutoApprove;",
+        "            return mode == Notify;",
+        "auto-approve still speaks",
+    ),
+    # The quips.
+    (
+        "a quip uses a placeholder it does not declare",
+        QUIPS,
+        '            new Quip("Something in {project} wants a yes or a no.", true, false),',
+        '            new Quip("Something in {project} wants a yes or a no.", false, false),',
+        "every quip declares exactly the placeholders it uses",
+    ),
+    (
+        "the picker repeats itself",
+        QUIPS,
+        "                if (!string.Equals(quip.Text, _last, StringComparison.Ordinal)) choices.Add(quip);",
+        "                choices.Add(quip);",
+        "it never says the same thing twice in a row",
+    ),
+    (
+        "the picker ignores whether it knows the project",
+        QUIPS,
+        "                if (quip.NeedsProject && !hasProject) continue;",
+        "                if (false) continue;",
+        "an unknown project never leaves a hole in the sentence",
     ),
 )
 
