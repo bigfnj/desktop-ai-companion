@@ -73,8 +73,6 @@ namespace DesktopAICompanion.AgentFlow
             while (_entries.Count > Cap) _entries.RemoveAt(0);
         }
 
-        public void Clear() { _entries.Clear(); }
-
         /// <summary>
         /// The card's text. One line per approval, newest first.
         ///

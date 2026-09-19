@@ -932,7 +932,14 @@ namespace DesktopAICompanion.AgentFlow
         private const string SettingAutoApprove = "autoApprove";
 
         private const string SettingArgvPath = "argvPath";
-        /// <summary>The port to ask VS Code for. Stored so a collision can be moved off.</summary>
+        /// <summary>
+        /// The port to ask VS Code for.
+        ///
+        /// READ ONLY in code: there is no pane field and no action that writes it, so moving
+        /// it off a collision means editing settings.json by hand. The comment here used to
+        /// imply a control existed. Kept as a setting because the hand-edit is a real escape
+        /// hatch, but said plainly rather than promised.
+        /// </summary>
         private const string SettingCdpPort = "cdpPort";
 
         /// <summary>The user's INTENT. Separate from whether the module CAN act, deliberately.</summary>

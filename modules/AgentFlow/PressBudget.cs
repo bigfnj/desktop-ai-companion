@@ -102,12 +102,6 @@ namespace DesktopAICompanion.AgentFlow
             _lastSignature = null;
         }
 
-        /// <summary>Presses still inside the window. Exposed so the pane can say where it stands.</summary>
-        public int RecentPresses(DateTime nowUtc)
-        {
-            Prune(nowUtc);
-            return _presses.Count;
-        }
 
         private void Prune(DateTime nowUtc)
         {
