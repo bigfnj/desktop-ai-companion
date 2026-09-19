@@ -30,10 +30,18 @@
 
   <!-- Tray icon, read at Init via EmbeddedResources.LoadBytes (matches on the trailing file name). -->
   <ItemGroup>
-    <!-- Tray icon for the module's own entry. Downscaled to 32x32 from the 640x640 original at
-         https://aiexplained.app/brand-mascot.png, fetched 2026-09-18 at the maintainer's request;
-         1.4 KB embedded rather than 155 KB, because this is only ever drawn at menu size. -->
-    <EmbeddedResource Include="Resources\brand-mascot.png" />
+    <!-- The orb, isolated from docs/images/agentflow-icon.jpg and masked to its circle: the source
+         is a 2384x1792 JPEG of the orb sitting on a rendered transparency checkerboard, so the
+         background is real grey pixels rather than alpha and had to be cut away.
+
+         Found by SATURATION, not by eye. The checkerboard is strictly achromatic and the orb is
+         not, so thresholding the saturation channel gives its bounding box exactly: 938x941, which
+         being square is itself the check that the thing found is the circle.
+
+         The mask radius is 465 and not the 470 that box implies. At 470 a thin ring of the dark
+         checkerboard tile survived all the way round: invisible at 32x32, obvious when composited
+         over magenta and magnified, which is the only reason it was caught. -->
+    <EmbeddedResource Include="Resources\agentflow-orb.png" />
   </ItemGroup>
 
 </Project>

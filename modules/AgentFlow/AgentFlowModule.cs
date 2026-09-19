@@ -108,7 +108,7 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.1.0",   // 1.1.0: the approve half, the mode radio, quips, the approvals card.
+            Version = "1.1.1",   // 1.1.1: the tray icon is the orb, cut out of docs/images/agentflow-icon.jpg.
                                  // 1.0.1: logs what the rules APPROVE, not only what would block.
                                  // 1.0.0: first version. Notify half only, observe-only by decision.
             // 1.0.0 rather than the release that first ships AgentTranscripts, because a module
@@ -183,7 +183,7 @@ namespace DesktopAICompanion.AgentFlow
                     Label = "AgentFlow",
                     Group = 40,
                     Order = 5,
-                    IconPng = LoadIconResource("brand-mascot.png"),
+                    IconPng = LoadIconResource("agentflow-orb.png"),
                     // The host re-evaluates this every time the menu opens, which is the only push
                     // channel a module has into the tray. A module cannot update an OPEN menu, so
                     // this is a snapshot by design rather than a live counter.
