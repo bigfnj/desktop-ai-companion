@@ -1407,6 +1407,7 @@ namespace DesktopAICompanion.AgentFlow
                               && SelfCheckApprovalFeed(probe)
                               && SelfCheckPetAnimations(probe)
                               && SelfCheckNotifyChannels(probe)
+                              && SelfCheckLogPath(probe)
                               && SelfCheckCacheBound(probe);
                     probe.Check("every logic group ran", ok);
 
@@ -2824,6 +2825,43 @@ namespace DesktopAICompanion.AgentFlow
                 }
             }
             return true;
+        }
+        /// <summary>
+        /// Where the "Open the log" button points.
+        ///
+        /// Asserted because the first version hardcoded %LOCALAPPDATA%\\DesktopAICompanion and
+        /// the host refused it -- correctly. A PORTABLE build keeps its data beside the exe, so
+        /// the path was genuinely outside the root it asked to reveal from. That is the worst
+        /// shape of bug: right on the machine it was written on, wrong everywhere else, and
+        /// invisible until someone ran the other build.
+        /// </summary>
+        private static bool SelfCheckLogPath(SelfTestProbe probe)
+        {
+            // WITNESS: the log sits beside the modules folder, whatever the root is. Both
+            // shapes are checked, because getting this right for one and wrong for the other
+            // is exactly what happened.
+            probe.Check("WITNESS the log is found under an INSTALLED data root",
+                LogPathFrom(new FakeStorage(
+                    @"C:\Users\x\AppData\Local\DesktopAICompanion\modules\agentflow"))
+                == @"C:\Users\x\AppData\Local\DesktopAICompanion\diagnostics.log");
+            probe.Check("WITNESS ...and under a PORTABLE one beside the exe, which is what broke",
+                LogPathFrom(new FakeStorage(@"D:\build\x64\data\modules\agentflow"))
+                == @"D:\build\x64\data\diagnostics.log");
+
+            probe.Check("a trailing separator does not shift the answer up a level",
+                LogPathFrom(new FakeStorage(@"D:\data\modules\agentflow\"))
+                == @"D:\data\diagnostics.log");
+            probe.Check("no storage means no guess",
+                LogPathFrom(null) == null && LogPathFrom(new FakeStorage("")) == null);
+            return true;
+        }
+
+        /// <summary>A storage handle with nothing behind it, for the path arithmetic above.</summary>
+        private sealed class FakeStorage : IModuleStorage
+        {
+            private readonly string _dir;
+            public FakeStorage(string dir) { _dir = dir; }
+            public string DataDirectory { get { return _dir; } }
         }
         private static bool SelfCheckCacheBound(SelfTestProbe probe)
         {

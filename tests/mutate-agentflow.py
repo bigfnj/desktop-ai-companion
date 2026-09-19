@@ -629,6 +629,13 @@ CASES = (
         '                var candidates = new List<string> { "boing", "jump", "run" }; if (false) _ = new List<string>(PetAnimations.Candidates(',
         "the animation played is not the one-pet list any more",
     ),
+    (
+        "the log path goes up one level instead of two",
+        PANE,
+        "                return System.IO.Path.Combine(modules.Parent.FullName, " + chr(34) + "diagnostics.log" + chr(34) + ");",
+        "                return System.IO.Path.Combine(modules.FullName, " + chr(34) + "diagnostics.log" + chr(34) + ");",
+        "the log is found under an INSTALLED data root",
+    ),
 )
 
 

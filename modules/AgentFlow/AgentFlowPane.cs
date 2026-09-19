@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using DesktopAICompanion.Modules;
@@ -405,13 +405,45 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         private System.Threading.Tasks.Task<string> OpenLogAsync()
         {
-            string path = System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "DesktopAICompanion", "diagnostics.log");
+            // DERIVED from this module's own storage directory, never from a guess at where
+            // the app keeps its data. The first version hardcoded %LOCALAPPDATA%\DesktopAICompanion
+            // and the host refused it -- correctly -- because a PORTABLE build keeps its data
+            // in a `data` folder beside the exe, so the path was genuinely outside the root
+            // it was being asked to reveal from. The containment check was right and the
+            // module was wrong, which is the good version of that argument.
+            //
+            // GetStorage hands back <dataRoot>\modules\<id>, so the log is two levels up. There is
+            // no ABI for "where is the log", and inventing one for a single button is worse
+            // than deriving it from a directory the host already gave us.
+            string path = LogPathFrom(_host != null ? _host.GetStorage(Info.Id) : null);
+            if (path == null)
+                return System.Threading.Tasks.Task.FromResult(
+                    "\u2717 Cannot work out where the log lives.");
             if (!System.IO.File.Exists(path))
                 return System.Threading.Tasks.Task.FromResult(
                     "✗ No diagnostic log yet. Turn logging on in Preferences first.");
             return System.Threading.Tasks.Task.FromResult(path);
+        }
+
+        /// <summary>
+        /// The host's diagnostic log, from the module's own storage directory.
+        ///
+        /// Pure and internal so the self-test can assert the arithmetic without a host: the
+        /// bug this replaces was a path that looked right on the machine it was written on
+        /// and was wrong everywhere else.
+        /// </summary>
+        internal static string LogPathFrom(IModuleStorage storage)
+        {
+            if (storage == null || string.IsNullOrEmpty(storage.DataDirectory)) return null;
+            try
+            {
+                System.IO.DirectoryInfo modules =
+                    System.IO.Directory.GetParent(storage.DataDirectory.TrimEnd(
+                        System.IO.Path.DirectorySeparatorChar));
+                if (modules == null || modules.Parent == null) return null;
+                return System.IO.Path.Combine(modules.Parent.FullName, "diagnostics.log");
+            }
+            catch (Exception) { return null; }
         }
     }
 }

@@ -89,6 +89,12 @@ namespace DesktopAICompanion.Wpf
                 new Setter(Control.ForegroundProperty, Text),
                 new Setter(Control.BorderBrushProperty, Border));
             Implicit(res, typeof(CheckBox), new Setter(Control.ForegroundProperty, Text));
+            // RadioButton needs exactly what CheckBox needs, and did not get it until the
+            // options pane grew its first radio group: the stock foreground is near-black,
+            // so every option rendered as black text on a dark card and the one control
+            // whose entire job is to be read was the one that could not be. Nothing was
+            // wrong with the radio; the theme simply had no opinion about it.
+            Implicit(res, typeof(RadioButton), new Setter(Control.ForegroundProperty, Text));
             // Grouped list cards (fortune packs) use Expander section headers; without this its header
             // text/chevron keep the stock near-black foreground and vanish against the dark card.
             Implicit(res, typeof(Expander), new Setter(Control.ForegroundProperty, Text));
