@@ -99,16 +99,38 @@ $versionMatch = [regex]::Match($sourceText, '(?m)^\s*Version\s*=\s*"([^"]+)"')
 if (-not $versionMatch.Success) { throw "Could not read ModuleInfo.Version from $($moduleSource.Name)." }
 $version = $versionMatch.Groups[1].Value
 
-$permissionsMatch = [regex]::Match($sourceText, 'Permissions\s*=\s*([^,;]+?)\s*,?\s*(?:\r?\n\s*\})')
+# COMMENTS ARE STRIPPED FIRST. The old pattern was [^,;]+?, which cannot cross a comma -- and a
+# multi-line Permissions expression with an explanatory // comment in it contains commas in prose.
+# The match then failed, $permissions fell back to '', and the block below treated that as
+# "nothing to change" and kept whatever modules.json already said. AgentFlow shipped a catalog
+# entry claiming four permissions while the code declared eight, including InputSynthesis and
+# Audio -- an UNDERSTATED consent screen, which is the one direction that matters.
+#
+# This file's own synopsis promises the catalog "cannot disagree with the code". It could, and did,
+# so an unreadable declaration is now a hard failure rather than a silent carry-forward.
+$codeOnly = ($sourceText -split "`n" | ForEach-Object { $_ -replace '//.*$', '' }) -join "`n"
+$permissionsMatch = [regex]::Match($codeOnly, '(?s)Permissions\s*=\s*(.+?);')
 if (-not $permissionsMatch.Success) {
-    $permissionsMatch = [regex]::Match($sourceText, 'Permissions\s*=\s*([^,;]+?)\s*,\s*\r?\n')
+    throw "Could not read ModuleInfo.Permissions from $($moduleSource.Name). Refusing to publish a" +
+          " catalog entry that would silently keep the previous permission list."
 }
-$permissions = ''
-if ($permissionsMatch.Success) {
-    # "ModulePermissions.Pets | ModulePermissions.Storage" -> "Pets, Storage"
-    $permissions = (($permissionsMatch.Groups[1].Value -replace 'ModulePermissions\.', '') -split '\|' |
-        ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -ne 'None' }) -join ', '
+# "ModulePermissions.Pets | ModulePermissions.Storage" -> "Pets, Storage"
+# Each element is scrubbed to its bare flag name. The capture necessarily runs to the ';' that
+# ends the whole ModuleInfo initialiser, so the last element arrives as "Audio,`n        }" --
+# which a Trim and a TrimEnd(',') do not clean, because it ends in a brace. A flag is letters.
+$permissions = (($permissionsMatch.Groups[1].Value -replace 'ModulePermissions\.', '') -split '\|' |
+    ForEach-Object { ($_ -replace '[^A-Za-z]', '') } |
+    Where-Object { $_ -and $_ -ne 'None' }) -join ', '
+if (-not $permissions) {
+    throw "ModuleInfo.Permissions in $($moduleSource.Name) parsed to nothing. Refusing to publish."
 }
+
+# The host floor, which nothing read before. A module that needs a newer host than the user has is
+# refused at LOAD time by its own ModuleInfo -- but without this in the catalog the user is offered
+# the download first and told why only afterwards, which is the failure the sequencing rule in
+# docs/RELEASE-CHECKLIST.md exists to prevent.
+$minHostMatch = [regex]::Match($codeOnly, '(?m)^\s*MinHostVersion\s*=\s*"([^"]+)"')
+$minHostVersion = if ($minHostMatch.Success) { $minHostMatch.Groups[1].Value } else { '' }
 
 # Publish AFTER the module's source is committed, never before. Test-ModulePublishFreshness compares commit
 # RECENCY, so a zip committed ahead of the source it was built from reads as stale even though its bytes are
@@ -174,6 +196,16 @@ if ($existing) {
     }
     $existing.version = $version
     if ($permissions) { $existing.permissions = $permissions }
+    # Read a few lines above and, until now, never assigned -- so the floor stayed absent from
+    # the manifest while the module declared one. Add-Member because the property does not exist
+    # on an entry published before this script knew about it.
+    if ($minHostVersion) {
+        if ($existing.PSObject.Properties.Name -contains 'minHostVersion') {
+            $existing.minHostVersion = $minHostVersion
+        } else {
+            $existing | Add-Member -NotePropertyName 'minHostVersion' -NotePropertyValue $minHostVersion
+        }
+    }
     if ($Name) { $existing.name = $Name }
     if ($Description) { $existing.desc = $Description }
 } else {
@@ -230,7 +262,11 @@ for ($i = 0; $i -lt $entries.Count; $i++) {
     $lines.Add('            "name": ' + (ConvertTo-JsonString ([string]$entry.name)) + ',')
     $lines.Add('            "desc": ' + (ConvertTo-JsonString ([string]$entry.desc)) + ',')
     $lines.Add('            "version": ' + (ConvertTo-JsonString ([string]$entry.version)) + ',')
-    $lines.Add('            "permissions": ' + (ConvertTo-JsonString ([string]$entry.permissions)))
+    $lines.Add('            "permissions": ' + (ConvertTo-JsonString ([string]$entry.permissions)) +
+               $(if ($entry.PSObject.Properties.Name -contains 'minHostVersion' -and $entry.minHostVersion) { ',' } else { '' }))
+    if ($entry.PSObject.Properties.Name -contains 'minHostVersion' -and $entry.minHostVersion) {
+        $lines.Add('            "minHostVersion": ' + (ConvertTo-JsonString ([string]$entry.minHostVersion)))
+    }
     if ($i -lt $entries.Count - 1) { $lines.Add('        },') } else { $lines.Add('        }') }
 }
 $lines.Add('    ]')
