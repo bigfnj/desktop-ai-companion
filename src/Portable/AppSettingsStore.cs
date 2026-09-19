@@ -28,6 +28,10 @@ namespace DesktopAICompanion
         public const int MaximumXmlBytes = 12 * 1024 * 1024;
         public const int MaximumLegacyImageCharacters = 16 * 1024 * 1024;
         public const int MaximumLegacyIconCharacters = 1024 * 1024;
+        // Generous on purpose: an extended-length Windows path can pass 260 characters, and a chosen sound
+        // silently reverting to the built-in because it sat deep in OneDrive would be indistinguishable
+        // from the feature not working.
+        public const int MaximumNotificationSoundPathLength = 1024;
 
         [JsonPropertyName("schemaVersion"), JsonPropertyOrder(1)]
         public int SchemaVersion;
@@ -133,6 +137,19 @@ namespace DesktopAICompanion
 
         [JsonPropertyName("notificationSoundsEnabled"), JsonPropertyOrder(31)]
         public bool? NotificationSoundsEnabled;
+
+        // Full path to the sound the user picked for notifications (IHost.PlayNotificationSound and the
+        // Preferences preview). "" or absent = the BUILT-IN chime, which is why this is a plain string and
+        // not nullable like the two switches above: there, "absent" had to stay distinguishable from an
+        // explicit false. Here absent and empty mean the identical thing, so a null would only add a state
+        // every reader has to collapse anyway.
+        //
+        // A PATH, not the bytes. Copying the file into application data would mean a second copy to keep in
+        // step, a size cap to enforce in two places, and a file to remove on reset; a path that has gone
+        // stale instead falls back to the built-in at play time, which is the behaviour a vanished chime
+        // should have had regardless.
+        [JsonPropertyName("notificationSoundPath"), JsonPropertyOrder(47)]
+        public string NotificationSoundPath;
 
         [JsonPropertyName("randomDropMinutes"), JsonPropertyOrder(21)]
         public int? RandomDropMinutes;
@@ -275,6 +292,7 @@ namespace DesktopAICompanion
                 RandomDropEnabled = false,
                 PetSoundsEnabled = true,
                 NotificationSoundsEnabled = true,
+                NotificationSoundPath = "",
                 RandomDropMinutes = 15,
                 RandomDropJitterMinutes = 3,
                 MonthlyModuleUpdateCheck = true,
@@ -357,6 +375,8 @@ namespace DesktopAICompanion
             if (!string.Equals(theme, ThemeMode, StringComparison.Ordinal)) { ThemeMode = theme; changed = true; }
             string device = NormalizeAudioDeviceId(AudioDeviceId);
             if (!string.Equals(device, AudioDeviceId, StringComparison.Ordinal)) { AudioDeviceId = device; changed = true; }
+            string sound = NormalizeNotificationSoundPath(NotificationSoundPath);
+            if (!string.Equals(sound, NotificationSoundPath, StringComparison.Ordinal)) { NotificationSoundPath = sound; changed = true; }
             changed |= NormalizeMutedPets();
             string active = NormalizeActivePetId(ActivePetId);
             if (!string.Equals(active, ActivePetId, StringComparison.Ordinal)) { ActivePetId = active; changed = true; }
@@ -424,6 +444,29 @@ namespace DesktopAICompanion
             if (string.IsNullOrWhiteSpace(id)) return "";
             id = id.Trim();
             return id.Length > 128 ? "" : id;
+        }
+
+        /// <summary>
+        /// The chosen notification sound. Blank, over-long, control-character-bearing and relative paths
+        /// all collapse to "" = the built-in chime, so nothing downstream has to reason about a half-valid
+        /// path. Relative is refused rather than resolved because it would resolve against the process
+        /// working directory, which for a shell-launched app is wherever the user happened to be.
+        ///
+        /// Deliberately NOT an existence check, even though it is the obvious one to add here. Normalize
+        /// runs on every LOAD, so a file on a network share that had not reconnected yet — or a USB drive,
+        /// or a profile still syncing — would have the user's choice quietly erased by whichever launch
+        /// happened to be early, with nothing on screen to explain it. Whether the bytes are playable is
+        /// answered where the user can be told: at pick time, and as a fallback at play time.
+        /// </summary>
+        internal static string NormalizeNotificationSoundPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return "";
+            path = path.Trim();
+            if (path.Length > MaximumNotificationSoundPathLength) return "";
+            foreach (char c in path) if (char.IsControl(c)) return "";
+            try { if (!Path.IsPathRooted(path)) return ""; }
+            catch { return ""; }
+            return path;
         }
 
         /// <summary>Clamp the settings-window theme to one of "system" / "light" / "dark" (default system).</summary>
@@ -1074,6 +1117,12 @@ namespace DesktopAICompanion
                 target.PetSoundsEnabled = current.PetSoundsEnabled;
             if (all || current.NotificationSoundsEnabled != baseline.NotificationSoundsEnabled)
                 target.NotificationSoundsEnabled = current.NotificationSoundsEnabled;
+            // A new field is only persisted once it is named HERE as well as in Clone: Save reads the file
+            // back and copies across the fields that moved, so one that is not listed is silently dropped
+            // and Save still returns true. Found by the round-trip assertion in --audio-selftest, which
+            // is the only thing between this trap and a setting that never sticks.
+            if (all || !string.Equals(current.NotificationSoundPath, baseline.NotificationSoundPath, StringComparison.Ordinal))
+                target.NotificationSoundPath = current.NotificationSoundPath;
             if (all || current.RandomDropMinutes != baseline.RandomDropMinutes)
                 target.RandomDropMinutes = current.RandomDropMinutes;
             if (all || current.RandomDropJitterMinutes != baseline.RandomDropJitterMinutes)
@@ -1154,6 +1203,7 @@ namespace DesktopAICompanion
                 RandomDropEnabled = source.RandomDropEnabled,
                 PetSoundsEnabled = source.PetSoundsEnabled,
                 NotificationSoundsEnabled = source.NotificationSoundsEnabled,
+                NotificationSoundPath = source.NotificationSoundPath,
                 RandomDropMinutes = source.RandomDropMinutes,
                 RandomDropJitterMinutes = source.RandomDropJitterMinutes,
                 MonthlyModuleUpdateCheck = source.MonthlyModuleUpdateCheck,

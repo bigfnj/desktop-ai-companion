@@ -275,6 +275,30 @@ namespace DesktopAICompanion.Wpf
         /// <summary>Column pitch = a card's width + inter-column gap; cards are left-aligned in each slot.</summary>
         public double ColumnWidth { get; set; } = 368;
 
+        /// <summary>
+        /// Set on a child to make it span the whole panel instead of taking one column
+        /// (<see cref="SettingField.FullWidth"/>). Attached rather than a property of the card, because the
+        /// panel is the only thing that knows how many columns there are: a card cannot size itself to a
+        /// column count it never sees, and the previous "just make it wider" answer produced a card that
+        /// overhung its neighbour at every window width except the one it was tuned for.
+        /// </summary>
+        public static readonly DependencyProperty SpanAllColumnsProperty =
+            DependencyProperty.RegisterAttached(
+                "SpanAllColumns", typeof(bool), typeof(MasonryPanel),
+                new FrameworkPropertyMetadata(
+                    false,
+                    FrameworkPropertyMetadataOptions.AffectsParentMeasure | FrameworkPropertyMetadataOptions.AffectsParentArrange));
+
+        public static void SetSpanAllColumns(UIElement element, bool value)
+        {
+            if (element != null) element.SetValue(SpanAllColumnsProperty, value);
+        }
+
+        public static bool GetSpanAllColumns(UIElement element)
+        {
+            return element != null && (bool)element.GetValue(SpanAllColumnsProperty);
+        }
+
         private int ColumnCount(double availableWidth)
         {
             if (double.IsInfinity(availableWidth) || double.IsNaN(availableWidth) || availableWidth <= 0) return 1;
@@ -288,21 +312,41 @@ namespace DesktopAICompanion.Wpf
             return min;
         }
 
+        private static double Tallest(double[] heights)
+        {
+            double max = 0;
+            foreach (double h in heights) if (h > max) max = h;
+            return max;
+        }
+
+        // A spanning child starts below everything placed so far (Tallest) and leaves every column level
+        // with its bottom. Anything else would let a later one-column card slide up beside it and overlap:
+        // the columns are tracked as bare running heights, with no notion of a gap to fill.
         protected override Size MeasureOverride(Size availableSize)
         {
             int cols = ColumnCount(availableSize.Width);
             var colHeights = new double[cols];
+            // A spanning child is measured against the whole panel, so an infinite width (a measure pass
+            // with no constraint) has to resolve to the same nominal width the return value reports, or the
+            // card would report a height for a width it is never given.
+            double fullWidth = double.IsInfinity(availableSize.Width) || double.IsNaN(availableSize.Width) || availableSize.Width <= 0
+                ? cols * ColumnWidth
+                : availableSize.Width;
             foreach (UIElement child in InternalChildren)
             {
                 if (child == null) continue;
+                if (GetSpanAllColumns(child))
+                {
+                    child.Measure(new Size(fullWidth, double.PositiveInfinity));
+                    double bottom = Tallest(colHeights) + child.DesiredSize.Height;
+                    for (int i = 0; i < cols; i++) colHeights[i] = bottom;
+                    continue;
+                }
                 child.Measure(new Size(ColumnWidth, double.PositiveInfinity));
                 int c = ShortestColumn(colHeights);
                 colHeights[c] += child.DesiredSize.Height;
             }
-            double maxH = 0;
-            foreach (double h in colHeights) if (h > maxH) maxH = h;
-            double width = double.IsInfinity(availableSize.Width) ? cols * ColumnWidth : availableSize.Width;
-            return new Size(width, maxH);
+            return new Size(fullWidth, Tallest(colHeights));
         }
 
         protected override Size ArrangeOverride(Size finalSize)
@@ -312,6 +356,14 @@ namespace DesktopAICompanion.Wpf
             foreach (UIElement child in InternalChildren)
             {
                 if (child == null) continue;
+                if (GetSpanAllColumns(child))
+                {
+                    double top = Tallest(colHeights);
+                    child.Arrange(new Rect(0, top, finalSize.Width, child.DesiredSize.Height));
+                    double bottom = top + child.DesiredSize.Height;
+                    for (int i = 0; i < cols; i++) colHeights[i] = bottom;
+                    continue;
+                }
                 int c = ShortestColumn(colHeights);
                 child.Arrange(new Rect(c * ColumnWidth, colHeights[c], child.DesiredSize.Width, child.DesiredSize.Height));
                 colHeights[c] += child.DesiredSize.Height;
@@ -377,23 +429,152 @@ namespace DesktopAICompanion.Wpf
         private readonly Dictionary<string, Func<string>> _readers = new Dictionary<string, Func<string>>(StringComparer.Ordinal);
         private readonly HashSet<string> _secretIds = new HashSet<string>(StringComparer.Ordinal);
 
+        /// <summary>
+        /// One re-evaluation closure per <see cref="SettingField.EnabledWhen"/> dependent. Run once at the
+        /// end of Build and again after every edit, rather than wired field-to-field: a dependent is allowed
+        /// to name a field declared LATER in the schema, whose reader does not exist yet at the moment the
+        /// dependent's row is built, and a module author has no reason to expect declaration order to matter.
+        /// </summary>
+        private readonly List<Action> _enableUpdaters = new List<Action>();
+
+        /// <summary>Each field's row element by id. EnabledWhen greys the whole row, and this is also the
+        /// only handle on a named field the self-test has: the rendered tree carries no field identity, so
+        /// "some TextBox somewhere is disabled" would pass for the wrong field.</summary>
+        private readonly Dictionary<string, FrameworkElement> _rows = new Dictionary<string, FrameworkElement>(StringComparer.Ordinal);
+
+        /// <summary>What Build() started from, so an EnabledWhen can still read a field that has no editor
+        /// and therefore no reader (Info, Header, or an id that is not in the schema at all).</summary>
+        private IReadOnlyDictionary<string, string> _loaded = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// On-screen values handed from the view being torn down to the one the host builds in its place,
+        /// for a <see cref="SettingField.ReloadOnChange"/> cascade. It cannot travel on the instance: the
+        /// host answers RequestReload by constructing a FRESH PaneView, so the only thing the two share is
+        /// the pane. One slot, keyed by that pane and emptied by the first Build that asks, because a slot
+        /// left full would feed one open's unapplied edits into an unrelated later one.
+        ///
+        /// Deliberately not filled by the other two rebuild paths. A ReloadPaneAfter action (reset to
+        /// defaults) rebuilds precisely to show what it just WROTE, and the post-Apply refresh likewise, so
+        /// handing either the pre-rebuild screen state would show the user the values they just replaced.
+        /// </summary>
+        [ThreadStatic] private static OptionsPane _rebuildPane;
+        [ThreadStatic] private static Dictionary<string, string> _rebuildValues;
+
         public PaneView(OptionsPane pane, Action requestReload = null, Action notifyDirty = null)
         {
             _pane = pane; _requestReload = requestReload; _notifyDirty = notifyDirty;
         }
 
+        private static void StashPendingRebuildValues(OptionsPane pane, Dictionary<string, string> values)
+        {
+            _rebuildPane = pane; _rebuildValues = values;
+        }
+
+        private static Dictionary<string, string> TakePendingRebuildValues(OptionsPane pane)
+        {
+            OptionsPane stashedFor = _rebuildPane;
+            Dictionary<string, string> stashed = _rebuildValues;
+            _rebuildPane = null; _rebuildValues = null;   // emptied even on a mismatch, so nothing lingers
+            return (pane != null && ReferenceEquals(stashedFor, pane)) ? stashed : null;
+        }
+
         // A genuine user edit to a field; ignored while Build() is populating initial values.
         private void Dirty() { if (!_suppressDirty && _notifyDirty != null) _notifyDirty(); }
+
+        /// <summary>
+        /// One field's editor changed. Everything that has to happen per edit funnels through here so the
+        /// order is fixed in one place, which matters for the reload: the host greys Apply out at the END of
+        /// a rebuild, so re-raising the unsaved-edit signal has to happen after RequestReload returns or the
+        /// user is left looking at their new value with no way to save it.
+        /// </summary>
+        private void FieldChanged(SettingField f)
+        {
+            if (_suppressDirty) return;   // Build() populating initial control values is not an edit
+            Dirty();
+            RefreshEnabledStates();
+            if (f == null || !f.ReloadOnChange || _requestReload == null) return;
+            StashPendingRebuildValues(_pane, Collect());
+            _requestReload();
+            Dirty();
+        }
+
+        /// <summary>
+        /// The value a field's editor is showing right now. Falls back to what Load supplied for ids with no
+        /// reader (Info and Header register none, and a module may name a field it did not declare), so an
+        /// EnabledWhen against one of those compares against something real instead of silently reading "".
+        /// </summary>
+        private string CurrentValueOf(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return "";
+            Func<string> reader;
+            if (_readers.TryGetValue(id, out reader) && reader != null)
+            {
+                try { return reader() ?? ""; } catch { return ""; }
+            }
+            string loaded;
+            if (_loaded != null && _loaded.TryGetValue(id, out loaded)) return loaded ?? "";
+            return "";
+        }
+
+        /// <summary>Whether a field's EnabledWhen (format "otherFieldId=value") is currently satisfied.
+        /// Compared case-insensitively: a Bool reader emits lowercase "true"/"false" and an author writes
+        /// "True" about as often, and every other kind stores a literal the module chose itself.</summary>
+        private bool IsEnabledNow(SettingField f)
+        {
+            if (f == null || string.IsNullOrEmpty(f.EnabledWhen)) return true;
+            int eq = f.EnabledWhen.IndexOf('=');
+            if (eq <= 0) return true;   // no id, or no separator: unparseable, so it constrains nothing
+            string otherId = f.EnabledWhen.Substring(0, eq).Trim();
+            string wanted = f.EnabledWhen.Substring(eq + 1);
+            return string.Equals(CurrentValueOf(otherId), wanted, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void RefreshEnabledStates()
+        {
+            foreach (Action update in _enableUpdaters)
+            {
+                try { update(); } catch { }
+            }
+        }
+
+        /// <summary>A field's rendered row, for the self-test. See <see cref="_rows"/>.</summary>
+        internal FrameworkElement RowFor(string fieldId)
+        {
+            FrameworkElement row;
+            return (fieldId != null && _rows.TryGetValue(fieldId, out row)) ? row : null;
+        }
 
         public FrameworkElement Build()
         {
             _readers.Clear();
             _secretIds.Clear();
+            _enableUpdaters.Clear();
+            _rows.Clear();
             _suppressDirty = true;   // populating initial control values below must not mark the pane dirty
 
+            // Asked for unconditionally, even by a pane that will not use it: see StashPendingRebuildValues.
+            Dictionary<string, string> pending = TakePendingRebuildValues(_pane);
+
+            // Whichever of these runs, it runs BEFORE _pane.Schema is read below, and must keep doing so:
+            // the core Preferences pane rebuilds a field's Options from inside Load (OptionsShell's "who
+            // speaks" dropdown is filled from the pets actually on screen), so reading the schema first
+            // would render the previous open's list.
             IReadOnlyDictionary<string, string> values = null;
-            try { if (_pane != null && _pane.Load != null) values = _pane.Load(); } catch { values = null; }
+            if (_pane != null && _pane.LoadPending != null)
+            {
+                // LoadPending REPLACES Load for a module that supplies one, rather than running alongside
+                // it: two sources for the same value would make "which one wins" a per-field accident. A
+                // first build has nothing on screen yet and so passes the empty dictionary, which is the
+                // same "nothing pending, answer from what is stored" case the module already handles.
+                if (pending == null) pending = new Dictionary<string, string>(StringComparer.Ordinal);
+                try { values = _pane.LoadPending(pending); } catch { values = null; }
+            }
+            else
+            {
+                try { if (_pane != null && _pane.Load != null) values = _pane.Load(); } catch { values = null; }
+            }
             if (values == null) values = new Dictionary<string, string>();
+            _loaded = values;
 
             // Bucket fields + actions by Group (first-appearance order; null/"" = an untitled default card).
             var order = new List<string>();
@@ -418,6 +599,24 @@ namespace DesktopAICompanion.Wpf
                     groupActions[g].Add(a);
                 }
 
+            // FullWidth and PinTop are card-level, and read from the group's FIRST field only. A card cannot
+            // be half wide, so letting any member vote would make the answer depend on schema order in a way
+            // the module author never sees; the first field is the one they can point at. A group built only
+            // from actions has no first field and therefore gets neither.
+            //
+            // Pinned cards move ahead of the rest as a STABLE partition, so a module that pins two cards
+            // still controls which of the two comes first, and the unpinned ones keep the order they were
+            // declared in. Dynamic list cards are appended after all of these, as before.
+            var pinnedFirst = new List<string>();
+            var unpinned = new List<string>();
+            foreach (string g in order)
+            {
+                if (FirstFieldOf(groupFields[g]) != null && FirstFieldOf(groupFields[g]).PinTop) pinnedFirst.Add(g);
+                else unpinned.Add(g);
+            }
+            pinnedFirst.AddRange(unpinned);
+            order = pinnedFirst;
+
             // Each group renders as a titled card; cards flow into responsive columns via a masonry panel
             // (each card drops into the shortest column) so a small card next to a tall one doesn't leave a gap.
             var cards = new MasonryPanel { Margin = new Thickness(4) };
@@ -439,7 +638,8 @@ namespace DesktopAICompanion.Wpf
                     if (groupFields[g].Count > 0) inner.Children.Add(new Separator { Margin = new Thickness(0, 6, 0, 4) });
                     foreach (PaneAction a in groupActions[g]) inner.Children.Add(BuildActionRow(a));
                 }
-                cards.Children.Add(NewCard(inner));
+                SettingField lead = FirstFieldOf(groupFields[g]);
+                cards.Children.Add(NewCard(inner, lead != null && lead.FullWidth));
             }
 
             // Dynamic list cards (checkable item lists a flat schema can't express, e.g. fortune packs/genres).
@@ -457,6 +657,9 @@ namespace DesktopAICompanion.Wpf
                 Margin = new Thickness(4, 0, 0, 6),
             });
             root.Children.Add(cards);
+            // Now that every reader exists, settle the EnabledWhen states once. Doing it as each row was
+            // built would leave a dependent that names a later field reading nothing and starting enabled.
+            RefreshEnabledStates();
             _suppressDirty = false;   // initial values are in place; from here real edits mark the pane dirty
             // Own ScrollViewer so the pane scrolls (incl. the mouse wheel) without an outer one to nest in.
             return new ScrollViewer
@@ -467,18 +670,34 @@ namespace DesktopAICompanion.Wpf
             };
         }
 
-        // The shared titled-card chrome, used by both schema-group cards and dynamic list cards.
-        private static Border NewCard(UIElement child)
+        /// <summary>The group's first field, or null for a group that is nothing but action buttons. The
+        /// card-level flags (<see cref="SettingField.FullWidth"/>, <see cref="SettingField.PinTop"/>) are
+        /// read from it and from nowhere else.</summary>
+        private static SettingField FirstFieldOf(List<SettingField> fields)
         {
-            return new Border
+            return (fields != null && fields.Count > 0) ? fields[0] : null;
+        }
+
+        // The shared titled-card chrome, used by both schema-group cards and dynamic list cards.
+        //
+        // A full-width card leaves Width UNSET instead of setting a bigger number. The fixed 360 is half of
+        // the story: the other half is the 4px margin on each side, which the masonry panel's 368 column
+        // pitch is built around. A card that spans n columns is 368n minus that same gutter, and only the
+        // panel knows n, so the card stretches into the slot the panel gives it rather than guessing.
+        private static Border NewCard(UIElement child, bool fullWidth = false)
+        {
+            var card = new Border
             {
                 BorderBrush = Brushes.Gray,
                 BorderThickness = new Thickness(1),
                 Margin = new Thickness(4),
                 Padding = new Thickness(8),
-                Width = 360,
                 Child = child,
             };
+            if (fullWidth) card.HorizontalAlignment = HorizontalAlignment.Stretch;
+            else card.Width = 360;
+            MasonryPanel.SetSpanAllColumns(card, fullWidth);
+            return card;
         }
 
         // Render a ListCard: a titled card with a scrollable list of checkboxes (label + optional detail)
@@ -710,6 +929,13 @@ namespace DesktopAICompanion.Wpf
                 string result;
                 try { result = await action.InvokeAsync() ?? ""; }
                 catch (Exception ex) { result = "failed: " + ex.Message; }
+                // RevealsPath: the return value is a file to show in Explorer, not a message. Empty, or
+                // already carrying a ✓/✗ marker, means the action chose to report the ordinary way instead
+                // (it had no path to give), so it passes through untouched. Anything else is checked and
+                // then either shown or refused, and the refusal lands in this same status line: that is the
+                // only channel through which a module can learn it was refused at all.
+                if (action.RevealsPath && !string.IsNullOrEmpty(result) && !result.StartsWith("✓") && !result.StartsWith("✗"))
+                    result = RevealInExplorer(result);
                 status.Text = result;
                 // Colour a ✓/✗ result green/red (used by Test OCR, Test connection) so pass/fail is obvious.
                 if (result.StartsWith("✓")) status.Foreground = Brushes.LimeGreen;
@@ -722,6 +948,139 @@ namespace DesktopAICompanion.Wpf
             row.Children.Add(btn);
             row.Children.Add(status);
             return row;
+        }
+
+        /// <summary>
+        /// Show a <see cref="PaneAction.RevealsPath"/> file in Explorer, or say why not.
+        ///
+        /// The data root is the whole containment test, and that is not a shortcut: every module's storage
+        /// directory is already inside it, because CompanionHost hands out
+        /// <c>AppPaths.DataRoot\modules\{id}</c> and nothing else (CompanionHost.ModuleDataDir). A PaneView
+        /// is handed an OptionsPane and no module identity, so it could not name the calling module's own
+        /// folder even if that folder lived somewhere else. Written down here because it is the assumption
+        /// that would break quietly: a future host that gives a module a directory OUTSIDE the data root
+        /// turns this from "exactly the rule" into "too strict", and the symptom would be a refusal nobody
+        /// can explain.
+        /// </summary>
+        private static string RevealInExplorer(string returned)
+        {
+            string refusal;
+            string full = ResolveRevealTarget(returned, AppPaths.DataRoot, out refusal);
+            if (full == null) return refusal;
+            try
+            {
+                // Same shell-execute shape as the releases link in the window footer. /select highlights
+                // the file inside its folder rather than opening it, so even an allowed path is shown and
+                // never run: the verb stays "reveal" even if the file is an .exe the module just wrote.
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "explorer.exe",
+                    Arguments = "/select,\"" + full + "\"",
+                    UseShellExecute = true,
+                });
+            }
+            catch (Exception ex) { return "✗ could not open Explorer: " + ex.Message; }
+            return "✓ shown in Explorer";
+        }
+
+        /// <summary>
+        /// The existence + containment check behind <see cref="PaneAction.RevealsPath"/>, kept apart from
+        /// the shell call so a refusal can be asserted without an Explorer window opening. Returns the path
+        /// to reveal, or null with the ✗ message to show beside the button.
+        ///
+        /// Containment is tested BEFORE existence, deliberately. The other order answers "does
+        /// C:\Users\someone\taxes.pdf exist?" for any path a module cares to return, one refusal message at
+        /// a time, which is a filesystem probe the plugin ABI does not otherwise offer.
+        /// </summary>
+        internal static string ResolveRevealTarget(string returned, string dataRoot, out string refusal)
+        {
+            refusal = null;
+            // Trimmed of quotes as well as space: a module that built the string for a command line has
+            // wrapped it, and refusing that would look like the containment check failing.
+            string candidate = (returned ?? "").Trim().Trim('"');
+            if (candidate.Length == 0) { refusal = "✗ refused: no path to show."; return null; }
+
+            string full;
+            try { full = System.IO.Path.GetFullPath(candidate); }
+            catch (Exception ex) { refusal = "✗ refused: that path could not be read (" + ex.Message + ")"; return null; }
+
+            const string outside = "✗ refused: that file is outside this app's data folder.";
+            if (!IsUnder(full, dataRoot)) { refusal = outside; return null; }
+            if (!System.IO.File.Exists(full)) { refusal = "✗ refused: that is not an existing file."; return null; }
+
+            // A reparse point INSIDE the data root must not become a way to point outside it, and the
+            // containment test has to be done on the path the OS will actually open.
+            //
+            // File.ResolveLinkTarget only resolves a link at the END of the path, which leaves the
+            // EASIER escape open: a directory junction part way along one. A symbolic link needs
+            // Developer Mode or elevation to create, a junction needs neither, so the cheap attack was
+            // the unhandled one. GetFinalPathNameByHandle resolves every reparse point along the path
+            // in one call, which is the only answer that is not a partial one.
+            //
+            // A failure here REFUSES rather than falling through. The previous shape swallowed the
+            // exception and returned the unresolved path on the grounds that "nothing was learned" --
+            // but not knowing where a path leads is the case this check exists for, and the whole
+            // reason the verb is restricted at all is that an unrestricted one is a shell primitive
+            // wearing a different name.
+            string real;
+            try { real = FinalPath(full); }
+            catch (Exception ex)
+            {
+                refusal = "✗ refused: that path could not be resolved (" + ex.Message + ")";
+                return null;
+            }
+            if (!IsUnder(real, dataRoot)) { refusal = outside; return null; }
+
+            return full;
+        }
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet =
+            System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+        private static extern int GetFinalPathNameByHandleW(
+            Microsoft.Win32.SafeHandles.SafeFileHandle handle, System.Text.StringBuilder path,
+            int count, int flags);
+
+        /// <summary>
+        /// Where a path REALLY leads, with every junction and symlink along it resolved.
+        ///
+        /// Opened with full sharing so a file another process is writing -- the diagnostic log being the
+        /// obvious one, since showing it is what this feature is for -- does not fail to resolve.
+        /// </summary>
+        private static string FinalPath(string full)
+        {
+            using (Microsoft.Win32.SafeHandles.SafeFileHandle handle = System.IO.File.OpenHandle(
+                       full, System.IO.FileMode.Open, System.IO.FileAccess.Read,
+                       System.IO.FileShare.ReadWrite | System.IO.FileShare.Delete))
+            {
+                var buffer = new System.Text.StringBuilder(1024);
+                int written = GetFinalPathNameByHandleW(handle, buffer, buffer.Capacity, 0);
+                if (written <= 0)
+                    throw new System.ComponentModel.Win32Exception(
+                        System.Runtime.InteropServices.Marshal.GetLastWin32Error());
+                string resolved = buffer.ToString(0, Math.Min(written, buffer.Capacity));
+                // The call returns the \\?\ form. Strip it so the comparison is against an ordinary
+                // path, and leave the UNC form (\\?\UNC\server\share) alone rather than half-converting
+                // it -- a mangled UNC would compare unequal to everything and refuse silently.
+                const string Prefix = @"\\?\";
+                if (resolved.StartsWith(Prefix, StringComparison.Ordinal)
+                    && !resolved.StartsWith(Prefix + "UNC", StringComparison.OrdinalIgnoreCase))
+                    resolved = resolved.Substring(Prefix.Length);
+                return resolved;
+            }
+        }
+
+        /// <summary>Is an already-absolute path inside <paramref name="root"/>? The separator is appended
+        /// to the root before comparing, so a sibling directory whose name merely starts the same way
+        /// ("…\DesktopAICompanion-old\x" against "…\DesktopAICompanion") is not read as being inside it.</summary>
+        private static bool IsUnder(string full, string root)
+        {
+            if (string.IsNullOrEmpty(full) || string.IsNullOrEmpty(root)) return false;
+            string prefix;
+            try { prefix = System.IO.Path.GetFullPath(root); } catch { return false; }
+            if (prefix.Length == 0) return false;
+            if (prefix[prefix.Length - 1] != System.IO.Path.DirectorySeparatorChar)
+                prefix += System.IO.Path.DirectorySeparatorChar;
+            return full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -751,6 +1110,52 @@ namespace DesktopAICompanion.Wpf
 
         private FrameworkElement BuildRow(SettingField f, string cur)
         {
+            FrameworkElement row = f.Kind == SettingKind.Header ? BuildHeaderRow(f, cur) : BuildEditorRow(f, cur);
+            _rows[f.Id] = row;
+
+            // EnabledWhen greys the WHOLE row, label included. Disabling only the editor leaves a
+            // full-contrast label beside a dead control, which reads as a rendering fault rather than as
+            // "not applicable right now". What it deliberately does NOT touch is the reader: a disabled
+            // field is still collected, because a field the user never saw writing "" over a stored setting
+            // would destroy data they had no way to know was at risk.
+            if (!string.IsNullOrEmpty(f.EnabledWhen))
+            {
+                SettingField dependent = f;
+                FrameworkElement target = row;
+                _enableUpdaters.Add(delegate { target.IsEnabled = IsEnabledNow(dependent); });
+            }
+            return row;
+        }
+
+        /// <summary>
+        /// Header: display-only, and the one field kind that does NOT get the fixed-width label column. The
+        /// Label IS the heading, so rendering it as a label beside an empty editor would indent it under the
+        /// fields it exists to introduce. No reader is registered, exactly as for Info, so a module never
+        /// has to defend against its own heading text arriving back as input on Save.
+        /// </summary>
+        private static FrameworkElement BuildHeaderRow(SettingField f, string cur)
+        {
+            var block = new StackPanel { Margin = new Thickness(0, 8, 0, 2) };
+            block.Children.Add(new TextBlock
+            {
+                Text = f.Label ?? f.Id,
+                FontWeight = FontWeights.Bold,
+                TextWrapping = TextWrapping.Wrap,
+            });
+            // The value is optional. When Load supplies one it becomes the paragraph under the heading,
+            // which is what lets a card carry a sentence of explanation and not just a bold line.
+            if (!string.IsNullOrEmpty(cur))
+                block.Children.Add(new TextBlock
+                {
+                    Text = cur,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 2, 0, 0),
+                });
+            return block;
+        }
+
+        private FrameworkElement BuildEditorRow(SettingField f, string cur)
+        {
             var row = new DockPanel { Margin = new Thickness(0, 3, 0, 3), LastChildFill = true };
             var label = new TextBlock { Text = f.Label ?? f.Id, Width = 165, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
             DockPanel.SetDock(label, Dock.Left);
@@ -762,8 +1167,8 @@ namespace DesktopAICompanion.Wpf
                 {
                     var cb = new CheckBox { VerticalAlignment = VerticalAlignment.Center, IsChecked = ParseBool(cur) };
                     _readers[f.Id] = () => (cb.IsChecked == true) ? "true" : "false";
-                    cb.Checked += delegate { Dirty(); };
-                    cb.Unchecked += delegate { Dirty(); };
+                    cb.Checked += delegate { FieldChanged(f); };
+                    cb.Unchecked += delegate { FieldChanged(f); };
                     row.Children.Add(cb);
                     break;
                 }
@@ -773,8 +1178,52 @@ namespace DesktopAICompanion.Wpf
                     if (f.Options != null) foreach (string o in f.Options) combo.Items.Add(o);
                     combo.SelectedItem = cur;
                     _readers[f.Id] = () => combo.SelectedItem as string ?? "";
-                    combo.SelectionChanged += delegate { Dirty(); };
+                    combo.SelectionChanged += delegate { FieldChanged(f); };
                     row.Children.Add(combo);
+                    break;
+                }
+                case SettingKind.Radio:
+                {
+                    // Stores exactly what Enum stores: the chosen option string, or "" when nothing is
+                    // selected because the loaded value is not one of the Options. That equivalence is the
+                    // entire point of the kind (a field moves between Enum and Radio with no settings
+                    // migration), so this reader mirrors the ComboBox one above rather than being written
+                    // for whatever is convenient here.
+                    //
+                    // No GroupName is set, on purpose. WPF's named groups live in a static registry scoped
+                    // by VISUAL ROOT, and Build() hands back an unrooted tree, so two panes carrying the
+                    // same field id in one process (the self-test does exactly that, and so does closing
+                    // and reopening Settings) would share a group and silently unselect each other's
+                    // buttons. Unnamed, a RadioButton groups by its logical parent instead, and this
+                    // StackPanel belongs to this field alone.
+                    var choices = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                    var buttons = new List<RadioButton>();
+                    if (f.Options != null)
+                        foreach (string o in f.Options)
+                        {
+                            // IsChecked in the initializer, before the handler is wired, so restoring the
+                            // stored value is not reported as an edit.
+                            var rb = new RadioButton
+                            {
+                                Content = o,
+                                Tag = o,
+                                Margin = new Thickness(0, 2, 0, 2),
+                                IsChecked = string.Equals(o, cur, StringComparison.Ordinal),
+                            };
+                            buttons.Add(rb);
+                            choices.Children.Add(rb);
+                        }
+                    _readers[f.Id] = delegate
+                    {
+                        foreach (RadioButton rb in buttons)
+                            if (rb.IsChecked == true) return (rb.Tag as string) ?? "";
+                        return "";
+                    };
+                    // Checked only. Moving to another option raises Unchecked on the old button as well, so
+                    // handling both would report one change twice, and a ReloadOnChange field would rebuild
+                    // the pane from the half-finished state where nothing is selected.
+                    foreach (RadioButton rb in buttons) rb.Checked += delegate { FieldChanged(f); };
+                    row.Children.Add(choices);
                     break;
                 }
                 case SettingKind.Info:
@@ -804,7 +1253,7 @@ namespace DesktopAICompanion.Wpf
                     if (alreadySet) pw.ToolTip = "A value is saved. Leave blank to keep it.";
                     _secretIds.Add(f.Id);
                     _readers[f.Id] = () => pw.Password ?? "";
-                    pw.PasswordChanged += delegate { Dirty(); };
+                    pw.PasswordChanged += delegate { FieldChanged(f); };
                     row.Children.Add(pw);
                     break;
                 }
@@ -830,7 +1279,7 @@ namespace DesktopAICompanion.Wpf
                     var tb = new TextBox { Text = cur, VerticalAlignment = VerticalAlignment.Center };
                     SettingField bounded = f;
                     _readers[f.Id] = () => ClampIfBounded(bounded, tb.Text ?? "");
-                    tb.TextChanged += delegate { Dirty(); };
+                    tb.TextChanged += delegate { FieldChanged(f); };
                     row.Children.Add(tb);
                     break;
                 }

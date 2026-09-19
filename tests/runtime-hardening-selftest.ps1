@@ -153,6 +153,20 @@ Assert-True (
     -not $audioSource.Substring($playOwnedStart, $playOwnedEnd - $playOwnedStart).Contains('_cache')
 ) 'module audio is never entered into the decode cache'
 
+# The shared notification sound's three layers -- the notificationSounds switch, the master volume, the
+# output device -- live in NotificationSound.Play, and --audio-selftest asserts all three (and their ORDER)
+# with no device. What nothing there can see is whether StartUp's seam still routes through it. That method
+# shipped as a literal `return false;` while the ABI already advertised IHost.PlayNotificationSound, so
+# reverting it -- by a bad merge, or by someone "inlining" the gates -- restores a build where every gate is
+# green and every module is silent, which is exactly the state this feature was added to end.
+#
+# The CALL with both of its real arguments, not merely the name: a body that passed null for either would
+# gate on nothing (null settings answers NoSettings, null output answers NoDevice) and still compile, still
+# return a bool, and still look right in a diff.
+Assert-True (
+    $startUpSource -match '(?s)internal bool PlayNotificationSound\(string moduleId\)[\s\S]{0,120}?NotificationSound\.Play\(Program\.MyData, audioOutput,[\s\S]{0,80}?== NotificationOutcome\.Played'
+) 'the notification-sound seam routes through the gated policy, with the live settings and output'
+
 # The faceCursor DISPATCH. Converted gaze animations carry <action>faceCursor</action>, the validator accepts
 # it, and the pure facing rule is asserted in --hardening-selftest -- but none of that reaches a pet unless
 # SetNewAnimationCore actually calls FaceTheCursor when the tag is present. Delete the call and every other

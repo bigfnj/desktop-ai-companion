@@ -311,6 +311,12 @@ namespace DesktopAICompanion.Wpf
                     new SettingField { Id = "audioDevice", Label = "Sound output device", Kind = SettingKind.Enum, Options = deviceNames.ToArray(), Group = "Sound" },
                     new SettingField { Id = "companionSounds", Label = "Play companion sounds (a companion's own sound effects)", Kind = SettingKind.Bool, Group = "Sound" },
                     new SettingField { Id = "notificationSounds", Label = "Play notification sounds (module chimes, e.g. reminders)", Kind = SettingKind.Bool, Group = "Sound" },
+                    // Display-only (Info registers no reader, so it never comes back through Save). It is
+                    // the one place a STALE pick can surface: the path is kept even when the file is gone,
+                    // deliberately, so an unplugged drive does not erase the choice -- and without this row
+                    // the only symptom of that would be the built-in playing when the user picked something
+                    // else, which reads as the feature being broken.
+                    new SettingField { Id = "notificationSoundInfo", Label = "Notification sound", Kind = SettingKind.Info, Group = "Sound" },
                     new SettingField { Id = "speech", Label = "Enable speech bubbles", Kind = SettingKind.Bool, Group = "Speech" },
                     new SettingField { Id = "speechSeconds", Label = "Speech duration (seconds)", Kind = SettingKind.Int, Min = 2, Max = 30, Group = "Speech" },
                     new SettingField { Id = "noRepeat", Label = "Don't repeat the same message twice in a row", Kind = SettingKind.Bool, Group = "Speech" },
@@ -352,6 +358,7 @@ namespace DesktopAICompanion.Wpf
                         d["companionsAtStartup"] = data.GetAutoStartPets().ToString(CultureInfo.InvariantCulture);
                         d["companionSounds"] = data.GetPetSoundsEnabled() ? "true" : "false";
                         d["notificationSounds"] = data.GetNotificationSoundsEnabled() ? "true" : "false";
+                        d["notificationSoundInfo"] = DescribeNotificationSound(data.GetNotificationSoundPath());
                         d["speech"] = data.GetSpeechEnabled() ? "true" : "false";
                         d["speechSeconds"] = data.GetSpeechDuration().ToString(CultureInfo.InvariantCulture);
                         d["noRepeat"] = data.GetSuppressRepeats() ? "true" : "false";
@@ -591,10 +598,47 @@ namespace DesktopAICompanion.Wpf
             }
         }
 
-        /// <summary>The Preferences pane's action buttons: a sound test, and a reset that restores the
-        /// preferences on this page to their defaults (behind a confirmation).</summary>
+        /// <summary>The Preferences pane's action buttons: choosing / clearing the notification sound, the
+        /// two sound tests (see <see cref="TestSound"/> for why there are two), and a reset that restores
+        /// the preferences on this page to their defaults (behind a confirmation).</summary>
         private static List<PaneAction> BuildPreferencesActions()
         {
+            // Persists immediately, unlike the fields above it, which is the established shape for an
+            // action on this pane (so does "Reset to default settings"). The alternative -- hold the pick
+            // until Save -- would mean the Test sound button beside it previews a sound that is not the
+            // one in the setting, which is precisely the confusion this whole feature exists to end.
+            PaneAction choose = new PaneAction { Label = "Choose notification sound…", Group = "Sound" };
+            choose.InvokeAsync = delegate
+            {
+                string picked = PickNotificationSoundFile();
+                if (picked == null)
+                {
+                    choose.ReloadPaneAfter = false;
+                    return System.Threading.Tasks.Task.FromResult("Notification sound unchanged.");
+                }
+                string result = ApplyNotificationSoundChoice(picked);
+                // Only rebuild on success: a rebuild re-runs Load and would replace the refusal message
+                // with a pane that looks like nothing happened, which is true but unhelpfully so.
+                choose.ReloadPaneAfter = result.StartsWith("✓", StringComparison.Ordinal);
+                return System.Threading.Tasks.Task.FromResult(result);
+            };
+
+            // The way back. A second button rather than an "empty selection", because a file picker has no
+            // empty selection to offer: CheckFileExists means OK always returns a path, and Cancel has to
+            // keep meaning "changed nothing" or an accidental Escape would silently reset the setting.
+            PaneAction useBuiltIn = new PaneAction { Label = "Use the built-in sound", Group = "Sound" };
+            useBuiltIn.InvokeAsync = delegate
+            {
+                useBuiltIn.ReloadPaneAfter = false;
+                LocalData data = Program.MyData;
+                if (data == null) return System.Threading.Tasks.Task.FromResult("✗ settings are unavailable.");
+                if (string.IsNullOrEmpty(data.GetNotificationSoundPath()))
+                    return System.Threading.Tasks.Task.FromResult("Already using the built-in sound.");
+                data.SetNotificationSoundPath("");
+                useBuiltIn.ReloadPaneAfter = true;
+                return System.Threading.Tasks.Task.FromResult("✓ back to the built-in sound.");
+            };
+
             PaneAction reset = new PaneAction { Label = "Reset to default settings" };
             reset.InvokeAsync = delegate
             {
@@ -617,13 +661,59 @@ namespace DesktopAICompanion.Wpf
             };
             return new List<PaneAction>
             {
+                choose,
+                useBuiltIn,
                 new PaneAction { Label = "Test sound", InvokeAsync = delegate { return System.Threading.Tasks.Task.FromResult(TestSound()); }, Group = "Sound" },
+                new PaneAction { Label = "Test output device", InvokeAsync = delegate { return System.Threading.Tasks.Task.FromResult(TestOutputDevice()); }, Group = "Sound" },
                 reset,
             };
         }
 
-        /// <summary>Play a short test tone through the current output device (the "Test sound" button).</summary>
+        /// <summary>
+        /// "Test sound" now previews the NOTIFICATION SOUND — the file the user chose, or the built-in —
+        /// through the same three layers a module's notification passes.
+        ///
+        /// It honours the master switch and the volume deliberately. A preview that bypassed them would be
+        /// the one place in the app where the sound you hear is not the sound you get, and the two
+        /// settings most likely to be the reason a reminder was silent are exactly the two it would hide.
+        /// So when a layer stops it, the button names that layer instead of playing anyway.
+        ///
+        /// The 440 Hz tone did not disappear: it answers a different question ("is anything coming out of
+        /// the device I picked?"), and it answers it by ignoring mute and volume, which is what makes it
+        /// worthless as a preview and indispensable as a diagnostic. It is the button below this one.
+        ///
+        /// Both read SAVED state, like the old tone did — the pane's unsaved edits are not visible from
+        /// here — which is why the refusals say to save the page first rather than claiming the setting is
+        /// off when the checkbox on screen says otherwise.
+        /// </summary>
         private static string TestSound()
+        {
+            try
+            {
+                if (Program.Mainthread == null) return "No running companion to play through.";
+                switch (Program.Mainthread.PreviewNotificationSound())
+                {
+                    case NotificationOutcome.Played:
+                        return "✓ played the notification sound.";
+                    case NotificationOutcome.SwitchedOff:
+                        return "✗ notification sounds are off above (turn them on and Save, then test).";
+                    case NotificationOutcome.Muted:
+                        return "✗ the volume above is 0 (raise it and Save, then test).";
+                    case NotificationOutcome.NoSettings:
+                        return "✗ settings are unavailable.";
+                    case NotificationOutcome.Failed:
+                        return "✗ playing it failed — see the diagnostic log.";
+                    default:
+                        return "✗ nothing came out; try Test output device.";
+                }
+            }
+            catch (Exception ex) { return "✗ couldn't play: " + ex.Message; }
+        }
+
+        /// <summary>Play the fixed 440 Hz tone through the chosen output device. Ignores mute and the
+        /// master volume by design (AudioOutput.PlayTestTone): this is the "is the device alive" test, and
+        /// a silent answer to it has to mean the DEVICE is silent.</summary>
+        private static string TestOutputDevice()
         {
             try
             {
@@ -632,6 +722,82 @@ namespace DesktopAICompanion.Wpf
                 return "Played a test tone on the selected output.";
             }
             catch (Exception ex) { return "Couldn't play: " + ex.Message; }
+        }
+
+        /// <summary>What the Sound card shows for the current pick. Names a missing file rather than
+        /// hiding it: the path is kept when the file goes away (see NormalizeNotificationSoundPath), so
+        /// this row is the only warning the user gets that tonight's reminder will chime with the
+        /// built-in.</summary>
+        internal static string DescribeNotificationSound(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return "Built-in chime";
+            string name;
+            try { name = System.IO.Path.GetFileName(path); }
+            catch (Exception) { name = path; }
+            if (string.IsNullOrEmpty(name)) name = path;
+            bool there;
+            try { there = System.IO.File.Exists(path); }
+            catch (Exception) { there = false; }
+            return there ? name : ("✗ " + name + " is missing — the built-in chime will play");
+        }
+
+        /// <summary>Show the picker and return the chosen path, or null for "the user changed nothing".
+        /// A failure to even open the dialog is also null: there is no pick to report on, and the caller's
+        /// "unchanged" is the truth in both cases.</summary>
+        private static string PickNotificationSoundFile()
+        {
+            try
+            {
+                var dialog = new Microsoft.Win32.OpenFileDialog
+                {
+                    Title = "Choose a notification sound",
+                    // The same filter Reminder's chime picker offers, because a user who has set one of
+                    // these has already learned what this app accepts.
+                    Filter = "Audio files (*.mp3;*.wav)|*.mp3;*.wav|All files (*.*)|*.*",
+                    CheckFileExists = true,
+                };
+                LocalData data = Program.MyData;
+                string current = data != null ? data.GetNotificationSoundPath() : "";
+                if (!string.IsNullOrEmpty(current))
+                {
+                    // Open where the last pick came from. Wrapped because the folder may be gone, and a
+                    // dead InitialDirectory must cost the default location, not the dialog.
+                    try
+                    {
+                        dialog.InitialDirectory = System.IO.Path.GetDirectoryName(current);
+                        dialog.FileName = System.IO.Path.GetFileName(current);
+                    }
+                    catch (Exception) { }
+                }
+                return dialog.ShowDialog() == true ? (dialog.FileName ?? "").Trim() : null;
+            }
+            catch (Exception) { return null; }
+        }
+
+        /// <summary>
+        /// Validate a picked file and persist it. Split from the dialog so the half that matters — a file
+        /// that is not decodable audio is refused HERE, not at play time — is reachable from
+        /// --audio-selftest, which has no window to open a picker in.
+        ///
+        /// Validation runs BEFORE the settings lookup on purpose, and the order is load-bearing: swap them
+        /// and a build with no settings reports "settings are unavailable" for rubbish input, which looks
+        /// exactly like a build that validated the file and then hit an unrelated problem.
+        /// </summary>
+        internal static string ApplyNotificationSoundChoice(string path)
+        {
+            string problem = NotificationSound.Validate(path);
+            if (problem != null) return "✗ " + problem;
+            LocalData data = Program.MyData;
+            if (data == null) return "✗ settings are unavailable.";
+            data.SetNotificationSoundPath(path);
+            // Read back instead of echoing the input. The setter normalizes (a relative path, say, is
+            // refused down there) and returns false for "no change" as well as for "rejected", so the
+            // saved value is the only honest thing to report -- a ✓ over a setting that did not move is
+            // the kind of message that survives precisely because someone believed it.
+            string saved = data.GetNotificationSoundPath();
+            if (!string.Equals(saved, (path ?? "").Trim(), StringComparison.OrdinalIgnoreCase))
+                return "✗ that path couldn't be saved.";
+            return "✓ notification sound set: " + DescribeNotificationSound(saved);
         }
 
         /// <summary>Restore the preferences shown on this page to their defaults. Scoped on purpose: the
@@ -656,6 +822,9 @@ namespace DesktopAICompanion.Wpf
                 data.SetScale(def.ScaleLevel);                 // the internal size fallback
                 data.SetPetSoundsEnabled(def.PetSoundsEnabled ?? true);
                 data.SetNotificationSoundsEnabled(def.NotificationSoundsEnabled ?? true);
+                // Back to the built-in chime. The chosen FILE is not touched -- it is the user's, sitting
+                // wherever they keep it; this page only forgets that it was pointing at it.
+                data.SetNotificationSoundPath(def.NotificationSoundPath ?? "");
                 data.SetSpeechEnabled(def.SpeechEnabled);
                 data.SetSpeechDuration(def.SpeechDurationSeconds);
                 data.SetSuppressRepeats(def.SuppressRepeats ?? true);
