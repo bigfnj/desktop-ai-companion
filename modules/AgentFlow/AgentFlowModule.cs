@@ -39,7 +39,7 @@ namespace DesktopAICompanion.AgentFlow
     /// BEFORE a user installs it.
     /// </para>
     /// </summary>
-    public sealed class AgentFlowModule : IModule
+    public sealed partial class AgentFlowModule : IModule
     {
         private const string SettingEnabled = "enabled";
         private const string SettingThreshold = "thresholdSeconds";
@@ -143,7 +143,12 @@ namespace DesktopAICompanion.AgentFlow
                           | ModulePermissions.Storage
                           | ModulePermissions.AgentTranscripts
                           | ModulePermissions.InputSynthesis
-                          | ModulePermissions.Network,
+                          | ModulePermissions.Network
+                          // Reading which pets are installed, and one pet's animation
+                          // names out of its own XML, so the animation dropdown can offer
+                          // names that pet actually has. GetCompanionManager is gated on
+                          // this, so without it the dropdown silently offers nothing.
+                          | ModulePermissions.Companions,
         };
 
         public void Init(IHost host)
@@ -175,173 +180,12 @@ namespace DesktopAICompanion.AgentFlow
                 },
             });
 
-            host.AddOptionsPane(new OptionsPane
-            {
-                Title = "AgentFlow",
-                Schema = new List<SettingField>
-                {
-                    new SettingField
-                    {
-                        Id = SettingEnabled,
-                        Label = "Tell me when a coding agent is waiting for an answer",
-                        Kind = SettingKind.Bool,
-                        Group = "AgentFlow",
-                    },
-                    new SettingField
-                    {
-                        Id = SettingThreshold,
-                        Label = "Say something after this many seconds of waiting",
-                        Kind = SettingKind.Int,
-                        Min = 10,
-                        Max = 600,
-                        Group = "AgentFlow",
-                    },
-                    new SettingField
-                    {
-                        Id = SettingCooldown,
-                        Label = "Leave at least this many seconds between messages",
-                        Kind = SettingKind.Int,
-                        Min = 30,
-                        Max = 3600,
-                        Group = "AgentFlow",
-                    },
-                    new SettingField
-                    {
-                        Id = SettingWatchClaude,
-                        Label = "Watch Claude Code",
-                        Kind = SettingKind.Bool,
-                        Group = "Which agents",
-                    },
-                    new SettingField
-                    {
-                        Id = SettingWatchCodex,
-                        Label = "Watch Codex (reads it, but cannot act on it yet)",
-                        Kind = SettingKind.Bool,
-                        Group = "Which agents",
-                    },
-                    new SettingField
-                    {
-                        Id = "aboutCodex",
-                        Label = "Codex's transcript does not record a permission mode, and AgentFlow "
-                                + "only acts in default mode, so a watched Codex session can only "
-                                + "ever stand down. The reading half works, so this becomes useful "
-                                + "the day that format carries a mode.",
-                        Kind = SettingKind.Info,
-                        Group = "Which agents",
-                    },
-                    new SettingField
-                    {
-                        Id = SettingAnimate,
-                        Label = "Play an animation as well as speaking",
-                        Kind = SettingKind.Bool,
-                        Group = "AgentFlow",
-                    },
-                    // Info rather than a switch, and that is the point: this is not a setting.
-                    new SettingField
-                    {
-                        Id = SettingAutoApprove,
-                        Label = "Approve the prompt for me (one call at a time)",
-                        Kind = SettingKind.Bool,
-                        Group = "What it will and will not press",
-                    },
-                    new SettingField
-                    {
-                        Id = "aboutSetup",
-                        // STATIC on purpose, and this is the correction of a real defect rather
-                        // than a preference. SettingField.Label is a string and the ABI has no
-                        // Func<string> for it, so whatever goes here is evaluated ONCE, when Init
-                        // builds the schema. The first version called SetupStatusLine() here and
-                        // therefore showed the state at APP START for the life of the process: the
-                        // port came up fifteen minutes later and the row still said "not set up",
-                        // which is worse than saying nothing. The live state is only available
-                        // through an action's return value, so that is where it now lives.
-                        Label = "Approving needs VS Code started with a debugging port. Close VS "
-                                + "Code, press \u201cEnable approving\u201d, reopen it, then press "
-                                + "\u201cCheck now\u201d -- that is the only thing here that "
-                                + "reports the LIVE state.",
-                        Kind = SettingKind.Info,
-                        Group = "What it will and will not press",
-                    },
-                    new SettingField
-                    {
-                        Id = "aboutAnswering",
-                        Label = "AgentFlow only ever presses the option that approves THIS ONE "
-                                + "CALL. It never presses “don’t ask again”, never "
-                                + "“allow all edits this session”, and never anything "
-                                + "that changes your permission mode. Every comparable tool was "
-                                + "read at source level and all four press wider than they "
-                                + "advertise. If it cannot recognise even one option on a prompt, "
-                                + "it touches nothing.",
-                        Kind = SettingKind.Info,
-                        Group = "What it will and will not press",
-                    },
-                    new SettingField
-                    {
-                        Id = "aboutReading",
-                        Label = "It reads the transcript files your coding agent already writes, "
-                                + "to see which tool call is waiting. Nothing is sent anywhere, "
-                                + "and no command, path or prompt text is ever written to the "
-                                + "diagnostic log or shown in a speech bubble.",
-                        Kind = SettingKind.Info,
-                        Group = "What it reads",
-                    },
-                    new SettingField
-                    {
-                        Id = "aboutAutoMode",
-                        Label = "In auto mode it stands down and says so. The permission rules stop "
-                                + "predicting which calls will prompt there, so it would be wrong "
-                                + "roughly 250 times for every time it was right.",
-                        Kind = SettingKind.Info,
-                        Group = "What it reads",
-                    },
-                },
-                Load = LoadPaneValues,
-                Save = SavePaneValues,
-                Actions = new[]
-                {
-                    new PaneAction
-                    {
-                        Label = "Check now",
-                        InvokeAsync = CheckNowAsync,
-                        Group = "AgentFlow",
-                    },
-                    // The setup group. Separate from "Check now" because these WRITE, and to
-                    // another application's configuration at that.
-                    new PaneAction
-                    {
-                        Label = "Enable approving (edits VS Code)",
-                        InvokeAsync = EnableCdpAsync,
-                        Group = "Approving",
-                        // NO ReloadPaneAfter. OptionsWindow writes this action's result next to the
-                        // button and then, if the flag is set, rebuilds the pane -- which destroys
-                        // the TextBlock holding it. Every one of these three buttons appeared to do
-                        // nothing for exactly that reason, while "Check now" worked because it is
-                        // the one action that never asked for a reload.
-                    },
-                    new PaneAction
-                    {
-                        Label = "Disable approving",
-                        InvokeAsync = DisableCdpAsync,
-                        Group = "Approving",
-                        // NO ReloadPaneAfter. OptionsWindow writes this action's result next to the
-                        // button and then, if the flag is set, rebuilds the pane -- which destroys
-                        // the TextBlock holding it. Every one of these three buttons appeared to do
-                        // nothing for exactly that reason, while "Check now" worked because it is
-                        // the one action that never asked for a reload.
-                    },
-                    new PaneAction
-                    {
-                        Label = "Find argv.json...",
-                        InvokeAsync = BrowseForArgvAsync,
-                        Group = "Approving",
-                        // NO ReloadPaneAfter. OptionsWindow writes this action's result next to the
-                        // button and then, if the flag is set, rebuilds the pane -- which destroys
-                        // the TextBlock holding it. Every one of these three buttons appeared to do
-                        // nothing for exactly that reason, while "Check now" worked because it is
-                        // the one action that never asked for a reload.
-                    },
-                },
-            });
+            // Built rather than declared, because the schema now VARIES per open: the animation
+            // dropdown is populated from the pets actually installed, and from the chosen pet's
+            // own XML. The host calls Load before it reads Schema on every build, which is the
+            // documented invariant that makes this legal.
+            _pane = BuildPane();
+            host.AddOptionsPane(_pane);
 
             _spawnHandler = OnCompanionSpawned;
             host.CompanionSpawned += _spawnHandler;
@@ -935,24 +779,6 @@ namespace DesktopAICompanion.AgentFlow
             return value;
         }
 
-        private IReadOnlyDictionary<string, string> LoadPaneValues()
-        {
-            return new Dictionary<string, string>
-            {
-                { SettingEnabled, Enabled ? "true" : "false" },
-                { SettingThreshold, ((int)ThresholdSeconds).ToString(CultureInfo.InvariantCulture) },
-                { SettingCooldown, CooldownSeconds.ToString(CultureInfo.InvariantCulture) },
-                { SettingWatchClaude, WatchClaude ? "true" : "false" },
-                { SettingWatchCodex, WatchCodex ? "true" : "false" },
-                { SettingAnimate, Animate ? "true" : "false" },
-                // Without this line the checkbox rendered from the schema but read nothing: it
-                // showed UNCHECKED however the setting actually stood, and because SavePaneValues
-                // writes back every key the pane hands it, closing the settings window would then
-                // store "false" and silently switch auto-approve off again. Two controls for one
-                // setting means Load has to carry it, not just Save.
-                { SettingAutoApprove, AutoApprove ? "true" : "false" },
-            };
-        }
 
         private int CooldownSeconds
         {
@@ -973,6 +799,19 @@ namespace DesktopAICompanion.AgentFlow
                 // Info rows have no value to store, and writing them would put paragraphs of
                 // prose into settings.json.
                 if (entry.Key.StartsWith("about", StringComparison.Ordinal)) continue;
+                // Header rows are display-only too, and their ids do not start with
+                // "about". Writing one would put a paragraph of prose into settings.json.
+                if (entry.Key.StartsWith("hdr", StringComparison.Ordinal)) continue;
+                if (entry.Key == FieldApprovals) continue;
+
+                // The radio hands back the LABEL the user saw, not the stored id. Fortunes
+                // does the same for its content level, and for the same reason: the label
+                // is what fits in a pane and the id is what survives a reword.
+                if (entry.Key == SettingMode)
+                {
+                    _settings.Set(SettingMode, AgentMode.FromDisplay(entry.Value));
+                    continue;
+                }
                 _settings.Set(entry.Key, entry.Value);
             }
             bool ok = _settings.Save();
@@ -1398,7 +1237,16 @@ namespace DesktopAICompanion.AgentFlow
         {
             if (_settings == null) return;
             bool next = !AutoApprove;
-            _settings.Set(SettingAutoApprove, next ? "true" : "false");
+            // Writes the MODE. It used to write the retired autoApprove boolean, which
+            // still worked only for as long as no `mode` key existed: AgentMode.Migrate
+            // prefers a stored mode over the legacy pair, so the first time the user
+            // touched the pane the tray toggle would have gone silently inert. Found by
+            // the self-test, not by using it.
+            //
+            // Turning it OFF lands on Notify rather than Off, because the tray row says
+            // "Auto-approve", not "AgentFlow": switching off the pressing should not also
+            // switch off the watching the user never asked to stop.
+            _settings.Set(SettingMode, next ? AgentMode.AutoApprove : AgentMode.Notify);
             _settings.Save();
             Log("auto-approve turned " + (next ? "ON" : "OFF") + " from the tray");
 
@@ -1506,6 +1354,8 @@ namespace DesktopAICompanion.AgentFlow
                     probe.Check("WITNESS declares that it PRESSES things, and reaches a port",
                         module.Info.Permissions.HasFlag(ModulePermissions.InputSynthesis)
                         && module.Info.Permissions.HasFlag(ModulePermissions.Network));
+                    probe.Check("WITNESS declares Companions, which the pet dropdown needs",
+                        module.Info.Permissions.HasFlag(ModulePermissions.Companions));
                     probe.Check("declares no permission it does not use",
                         !module.Info.Permissions.HasFlag(ModulePermissions.ScreenContext)
                         && !module.Info.Permissions.HasFlag(ModulePermissions.Hotkey)
@@ -2184,7 +2034,7 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("WITNESS auto-approve is OFF until it is asked for",
                     !module.AutoApprove);
                 probe.Check("WITNESS the pane agrees it is off, rather than not saying",
-                    pane.Load()[SettingAutoApprove] == "false");
+                    pane.Load()[SettingMode] == AgentMode.ToDisplay(AgentMode.Notify));
                 probe.Check("the tray says off, and the dot is the off one",
                     module.AutoApproveState == ApproveState.Off
                     && module.AutoApproveTrayLabel().IndexOf("off", StringComparison.Ordinal) >= 0);
@@ -2197,7 +2047,7 @@ namespace DesktopAICompanion.AgentFlow
                     && module.AutoApproveTrayLabel().IndexOf("waiting for VS Code",
                         StringComparison.Ordinal) >= 0);
                 probe.Check("WITNESS the pane reports what the tray just did",
-                    pane.Load()[SettingAutoApprove] == "true");
+                    pane.Load()[SettingMode] == AgentMode.ToDisplay(AgentMode.AutoApprove));
 
                 // The port answering is NOT enough on its own, and this is the assertion
                 // that says so: the module spent an afternoon with a live port and a panel
@@ -2221,7 +2071,8 @@ namespace DesktopAICompanion.AgentFlow
                 module._panelReadable = false;
 
                 // The other direction: the pane must be able to switch it off again.
-                pane.Save(new Dictionary<string, string> { { SettingAutoApprove, "false" } });
+                pane.Save(new Dictionary<string, string>
+                    { { SettingMode, AgentMode.ToDisplay(AgentMode.Notify) } });
                 probe.Check("WITNESS saving the pane switches it off",
                     !module.AutoApprove);
                 probe.Check("...and the tray goes back to the off state",
