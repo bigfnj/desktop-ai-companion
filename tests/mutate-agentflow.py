@@ -60,9 +60,10 @@ MODE = os.path.join(MODULE_DIR, "AgentMode.cs")
 QUIPS = os.path.join(MODULE_DIR, "Quips.cs")
 FEED = os.path.join(MODULE_DIR, "ApprovalFeed.cs")
 PETANIM = os.path.join(MODULE_DIR, "PetAnimations.cs")
+PANE = os.path.join(MODULE_DIR, "AgentFlowPane.cs")
 
 TARGETS = (SPLITTER, RULES, DETECTOR, BUDGET, MODULE, READER, CDP, PROMPTOPTS, BUDGETPRESS,
-           DOT, MODE, QUIPS, FEED, PETANIM)
+           DOT, MODE, QUIPS, FEED, PETANIM, PANE)
 
 # (name, file, find, replace, expected fragment of the assertion that must fail)
 CASES = (
@@ -309,9 +310,9 @@ CASES = (
     ),
     (
         "the pane reports a constant instead of the switch it owns",
-        MODULE,
-        '                { SettingAutoApprove, AutoApprove ? "true" : "false" },',
-        '                { SettingAutoApprove, "false" },',
+        PANE,
+        "                { SettingMode, AgentMode.ToDisplay(Mode) },",
+        "                { SettingMode, AgentMode.ToDisplay(AgentMode.Notify) },",
         "the pane reports what the tray just did",
     ),
     (
@@ -604,6 +605,29 @@ CASES = (
         '            get { return new[] { "walk", "sit", "turn", "stand", "jump", "run" }; }',
         '            get { return new[] { "boing", "jump", "run" }; }',
         "the any-pet list no longer leads with a one-pet animation",
+    ),
+    # The three notify channels. They used to be one, so the mutations that matter are the
+    # ones that re-couple them.
+    (
+        "speech fires whether or not it was asked for",
+        MODULE,
+        "            if (NotifySpeakOn) _host.SayAll(line);",
+        "            _host.SayAll(line);",
+        "a chime with no chatter is possible",
+    ),
+    (
+        "the sound fires whether or not it was asked for",
+        MODULE,
+        "            if (NotifySoundOn) _host.PlayNotificationSound(Info.Id);",
+        "            _host.PlayNotificationSound(Info.Id);",
+        "speech alone speaks and makes no sound",
+    ),
+    (
+        "the animation call site goes back to the hardcoded list",
+        MODULE,
+        '                var candidates = new List<string>(PetAnimations.Candidates(',
+        '                var candidates = new List<string> { "boing", "jump", "run" }; if (false) _ = new List<string>(PetAnimations.Candidates(',
+        "the animation played is not the one-pet list any more",
     ),
 )
 

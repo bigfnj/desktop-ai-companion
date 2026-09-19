@@ -649,8 +649,16 @@ namespace DesktopAICompanion.AgentFlow
                 return;
             }
 
-            string line = BlockedDetector.Describe(speakThis);
-            if (string.IsNullOrEmpty(line)) return;
+            // A quip rather than the one fixed sentence, but carrying the same three facts,
+            // so variety costs no information. Describe() is still the fallback: if the
+            // detection has nothing worth saying, neither has a quip.
+            if (string.IsNullOrEmpty(BlockedDetector.Describe(speakThis))) return;
+            string line = _quips.Next(
+                BlockedDetector.ShortProject(
+                    speakThis.Session != null ? speakThis.Session.Cwd : null),
+                speakThis.Call != null ? speakThis.Call.Tool : null,
+                DescribeWait(speakThis.IdleSeconds));
+            if (string.IsNullOrEmpty(line)) line = BlockedDetector.Describe(speakThis);
 
             // Both of these are checked BEFORE the budget is consumed, because a notification the
             // user cannot possibly have seen must remain pending rather than being spent. The
@@ -672,10 +680,18 @@ namespace DesktopAICompanion.AgentFlow
             // SayAll, not Say: this is a message to the USER, not a companion reacting to
             // something. The host routes it to exactly one companion, so several on screen do
             // not chant it in unison.
-            _host.SayAll(line);
+            // Three independent channels now, which is what the pane offers. A user who
+            // wants a chime and no chatter gets exactly that.
+            if (NotifySpeakOn) _host.SayAll(line);
+            if (NotifySoundOn) _host.PlayNotificationSound(Info.Id);
             if (Animate)
             {
-                _host.PlayAnimationAll(new List<string> { "boing", "jump", "run" });
+                // The pet's OWN animation, with the coverage list behind it. The previous
+                // list was boing/jump/run, and boing exists on one of the 53 bundled pets,
+                // so this silently did nothing on nineteen of them.
+                var candidates = new List<string>(PetAnimations.Candidates(
+                    StoredAnimPet, _settings == null ? "" : _settings.Get(SettingAnimName, "")));
+                _host.PlayAnimationAll(candidates);
             }
             _budget.Record(speakThis, now);
             // "spoke" rather than "notified", and only on the path where a companion was on screen
@@ -684,6 +700,14 @@ namespace DesktopAICompanion.AgentFlow
             Log("spoke about " + (speakThis.ToolName ?? "?") + " waiting "
                 + ((int)Math.Round(speakThis.IdleSeconds)).ToString(CultureInfo.InvariantCulture)
                 + "s in session " + Short(speakThis.Session));
+        }
+
+        /// <summary>Seconds as a person would say them. Mirrors BlockedDetector.Format.</summary>
+        internal static string DescribeWait(double seconds)
+        {
+            if (seconds < 90.0)
+                return ((int)Math.Round(seconds)).ToString(CultureInfo.InvariantCulture) + "s";
+            return ((int)Math.Round(seconds / 60.0)).ToString(CultureInfo.InvariantCulture) + "m";
         }
 
         internal static string DescribeStatus(int sessions, int blocked, int stoodDown)
@@ -842,6 +866,9 @@ namespace DesktopAICompanion.AgentFlow
         /// same discipline the rest of the poll already follows.
         /// </summary>
         private readonly ApprovalFeed _approvalFeed = new ApprovalFeed();
+
+        /// <summary>Held per module instance, so "do not repeat" spans the whole session.</summary>
+        private readonly QuipPicker _quips = new QuipPicker();
 
         /// <summary>
         /// Write what the rules approved since the last poll. UI thread, because IHost.Log is.
@@ -1379,6 +1406,7 @@ namespace DesktopAICompanion.AgentFlow
                               && SelfCheckQuips(probe)
                               && SelfCheckApprovalFeed(probe)
                               && SelfCheckPetAnimations(probe)
+                              && SelfCheckNotifyChannels(probe)
                               && SelfCheckCacheBound(probe);
                     probe.Check("every logic group ran", ok);
 
@@ -2721,6 +2749,80 @@ namespace DesktopAICompanion.AgentFlow
                 if (candidate == "boing") stillBoing = true;
             probe.Check("WITNESS the any-pet list no longer leads with a one-pet animation",
                 !stillBoing && PetAnimations.AnyPetCandidates[0] == "walk");
+            return true;
+        }
+        /// <summary>
+        /// Sound, speech and animation are THREE switches, not one.
+        ///
+        /// They used to be one: the module spoke, and a single "animate as well" checkbox
+        /// added a wiggle. A user who wants a chime and no chatter could not have it. Each is
+        /// asserted on and off independently, because "all three fire together" passes a test
+        /// that only ever turns them all on.
+        /// </summary>
+        private static bool SelfCheckNotifyChannels(SelfTestProbe probe)
+        {
+            using (var storage =
+                       new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-ch"))
+            {
+                // Speech only.
+                var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                host.UseStorage("agentflow", storage);
+                var module = new AgentFlowModule();
+                module.Init(host);
+                module._settings.Set(SettingNotifySpeak, "true");
+                module._settings.Set(SettingNotifySound, "false");
+                module._settings.Set(SettingAnimate, "false");
+                module._settings.Save();
+                host.RaiseCompanionSpawned(new FakeCompanion());
+                module.Apply(OneBlockedDetection());
+                probe.Check("WITNESS speech alone speaks and makes no sound",
+                    host.BroadcastLines.Count == 1 && host.NotificationSoundsPlayed == 0);
+                module.Shutdown();
+
+                // Sound only. A fresh storage each time, because the notify budget remembers
+                // what it already announced and would suppress the second notice otherwise.
+                using (var storage2 =
+                           new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-ch2"))
+                {
+                    var host2 = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    host2.UseStorage("agentflow", storage2);
+                    var module2 = new AgentFlowModule();
+                    module2.Init(host2);
+                    module2._settings.Set(SettingNotifySpeak, "false");
+                    module2._settings.Set(SettingNotifySound, "true");
+                    module2._settings.Set(SettingAnimate, "false");
+                    module2._settings.Save();
+                    host2.RaiseCompanionSpawned(new FakeCompanion());
+                    module2.Apply(OneBlockedDetection());
+                    probe.Check("WITNESS a chime with no chatter is possible, which it was not before",
+                        host2.BroadcastLines.Count == 0 && host2.NotificationSoundsPlayed == 1);
+                    module2.Shutdown();
+                }
+
+                // Animation only, and NOT with the old hardcoded list.
+                using (var storage3 =
+                           new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-ch3"))
+                {
+                    var host3 = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    host3.UseStorage("agentflow", storage3);
+                    var module3 = new AgentFlowModule();
+                    module3.Init(host3);
+                    module3._settings.Set(SettingNotifySpeak, "false");
+                    module3._settings.Set(SettingNotifySound, "false");
+                    module3._settings.Set(SettingAnimate, "true");
+                    module3._settings.Save();
+                    host3.RaiseCompanionSpawned(new FakeCompanion());
+                    module3.Apply(OneBlockedDetection());
+                    probe.Check("animation alone animates, silently",
+                        host3.BroadcastLines.Count == 0 && host3.NotificationSoundsPlayed == 0
+                        && host3.PlayedAnimations.Count > 0);
+                    // WITNESS the defect this replaces: boing is on ONE of 53 pets.
+                    bool boing = host3.PlayedAnimations.Contains("boing");
+                    probe.Check("WITNESS the animation played is not the one-pet list any more",
+                        !boing);
+                    module3.Shutdown();
+                }
+            }
             return true;
         }
         private static bool SelfCheckCacheBound(SelfTestProbe probe)
