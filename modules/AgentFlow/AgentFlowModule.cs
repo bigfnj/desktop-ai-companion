@@ -108,7 +108,7 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.0.2",   // 1.0.2: the approve half. Option classifier + the argv.json setup.
+            Version = "1.1.0",   // 1.1.0: the approve half, the mode radio, quips, the approvals card.
                                  // 1.0.1: logs what the rules APPROVE, not only what would block.
                                  // 1.0.0: first version. Notify half only, observe-only by decision.
             // 1.0.0 rather than the release that first ships AgentTranscripts, because a module
@@ -121,7 +121,13 @@ namespace DesktopAICompanion.AgentFlow
             // what it does -- which defeats the entire point of adding the flag. The load gate
             // cannot catch that for us: the enum value is a compile-time literal in this
             // assembly's IL, so an old host loads the module happily and just mislabels it.
-            MinHostVersion = "1.0.0",
+            // 1.2.0 and not lower, because this is a HARD floor rather than a preference: the
+            // pane sets Radio/Header/EnabledWhen/FullWidth/PinTop/ReloadOnChange and
+            // OptionsPane.LoadPending, and the notify half calls IHost.PlayNotificationSound.
+            // A module binds the HOST's shared Contracts, so on an older host those are a
+            // MissingMethodException at the first property setter, not a graceful degrade.
+            // The load gate is the only thing standing between that and a broken pane.
+            MinHostVersion = "1.2.0",
             // Speech for the bubble, Animation for the attention wiggle, Storage for its own
             // settings, AgentTranscripts for the read that is the whole feature. Nothing else: no
             // Network (it never makes a request), no ScreenContext (it does not look at the screen),
@@ -148,7 +154,13 @@ namespace DesktopAICompanion.AgentFlow
                           // names out of its own XML, so the animation dropdown can offer
                           // names that pet actually has. GetCompanionManager is gated on
                           // this, so without it the dropdown silently offers nothing.
-                          | ModulePermissions.Companions,
+                          | ModulePermissions.Companions
+                          // Audio, because the notify half can play the shared notification
+                          // sound. Its absence made that channel inert in the real host --
+                          // CompanionHost.PlaySound-style gating refuses an undeclared
+                          // module on every call -- while the self-test passed against a
+                          // double that did not enforce the gate.
+                          | ModulePermissions.Audio,
         };
 
         public void Init(IHost host)
@@ -261,6 +273,19 @@ namespace DesktopAICompanion.AgentFlow
             // Nothing inside this task touches _host.
             Task.Run(() =>
             {
+              // The re-entrancy guard covers this ENTIRE body, not just the scan. It used
+              // to be released in the scan's own finally, which left the CDP sweep and the
+              // click outside it -- and those are several WebSocket round trips with a six
+              // second deadline against a ten second tick, so two workers overlapped
+              // routinely rather than rarely.
+              //
+              // What that cost: PressBudget is a bare List<DateTime> documented as
+              // poll-thread-only, so two threads meant Prune racing RemoveAt(0), both
+              // workers reading Count == 9 and both pressing, and _resetPressBudget losing
+              // an update. The guard that exists to stop runaway approving must not itself
+              // be the thing that races.
+              try
+              {
                 List<Detection> results = null;
                 Dictionary<string, int> approved = null;
                 // Collected on the worker, handed to the UI thread, and never touched from
@@ -277,10 +302,7 @@ namespace DesktopAICompanion.AgentFlow
                     // is nothing here worth surfacing to a user: the next tick tries again.
                     results = null;
                 }
-                finally
-                {
-                    Volatile.Write(ref _scanning, 0);
-                }
+
                 // Refresh the cached port state on the same beat, so the tray can show whether
                 // approving could actually happen without probing a socket on menu open.
                 bool answering = false;
@@ -332,6 +354,13 @@ namespace DesktopAICompanion.AgentFlow
                         LogApprovalAttempt(note);
                     });
                 }
+              }
+              finally
+              {
+                  // PostToUi has already been called by here; it POSTS rather than waits,
+                  // so the UI work is not inside the guard and cannot deadlock against it.
+                  Volatile.Write(ref _scanning, 0);
+              }
             });
         }
 
@@ -682,7 +711,7 @@ namespace DesktopAICompanion.AgentFlow
             // not chant it in unison.
             // Three independent channels now, which is what the pane offers. A user who
             // wants a chime and no chatter gets exactly that.
-            if (NotifySpeakOn) _host.SayAll(line);
+            if (NotifySpeakOn && AgentMode.Speaks(Mode)) _host.SayAll(line);
             if (NotifySoundOn) _host.PlayNotificationSound(Info.Id);
             if (Animate)
             {
@@ -903,7 +932,14 @@ namespace DesktopAICompanion.AgentFlow
         private const string SettingAutoApprove = "autoApprove";
 
         private const string SettingArgvPath = "argvPath";
-        /// <summary>The port to ask VS Code for. Stored so a collision can be moved off.</summary>
+        /// <summary>
+        /// The port to ask VS Code for.
+        ///
+        /// READ ONLY in code: there is no pane field and no action that writes it, so moving
+        /// it off a collision means editing settings.json by hand. The comment here used to
+        /// imply a control existed. Kept as a setting because the hand-edit is a real escape
+        /// hatch, but said plainly rather than promised.
+        /// </summary>
         private const string SettingCdpPort = "cdpPort";
 
         /// <summary>The user's INTENT. Separate from whether the module CAN act, deliberately.</summary>
@@ -1302,7 +1338,16 @@ namespace DesktopAICompanion.AgentFlow
         internal void SetEnabledFromTray(bool enabled)
         {
             if (_settings == null) return;
-            _settings.Set(SettingEnabled, enabled ? "true" : "false");
+            // The MODE, for the same reason ToggleAutoApproveFromTray writes it: a stored
+            // mode beats the legacy booleans in AgentMode.Migrate, so writing `enabled`
+            // here worked only until the user pressed Apply on the pane once, after which
+            // this row ticked and did nothing. The auto-approve row was fixed and this one
+            // was not, which is what an audit is for.
+            //
+            // "Watching" restores Notify rather than whatever mode was last set, because
+            // the row offers exactly two states and inventing a third from history would
+            // make the tick mean something different depending on the past.
+            _settings.Set(SettingMode, enabled ? AgentMode.Notify : AgentMode.Off);
             _settings.Save();
             if (enabled)
             {
@@ -1386,7 +1431,7 @@ namespace DesktopAICompanion.AgentFlow
                     probe.Check("declares no permission it does not use",
                         !module.Info.Permissions.HasFlag(ModulePermissions.ScreenContext)
                         && !module.Info.Permissions.HasFlag(ModulePermissions.Hotkey)
-                        && !module.Info.Permissions.HasFlag(ModulePermissions.Audio));
+                        && !module.Info.Permissions.HasFlag(ModulePermissions.Voice));
 
                     probe.Check("says nothing at startup", host.SaidLines.Count == 0);
                     probe.Check("broadcasts nothing at startup", host.BroadcastLines.Count == 0);
@@ -2133,6 +2178,17 @@ namespace DesktopAICompanion.AgentFlow
                         row = item;
                 }
                 probe.Check("WITNESS the tray menu offers auto-approve at all", row != null);
+
+                // The OTHER tray row. It wrote the retired `enabled` boolean, which a stored
+                // mode overrides, so "Watching / Off" ticked and did nothing the moment the
+                // user pressed Apply once. The auto-approve row had already been fixed; this
+                // one was missed, and only an audit comparing the two caught it.
+                module.SetEnabledFromTray(false);
+                probe.Check("WITNESS turning watching off from the tray actually stops it",
+                    !module.Enabled && module.Mode == AgentMode.Off);
+                module.SetEnabledFromTray(true);
+                probe.Check("...and turning it back on resumes watching",
+                    module.Enabled && module.Mode == AgentMode.Notify);
                 probe.Check("the tray row shows the same state the helper reports",
                     row != null && row.Label == module.AutoApproveTrayLabel());
                 probe.Check("...in its own group, so pressing is separated from watching",
@@ -2769,6 +2825,10 @@ namespace DesktopAICompanion.AgentFlow
                 var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
                 host.UseStorage("agentflow", storage);
                 var module = new AgentFlowModule();
+                // The double REFUSES an undeclared module now, exactly as CompanionHost
+                // does. Without this line the sound assertion below passed while the real
+                // host returned false on every call.
+                host.Declared = module.Info.Permissions;
                 module.Init(host);
                 module._settings.Set(SettingNotifySpeak, "true");
                 module._settings.Set(SettingNotifySound, "false");
@@ -2788,6 +2848,10 @@ namespace DesktopAICompanion.AgentFlow
                     var host2 = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
                     host2.UseStorage("agentflow", storage2);
                     var module2 = new AgentFlowModule();
+                    // The double REFUSES an undeclared module now, exactly as CompanionHost
+                    // does. Without this line the sound assertion below passed while the real
+                    // host returned false on every call.
+                    host2.Declared = module2.Info.Permissions;
                     module2.Init(host2);
                     module2._settings.Set(SettingNotifySpeak, "false");
                     module2._settings.Set(SettingNotifySound, "true");
@@ -2797,6 +2861,8 @@ namespace DesktopAICompanion.AgentFlow
                     module2.Apply(OneBlockedDetection());
                     probe.Check("WITNESS a chime with no chatter is possible, which it was not before",
                         host2.BroadcastLines.Count == 0 && host2.NotificationSoundsPlayed == 1);
+                    probe.Check("WITNESS ...and it only works because Audio is declared",
+                        module2.Info.Permissions.HasFlag(ModulePermissions.Audio));
                     module2.Shutdown();
                 }
 
@@ -2807,6 +2873,10 @@ namespace DesktopAICompanion.AgentFlow
                     var host3 = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
                     host3.UseStorage("agentflow", storage3);
                     var module3 = new AgentFlowModule();
+                    // The double REFUSES an undeclared module now, exactly as CompanionHost
+                    // does. Without this line the sound assertion below passed while the real
+                    // host returned false on every call.
+                    host3.Declared = module3.Info.Permissions;
                     module3.Init(host3);
                     module3._settings.Set(SettingNotifySpeak, "false");
                     module3._settings.Set(SettingNotifySound, "false");
@@ -2822,6 +2892,30 @@ namespace DesktopAICompanion.AgentFlow
                     probe.Check("WITNESS the animation played is not the one-pet list any more",
                         !boing);
                     module3.Shutdown();
+                }
+
+                // Log mode: the audit trail, and NOTHING else. Asserted as BEHAVIOUR rather
+                // than as the AgentMode.Speaks predicate -- the predicate was already asserted
+                // and still passed while nothing consulted it, so Log behaved exactly like
+                // Notify and the radio offered an option that did nothing.
+                using (var storage4 =
+                           new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-ch4"))
+                {
+                    var host4 = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    host4.UseStorage("agentflow", storage4);
+                    var module4 = new AgentFlowModule();
+                    host4.Declared = module4.Info.Permissions;
+                    module4.Init(host4);
+                    module4._settings.Set(SettingMode, AgentMode.Log);
+                    module4._settings.Set(SettingNotifySpeak, "true");
+                    module4._settings.Save();
+                    host4.RaiseCompanionSpawned(new FakeCompanion());
+                    module4.Apply(OneBlockedDetection());
+                    probe.Check("WITNESS Log is the quiet one, and says nothing out loud",
+                        host4.BroadcastLines.Count == 0 && host4.SaidLines.Count == 0);
+                    probe.Check("...while still scanning, which is the point of Log",
+                        module4.Enabled);
+                    module4.Shutdown();
                 }
             }
             return true;

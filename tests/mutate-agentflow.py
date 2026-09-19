@@ -611,7 +611,7 @@ CASES = (
     (
         "speech fires whether or not it was asked for",
         MODULE,
-        "            if (NotifySpeakOn) _host.SayAll(line);",
+        "            if (NotifySpeakOn && AgentMode.Speaks(Mode)) _host.SayAll(line);",
         "            _host.SayAll(line);",
         "a chime with no chatter is possible",
     ),
@@ -635,6 +635,28 @@ CASES = (
         "                return System.IO.Path.Combine(modules.Parent.FullName, " + chr(34) + "diagnostics.log" + chr(34) + ");",
         "                return System.IO.Path.Combine(modules.FullName, " + chr(34) + "diagnostics.log" + chr(34) + ");",
         "the log is found under an INSTALLED data root",
+    ),
+    # The audit findings. Each of these SHIPPED, green, before an audit found it.
+    (
+        "Audio is not declared, so the sound channel is dead in the real host",
+        MODULE,
+        "                          | ModulePermissions.Audio,",
+        "                          ,",
+        "it only works because Audio is declared",
+    ),
+    (
+        "the watching tray row writes the retired boolean again",
+        MODULE,
+        '            _settings.Set(SettingMode, enabled ? AgentMode.Notify : AgentMode.Off);',
+        '            _settings.Set(SettingEnabled, enabled ? "true" : "false");',
+        "turning watching off from the tray actually stops it",
+    ),
+    (
+        "Log mode speaks, so it is identical to Notify",
+        MODULE,
+        "            if (NotifySpeakOn && AgentMode.Speaks(Mode)) _host.SayAll(line);",
+        "            if (NotifySpeakOn) _host.SayAll(line);",
+        "Log is the quiet one, and says nothing out loud",
     ),
 )
 

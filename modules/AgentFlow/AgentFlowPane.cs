@@ -20,14 +20,24 @@ namespace DesktopAICompanion.AgentFlow
     {
         private OptionsPane _pane;
 
-        /// <summary>The Notify-mode display string, which is what EnabledWhen compares against.</summary>
-        private static string OnlyWhenNotifying
+        /// <summary>The modes in which the notify settings are live, for EnabledWhen.</summary>
+        private static string WhileItStillSpeaks
         {
             // DERIVED, never written out as a literal. The radio's on-screen value is the display
             // label, so a hand-typed copy here would silently stop matching the day the label is
             // reworded -- and the symptom would be a permanently greyed-out field, which reads as
             // a layout bug rather than as a broken string.
-            get { return SettingMode + "=" + AgentMode.ToDisplay(AgentMode.Notify); }
+            //
+            // BOTH speaking modes, not just Notify. Auto-approve still announces the prompts it
+            // REFUSED -- AgentMode.Speaks says so, and Apply honours every one of these settings
+            // there -- so greying them in auto mode told the user they were inert while the module
+            // was still reading them. Found by an audit comparing the pane against AgentMode's own
+            // documentation, which is the sort of disagreement no test was ever going to notice.
+            get
+            {
+                return SettingMode + "=" + AgentMode.ToDisplay(AgentMode.Notify)
+                       + "|" + AgentMode.ToDisplay(AgentMode.AutoApprove);
+            }
         }
 
         private OptionsPane BuildPane()
@@ -121,7 +131,7 @@ namespace DesktopAICompanion.AgentFlow
                     Min = 10,
                     Max = 600,
                     Group = GroupAgentFlow,
-                    EnabledWhen = OnlyWhenNotifying,
+                    EnabledWhen = WhileItStillSpeaks,
                 },
                 new SettingField
                 {
@@ -131,7 +141,7 @@ namespace DesktopAICompanion.AgentFlow
                     Min = 30,
                     Max = 3600,
                     Group = GroupAgentFlow,
-                    EnabledWhen = OnlyWhenNotifying,
+                    EnabledWhen = WhileItStillSpeaks,
                 },
                 new SettingField
                 {
@@ -139,7 +149,7 @@ namespace DesktopAICompanion.AgentFlow
                     Label = "Play the notification sound",
                     Kind = SettingKind.Bool,
                     Group = GroupAgentFlow,
-                    EnabledWhen = OnlyWhenNotifying,
+                    EnabledWhen = WhileItStillSpeaks,
                 },
                 new SettingField
                 {
@@ -147,7 +157,7 @@ namespace DesktopAICompanion.AgentFlow
                     Label = "Have the companion say something",
                     Kind = SettingKind.Bool,
                     Group = GroupAgentFlow,
-                    EnabledWhen = OnlyWhenNotifying,
+                    EnabledWhen = WhileItStillSpeaks,
                 },
                 new SettingField
                 {
@@ -155,7 +165,7 @@ namespace DesktopAICompanion.AgentFlow
                     Label = "Play an animation",
                     Kind = SettingKind.Bool,
                     Group = GroupAgentFlow,
-                    EnabledWhen = OnlyWhenNotifying,
+                    EnabledWhen = WhileItStillSpeaks,
                 },
                 new SettingField
                 {
@@ -164,7 +174,7 @@ namespace DesktopAICompanion.AgentFlow
                     Kind = SettingKind.Enum,
                     Options = PetChoices(),
                     Group = GroupAgentFlow,
-                    EnabledWhen = OnlyWhenNotifying,
+                    EnabledWhen = WhileItStillSpeaks,
                     // Picking a pet rebuilds the pane so the next dropdown can be that pet's own
                     // animation list. Without this the second dropdown could only be refreshed by
                     // applying and reopening.
@@ -177,7 +187,7 @@ namespace DesktopAICompanion.AgentFlow
                     Kind = SettingKind.Enum,
                     Options = AnimationChoices(pet),
                     Group = GroupAgentFlow,
-                    EnabledWhen = OnlyWhenNotifying,
+                    EnabledWhen = WhileItStillSpeaks,
                 },
 
                 // ---- setting up the approve half ---------------------------------------------

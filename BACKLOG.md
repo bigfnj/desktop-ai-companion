@@ -183,6 +183,70 @@ from the sibling is the transcript parsing and the compound-command splitter, po
 
 ---
 
+## Open: left by the 1.1.6 options-ABI cycle (2026-09-18/19)
+
+The ABI additions, the shared notification sound and the AgentFlow pane rebuild each left something
+that was flagged rather than fixed. None of these blocked the work; all of them are things a future
+reader would otherwise have to rediscover.
+
+- 📌 **`RevealsPath` containment is data-root wide, not module-storage narrow.** `PaneView` receives
+  an `OptionsPane` with no module identity, so the host can only enforce "inside the app data root".
+  `CompanionHost.ModuleDataDir` builds every module's storage as `<dataRoot>\modules\<id>`, so today
+  that is arithmetically the same rule — but it means module A can reveal a file sitting in module
+  B's folder, or in the app's own settings folder. Narrowing it needs a module id on `OptionsPane`,
+  which is a contract change and therefore a host release.
+- ⬜ **`SchemaShellPane.RefreshAfterApply` scans for `Info` fields only, not `Header`.** A `Header`
+  whose paragraph is derived from settings will show stale text after Apply until the pane is
+  reopened. AgentFlow's three explanation headers are static prose, so nothing is wrong today; the
+  first `Header` carrying live state will hit it.
+- ⬜ **Adding an Info row flipped the Preferences pane's `RefreshAfterApply` to true**, so the whole
+  pane now rebuilds after Apply and resets its scroll position. That is the Info mechanism working
+  as designed, but it changed behaviour for a pane nobody was editing.
+- ⬜ **`NotificationOutcome.Failed` is unexercised**, and so is its diagnostic-log line. It is
+  reachable only through an unexpected exception, which no test could provoke.
+- 📌 **Nobody has heard the built-in chime.** It is asserted to be 0.75 s, to peak at 0.7 and to
+  start and end in exact silence. None of that measures whether it is pleasant, and a notification
+  sound that grates is a notification sound people switch off.
+- ⬜ **The notification-sound picker persists immediately, before Save**, matching "Reset to default
+  settings" on the same pane. A user who picks a sound and then closes the window with Cancel keeps
+  it. Consistent with its neighbour, still surprising.
+- ⬜ **MP3 validation at pick time runs through the OS ACM codec**, so a machine without that codec
+  refuses the pick rather than failing at play time. Not tested; it needs a box without the codec.
+- ⬜ **A junction part way along a path is now resolved, a symlink test still is not.** Containment
+  uses `GetFinalPathNameByHandle`, which handles both — but the symlink assertion reports DEGRADED
+  on an account that cannot create one, and this account cannot. The junction case covers the
+  property; the symlink case is an extra that only runs where Developer Mode is on.
+
+### Left open by the three parallel audits (2026-09-19)
+
+Nine findings were fixed in the same cycle (the Audio permission, the second tray row, the poll
+re-entrancy guard, `Log` mode, the version policy, the auto-mode greying, `EnabledWhen` trimming,
+four resource-lifetime defects and three dead members). These are the ones left.
+
+- 📌 **`ModuleConventionSelfTest` cannot see two of the six host events.** `ContextChanged` is
+  declared in its fake host with `add { } remove { }` accessors, so a subscription is not merely
+  unobserved — it is *discarded*, and a module leaking it can never be caught. `FullscreenChanged`
+  is field-like and observable but has no `HasSubs` property beside the other four. Neither matters
+  for anything shipped today; both matter the first time a module subscribes. The test exists
+  because Remembrance once shipped exactly that bug on `HostShutdown`.
+- ⬜ **`PostToUi` falls back to running inline, silently.** If `_ui` was never captured, every
+  `IHost` call in the posted lambda runs on the thread-pool worker with no diagnostic. Correct in
+  the shipped app (WinForms installs the context before `Init`), so this is about the failure being
+  undetectable rather than about it happening.
+- ⬜ **`Shutdown` does not cancel the in-flight poll.** A sweep, and a press, can complete after the
+  module is torn down and after the host has begun disposing.
+- ⬜ **`PromptDecision.UnsafeDetail` and `SetupReport.VsCodeRunning` are written and never read.**
+  The second costs a process enumeration on every pane open. Both are one-line removals; left only
+  because `UnsafeDetail` is the natural home for a "why did it refuse?" row nobody has built yet.
+- ⬜ **The notification sound decodes on the UI thread, every time.** Up to 8 MiB read plus a decode
+  into two ~21 MB LOH allocations, deliberately uncached (caching a large pick would be worse). A
+  user who picks a 30-second WAV gets a UI stall per notice.
+- ⬜ **`DescribeNotificationSound` does a `File.Exists` on the UI thread** on every Preferences open
+  and now after every Apply. Harmless for the default; blocks on a disconnected UNC path.
+- ⬜ **`AgentFlow.LoadPaneValues` is unreachable in production.** `LoadPending` replaces `Load`
+  entirely when supplied, so the host never calls it — only the self-test does. Harmless one-liner,
+  but the self-test is exercising a path the host does not take.
+
 ## Open: second full-repo audit, 2026-09-17 (release machinery + plugin ABI)
 
 Two read-only audits ran over the release machinery and the plugin ABI after the first cycle's work

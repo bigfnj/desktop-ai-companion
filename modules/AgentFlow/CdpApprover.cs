@@ -446,7 +446,20 @@ namespace DesktopAICompanion.AgentFlow
             public CdpSession(string url, int timeoutMs)
             {
                 _cancel = new CancellationTokenSource(Math.Max(1000, timeoutMs * 4));
-                _socket.ConnectAsync(new Uri(url), _cancel.Token).GetAwaiter().GetResult();
+                try
+                {
+                    _socket.ConnectAsync(new Uri(url), _cancel.Token).GetAwaiter().GetResult();
+                }
+                catch
+                {
+                    // `using (var s = new CdpSession(...))` never binds when the constructor
+                    // throws, so Dispose -- the only thing that closes the socket and the token
+                    // source -- never runs. And this throws on the most ORDINARY path there is:
+                    // the user quits VS Code in the moment between the /json/version GET and
+                    // this connect.
+                    Dispose();
+                    throw;
+                }
             }
 
             public string Attach(string targetId)
@@ -514,19 +527,28 @@ namespace DesktopAICompanion.AgentFlow
                     if (message == null) return false;
                     try
                     {
-                        var document = JsonDocument.Parse(message);
-                        JsonElement replyId;
-                        if (document.RootElement.TryGetProperty("id", out replyId)
-                            && replyId.ValueKind == JsonValueKind.Number
-                            && replyId.GetInt32() == id)
+                        // `using`, not paired Dispose calls. Two throws here are NOT
+                        // JsonException and so escaped both the catch and the disposal,
+                        // abandoning a pooled buffer of up to the 1 MiB receive cap:
+                        // TryGetProperty throws when the root is not an object, and GetInt32
+                        // throws on a number outside int range. Neither is something CDP
+                        // produces in normal operation, which is precisely why it would never
+                        // have been noticed.
+                        using (var document = JsonDocument.Parse(message))
                         {
-                            reply = document.RootElement.Clone();
-                            document.Dispose();
-                            return true;
+                            JsonElement replyId;
+                            if (document.RootElement.TryGetProperty("id", out replyId)
+                                && replyId.ValueKind == JsonValueKind.Number
+                                && replyId.GetInt32() == id)
+                            {
+                                reply = document.RootElement.Clone();
+                                return true;
+                            }
                         }
-                        document.Dispose();
                     }
                     catch (JsonException) { }
+                    catch (InvalidOperationException) { }
+                    catch (FormatException) { }
                 }
                 return false;
             }
@@ -563,14 +585,31 @@ namespace DesktopAICompanion.AgentFlow
             }
         }
 
+        /// <summary>
+        /// One client for the life of the process, not one per call.
+        ///
+        /// The sweep makes two of these calls and a press makes a third, every ten seconds
+        /// while auto-approve is on -- roughly 17,000 HttpClient and SocketsHttpHandler pairs
+        /// a day. The `using` did dispose each one, so this was churn rather than unbounded
+        /// growth, but every disposal closed a fresh loopback connection into TIME_WAIT: a
+        /// steady-state floor of about 48 sockets doing nothing, and a number the next person
+        /// to read a netstat would have had to chase.
+        ///
+        /// The timeout moves to a per-request CancellationToken because a shared client's
+        /// Timeout cannot be changed once a request has been made on it.
+        /// </summary>
+        private static readonly HttpClient Http = new HttpClient();
+
         private static string HttpGet(string url, int timeoutMs)
         {
             try
             {
-                using (var client = new HttpClient())
+                using (var cancel = new CancellationTokenSource(Math.Max(200, timeoutMs)))
+                using (HttpResponseMessage response =
+                           Http.GetAsync(url, cancel.Token).GetAwaiter().GetResult())
                 {
-                    client.Timeout = TimeSpan.FromMilliseconds(Math.Max(200, timeoutMs));
-                    return client.GetStringAsync(url).GetAwaiter().GetResult();
+                    if (!response.IsSuccessStatusCode) return null;
+                    return response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
                 }
             }
             catch (Exception) { return null; }
