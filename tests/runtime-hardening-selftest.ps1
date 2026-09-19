@@ -340,11 +340,24 @@ Assert-True (
 # throws, nothing fails a build, and both dropdowns silently freeze at whatever list existed when the pane was
 # constructed: the pets you added since simply never appear. Asserting the ORDER, not the presence of either
 # statement, because both statements survive the reordering that breaks this.
+# Strip line comments so an invariant cannot be satisfied -- or an ordering check inverted -- by prose. This
+# repo has been bitten four times by a source check that a comment alone was enough to pass.
+function Remove-LineComments {
+    param([string] $Text)
+    return (($Text -split "`n") | ForEach-Object { $_ -replace '//.*$', '' }) -join "`n"
+}
+
 $optionsWindowSource = Get-Content -LiteralPath (
     Join-Path $repoRoot 'src\Portable\Wpf\OptionsWindow.cs') -Raw
-$buildStart  = $optionsWindowSource.IndexOf('public FrameworkElement Build()')
-$loadCall    = $optionsWindowSource.IndexOf('_pane.Load()', $buildStart)
-$schemaRead  = $optionsWindowSource.IndexOf('_pane.Schema', $buildStart)
+# Comments stripped FIRST. This check previously read raw source, and a comment saying
+# 'runs BEFORE _pane.Schema is read below' landed earlier in the file than the read it was
+# describing -- so the order assertion inverted and failed on correct code. A source check
+# that cannot tell code from prose is measuring the wrong thing in either direction.
+$optionsWindowCode = Remove-LineComments $optionsWindowSource
+$buildStart  = $optionsWindowCode.IndexOf('public FrameworkElement Build()')
+$loadCall    = [Math]::Max($optionsWindowCode.IndexOf('_pane.Load()', $buildStart),
+                           $optionsWindowCode.IndexOf('_pane.LoadPending(', $buildStart))
+$schemaRead  = $optionsWindowCode.IndexOf('_pane.Schema', $buildStart)
 Assert-True (
     $buildStart -gt 0 -and $loadCall -gt $buildStart -and $schemaRead -gt $loadCall
 ) 'a pane Load() runs before its Schema is read, so a dropdown can offer live options'
@@ -409,12 +422,6 @@ function Get-MethodBody {
     return $Source.Substring($start, $next - $start)
 }
 
-# Strip line comments so an invariant cannot be satisfied -- or an ordering check inverted -- by prose. This
-# repo has been bitten four times by a source check that a comment alone was enough to pass.
-function Remove-LineComments {
-    param([string] $Text)
-    return (($Text -split "`n") | ForEach-Object { $_ -replace '//.*$', '' }) -join "`n"
-}
 $dropBody = Get-MethodBody $aiBrainSource 'private bool OnDrop(ICompanion pet)'
 $pokeBody = Get-MethodBody $aiBrainSource 'private bool OnPokeReaction(ICompanion pet)'
 $guardBody = Get-MethodBody $aiBrainSource 'private bool FullscreenBlocked()'

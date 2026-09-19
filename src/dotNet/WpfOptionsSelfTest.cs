@@ -764,8 +764,16 @@ namespace DesktopAICompanion
                     string junction = Path.Combine(revealRoot, "escape");
                     var mk = new System.Diagnostics.ProcessStartInfo("cmd.exe",
                         "/c mklink /J \"" + junction + "\" \"" + Path.GetDirectoryName(outsideFile) + "\"")
+                    // The encoding is pinned rather than left to the console codepage. This is a
+                    // GUI process with no console, so GetConsoleOutputCP() returns 0 and .NET reads
+                    // that as CP_ACP -- the repo-wide invariant exists because that silently
+                    // mojibake'd every non-ASCII glyph on a redirect written by someone who had not
+                    // met the bug. Nothing here reads the output, but the rule is repo-wide on
+                    // purpose and an exception "because this one does not matter" is how it returns.
                     { UseShellExecute = false, CreateNoWindow = true,
-                      RedirectStandardOutput = true, RedirectStandardError = true };
+                      RedirectStandardOutput = true, RedirectStandardError = true,
+                      StandardOutputEncoding = System.Text.Encoding.UTF8,
+                      StandardErrorEncoding = System.Text.Encoding.UTF8 };
                     using (System.Diagnostics.Process p = System.Diagnostics.Process.Start(mk)) p.WaitForExit();
 
                     string throughJunction = Path.Combine(junction, Path.GetFileName(outsideFile));
