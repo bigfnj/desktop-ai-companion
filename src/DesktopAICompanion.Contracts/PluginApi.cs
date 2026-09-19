@@ -269,6 +269,9 @@ namespace DesktopAICompanion.Modules
 
         // "otherFieldId=value", e.g. "mode=notify". Null/empty => always enabled.
         //
+        // Several values may be given separated by '|' ("mode=notify|auto"), for a field
+        // that is live in more than one state. Both sides are trimmed.
+        //
         // The host greys this control out whenever the named field's value ON SCREEN is not the one
         // given, and re-enables it live as that field changes -- so a dependent setting can be shown
         // in context rather than vanishing. It disables the EDITOR only: the value is still collected

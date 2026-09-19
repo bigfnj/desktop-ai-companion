@@ -284,8 +284,28 @@ namespace DesktopAICompanion.ModuleKit.Testing
         /// <summary>Records the audio your module tried to play. Set <see cref="PlaySoundResult"/> to false to
         /// exercise the refused path -- no device, no permission, muted -- which is the branch that decides
         /// whether your module falls back to a bubble.</summary>
+        /// <summary>
+        /// Permissions to enforce on the gated calls, or null to enforce nothing.
+        ///
+        /// OPT-IN, and null by default, so no existing module self-test changes behaviour.
+        /// It exists because the un-enforcing default hid a real defect: AgentFlow called
+        /// PlayNotificationSound without declaring Audio, the real host refused it on every
+        /// invocation, and the self-test still passed because this double counted the call
+        /// and returned success. A double that cannot refuse cannot test a gate.
+        ///
+        /// Set it from the module under test's own Info.Permissions -- not from a literal --
+        /// or the test asserts what the test author believed rather than what ships.
+        /// </summary>
+        public ModulePermissions? Declared { get; set; }
+
+        private bool Refuses(ModulePermissions required)
+        {
+            return Declared.HasValue && (Declared.Value & required) != required;
+        }
+
         public bool PlaySound(string moduleId, byte[] audio, double volume)
         {
+            if (Refuses(ModulePermissions.Audio)) return false;
             PlayedSounds.Add(audio ?? new byte[0]);
             return PlaySoundResult;
         }
@@ -296,6 +316,7 @@ namespace DesktopAICompanion.ModuleKit.Testing
 
         public bool PlayNotificationSound(string moduleId)
         {
+            if (Refuses(ModulePermissions.Audio)) return false;
             NotificationSoundsPlayed++;
             return PlaySoundResult;
         }

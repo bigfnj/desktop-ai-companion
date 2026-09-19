@@ -525,8 +525,21 @@ namespace DesktopAICompanion.Wpf
             int eq = f.EnabledWhen.IndexOf('=');
             if (eq <= 0) return true;   // no id, or no separator: unparseable, so it constrains nothing
             string otherId = f.EnabledWhen.Substring(0, eq).Trim();
+            // The value side is TRIMMED too. It was not, while the id side was, so
+            // "mode = notify" compared against " notify" and the row stayed greyed for
+            // ever -- which reads as a layout bug rather than as a typo, and is exactly
+            // the trap an asymmetry like that sets for the next author.
+            //
+            // A '|' separated SET is accepted, because a dependent field often belongs to
+            // more than one state: AgentFlow's notify settings are live in both Notify and
+            // Auto-approve mode, and greying them in one of those told the user they were
+            // inert when the module was still reading them.
             string wanted = f.EnabledWhen.Substring(eq + 1);
-            return string.Equals(CurrentValueOf(otherId), wanted, StringComparison.OrdinalIgnoreCase);
+            string actual = CurrentValueOf(otherId);
+            foreach (string option in wanted.Split('|'))
+                if (string.Equals(actual, option.Trim(), StringComparison.OrdinalIgnoreCase))
+                    return true;
+            return false;
         }
 
         private void RefreshEnabledStates()

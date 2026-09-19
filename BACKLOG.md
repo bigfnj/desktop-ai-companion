@@ -183,6 +183,40 @@ from the sibling is the transcript parsing and the compound-command splitter, po
 
 ---
 
+## Open: left by the 1.1.6 options-ABI cycle (2026-09-18/19)
+
+The ABI additions, the shared notification sound and the AgentFlow pane rebuild each left something
+that was flagged rather than fixed. None of these blocked the work; all of them are things a future
+reader would otherwise have to rediscover.
+
+- 📌 **`RevealsPath` containment is data-root wide, not module-storage narrow.** `PaneView` receives
+  an `OptionsPane` with no module identity, so the host can only enforce "inside the app data root".
+  `CompanionHost.ModuleDataDir` builds every module's storage as `<dataRoot>\modules\<id>`, so today
+  that is arithmetically the same rule — but it means module A can reveal a file sitting in module
+  B's folder, or in the app's own settings folder. Narrowing it needs a module id on `OptionsPane`,
+  which is a contract change and therefore a host release.
+- ⬜ **`SchemaShellPane.RefreshAfterApply` scans for `Info` fields only, not `Header`.** A `Header`
+  whose paragraph is derived from settings will show stale text after Apply until the pane is
+  reopened. AgentFlow's three explanation headers are static prose, so nothing is wrong today; the
+  first `Header` carrying live state will hit it.
+- ⬜ **Adding an Info row flipped the Preferences pane's `RefreshAfterApply` to true**, so the whole
+  pane now rebuilds after Apply and resets its scroll position. That is the Info mechanism working
+  as designed, but it changed behaviour for a pane nobody was editing.
+- ⬜ **`NotificationOutcome.Failed` is unexercised**, and so is its diagnostic-log line. It is
+  reachable only through an unexpected exception, which no test could provoke.
+- 📌 **Nobody has heard the built-in chime.** It is asserted to be 0.75 s, to peak at 0.7 and to
+  start and end in exact silence. None of that measures whether it is pleasant, and a notification
+  sound that grates is a notification sound people switch off.
+- ⬜ **The notification-sound picker persists immediately, before Save**, matching "Reset to default
+  settings" on the same pane. A user who picks a sound and then closes the window with Cancel keeps
+  it. Consistent with its neighbour, still surprising.
+- ⬜ **MP3 validation at pick time runs through the OS ACM codec**, so a machine without that codec
+  refuses the pick rather than failing at play time. Not tested; it needs a box without the codec.
+- ⬜ **A junction part way along a path is now resolved, a symlink test still is not.** Containment
+  uses `GetFinalPathNameByHandle`, which handles both — but the symlink assertion reports DEGRADED
+  on an account that cannot create one, and this account cannot. The junction case covers the
+  property; the symlink case is an extra that only runs where Developer Mode is on.
+
 ## Open: second full-repo audit, 2026-09-17 (release machinery + plugin ABI)
 
 Two read-only audits ran over the release machinery and the plugin ABI after the first cycle's work
