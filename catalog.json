@@ -2178,8 +2178,8 @@
       "desc": "Offline smart fortunes and speech bubbles, picked contextually by a bundled bge-small embedding model. Ships a built-in corpus of ~3,200 lines (Classic Fortunes plus Dad Jokes), so it has something to say before you download a single pack.",
       "version": "1.0.2",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/fortunes.zip",
-      "sha256": "df734c8a974b0801bad894ee3ac663693a40524d5309c531c58ace8f2d3d99ed",
-      "bytes": 30447994,
+      "sha256": "0f430dc9e6d0a7debbd951bfa3a5b44c1bbf390a68bfa8c8a3fc1c8a1a66dd4b",
+      "bytes": 30448368,
       "permissions": "Speech, ScreenContext, Storage"
     },
     {
@@ -2188,8 +2188,8 @@
       "desc": "An optional, off-by-default screen-commentary AI brain (local Ollama/llama.cpp or an optional cloud provider). Reads the screen with Windows' built-in OCR, so it needs no separate Tesseract install.",
       "version": "1.1.5",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/aibrain.zip",
-      "sha256": "17c05964c2b0fd7a31ef46255dc900f0339ec88976fcfae2aa8df2b035b45881",
-      "bytes": 6756723,
+      "sha256": "59da554e3dc6421d6158d7c6dfc1426ea9d5829a32608affaec77d0e61cc88c0",
+      "bytes": 6757085,
       "permissions": "Speech, Animation, ScreenContext, Network, Hotkey, Storage"
     },
     {
@@ -2198,8 +2198,8 @@
       "desc": "Check a companion's animations.xml before you use it: what the host would reject, which animations can never play, and how it actually looks running on your desktop. Edit the XML in place, watch any animation's real sprite frames, preview the companion temporarily on your desktop, then install it.",
       "version": "1.0.3",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/petstudio.zip",
-      "sha256": "514fbc65b1390aa58280bc70210e6bd22cca51f4d7d5c92d675fc5d077afe996",
-      "bytes": 386615,
+      "sha256": "cd5da56134abeaed868b071474d4e0392bc064f45e837e67b722b4756530dd10",
+      "bytes": 386973,
       "permissions": "Speech, Companions, Storage"
     },
     {
@@ -2208,8 +2208,8 @@
       "desc": "Your companion announces upcoming calendar events and reads your agenda. Watches up to five calendars (local file, ICS URL, or running Outlook), each with its own name, style, and chime; one-click Join for Teams/Zoom/Meet links; a daily morning briefing; typed personal reminders; skips declined and all-day events; lead times, quiet hours, and hush-while-presenting.",
       "version": "1.0.2",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/reminder.zip",
-      "sha256": "12f6e4cc7b8bbb9398f14e452f68ed99d603618b92f5aab85c863083b199068a",
-      "bytes": 400320,
+      "sha256": "8fc276b049f64947951b9a32392013dc8f0f18e2b2fc0a76d968edfcaaadb413",
+      "bytes": 400700,
       "permissions": "Speech, Storage, Network, Companions, Audio, Animation"
     },
     {
@@ -2218,8 +2218,8 @@
       "desc": "Records a meeting (your microphone + the system output over WASAPI loopback), transcribes it offline with a local Whisper, names it from your calendar (via the Reminder module) or a timestamp, snapshots the screen on a hotkey, and purges the audio + snapshots after 72 hours while keeping the transcript. Needs a local Whisper (whisper-cli + a model) set up in options, and the machine's own console - a Remote Desktop session presents no real microphone.",
       "version": "1.0.2",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/remembrance.zip",
-      "sha256": "c6ea44ce0d53941ca7da353fa2f5067018d42bef934f25555e6d96abcca74cab",
-      "bytes": 7058213,
+      "sha256": "2fc83327b6abfccd2e96ab6b2d4dff68c99f6111689712324e0bf9fed6d32a88",
+      "bytes": 7058588,
       "permissions": "Speech, Microphone, SystemAudio, ScreenContext, Hotkey, Storage, Network"
     },
     {
@@ -2228,18 +2228,18 @@
       "desc": "Blinks your keyboard's Scroll Lock light so the machine reads as active. Six speeds from Glacial to Hyper, switchable from the tray, and your companion has an opinion about each one. It works by pressing Scroll Lock, a key no application acts on, so nothing is ever typed anywhere; Windows still counts it as activity, which is the whole point. Caps Lock stops it.",
       "version": "1.0.2",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/blinkingled.zip",
-      "sha256": "ebd9efc2c847b4913c12035716ffe7e35e1f5b3e3232d9588e200b9c9b6228a0",
-      "bytes": 48768,
+      "sha256": "8b7704f0150a6493bf05dd4a56b0dcd7a8facc75b6fdb18ebd1af148954f8545",
+      "bytes": 49145,
       "permissions": "Speech, Storage, InputSynthesis"
     },
     {
       "id": "agentflow",
       "name": "AgentFlow",
-      "desc": "Notices when a coding agent (Claude Code, Codex) has been sitting blocked on a permission prompt and tells you. READS YOUR CODING-AGENT TRANSCRIPTS AND PERMISSION SETTINGS to do it: those files contain every command you ran and everything you typed to the agent. It never answers a prompt, and it never speaks command text or a file path.",
-      "version": "1.0.1",
+      "desc": "Notices when a coding agent (Claude Code, Codex) has been sitting blocked on a permission prompt, and tells you. It can also APPROVE the prompt for you, one call at a time, if you switch that on: it only ever presses the option that approves THAT ONE CALL, never \"don't ask again\", never \"allow all edits this session\", and never anything that changes your permission mode; if it cannot recognise even one option on a prompt it touches nothing. READS YOUR CODING-AGENT TRANSCRIPTS AND PERMISSION SETTINGS to do it: those files contain every command you ran and everything you typed to the agent. It never speaks or logs command text or a file path.",
+      "version": "1.1.0",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/agentflow.zip",
-      "sha256": "dd13984f95e914407b5a8620dc5fd3ab20be4d50323f8aa0ee459a6b163b5d49",
-      "bytes": 62370,
+      "sha256": "44e819e3bfe155c2693f0bda365710131545754a9b1f1a83c6ca2e2f3007afde",
+      "bytes": 93415,
       "permissions": "Speech, Animation, Storage, AgentTranscripts"
     }
   ]
