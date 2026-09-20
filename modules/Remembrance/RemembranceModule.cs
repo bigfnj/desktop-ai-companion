@@ -48,7 +48,13 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "1.0.3",   // 1.0.3: the three discovered dropdowns (both recording devices and the
+            Version = "1.0.4",   // 1.0.4: the summary model can be fetched from the pane. A curated
+                                 //        list of four tags (all checked against the registry, sizes
+                                 //        summed from the manifests), a pull over Ollama's /api/pull
+                                 //        with progress, and a link to ollama.com for the case where
+                                 //        the runtime itself is missing. A pull is a download, not
+                                 //        inference: it costs disk, never VRAM.
+                                 // 1.0.3: the three discovered dropdowns (both recording devices and the
                                  //        summary model) re-read their contents on every pane open. They
                                  //        were built once in Init, so a closed dropdown could only ever
                                  //        offer what existed at startup: "Find local summary models"
@@ -432,6 +438,9 @@ namespace DesktopAICompanion.RemembranceModule
                 new SettingField { Id = "summaryOn", Label = "Also write an AI summary next to the transcript", Kind = SettingKind.Bool, Group = "Summary (local AI)" },
                 new SettingField { Id = "ollamaEndpoint", Label = "Local Ollama address", Kind = SettingKind.Text, Group = "Summary (local AI)" },
                 _summaryModelField,
+                new SettingField { Id = "recommendedModel", Label = "Model to download if you have none",
+                    Kind = SettingKind.Enum, Options = OllamaSummarizer.RecommendedDisplays(),
+                    Group = "Summary (local AI)" },
 
                 new SettingField { Id = "status", Label = "Status", Kind = SettingKind.Info, Group = "Status" },
             };
@@ -462,6 +471,10 @@ namespace DesktopAICompanion.RemembranceModule
 
                     new PaneAction { Label = "Find local summary models", Group = "Summary (local AI)", ReloadPaneAfter = true,
                         InvokeAsync = RefreshSummaryModelsAsync },
+                    new PaneAction { Label = "Download that model", Group = "Summary (local AI)", ReloadPaneAfter = false,
+                        InvokeAsync = DownloadRecommendedModelAsync },
+                    new PaneAction { Label = "Get Ollama (opens the site)", Group = "Summary (local AI)", ReloadPaneAfter = false,
+                        InvokeAsync = () => Task.FromResult(OpenOllamaSite()) },
                     new PaneAction { Label = "Test the summarizer", Group = "Summary (local AI)", ReloadPaneAfter = false,
                         InvokeAsync = TestSummarizerAsync },
                     new PaneAction { Label = "Summarize a transcript…", Group = "Summary (local AI)", ReloadPaneAfter = false,
@@ -489,6 +502,8 @@ namespace DesktopAICompanion.RemembranceModule
                     ["summaryOn"] = _settings.GetBool("summaryOn", false) ? "true" : "false",
                     ["ollamaEndpoint"] = _settings.Get("ollamaEndpoint", OllamaSummarizer.DefaultEndpoint),
                     ["summaryModel"] = _settings.Get("summaryModel", ""),
+                    ["recommendedModel"] = OllamaSummarizer.RecommendedDisplayFor(
+                        _settings.Get("recommendedModel", OllamaSummarizer.DefaultRecommendedId)),
                     ["status"] = StatusLine(),
                     };
                 },
@@ -510,6 +525,9 @@ namespace DesktopAICompanion.RemembranceModule
                     SaveBool(values, "summaryOn");
                     if (values.TryGetValue("ollamaEndpoint", out v)) _settings.Set("ollamaEndpoint", (v ?? "").Trim());
                     if (values.TryGetValue("summaryModel", out v)) _settings.Set("summaryModel", (v ?? "").Trim());
+                    // The dropdown shows "gemma4:12b (7.0 GB) -- recommended"; store the tag alone.
+                    if (values.TryGetValue("recommendedModel", out v))
+                        _settings.Set("recommendedModel", OllamaSummarizer.RecommendedIdFromDisplay(v));
                     bool ok = _settings.Save();
                     RegisterHotkeys();   // a changed combo takes effect without a restart
                     return ok;
@@ -754,6 +772,74 @@ namespace DesktopAICompanion.RemembranceModule
                 if (string.IsNullOrWhiteSpace(_settings.Get("summaryModel", ""))) _settings.Set("summaryModel", models[0]);
                 _settings.Save();
                 return "✓ found " + models.Count + ": " + string.Join(", ", models.Take(6));
+            }
+            catch (Exception ex) { return "✗ " + ex.Message; }
+        }
+
+        /// <summary>
+        /// Pull the chosen model into the local Ollama.
+        ///
+        /// A DOWNLOAD, not inference: /api/pull moves bytes to disk and loads nothing onto the GPU,
+        /// so this costs no VRAM and cannot evict whatever the user is running. It does cost
+        /// gigabytes, which is why the size is on the dropdown label the user picked from rather
+        /// than buried in a confirmation nobody reads.
+        ///
+        /// Reachability is checked FIRST and separately, because "no Ollama installed" and "Ollama
+        /// running, no model" need opposite advice and the pull would report them identically.
+        /// </summary>
+        private async Task<string> DownloadRecommendedModelAsync()
+        {
+            string endpoint = _settings.Get("ollamaEndpoint", OllamaSummarizer.DefaultEndpoint);
+            string id = OllamaSummarizer.RecommendedIdFromDisplay(
+                _settings.Get("recommendedModel", OllamaSummarizer.DefaultRecommendedId));
+
+            bool reachable = await OllamaSummarizer
+                .IsReachableAsync(endpoint, CancellationToken.None).ConfigureAwait(true);
+            if (!reachable)
+                return "✗ Nothing is answering at " + OllamaSummarizer.NormalizeEndpoint(endpoint) +
+                       ". Install Ollama first (there is a button for it below), then try again.";
+
+            // Started rather than awaited, matching how this module already handles transcription and
+            // summarising: a PaneAction reports once, when it returns, so awaiting gigabytes here
+            // would leave the button dead and the pane looking hung for an hour.
+            _lastStatus = "Downloading " + id + "...";
+            // Discarded on purpose: this is fire-and-report, and awaiting it is the one thing
+            // the comment above says not to do.
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    OllamaSummarizer.PullResult pull = await OllamaSummarizer.PullModelAsync(
+                        endpoint, id, p => { _lastStatus = p; }, CancellationToken.None).ConfigureAwait(false);
+                    if (!pull.Ok)
+                    {
+                        _lastStatus = "Download failed: " + pull.Message;
+                        Announce("The model download failed.");
+                        return;
+                    }
+                    // Select what was just fetched, and put it in the dropdown that offers it, or the
+                    // user downloads 7 GB and still has nothing chosen.
+                    _settings.Set("summaryModel", id);
+                    IReadOnlyList<string> models = await OllamaSummarizer
+                        .ListModelsAsync(endpoint, CancellationToken.None).ConfigureAwait(false);
+                    if (models.Count > 0) _settings.Set("summaryModelsCache", string.Join("|", models));
+                    _settings.Save();
+                    _lastStatus = id + " is installed and selected.";
+                    Announce("The summary model is ready.");
+                }
+                catch (Exception ex) { try { _host.Log(Id, "model pull failed: " + ex.Message); } catch { } }
+            });
+            return "Downloading " + id + " in the background. Reopen this pane to watch the Status line.";
+        }
+
+        /// <summary>Open the Ollama download page, for the case where the runtime is missing entirely.</summary>
+        private string OpenOllamaSite()
+        {
+            try
+            {
+                return _host.OpenLink(Id, OllamaSummarizer.OllamaDownloadUrl)
+                    ? "✓ opened " + OllamaSummarizer.OllamaDownloadUrl
+                    : "✗ the host would not open " + OllamaSummarizer.OllamaDownloadUrl;
             }
             catch (Exception ex) { return "✗ " + ex.Message; }
         }
@@ -1031,6 +1117,42 @@ namespace DesktopAICompanion.RemembranceModule
             check("a trailing slash is trimmed", OllamaSummarizer.NormalizeEndpoint("http://host:1/") == "http://host:1");
             check("a generate reply is read", OllamaSummarizer.ExtractResponse("{\"response\":\"done\"}") == "done");
             check("a malformed reply reads as empty", OllamaSummarizer.ExtractResponse("{oops") == "");
+            // ---- pulling a model: the recommended list and the progress stream ----
+            check("every recommended tag carries a size in its label",
+                OllamaSummarizer.RecommendedDisplays().All(d => d.Contains("GB")));
+            check("the default recommendation is one of the offered rows",
+                OllamaSummarizer.RecommendedDisplays().Any(
+                    d => d.StartsWith(OllamaSummarizer.DefaultRecommendedId, StringComparison.Ordinal)));
+            check("WITNESS a label round-trips to the tag that gets pulled",
+                OllamaSummarizer.RecommendedIdFromDisplay(
+                    OllamaSummarizer.RecommendedDisplayFor("gemma3:4b")) == "gemma3:4b");
+            check("WITNESS unrecognised text falls back rather than being sent as a model name",
+                OllamaSummarizer.RecommendedIdFromDisplay("something the user typed")
+                    == OllamaSummarizer.DefaultRecommendedId);
+            check("the Ollama link is https", OllamaSummarizer.OllamaDownloadUrl.StartsWith("https://"));
+
+            // Percent is the half that misleads when it is wrong, so it is pinned at both ends.
+            check("WITNESS no total means no percentage, not 100%",
+                OllamaSummarizer.ProgressLine("m", "pulling manifest", 0, 0) == "m: pulling manifest");
+            check("a partial download reports its share",
+                OllamaSummarizer.ProgressLine("m", "downloading", 3758096384L, 7516192768L)
+                    .Contains("50%"));
+            check("the size is shown in GB alongside the percentage",
+                OllamaSummarizer.ProgressLine("m", "downloading", 3758096384L, 7516192768L)
+                    .Contains("3.5 of 7.0 GB"));
+            check("a server overshoot is clamped rather than printing 103%",
+                OllamaSummarizer.ProgressLine("m", "downloading", 900L, 800L).Contains("100%"));
+
+            OllamaSummarizer.PullProgress step = OllamaSummarizer.ParsePullLine(
+                "{\"status\":\"downloading\",\"completed\":50,\"total\":100}");
+            check("a progress line is read",
+                step != null && step.Completed == 50 && step.Total == 100);
+            check("WITNESS an error line is surfaced, not read as progress",
+                OllamaSummarizer.ParsePullLine("{\"error\":\"model not found\"}").Error == "model not found");
+            check("a blank line is skipped rather than failing the pull",
+                OllamaSummarizer.ParsePullLine("") == null && OllamaSummarizer.ParsePullLine("  ") == null);
+            check("a torn line is skipped rather than throwing",
+                OllamaSummarizer.ParsePullLine("{\"status\":\"down") == null);
             check("the summary file header names the model",
                 OllamaSummarizer.FileHeader("Standup", "dolphin3").Contains("dolphin3"));
 

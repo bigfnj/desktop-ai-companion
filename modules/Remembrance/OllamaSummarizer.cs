@@ -37,6 +37,108 @@ namespace DesktopAICompanion.RemembranceModule
         /// more text than one prompt should carry, so the reduce input is capped the same way.</summary>
         private const int MaxReduceCharacters = 8000;
 
+        /// <summary>Where to get Ollama itself, for the case where nothing is answering at all.</summary>
+        public const string OllamaDownloadUrl = "https://ollama.com/download";
+
+        /// <summary>The model suggested by default: the best size/speed trade for THIS job.</summary>
+        public const string DefaultRecommendedId = "gemma4:12b";
+
+        /// <summary>
+        /// Models worth suggesting for meeting summaries, smallest first.
+        ///
+        /// Chosen for the shape of this particular job rather than for general cleverness. The
+        /// transcript is cut into 6000-character chunks (MaxChunkCharacters), so context length is
+        /// not the differentiator and a 24B model earns very little on window size. What it is, is
+        /// map-reduce: an hour of meeting is around nine chunk calls plus a merge, run one after
+        /// another, so speed compounds. And the prompts ask for structured extraction under "add
+        /// nothing that is not in the transcript", which models below about 4B follow poorly --
+        /// they invent action items and drop the owner.
+        ///
+        /// EVERY TAG HERE WAS CHECKED AGAINST THE REGISTRY, and the sizes come from summing the
+        /// manifest layers, not from memory. That is not ceremony: gemma4:4b reads as though it
+        /// ought to exist, sits right between two tags that do, and 404s.
+        /// </summary>
+        public static readonly string[][] Recommended =
+        {
+            new[] { "gemma3:4b",            "gemma3:4b (3.1 GB) -- small GPU, or CPU only" },
+            new[] { "qwen3:8b",             "qwen3:8b (4.9 GB) -- a middle option" },
+            new[] { "gemma4:12b",           "gemma4:12b (7.0 GB) -- recommended" },
+            new[] { "mistral-small3.2:24b", "mistral-small3.2:24b (14.1 GB) -- best, wants 16 GB+ of VRAM" },
+        };
+
+        public static string[] RecommendedDisplays()
+        {
+            var list = new List<string>();
+            foreach (string[] row in Recommended) list.Add(row[1]);
+            return list.ToArray();
+        }
+
+        /// <summary>Display label back to the tag actually pulled. Unknown text falls back to the
+        /// default rather than being sent to the registry as a model name.</summary>
+        public static string RecommendedIdFromDisplay(string display)
+        {
+            string value = (display ?? "").Trim();
+            foreach (string[] row in Recommended)
+                if (string.Equals(row[1], value, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(row[0], value, StringComparison.OrdinalIgnoreCase))
+                    return row[0];
+            return DefaultRecommendedId;
+        }
+
+        public static string RecommendedDisplayFor(string id)
+        {
+            string value = (id ?? "").Trim();
+            foreach (string[] row in Recommended)
+                if (string.Equals(row[0], value, StringComparison.OrdinalIgnoreCase)) return row[1];
+            return Recommended[2][1];   // the recommended one
+        }
+
+        /// <summary>One line of pull progress. Percent only when the server has told us a total:
+        /// early lines ("pulling manifest") carry none, and 0 of 0 must not render as 100%.</summary>
+        public static string ProgressLine(string model, string status, long completed, long total)
+        {
+            string head = (model ?? "") + ": " + (string.IsNullOrWhiteSpace(status) ? "working" : status.Trim());
+            if (total <= 0 || completed < 0) return head;
+            double fraction = completed > total ? 1.0 : (double)completed / total;
+            return head + " " + ((int)(fraction * 100)).ToString(CultureInfo.InvariantCulture) + "% (" +
+                   (completed / 1073741824.0).ToString("0.0", CultureInfo.InvariantCulture) + " of " +
+                   (total / 1073741824.0).ToString("0.0", CultureInfo.InvariantCulture) + " GB)";
+        }
+
+        public sealed class PullProgress
+        {
+            public string Status;
+            public long Completed;
+            public long Total;
+            public string Error;
+        }
+
+        /// <summary>One NDJSON line of /api/pull. Null for a blank or unparseable line, which is
+        /// skipped rather than treated as a failure: the stream ends with an empty line.</summary>
+        public static PullProgress ParsePullLine(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line)) return null;
+            try
+            {
+                using (JsonDocument document = JsonDocument.Parse(line))
+                {
+                    if (document.RootElement.ValueKind != JsonValueKind.Object) return null;
+                    var progress = new PullProgress();
+                    JsonElement element;
+                    if (document.RootElement.TryGetProperty("error", out element) &&
+                        element.ValueKind == JsonValueKind.String) progress.Error = element.GetString();
+                    if (document.RootElement.TryGetProperty("status", out element) &&
+                        element.ValueKind == JsonValueKind.String) progress.Status = element.GetString();
+                    if (document.RootElement.TryGetProperty("completed", out element) &&
+                        element.ValueKind == JsonValueKind.Number) progress.Completed = element.GetInt64();
+                    if (document.RootElement.TryGetProperty("total", out element) &&
+                        element.ValueKind == JsonValueKind.Number) progress.Total = element.GetInt64();
+                    return progress;
+                }
+            }
+            catch { return null; }
+        }
+
         // ---- pure helpers (self-testable, no network) -----------------------------------------------
 
         /// <summary>
@@ -169,6 +271,110 @@ namespace DesktopAICompanion.RemembranceModule
             var http = new HttpClient(handler, true) { Timeout = timeout };
             http.DefaultRequestHeaders.UserAgent.ParseAdd("DesktopAICompanion-Remembrance");
             return http;
+        }
+
+        public sealed class PullResult
+        {
+            public bool Ok;
+            public string Message;
+        }
+
+        /// <summary>
+        /// Is anything answering at all?
+        ///
+        /// Separate from ListModelsAsync on purpose. That one swallows every failure into an empty
+        /// list, which is right for filling a dropdown and useless here: "Ollama is not running" and
+        /// "Ollama is running but has no generative model" are the same answer from it, and they need
+        /// opposite advice -- install the runtime, versus pull a model.
+        /// </summary>
+        public static async Task<bool> IsReachableAsync(string endpoint, CancellationToken cancellationToken)
+        {
+            try
+            {
+                using (HttpClient http = CreateClient(TimeSpan.FromSeconds(8)))
+                using (HttpResponseMessage response = await http
+                    .GetAsync(NormalizeEndpoint(endpoint) + "/api/tags", cancellationToken).ConfigureAwait(false))
+                {
+                    return response.IsSuccessStatusCode;
+                }
+            }
+            catch { return false; }
+        }
+
+        /// <summary>
+        /// Pull a model into the local Ollama, reporting progress as it goes.
+        ///
+        /// This is a DOWNLOAD, not inference: it moves bytes onto the disk and loads nothing onto the
+        /// GPU, so it costs no VRAM and evicts nothing the user is running. Gigabytes though, so the
+        /// caller is expected to have said which model and how big before calling.
+        /// </summary>
+        public static async Task<PullResult> PullModelAsync(string endpoint, string model,
+            Action<string> report, CancellationToken cancellationToken)
+        {
+            var result = new PullResult { Ok = false };
+            Action<string> say = report ?? delegate { };
+            if (string.IsNullOrWhiteSpace(model)) { result.Message = "No model was named."; return result; }
+
+            try
+            {
+                // Hours, not minutes: 14 GB over a domestic line is a long sit, and a timeout here
+                // throws away a download that was working.
+                using (HttpClient http = CreateClient(TimeSpan.FromHours(6)))
+                {
+                    string payload = "{\"model\":" + JsonSerializer.Serialize(model) +
+                                     ",\"stream\":true}";
+                    using (var content = new StringContent(payload, Encoding.UTF8, "application/json"))
+                    using (var request = new HttpRequestMessage(
+                               HttpMethod.Post, NormalizeEndpoint(endpoint) + "/api/pull") { Content = content })
+                    using (HttpResponseMessage response = await http
+                        .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        if (!response.IsSuccessStatusCode)
+                        {
+                            result.Message = "Ollama answered HTTP " +
+                                ((int)response.StatusCode).ToString(CultureInfo.InvariantCulture) +
+                                " for the pull. Is " + model + " a real tag?";
+                            return result;
+                        }
+
+                        using (var stream = await response.Content.ReadAsStreamAsync().ConfigureAwait(false))
+                        using (var reader = new System.IO.StreamReader(stream))
+                        {
+                            string line;
+                            bool sawSuccess = false;
+                            while ((line = await reader.ReadLineAsync().ConfigureAwait(false)) != null)
+                            {
+                                cancellationToken.ThrowIfCancellationRequested();
+                                PullProgress progress = ParsePullLine(line);
+                                if (progress == null) continue;
+                                if (!string.IsNullOrWhiteSpace(progress.Error))
+                                {
+                                    result.Message = progress.Error;
+                                    return result;
+                                }
+                                say(ProgressLine(model, progress.Status, progress.Completed, progress.Total));
+                                if (string.Equals(progress.Status, "success", StringComparison.OrdinalIgnoreCase))
+                                    sawSuccess = true;
+                            }
+
+                            // The stream ending is not the same as the pull succeeding: a connection
+                            // dropped mid-download also ends it, and reporting that as done would
+                            // leave a half-model selected.
+                            if (!sawSuccess)
+                            {
+                                result.Message = "The download stopped before Ollama reported success.";
+                                return result;
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex) { result.Message = ex.Message; return result; }
+
+            result.Ok = true;
+            result.Message = model + " is installed.";
+            return result;
         }
 
         /// <summary>Generation-capable models installed on the server. Empty on any failure, so a caller shows
