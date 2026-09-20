@@ -1216,9 +1216,14 @@ namespace DesktopAICompanion.Wpf
                         {
                             // IsChecked in the initializer, before the handler is wired, so restoring the
                             // stored value is not reported as an edit.
+                            // A TextBlock, not the bare string. RadioButton.Content given a
+                            // string renders it as a single unwrapped line, so an option any
+                            // longer than the card is simply cut off -- "Approve prompts for
+                            // me (one..." with the rest gone. Nothing clips or ellipsises it,
+                            // so the text is not merely hard to read, it is absent.
                             var rb = new RadioButton
                             {
-                                Content = o,
+                                Content = new TextBlock { Text = o, TextWrapping = TextWrapping.Wrap },
                                 Tag = o,
                                 Margin = new Thickness(0, 2, 0, 2),
                                 IsChecked = string.Equals(o, cur, StringComparison.Ordinal),

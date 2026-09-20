@@ -668,9 +668,20 @@ namespace DesktopAICompanion.Plugins
             string key = (moduleId ?? "").Trim();
             ICompanionManager cached;
             if (_petManagers.TryGetValue(key, out cached)) return cached;
-            ICompanionManager manager = ModuleDeclares(key, ModulePermissions.Companions)
-                ? (ICompanionManager)new CompanionManagerBridge(_startUp, this)
-                : new DenyingCompanionManager();
+            if (!ModuleDeclares(key, ModulePermissions.Companions))
+            {
+                // NOT CACHED. ModuleDeclares answers from _startUp.LoadedModules, and a module
+                // is added to that list AFTER its Init returns (ModuleHost.cs: Init on one line,
+                // _loaded.Add on the next). So a module that touches this during Init -- building
+                // an options pane, say -- is refused for a reason that stops being true moments
+                // later, and caching the refusal made it permanent: the pet dropdown stayed empty
+                // for the life of the process however many times it was reopened.
+                //
+                // Caching the GRANT is still right: it cannot become false, since permissions are
+                // fixed at load.
+                return new DenyingCompanionManager();
+            }
+            ICompanionManager manager = new CompanionManagerBridge(_startUp, this);
             _petManagers[key] = manager;
             return manager;
         }

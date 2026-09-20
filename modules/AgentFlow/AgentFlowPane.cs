@@ -258,13 +258,13 @@ namespace DesktopAICompanion.AgentFlow
             return fields;
         }
 
+        /// <summary>The chosen pet TYPE ID, or the one on screen when nothing is chosen.</summary>
         private string StoredAnimPet
         {
             get
             {
-                return _settings == null
-                    ? PetAnimations.AnyPet
-                    : _settings.Get(SettingAnimPet, PetAnimations.AnyPet);
+                string stored = _settings == null ? "" : _settings.Get(SettingAnimPet, "");
+                return string.IsNullOrEmpty(stored) ? DefaultPetTypeId() : stored;
             }
         }
 
@@ -276,36 +276,112 @@ namespace DesktopAICompanion.AgentFlow
         /// was chosen, so offering only the on-screen ones would produce a choice that silently
         /// stops meaning anything the moment the user swaps pets.
         /// </summary>
+        /// <summary>
+        /// True until Init has returned, because during Init this module IS NOT YET REGISTERED.
+        ///
+        /// ModuleHost calls Init and adds the module to LoadedModules on the NEXT line, and
+        /// IHost.GetCompanionManager answers the permission question from that list -- so a call
+        /// made from Init is refused for a reason that stops being true moments later. The host
+        /// used to CACHE that refusal, which made it permanent: the pet dropdown offered nothing
+        /// but "(any pet)" for the life of the process, however often it was reopened. The host
+        /// no longer caches a denial, but not asking too early is the half of the fix that
+        /// reaches people without a host upgrade.
+        /// </summary>
+        private bool _initialising = true;
+
+        internal void FinishedInitialising() { _initialising = false; }
+
+        private ICompanionManager Pets()
+        {
+            if (_initialising || _host == null) return null;
+            try { return _host.GetCompanionManager(Info.Id); }
+            catch (Exception) { return null; }
+        }
+
+        /// <summary>
+        /// The pets the user can choose, by DISPLAY NAME, with "(any pet)" first.
+        ///
+        /// Display names because that is what the user calls them: "Pearl", not "esheep64". The
+        /// TYPE ID is what gets stored and what the XML is read by, so the two are mapped rather
+        /// than conflated -- the same split the mode radio makes between a stored id and a
+        /// sentence on screen.
+        /// </summary>
         private string[] PetChoices()
         {
             var choices = new List<string> { PetAnimations.AnyPet };
-            try
+            foreach (CompanionTypeInfo type in InstalledPets())
             {
-                ICompanionManager manager = _host != null ? _host.GetCompanionManager(Info.Id) : null;
-                if (manager != null)
-                {
-                    IReadOnlyList<CompanionTypeInfo> types = manager.InstalledTypes();
-                    if (types != null)
-                        foreach (CompanionTypeInfo type in types)
-                            if (type != null && !string.IsNullOrEmpty(type.TypeId))
-                                choices.Add(type.TypeId);
-                }
-            }
-            catch (Exception)
-            {
-                // A pane that cannot list pets still opens, with the any-pet option only. Throwing
-                // here would take the whole settings window down over a dropdown.
+                string display = PetDisplay(type);
+                if (display.Length > 0 && !choices.Contains(display)) choices.Add(display);
             }
             return choices.ToArray();
         }
 
+        private IReadOnlyList<CompanionTypeInfo> InstalledPets()
+        {
+            ICompanionManager manager = Pets();
+            if (manager == null) return new List<CompanionTypeInfo>();
+            try { return manager.InstalledTypes() ?? new List<CompanionTypeInfo>(); }
+            catch (Exception) { return new List<CompanionTypeInfo>(); }
+        }
+
+        internal static string PetDisplay(CompanionTypeInfo type)
+        {
+            if (type == null) return "";
+            return !string.IsNullOrEmpty(type.DisplayName) ? type.DisplayName : (type.TypeId ?? "");
+        }
+
+        /// <summary>Display name back to the type id the module stores and reads XML by.</summary>
+        private string PetTypeIdFor(string display)
+        {
+            if (string.IsNullOrEmpty(display) || display == PetAnimations.AnyPet)
+                return PetAnimations.AnyPet;
+            foreach (CompanionTypeInfo type in InstalledPets())
+            {
+                if (string.Equals(PetDisplay(type), display, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(type.TypeId, display, StringComparison.OrdinalIgnoreCase))
+                    return type.TypeId ?? PetAnimations.AnyPet;
+            }
+            return PetAnimations.AnyPet;
+        }
+
+        private string PetDisplayFor(string typeId)
+        {
+            if (string.IsNullOrEmpty(typeId) || typeId == PetAnimations.AnyPet)
+                return PetAnimations.AnyPet;
+            foreach (CompanionTypeInfo type in InstalledPets())
+                if (string.Equals(type.TypeId, typeId, StringComparison.OrdinalIgnoreCase))
+                    return PetDisplay(type);
+            return PetAnimations.AnyPet;
+        }
+
         /// <summary>
-        /// One pet's own animation names, or the coverage list when no specific pet is chosen.
+        /// The pet to preselect when the user has chosen none: the one actually ON SCREEN.
         ///
-        /// There is no list that works everywhere: across the 53 bundled companions the set of
-        /// animations present on EVERY pet is empty, and the four that come closest are the
-        /// engine's reserved lifecycle animations.
+        /// "(any pet)" is a correct default and a useless one. It hands back a generic coverage
+        /// list at a moment when the module can see exactly which pet is up and read that pet's
+        /// real animation names. Falls back to the first installed type, then to the sentinel.
         /// </summary>
+        private string DefaultPetTypeId()
+        {
+            ICompanionManager manager = Pets();
+            if (manager != null)
+            {
+                try
+                {
+                    IReadOnlyList<CompanionCount> mix = manager.OnScreenMix();
+                    if (mix != null)
+                        foreach (CompanionCount count in mix)
+                            if (count != null && count.Count > 0
+                                && !string.IsNullOrEmpty(count.TypeId))
+                                return count.TypeId;
+                }
+                catch (Exception) { }
+            }
+            foreach (CompanionTypeInfo type in InstalledPets())
+                if (!string.IsNullOrEmpty(type.TypeId)) return type.TypeId;
+            return PetAnimations.AnyPet;
+        }
         private string[] AnimationChoices(string pet)
         {
             if (string.IsNullOrEmpty(pet) || pet == PetAnimations.AnyPet)
@@ -316,7 +392,7 @@ namespace DesktopAICompanion.AgentFlow
             }
             try
             {
-                ICompanionManager manager = _host != null ? _host.GetCompanionManager(Info.Id) : null;
+                ICompanionManager manager = Pets();
                 if (manager != null)
                 {
                     string xml, error;
@@ -347,8 +423,9 @@ namespace DesktopAICompanion.AgentFlow
             if (pending != null)
             {
                 string chosen;
+                // The pane hands back what the user SAW, which is the display name.
                 if (pending.TryGetValue(SettingAnimPet, out chosen) && !string.IsNullOrEmpty(chosen))
-                    pet = chosen;
+                    pet = PetTypeIdFor(chosen);
             }
             return LoadValues(pet);
         }
@@ -376,7 +453,7 @@ namespace DesktopAICompanion.AgentFlow
                 { SettingNotifySound, NotifySoundOn ? "true" : "false" },
                 { SettingApproveAllProjects, ApproveForAllProjects ? "true" : "false" },
                 { SettingNotifySpeak, NotifySpeakOn ? "true" : "false" },
-                { SettingAnimPet, pet },
+                { SettingAnimPet, PetDisplayFor(pet) },
                 { SettingAnimName, StoredAnimName(pet) },
 
                 // Display-only rows. These are VALUES, not labels, which is the thing that makes

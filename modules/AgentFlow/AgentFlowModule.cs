@@ -121,7 +121,7 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.1.3",   // 1.1.3: proved the match ignores the command and is anchored at the end.
+            Version = "1.1.4",   // 1.1.4: the pet dropdown lists real pets, by name, defaulting to the one on screen.
                                  // 1.0.1: logs what the rules APPROVE, not only what would block.
                                  // 1.0.0: first version. Notify half only, observe-only by decision.
             // 1.0.0 rather than the release that first ships AgentTranscripts, because a module
@@ -214,6 +214,11 @@ namespace DesktopAICompanion.AgentFlow
 
             _spawnHandler = OnCompanionSpawned;
             host.CompanionSpawned += _spawnHandler;
+
+            // Init is over as far as the HOST is concerned only after this returns, but the
+            // module can say so itself -- and must, because every permission-gated verb is
+            // refused until ModuleHost adds it to LoadedModules on the line after Init.
+            FinishedInitialising();
 
             _tickHandler = OnTick;
             _timer = new Timer { Interval = TickMilliseconds };
@@ -881,6 +886,14 @@ namespace DesktopAICompanion.AgentFlow
                     _settings.Set(SettingMode, AgentMode.FromDisplay(entry.Value));
                     continue;
                 }
+                // Same split: the dropdown shows "Pearl", the setting stores the type id the
+                // XML is read by. Storing the display name would break the moment a pet was
+                // renamed, and read as "that pet has no animations".
+                if (entry.Key == SettingAnimPet)
+                {
+                    _settings.Set(SettingAnimPet, PetTypeIdFor(entry.Value));
+                    continue;
+                }
                 _settings.Set(entry.Key, entry.Value);
             }
             bool ok = _settings.Save();
@@ -1475,6 +1488,7 @@ namespace DesktopAICompanion.AgentFlow
                               && SelfCheckNotifyChannels(probe)
                               && SelfCheckLogPath(probe)
                               && SelfCheckAllProjects(probe)
+                              && SelfCheckPetChoices(probe)
                               && SelfCheckCacheBound(probe);
                     probe.Check("every logic group ran", ok);
 
@@ -3097,6 +3111,53 @@ namespace DesktopAICompanion.AgentFlow
             }
             return true;
         }
+        /// <summary>
+        /// The pet dropdown: display names on screen, type ids in storage, and nothing asked of
+        /// the host before the host will answer.
+        ///
+        /// The bug this guards shipped invisible. ModuleHost calls Init and registers the module
+        /// on the NEXT line, so a permission-gated verb called from Init is refused -- and
+        /// GetCompanionManager cached that refusal, so the dropdown offered "(any pet)" and
+        /// nothing else for the whole session. Both halves are asserted: that nothing is asked
+        /// during Init, and that the id/display mapping round-trips.
+        /// </summary>
+        private static bool SelfCheckPetChoices(SelfTestProbe probe)
+        {
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            using (var storage =
+                       new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-pet"))
+            {
+                host.UseStorage("agentflow", storage);
+                var module = new AgentFlowModule();
+
+                // WITNESS the ordering rule. Asking during Init is refused by a host that has not
+                // registered the module yet, and the refusal used to be permanent.
+                probe.Check("WITNESS the module asks the host nothing while it is initialising",
+                    module.AskedHostForPetsDuringInit() == false);
+
+                module.Init(host);
+                probe.Check("...and considers itself initialised once Init has run",
+                    module.AskedHostForPetsDuringInit() == true);
+
+                // The mapping. A display name is what the user picks; a type id is what the XML
+                // is read by, and storing the wrong one reads later as "that pet has no
+                // animations" rather than as a mistake.
+                probe.Check("a named pet shows its name, not its folder",
+                    AgentFlowModule.PetDisplay(new CompanionTypeInfo
+                        { TypeId = "esheep64", DisplayName = "Pearl" }) == "Pearl");
+                probe.Check("WITNESS an unnamed pet falls back to its id rather than a blank row",
+                    AgentFlowModule.PetDisplay(new CompanionTypeInfo
+                        { TypeId = "shimeji-cyn", DisplayName = "" }) == "shimeji-cyn");
+                probe.Check("a null type contributes nothing",
+                    AgentFlowModule.PetDisplay(null) == "");
+
+                module.Shutdown();
+            }
+            return true;
+        }
+
+        /// <summary>Self-test only: has Init finished, i.e. may the host be asked yet?</summary>
+        internal bool AskedHostForPetsDuringInit() { return !_initialising; }
         private static bool SelfCheckCacheBound(SelfTestProbe probe)
         {
             int normalized, compiled, limit;
