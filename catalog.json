@@ -2236,10 +2236,10 @@
       "id": "agentflow",
       "name": "AgentFlow",
       "desc": "Notices when a coding agent (Claude Code, Codex) has been sitting blocked on a permission prompt, and tells you. It can also APPROVE the prompt for you, one call at a time, if you switch that on: it only ever presses the option that approves THAT ONE CALL, never \"don't ask again\", never \"allow all edits this session\", and never anything that changes your permission mode; if it cannot recognise even one option on a prompt it touches nothing. READS YOUR CODING-AGENT TRANSCRIPTS AND PERMISSION SETTINGS to do it: those files contain every command you ran and everything you typed to the agent. It never speaks or logs command text or a file path.",
-      "version": "1.1.0",
+      "version": "1.1.1",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/agentflow.zip",
-      "sha256": "c90446a3a42fb1d955470f25ae075c33839f76b19e7a1b8a734c75e2217aac6d",
-      "bytes": 93435,
+      "sha256": "5e5aac78a4ca1bba496b90ccf58aac293ae28f67abbfb74d1d28fd504a3379cc",
+      "bytes": 95286,
       "permissions": "Speech, Animation, Storage, AgentTranscripts, InputSynthesis, Network, Companions, Audio"
     }
   ]
