@@ -688,6 +688,13 @@ CASES = (
         "            get { return _settings == null || _settings.GetBool(SettingApproveAllProjects, true); }",
         "saving a rule for all projects is OFF until asked for",
     ),
+    (
+        "the destination is SEARCHED for instead of anchored at the end",
+        PROMPTOPTS,
+        "                if (!normalized.EndsWith(destination, StringComparison.Ordinal)) continue;",
+        "                if (normalized.IndexOf(destination, StringComparison.Ordinal) < 0) continue;",
+        "the phrase inside the command does not make it all-projects",
+    ),
 )
 
 

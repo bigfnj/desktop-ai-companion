@@ -121,7 +121,7 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.1.2",   // 1.1.2: "for all projects" is classified, and pressable on request.
+            Version = "1.1.3",   // 1.1.3: proved the match ignores the command and is anchored at the end.
                                  // 1.0.1: logs what the rules APPROVE, not only what would block.
                                  // 1.0.0: first version. Notify half only, observe-only by decision.
             // 1.0.0 rather than the release that first ships AgentTranscripts, because a module
@@ -3001,6 +3001,46 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("WITNESS a for-all-projects row is NOT an approve-once row",
                 PromptOptions.Classify(real[1], out matched)
                 == OptionKind.ApproveAllProjects);
+
+            // THE MIDDLE IS IRRELEVANT, and that has to be tested rather than asserted in a
+            // comment. The rules between "Yes, allow " and the destination are whatever the
+            // agent was about to run, so a fixture that only ever says "python" proves nothing
+            // about npm, git, or a command with an apostrophe in it. Only the SUFFIX decides.
+            string[] middles =
+            {
+                "python -c \"import os\"",
+                "npm run build",
+                "Bash(git push --force)",
+                "docker compose up -d && echo done",
+                "rm -rf ./build",
+                "echo 'it’s fine'",
+                "a",
+            };
+            int classifiedSame = 0;
+            foreach (string middle in middles)
+            {
+                if (PromptOptions.Classify("Yes, allow " + middle + " for all projects",
+                        out matched) == OptionKind.ApproveAllProjects)
+                    classifiedSame++;
+            }
+            probe.Check("WITNESS the command in the middle does not change the answer",
+                classifiedSame == middles.Length);
+
+            // Adversarial: the destination phrase appearing INSIDE the command must not decide
+            // it. This is why the match is anchored at the end rather than searched for.
+            //
+            // The wording is load-bearing and the first attempt got it wrong. Every destination
+            // begins with a SPACE, and the first fixture embedded the phrase as
+            // echo "for all projects" -- where the character before "for" is a quote, not a
+            // space. So Contains and EndsWith agreed on it, the case distinguished nothing, and
+            // the mutation swapping one for the other survived. Here the phrase is preceded by a
+            // real space, so only an anchored match gets it right.
+            const string Embedded =
+                "Yes, allow git commit -m \"fix for all projects\" for this session";
+            probe.Check("WITNESS the phrase inside the command does not make it all-projects",
+                PromptOptions.Classify(Embedded, out matched) == OptionKind.ApproveWider);
+            probe.Check("...and such a prompt is not pressed by the all-projects setting",
+                PromptOptions.Choose(new List<string> { "Yes", Embedded, "No" }, true).Index == 0);
 
             PromptDecision byDefault = PromptOptions.Choose(real, false);
             probe.Check("WITNESS by default it presses the one-call row, and no longer refuses",
