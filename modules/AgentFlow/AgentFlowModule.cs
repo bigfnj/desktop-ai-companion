@@ -51,6 +51,19 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>The one choice that replaces `enabled` + `autoApprove`. See AgentMode.</summary>
         private const string SettingMode = "mode";
         private const string SettingNotifySound = "notifySound";
+
+        /// <summary>
+        /// Press "Yes, allow ... for all projects" instead of the one-call row, when a prompt
+        /// offers it. OFF unless the user turns it on, and it only means anything in
+        /// auto-approve mode.
+        ///
+        /// This is the one setting in the module that writes something PERSISTENT on the
+        /// user's behalf: the rule is saved to the user settings, outlives the session and
+        /// applies in every repository. It exists because the maintainer asked for it after
+        /// being shown exactly that, and it unlocks nothing else -- the other four rule
+        /// destinations, "don't ask again" and every mode change stay unpressable.
+        /// </summary>
+        private const string SettingApproveAllProjects = "approveAllProjects";
         private const string SettingNotifySpeak = "notifySpeak";
         private const string SettingAnimPet = "animPet";
         private const string SettingAnimName = "animName";
@@ -108,7 +121,7 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.1.1",   // 1.1.1: the tray icon is the orb, cut out of docs/images/agentflow-icon.jpg.
+            Version = "1.1.2",   // 1.1.2: "for all projects" is classified, and pressable on request.
                                  // 1.0.1: logs what the rules APPROVE, not only what would block.
                                  // 1.0.0: first version. Notify half only, observe-only by decision.
             // 1.0.0 rather than the release that first ships AgentTranscripts, because a module
@@ -267,6 +280,7 @@ namespace DesktopAICompanion.AgentFlow
             double threshold = ThresholdSeconds;
             bool watchClaude = WatchClaude, watchCodex = WatchCodex;
             bool autoApprove = AutoApprove;
+            bool allProjects = ApproveForAllProjects;
             int cdpPort = CdpPort;
 
             // Reading and parsing transcripts is file IO plus JSON, so it never runs on the tick.
@@ -321,7 +335,7 @@ namespace DesktopAICompanion.AgentFlow
                 if (autoApprove && answering)
                 {
                     if (_resetPressBudget) { _resetPressBudget = false; _pressBudget.Reset(); }
-                    try { approvalNote = TryApproveOnce(cdpPort, _pressBudget, out sawPanel); }
+                    try { approvalNote = TryApproveOnce(cdpPort, _pressBudget, allProjects, out sawPanel); }
                     catch (Exception) { approvalNote = null; sawPanel = false; }
                     // Nothing found means the last press landed, or there was never
                     // anything there. Either way the prompt in front of it is gone, so the
@@ -378,9 +392,10 @@ namespace DesktopAICompanion.AgentFlow
         /// lightweight, and a guess about which button to press is the one kind of wrong this
         /// feature cannot afford.
         /// </summary>
-        internal static string TryApproveOnce(int port, PressBudget budget, out bool sawPanel)
+        internal static string TryApproveOnce(int port, PressBudget budget, bool allProjects,
+                                             out bool sawPanel)
         {
-            return CdpApprover.Sweep(port, view => Decide(port, view, budget), 1500,
+            return CdpApprover.Sweep(port, view => Decide(port, view, budget, allProjects), 1500,
                                      out sawPanel);
         }
 
@@ -389,11 +404,12 @@ namespace DesktopAICompanion.AgentFlow
         /// exercised without an editor: everything above it is sockets, and everything in it is
         /// the decision, which is the half worth asserting.
         /// </summary>
-        internal static string Decide(int port, PromptView view, PressBudget budget)
+        internal static string Decide(int port, PromptView view, PressBudget budget,
+                                      bool allProjects)
         {
             if (view == null || view.Options.Count == 0) return null;
 
-            PromptDecision decision = PromptOptions.Choose(view.Options);
+            PromptDecision decision = PromptOptions.Choose(view.Options, allProjects);
             if (!decision.WillPress) return decision.Reason;
 
             // The UI's own disabled flag wins over anything the text says. A row greyed out
@@ -966,6 +982,11 @@ namespace DesktopAICompanion.AgentFlow
 
         private bool AutoApprove { get { return AgentMode.Presses(Mode); } }
 
+        internal bool ApproveForAllProjects
+        {
+            get { return _settings != null && _settings.GetBool(SettingApproveAllProjects, false); }
+        }
+
         private bool NotifySoundOn
         {
             get { return _settings != null && _settings.GetBool(SettingNotifySound, false); }
@@ -1453,6 +1474,7 @@ namespace DesktopAICompanion.AgentFlow
                               && SelfCheckPetAnimations(probe)
                               && SelfCheckNotifyChannels(probe)
                               && SelfCheckLogPath(probe)
+                              && SelfCheckAllProjects(probe)
                               && SelfCheckCacheBound(probe);
                     probe.Check("every logic group ran", ok);
 
@@ -2272,7 +2294,7 @@ namespace DesktopAICompanion.AgentFlow
 
             var budget = new PressBudget();
             string unknown = Decide(ClosedPort, Fake(
-                new[] { "Yes", "Do the thing I have not heard of" }), budget);
+                new[] { "Yes", "Do the thing I have not heard of" }), budget, false);
             probe.Check("WITNESS one unrecognised option refuses the whole prompt",
                 unknown != null && unknown.StartsWith("refused:", StringComparison.Ordinal));
             // The refusal is the line that gets LOGGED, and the diagnostic log is meant to be
@@ -2282,19 +2304,19 @@ namespace DesktopAICompanion.AgentFlow
                 && unknown.IndexOf("Do the thing", StringComparison.Ordinal) < 0);
 
             string noApprove = Decide(ClosedPort, Fake(
-                new[] { "Yes, and don't ask again", "Yes, and auto-accept" }), budget);
+                new[] { "Yes, and don't ask again", "Yes, and auto-accept" }), budget, false);
             probe.Check("WITNESS a prompt offering only wider grants is refused",
                 noApprove != null && noApprove.IndexOf("no approve-once",
                     StringComparison.Ordinal) >= 0);
 
-            string ambiguous = Decide(ClosedPort, Fake(new[] { "Yes", "Allow" }), budget);
+            string ambiguous = Decide(ClosedPort, Fake(new[] { "Yes", "Allow" }), budget, false);
             probe.Check("WITNESS two approve-once rows is ambiguous, so nothing is pressed",
                 ambiguous != null && ambiguous.IndexOf("ambiguous",
                     StringComparison.Ordinal) >= 0);
 
             PromptView greyed = Fake(new[] { "Yes", "Yes, and don't ask again" });
             greyed.Disabled[0] = true;
-            string disabled = Decide(ClosedPort, greyed, budget);
+            string disabled = Decide(ClosedPort, greyed, budget, false);
             probe.Check("WITNESS a greyed-out approve row is not pressed",
                 disabled != null && disabled.IndexOf("disabled",
                     StringComparison.Ordinal) >= 0);
@@ -2304,7 +2326,7 @@ namespace DesktopAICompanion.AgentFlow
             // note reading "approved" when nothing was pressed would be the log line that
             // cannot fail.
             string pressed = Decide(ClosedPort, Fake(
-                new[] { "Yes", "Yes, and don't ask again", "No, and tell Claude what to do differently" }), budget);
+                new[] { "Yes", "Yes, and don't ask again", "No, and tell Claude what to do differently" }), budget, false);
             probe.Check("WITNESS an unreachable editor is reported, not called success",
                 pressed != null && pressed.IndexOf("gone", StringComparison.Ordinal) >= 0
                 && pressed.IndexOf("approve-once", StringComparison.Ordinal) >= 0);
@@ -2353,7 +2375,7 @@ namespace DesktopAICompanion.AgentFlow
             edit.Options.Add("No");
             edit.Disabled.Add(false);
             edit.Disabled.Add(false);
-            string line = Decide(ClosedPort, edit, new PressBudget());
+            string line = Decide(ClosedPort, edit, new PressBudget(), false);
             probe.Check("WITNESS the audit line says WHAT was approved",
                 line != null && line.IndexOf("an edit (.ps1)", StringComparison.Ordinal) >= 0);
             probe.Check("...and still carries no path",
@@ -2504,7 +2526,7 @@ namespace DesktopAICompanion.AgentFlow
             for (int i = 0; i < PressBudget.MaxPressesPerWindow; i++)
                 spent.TryPress(PromptSignature("t" + i.ToString(CultureInfo.InvariantCulture)),
                                DateTime.UtcNow, out refusal);
-            string blocked = Decide(1, Fake(new[] { "Yes", "Yes, and don't ask again" }), spent);
+            string blocked = Decide(1, Fake(new[] { "Yes", "Yes, and don't ask again" }), spent, false);
             probe.Check("WITNESS Decide consults the budget before it presses anything",
                 blocked != null
                 && blocked.IndexOf("standing down", StringComparison.Ordinal) >= 0);
@@ -2956,6 +2978,84 @@ namespace DesktopAICompanion.AgentFlow
             private readonly string _dir;
             public FakeStorage(string dir) { _dir = dir; }
             public string DataDirectory { get { return _dir; } }
+        }
+        /// <summary>
+        /// "Yes, allow ... for all projects", and the choice to press it.
+        ///
+        /// The strings here are the REAL ones, read off a live prompt on 2026-09-19, because the
+        /// finished label never appears as a literal in the agent's bundle: it is composed from
+        /// "Yes, allow " + the rules + " for " + a destination, so it could only be transcribed
+        /// from something rendered.
+        /// </summary>
+        private static bool SelfCheckAllProjects(SelfTestProbe probe)
+        {
+            // The exact prompt that exposed this. Both rows used to classify approve-once, so the
+            // module called it ambiguous and refused -- which is EVERY bash prompt, i.e. most.
+            var real = new List<string>
+            {
+                "Yes",
+                "Yes, allow python -c \"import… and python -c ' * for all projects",
+                "No",
+            };
+            string matched;
+            probe.Check("WITNESS a for-all-projects row is NOT an approve-once row",
+                PromptOptions.Classify(real[1], out matched)
+                == OptionKind.ApproveAllProjects);
+
+            PromptDecision byDefault = PromptOptions.Choose(real, false);
+            probe.Check("WITNESS by default it presses the one-call row, and no longer refuses",
+                byDefault.WillPress && byDefault.Index == 0);
+
+            PromptDecision asked = PromptOptions.Choose(real, true);
+            probe.Check("WITNESS with the setting on it presses the for-all-projects row",
+                asked.WillPress && asked.Index == 1);
+            probe.Check("...and says out loud that it saved a rule",
+                asked.Reason != null
+                && asked.Reason.IndexOf("ALL PROJECTS", StringComparison.Ordinal) >= 0);
+
+            // The setting unlocks THAT row and nothing else. The other four destinations, the
+            // permanent grant and every mode change stay unpressable however it is set.
+            // Each of these includes a plain "Yes", so the ONLY thing that can stop the wider
+            // row being pressed is the destination check. Without it the assertion passed off
+            // the "no approve-once row present" guard instead, and a mutation making every
+            // destination count as all-projects survived.
+            probe.Check("WITNESS the other rule destinations stay unpressable",
+                PromptOptions.Choose(new List<string>
+                    { "Yes", "Yes, allow x for this session", "No" }, true).Index == 0
+                && PromptOptions.Choose(new List<string>
+                    { "Yes", "Yes, allow x for this project (shared)", "No" }, true).Index == 0
+                && PromptOptions.Choose(new List<string>
+                    { "Yes", "Yes, allow x for this project (just you)", "No" }, true).Index == 0);
+            // ...and with no one-call row at all, the user's own choice is still honoured.
+            probe.Check("WITNESS a prompt with only the all-projects row is still pressed",
+                PromptOptions.Choose(new List<string>
+                    { "Yes, allow x for all projects", "No" }, true).Index == 0);
+            probe.Check("WITNESS don't-ask-again is still never pressed, setting or not",
+                !PromptOptions.Choose(new List<string>
+                    { "Yes, and don't ask again", "No" }, true).WillPress);
+            probe.Check("WITNESS a mode change is still never pressed, setting or not",
+                !PromptOptions.Choose(new List<string>
+                    { "Yes, and auto-accept", "No" }, true).WillPress);
+
+            // Two of them is an assumption about someone else's UI being wrong, so press nothing.
+            probe.Check("two for-all-projects rows are ambiguous, so nothing is pressed",
+                !PromptOptions.Choose(new List<string>
+                    { "Yes, allow a for all projects", "Yes, allow b for all projects", "No" },
+                    true).WillPress);
+
+            // And it is OFF unless asked for.
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            using (var storage =
+                       new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-ap"))
+            {
+                host.UseStorage("agentflow", storage);
+                var module = new AgentFlowModule();
+                module.Init(host);
+                probe.Check("WITNESS saving a rule for all projects is OFF until asked for",
+                    !module.ApproveForAllProjects);
+                module.Shutdown();
+            }
+            return true;
         }
         private static bool SelfCheckCacheBound(SelfTestProbe probe)
         {

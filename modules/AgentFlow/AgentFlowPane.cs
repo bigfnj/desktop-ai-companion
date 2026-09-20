@@ -125,6 +125,16 @@ namespace DesktopAICompanion.AgentFlow
                 },
                 new SettingField
                 {
+                    Id = SettingApproveAllProjects,
+                    Label = "...and save it for all projects, not just this call",
+                    Kind = SettingKind.Bool,
+                    Group = GroupAgentFlow,
+                    // Only meaningful while approving, so it greys out in every other mode
+                    // rather than sitting there implying it does something.
+                    EnabledWhen = SettingMode + "=" + AgentMode.ToDisplay(AgentMode.AutoApprove),
+                },
+                new SettingField
+                {
                     Id = SettingThreshold,
                     Label = "Say something after this many seconds of waiting",
                     Kind = SettingKind.Int,
@@ -364,6 +374,7 @@ namespace DesktopAICompanion.AgentFlow
                 { SettingWatchCodex, WatchCodex ? "true" : "false" },
                 { SettingAnimate, Animate ? "true" : "false" },
                 { SettingNotifySound, NotifySoundOn ? "true" : "false" },
+                { SettingApproveAllProjects, ApproveForAllProjects ? "true" : "false" },
                 { SettingNotifySpeak, NotifySpeakOn ? "true" : "false" },
                 { SettingAnimPet, pet },
                 { SettingAnimName, StoredAnimName(pet) },

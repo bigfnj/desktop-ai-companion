@@ -43,6 +43,7 @@ import unicodedata
 # --------------------------------------------------------------------------
 APPROVE_ONCE = "approve-once"      # the only class we will ever press
 APPROVE_WIDER = "approve-wider"    # session-wide or permanent grant
+APPROVE_ALL_PROJECTS = "approve-all-projects"   # a rule saved to the USER settings
 MODE_CHANGE = "mode-change"        # alters the permission mode, sometimes persistently
 REJECT = "reject"                  # declines the call
 FREE_TEXT = "free-text"            # "other" / tell the agent something instead
@@ -113,11 +114,50 @@ def normalize(text):
     return text.casefold()
 
 
+# Where a 'Yes, allow ...' option writes its rule. Verbatim from the agent's own
+# destination table in the webview bundle (2.1.278):
+#   localSettings 'this project (just you)' | userSettings 'all projects'
+#   projectSettings 'this project (shared)' | session 'this session'
+#   cliArg 'startup options'
+#
+# The finished label is COMPOSED at runtime -- 'Yes, allow ' + rules + ' for ' + one of
+# these -- so it appears nowhere as a literal to transcribe, which is how the table below
+# came to class every one of them as approve-once via its 'yes, allow ' template. A real
+# bash prompt then offered 'Yes' AND 'Yes, allow ... for all projects', both read as
+# approve-once, and the module refused it as ambiguous.
+ALL_PROJECTS_SUFFIX = ' for all projects'
+RULE_DESTINATIONS = (
+    ALL_PROJECTS_SUFFIX,
+    ' for this project (just you)',
+    ' for this project (shared)',
+    ' for this session',
+    ' for startup options',
+)
+
+
+def rule_grant_kind(observed):
+    """The rule-writing class of an option, or None when it writes no rule."""
+    if not observed.startswith('yes, '):
+        return None
+    for destination in RULE_DESTINATIONS:
+        if observed.endswith(destination):
+            return (APPROVE_ALL_PROJECTS if destination == ALL_PROJECTS_SUFFIX
+                    else APPROVE_WIDER)
+    return None
+
+
 def classify(text):
     """Return (class, matched_table_entry). Longest match wins; default UNKNOWN."""
     observed = normalize(text)
     if not observed:
         return UNKNOWN, None
+
+    # Destination first: every one of these also matches the 'yes, allow ' template, and
+    # the template's answer is wrong for all of them.
+    rule = rule_grant_kind(observed)
+    if rule is not None:
+        return rule, (ALL_PROJECTS_SUFFIX.strip()
+                      if observed.endswith(ALL_PROJECTS_SUFFIX) else 'a saved rule')
 
     best_entry, best_len = None, -1
     for entry, kind in KNOWN.items():

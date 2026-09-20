@@ -21,6 +21,15 @@ namespace DesktopAICompanion.AgentFlow
         Reject = 4,
         /// <summary>"Other" / tell the agent something instead.</summary>
         FreeText = 5,
+        /// <summary>
+        /// "Yes, allow &lt;rules&gt; for all projects" -- a rule written to the USER settings,
+        /// so it outlives the session and applies in every repo. The widest grant on offer.
+        ///
+        /// Its own kind rather than ApproveWider because the user can now opt into pressing
+        /// exactly this one, and nothing else wider. Lumping it in with the session-scoped
+        /// grants would make that choice impossible to express.
+        /// </summary>
+        ApproveAllProjects = 6,
     }
 
     /// <summary>The decision about one prompt: which row to press, or why not to touch it.</summary>
@@ -129,6 +138,58 @@ namespace DesktopAICompanion.AgentFlow
             Entry("no, and tell claude ", OptionKind.FreeText),
         };
 
+        /// <summary>
+        /// Where a "Yes, allow ..." option writes its rule, verbatim from the agent's own
+        /// destination table (webview bundle 2.1.278):
+        ///
+        ///   localSettings   "this project (just you)"
+        ///   userSettings    "all projects"
+        ///   projectSettings "this project (shared)"
+        ///   session         "this session"
+        ///   cliArg          "startup options"
+        ///
+        /// The label is COMPOSED at runtime -- "Yes, allow " + the rules + " for " + one of
+        /// these -- so none of the finished strings appears as a literal anywhere to be
+        /// transcribed. That is why the table missed them: "yes, allow " is a template entry
+        /// classed ApproveOnce, and every one of these rendered options starts with it.
+        ///
+        /// The cost was not theoretical. A real bash prompt offered "Yes" AND "Yes, allow
+        /// python -c ... for all projects"; both matched the approve-once template, so the
+        /// module saw two approve-once rows, called the prompt ambiguous and refused it.
+        /// Every bash prompt behaved that way, which is most of them.
+        /// </summary>
+        private static readonly string[] RuleDestinations =
+        {
+            " for all projects",
+            " for this project (just you)",
+            " for this project (shared)",
+            " for this session",
+            " for startup options",
+        };
+
+        private const string AllProjectsSuffix = " for all projects";
+
+        /// <summary>
+        /// The rule-writing class of an option, or Unknown when it does not write one.
+        ///
+        /// Checked BEFORE the table, because the table would answer ApproveOnce for all of
+        /// these and be wrong. A suffix is the right anchor: the middle of the string is the
+        /// rule list, which is arbitrary user text and can contain anything at all.
+        /// </summary>
+        private static OptionKind RuleGrantKind(string normalized)
+        {
+            if (!normalized.StartsWith("yes, ", StringComparison.Ordinal))
+                return OptionKind.Unknown;
+            foreach (string destination in RuleDestinations)
+            {
+                if (!normalized.EndsWith(destination, StringComparison.Ordinal)) continue;
+                return destination == AllProjectsSuffix
+                    ? OptionKind.ApproveAllProjects
+                    : OptionKind.ApproveWider;
+            }
+            return OptionKind.Unknown;
+        }
+
         private static KeyValuePair<string, OptionKind> Entry(string text, OptionKind kind)
         {
             return new KeyValuePair<string, OptionKind>(text, kind);
@@ -170,6 +231,17 @@ namespace DesktopAICompanion.AgentFlow
             string observed = Normalize(text);
             if (observed.Length == 0) return OptionKind.Unknown;
 
+            // Destination first. Every one of these also matches the "yes, allow " template,
+            // and the template's answer is wrong for all of them.
+            OptionKind rule = RuleGrantKind(observed);
+            if (rule != OptionKind.Unknown)
+            {
+                matched = observed.EndsWith(AllProjectsSuffix, StringComparison.Ordinal)
+                    ? AllProjectsSuffix.Trim()
+                    : "a saved rule";
+                return rule;
+            }
+
             string bestEntry = null;
             OptionKind bestKind = OptionKind.Unknown;
             int bestLength = -1;
@@ -210,7 +282,29 @@ namespace DesktopAICompanion.AgentFlow
         /// offer exactly one" is an assumption about the agent's UI, and the safe response to it
         /// being wrong is to do nothing.
         /// </summary>
+        /// <summary>
+        /// As Choose(options), pressing only the one-call row. Kept so every existing caller
+        /// and assertion keeps its meaning without being rewritten.
+        /// </summary>
         public static PromptDecision Choose(IList<string> options)
+        {
+            return Choose(options, false);
+        }
+
+        /// <summary>
+        /// Pick the row to press, or refuse with a reason that names the deciding condition.
+        ///
+        /// <paramref name="preferAllProjects"/> is the user's explicit choice, off unless they
+        /// turn it on, and it is the ONLY way this function will ever return a row that writes
+        /// a permission rule. It presses "Yes, allow ... for all projects" -- a rule saved to
+        /// the user settings, which outlives the session and applies in every repository.
+        ///
+        /// It is deliberately narrow. It does not unlock the other four destinations, nor
+        /// "don't ask again", nor anything that changes the permission mode; those stay
+        /// unpressable whatever the setting says. The maintainer asked for this one, having
+        /// been shown what it writes, and nothing else came with it.
+        /// </summary>
+        public static PromptDecision Choose(IList<string> options, bool preferAllProjects)
         {
             var decision = new PromptDecision();
             if (options == null || options.Count == 0)
@@ -223,6 +317,7 @@ namespace DesktopAICompanion.AgentFlow
             var matchedKeys = new string[options.Count];
             var unknown = new List<string>();
             var approvals = new List<int>();
+            var allProjects = new List<int>();
             int widerOrMode = 0;
             for (int i = 0; i < options.Count; i++)
             {
@@ -233,6 +328,7 @@ namespace DesktopAICompanion.AgentFlow
                 {
                     case OptionKind.Unknown: unknown.Add(options[i] ?? ""); break;
                     case OptionKind.ApproveOnce: approvals.Add(i); break;
+                    case OptionKind.ApproveAllProjects: allProjects.Add(i); widerOrMode++; break;
                     case OptionKind.ApproveWider:
                     case OptionKind.ModeChange: widerOrMode++; break;
                 }
@@ -252,6 +348,29 @@ namespace DesktopAICompanion.AgentFlow
                     unknown.Count, options.Count);
                 return decision;
             }
+            // The user's row, when they asked for it and the prompt offers exactly one. More
+            // than one is refused for the same reason two approve-once rows are: "there is
+            // exactly one" is an assumption about someone else's UI, and the safe answer to
+            // it being wrong is to press nothing.
+            //
+            // ABOVE the approve-once guards, not below them. Below, a prompt offering the
+            // all-projects row and NO plain "Yes" was refused for want of an approve-once row
+            // that the user had explicitly said they did not need -- and worse, the assertion
+            // meant to prove the setting does not leak to the OTHER destinations passed because
+            // of that guard rather than because of the destination check. The mutation that
+            // makes every destination all-projects survived, which is how it was found.
+            if (preferAllProjects && allProjects.Count == 1)
+            {
+                decision.Index = allProjects[0];
+                decision.ChosenRaw = options[allProjects[0]];
+                decision.Chosen = matchedKeys[allProjects[0]];
+                decision.Reason = string.Format(CultureInfo.InvariantCulture,
+                    "pressing option {0}, which SAVES A RULE FOR ALL PROJECTS (you asked for "
+                    + "this); declined the one-call row",
+                    decision.Index + 1);
+                return decision;
+            }
+
             if (approvals.Count == 0)
             {
                 decision.Reason = "refused: no approve-once option present on a prompt of "
@@ -266,6 +385,7 @@ namespace DesktopAICompanion.AgentFlow
                     approvals.Count);
                 return decision;
             }
+
 
             decision.Index = approvals[0];
             decision.ChosenRaw = options[approvals[0]];

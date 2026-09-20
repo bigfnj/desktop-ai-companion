@@ -34,6 +34,7 @@ KIND_MAP = {
     "Unknown": REF.UNKNOWN,
     "ApproveOnce": REF.APPROVE_ONCE,
     "ApproveWider": REF.APPROVE_WIDER,
+    "ApproveAllProjects": REF.APPROVE_ALL_PROJECTS,
     "ModeChange": REF.MODE_CHANGE,
     "Reject": REF.REJECT,
     "FreeText": REF.FREE_TEXT,
@@ -80,6 +81,27 @@ def main():
             cases.append(("table-bare-prefix", text.strip(), None))
         else:
             cases.append(("table-exact", text, kind))
+
+    # 1b. Every rule DESTINATION, parsed out of the C# source rather than retyped here.
+    #
+    # These are not table entries -- the destination rule lives in code, ahead of the table --
+    # so without this the axis is DEGENERATE: the differential would pass while exercising the
+    # new logic zero times, which is precisely the shape of vacuous pass this file exists to
+    # refuse. Failing when the list cannot be parsed is the same principle as the entry check.
+    destinations = re.findall(r'"( for [^"]+)",', table_src)
+    if not destinations:
+        print('FAIL: parsed 0 rule destinations out of PromptOptions.cs -- the regex is stale,')
+        print('      and the destination axis would be exercised zero times.')
+        return 2
+    for destination in destinations:
+        expected = ('ApproveAllProjects' if destination == ' for all projects'
+                    else 'ApproveWider')
+        # A realistic rendered label: the middle is arbitrary user text, which is exactly why
+        # the classifier anchors on the suffix rather than trying to match the whole thing.
+        cases.append(("destination",
+                      'Yes, allow python -c "import x" and Bash(git *)' + destination,
+                      expected))
+        cases.append(("destination-short", 'Yes, allow x' + destination, expected))
 
     # 2. Every KindOf case asserted in the C# self-test, with the kind it asserts.
     asserted = _KINDOF.findall(tests_src)

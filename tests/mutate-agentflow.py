@@ -658,6 +658,36 @@ CASES = (
         "            if (NotifySpeakOn) _host.SayAll(line);",
         "Log is the quiet one, and says nothing out loud",
     ),
+    # "Yes, allow ... for all projects". Misclassifying this made the module refuse EVERY bash
+    # prompt as ambiguous, and pressing it writes a rule that outlives the session.
+    (
+        "a for-all-projects row reads as approve-once again",
+        PROMPTOPTS,
+        "            OptionKind rule = RuleGrantKind(observed);",
+        "            OptionKind rule = OptionKind.Unknown;",
+        "a for-all-projects row is NOT an approve-once row",
+    ),
+    (
+        "the for-all-projects row is pressed without being asked for",
+        PROMPTOPTS,
+        "            if (preferAllProjects && allProjects.Count == 1)",
+        "            if (allProjects.Count == 1)",
+        "by default it presses the one-call row",
+    ),
+    (
+        "the setting unlocks every rule destination, not just all-projects",
+        PROMPTOPTS,
+        '                return destination == AllProjectsSuffix',
+        '                return true',
+        "the other rule destinations stay unpressable",
+    ),
+    (
+        "saving a rule for all projects defaults ON",
+        MODULE,
+        "            get { return _settings != null && _settings.GetBool(SettingApproveAllProjects, false); }",
+        "            get { return _settings == null || _settings.GetBool(SettingApproveAllProjects, true); }",
+        "saving a rule for all projects is OFF until asked for",
+    ),
 )
 
 
