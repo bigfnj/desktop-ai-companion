@@ -121,7 +121,7 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.1.4",   // 1.1.4: the pet dropdown lists real pets, by name, defaulting to the one on screen.
+            Version = "1.1.5",   // 1.1.5: the pet dropdown lists the pets ON SCREEN, by name.
                                  // 1.0.1: logs what the rules APPROVE, not only what would block.
                                  // 1.0.0: first version. Notify half only, observe-only by decision.
             // 1.0.0 rather than the release that first ships AgentTranscripts, because a module
@@ -3151,6 +3151,44 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("a null type contributes nothing",
                     AgentFlowModule.PetDisplay(null) == "");
 
+                // ---- the list is the pets ON SCREEN -------------------------------
+                // Reported from a real pane: it offered every installed companion, which on
+                // this machine is a scrolling list of folder ids for a choice about the two
+                // pets the user is looking at.
+                host.CompanionManager = new FakePets(
+                    new[] { "pink_sheep", "Pearl", "shimeji-hornet-9b9d1d", "Hornet",
+                            "shimeji-brq51bkr", "Jesus Our Lord", "esheep64", "eSheep (default)" },
+                    new[] { "pink_sheep", "shimeji-hornet-9b9d1d" });
+
+                var listed = new List<string>(module.PetChoicesForSelfTest());
+                probe.Check("WITNESS only the pets on screen are offered, not all installed",
+                    listed.Count == 3 && listed.Contains("Pearl") && listed.Contains("Hornet"));
+                probe.Check("WITNESS ...so a pet that is merely installed is absent",
+                    !listed.Contains("Jesus Our Lord") && !listed.Contains("eSheep (default)"));
+                probe.Check("WITNESS they are offered by name, not by folder id",
+                    !listed.Contains("pink_sheep") && !listed.Contains("shimeji-hornet-9b9d1d"));
+                probe.Check("(any pet) is still first, so the generic choice remains",
+                    listed[0] == PetAnimations.AnyPet);
+
+                // A pet chosen earlier and since removed must stay listed, or opening the
+                // pane silently changes what the user picked.
+                module._settings.Set(SettingAnimPet, "shimeji-brq51bkr");
+                module._settings.Save();
+                var kept = new List<string>(module.PetChoicesForSelfTest());
+                probe.Check("WITNESS a chosen pet that is no longer up is still listed",
+                    kept.Contains("Jesus Our Lord"));
+                module._settings.Set(SettingAnimPet, "");
+                module._settings.Save();
+
+                // Nothing up: fall back to the installed set, or the dropdown cannot be
+                // configured before a pet is spawned.
+                host.CompanionManager = new FakePets(
+                    new[] { "pink_sheep", "Pearl", "esheep64", "eSheep (default)" },
+                    new string[0]);
+                var none = new List<string>(module.PetChoicesForSelfTest());
+                probe.Check("WITNESS with no pet on screen the installed ones are offered",
+                    none.Count == 3 && none.Contains("Pearl"));
+
                 module.Shutdown();
             }
             return true;
@@ -3158,6 +3196,54 @@ namespace DesktopAICompanion.AgentFlow
 
         /// <summary>Self-test only: has Init finished, i.e. may the host be asked yet?</summary>
         internal bool AskedHostForPetsDuringInit() { return !_initialising; }
+
+        /// <summary>Self-test only: the pet dropdown contents.</summary>
+        internal string[] PetChoicesForSelfTest() { return PetChoices(); }
+
+        /// <summary>
+        /// A companion manager with a known set of pets, so "only the ones on screen" can be
+        /// asserted without spawning anything. Pairs are (typeId, displayName).
+        /// </summary>
+        private sealed class FakePets : ICompanionManager
+        {
+            private readonly string[] _pairs;
+            private readonly string[] _onScreen;
+            public FakePets(string[] pairs, string[] onScreen) { _pairs = pairs; _onScreen = onScreen; }
+
+            public IReadOnlyList<CompanionTypeInfo> InstalledTypes()
+            {
+                var list = new List<CompanionTypeInfo>();
+                for (int i = 0; i + 1 < _pairs.Length; i += 2)
+                    list.Add(new CompanionTypeInfo { TypeId = _pairs[i], DisplayName = _pairs[i + 1] });
+                return list;
+            }
+
+            public IReadOnlyList<CompanionCount> OnScreenMix()
+            {
+                var list = new List<CompanionCount>();
+                foreach (string id in _onScreen) list.Add(new CompanionCount { TypeId = id, Count = 1 });
+                return list;
+            }
+
+            public string CompanionsDirectory { get { return ""; } }
+            public int MaxCompanions { get { return 8; } }
+            public bool IsAtMax { get { return false; } }
+            public bool TryReadTypeXml(string typeId, out string animationsXml, out string error)
+            {
+                animationsXml = "<animations><animations><animation><name>walk</name>"
+                                + "</animation></animations></animations>";
+                error = null;
+                return true;
+            }
+            public bool SpawnOne(string typeId) { return false; }
+            public bool RemoveOne(string typeId) { return false; }
+            public bool ValidateXml(string animationsXml, out string error) { error = null; return true; }
+            public ICompanionPreview SpawnPreview(string animationsXml, out string error)
+            { error = null; return null; }
+            public bool InstallType(string typeId, string animationsXml, out string error)
+            { error = null; return false; }
+            public bool UninstallType(string typeId, out string error) { error = null; return false; }
+        }
         private static bool SelfCheckCacheBound(SelfTestProbe probe)
         {
             int normalized, compiled, limit;

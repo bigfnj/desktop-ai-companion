@@ -301,20 +301,74 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>
         /// The pets the user can choose, by DISPLAY NAME, with "(any pet)" first.
         ///
-        /// Display names because that is what the user calls them: "Pearl", not "esheep64". The
-        /// TYPE ID is what gets stored and what the XML is read by, so the two are mapped rather
-        /// than conflated -- the same split the mode radio makes between a stored id and a
-        /// sentence on screen.
+        /// THE PETS ACTUALLY ON SCREEN, not everything installed. Fifty-three companions ship
+        /// with the app and the list was offering all of them, which is a scrolling wall of
+        /// folder ids for a choice about the two pets the user is actually looking at. The
+        /// animation only ever plays on a live pet, so a pet that is not up is not a choice.
+        ///
+        /// Display names because that is what the user calls them: "Pearl", not "esheep64".
+        /// The TYPE ID is what gets stored and what the XML is read by, so the two are mapped
+        /// rather than conflated -- the same split the mode radio makes between a stored id
+        /// and a sentence on screen.
+        ///
+        /// Two things are added beyond what is on screen, and both are about not losing the
+        /// user's own choice: a pet they picked earlier that is no longer up stays in the
+        /// list (dropping it would silently reset their setting to something else), and when
+        /// NOTHING is on screen the installed set is offered instead, because a dropdown
+        /// holding only "(any pet)" cannot be configured ahead of spawning a pet.
         /// </summary>
         private string[] PetChoices()
         {
             var choices = new List<string> { PetAnimations.AnyPet };
-            foreach (CompanionTypeInfo type in InstalledPets())
+            foreach (string typeId in OnScreenPetTypeIds())
             {
-                string display = PetDisplay(type);
-                if (display.Length > 0 && !choices.Contains(display)) choices.Add(display);
+                string display = PetDisplayFor(typeId);
+                if (display.Length > 0 && display != PetAnimations.AnyPet
+                    && !choices.Contains(display))
+                    choices.Add(display);
+            }
+
+            // Nothing up: offer what is installed, so the setting can be chosen in advance.
+            if (choices.Count == 1)
+            {
+                foreach (CompanionTypeInfo type in InstalledPets())
+                {
+                    string display = PetDisplay(type);
+                    if (display.Length > 0 && !choices.Contains(display)) choices.Add(display);
+                }
+                return choices.ToArray();
+            }
+
+            // Keep a previously chosen pet visible even once it has gone, so opening the pane
+            // does not quietly change what the user picked.
+            string stored = _settings == null ? "" : _settings.Get(SettingAnimPet, "");
+            if (!string.IsNullOrEmpty(stored) && stored != PetAnimations.AnyPet)
+            {
+                string display = PetDisplayFor(stored);
+                if (display.Length > 0 && display != PetAnimations.AnyPet
+                    && !choices.Contains(display))
+                    choices.Add(display);
             }
             return choices.ToArray();
+        }
+
+        /// <summary>Type ids of the pets currently on screen, in the order the host reports.</summary>
+        private List<string> OnScreenPetTypeIds()
+        {
+            var live = new List<string>();
+            ICompanionManager manager = Pets();
+            if (manager == null) return live;
+            try
+            {
+                IReadOnlyList<CompanionCount> mix = manager.OnScreenMix();
+                if (mix == null) return live;
+                foreach (CompanionCount count in mix)
+                    if (count != null && count.Count > 0 && !string.IsNullOrEmpty(count.TypeId)
+                        && !live.Contains(count.TypeId))
+                        live.Add(count.TypeId);
+            }
+            catch (Exception) { }
+            return live;
         }
 
         private IReadOnlyList<CompanionTypeInfo> InstalledPets()
@@ -364,20 +418,7 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         private string DefaultPetTypeId()
         {
-            ICompanionManager manager = Pets();
-            if (manager != null)
-            {
-                try
-                {
-                    IReadOnlyList<CompanionCount> mix = manager.OnScreenMix();
-                    if (mix != null)
-                        foreach (CompanionCount count in mix)
-                            if (count != null && count.Count > 0
-                                && !string.IsNullOrEmpty(count.TypeId))
-                                return count.TypeId;
-                }
-                catch (Exception) { }
-            }
+            foreach (string typeId in OnScreenPetTypeIds()) return typeId;
             foreach (CompanionTypeInfo type in InstalledPets())
                 if (!string.IsNullOrEmpty(type.TypeId)) return type.TypeId;
             return PetAnimations.AnyPet;
