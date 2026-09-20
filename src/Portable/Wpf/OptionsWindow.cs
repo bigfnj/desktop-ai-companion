@@ -460,6 +460,33 @@ namespace DesktopAICompanion.Wpf
         [ThreadStatic] private static OptionsPane _rebuildPane;
         [ThreadStatic] private static Dictionary<string, string> _rebuildValues;
 
+        /// <summary>
+        /// What a <see cref="PaneAction.ReloadPaneAfter"/> rebuild has to carry across, because the
+        /// rebuild replaces the whole visual tree and the view instance with it.
+        ///
+        /// Two things were being thrown away, and both looked to the user like the button did nothing.
+        /// The RESULT MESSAGE was written to a TextBlock that the reload then discarded, so "Find an
+        /// installed Whisper" reported success into a control already on its way out -- the only
+        /// channel that action has. And the user's UNSAVED EDITS went with it: pick a recording
+        /// device, click any action button, and the choice is gone and Apply is grey again, with no
+        /// error and nothing written.
+        /// </summary>
+        internal sealed class ActionRebuild
+        {
+            /// <summary>What Load() said when the torn-down view was built.</summary>
+            public IReadOnlyDictionary<string, string> Before;
+            /// <summary>What was on screen when the action finished, edits and all.</summary>
+            public IReadOnlyDictionary<string, string> OnScreen;
+            /// <summary>Action label to the message it produced, shown again on the rebuilt row.</summary>
+            public Dictionary<string, string> Messages;
+        }
+
+        [ThreadStatic] private static OptionsPane _actionPane;
+        [ThreadStatic] private static ActionRebuild _actionRebuild;
+
+        /// <summary>Messages to redisplay on this build's action rows; null on an ordinary build.</summary>
+        private Dictionary<string, string> _actionMessages;
+
         public PaneView(OptionsPane pane, Action requestReload = null, Action notifyDirty = null)
         {
             _pane = pane; _requestReload = requestReload; _notifyDirty = notifyDirty;
@@ -476,6 +503,77 @@ namespace DesktopAICompanion.Wpf
             Dictionary<string, string> stashed = _rebuildValues;
             _rebuildPane = null; _rebuildValues = null;   // emptied even on a mismatch, so nothing lingers
             return (pane != null && ReferenceEquals(stashedFor, pane)) ? stashed : null;
+        }
+
+        private static void StashActionRebuild(OptionsPane pane, ActionRebuild rebuild)
+        {
+            _actionPane = pane; _actionRebuild = rebuild;
+        }
+
+        private static ActionRebuild TakeActionRebuild(OptionsPane pane)
+        {
+            OptionsPane stashedFor = _actionPane;
+            ActionRebuild stashed = _actionRebuild;
+            _actionPane = null; _actionRebuild = null;   // one slot, emptied by the first asker
+            return (pane != null && ReferenceEquals(stashedFor, pane)) ? stashed : null;
+        }
+
+        /// <summary>
+        /// What the rebuilt pane should show after a <see cref="PaneAction.ReloadPaneAfter"/> action:
+        /// the action's writes, with the user's unsaved edits put back on top of the fields the
+        /// action did not touch.
+        ///
+        /// The precedence is the whole point, and it is decided per FIELD rather than per pane. An
+        /// action that reloads does so precisely to show what it just wrote ("reset to defaults",
+        /// "Browse for whisper-cli"), so wherever the fresh Load disagrees with what the torn-down
+        /// view started from, the action wrote it and the action wins. Everywhere else a difference
+        /// can only have come from the user, and dropping it is silent data loss -- which is what
+        /// used to happen to every field on the pane, not just the ones the action cared about.
+        ///
+        /// <paramref name="restored"/> counts the fields handed back to the user, so the caller can
+        /// re-raise the unsaved-edit signal the rebuild is about to clear.
+        /// </summary>
+        internal static Dictionary<string, string> MergeAfterAction(
+            IReadOnlyDictionary<string, string> fresh,
+            IReadOnlyDictionary<string, string> before,
+            IReadOnlyDictionary<string, string> onScreen,
+            out int restored)
+        {
+            restored = 0;
+            var merged = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (fresh != null)
+                foreach (KeyValuePair<string, string> kv in fresh) merged[kv.Key] = kv.Value;
+            if (before == null || onScreen == null) return merged;
+
+            foreach (KeyValuePair<string, string> kv in onScreen)
+            {
+                string wasLoaded;
+                if (!before.TryGetValue(kv.Key, out wasLoaded)) continue;   // no baseline, no claim
+                if (string.Equals(kv.Value ?? "", wasLoaded ?? "", StringComparison.Ordinal))
+                    continue;                                                // the user left it alone
+
+                string nowLoaded;
+                if (!merged.TryGetValue(kv.Key, out nowLoaded)) continue;    // gone from the schema
+                if (!string.Equals(nowLoaded ?? "", wasLoaded ?? "", StringComparison.Ordinal))
+                    continue;                                                // the action wrote it too
+
+                merged[kv.Key] = kv.Value;
+                restored++;
+            }
+            return merged;
+        }
+
+        /// <summary>Whether anything on screen differs from what Load() supplied for this build.</summary>
+        private bool HasUnsavedEdits()
+        {
+            if (_loaded == null) return false;
+            foreach (KeyValuePair<string, string> kv in Collect())
+            {
+                string wasLoaded;
+                if (!_loaded.TryGetValue(kv.Key, out wasLoaded)) continue;
+                if (!string.Equals(kv.Value ?? "", wasLoaded ?? "", StringComparison.Ordinal)) return true;
+            }
+            return false;
         }
 
         // A genuine user edit to a field; ignored while Build() is populating initial values.
@@ -587,6 +685,17 @@ namespace DesktopAICompanion.Wpf
                 try { if (_pane != null && _pane.Load != null) values = _pane.Load(); } catch { values = null; }
             }
             if (values == null) values = new Dictionary<string, string>();
+
+            // A ReloadPaneAfter action just ran: put the user's unsaved edits back over the fields it
+            // did not itself write, and remember what it reported so the rebuilt row can say it again.
+            ActionRebuild afterAction = TakeActionRebuild(_pane);
+            _actionMessages = null;
+            if (afterAction != null)
+            {
+                int restored;
+                values = MergeAfterAction(values, afterAction.Before, afterAction.OnScreen, out restored);
+                _actionMessages = afterAction.Messages;
+            }
             _loaded = values;
 
             // Bucket fields + actions by Group (first-appearance order; null/"" = an untitled default card).
@@ -928,12 +1037,29 @@ namespace DesktopAICompanion.Wpf
                 haystack.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
+        /// <summary>Colour a ✓/✗ result green/red so pass/fail is obvious without reading it.</summary>
+        private static void ShowActionStatus(TextBlock status, string result)
+        {
+            status.Text = result ?? "";
+            if (!string.IsNullOrEmpty(result) && result.StartsWith("✓")) status.Foreground = Brushes.LimeGreen;
+            else if (!string.IsNullOrEmpty(result) && result.StartsWith("✗")) status.Foreground = Brushes.Salmon;
+            else status.ClearValue(TextBlock.ForegroundProperty);
+        }
+
         private FrameworkElement BuildActionRow(PaneAction action)
         {
             var row = new DockPanel { Margin = new Thickness(0, 3, 0, 3), LastChildFill = true };
-            var btn = new Button { Content = action.Label ?? "Run", Width = 150, Height = 26, HorizontalAlignment = HorizontalAlignment.Left };
+            // MinWidth, not Width: a fixed 150 clipped every label longer than it, so the Remembrance card
+            // offered a button reading "Browse for whisper-cli.." with the rest of the word cut off.
+            var btn = new Button { Content = action.Label ?? "Run", MinWidth = 150, Height = 26, HorizontalAlignment = HorizontalAlignment.Left };
             DockPanel.SetDock(btn, Dock.Left);
             var status = new TextBlock { Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
+            // This row may be the replacement for one whose action reported into a tree that has since
+            // been discarded; if so, say it again rather than losing it to the rebuild it asked for.
+            string carried;
+            if (_actionMessages != null && action.Label != null
+                && _actionMessages.TryGetValue(action.Label, out carried))
+                ShowActionStatus(status, carried);
             btn.Click += async delegate
             {
                 btn.IsEnabled = false;
@@ -949,14 +1075,32 @@ namespace DesktopAICompanion.Wpf
                 // only channel through which a module can learn it was refused at all.
                 if (action.RevealsPath && !string.IsNullOrEmpty(result) && !result.StartsWith("✓") && !result.StartsWith("✗"))
                     result = RevealInExplorer(result);
-                status.Text = result;
-                // Colour a ✓/✗ result green/red (used by Test OCR, Test connection) so pass/fail is obvious.
-                if (result.StartsWith("✓")) status.Foreground = Brushes.LimeGreen;
-                else if (result.StartsWith("✗")) status.Foreground = Brushes.Salmon;
-                else status.ClearValue(TextBlock.ForegroundProperty);
+                ShowActionStatus(status, result);
                 btn.IsEnabled = true;
                 // An action (e.g. reset-to-defaults) can ask the pane to rebuild so it shows the new values.
-                if (action.ReloadPaneAfter && _requestReload != null) _requestReload();
+                if (action.ReloadPaneAfter && _requestReload != null)
+                {
+                    // Everything this row is holding dies with the rebuild -- the message just written and
+                    // every unsaved edit on the pane -- so hand both to the view that replaces it.
+                    bool hadUnsavedEdits = HasUnsavedEdits();
+                    var messages = new Dictionary<string, string>(StringComparer.Ordinal);
+                    if (_actionMessages != null)
+                        foreach (KeyValuePair<string, string> kv in _actionMessages) messages[kv.Key] = kv.Value;
+                    if (action.Label != null) messages[action.Label] = result;
+                    StashActionRebuild(_pane, new ActionRebuild
+                    {
+                        Before = _loaded,
+                        OnScreen = Collect(),
+                        Messages = messages,
+                    });
+
+                    _requestReload();
+
+                    // After, never before: the host greys Apply out at the END of a rebuild, so a signal
+                    // raised any earlier is the one thing the rebuild is guaranteed to erase. Same
+                    // ordering, and the same reason, as the ReloadOnChange cascade in FieldChanged.
+                    if (hadUnsavedEdits) Dirty();
+                }
             };
             row.Children.Add(btn);
             row.Children.Add(status);

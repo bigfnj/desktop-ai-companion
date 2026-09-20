@@ -48,7 +48,15 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "1.0.2",   // 1.0.1: republished so the bundled ModuleKit.dll no longer carries the
+            Version = "1.0.3",   // 1.0.3: the three discovered dropdowns (both recording devices and the
+                                 //        summary model) re-read their contents on every pane open. They
+                                 //        were built once in Init, so a closed dropdown could only ever
+                                 //        offer what existed at startup: "Find local summary models"
+                                 //        saved a model the list could not show, so it rendered blank
+                                 //        and the next Apply wrote the blank back over it. Also fills
+                                 //        the Whisper paths in from an existing install, once, and names
+                                 //        the button that does the download.
+                                 // 1.0.1: republished so the bundled ModuleKit.dll no longer carries the
                                  //        maintainer's absolute build path (Contracts + ModuleKit moved to
                                  //        DebugType=embedded). NO functional change here; the bump exists
                                  //        because the catalog offers an update by VERSION, so without it the
@@ -293,16 +301,120 @@ namespace DesktopAICompanion.RemembranceModule
 
         // --- options ---------------------------------------------------------------------------------
 
+        // The three dropdowns whose CONTENTS are discovered rather than declared. Held because the
+        // schema is built once, in Init, and a closed dropdown can only offer what its Options array
+        // held at that moment -- see RefreshDynamicOptions for what that cost.
+        private SettingField _sysDeviceField;
+        private SettingField _micDeviceField;
+        private SettingField _summaryModelField;
+
+        /// <summary>
+        /// Re-discover what the three dynamic dropdowns should offer. Called from Load, which the host
+        /// re-runs on every pane build and always BEFORE it reads Schema -- the documented seam for
+        /// exactly this, and the one the core Preferences pane already uses to fill its "who speaks"
+        /// list from the pets on screen.
+        ///
+        /// Without it the Options array is whatever Init saw and can never change again, which broke
+        /// both dropdowns in the same way. "Find local summary models" would discover the models, save
+        /// one, ask for a reload -- and the rebuilt dropdown still offered only the empty string it was
+        /// born with, so it rendered BLANK, and because a closed dropdown with no match reads back as
+        /// "", the next Apply wrote that blank over the model that had just been found. A recording
+        /// device plugged in after startup was invisible for the life of the process for the same
+        /// reason.
+        /// </summary>
+        // Whether this session has already gone looking for an existing Whisper. One probe per run:
+        // finding nothing costs two Directory.Exists calls (neither probe root exists on a box with
+        // no Whisper), but finding something walks the install tree, and a pane open must stay cheap.
+        private bool _whisperProbed;
+
+        /// <summary>
+        /// Fill in the two Whisper paths from an install that is already here, once, the first time
+        /// the pane is opened with nothing configured.
+        ///
+        /// Reported as "shouldn't the whisper-cli path browse or auto-populate": two empty text boxes
+        /// asking for the absolute path of a C++ binary is the least discoverable thing in this
+        /// module, and a box provisioned by scripts-utilities already HAS the binary. The same probe
+        /// the buttons run is free when there is nothing to find, so there is no reason to make
+        /// someone click for it.
+        ///
+        /// It writes, which a Load normally must not. Bounded deliberately: only when the setting is
+        /// empty, only with paths that exist, and only once per run -- so it can fill a blank in, and
+        /// can never overwrite a path the user chose.
+        /// </summary>
+        private void AutoDetectWhisperOnce()
+        {
+            if (_whisperProbed) return;
+            _whisperProbed = true;
+            if (!string.IsNullOrWhiteSpace(_settings.Get("whisperExe", ""))) return;
+            try
+            {
+                string exe, model;
+                if (!WhisperInstaller.TryDetect(DataDirectory(), out exe, out model)) return;
+                _settings.Set("whisperExe", exe ?? "");
+                _settings.Set("whisperModel", model ?? "");
+                _settings.Save();
+                _lastStatus = "Whisper found.";
+            }
+            catch (Exception) { }
+        }
+
+        private void RefreshDynamicOptions()
+        {
+            if (_sysDeviceField != null)
+                _sysDeviceField.Options = DeviceOptions(AudioDevices.RenderDevices(), _settings.Get("sysDevice", ""));
+            if (_micDeviceField != null)
+                _micDeviceField.Options = DeviceOptions(AudioDevices.CaptureDevices(), _settings.Get("micDevice", ""));
+            if (_summaryModelField != null)
+                _summaryModelField.Options = SummaryModelOptions();
+        }
+
+        /// <summary>
+        /// The device names to offer, with a SAVED name that is not currently present kept in the list.
+        ///
+        /// That union is the same rule SummaryModelOptions relies on and it is load-bearing for the
+        /// same reason: the host renders a closed dropdown, so a saved device missing from the options
+        /// renders blank and is then written back as blank by the next Apply. Unplugging a headset
+        /// would quietly reset the choice rather than waiting for it to come back.
+        /// </summary>
+        internal static string[] DeviceOptions(IEnumerable<AudioDevice> devices, string saved)
+        {
+            var names = new List<string>();
+            if (devices != null)
+                foreach (AudioDevice d in devices)
+                    if (d != null && !string.IsNullOrEmpty(d.Name) && !names.Contains(d.Name))
+                        names.Add(d.Name);
+            string kept = (saved ?? "").Trim();
+            if (kept.Length > 0 && !names.Any(n => string.Equals(n, kept, StringComparison.Ordinal)))
+                names.Add(kept);
+            if (names.Count == 0) names.Add("");   // an empty closed dropdown cannot be rendered
+            return names.ToArray();
+        }
+
+        /// <summary>The saved device name, or the first option when nothing is saved. Never "": that
+        /// matches no option, so the box would open blank on a fresh install.</summary>
+        private static string DeviceValue(string saved, string[] options)
+        {
+            string value = (saved ?? "").Trim();
+            if (value.Length > 0 && options != null &&
+                options.Any(o => string.Equals(o, value, StringComparison.Ordinal)))
+                return value;
+            return (options != null && options.Length > 0) ? options[0] : "";
+        }
+
         private SettingField[] BuildOptionsPane_Schema()
         {
-            string[] renderNames = AudioDevices.RenderDevices().Select(d => d.Name).ToArray();
-            string[] micNames = AudioDevices.CaptureDevices().Select(d => d.Name).ToArray();
+            string[] renderNames = DeviceOptions(AudioDevices.RenderDevices(), _settings.Get("sysDevice", ""));
+            string[] micNames = DeviceOptions(AudioDevices.CaptureDevices(), _settings.Get("micDevice", ""));
+            _sysDeviceField = new SettingField { Id = "sysDevice", Label = "System output device", Kind = SettingKind.Enum, Options = renderNames, Group = "Sources" };
+            _micDeviceField = new SettingField { Id = "micDevice", Label = "Microphone device", Kind = SettingKind.Enum, Options = micNames, Group = "Sources" };
+            _summaryModelField = new SettingField { Id = "summaryModel", Label = "Summary model", Kind = SettingKind.Enum,
+                Options = SummaryModelOptions(), Group = "Summary (local AI)" };
             return new[]
             {
                 new SettingField { Id = "sysEnabled", Label = "Record system audio (what you hear)", Kind = SettingKind.Bool, Group = "Sources" },
-                new SettingField { Id = "sysDevice", Label = "System output device", Kind = SettingKind.Enum, Options = renderNames, Group = "Sources" },
+                _sysDeviceField,
                 new SettingField { Id = "micEnabled", Label = "Record microphone", Kind = SettingKind.Bool, Group = "Sources" },
-                new SettingField { Id = "micDevice", Label = "Microphone device", Kind = SettingKind.Enum, Options = micNames, Group = "Sources" },
+                _micDeviceField,
 
                 new SettingField { Id = "recordHotkey", Label = "Start/stop hotkey (e.g. Ctrl+Alt+R)", Kind = SettingKind.Text, Group = "Hotkeys" },
                 new SettingField { Id = "snapshotHotkey", Label = "Snapshot hotkey (e.g. Ctrl+Alt+S)", Kind = SettingKind.Text, Group = "Hotkeys" },
@@ -310,17 +422,16 @@ namespace DesktopAICompanion.RemembranceModule
                 new SettingField { Id = "storageLocation", Label = "Where recordings are stored (blank = Documents\\Remembrance)", Kind = SettingKind.Text, Group = "Storage" },
                 new SettingField { Id = "folderPerCapture", Label = "Create a folder per capture", Kind = SettingKind.Bool, Group = "Storage" },
 
-                new SettingField { Id = "whisperExe", Label = "whisper-cli path (offline transcription)", Kind = SettingKind.Text, Group = "Transcription" },
+                new SettingField { Id = "whisperExe", Label = "whisper-cli path (filled in for you if one is found)", Kind = SettingKind.Text, Group = "Transcription" },
                 new SettingField { Id = "whisperModel", Label = "Whisper model file (e.g. ggml-base.en.bin)", Kind = SettingKind.Text, Group = "Transcription" },
-                new SettingField { Id = "whisperModelChoice", Label = "Model to fetch if you use the automatic setup", Kind = SettingKind.Enum,
+                new SettingField { Id = "whisperModelChoice", Label = "Model to download, used by \"Set up Whisper for me\" below", Kind = SettingKind.Enum,
                     Options = WhisperInstaller.Models.Select(m => m.Display).ToArray(), Group = "Transcription" },
 
                 // Off by default: it is an extra dependency (a local Ollama) and an extra pass over the
                 // recording, so it should be a choice rather than a surprise.
                 new SettingField { Id = "summaryOn", Label = "Also write an AI summary next to the transcript", Kind = SettingKind.Bool, Group = "Summary (local AI)" },
                 new SettingField { Id = "ollamaEndpoint", Label = "Local Ollama address", Kind = SettingKind.Text, Group = "Summary (local AI)" },
-                new SettingField { Id = "summaryModel", Label = "Summary model", Kind = SettingKind.Enum,
-                    Options = SummaryModelOptions(), Group = "Summary (local AI)" },
+                _summaryModelField,
 
                 new SettingField { Id = "status", Label = "Status", Kind = SettingKind.Info, Group = "Status" },
             };
@@ -356,12 +467,18 @@ namespace DesktopAICompanion.RemembranceModule
                     new PaneAction { Label = "Summarize a transcript…", Group = "Summary (local AI)", ReloadPaneAfter = false,
                         InvokeAsync = () => Task.FromResult(SummarizeExisting()) },
                 },
-                Load = () => new Dictionary<string, string>
+                // RefreshDynamicOptions runs HERE, not in the initialiser below, because Load is the
+                // only thing the host promises to call before it reads Schema on every build.
+                Load = () =>
+                {
+                    AutoDetectWhisperOnce();
+                    RefreshDynamicOptions();
+                    return new Dictionary<string, string>
                 {
                     ["sysEnabled"] = _settings.GetBool("sysEnabled", true) ? "true" : "false",
-                    ["sysDevice"] = _settings.Get("sysDevice", ""),
+                    ["sysDevice"] = DeviceValue(_settings.Get("sysDevice", ""), _sysDeviceField.Options),
                     ["micEnabled"] = _settings.GetBool("micEnabled", true) ? "true" : "false",
-                    ["micDevice"] = _settings.Get("micDevice", ""),
+                    ["micDevice"] = DeviceValue(_settings.Get("micDevice", ""), _micDeviceField.Options),
                     ["recordHotkey"] = _settings.Get("recordHotkey", DefaultRecordHotkey),
                     ["snapshotHotkey"] = _settings.Get("snapshotHotkey", DefaultSnapshotHotkey),
                     ["storageLocation"] = _settings.Get("storageLocation", ""),
@@ -373,6 +490,7 @@ namespace DesktopAICompanion.RemembranceModule
                     ["ollamaEndpoint"] = _settings.Get("ollamaEndpoint", OllamaSummarizer.DefaultEndpoint),
                     ["summaryModel"] = _settings.Get("summaryModel", ""),
                     ["status"] = StatusLine(),
+                    };
                 },
                 Save = values =>
                 {
@@ -846,6 +964,33 @@ namespace DesktopAICompanion.RemembranceModule
             check("release JSON yields the digest", release != null && release.Digest.StartsWith("sha256:"));
             check("release JSON with no assets yields null", WhisperInstaller.ParseReleaseJson("{\"assets\":[]}") == null);
             check("garbage release JSON yields null", WhisperInstaller.ParseReleaseJson("nope") == null);
+            // ---- the release LIST, which is what upstream actually publishes to ----
+            // Broke in the field on 2026-09-20. whisper.cpp tags asset-less semantic releases
+            // (v1.9.4) alongside the bXXXX builds that carry the Windows zips, and GitHub calls the
+            // former "latest" -- so releases/latest answered 200 with an empty assets array and the
+            // module told the user it had been rate-limited. Both halves are asserted: that an
+            // asset-less release is stepped over rather than ending the search, and that the failure
+            // message stops claiming a throttle it has no evidence for.
+            WhisperInstaller.ReleaseAsset fromList = WhisperInstaller.ParseReleaseListJson(
+                "[{\"tag_name\":\"v1.9.4\",\"assets\":[]},{\"tag_name\":\"b5130\",\"assets\":[{\"name\":\"whisper-bin-Win32.zip\",\"browser_download_url\":\"https://example.invalid/32.zip\"},{\"name\":\"whisper-bin-x64.zip\",\"browser_download_url\":\"https://example.invalid/64.zip\"}]}]");
+            check("WITNESS an asset-less release is skipped, not treated as the answer",
+                fromList != null && fromList.Url == "https://example.invalid/64.zip");
+            check("a list where nothing carries a Windows build yields null",
+                WhisperInstaller.ParseReleaseListJson(
+                    "[{\"tag_name\":\"v1\",\"assets\":[]},{\"tag_name\":\"v2\",\"assets\":[]}]") == null);
+            check("a single release object is not mistaken for a list",
+                WhisperInstaller.ParseReleaseListJson("{\"assets\":[]}") == null);
+            check("garbage yields null rather than throwing",
+                WhisperInstaller.ParseReleaseListJson("nope") == null);
+
+            check("WITNESS a throttle is only claimed when the quota is actually spent",
+                WhisperInstaller.DescribeHttpFailure(403, "0").Contains("rate-limiting"));
+            check("WITNESS a 403 with quota left does NOT blame rate limiting",
+                !WhisperInstaller.DescribeHttpFailure(403, "57").Contains("rate-limiting"));
+            check("an unexpected status reports the status it saw",
+                WhisperInstaller.DescribeHttpFailure(500, null).Contains("500"));
+            check("a missing rate-limit header is not read as a spent quota",
+                !WhisperInstaller.DescribeHttpFailure(403, null).Contains("rate-limiting"));
             check("the install root is under the module's own storage",
                 WhisperInstaller.InstallRoot(@"c:\data\remembrance").Replace('/', '\\') == @"c:\data\remembrance\whisper");
             check("probing includes the DevToolbox location",
@@ -889,6 +1034,88 @@ namespace DesktopAICompanion.RemembranceModule
             check("the summary file header names the model",
                 OllamaSummarizer.FileHeader("Standup", "dolphin3").Contains("dolphin3"));
 
+            // ---- options pane: a value the user picks must survive Apply ----
+            // Reported from a real install: choose a recording device, hit Apply, reopen the pane, and
+            // the dropdown is blank again. Nothing here drove Load -> Save -> Load, so a pane that lost
+            // a field on the way through looked exactly like a working one. Every id in the schema is
+            // round-tripped rather than the two that were reported, because the next one to go is not
+            // going to be one of those two.
+            Func<IReadOnlyDictionary<string, string>, string, string> valueOf = (d, k) =>
+            {
+                string got;
+                return (d != null && d.TryGetValue(k, out got)) ? (got ?? "") : "";
+            };
+
+            string paneScratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-pane-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            try
+            {
+                var paneHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                // Seeded BEFORE Init on purpose: Init runs a purge over whatever storage root is
+                // configured, and the default is the user's real Documents\Remembrance. A test must
+                // not go deleting from there.
+                paneHost.SettingsFor(Id).Set("storageLocation", paneScratch);
+                var paneModule = new RemembranceModule();
+                paneModule.Init(paneHost);
+                check("the module registers exactly one options pane", paneHost.OptionsPanes.Count == 1);
+
+                OptionsPane pane = paneHost.OptionsPanes.Count > 0 ? paneHost.OptionsPanes[0] : null;
+                check("the pane persists (it has both a Load and a Save)",
+                    pane != null && pane.Load != null && pane.Save != null);
+
+                if (pane != null && pane.Load != null && pane.Save != null)
+                {
+                    // An edit to every writable field at once, each with a value nothing else could
+                    // produce, so a field that comes back holding someone else's value is visible too.
+                    var edited = new Dictionary<string, string>(StringComparer.Ordinal);
+                    foreach (KeyValuePair<string, string> kv in pane.Load()) edited[kv.Key] = kv.Value;
+                    edited["sysDevice"] = "Test Speakers";
+                    edited["micDevice"] = "Test Microphone";
+                    edited["recordHotkey"] = "Ctrl+Alt+9";
+                    edited["snapshotHotkey"] = "Ctrl+Alt+8";
+                    edited["summaryOn"] = "true";
+                    edited["summaryModel"] = "test-model:1b";
+                    edited["ollamaEndpoint"] = "http://127.0.0.1:99999";
+                    edited["folderPerCapture"] = "false";
+                    check("Apply reports success", pane.Save(edited));
+
+                    IReadOnlyDictionary<string, string> reopened = pane.Load();
+                    check("WITNESS a chosen output device survives Apply",
+                        valueOf(reopened, "sysDevice") == "Test Speakers");
+                    check("WITNESS a chosen microphone survives Apply",
+                        valueOf(reopened, "micDevice") == "Test Microphone");
+                    check("a typed start/stop hotkey survives Apply",
+                        valueOf(reopened, "recordHotkey") == "Ctrl+Alt+9");
+                    check("a typed snapshot hotkey survives Apply",
+                        valueOf(reopened, "snapshotHotkey") == "Ctrl+Alt+8");
+                    check("the summary toggle survives Apply", valueOf(reopened, "summaryOn") == "true");
+                    check("WITNESS a chosen summary model survives Apply",
+                        valueOf(reopened, "summaryModel") == "test-model:1b");
+                    check("a typed Ollama address survives Apply",
+                        valueOf(reopened, "ollamaEndpoint") == "http://127.0.0.1:99999");
+                    check("clearing folder-per-capture survives Apply",
+                        valueOf(reopened, "folderPerCapture") == "false");
+
+                    // A saved model the discovery pass has never seen must still be OFFERED, or the
+                    // closed dropdown renders blank and the next Apply writes that blank back.
+                    IReadOnlyList<SettingField> schema = pane.Schema;
+                    SettingField modelField = null;
+                    if (schema != null)
+                        foreach (SettingField f in schema)
+                            if (f != null && f.Id == "summaryModel") modelField = f;
+                    check("WITNESS the saved summary model is one of the offered options",
+                        modelField != null && modelField.Options != null &&
+                        modelField.Options.Contains("test-model:1b"));
+                }
+
+                paneModule.Shutdown();
+            }
+            catch (Exception ex) { check("options pane round-trip: " + ex.Message, false); }
+            finally
+            {
+                try { if (System.IO.Directory.Exists(paneScratch)) System.IO.Directory.Delete(paneScratch, true); }
+                catch { }
+            }
             detail = sb.ToString();
             return ok;
         }

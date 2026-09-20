@@ -160,6 +160,67 @@ namespace DesktopAICompanion
                     DesktopAICompanion.Wpf.PaneView.ClampIfBounded(
                     new SettingField { Id = "t", Kind = SettingKind.Text, Min = 1, Max = 2 }, "9000")
                         == "9000");
+                // ---- a ReloadPaneAfter action must not eat the user's unsaved edits ----
+                // Reported from a real install: choose a recording device, click a button in the same
+                // pane, and the choice is gone with no error and nothing saved. The rebuild those
+                // buttons ask for replaced the whole tree, so every edit on screen went with it -- and
+                // the rebuild ends by greying Apply out, so the next click did nothing at all.
+                //
+                // Precedence is per FIELD, which is what these cases pin down: the action owns what it
+                // wrote, the user owns everything else.
+                var wasLoaded = new Dictionary<string, string>
+                {
+                    ["whisperExe"] = "", ["sysDevice"] = "System default output", ["hotkey"] = "Ctrl+Alt+R",
+                };
+                var editedOnScreen = new Dictionary<string, string>
+                {
+                    ["whisperExe"] = "", ["sysDevice"] = "Headphones (Astro)", ["hotkey"] = "Ctrl+Alt+R",
+                };
+                // What Load says after the action wrote the path it found.
+                var afterAction = new Dictionary<string, string>
+                {
+                    ["whisperExe"] = "C:/whisper/whisper-cli.exe", ["sysDevice"] = "System default output",
+                    ["hotkey"] = "Ctrl+Alt+R",
+                };
+                int restored;
+                Dictionary<string, string> merged = DesktopAICompanion.Wpf.PaneView.MergeAfterAction(
+                    afterAction, wasLoaded, editedOnScreen, out restored);
+                ok &= Check(sb, "reload: WITNESS an unsaved edit the action did not touch is put back",
+                    merged["sysDevice"] == "Headphones (Astro)");
+                ok &= Check(sb, "reload: what the action itself wrote is shown",
+                    merged["whisperExe"] == "C:/whisper/whisper-cli.exe");
+                ok &= Check(sb, "reload: a field nobody changed is left alone",
+                    merged["hotkey"] == "Ctrl+Alt+R");
+                ok &= Check(sb, "reload: the restored count is what re-enables Apply", restored == 1);
+
+                // The action wins where the two collide -- that is why "reset to defaults" reloads.
+                int clash;
+                Dictionary<string, string> contested = DesktopAICompanion.Wpf.PaneView.MergeAfterAction(
+                    new Dictionary<string, string> { ["sysDevice"] = "Written by the action" },
+                    new Dictionary<string, string> { ["sysDevice"] = "System default output" },
+                    new Dictionary<string, string> { ["sysDevice"] = "Picked by the user" },
+                    out clash);
+                ok &= Check(sb, "reload: WITNESS the action wins a field they both changed",
+                    contested["sysDevice"] == "Written by the action" && clash == 0);
+
+                // No edits at all must restore nothing, or every action click would arm Apply.
+                int untouched;
+                DesktopAICompanion.Wpf.PaneView.MergeAfterAction(
+                    new Dictionary<string, string> { ["a"] = "1" },
+                    new Dictionary<string, string> { ["a"] = "1" },
+                    new Dictionary<string, string> { ["a"] = "1" },
+                    out untouched);
+                ok &= Check(sb, "reload: an untouched pane restores nothing", untouched == 0);
+
+                // A field the rebuild dropped from the schema cannot be resurrected into the values.
+                int gone;
+                Dictionary<string, string> dropped = DesktopAICompanion.Wpf.PaneView.MergeAfterAction(
+                    new Dictionary<string, string>(),
+                    new Dictionary<string, string> { ["vanished"] = "before" },
+                    new Dictionary<string, string> { ["vanished"] = "edited" },
+                    out gone);
+                ok &= Check(sb, "reload: a field the rebuild dropped is not resurrected",
+                    !dropped.ContainsKey("vanished") && gone == 0);
                 ok &= Check(sb, "a module line is still Modules",
                     DiagnosticLog.Infer("[module] module loaded: aibrain 1.0.0") == LogCategory.Modules);
                 ok &= Check(sb, "an unrecognised line still lands in App rather than vanishing",

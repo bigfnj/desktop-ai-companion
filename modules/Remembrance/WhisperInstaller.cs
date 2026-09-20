@@ -1,6 +1,7 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -40,7 +41,22 @@ namespace DesktopAICompanion.RemembranceModule
 
         public const string DefaultModelId = "ggml-base.en.bin";
 
-        private const string ReleaseApiUrl = "https://api.github.com/repos/ggerganov/whisper.cpp/releases/latest";
+        /// <summary>
+        /// The release LIST, not releases/latest, and under the repo's current owner.
+        ///
+        /// Two upstream changes broke the old URL, and the second is the one that matters.
+        /// ggerganov/whisper.cpp moved to ggml-org/whisper.cpp, which still 301s and so was
+        /// survivable. What is not survivable is that upstream now tags TWO kinds of release: the
+        /// semantic ones (v1.9.3, v1.9.4) carry no binaries at all, and the Windows zips are
+        /// published on the rolling build tags (b5130). GitHub calls the newest semantic tag
+        /// "latest", so releases/latest answers 200 with an empty assets array, for ever.
+        ///
+        /// Walking the list and taking the newest release that actually carries a Windows x64 zip
+        /// is indifferent to which tagging scheme upstream uses, so it survives them changing their
+        /// mind again.
+        /// </summary>
+        private const string ReleaseApiUrl =
+            "https://api.github.com/repos/ggml-org/whisper.cpp/releases?per_page=20";
         private const string ModelUrlPrefix = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/";
 
         // GitHub rejects API requests with no User-Agent.
@@ -245,14 +261,13 @@ namespace DesktopAICompanion.RemembranceModule
                     else
                     {
                         say("looking up the latest whisper.cpp release...");
-                        ReleaseAsset asset = await ResolveAssetAsync(http, cancellationToken).ConfigureAwait(false);
-                        if (asset == null)
+                        AssetLookup lookup = await ResolveAssetAsync(http, cancellationToken).ConfigureAwait(false);
+                        if (lookup.Asset == null)
                         {
-                            result.Message = "Could not reach the whisper.cpp release list on GitHub. " +
-                                "The API is rate-limited without a token, so try again shortly, or install " +
-                                "Whisper yourself and use the Browse actions.";
+                            result.Message = lookup.Failure;
                             return result;
                         }
+                        ReleaseAsset asset = lookup.Asset;
                         string assetName = asset.Name;
 
                         string zipPath = Path.Combine(root, assetName);
@@ -342,22 +357,94 @@ namespace DesktopAICompanion.RemembranceModule
             public string Digest;
         }
 
-        /// <summary>The chosen release asset, or null when the API is unreachable, rate-limited, or carries no
-        /// Windows x64 zip. An async method cannot take `out` parameters, hence the small return type.</summary>
-        private static async Task<ReleaseAsset> ResolveAssetAsync(HttpClient http, CancellationToken cancellationToken)
+        /// <summary>The chosen asset, or the reason there is not one. An async method cannot take
+        /// `out` parameters, hence the small return type.</summary>
+        public sealed class AssetLookup
+        {
+            public ReleaseAsset Asset;
+            public string Failure;
+        }
+
+        /// <summary>
+        /// Why the release lookup failed, in the words of what actually happened.
+        ///
+        /// This used to be one hardcoded sentence blaming rate limiting, emitted for every failure
+        /// mode there is. On 2026-09-20 it sent a user to wait out a throttle that was not happening
+        /// -- the box had 57 of its 60 anonymous requests left, GitHub had answered 200, and the real
+        /// fault was an empty assets array. A message that cannot distinguish its causes is not a
+        /// diagnosis, it is a guess with a confident voice.
+        /// </summary>
+        internal static string DescribeHttpFailure(int status, string rateLimitRemaining)
+        {
+            if ((status == 403 || status == 429) &&
+                string.Equals((rateLimitRemaining ?? "").Trim(), "0", StringComparison.Ordinal))
+                return "GitHub is rate-limiting this machine (60 requests an hour without a token). " +
+                       "Try again later, or install Whisper yourself and use the Browse actions.";
+            return "GitHub answered HTTP " + status.ToString(CultureInfo.InvariantCulture) +
+                   " for the whisper.cpp release list.";
+        }
+
+        private static async Task<AssetLookup> ResolveAssetAsync(HttpClient http, CancellationToken cancellationToken)
         {
             string json;
             try
             {
                 using (HttpResponseMessage response = await http.GetAsync(ReleaseApiUrl, cancellationToken).ConfigureAwait(false))
                 {
-                    if (!response.IsSuccessStatusCode) return null;
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        string remaining = null;
+                        IEnumerable<string> values;
+                        if (response.Headers.TryGetValues("X-RateLimit-Remaining", out values))
+                            foreach (string v in values) { remaining = v; break; }
+                        return new AssetLookup
+                        {
+                            Failure = DescribeHttpFailure((int)response.StatusCode, remaining),
+                        };
+                    }
                     json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                 }
             }
-            catch { return null; }
+            catch (Exception ex)
+            {
+                return new AssetLookup { Failure = "Could not reach GitHub: " + ex.Message };
+            }
 
-            return ParseReleaseJson(json);
+            ReleaseAsset asset = ParseReleaseListJson(json);
+            if (asset == null)
+                return new AssetLookup
+                {
+                    Failure = "GitHub answered, but none of the 20 most recent whisper.cpp releases " +
+                              "carries a Windows x64 build. Install Whisper yourself and use the " +
+                              "Browse actions.",
+                };
+            return new AssetLookup { Asset = asset };
+        }
+
+        /// <summary>
+        /// The newest release in the list that actually carries a Windows x64 zip.
+        ///
+        /// Order is the API's, which is newest first, so the first hit is the newest usable build.
+        /// A release with no assets is skipped rather than ending the search: that is the exact shape
+        /// upstream ships now, with asset-less v1.9.x tags interleaved among the bXXXX builds.
+        /// </summary>
+        public static ReleaseAsset ParseReleaseListJson(string json)
+        {
+            if (string.IsNullOrWhiteSpace(json)) return null;
+            try
+            {
+                using (JsonDocument document = JsonDocument.Parse(json))
+                {
+                    if (document.RootElement.ValueKind != JsonValueKind.Array) return null;
+                    foreach (JsonElement release in document.RootElement.EnumerateArray())
+                    {
+                        ReleaseAsset hit = AssetFrom(release);
+                        if (hit != null) return hit;
+                    }
+                }
+            }
+            catch { return null; }
+            return null;
         }
 
         /// <summary>Split out from the fetch so the selection logic is self-testable without a network.</summary>
@@ -368,8 +455,21 @@ namespace DesktopAICompanion.RemembranceModule
             {
                 using (JsonDocument document = JsonDocument.Parse(json))
                 {
+                    return AssetFrom(document.RootElement);
+                }
+            }
+            catch { return null; }
+        }
+
+        /// <summary>The Windows x64 asset of ONE release object, or null if it carries none.</summary>
+        private static ReleaseAsset AssetFrom(JsonElement release)
+        {
+            try
+            {
+                {
+                    if (release.ValueKind != JsonValueKind.Object) return null;
                     JsonElement assets;
-                    if (!document.RootElement.TryGetProperty("assets", out assets) ||
+                    if (!release.TryGetProperty("assets", out assets) ||
                         assets.ValueKind != JsonValueKind.Array) return null;
 
                     var byName = new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
