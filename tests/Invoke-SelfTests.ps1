@@ -165,11 +165,32 @@ foreach ($flag in $SelfTestFlags.Keys) {
     if ($process.ExitCode -ne 0) {
         Write-Output ($FailurePrefix + ('{0} (exit {1})' -f $flag, $process.ExitCode))
         Write-Host ('  FAIL  {0}' -f $flag) -ForegroundColor Red
+        # THE FAILING LINES FIRST, then the tail.
+        #
+        # The tail alone is not a diagnosis. SelfTestProbe appends each result WHERE IT
+        # HAPPENS, so in a suite of a hundred-odd assertions the one that failed is usually
+        # nowhere near the end -- and the last 40 lines are then forty passes and a summary
+        # saying something failed, without saying what. That is exactly what CI reported for
+        # --module-selftest=agentflow on 2026-09-21: RESULT=FAIL over a window containing no
+        # FAIL line at all, which is unactionable from a log nobody can re-run locally.
+        #
+        # Capped, because a module that fails every assertion must not print a thousand
+        # lines into a CI log; the tail still follows for context.
         foreach ($logPath in @($log, "$log.err")) {
-            if (Test-Path -LiteralPath $logPath) {
-                Get-Content -LiteralPath $logPath | Select-Object -Last 40 |
-                    ForEach-Object { Write-Host "        $_" }
+            if (-not (Test-Path -LiteralPath $logPath)) { continue }
+            $lines = @(Get-Content -LiteralPath $logPath)
+            $bad = @($lines | Select-String -Pattern "(FAIL|EXC|SKIP):" -SimpleMatch:$false)
+            if ($bad.Count -gt 0) {
+                Write-Host ("        ---- {0} failing line(s) ----" -f $bad.Count)
+                foreach ($line in ($bad | Select-Object -First 25)) {
+                    Write-Host ("        {0}" -f $line.Line)
+                }
+                if ($bad.Count -gt 25) {
+                    Write-Host ("        ... and {0} more" -f ($bad.Count - 25))
+                }
+                Write-Host "        ---- tail ----"
             }
+            $lines | Select-Object -Last 40 | ForEach-Object { Write-Host "        $_" }
         }
         continue
     }
