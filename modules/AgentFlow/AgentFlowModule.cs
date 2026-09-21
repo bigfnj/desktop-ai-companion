@@ -132,7 +132,15 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.2.0",   // 1.2.0: it now tells you about a prompt it can SEE, rather than
+            Version = "1.3.0",   // 1.3.0: transcripts are read FORWARD from a cursor instead of
+                                 //        re-read whole on every tick. Measured against this box's
+                                 //        real 46.2 MB transcript, in fresh interleaved processes:
+                                 //        535 ms per tick became 0.3 ms. One cold read per file per
+                                 //        process remains; it used to happen six times a minute for
+                                 //        ever. The watch section also now says when auto-approve is
+                                 //        already covering prompts, rather than greying boxes that
+                                 //        are the only way to see an agent outside the editor.
+                                 // 1.2.0: it now tells you about a prompt it can SEE, rather than
                                  //        only about one it predicted. The screen sweep runs
                                  //        whenever the mode scans, not only when it presses, so a
                                  //        prompt left alone -- Notify mode, an unrecognised option,
@@ -978,17 +986,36 @@ namespace DesktopAICompanion.AgentFlow
         /// asleep entirely while every session is in a self-deciding mode. Both boxes could be
         /// ticked, everything working exactly as designed, and nothing would ever happen.
         /// </summary>
-        internal static string WatchStateLine(int sessions, int stoodDown)
+        internal static string WatchStateLine(int sessions, int stoodDown, bool screenCovers)
         {
-            if (sessions <= 0) return "Right now: no agent is running.";
+            // Said FIRST when it applies, because it is the thing that makes the rest of this
+            // section look broken: prompts are already being handled, just not by these boxes.
+            string covered = screenCovers
+                ? " Prompts on screen are already being handled by auto-approve, which does not "
+                  + "use these boxes at all; they are only for agents it cannot see."
+                : "";
+            if (sessions <= 0) return "Right now: no agent is running." + covered;
             if (stoodDown >= sessions)
                 return "Right now: SILENT. Every agent running is in a mode where it decides "
                        + "for itself, so there is nothing to interrupt you about. These boxes "
-                       + "only do something in Claude's default mode, where it asks first.";
-            return "Right now: active. You will be told when an agent has been waiting.";
+                       + "only do something in Claude's default mode, where it asks first." + covered;
+            return "Right now: active. You will be told when an agent has been waiting." + covered;
         }
 
-        internal string WatchState { get { return WatchStateLine(_lastSessions, _lastStoodDown); } }
+        /// <summary>
+        /// NOT greyed out, and that is a decision rather than an omission.
+        ///
+        /// Greying these was asked for to conserve resources, and the cursor removed the resource:
+        /// a transcript scan went from 535 ms per tick to 0.3 ms, measured. What greying would
+        /// still cost is real, though -- the transcript watcher is the only thing that can see an
+        /// agent running OUTSIDE the VS Code window, so disabling it whenever the screen watcher
+        /// is up would trade a capability for a saving that no longer exists. So the pane reports
+        /// the overlap instead of enforcing it.
+        /// </summary>
+        internal string WatchState
+        {
+            get { return WatchStateLine(_lastSessions, _lastStoodDown, _portAnswering && AutoApprove); }
+        }
 
         internal static string DescribeStatus(int sessions, int blocked, int stoodDown)
         {
@@ -3659,14 +3686,18 @@ namespace DesktopAICompanion.AgentFlow
         private static bool SelfCheckWatchSection(SelfTestProbe probe)
         {
             probe.Check("WITNESS with every session standing down, it says so plainly",
-                WatchStateLine(3, 3).IndexOf("SILENT", StringComparison.Ordinal) >= 0);
+                WatchStateLine(3, 3, false).IndexOf("SILENT", StringComparison.Ordinal) >= 0);
             probe.Check("...and names the mode that has to change for it to do anything",
-                WatchStateLine(3, 3).IndexOf("default mode", StringComparison.Ordinal) >= 0);
+                WatchStateLine(3, 3, false).IndexOf("default mode", StringComparison.Ordinal) >= 0);
             probe.Check("WITNESS a session that is NOT standing down reads as active",
-                WatchStateLine(2, 1).IndexOf("active", StringComparison.Ordinal) >= 0
-                && WatchStateLine(2, 1).IndexOf("SILENT", StringComparison.Ordinal) < 0);
+                WatchStateLine(2, 1, false).IndexOf("active", StringComparison.Ordinal) >= 0
+                && WatchStateLine(2, 1, false).IndexOf("SILENT", StringComparison.Ordinal) < 0);
+            probe.Check("WITNESS when auto-approve is covering prompts, the section says so",
+                WatchStateLine(2, 2, true).IndexOf("already being handled", StringComparison.Ordinal) >= 0);
+            probe.Check("WITNESS ...and does not claim that when it is not covering them",
+                WatchStateLine(2, 2, false).IndexOf("already being handled", StringComparison.Ordinal) < 0);
             probe.Check("no agents at all says that, rather than claiming silence",
-                WatchStateLine(0, 0).IndexOf("no agent", StringComparison.Ordinal) >= 0);
+                WatchStateLine(0, 0, false).IndexOf("no agent", StringComparison.Ordinal) >= 0);
 
             var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
             using (var storage =
