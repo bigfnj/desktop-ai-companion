@@ -112,6 +112,10 @@ namespace DesktopAICompanion.Plugins
                     if (host.CompanionPokedHasSubs) stillSubscribed += " CompanionPoked";
                     if (host.CompanionLandedHasSubs) stillSubscribed += " CompanionLanded";
                     if (host.HostShutdownHasSubs) stillSubscribed += " HostShutdown";
+                    // Six of six. These two were the blind spots: ContextChanged threw its
+                    // subscribers away, and FullscreenChanged kept them but nothing looked.
+                    if (host.ContextChangedHasSubs) stillSubscribed += " ContextChanged";
+                    if (host.FullscreenChangedHasSubs) stillSubscribed += " FullscreenChanged";
                     ok &= Check(sb,
                         "Shutdown unsubscribed every host event it subscribed to"
                         + (stillSubscribed.Length > 0 ? " -- still attached:" + stillSubscribed : ""),
@@ -232,6 +236,8 @@ namespace DesktopAICompanion.Plugins
             internal bool CompanionPokedHasSubs { get { return CompanionPoked != null; } }
             internal bool CompanionLandedHasSubs { get { return CompanionLanded != null; } }
             internal bool HostShutdownHasSubs { get { return HostShutdown != null; } }
+            internal bool ContextChangedHasSubs { get { return ContextChanged != null; } }
+            internal bool FullscreenChangedHasSubs { get { return FullscreenChanged != null; } }
 
             // Never called: it exists so the declared events count as used under warnings-as-errors (CS0067).
             internal void TouchEvents()
@@ -240,6 +246,8 @@ namespace DesktopAICompanion.Plugins
                 CompanionPoked?.Invoke(null);
                 CompanionLanded?.Invoke(null);
                 HostShutdown?.Invoke();
+                ContextChanged?.Invoke("");
+                FullscreenChanged?.Invoke(false);
             }
 
             public void Say(ICompanion pet, string text) { }
@@ -299,7 +307,13 @@ namespace DesktopAICompanion.Plugins
             public void AddOptionsPane(OptionsPane pane) { }
             public void PublishContext(string moduleId, string key, string valueJson) { }
             public string ReadContext(string key) { return ""; }
-            public event Action<string> ContextChanged { add { } remove { } }
+            // FIELD-LIKE, and that is the whole point of this line. It used to be
+            // `add { } remove { }`, which does not merely fail to observe a subscription --
+            // it DISCARDS it. A module that subscribed and never unsubscribed left nothing
+            // behind to find, so the leak check below could not have caught it however it was
+            // written. An empty accessor pair is the one shape that makes a test silently
+            // unfalsifiable rather than merely incomplete.
+            public event Action<string> ContextChanged;
 
             private sealed class Noop : IDisposable { public void Dispose() { } }
         }
