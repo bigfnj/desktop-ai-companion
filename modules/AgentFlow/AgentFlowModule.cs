@@ -115,6 +115,10 @@ namespace DesktopAICompanion.AgentFlow
         // Written on the UI thread only, read by the tray's DynamicText on the UI thread.
         private string _status = "no agents seen yet";
 
+        /// <summary>One cursor per live transcript, carried between polls. This is the state
+        /// that makes a tick cost O(new bytes) instead of O(history).</summary>
+        private readonly SessionCache _sessions = new SessionCache();
+
         // The shape of the last scan, so the pane can say whether notifying is doing
         // anything at all right now. Counts rather than the status STRING, because a pane
         // keying on "standing down (auto mode)" would break the day that wording changes.
@@ -362,10 +366,11 @@ namespace DesktopAICompanion.AgentFlow
                 // Collected on the worker, handed to the UI thread, and never touched from
                 // both: the feed itself is only ever mutated inside PostToUi.
                 var freshApprovals = new List<ApprovalEntry>();
+                var resetNotes = new List<string>();
                 try
                 {
                     results = Scan(watchClaude, watchCodex, threshold, _approvalsCounted,
-                                   out approved, freshApprovals);
+                                   out approved, freshApprovals, _sessions, resetNotes);
                 }
                 catch (Exception)
                 {
@@ -438,6 +443,7 @@ namespace DesktopAICompanion.AgentFlow
                     bool panelUp = sawPanel;
                     string note = approvalNote;
                     List<ApprovalEntry> forFeed = freshApprovals;
+                    List<string> forResets = resetNotes;
                     ScreenPrompt forSpeech = seen;
                     PostToUi(() =>
                     {
@@ -457,6 +463,7 @@ namespace DesktopAICompanion.AgentFlow
                             Apply(forApply);
                             LogApprovals(forUi);
                         }
+                        foreach (string resetNote in forResets) Log(resetNote);
                         LogApprovalAttempt(note);
                         AnnounceScreenPrompt(forSpeech);
                     });
@@ -726,59 +733,114 @@ namespace DesktopAICompanion.AgentFlow
                                              out Dictionary<string, int> approved,
                                              IList<ApprovalEntry> recent)
         {
+            return Scan(watchClaude, watchCodex, threshold, approvalsCounted, out approved,
+                        recent, null, null);
+        }
+
+        /// <summary>
+        /// <paramref name="sessions"/> null means READ EVERY TRANSCRIPT WHOLE -- the cold path,
+        /// which is what "Check now" and the assertions want, and what a cursor falls back to
+        /// after a reset. Non-null resumes each file from wherever its cursor stopped.
+        ///
+        /// Keeping both is not indecision. The whole-file reader is the definition the
+        /// incremental one is checked against, so leaving it reachable keeps it exercised
+        /// rather than letting it rot into dead code that the differential test still trusts.
+        /// </summary>
+        internal static List<Detection> Scan(bool watchClaude, bool watchCodex, double threshold,
+                                             HashSet<string> approvalsCounted,
+                                             out Dictionary<string, int> approved,
+                                             IList<ApprovalEntry> recent,
+                                             SessionCache sessions,
+                                             IList<string> resetNotes)
+        {
             int sources;
             RuleSet rules = RuleLoader.Load(RuleLoader.DefaultPaths(), out sources);
             DateTime now = DateTime.UtcNow;
             var results = new List<Detection>();
             approved = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            var live = new HashSet<string>(StringComparer.Ordinal);
+
+            // SESSIONS, not call ids. The old prune walked every completed call on every tick
+            // purely to rebuild this set -- and it was subtly wrong besides: a call ageing out
+            // of AgentSession.CompletedCap dropped out of `live`, got pruned from the counted
+            // set, and would have been counted a SECOND time if it reappeared. A session id is
+            // the right granularity and bounds the set just as tightly.
+            var liveSessions = new HashSet<string>(StringComparer.Ordinal);
+            var livePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             if (watchClaude)
-            {
-                foreach (string path in TranscriptReader.ActiveTranscripts(
-                             TranscriptReader.ClaudeRoot, ActiveWindowSeconds, "subagents"))
-                {
-                    AgentSession session = TranscriptReader.ReadClaude(path);
-                    Detection detection = BlockedDetector.Evaluate(session, rules, threshold, now);
-                    if (detection != null) results.Add(detection);
-                    Tally(session, rules, approvalsCounted, approved, live, recent);
-                }
-            }
+                ScanRoot(TranscriptReader.ClaudeRoot, "subagents", TranscriptReader.AgentClaude,
+                         rules, threshold, now, approvalsCounted, approved, recent,
+                         sessions, resetNotes, results, liveSessions, livePaths);
             if (watchCodex)
-            {
-                foreach (string path in TranscriptReader.ActiveTranscripts(
-                             TranscriptReader.CodexRoot, ActiveWindowSeconds, null))
-                {
-                    AgentSession session = TranscriptReader.ReadCodex(path);
-                    Detection detection = BlockedDetector.Evaluate(session, rules, threshold, now);
-                    if (detection != null) results.Add(detection);
-                    Tally(session, rules, approvalsCounted, approved, live, recent);
-                }
-            }
+                ScanRoot(TranscriptReader.CodexRoot, null, TranscriptReader.AgentCodex,
+                         rules, threshold, now, approvalsCounted, approved, recent,
+                         sessions, resetNotes, results, liveSessions, livePaths);
 
-            // Drop ids no live transcript mentions any more, so the counted set is bounded by what
-            // is on disk in the active window rather than by how long the app has been running.
-            // NotifyBudget.Retain solves the same problem for the one-shot and this mirrors it.
+            if (sessions != null) sessions.Retain(livePaths);
+
             if (approvalsCounted != null)
             {
                 var stale = new List<string>();
-                foreach (string key in approvalsCounted) if (!live.Contains(key)) stale.Add(key);
+                foreach (string key in approvalsCounted)
+                {
+                    int slash = key.IndexOf('/');
+                    string owner = slash > 0 ? key.Substring(0, slash) : key;
+                    if (!liveSessions.Contains(owner)) stale.Add(key);
+                }
                 foreach (string key in stale) approvalsCounted.Remove(key);
             }
             return results;
         }
 
-        /// <summary>Fold one session's newly-approved calls into the running tally.</summary>
+        private static void ScanRoot(string root, string skipDirectory, string agent,
+                                     RuleSet rules, double threshold, DateTime now,
+                                     HashSet<string> approvalsCounted,
+                                     Dictionary<string, int> approved,
+                                     IList<ApprovalEntry> recent,
+                                     SessionCache sessions, IList<string> resetNotes,
+                                     List<Detection> results,
+                                     HashSet<string> liveSessions, HashSet<string> livePaths)
+        {
+            foreach (string path in TranscriptReader.ActiveTranscripts(
+                         root, ActiveWindowSeconds, skipDirectory))
+            {
+                livePaths.Add(path);
+                AgentSession session;
+                if (sessions == null)
+                {
+                    session = agent == TranscriptReader.AgentCodex
+                        ? TranscriptReader.ReadCodex(path)
+                        : TranscriptReader.ReadClaude(path);
+                }
+                else
+                {
+                    string reason;
+                    session = sessions.For(path, agent).Advance(out reason);
+                    // Never silent. A reset means the file changed under us, and "AgentFlow
+                    // forgot this session" with no reason on record is a bug report nobody
+                    // can answer.
+                    if (reason != null && resetNotes != null)
+                        resetNotes.Add("re-read " + Short(session) + " from the start: " + reason);
+                }
+                if (session == null) continue;
+                if (!string.IsNullOrEmpty(session.SessionId)) liveSessions.Add(session.SessionId);
+
+                Detection detection = BlockedDetector.Evaluate(session, rules, threshold, now);
+                if (detection != null) results.Add(detection);
+                Tally(session, rules, approvalsCounted, approved, recent);
+            }
+        }
+
+        /// <summary>Fold one session's newly-approved calls into the running tally.
+        ///
+        /// No longer walks Completed to build a live set: the prune keys on the SESSION now, so
+        /// the only reason this method ever touched the whole completed list is gone.</summary>
         private static void Tally(AgentSession session, RuleSet rules,
                                   HashSet<string> approvalsCounted,
-                                  Dictionary<string, int> approved, HashSet<string> live,
+                                  Dictionary<string, int> approved,
                                   IList<ApprovalEntry> recent)
         {
             if (session == null) return;
-            if (session.Completed != null)
-                foreach (OutstandingCall call in session.Completed)
-                    if (call != null && !string.IsNullOrEmpty(call.Id))
-                        live.Add(session.SessionId + "/" + call.Id);
             if (approvalsCounted == null) return;
             Dictionary<string, int> tally =
                 BlockedDetector.ApprovedSince(session, rules, approvalsCounted, recent);
@@ -1814,6 +1876,9 @@ namespace DesktopAICompanion.AgentFlow
                               && SelfCheckCodexOptions(probe)
                               && SelfCheckCodexMode(probe)
                               && SelfCheckTeardown(probe)
+                              && SelfCheckFoldEquivalence(probe)
+                              && SelfCheckCursorResets(probe)
+                              && SelfCheckScanEquivalence(probe)
                               && SelfCheckWatchSection(probe)
                               && SelfCheckScreenPrompt(probe)
                               && SelfCheckRefusalPrivacy(probe)
@@ -3630,6 +3695,300 @@ namespace DesktopAICompanion.AgentFlow
                     shown["watchIntro"].IndexOf("NOT auto-approve", StringComparison.Ordinal) >= 0);
                 module.Shutdown();
             }
+            return true;
+        }
+
+        /// <summary>A comparable rendering of everything a fold produces. Sorted by call id so
+        /// dictionary order cannot make two equal states look different.</summary>
+        private static string CanonicalFold(string mode, string cwd, bool sawAnyCall,
+                                            IEnumerable<OutstandingCall> outstanding,
+                                            IEnumerable<OutstandingCall> completed)
+        {
+            Func<IEnumerable<OutstandingCall>, string> render = calls =>
+            {
+                var rows = new List<string>();
+                foreach (OutstandingCall call in calls)
+                    rows.Add(string.Join("|", new[]
+                    {
+                        call.Id ?? "", call.Tool ?? "", call.Command ?? "", call.Argument ?? "",
+                        call.Mode ?? "",
+                        call.StartedUtc.ToString("O", CultureInfo.InvariantCulture),
+                    }));
+                rows.Sort(StringComparer.Ordinal);
+                return string.Join(";", rows.ToArray());
+            };
+            return "mode=" + (mode ?? "") + " cwd=" + (cwd ?? "") + " saw=" + sawAnyCall
+                   + " out=[" + render(outstanding) + "] done=[" + render(completed) + "]";
+        }
+
+        /// <summary>
+        /// The incremental fold must agree with a whole-file parse, wherever the stream is cut.
+        ///
+        /// EXHAUSTIVE, not sampled. The fixture is small enough to split at EVERY byte offset,
+        /// which is strictly better than choosing interesting boundaries and hoping the list was
+        /// complete. It therefore covers, by exhaustion rather than by intention: a cut inside a
+        /// JSON string, inside a multi-byte character (the fixture carries a two-byte e-acute and
+        /// a four-byte wrench in both a value and a command), exactly on a newline, on a record
+        /// boundary, and the zero-length read at each end.
+        ///
+        /// Each split gets its OWN path. Reusing one would let Windows file tunnelling hand the
+        /// recreated file its predecessor's creation time, or not, and a cursor that saw a
+        /// changed creation time would reset and re-read the whole file -- passing the assertion
+        /// while testing nothing incremental at all.
+        /// </summary>
+        /// <summary>
+        /// The cursor starts over when the file it was resuming into is no longer that file,
+        /// and says why.
+        ///
+        /// Deliberately separate from the equivalence test, which asserts resets == 0. A reader
+        /// that reset on every tick would pass equivalence perfectly and be exactly the design
+        /// this replaces, so "it recovers" and "it does not over-recover" are different claims
+        /// and need different tests.
+        /// </summary>
+        /// <summary>A comparable rendering of a whole Scan: what it detected and what it tallied.
+        /// Sorted, because neither list has a meaningful order.</summary>
+        private static string CanonicalScan(List<Detection> results, Dictionary<string, int> approved)
+        {
+            var rows = new List<string>();
+            foreach (Detection d in results)
+                rows.Add("det:" + d.Outcome + "|" + (d.ToolName ?? "") + "|"
+                         + (d.Session != null ? d.Session.SessionId : ""));
+            foreach (KeyValuePair<string, int> kv in approved)
+                rows.Add("app:" + kv.Key + "=" + kv.Value.ToString(CultureInfo.InvariantCulture));
+            rows.Sort(StringComparer.Ordinal);
+            return string.Join(";", rows.ToArray());
+        }
+
+        /// <summary>
+        /// Scanning through cursors must produce exactly what scanning whole files produces.
+        ///
+        /// The fold equivalence test proves the PARSER agrees across a split. This proves the
+        /// thing built on top of it agrees too -- detections and the approvals tally -- because
+        /// the cursor path also changed what `Completed` contains (new completions only) and how
+        /// the counted set is pruned (by session, not by call id). Either of those could be
+        /// wrong while the parser is perfectly right.
+        ///
+        /// Drives the real roots through the environment overrides rather than a seam, so what
+        /// is exercised is the path production takes, including ActiveTranscripts.
+        /// </summary>
+        private static bool SelfCheckScanEquivalence(SelfTestProbe probe)
+        {
+            var utf8 = new System.Text.UTF8Encoding(false);
+            string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-agentflow-scan-" + Guid.NewGuid().ToString("N").Substring(0, 10));
+            string empty = root + "-none";
+            string claudeWas = Environment.GetEnvironmentVariable(TranscriptReader.ClaudeRootVariable);
+            string codexWas = Environment.GetEnvironmentVariable(TranscriptReader.CodexRootVariable);
+            try
+            {
+                System.IO.Directory.CreateDirectory(root);
+                System.IO.Directory.CreateDirectory(empty);
+                string path = System.IO.Path.Combine(root, "session-alpha.jsonl");
+                System.IO.File.WriteAllBytes(path, utf8.GetBytes("{\"cwd\":\"C:\\work\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"s1\",\"name\":\"Bash\",\"input\":{\"command\":\"git status\"}}]}}\n{\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"s1\"}]}}\n{\"cwd\":\"C:\\work\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"s2\",\"name\":\"Bash\",\"input\":{\"command\":\"ls\"}}]}}\n"));
+
+                Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, root);
+                Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, empty);
+                probe.Check("WITNESS the override root is the one being scanned",
+                    string.Equals(TranscriptReader.ClaudeRoot, root, StringComparison.OrdinalIgnoreCase));
+
+                var cache = new SessionCache();
+                var coldCounted = new HashSet<string>(StringComparer.Ordinal);   // cold path keeps its own
+                var warmCounted = new HashSet<string>(StringComparer.Ordinal);
+                Dictionary<string, int> coldApproved, warmApproved;
+
+                List<Detection> cold = Scan(true, false, 30.0, coldCounted, out coldApproved,
+                                            null, null, null);
+                List<Detection> warm = Scan(true, false, 30.0, warmCounted, out warmApproved,
+                                            null, cache, null);
+                // Detections only. The approvals tally joins against the MACHINE's permission
+                // rules, so asserting it is non-empty would pass here and fail on a runner with
+                // no settings.json -- a machine-dependent assertion dressed as a coverage check.
+                probe.Check("WITNESS a cold scan of the fixture is not vacuous", cold.Count > 0);
+                probe.Check("WITNESS the first cursor scan matches a whole-file scan",
+                    CanonicalScan(warm, warmApproved) == CanonicalScan(cold, coldApproved));
+                probe.Check("the cache took a cursor for the transcript", cache.Count == 1);
+
+                // Append, and compare again. THIS is the step the design exists for: the cursor
+                // reads only the new bytes while the cold path re-reads everything.
+                using (var append = new System.IO.FileStream(path, System.IO.FileMode.Append,
+                                                             System.IO.FileAccess.Write))
+                {
+                    byte[] more = utf8.GetBytes("{\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"s2\"}]}}\n{\"cwd\":\"C:\\work\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"s3\",\"name\":\"Read\",\"input\":{\"command\":\"x\"}}]}}\n");
+                    append.Write(more, 0, more.Length);
+                }
+
+                List<Detection> cold2 = Scan(true, false, 30.0,
+                    new HashSet<string>(StringComparer.Ordinal), out coldApproved, null, null, null);
+                List<Detection> warm2 = Scan(true, false, 30.0, warmCounted, out warmApproved,
+                                             null, cache, null);
+                probe.Check("WITNESS after an append the cursor scan still matches a whole-file scan",
+                    CanonicalScan(warm2, warmApproved) == CanonicalScan(cold2, coldApproved));
+
+                // Idempotence, stated without reference to the machine's rules: whatever WAS
+                // counted is not counted again when nothing has been appended.
+                Dictionary<string, int> again;
+                Scan(true, false, 30.0, warmCounted, out again, null, cache, null);
+                probe.Check("WITNESS re-scanning an unchanged transcript tallies nothing new",
+                    again.Count == 0);
+
+                // And the cursor is dropped once its transcript leaves the window.
+                System.IO.File.Delete(path);
+                Dictionary<string, int> ignored;
+                Scan(true, false, 30.0, warmCounted, out ignored, null, cache, null);
+                probe.Check("WITNESS a cursor is dropped when its transcript goes away",
+                    cache.Count == 0);
+                probe.Check("...and the counted set is pruned with it", warmCounted.Count == 0);
+            }
+            catch (Exception ex) { probe.Check("scan equivalence: " + ex.Message, false); }
+            finally
+            {
+                Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, claudeWas);
+                Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, codexWas);
+                try { System.IO.Directory.Delete(root, true); } catch { }
+                try { System.IO.Directory.Delete(empty, true); } catch { }
+            }
+            return true;
+        }
+
+        private static bool SelfCheckCursorResets(SelfTestProbe probe)
+        {
+            var utf8 = new System.Text.UTF8Encoding(false);
+            string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-agentflow-reset-" + Guid.NewGuid().ToString("N").Substring(0, 10) + ".jsonl");
+            try
+            {
+                // 1. Ordinary growth is NOT a reset.
+                System.IO.File.WriteAllBytes(path, utf8.GetBytes("{\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"a1\",\"name\":\"Bash\"}]}}\n{\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"a2\",\"name\":\"Read\"}]}}\n"));
+                var cursor = new TranscriptCursor(path, TranscriptReader.AgentClaude);
+                string reason;
+                AgentSession one = cursor.Advance(out reason);
+                probe.Check("a first read is not a reset", reason == null);
+                probe.Check("the first read folded both calls", one.Outstanding.Count == 2);
+                long afterFirst = cursor.Offset;
+                probe.Check("WITNESS the cursor committed to an offset", afterFirst > 0);
+
+                using (var append = new System.IO.FileStream(path, System.IO.FileMode.Append,
+                                                             System.IO.FileAccess.Write))
+                {
+                    byte[] more = utf8.GetBytes("{\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"c1\",\"name\":\"Grep\"}]}}\n");
+                    append.Write(more, 0, more.Length);
+                }
+                AgentSession two = cursor.Advance(out reason);
+                probe.Check("WITNESS appending is not a reset", reason == null);
+                probe.Check("...and the appended call joined the existing two",
+                    two.Outstanding.Count == 3);
+                probe.Check("...and the cursor moved forward", cursor.Offset > afterFirst);
+
+                // 2. TRUNCATION. Shorter than where the cursor stood.
+                System.IO.File.WriteAllBytes(path, utf8.GetBytes("{\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"c1\",\"name\":\"Grep\"}]}}\n"));
+                AgentSession small = cursor.Advance(out reason);
+                probe.Check("WITNESS a truncated file resets the cursor",
+                    reason != null && reason.IndexOf("truncated", StringComparison.Ordinal) >= 0);
+                probe.Check("...and the reason says where it had got to",
+                    reason.IndexOf("cursor was at", StringComparison.Ordinal) >= 0);
+                probe.Check("WITNESS the state after a reset is the NEW file, not a merge",
+                    small.Outstanding.Count == 1 && small.Outstanding[0].Id == "c1");
+
+                // 3. REPLACEMENT that the length and creation time both miss. WriteAllBytes
+                //    truncates in place, so creation time is untouched, and this content is
+                //    LONGER than the cursor offset -- the exact shape NTFS file tunnelling
+                //    would hide. Only the head fingerprint can see it.
+                cursor.Advance(out reason);                       // settle at the small file
+                long settled = cursor.Offset;
+                System.IO.File.WriteAllBytes(path, utf8.GetBytes("{\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"b1\",\"name\":\"Edit\"}]}}\n{\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"b2\",\"name\":\"Write\"}]}}\n{\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"b3\",\"name\":\"Glob\"}]}}\n"));
+                AgentSession swapped = cursor.Advance(out reason);
+                probe.Check("WITNESS a same-name replacement longer than the offset is caught",
+                    reason != null && reason.IndexOf("different file", StringComparison.Ordinal) >= 0);
+                probe.Check("...even though it was longer than where the cursor stood",
+                    utf8.GetByteCount("{\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"b1\",\"name\":\"Edit\"}]}}\n{\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"b2\",\"name\":\"Write\"}]}}\n{\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"b3\",\"name\":\"Glob\"}]}}\n") > settled);
+                probe.Check("WITNESS the replacement is read whole, with none of the old state",
+                    swapped.Outstanding.Count == 3
+                    && swapped.Outstanding.TrueForAll(c => c.Id != null && c.Id[0] == 'b'));
+
+                // 4. A missing file reports what was already folded rather than inventing empty.
+                System.IO.File.Delete(path);
+                AgentSession gone = cursor.Advance(out reason);
+                probe.Check("WITNESS a vanished transcript keeps what it had already folded",
+                    gone.Outstanding.Count == 3);
+            }
+            catch (Exception ex) { probe.Check("cursor resets: " + ex.Message, false); }
+            finally { try { System.IO.File.Delete(path); } catch { } }
+            return true;
+        }
+
+        private static bool SelfCheckFoldEquivalence(SelfTestProbe probe)
+        {
+            const string fixture = "{\"type\":\"permission-mode\",\"permissionMode\":\"default\"}\n{\"cwd\":\"C:\\caf\u00e9\\r\ud83d\udd27\"}\n{\"timestamp\":\"2026-09-21T10:00:00Z\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"c1\",\"name\":\"Bash\",\"input\":{\"command\":\"echo \u00e9\"}}]}}\n{\"timestamp\":\"2026-09-21T10:00:01Z\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"c1\"}]}}\n{\"timestamp\":\"2026-09-21T10:00:02Z\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"c2\",\"name\":\"Read\",\"input\":{\"file_path\":\"a.txt\"}}]}}\n";
+            byte[] bytes = new System.Text.UTF8Encoding(false).GetBytes(fixture);
+
+            string wholePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-agentflow-fold-whole-" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".jsonl");
+            string expected;
+            try
+            {
+                System.IO.File.WriteAllBytes(wholePath, bytes);
+                AgentSession whole = TranscriptReader.ReadClaude(wholePath);
+                expected = CanonicalFold(whole.Mode, whole.Cwd, whole.SawAnyCall,
+                                         whole.Outstanding, whole.Completed);
+                probe.Check("WITNESS the whole-file parse of the fixture is not vacuous",
+                    whole.SawAnyCall && whole.Outstanding.Count == 1
+                    && whole.Completed.Count == 1 && whole.Mode == "default");
+                probe.Check("WITNESS the fixture really does carry multi-byte characters",
+                    bytes.Length > fixture.Length);
+            }
+            finally { try { System.IO.File.Delete(wholePath); } catch { } }
+
+            int mismatches = 0, resets = 0, firstBad = -1;
+            for (int split = 0; split <= bytes.Length; split++)
+            {
+                string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                    "dp-agentflow-fold-" + Guid.NewGuid().ToString("N").Substring(0, 10) + ".jsonl");
+                try
+                {
+                    var head = new byte[split];
+                    Array.Copy(bytes, head, split);
+                    System.IO.File.WriteAllBytes(path, head);
+
+                    var cursor = new TranscriptCursor(path, TranscriptReader.AgentClaude);
+                    var seen = new List<OutstandingCall>();
+                    string reason;
+                    AgentSession first = cursor.Advance(out reason);
+                    if (reason != null) resets++;
+                    seen.AddRange(first.Completed);
+
+                    using (var append = new System.IO.FileStream(path, System.IO.FileMode.Append, System.IO.FileAccess.Write))
+                        append.Write(bytes, split, bytes.Length - split);
+
+                    AgentSession second = cursor.Advance(out reason);
+                    if (reason != null) resets++;
+                    seen.AddRange(second.Completed);
+
+                    string got = CanonicalFold(second.Mode, second.Cwd, second.SawAnyCall,
+                                               second.Outstanding, seen);
+                    if (!string.Equals(got, expected, StringComparison.Ordinal))
+                    {
+                        mismatches++;
+                        if (firstBad < 0) firstBad = split;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    mismatches++;
+                    if (firstBad < 0) firstBad = split;
+                    probe.Note("split " + split + " threw " + ex.GetType().Name + ": " + ex.Message);
+                }
+                finally { try { System.IO.File.Delete(path); } catch { } }
+            }
+
+            probe.Note("fold equivalence: " + (bytes.Length + 1) + " split points over "
+                       + bytes.Length + " bytes");
+            probe.Check("WITNESS folding in two reads equals one whole-file parse, at every "
+                        + "byte offset (first disagreement at " + firstBad + ")",
+                mismatches == 0);
+            probe.Check("WITNESS the split points were actually exercised, not skipped",
+                bytes.Length > 200);
+            probe.Check("WITNESS no split provoked a cursor reset, so the increments were real",
+                resets == 0);
             return true;
         }
 

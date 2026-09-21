@@ -214,196 +214,189 @@ namespace DesktopAICompanion.AgentFlow
             return paths;
         }
 
-        /// <summary>Read one Claude transcript. Never throws; returns null when unreadable.</summary>
+        /// <summary>
+        /// Read one Claude transcript whole.
+        ///
+        /// Never throws. It also never returns null, despite what this comment used to claim:
+        /// an unreadable file yields a session with SawAnyCall false, which downstream becomes
+        /// AdapterSuspect rather than "skip". That distinction is deliberate -- "I understood
+        /// none of this" is not the same answer as "everything is fine".
+        ///
+        /// This is now the COLD path. TranscriptCursor folds the same records incrementally and
+        /// calls the same FoldClaudeRecord, so the two cannot drift: there is one implementation
+        /// of what a record means, and the cursor only changes where the byte stream is cut.
+        /// </summary>
         public static AgentSession ReadClaude(string path)
         {
-            var session = new AgentSession
-            {
-                Agent = AgentClaude,
-                Path = path,
-                SessionId = Path.GetFileNameWithoutExtension(path),
-            };
-            var pending = new Dictionary<string, OutstandingCall>(StringComparer.Ordinal);
-            string mode = null;
-
-            foreach (string line in ReadLines(path))
-            {
-                JsonElement record;
-                if (!TryParse(line, out record)) continue;
-
-                // BEFORE the content check: a `permission-mode` record carries no message and no
-                // content, so reading the mode afterwards would never see one. It also carries NO
-                // timestamp -- its only keys are permissionMode, sessionId and type -- which is why
-                // the carry-forward here is positional, by file order, and why anything that sorts
-                // records by time would drop every mode change on the floor.
-                string declared = GetString(record, "permissionMode");
-                if (!string.IsNullOrEmpty(declared)) mode = declared;
-
-                string cwd = GetString(record, "cwd");
-                if (!string.IsNullOrEmpty(cwd)) session.Cwd = cwd;
-
-                DateTime when;
-                bool haveWhen = TryGetTimestamp(record, out when);
-
-                JsonElement message;
-                if (!record.TryGetProperty("message", out message)
-                    || message.ValueKind != JsonValueKind.Object) continue;
-                JsonElement content;
-                if (!message.TryGetProperty("content", out content)
-                    || content.ValueKind != JsonValueKind.Array) continue;
-
-                foreach (JsonElement block in content.EnumerateArray())
-                {
-                    if (block.ValueKind != JsonValueKind.Object) continue;
-                    string kind = GetString(block, "type");
-                    if (kind == "tool_use")
-                    {
-                        session.SawAnyCall = true;
-                        string id = GetString(block, "id");
-                        if (string.IsNullOrEmpty(id)) continue;
-                        JsonElement input;
-                        string command = null, argument = null;
-                        if (block.TryGetProperty("input", out input)
-                            && input.ValueKind == JsonValueKind.Object)
-                        {
-                            command = GetString(input, "command");
-                            argument = FirstAddressable(input);
-                        }
-                        pending[id] = new OutstandingCall
-                        {
-                            Id = id,
-                            Tool = GetString(block, "name") ?? "?",
-                            Command = command,
-                            Argument = argument,
-                            StartedUtc = haveWhen ? when : DateTime.UtcNow,
-                            Mode = mode,
-                        };
-                    }
-                    else if (kind == "tool_result")
-                    {
-                        session.SawAnyCall = true;
-                        string id = GetString(block, "tool_use_id");
-                        if (!string.IsNullOrEmpty(id))
-                        {
-                            // MOVED, not dropped. The call finished, so it is not blocking anyone --
-                            // and it is the raw material for the approval audit, because a call that
-                            // completed without a prompt is a call the rules approved on the user's
-                            // behalf. Dropping it here is why the module could only ever report what
-                            // it STOPPED.
-                            OutstandingCall finished;
-                            if (pending.TryGetValue(id, out finished)) session.NoteCompleted(finished);
-                            pending.Remove(id);
-                        }
-                    }
-                }
-            }
-
-            session.Mode = mode;
-            foreach (OutstandingCall call in pending.Values) session.Outstanding.Add(call);
-            try { session.LastWriteUtc = File.GetLastWriteTimeUtc(path); }
-            catch (IOException) { session.LastWriteUtc = DateTime.UtcNow; }
-            catch (UnauthorizedAccessException) { session.LastWriteUtc = DateTime.UtcNow; }
-            return session;
+            return ReadWhole(path, AgentClaude);
         }
 
-        /// <summary>Read one Codex rollout. Never throws; returns null when unreadable.</summary>
+        /// <summary>Read one Codex rollout whole. See ReadClaude: same contract, same fold.</summary>
         public static AgentSession ReadCodex(string path)
         {
-            var session = new AgentSession
-            {
-                Agent = AgentCodex,
-                Path = path,
-                SessionId = Path.GetFileNameWithoutExtension(path),
-            };
-            var pending = new Dictionary<string, OutstandingCall>(StringComparer.Ordinal);
-            string policy = null;
+            return ReadWhole(path, AgentCodex);
+        }
 
+        private static AgentSession ReadWhole(string path, string agent)
+        {
+            var state = new FoldState();
             foreach (string line in ReadLines(path))
             {
                 JsonElement record;
                 if (!TryParse(line, out record)) continue;
-                DateTime when;
-                bool haveWhen = TryGetTimestamp(record, out when);
-
-                JsonElement payload;
-                if (!record.TryGetProperty("payload", out payload)
-                    || payload.ValueKind != JsonValueKind.Object) continue;
-
-                // turn_context names itself on the RECORD, and its payload carries no "type" at
-                // all -- so it has to be dispatched before the payload-type switch below, which
-                // would drop it on the `kind == null` guard.
-                //
-                // Worth stating because the first version of this did exactly that, and the
-                // self-test passed: the fixture invented a payload.type that no real rollout has.
-                // A fixture agreeing with the code it tests, rather than with the file format,
-                // is a test that can only ever confirm the author's belief. Caught by running
-                // the reader over a REAL truncated rollout, where it reported "codex unknown".
-                if (string.Equals(GetString(record, "type"), "turn_context", StringComparison.Ordinal))
-                {
-                    // Last writer wins: the policy is per TURN and can change mid-session, so the
-                    // newest record is the one describing whatever is outstanding now.
-                    //
-                    // approval_policy, NOT collaboration_mode.mode. The latter also says "default"
-                    // while sitting beside approval_policy `never` and full disk access: Claude's
-                    // word for "ask me every time", meaning the opposite. Reading it would predict
-                    // prompts in sessions that cannot produce any.
-                    string seenPolicy = GetString(payload, "approval_policy");
-                    if (!string.IsNullOrEmpty(seenPolicy)) policy = seenPolicy;
-                    continue;
-                }
-
-                string kind = GetString(payload, "type");
-                if (kind == null) continue;
-
-                if (Contains(CodexCallTypes, kind))
-                {
-                    session.SawAnyCall = true;
-                    string id = GetString(payload, "call_id");
-                    if (string.IsNullOrEmpty(id)) continue;
-                    pending[id] = new OutstandingCall
-                    {
-                        Id = id,
-                        Tool = GetString(payload, "name") ?? "?",
-                        Command = null,
-                        StartedUtc = haveWhen ? when : DateTime.UtcNow,
-                        Mode = null,
-                    };
-                }
-                else if (Contains(CodexOutputTypes, kind))
-                {
-                    session.SawAnyCall = true;
-                    string id = GetString(payload, "call_id");
-                    if (!string.IsNullOrEmpty(id))
-                    {
-                        OutstandingCall finished;
-                        if (pending.TryGetValue(id, out finished)) session.NoteCompleted(finished);
-                        pending.Remove(id);
-                    }
-                }
-                else if (kind == "session_meta")
-                {
-                    string cwd = GetString(payload, "cwd");
-                    if (!string.IsNullOrEmpty(cwd)) session.Cwd = cwd;
-                }
+                if (agent == AgentCodex) FoldCodexRecord(record, state);
+                else FoldClaudeRecord(record, state);
             }
 
-            // Carried as the policy string itself rather than mapped onto one of Claude's mode
-            // names. They are different vocabularies, the stand-down allow-list is exactly
-            // "default", and translating `on-request` into `default` here would quietly opt
-            // Codex into firing on a population nobody has measured.
-            session.Mode = policy;
-            foreach (OutstandingCall call in pending.Values) session.Outstanding.Add(call);
+            var session = new AgentSession
+            {
+                Agent = agent,
+                Path = path,
+                SessionId = Path.GetFileNameWithoutExtension(path),
+                Cwd = state.Cwd,
+                Mode = state.Mode,
+                SawAnyCall = state.SawAnyCall,
+            };
+            foreach (OutstandingCall call in state.Pending.Values) session.Outstanding.Add(call);
+            foreach (OutstandingCall call in state.CompletedSinceSnapshot) session.NoteCompleted(call);
             try { session.LastWriteUtc = File.GetLastWriteTimeUtc(path); }
             catch (IOException) { session.LastWriteUtc = DateTime.UtcNow; }
             catch (UnauthorizedAccessException) { session.LastWriteUtc = DateTime.UtcNow; }
             return session;
         }
 
-        // The keys a permission rule can actually address for a non-shell tool, in the order the
-        // measurement harness in docs/agentflow uses. A tool with none of them -- Agent being the
-        // one that matters on this box, since a subagent legitimately runs for minutes -- has
-        // nothing for the rules to say anything about, and must read as UNDECIDABLE rather than as
-        // would-prompt.
+        /// <summary>The cursor needs the same line-to-record step; exposed rather than copied.</summary>
+        internal static bool TryParseForFold(string line, out JsonElement record)
+        {
+            return TryParse(line, out record);
+        }
+
+        /// <summary>
+        /// One Claude record, folded into the running state.
+        ///
+        /// The mode read comes BEFORE the message/content guard: a `permission-mode` record
+        /// carries no message and no content, so reading the mode afterwards would never see
+        /// one. It also carries NO timestamp -- its only keys are permissionMode, sessionId and
+        /// type -- which is why the carry-forward is positional, by file order, and why anything
+        /// that sorted records by time would drop every mode change on the floor. An incremental
+        /// reader preserves that ordering for free, because append order IS file order.
+        /// </summary>
+        internal static void FoldClaudeRecord(JsonElement record, FoldState state)
+        {
+            string declared = GetString(record, "permissionMode");
+            if (!string.IsNullOrEmpty(declared)) state.Mode = declared;
+
+            string cwd = GetString(record, "cwd");
+            if (!string.IsNullOrEmpty(cwd)) state.Cwd = cwd;
+
+            DateTime when;
+            bool haveWhen = TryGetTimestamp(record, out when);
+
+            JsonElement message;
+            if (!record.TryGetProperty("message", out message)
+                || message.ValueKind != JsonValueKind.Object) return;
+            JsonElement content;
+            if (!message.TryGetProperty("content", out content)
+                || content.ValueKind != JsonValueKind.Array) return;
+
+            foreach (JsonElement block in content.EnumerateArray())
+            {
+                if (block.ValueKind != JsonValueKind.Object) continue;
+                string kind = GetString(block, "type");
+                if (kind == "tool_use")
+                {
+                    state.SawAnyCall = true;
+                    string id = GetString(block, "id");
+                    if (string.IsNullOrEmpty(id)) continue;
+                    JsonElement input;
+                    string command = null, argument = null;
+                    if (block.TryGetProperty("input", out input)
+                        && input.ValueKind == JsonValueKind.Object)
+                    {
+                        command = GetString(input, "command");
+                        argument = FirstAddressable(input);
+                    }
+                    state.Pending[id] = new OutstandingCall
+                    {
+                        Id = id,
+                        Tool = GetString(block, "name") ?? "?",
+                        Command = command,
+                        Argument = argument,
+                        StartedUtc = haveWhen ? when : DateTime.UtcNow,
+                        Mode = state.Mode,
+                    };
+                }
+                else if (kind == "tool_result")
+                {
+                    state.SawAnyCall = true;
+                    // MOVED, not dropped. The call finished, so it is not blocking anyone -- and
+                    // it is the raw material for the approval audit, because a call that
+                    // completed without a prompt is a call the rules approved on the user's
+                    // behalf. Dropping it here is why the module could only ever report what it
+                    // STOPPED.
+                    string id = GetString(block, "tool_use_id");
+                    if (!string.IsNullOrEmpty(id)) state.Complete(id);
+                }
+            }
+        }
+
+        /// <summary>
+        /// One Codex record, folded into the running state.
+        ///
+        /// turn_context names itself on the RECORD, and its payload carries no "type" at all, so
+        /// it is dispatched before the payload-type switch, which would drop it on the null
+        /// guard. The first version of this read payload.type and the fixture invented one no
+        /// real rollout has, so the test agreed with the code and both were wrong.
+        /// </summary>
+        internal static void FoldCodexRecord(JsonElement record, FoldState state)
+        {
+            DateTime when;
+            bool haveWhen = TryGetTimestamp(record, out when);
+
+            JsonElement payload;
+            if (!record.TryGetProperty("payload", out payload)
+                || payload.ValueKind != JsonValueKind.Object) return;
+
+            if (string.Equals(GetString(record, "type"), "turn_context", StringComparison.Ordinal))
+            {
+                // approval_policy, NOT collaboration_mode.mode. The latter also says "default"
+                // while sitting beside approval_policy `never` and full disk access: Claude's
+                // word for "ask me every time", meaning the opposite. Last writer wins, because
+                // the policy is per turn.
+                string seenPolicy = GetString(payload, "approval_policy");
+                if (!string.IsNullOrEmpty(seenPolicy)) state.Mode = seenPolicy;
+                return;
+            }
+
+            string kind = GetString(payload, "type");
+            if (kind == null) return;
+
+            if (Contains(CodexCallTypes, kind))
+            {
+                state.SawAnyCall = true;
+                string id = GetString(payload, "call_id");
+                if (string.IsNullOrEmpty(id)) return;
+                state.Pending[id] = new OutstandingCall
+                {
+                    Id = id,
+                    Tool = GetString(payload, "name") ?? "?",
+                    Command = null,
+                    StartedUtc = haveWhen ? when : DateTime.UtcNow,
+                    Mode = null,
+                };
+            }
+            else if (Contains(CodexOutputTypes, kind))
+            {
+                state.SawAnyCall = true;
+                string id = GetString(payload, "call_id");
+                if (!string.IsNullOrEmpty(id)) state.Complete(id);
+            }
+            else if (kind == "session_meta")
+            {
+                string cwd = GetString(payload, "cwd");
+                if (!string.IsNullOrEmpty(cwd)) state.Cwd = cwd;
+            }
+        }
         private static readonly string[] AddressableKeys =
             { "file_path", "path", "notebook_path", "url", "pattern" };
 
