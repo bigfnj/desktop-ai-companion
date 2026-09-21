@@ -1367,6 +1367,29 @@ namespace DesktopAICompanion.AgentFlow
         /// What it buys there is that the newest line has a timestamp, so "when did it stop"
         /// stops being a question about other subsystems' logging habits.
         /// </summary>
+        /// <summary>
+        /// Self-test only: stop polling and wait for the poll Init already started.
+        ///
+        /// Init ENDS with OnTick, so a scan is in flight the moment Init returns -- and with no
+        /// SynchronizationContext to post to, PostToUi runs the result INLINE on that worker, which
+        /// writes the first capability line. Anything counting log lines straight after Init is
+        /// therefore racing a background task it never started.
+        ///
+        /// That race is not theoretical and not symmetrical. It passed on the maintainer's machine
+        /// every time, because the scan there reads thousands of real transcripts and loses; it
+        /// failed on CI every time, because a runner has none and the scan finishes first. Green
+        /// locally and red on the runner, which is the worst way to find out.
+        /// </summary>
+        internal void QuiesceForSelfTest()
+        {
+            if (_timer != null) _timer.Stop();
+            for (int i = 0; i < 400 && Volatile.Read(ref _scanning) != 0; i++)
+                System.Threading.Thread.Sleep(5);
+        }
+
+        /// <summary>Self-test only: forget what was last logged, so the next call records again.</summary>
+        internal void ResetCapabilityLogForSelfTest() { _lastLoggedCapability = null; }
+
         private void LogCapabilityChange()
         {
             string now = AutoApproveTrayLabel();
@@ -2209,8 +2232,19 @@ namespace DesktopAICompanion.AgentFlow
                 var module = new AgentFlowModule();
                 module.Init(host);
 
-                probe.Check("nothing is claimed about capability before the first poll",
-                    CapabilityLines(host) == 0);
+                // Init ends with an immediate OnTick, so the opening state is already being
+                // recorded by a worker as Init returns. Wait for it rather than assert around it:
+                // the previous version of this checked for ZERO lines here, which was a claim
+                // about scheduling rather than about behaviour, and it was simply false -- there
+                // IS a first poll, inside Init.
+                module.QuiesceForSelfTest();
+                probe.Check("WITNESS Init's own poll records the opening state, rather than "
+                            + "leaving the log silent until something happens to change",
+                    CapabilityLines(host) == 1);
+
+                // Back to a known baseline, so the counts below measure THIS sequence.
+                host.LoggedLines.Clear();
+                module.ResetCapabilityLogForSelfTest();
 
                 module.LogCapabilityChange();
                 probe.Check("WITNESS the opening state is recorded, so the log has a baseline",
