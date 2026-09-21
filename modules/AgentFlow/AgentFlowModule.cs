@@ -121,7 +121,13 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.1.5",   // 1.1.5: the pet dropdown lists the pets ON SCREEN, by name.
+            Version = "1.1.6",   // 1.1.6: one log line whenever the ability to press CHANGES.
+                                 //        Nothing is written when there is nothing to press, so an
+                                 //        inert module and a working one were byte-identical in the
+                                 //        log; on change only, so the file stays readable. Keyed on
+                                 //        the tray sentence, not ApproveState, which folds "waiting
+                                 //        for VS Code" and "cannot see the panel" into one value.
+                                 // 1.1.5: the pet dropdown lists the pets ON SCREEN, by name.
                                  // 1.0.1: logs what the rules APPROVE, not only what would block.
                                  // 1.0.0: first version. Notify half only, observe-only by decision.
             // 1.0.0 rather than the release that first ships AgentTranscripts, because a module
@@ -363,6 +369,9 @@ namespace DesktopAICompanion.AgentFlow
                     {
                         _portAnswering = portUp;
                         _panelReadable = panelUp;
+                        // Immediately after the flags and before anything else this tick, so a
+                        // capability change is logged ahead of whatever it caused or prevented.
+                        LogCapabilityChange();
                         foreach (ApprovalEntry entry in forFeed)
                             _approvalFeed.Record(entry.WhenLocal, entry.Root, entry.Command);
                         if (forApply != null)
@@ -1329,6 +1338,43 @@ namespace DesktopAICompanion.AgentFlow
             }
         }
 
+        /// <summary>
+        /// The last capability sentence written to the log, so only CHANGES get written.
+        /// Null until the first poll, which is why the opening state is always recorded.
+        /// </summary>
+        private string _lastLoggedCapability;
+
+        /// <summary>
+        /// Write one line when the answer to "could this press a button right now?" changes.
+        ///
+        /// The log had no way to say this at all. Nothing is written when there is nothing to
+        /// press -- deliberately, a line every ten seconds would bury the file -- but the
+        /// consequence is that an inert module and a working one are BYTE-IDENTICAL in the log.
+        /// On 2026-09-21 that turned "was auto-approve working overnight?" into an archaeology
+        /// exercise over timestamp gaps in an unrelated subsystem, because silence was equally
+        /// consistent with working-and-idle, a dead debug port, an unreadable panel, and no
+        /// process at all.
+        ///
+        /// On CHANGE only, so it stays silent while nothing moves and the log stays readable.
+        ///
+        /// Keyed on the TRAY SENTENCE rather than on ApproveState, for two reasons. It is finer:
+        /// ApproveState folds "waiting for VS Code" and "cannot see the panel" into one
+        /// CannotSee, and those are different faults with different fixes, so a move between
+        /// them must not read as no change. And it is the same string the tray shows, so the log
+        /// and the menu cannot drift into describing one state two ways.
+        ///
+        /// What this does NOT do is notice the app being gone. A dead process writes nothing.
+        /// What it buys there is that the newest line has a timestamp, so "when did it stop"
+        /// stops being a question about other subsystems' logging habits.
+        /// </summary>
+        private void LogCapabilityChange()
+        {
+            string now = AutoApproveTrayLabel();
+            if (string.Equals(now, _lastLoggedCapability, StringComparison.Ordinal)) return;
+            _lastLoggedCapability = now;
+            Log(now);
+        }
+
         /// <summary>Flip the user's intent from the tray, and say what happened out loud.</summary>
         internal void ToggleAutoApproveFromTray()
         {
@@ -1488,6 +1534,7 @@ namespace DesktopAICompanion.AgentFlow
                               && SelfCheckNotifyChannels(probe)
                               && SelfCheckLogPath(probe)
                               && SelfCheckAllProjects(probe)
+                              && SelfCheckCapabilityLog(probe)
                               && SelfCheckPetChoices(probe)
                               && SelfCheckCacheBound(probe);
                     probe.Check("every logic group ran", ok);
@@ -2130,6 +2177,82 @@ namespace DesktopAICompanion.AgentFlow
         /// key, so the checkbox read unchecked while the tray said on, and saving the pane
         /// wrote the checkbox's lie back over the setting.
         /// </summary>
+        /// <summary>Capability lines only: the tray toggle logs its own sentence, and counting
+        /// that as a transition would hide a logger that never fires on its own.</summary>
+        private static int CapabilityLines(DesktopAICompanion.ModuleKit.Testing.RecordingHost host)
+        {
+            int n = 0;
+            foreach (string line in host.LoggedLines)
+                if (line != null && line.IndexOf("Auto-approve:", StringComparison.Ordinal) >= 0) n++;
+            return n;
+        }
+
+        /// <summary>
+        /// The log says when the ability to press CHANGES, and says nothing while it does not.
+        ///
+        /// Both halves are the feature. A logger that never fires leaves the original complaint
+        /// intact -- an inert module and a working one writing identical logs -- and one that fires
+        /// every poll buries the file this module exists to keep readable, which is why nothing was
+        /// logged here in the first place.
+        ///
+        /// The port-up-panel-down step is the case that decided the implementation. It and
+        /// "waiting for VS Code" are the SAME ApproveState, so keying the check on the enum would
+        /// silently swallow a move between two different faults with two different fixes.
+        /// </summary>
+        private static bool SelfCheckCapabilityLog(SelfTestProbe probe)
+        {
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            using (var storage =
+                       new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-cap"))
+            {
+                host.UseStorage("agentflow", storage);
+                var module = new AgentFlowModule();
+                module.Init(host);
+
+                probe.Check("nothing is claimed about capability before the first poll",
+                    CapabilityLines(host) == 0);
+
+                module.LogCapabilityChange();
+                probe.Check("WITNESS the opening state is recorded, so the log has a baseline",
+                    CapabilityLines(host) == 1);
+
+                // The half that keeps the log readable.
+                module.LogCapabilityChange();
+                module.LogCapabilityChange();
+                probe.Check("WITNESS an unchanged state is written once, not once per poll",
+                    CapabilityLines(host) == 1);
+
+                module.ToggleAutoApproveFromTray();   // off -> on, nothing answering yet
+                module.LogCapabilityChange();
+                probe.Check("turning it on is a change, and is recorded",
+                    CapabilityLines(host) == 2);
+                probe.Check("...naming the fault as the editor, not the panel",
+                    host.LoggedLines[host.LoggedLines.Count - 1]
+                        .IndexOf("waiting for VS Code", StringComparison.Ordinal) >= 0);
+
+                // Port up, panel still unreadable. SAME ApproveState as the line above.
+                module._portAnswering = true;
+                module.LogCapabilityChange();
+                probe.Check("WITNESS a move between two faults sharing one state is still recorded",
+                    CapabilityLines(host) == 3);
+                probe.Check("...and now names the panel rather than the editor",
+                    host.LoggedLines[host.LoggedLines.Count - 1]
+                        .IndexOf("cannot see the Claude Code panel", StringComparison.Ordinal) >= 0);
+
+                module._panelReadable = true;
+                module.LogCapabilityChange();
+                probe.Check("becoming able to press is recorded", CapabilityLines(host) == 4);
+
+                module._panelReadable = false;
+                module.LogCapabilityChange();
+                probe.Check("WITNESS losing the panel is recorded too, not only gaining it",
+                    CapabilityLines(host) == 5);
+
+                module.Shutdown();
+            }
+            return true;
+        }
+
         private static bool SelfCheckAutoApprove(SelfTestProbe probe)
         {
             var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
