@@ -30,6 +30,20 @@ namespace DesktopAICompanion.AgentFlow
         /// grants would make that choice impossible to express.
         /// </summary>
         ApproveAllProjects = 6,
+        /// <summary>
+        /// Codex's "Allow similar commands" -- a standing grant for commands it judges
+        /// alike, narrower than all-projects and wider than one call.
+        ///
+        /// Its own kind for the same reason ApproveAllProjects is: the user can opt into
+        /// exactly this and nothing else wider. Folding it into ApproveWider would make that
+        /// choice impossible to express, and folding it into ApproveOnce would press a
+        /// standing grant while claiming to approve one call.
+        ///
+        /// What "similar" MEANS is Codex's judgement, not ours, and that is the reason it is
+        /// off by default: this module cannot state the blast radius of a grant whose scope is
+        /// decided by the other agent.
+        /// </summary>
+        ApproveSimilar = 7,
     }
 
     /// <summary>The decision about one prompt: which row to press, or why not to touch it.</summary>
@@ -113,6 +127,12 @@ namespace DesktopAICompanion.AgentFlow
             Entry("yes, allow access to ", OptionKind.ApproveOnce),
             Entry("yes, allow access to", OptionKind.ApproveOnce),
             Entry("allow", OptionKind.ApproveOnce),
+            // Codex. "allow once" is its own exact entry rather than relying on the bare
+            // "allow" above, which is an EXACT entry and does not match it.
+            Entry("allow once", OptionKind.ApproveOnce),
+
+            // -- Codex: wider than one call, narrower than a project ------------------
+            Entry("allow similar commands", OptionKind.ApproveSimilar),
 
             // -- wider than one call ---------------------------------------------------
             Entry("yes, allow all edits this session", OptionKind.ApproveWider),
@@ -209,6 +229,50 @@ namespace DesktopAICompanion.AgentFlow
         /// PERMANENT GRANT is recognised or silently becomes Unknown. Normalizing to FormKC first
         /// does not help, because it leaves U+2019 alone, so the family is folded by hand.
         /// </summary>
+        /// <summary>Keyboard glyphs Codex renders inside an option label: return, and the two
+        /// arrow forms of it.</summary>
+        private static readonly char[] HintGlyphs = { '\u23CE', '\u21B5', '\u2B90' };
+
+        /// <summary>Trailing word hints, as whole tokens after a space.</summary>
+        private static readonly string[] HintWords = { "esc", "enter", "return" };
+
+        /// <summary>
+        /// Remove a trailing keyboard hint, which Codex renders INSIDE the label rather than
+        /// beside it: "Allow once \u23CE", "Deny Esc".
+        ///
+        /// Without this every Codex row classifies Unknown, and one unknown option refuses the
+        /// whole prompt, so the agent would never be actionable at all.
+        ///
+        /// Deliberately narrow rather than "trim anything non-alphabetic": this is an allowlist
+        /// file and the normaliser carries the same obligation as the table. A wide trim here
+        /// would quietly widen every entry in it -- exactly the prefix-match failure the class
+        /// comment above exists to warn about.
+        /// </summary>
+        internal static string StripKeyboardHint(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return value ?? "";
+            string current = value.TrimEnd();
+            for (int guard = 0; guard < 4; guard++)
+            {
+                string before = current;
+                while (current.Length > 0 &&
+                       Array.IndexOf(HintGlyphs, current[current.Length - 1]) >= 0)
+                    current = current.Substring(0, current.Length - 1).TrimEnd();
+                foreach (string word in HintWords)
+                {
+                    string suffix = " " + word;
+                    if (current.Length > suffix.Length &&
+                        current.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        current = current.Substring(0, current.Length - suffix.Length).TrimEnd();
+                        break;
+                    }
+                }
+                if (string.Equals(current, before, StringComparison.Ordinal)) break;
+            }
+            return current;
+        }
+
         public static string Normalize(string text)
         {
             if (string.IsNullOrEmpty(text)) return "";
@@ -221,6 +285,7 @@ namespace DesktopAICompanion.AgentFlow
             value = value.TrimEnd('…').TrimEnd();
             if (value.EndsWith("...", StringComparison.Ordinal))
                 value = value.Substring(0, value.Length - 3).TrimEnd();
+            value = StripKeyboardHint(value);
             return value.ToLowerInvariant();
         }
 
@@ -306,6 +371,17 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         public static PromptDecision Choose(IList<string> options, bool preferAllProjects)
         {
+            return Choose(options, preferAllProjects, false);
+        }
+
+        /// <summary>
+        /// <paramref name="preferSimilar"/> is Codex's equivalent of preferAllProjects: the
+        /// user opting into the wider row on purpose. Same shape, same guards, and the same
+        /// refusal when the prompt offers more than one of them.
+        /// </summary>
+        public static PromptDecision Choose(IList<string> options, bool preferAllProjects,
+                                            bool preferSimilar)
+        {
             var decision = new PromptDecision();
             if (options == null || options.Count == 0)
             {
@@ -318,6 +394,7 @@ namespace DesktopAICompanion.AgentFlow
             var unknown = new List<string>();
             var approvals = new List<int>();
             var allProjects = new List<int>();
+            var similar = new List<int>();
             int widerOrMode = 0;
             for (int i = 0; i < options.Count; i++)
             {
@@ -329,6 +406,7 @@ namespace DesktopAICompanion.AgentFlow
                     case OptionKind.Unknown: unknown.Add(options[i] ?? ""); break;
                     case OptionKind.ApproveOnce: approvals.Add(i); break;
                     case OptionKind.ApproveAllProjects: allProjects.Add(i); widerOrMode++; break;
+                    case OptionKind.ApproveSimilar: similar.Add(i); widerOrMode++; break;
                     case OptionKind.ApproveWider:
                     case OptionKind.ModeChange: widerOrMode++; break;
                 }
@@ -367,6 +445,22 @@ namespace DesktopAICompanion.AgentFlow
                 decision.Reason = string.Format(CultureInfo.InvariantCulture,
                     "pressing option {0}, which SAVES A RULE FOR ALL PROJECTS (you asked for "
                     + "this); declined the one-call row",
+                    decision.Index + 1);
+                return decision;
+            }
+
+            // Codex's wider row, on the same terms as the all-projects one above: only when
+            // asked for, only when the prompt offers exactly one, and ABOVE the approve-once
+            // guards so a prompt that offers the wider row and no narrow one is still
+            // actionable for a user who said that is what they wanted.
+            if (preferSimilar && similar.Count == 1)
+            {
+                decision.Index = similar[0];
+                decision.ChosenRaw = options[similar[0]];
+                decision.Chosen = matchedKeys[similar[0]];
+                decision.Reason = string.Format(CultureInfo.InvariantCulture,
+                    "pressing option {0}, which GRANTS SIMILAR COMMANDS for this session "
+                    + "(you asked for this); declined the one-call row",
                     decision.Index + 1);
                 return decision;
             }

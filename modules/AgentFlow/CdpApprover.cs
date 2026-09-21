@@ -17,6 +17,9 @@ namespace DesktopAICompanion.AgentFlow
     internal sealed class PromptView
     {
         public string TargetId;
+        /// <summary>Which agent rendered this prompt. Decides which click expression is used,
+        /// because the two panels share no markup at all.</summary>
+        public string Agent = CdpApprover.AgentClaude;
         public string ToolName = "";
         /// <summary>
         /// The header's static text with the path removed -- "Make this edit to ?" and so on.
@@ -97,6 +100,8 @@ namespace DesktopAICompanion.AgentFlow
 
         /// <summary>The read expression, exposed so a self-test can assert it looks where it must.</summary>
         internal static string ReadExpressionForSelfTest { get { return ReadExpression; } }
+        internal static string CodexReadExpressionForSelfTest { get { return CodexReadExpression; } }
+        internal static string CodexClickExpressionForSelfTest { get { return CodexClickTemplate; } }
 
         /// <summary>
         /// Returns a JSON string describing the prompt, or the string "none".
@@ -198,6 +203,94 @@ namespace DesktopAICompanion.AgentFlow
         ///
         /// Returns clicked, gone, moved or disabled.
         /// </summary>
+        /// <summary>
+        /// Read a Codex permission prompt.
+        ///
+        /// Anchored on aria, not on classes. Codex is styled with Tailwind utilities, so the
+        /// container reads "ms-auto flex min-w-0 items-center gap-2 ..." -- layout atoms that say
+        /// nothing about what the element IS and change whenever the design does. The one stable
+        /// hook on the card is the split button's own aria-label, and the enclosing <form> groups
+        /// exactly the prompt's buttons. Both were read off a live prompt on 2026-09-21.
+        ///
+        /// THE TRIGGER IS NOT AN OPTION. It carries no text, so returning it would hand the
+        /// classifier an empty string, and one unrecognised option refuses the whole prompt -- so
+        /// including it would make Codex permanently unactionable while looking like a
+        /// classifier problem. It is dropped by identity, not by "skip blank labels", because
+        /// dropping blanks would also hide a real option that failed to render.
+        /// </summary>
+        private const string CodexReadExpression = @"
+(function () {" + DocumentPrelude + @"
+  var a = appDocument();
+  if (!a.doc || a.elements < MinElements) return 'unreachable';
+  var trigger = a.doc.querySelector('button[aria-label=""Approval options""]');
+  if (!trigger) return 'none';
+  var card = trigger.closest ? trigger.closest('form') : null;
+  if (!card) card = trigger.parentElement ? trigger.parentElement.parentElement : null;
+  if (!card) return 'none';
+  var out = { tool: '', header: '', ext: '', options: [], disabled: [] };
+  var btns = card.querySelectorAll('button');
+  for (var i = 0; i < btns.length; i++) {
+    var b = btns[i];
+    if (b === trigger) continue;
+    out.options.push((b.innerText || b.textContent || '').replace(/\s+/g, ' ').trim());
+    out.disabled.push(!!b.disabled);
+  }
+  if (out.options.length === 0) return 'none';
+  return JSON.stringify(out);
+})()";
+
+        /// <summary>
+        /// Press a Codex option by index, re-checking the label first, exactly as the Claude
+        /// clicker does and for the same reason: read, classify and press are separate round
+        /// trips and the panel is live throughout.
+        ///
+        /// The index counts options with the trigger EXCLUDED, so the same filter has to run here
+        /// or index 1 means a different button in each expression.
+        ///
+        /// A plain .click() is enough. That was verified against a live prompt rather than
+        /// assumed: the option buttons respond to it, while the split button's own trigger needs
+        /// a pointer sequence -- which is why reaching the menu is a separate problem and this
+        /// expression does not try.
+        ///
+        /// TOKENS, NOT string.Format. The first version of this was a format string that
+        /// concatenated DocumentPrelude, whose braces are single -- so every call threw
+        /// FormatException before the click could happen. Claude's clicker dodges that by
+        /// inlining its own doubled-brace copy of the prelude, which works and duplicates the
+        /// function. Substituting tokens removes the hazard instead of restating it: there is
+        /// no escaping to get right, so there is nothing to get wrong when the JS next changes.
+        /// </summary>
+        private const string CodexClickTemplate = @"
+(function () {" + DocumentPrelude + @"
+  var a = appDocument();
+  if (!a.doc) return 'gone';
+  var trigger = a.doc.querySelector('button[aria-label=""Approval options""]');
+  if (!trigger) return 'gone';
+  var card = trigger.closest ? trigger.closest('form') : null;
+  if (!card) card = trigger.parentElement ? trigger.parentElement.parentElement : null;
+  if (!card) return 'gone';
+  var opts = [];
+  var btns = card.querySelectorAll('button');
+  for (var i = 0; i < btns.length; i++) { if (btns[i] !== trigger) opts.push(btns[i]); }
+  var idx = __INDEX__;
+  if (idx < 0 || idx >= opts.length) return 'gone';
+  var b = opts[idx];
+  var t = (b.innerText || b.textContent || '').replace(/\s+/g, ' ').trim();
+  if (t !== __LABEL__) return 'moved';
+  if (b.disabled) return 'disabled';
+  b.click();
+  return 'clicked';
+})()";
+
+        /// <summary>Fill the Codex click template. Separate and internal so the self-test can
+        /// build it and prove both tokens were replaced, which is the check that would have
+        /// caught the FormatException before it reached a live prompt.</summary>
+        internal static string BuildCodexClick(int index, string expectedLabel)
+        {
+            return CodexClickTemplate
+                .Replace("__INDEX__", index.ToString(CultureInfo.InvariantCulture))
+                .Replace("__LABEL__", JsonEncode(expectedLabel ?? ""));
+        }
+
         private const string ClickExpressionFormat = @"
 (function () {{
   function appDocument() {{
@@ -249,8 +342,16 @@ namespace DesktopAICompanion.AgentFlow
                                    out bool sawPanel)
         {
             sawPanel = false;
-            List<string> targetIds = ClaudeTargetIds(port, timeoutMs);
-            if (targetIds.Count == 0) return null;
+
+            // Both agents, Claude first. They render in separate webviews on the SAME debug
+            // port, share no markup, and are read by different expressions -- so the agent
+            // travels with the target rather than being inferred from what the page looks like.
+            var work = new List<KeyValuePair<string, string>>();
+            foreach (string id in ClaudeTargetIds(port, timeoutMs))
+                work.Add(new KeyValuePair<string, string>(id, AgentClaude));
+            foreach (string id in CodexTargetIds(port, timeoutMs))
+                work.Add(new KeyValuePair<string, string>(id, AgentCodex));
+            if (work.Count == 0) return null;
 
             string browserUrl = BrowserSocketUrl(port, timeoutMs);
             if (string.IsNullOrEmpty(browserUrl)) return null;
@@ -260,13 +361,16 @@ namespace DesktopAICompanion.AgentFlow
             {
                 using (var session = new CdpSession(browserUrl, timeoutMs))
                 {
-                    foreach (string targetId in targetIds)
+                    foreach (KeyValuePair<string, string> item in work)
                     {
+                        string targetId = item.Key;
+                        string agent = item.Value;
                         string sessionId = session.Attach(targetId);
                         if (sessionId == null) continue;
                         try
                         {
-                            string raw = session.Evaluate(sessionId, ReadExpression);
+                            string raw = session.Evaluate(sessionId,
+                                agent == AgentCodex ? CodexReadExpression : ReadExpression);
                             ReadOutcome outcome = Interpret(raw);
                             // Unreachable is NOT "no prompt", and the difference is load-bearing:
                             // conflating them is precisely how this shipped unable to see anything
@@ -277,6 +381,7 @@ namespace DesktopAICompanion.AgentFlow
                             if (outcome == ReadOutcome.NoPrompt) continue;
                             PromptView view = Parse(targetId, raw);
                             if (view == null || view.Options.Count == 0) continue;
+                            view.Agent = agent;
                             string note = press(view);
                             if (note != null) return note;
                         }
@@ -284,21 +389,26 @@ namespace DesktopAICompanion.AgentFlow
                     }
                 }
             }
-            catch (Exception)
+            catch (Exception exception)
             {
                 // Deliberately broad. The editor closing, the port moving, a target vanishing
                 // mid-read: all mean the same thing to the caller, which is that there is no
                 // answer, so do nothing. An approver that threw on a closed editor would take the
                 // poll down with it.
+                //
+                // But it SAYS SO now. Returning null here made a sweep that threw identical to a
+                // sweep that found nothing, and the two want opposite responses: one is a closed
+                // editor, the other is a bug in the reader. Type only, never the message, which
+                // is the one string in scope that could carry page text.
                 sawPanel = false;
-                return null;
+                return "the sweep could not finish (" + exception.GetType().Name + ")";
             }
             // Assigned from the local AFTER the try, so a throw half way through a sweep reports
             // "could not see" rather than leaving a stale true behind: the tray dot goes green on
             // this, and green has to mean a panel was read on THIS pass.
             sawPanel = sawReadable;
             if (!sawReadable)
-                return "cannot see inside the Claude Code panel: the debugging port answers, "
+                return "cannot see inside the agent panel: the debugging port answers, "
                        + "but nothing in it exposes the conversation. Approving cannot work "
                        + "until that is fixed -- it is not the same as 'no prompt waiting'.";
             return null;
@@ -315,11 +425,19 @@ namespace DesktopAICompanion.AgentFlow
         public static string Click(int port, string targetId, int index, string expectedLabel,
                                    int timeoutMs)
         {
+            return Click(port, targetId, index, expectedLabel, timeoutMs, AgentClaude);
+        }
+
+        public static string Click(int port, string targetId, int index, string expectedLabel,
+                                   int timeoutMs, string agent)
+        {
             if (targetId == null || index < 0 || expectedLabel == null) return "gone";
             string browserUrl = BrowserSocketUrl(port, timeoutMs);
             if (string.IsNullOrEmpty(browserUrl)) return "gone";
-            string expression = string.Format(CultureInfo.InvariantCulture, ClickExpressionFormat,
-                index.ToString(CultureInfo.InvariantCulture), JsonEncode(expectedLabel));
+            string expression = string.Equals(agent, AgentCodex, StringComparison.Ordinal)
+                ? BuildCodexClick(index, expectedLabel)
+                : string.Format(CultureInfo.InvariantCulture, ClickExpressionFormat,
+                      index.ToString(CultureInfo.InvariantCulture), JsonEncode(expectedLabel));
             try
             {
                 using (var session = new CdpSession(browserUrl, timeoutMs))
@@ -385,7 +503,28 @@ namespace DesktopAICompanion.AgentFlow
         /// identifier available: the title is the user's file name and the vscode-webview:// host
         /// is a per-session GUID.
         /// </summary>
+        /// <summary>The marker that identifies a Codex webview among VS Code's targets.
+        ///
+        /// Codex renders in a webview exactly as Claude Code does, on the same debug port. That
+        /// is worth stating because the module's own notes said otherwise for a while: the
+        /// transcript-side gap is real, but "Codex is a terminal app so it cannot be pressed"
+        /// was wrong, and was measured wrong on 2026-09-21 by reading this list.</summary>
+        internal const string CodexTargetMarker = "extensionId=openai.chatgpt";
+
+        internal const string AgentClaude = "claude";
+        internal const string AgentCodex = "codex";
+
         internal static List<string> ClaudeTargetIds(int port, int timeoutMs)
+        {
+            return TargetIds(port, ClaudeTargetMarker, timeoutMs);
+        }
+
+        internal static List<string> CodexTargetIds(int port, int timeoutMs)
+        {
+            return TargetIds(port, CodexTargetMarker, timeoutMs);
+        }
+
+        internal static List<string> TargetIds(int port, string marker, int timeoutMs)
         {
             var ids = new List<string>();
             string json = HttpGet(Endpoint(port, "/json/list"), timeoutMs);
@@ -397,7 +536,7 @@ namespace DesktopAICompanion.AgentFlow
                     if (document.RootElement.ValueKind != JsonValueKind.Array) return ids;
                     foreach (JsonElement item in document.RootElement.EnumerateArray())
                     {
-                        if (Str(item, "url").IndexOf(ClaudeTargetMarker,
+                        if (Str(item, "url").IndexOf(marker,
                                 StringComparison.OrdinalIgnoreCase) < 0)
                             continue;
                         string id = Str(item, "id");

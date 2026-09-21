@@ -126,11 +126,19 @@ namespace DesktopAICompanion.AgentFlow
                 new SettingField
                 {
                     Id = SettingApproveAllProjects,
-                    Label = "...and save it for all projects, not just this call",
+                    Label = "...and save it for all projects, not just this call (Claude)",
                     Kind = SettingKind.Bool,
                     Group = GroupAgentFlow,
                     // Only meaningful while approving, so it greys out in every other mode
                     // rather than sitting there implying it does something.
+                    EnabledWhen = SettingMode + "=" + AgentMode.ToDisplay(AgentMode.AutoApprove),
+                },
+                new SettingField
+                {
+                    Id = SettingApproveSimilar,
+                    Label = "...and allow similar commands, not just this call (Codex)",
+                    Kind = SettingKind.Bool,
+                    Group = GroupAgentFlow,
                     EnabledWhen = SettingMode + "=" + AgentMode.ToDisplay(AgentMode.AutoApprove),
                 },
                 new SettingField
@@ -493,6 +501,7 @@ namespace DesktopAICompanion.AgentFlow
                 { SettingAnimate, Animate ? "true" : "false" },
                 { SettingNotifySound, NotifySoundOn ? "true" : "false" },
                 { SettingApproveAllProjects, ApproveForAllProjects ? "true" : "false" },
+                { SettingApproveSimilar, ApproveSimilarCommands ? "true" : "false" },
                 { SettingNotifySpeak, NotifySpeakOn ? "true" : "false" },
                 { SettingAnimPet, PetDisplayFor(pet) },
                 { SettingAnimName, StoredAnimName(pet) },

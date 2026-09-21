@@ -64,6 +64,7 @@ namespace DesktopAICompanion.AgentFlow
         /// destinations, "don't ask again" and every mode change stay unpressable.
         /// </summary>
         private const string SettingApproveAllProjects = "approveAllProjects";
+        private const string SettingApproveSimilar = "approveSimilar";
         private const string SettingNotifySpeak = "notifySpeak";
         private const string SettingAnimPet = "animPet";
         private const string SettingAnimName = "animName";
@@ -121,7 +122,16 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.1.6",   // 1.1.6: one log line whenever the ability to press CHANGES.
+            Version = "1.1.7",   // 1.1.7: Codex. It renders in a VS Code webview on the same debug
+                                 //        port as Claude, so the transport already reached it -- the
+                                 //        target filter was simply hardcoded to one extension id.
+                                 //        Adds its vocabulary ("Allow once", "Allow similar
+                                 //        commands", "Deny"), strips the keyboard hint it renders
+                                 //        INSIDE the label, and an opt-in for the wider row that
+                                 //        mirrors approveAllProjects. Reader and clicker are anchored
+                                 //        on aria, and neither may send a keystroke: Escape is Deny
+                                 //        in that dialog.
+                                 // 1.1.6: one log line whenever the ability to press CHANGES.
                                  //        Nothing is written when there is nothing to press, so an
                                  //        inert module and a working one were byte-identical in the
                                  //        log; on change only, so the file stays readable. Keyed on
@@ -292,6 +302,7 @@ namespace DesktopAICompanion.AgentFlow
             bool watchClaude = WatchClaude, watchCodex = WatchCodex;
             bool autoApprove = AutoApprove;
             bool allProjects = ApproveForAllProjects;
+            bool similar = ApproveSimilarCommands;
             int cdpPort = CdpPort;
 
             // Reading and parsing transcripts is file IO plus JSON, so it never runs on the tick.
@@ -346,7 +357,7 @@ namespace DesktopAICompanion.AgentFlow
                 if (autoApprove && answering)
                 {
                     if (_resetPressBudget) { _resetPressBudget = false; _pressBudget.Reset(); }
-                    try { approvalNote = TryApproveOnce(cdpPort, _pressBudget, allProjects, out sawPanel); }
+                    try { approvalNote = TryApproveOnce(cdpPort, _pressBudget, allProjects, similar, out sawPanel); }
                     catch (Exception) { approvalNote = null; sawPanel = false; }
                     // Nothing found means the last press landed, or there was never
                     // anything there. Either way the prompt in front of it is gone, so the
@@ -407,10 +418,19 @@ namespace DesktopAICompanion.AgentFlow
         /// feature cannot afford.
         /// </summary>
         internal static string TryApproveOnce(int port, PressBudget budget, bool allProjects,
+                                             bool similar,
                                              out bool sawPanel)
         {
-            return CdpApprover.Sweep(port, view => Decide(port, view, budget, allProjects), 1500,
+            return CdpApprover.Sweep(port, view => Decide(port, view, budget, allProjects, similar), 1500,
                                      out sawPanel);
+        }
+
+        /// <summary>Four-argument form: no Codex opt-in. Kept so the existing assertions read as
+        /// what they are about, rather than each carrying a false argument.</summary>
+        internal static string Decide(int port, PromptView view, PressBudget budget,
+                                      bool allProjects)
+        {
+            return Decide(port, view, budget, allProjects, false);
         }
 
         /// <summary>
@@ -419,11 +439,11 @@ namespace DesktopAICompanion.AgentFlow
         /// the decision, which is the half worth asserting.
         /// </summary>
         internal static string Decide(int port, PromptView view, PressBudget budget,
-                                      bool allProjects)
+                                      bool allProjects, bool similar)
         {
             if (view == null || view.Options.Count == 0) return null;
 
-            PromptDecision decision = PromptOptions.Choose(view.Options, allProjects);
+            PromptDecision decision = PromptOptions.Choose(view.Options, allProjects, similar);
             if (!decision.WillPress) return decision.Reason;
 
             // The UI's own disabled flag wins over anything the text says. A row greyed out
@@ -443,7 +463,7 @@ namespace DesktopAICompanion.AgentFlow
             }
 
             string outcome = CdpApprover.Click(port, view.TargetId, decision.Index,
-                                               decision.ChosenRaw, 1500);
+                                               decision.ChosenRaw, 1500, view.Agent);
             return "auto-approve " + outcome + " for " + DescribeSubject(view)
                    + ": " + decision.Reason;
         }
@@ -491,6 +511,12 @@ namespace DesktopAICompanion.AgentFlow
 
             string tool = SafeToolName(view.ToolName);
             if (view.ToolName != null && view.ToolName.Length > 0) return tool;
+
+            // Codex names neither a tool nor a header -- its card is the command and two buttons.
+            // Without this the log said "auto-approve clicked for an unrecognised prompt", which
+            // reads like the safety net failed at the exact moment it worked perfectly.
+            if (string.Equals(view.Agent, CdpApprover.AgentCodex, StringComparison.Ordinal))
+                return "a Codex command";
 
             string header = (view.UnsafeHeader ?? "").Trim().ToLowerInvariant();
             foreach (KeyValuePair<string, string> known in KnownHeaders)
@@ -1009,6 +1035,19 @@ namespace DesktopAICompanion.AgentFlow
             get { return _settings != null && _settings.GetBool(SettingApproveAllProjects, false); }
         }
 
+        /// <summary>
+        /// Press Codex's "Allow similar commands" instead of its one-call row.
+        ///
+        /// OFF by default, and for a stronger reason than the all-projects switch: what counts
+        /// as SIMILAR is Codex's judgement, not something this module can read off the prompt
+        /// or state in the log. A grant whose blast radius the presser cannot describe is not
+        /// one it should take on the user's behalf without being told to.
+        /// </summary>
+        internal bool ApproveSimilarCommands
+        {
+            get { return _settings != null && _settings.GetBool(SettingApproveSimilar, false); }
+        }
+
         private bool NotifySoundOn
         {
             get { return _settings != null && _settings.GetBool(SettingNotifySound, false); }
@@ -1332,7 +1371,7 @@ namespace DesktopAICompanion.AgentFlow
                 case ApproveState.Able: return "Auto-approve: on";
                 case ApproveState.CannotSee:
                     return _portAnswering
-                        ? "Auto-approve: on, but cannot see the Claude Code panel"
+                        ? "Auto-approve: on, but cannot see the agent panel"
                         : "Auto-approve: on, waiting for VS Code";
                 default: return "Auto-approve: off";
             }
@@ -1557,6 +1596,8 @@ namespace DesktopAICompanion.AgentFlow
                               && SelfCheckNotifyChannels(probe)
                               && SelfCheckLogPath(probe)
                               && SelfCheckAllProjects(probe)
+                              && SelfCheckCodexOptions(probe)
+                              && SelfCheckCodexTransport(probe)
                               && SelfCheckCapabilityLog(probe)
                               && SelfCheckPetChoices(probe)
                               && SelfCheckCacheBound(probe);
@@ -2183,23 +2224,6 @@ namespace DesktopAICompanion.AgentFlow
             return count;
         }
 
-        /// <summary>
-        /// Auto-approve: the switch, the tray row, and the two controls agreeing.
-        ///
-        /// The first assertion is the one that matters. This is the only setting in the module
-        /// that presses a button on the user's behalf, so a default of ON would be
-        /// indefensible -- and "it defaults off" is exactly the kind of claim that stops being
-        /// true when someone later adds a convenience.
-        ///
-        /// The tray label is asserted in all THREE states because the middle one is the design:
-        /// on-but-unable must not look like on-and-working. Reporting intent as capability is
-        /// the defect the pane status row already shipped once.
-        ///
-        /// The pane/tray agreement checks are here because this setting has TWO controls, and
-        /// the first version of it failed exactly that way: LoadPaneValues did not carry the
-        /// key, so the checkbox read unchecked while the tray said on, and saving the pane
-        /// wrote the checkbox's lie back over the setting.
-        /// </summary>
         /// <summary>Capability lines only: the tray toggle logs its own sentence, and counting
         /// that as a transition would hide a logger that never fires on its own.</summary>
         private static int CapabilityLines(DesktopAICompanion.ModuleKit.Testing.RecordingHost host)
@@ -2229,22 +2253,25 @@ namespace DesktopAICompanion.AgentFlow
                        new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-cap"))
             {
                 host.UseStorage("agentflow", storage);
+
+                // Seeded OFF so Init does NOT scan: OnTick begins "if (!Enabled) return;", so a
+                // disabled module starts no worker and this test has no background task to race.
+                //
+                // That is the third shape of the same mistake. The first version asserted ZERO
+                // lines after Init, which was a claim about scheduling: it held here, where the
+                // scan reads thousands of transcripts and loses, and failed on CI, where there
+                // are none and it wins. The second waited for the scan instead -- correct in
+                // principle, and still a timeout, so it went red here the moment the machine was
+                // busy enough for the scan to outlast the wait. An assertion about when a
+                // background task finishes cannot be made deterministic by choosing a better
+                // number; the fix is to not start one.
+                host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);
+
                 var module = new AgentFlowModule();
                 module.Init(host);
 
-                // Init ends with an immediate OnTick, so the opening state is already being
-                // recorded by a worker as Init returns. Wait for it rather than assert around it:
-                // the previous version of this checked for ZERO lines here, which was a claim
-                // about scheduling rather than about behaviour, and it was simply false -- there
-                // IS a first poll, inside Init.
-                module.QuiesceForSelfTest();
-                probe.Check("WITNESS Init's own poll records the opening state, rather than "
-                            + "leaving the log silent until something happens to change",
-                    CapabilityLines(host) == 1);
-
-                // Back to a known baseline, so the counts below measure THIS sequence.
-                host.LoggedLines.Clear();
-                module.ResetCapabilityLogForSelfTest();
+                probe.Check("WITNESS a module that is not scanning claims nothing about capability",
+                    CapabilityLines(host) == 0);
 
                 module.LogCapabilityChange();
                 probe.Check("WITNESS the opening state is recorded, so the log has a baseline",
@@ -2271,7 +2298,7 @@ namespace DesktopAICompanion.AgentFlow
                     CapabilityLines(host) == 3);
                 probe.Check("...and now names the panel rather than the editor",
                     host.LoggedLines[host.LoggedLines.Count - 1]
-                        .IndexOf("cannot see the Claude Code panel", StringComparison.Ordinal) >= 0);
+                        .IndexOf("cannot see the agent panel", StringComparison.Ordinal) >= 0);
 
                 module._panelReadable = true;
                 module.LogCapabilityChange();
@@ -2287,6 +2314,23 @@ namespace DesktopAICompanion.AgentFlow
             return true;
         }
 
+        /// <summary>
+        /// Auto-approve: the switch, the tray row, and the two controls agreeing.
+        ///
+        /// The first assertion is the one that matters. This is the only setting in the module
+        /// that presses a button on the user's behalf, so a default of ON would be
+        /// indefensible -- and "it defaults off" is exactly the kind of claim that stops being
+        /// true when someone later adds a convenience.
+        ///
+        /// The tray label is asserted in all THREE states because the middle one is the design:
+        /// on-but-unable must not look like on-and-working. Reporting intent as capability is
+        /// the defect the pane status row already shipped once.
+        ///
+        /// The pane/tray agreement checks are here because this setting has TWO controls, and
+        /// the first version of it failed exactly that way: LoadPaneValues did not carry the
+        /// key, so the checkbox read unchecked while the tray said on, and saving the pane
+        /// wrote the checkbox's lie back over the setting.
+        /// </summary>
         private static bool SelfCheckAutoApprove(SelfTestProbe probe)
         {
             var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
@@ -3158,6 +3202,131 @@ namespace DesktopAICompanion.AgentFlow
         /// "Yes, allow " + the rules + " for " + a destination, so it could only be transcribed
         /// from something rendered.
         /// </summary>
+        /// <summary>
+        /// Codex's prompt vocabulary, and the opt-in for its wider row.
+        ///
+        /// Everything here was read off a LIVE Codex prompt over CDP on 2026-09-21 rather than
+        /// transcribed from a bundle: the button renders "Allow once \u23CE" with the keyboard hint
+        /// inside the label, the deny row renders "Deny Esc", and the dropdown behind the split
+        /// button carries "Allow once" and "Allow similar commands" as menuitems WITHOUT the hint.
+        /// Both spellings therefore have to classify the same way, which is what the stripper is
+        /// for and the first two checks are about.
+        /// </summary>
+        /// <summary>
+        /// The Codex transport: which targets it reaches, and two rules about the expressions.
+        ///
+        /// Source-text checks, because a JS string cannot be executed here. They assert the two
+        /// decisions that would be silent if reversed, not that the code exists.
+        /// </summary>
+        private static bool SelfCheckCodexTransport(SelfTestProbe probe)
+        {
+            probe.Check("WITNESS Codex targets are identified by their own extension, not Claude's",
+                CdpApprover.CodexTargetMarker != CdpApprover.ClaudeTargetMarker
+                && CdpApprover.CodexTargetMarker.IndexOf("openai", StringComparison.Ordinal) >= 0);
+
+            string read = CdpApprover.CodexReadExpressionForSelfTest;
+            string click = CdpApprover.CodexClickExpressionForSelfTest;
+
+            // The guard for the bug that reached a live prompt. The click used to be a
+            // string.Format format string with DocumentPrelude concatenated in, and the prelude's
+            // braces are single, so EVERY press threw FormatException before it could click. On
+            // screen that read as "cannot see the panel" and nothing else, because a sweep that
+            // threw was silent -- two defects stacked, and the quiet one hid the loud one.
+            string built = CdpApprover.BuildCodexClick(1, "Allow once");
+            probe.Check("WITNESS building the Codex click substitutes both tokens",
+                built.IndexOf("__INDEX__", StringComparison.Ordinal) < 0
+                && built.IndexOf("__LABEL__", StringComparison.Ordinal) < 0);
+            probe.Check("...and puts the index and the label where they belong",
+                built.IndexOf("var idx = 1;", StringComparison.Ordinal) >= 0
+                && built.IndexOf("Allow once", StringComparison.Ordinal) >= 0);
+            probe.Check("WITNESS no unreplaced format placeholder survives into the expression",
+                built.IndexOf("{0}", StringComparison.Ordinal) < 0
+                && built.IndexOf("{1}", StringComparison.Ordinal) < 0);
+
+            // Anchored on aria, because every class on that card is a Tailwind layout atom.
+            probe.Check("the reader anchors on the split button's aria-label",
+                read.IndexOf("Approval options", StringComparison.Ordinal) >= 0);
+
+            // The trigger carries no text. Returned as an option it would classify Unknown, and
+            // one unknown option refuses the whole prompt -- so Codex would be permanently
+            // unactionable, looking like a classifier fault rather than a reader one.
+            probe.Check("WITNESS the reader drops the menu trigger BY IDENTITY, not by blank text",
+                read.IndexOf("b === trigger", StringComparison.Ordinal) >= 0);
+            probe.Check("WITNESS the clicker drops it the same way, or an index means two things",
+                click.IndexOf("!== trigger", StringComparison.Ordinal) >= 0);
+
+            // THE HARD RULE, and it is here because it was learned the expensive way. Escape in
+            // the Codex dialog is DENY -- the row literally reads "Deny Esc" -- so a keystroke sent
+            // to "just close the menu" rejects the user's command. That happened once, by hand,
+            // on 2026-09-21. Nothing this module sends to that panel may be a key.
+            string[] keyboard = { "KeyboardEvent", "keydown", "keyup", "keypress", "Escape" };
+            foreach (string banned in keyboard)
+            {
+                probe.Check("WITNESS the Codex reader sends no keyboard event (" + banned + ")",
+                    read.IndexOf(banned, StringComparison.Ordinal) < 0);
+                probe.Check("WITNESS the Codex clicker sends no keyboard event (" + banned + ")",
+                    click.IndexOf(banned, StringComparison.Ordinal) < 0);
+            }
+            return true;
+        }
+
+        private static bool SelfCheckCodexOptions(SelfTestProbe probe)
+        {
+            string matched;
+            probe.Check("WITNESS the button spelling, keyboard hint and all, approves one call",
+                PromptOptions.Classify("Allow once \u23CE", out matched) == OptionKind.ApproveOnce);
+            probe.Check("...and the menu spelling of the same row agrees with it",
+                PromptOptions.Classify("Allow once", out matched) == OptionKind.ApproveOnce);
+            probe.Check("WITNESS the deny row is recognised through its Esc hint",
+                PromptOptions.Classify("Deny Esc", out matched) == OptionKind.Reject);
+            probe.Check("the similar-commands row is its own kind, not an approve-once",
+                PromptOptions.Classify("Allow similar commands", out matched)
+                    == OptionKind.ApproveSimilar);
+
+            // The stripper must not eat text that merely ENDS in one of the hint words. A wide
+            // trim here would silently widen every entry in the table.
+            probe.Check("WITNESS a word merely ending in a hint is left alone",
+                PromptOptions.StripKeyboardHint("coalesce") == "coalesce");
+            probe.Check("...and so is a label that is only the hint word",
+                PromptOptions.StripKeyboardHint("Esc") == "Esc");
+            probe.Check("a stacked hint is removed entirely",
+                PromptOptions.StripKeyboardHint("Allow once \u23CE Enter") == "Allow once");
+
+            var codex = new List<string> { "Allow once \u23CE", "Deny Esc" };
+            PromptDecision plain = PromptOptions.Choose(codex);
+                probe.Check("WITNESS a Codex prompt is actionable at all, pressing the one-call row",
+                    plain.WillPress && plain.Index == 0);
+
+            // The whole point of the opt-in: the wider row is NOT pressed unless asked for.
+            var withSimilar = new List<string>
+                { "Allow once", "Allow similar commands", "Deny" };
+            PromptDecision narrow = PromptOptions.Choose(withSimilar, false, false);
+            probe.Check("WITNESS the similar-commands row is declined by default",
+                narrow.WillPress && narrow.Index == 0);
+
+            PromptDecision wider = PromptOptions.Choose(withSimilar, false, true);
+            probe.Check("WITNESS opting in presses the similar-commands row instead",
+                wider.WillPress && wider.Index == 1);
+
+            // Two of them is an assumption about someone else's UI being wrong.
+            probe.Check("two similar rows are ambiguous, so nothing is pressed",
+                !PromptOptions.Choose(new List<string>
+                    { "Allow similar commands", "Allow similar commands", "Deny" },
+                    false, true).WillPress);
+
+            // The Codex opt-in must not reach across to Claude's prompts.
+            var claude = new List<string> { "Yes", "Yes, and don't ask again", "No" };
+            PromptDecision leak = PromptOptions.Choose(claude, false, true);
+            probe.Check("WITNESS the Codex opt-in changes nothing on a Claude prompt",
+                leak.WillPress && leak.Index == 0);
+
+            // An unknown row still poisons the prompt, Codex or not.
+            probe.Check("an unrecognised Codex row refuses the whole prompt",
+                !PromptOptions.Choose(new List<string>
+                    { "Allow once", "Allow everything forever", "Deny" }, false, true).WillPress);
+            return true;
+        }
+
         private static bool SelfCheckAllProjects(SelfTestProbe probe)
         {
             // The exact prompt that exposed this. Both rows used to classify approve-once, so the
