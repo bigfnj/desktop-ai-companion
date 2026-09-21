@@ -28,7 +28,8 @@ namespace DesktopAICompanion.AgentFlow
         public SetupState State;
         public string Path;
         public int Port;
-        public bool VsCodeRunning;
+        // Removed: written by Inspect, read by nothing, and the write was a process
+        // enumeration. Ask IsVsCodeRunning() directly if you need it.
         /// <summary>Written so it can say the operation FAILED. Never a bare "done".</summary>
         public string Detail;
     }
@@ -303,7 +304,10 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>Look, and report. Never writes.</summary>
         public static SetupReport Inspect(string overridePath, int probeTimeoutMilliseconds)
         {
-            var report = new SetupReport { VsCodeRunning = IsVsCodeRunning() };
+            // IsVsCodeRunning() is NOT called here any more. The field nobody read cost a
+            // full process enumeration on every Inspect, which runs on each pane open. The
+            // two callers that genuinely want the answer ask the method directly.
+            var report = new SetupReport();
             string path = overridePath;
             if (string.IsNullOrWhiteSpace(path))
             {

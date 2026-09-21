@@ -46,7 +46,11 @@ namespace DesktopAICompanion.AgentFlow
             {
                 Title = "AgentFlow",
                 Schema = BuildSchema(null),
-                Load = LoadPaneValues,
+                // No Load. The host uses LoadPending INSTEAD of Load whenever a module
+                // supplies one, and MinHostVersion is 1.2.0, so every host that can load this
+                // module has it. Keeping both meant the self-test was the only caller of
+                // LoadPaneValues -- a test exercising a path production does not take, which
+                // is worse than no test at all because it reads like coverage.
                 LoadPending = LoadPendingValues,
                 Save = SavePaneValues,
                 Actions = new[]

@@ -122,7 +122,14 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.1.8",   // 1.1.8: reads Codex's approval policy out of turn_context, where
+            Version = "1.1.9",   // 1.1.9: a press can no longer land after Shutdown. Stopping the
+                                 //        timer never stopped the poll already on a worker, and that
+                                 //        poll ends in a CLICK, so the module could act on someone's
+                                 //        behalf after they switched it off. Also drops a dead field
+                                 //        that cost a process enumeration per pane open, removes an
+                                 //        unreachable Load the self-test was the only caller of, and
+                                 //        makes the silent inline-dispatch fallback visible.
+                                 // 1.1.8: reads Codex's approval policy out of turn_context, where
                                  //        it actually lives. Nothing new FIRES -- precision for Codex
                                  //        is unmeasured -- but the stand-down now names the real
                                  //        policy instead of "unknown mode", and stops quoting a
@@ -250,6 +257,7 @@ namespace DesktopAICompanion.AgentFlow
 
         public void Shutdown()
         {
+            BeginShutdown();
             if (_timer != null)
             {
                 _timer.Stop();
@@ -359,7 +367,7 @@ namespace DesktopAICompanion.AgentFlow
                 // this does not run at all.
                 string approvalNote = null;
                 bool sawPanel = false;
-                if (autoApprove && answering)
+                if (ShouldPressNow(autoApprove, answering))
                 {
                     if (_resetPressBudget) { _resetPressBudget = false; _pressBudget.Reset(); }
                     try { approvalNote = TryApproveOnce(cdpPort, _pressBudget, allProjects, similar, out sawPanel); }
@@ -383,6 +391,10 @@ namespace DesktopAICompanion.AgentFlow
                     List<ApprovalEntry> forFeed = freshApprovals;
                     PostToUi(() =>
                     {
+                        // The instance may have been torn down between the worker finishing and
+                        // this running; with no SynchronizationContext it runs INLINE on that
+                        // worker, so there is not even a message pump to drop it.
+                        if (_shuttingDown) return;
                         _portAnswering = portUp;
                         _panelReadable = panelUp;
                         // Immediately after the flags and before anything else this tick, so a
@@ -833,11 +845,23 @@ namespace DesktopAICompanion.AgentFlow
             Log(message);
         }
 
+        /// <summary>Set when PostToUi had no context to post to. Surfaced on the pane rather
+        /// than logged, because the discovery happens on a WORKER and IHost is UI-thread-only:
+        /// reporting a threading fault by committing another one would be its own joke.</summary>
+        private volatile bool _ranInline;
+
+        internal bool RanInline { get { return _ranInline; } }
+
         private void PostToUi(Action action)
         {
             SynchronizationContext ui = _ui;
-            if (ui != null) ui.Post(_ => action(), null);
-            else action();
+            if (ui != null) { ui.Post(_ => action(), null); return; }
+            // No context was captured at Init, so every IHost call inside the action is about
+            // to run on this worker. Correct in the shipped app -- WinForms installs the
+            // context before Init -- so this is about the failure being NOTICEABLE rather
+            // than about it happening.
+            _ranInline = true;
+            action();
         }
 
         private void Log(string message)
@@ -1083,6 +1107,39 @@ namespace DesktopAICompanion.AgentFlow
         /// the menu. The poll already runs on its own timer, so it refreshes this and the menu
         /// reads a field.
         /// </summary>
+        /// <summary>
+        /// Set FIRST by Shutdown, and read by the worker before it presses anything.
+        ///
+        /// Stopping the timer does not stop a poll already in flight: it is on a thread-pool
+        /// worker, it can be most of a second from finishing, and it ends in a CLICK. So the
+        /// module could press a button on the user's behalf after being torn down -- while the
+        /// app was closing, or moments after someone switched it off or uninstalled it. Nothing
+        /// else in this module has that property; a stale notify is merely noise, a stale press
+        /// is an action.
+        /// </summary>
+        private volatile bool _shuttingDown;
+
+        /// <summary>
+        /// May a press happen right now? One place, so the worker and the self-test ask the same
+        /// question, and so the shutdown case cannot be reintroduced by an inline condition that
+        /// forgets it.
+        /// </summary>
+        /// <summary>
+        /// Shutdown's FIRST act, on its own so the guard can be tested in isolation.
+        ///
+        /// Shutdown also nulls _host, which would make ShouldPressNow false anyway -- so a test
+        /// that calls Shutdown and then asks cannot tell the flag from the null, and a mutation
+        /// removing the flag SURVIVES it. That is what happened. What the flag actually buys is
+        /// the window between here and the end of Shutdown, during which _host is still set, plus
+        /// being volatile where _host is not. Calling this alone is the only way to assert it.
+        /// </summary>
+        internal void BeginShutdown() { _shuttingDown = true; }
+
+        internal bool ShouldPressNow(bool autoApprove, bool answering)
+        {
+            return autoApprove && answering && !_shuttingDown && _host != null;
+        }
+
         private volatile bool _portAnswering;
 
         /// <summary>
@@ -1293,6 +1350,9 @@ namespace DesktopAICompanion.AgentFlow
                 // whether the port is answering. This action can, and it is the one the user
                 // already presses.
                 string setup = SetupStatusLine();
+                if (RanInline)
+                    setup += "  \u26a0 the UI thread was never captured, so host calls are "
+                             + "running on a worker; please report this.";
                 return string.Format(CultureInfo.InvariantCulture,
                     "{0} session(s): {1} waiting for you, {2} working, {3} idle, {4} in auto mode{5}. {6}",
                     results.Count, blocked, working, idle, stoodDown,
@@ -1614,6 +1674,8 @@ namespace DesktopAICompanion.AgentFlow
                               && SelfCheckAllProjects(probe)
                               && SelfCheckCodexOptions(probe)
                               && SelfCheckCodexMode(probe)
+                              && SelfCheckTeardown(probe)
+                              && SelfCheckRefusalPrivacy(probe)
                               && SelfCheckCodexTransport(probe)
                               && SelfCheckCapabilityLog(probe)
                               && SelfCheckPetChoices(probe)
@@ -1627,7 +1689,7 @@ namespace DesktopAICompanion.AgentFlow
                         { SettingCooldown, "90" }, { SettingWatchClaude, "true" },
                         { SettingWatchCodex, "false" }, { SettingAnimate, "true" },
                     });
-                    IReadOnlyDictionary<string, string> after = pane.Load();
+                    IReadOnlyDictionary<string, string> after = Shown(pane);
                     probe.Check("settings round-trip through the pane",
                         after[SettingThreshold] == "45" && after[SettingCooldown] == "90"
                         && after[SettingWatchCodex] == "false");
@@ -1640,7 +1702,7 @@ namespace DesktopAICompanion.AgentFlow
                         { SettingCooldown, "1" }, { SettingWatchClaude, "true" },
                         { SettingWatchCodex, "true" }, { SettingAnimate, "false" },
                     });
-                    IReadOnlyDictionary<string, string> clamped = pane.Load();
+                    IReadOnlyDictionary<string, string> clamped = Shown(pane);
                     probe.Check("an absurd threshold clamps to the floor",
                         clamped[SettingThreshold] == "10" && clamped[SettingCooldown] == "30");
 
@@ -2362,7 +2424,7 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("WITNESS auto-approve is OFF until it is asked for",
                     !module.AutoApprove);
                 probe.Check("WITNESS the pane agrees it is off, rather than not saying",
-                    pane.Load()[SettingMode] == AgentMode.ToDisplay(AgentMode.Notify));
+                    Shown(pane)[SettingMode] == AgentMode.ToDisplay(AgentMode.Notify));
                 probe.Check("the tray says off, and the dot is the off one",
                     module.AutoApproveState == ApproveState.Off
                     && module.AutoApproveTrayLabel().IndexOf("off", StringComparison.Ordinal) >= 0);
@@ -2375,7 +2437,7 @@ namespace DesktopAICompanion.AgentFlow
                     && module.AutoApproveTrayLabel().IndexOf("waiting for VS Code",
                         StringComparison.Ordinal) >= 0);
                 probe.Check("WITNESS the pane reports what the tray just did",
-                    pane.Load()[SettingMode] == AgentMode.ToDisplay(AgentMode.AutoApprove));
+                    Shown(pane)[SettingMode] == AgentMode.ToDisplay(AgentMode.AutoApprove));
 
                 // The port answering is NOT enough on its own, and this is the assertion
                 // that says so: the module spent an afternoon with a live port and a panel
@@ -3295,6 +3357,77 @@ namespace DesktopAICompanion.AgentFlow
         /// for Codex is unmeasured, and the allow-list of exactly "default" is the thing standing
         /// between this module and guessing.
         /// </summary>
+        /// <summary>
+        /// The teardown rule, and the privacy split that had no reader.
+        ///
+        /// A stale NOTIFY is noise. A stale PRESS is an action taken on someone's behalf after
+        /// they switched the thing off, and stopping the timer does not prevent it: the poll is
+        /// already on a worker and ends in a click.
+        /// </summary>
+        /// <summary>What the host would show for this pane: LoadPending with nothing pending.
+        ///
+        /// The assertions used to call pane.Load(), which the host never calls once a module
+        /// supplies LoadPending -- so they were proving things about a code path production does
+        /// not take. That reads like coverage and is worse than none.</summary>
+        private static IReadOnlyDictionary<string, string> Shown(OptionsPane pane)
+        {
+            return pane.LoadPending(new Dictionary<string, string>(StringComparer.Ordinal));
+        }
+
+        private static bool SelfCheckTeardown(SelfTestProbe probe)
+        {
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            using (var storage =
+                       new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-td"))
+            {
+                host.UseStorage("agentflow", storage);
+                host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);   // no scan at Init
+                var module = new AgentFlowModule();
+                module.Init(host);
+
+                probe.Check("a live module with the switch on and a port answering may press",
+                    module.ShouldPressNow(true, true));
+                probe.Check("...but not with the switch off",
+                    !module.ShouldPressNow(false, true));
+                probe.Check("...and not with nothing answering",
+                    !module.ShouldPressNow(true, false));
+
+                // The flag ALONE, with the host still attached. Calling full Shutdown here would
+                // also null _host, and then this assertion passes whether or not the flag exists.
+                module.BeginShutdown();
+                probe.Check("WITNESS a press is refused the instant shutdown BEGINS, while the "
+                            + "host is still attached and the port still answering",
+                    !module.ShouldPressNow(true, true));
+
+                module.Shutdown();
+                probe.Check("...and still refused once Shutdown has finished",
+                    !module.ShouldPressNow(true, true));
+
+                probe.Check("the UI thread was captured, so nothing ran inline", !module.RanInline);
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// The refusal text goes somewhere that is NEVER logged, and the logged line carries none
+        /// of it. UnsafeDetail existed to make that split possible and nothing read it, so the
+        /// property it encodes was unenforced; this is the reader.
+        /// </summary>
+        private static bool SelfCheckRefusalPrivacy(SelfTestProbe probe)
+        {
+            const string secret = "Yes, and also rm -rf /home/somebody/private";
+            PromptDecision d = PromptOptions.Choose(new List<string> { "Yes", secret, "No" });
+            probe.Check("an unrecognised option refuses the prompt", !d.WillPress);
+            probe.Check("WITNESS the screen text is kept, so a UI could show why",
+                d.UnsafeDetail != null && d.UnsafeDetail.IndexOf("rm -rf", StringComparison.Ordinal) >= 0);
+            probe.Check("WITNESS the LOGGED reason carries none of it",
+                d.Reason.IndexOf("rm -rf", StringComparison.Ordinal) < 0
+                && d.Reason.IndexOf("private", StringComparison.Ordinal) < 0);
+            probe.Check("...and says how many it did not recognise, which is safe to log",
+                d.Reason.IndexOf("1 of 3", StringComparison.Ordinal) >= 0);
+            return true;
+        }
+
         private static bool SelfCheckCodexMode(SelfTestProbe probe)
         {
             string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
