@@ -48,7 +48,15 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "1.0.4",   // 1.0.4: the summary model can be fetched from the pane. A curated
+            Version = "1.0.5",   // 1.0.5: the summary dropdown fills ITSELF on first open, and
+                                 //        preselects. It was only ever filled by the "Find local
+                                 //        summary models" button, so until you guessed that a button
+                                 //        was a prerequisite rather than a refresh, the control was an
+                                 //        empty box. /api/tags answers in 5 ms and carries the
+                                 //        capability data, so there was nothing to make anyone click
+                                 //        for. Nothing found now reads as a label rather than a blank
+                                 //        row, and that label can never be stored as a model tag.
+                                 // 1.0.4: the summary model can be fetched from the pane. A curated
                                  //        list of four tags (all checked against the registry, sizes
                                  //        summed from the manifests), a pull over Ollama's /api/pull
                                  //        with progress, and a link to ollama.com for the case where
@@ -364,6 +372,72 @@ namespace DesktopAICompanion.RemembranceModule
             catch (Exception) { }
         }
 
+        /// <summary>Shown when discovery has found nothing. A closed dropdown must offer SOMETHING,
+        /// and an empty row reads as a broken control rather than as "no models here".</summary>
+        internal const string NoModelsPlaceholder = "(none found - is Ollama running?)";
+
+        private bool _modelsProbed;
+
+        /// <summary>
+        /// Ask the local Ollama what it has, once, the first time the pane is opened with nothing
+        /// cached.
+        ///
+        /// Reported as "summary model still shows nothing in the dropdown", and the report was fair:
+        /// the list was only ever filled by the "Find local summary models" button, so until someone
+        /// guessed that a button was a PREREQUISITE rather than a refresh, the control was an empty
+        /// box next to a ticked-looking feature. The same argument as the Whisper paths: the probe is
+        /// free, so there is no reason to make anyone click for it.
+        ///
+        /// Bounded and off the UI thread. This runs inside Load, during a pane build, so a hung port
+        /// has to cost a moment rather than the settings window; Task.Run keeps it off the captured
+        /// context and the Wait caps it. A loopback answer is milliseconds and a refused connection
+        /// is immediate, so the cap only ever bites on something genuinely wrong.
+        /// </summary>
+        private void AutoDiscoverModelsOnce()
+        {
+            if (_modelsProbed) return;
+            _modelsProbed = true;
+            if (!string.IsNullOrWhiteSpace(_settings.Get("summaryModelsCache", ""))) return;
+            string endpoint = _settings.Get("ollamaEndpoint", OllamaSummarizer.DefaultEndpoint);
+            try
+            {
+                Task<IReadOnlyList<string>> probe = Task.Run(
+                    () => OllamaSummarizer.ListModelsAsync(endpoint, CancellationToken.None));
+                if (!probe.Wait(TimeSpan.FromSeconds(3))) return;
+                IReadOnlyList<string> models = probe.Result;
+                if (models == null || models.Count == 0) return;
+                _settings.Set("summaryModelsCache", string.Join("|", models));
+                _settings.Save();
+            }
+            catch (Exception) { }
+        }
+
+        /// <summary>
+        /// What the summary dropdown should be SHOWING: the saved model when it is still installed,
+        /// otherwise the recommended one if it is here, otherwise the first that is.
+        ///
+        /// Preselecting matters because the alternative is a populated dropdown sitting on no
+        /// selection, which looks exactly as broken as the empty one did and saves "" on the next
+        /// Apply.
+        /// </summary>
+        private string SummaryModelValue()
+        {
+            string[] options = _summaryModelField != null ? _summaryModelField.Options : null;
+            if (options == null || options.Length == 0) return "";
+
+            string saved = _settings.Get("summaryModel", "").Trim();
+            foreach (string o in options)
+                if (string.Equals(o, saved, StringComparison.Ordinal) && saved.Length > 0) return o;
+
+            string recommended = OllamaSummarizer.RecommendedIdFromDisplay(
+                _settings.Get("recommendedModel", OllamaSummarizer.DefaultRecommendedId));
+            foreach (string o in options)
+                if (string.Equals(o, recommended, StringComparison.OrdinalIgnoreCase)) return o;
+            foreach (string o in options)
+                if (o.Length > 0 && o != NoModelsPlaceholder) return o;
+            return options[0];
+        }
+
         private void RefreshDynamicOptions()
         {
             if (_sysDeviceField != null)
@@ -485,6 +559,7 @@ namespace DesktopAICompanion.RemembranceModule
                 Load = () =>
                 {
                     AutoDetectWhisperOnce();
+                    AutoDiscoverModelsOnce();
                     RefreshDynamicOptions();
                     return new Dictionary<string, string>
                 {
@@ -501,7 +576,7 @@ namespace DesktopAICompanion.RemembranceModule
                     ["whisperModelChoice"] = ModelChoiceDisplay(),
                     ["summaryOn"] = _settings.GetBool("summaryOn", false) ? "true" : "false",
                     ["ollamaEndpoint"] = _settings.Get("ollamaEndpoint", OllamaSummarizer.DefaultEndpoint),
-                    ["summaryModel"] = _settings.Get("summaryModel", ""),
+                    ["summaryModel"] = SummaryModelValue(),
                     ["recommendedModel"] = OllamaSummarizer.RecommendedDisplayFor(
                         _settings.Get("recommendedModel", OllamaSummarizer.DefaultRecommendedId)),
                     ["status"] = StatusLine(),
@@ -524,7 +599,14 @@ namespace DesktopAICompanion.RemembranceModule
                     if (values.TryGetValue("whisperModelChoice", out v)) _settings.Set("whisperModelChoice", ModelIdFromDisplay(v));
                     SaveBool(values, "summaryOn");
                     if (values.TryGetValue("ollamaEndpoint", out v)) _settings.Set("ollamaEndpoint", (v ?? "").Trim());
-                    if (values.TryGetValue("summaryModel", out v)) _settings.Set("summaryModel", (v ?? "").Trim());
+                    // The placeholder is a label, not a model. Storing it would send "(none found -
+                    // is Ollama running?)" to /api/generate as a tag.
+                    if (values.TryGetValue("summaryModel", out v))
+                    {
+                        string picked = (v ?? "").Trim();
+                        if (picked == NoModelsPlaceholder) picked = "";
+                        _settings.Set("summaryModel", picked);
+                    }
                     // The dropdown shows "gemma4:12b (7.0 GB) -- recommended"; store the tag alone.
                     if (values.TryGetValue("recommendedModel", out v))
                         _settings.Set("recommendedModel", OllamaSummarizer.RecommendedIdFromDisplay(v));
@@ -752,7 +834,7 @@ namespace DesktopAICompanion.RemembranceModule
             if (!string.IsNullOrWhiteSpace(saved) && !options.Any(o => string.Equals(o, saved, StringComparison.OrdinalIgnoreCase)))
                 options.Insert(0, saved.Trim());
 
-            if (options.Count == 0) options.Add("");   // an empty closed dropdown cannot be rendered
+            if (options.Count == 0) options.Add(NoModelsPlaceholder);
             return options.ToArray();
         }
 
@@ -1177,6 +1259,10 @@ namespace DesktopAICompanion.RemembranceModule
                 // configured, and the default is the user's real Documents\Remembrance. A test must
                 // not go deleting from there.
                 paneHost.SettingsFor(Id).Set("storageLocation", paneScratch);
+                // A non-empty cache short-circuits the discovery probe in Load. Without this the
+                // suite would reach 127.0.0.1:11434 and score differently on a machine with Ollama
+                // running than on one without -- and this module's tests are deliberately offline.
+                paneHost.SettingsFor(Id).Set("summaryModelsCache", "alpha:1b|beta:7b");
                 var paneModule = new RemembranceModule();
                 paneModule.Init(paneHost);
                 check("the module registers exactly one options pane", paneHost.OptionsPanes.Count == 1);
@@ -1236,6 +1322,50 @@ namespace DesktopAICompanion.RemembranceModule
             finally
             {
                 try { if (System.IO.Directory.Exists(paneScratch)) System.IO.Directory.Delete(paneScratch, true); }
+                catch { }
+            }
+
+            // ---- nothing discovered: a label, never a blank box, and never a stored model ----
+            // Reported as "summary model still shows nothing in the dropdown". An empty closed
+            // dropdown reads as a broken control; the placeholder says which of the two it is.
+            // Port 1 has nothing listening, so the probe is refused instantly and this stays an
+            // offline test rather than one that depends on whether Ollama happens to be up.
+            string emptyScratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-empty-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            try
+            {
+                var emptyHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                emptyHost.SettingsFor(Id).Set("storageLocation", emptyScratch);
+                emptyHost.SettingsFor(Id).Set("ollamaEndpoint", "http://127.0.0.1:1");
+                var emptyModule = new RemembranceModule();
+                emptyModule.Init(emptyHost);
+                OptionsPane emptyPane = emptyHost.OptionsPanes[0];
+
+                IReadOnlyDictionary<string, string> shown = emptyPane.Load();
+                SettingField modelField = null;
+                foreach (SettingField f in emptyPane.Schema)
+                    if (f != null && f.Id == "summaryModel") modelField = f;
+
+                check("WITNESS an undiscovered dropdown offers a label, not an empty row",
+                    modelField != null && modelField.Options != null &&
+                    modelField.Options.Length == 1 && modelField.Options[0] == NoModelsPlaceholder);
+                check("...and the pane shows that label rather than nothing",
+                    valueOf(shown, "summaryModel") == NoModelsPlaceholder);
+
+                // The trap the placeholder introduces: it is a sentence, and /api/generate would
+                // take it for a model tag.
+                var applied = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (KeyValuePair<string, string> kv in shown) applied[kv.Key] = kv.Value;
+                emptyPane.Save(applied);
+                check("WITNESS applying the placeholder stores no model, not the label",
+                    emptyHost.SettingsFor(Id).Get("summaryModel", "MISSING") == "");
+
+                emptyModule.Shutdown();
+            }
+            catch (Exception ex) { check("empty-discovery pane: " + ex.Message, false); }
+            finally
+            {
+                try { if (System.IO.Directory.Exists(emptyScratch)) System.IO.Directory.Delete(emptyScratch, true); }
                 catch { }
             }
             detail = sb.ToString();
