@@ -661,6 +661,25 @@ leak soak and the `WeakReference` trap that cost the most time in building it.)*
   in the host and will catch the next module author, including third parties. Fix shape: prefer the type
   implementing `IModule`, then fall back to the scan. Host change, so it wants a release to be worth much.
 
+- 📌 **Hornet crosses the screen SIDEWAYS, upright, in what looks like a flight pose.**
+  Reported from a live desktop 2026-09-21 with a screenshot: she travels horizontally while her
+  body stays vertical and her face points along the direction of travel rather than down. If the
+  action really is flight, the sprite wants a downward-facing pose; if it is not, the wrong action
+  is being selected for horizontal movement.
+
+  Two questions, in order, because the second only matters if the first says flight:
+
+  1. WHICH action is running. Read the pet's own `actions.xml`/`behaviors.xml` from
+     `%LOCALAPPDATA%\DesktopAICompanion\companions\shimeji-hornet-9b9d1d` and identify the action
+     driving horizontal travel -- candidates are a Fly/Dash/Sprint action, or a Walk whose velocity
+     is being applied without a matching pose set.
+  2. WHETHER the pose matches. Shimeji sprites encode facing in the image, not in a transform, so a
+     flight action reusing a standing pose reads exactly like this.
+
+  Worth checking against the converter rather than assuming the source pet is wrong: this pet came
+  through `tools/ShimejiConvert`, and the shimeji census already tracks pets with unreachable
+  animations (7 of 53 at last count), so a mis-mapped action here would be the same class of defect
+  rather than a one-off. Not investigated yet -- filed as asked.
 *(The closed entries from this section — and there are many, including four separate cases of an
 absence check defeated by a comment describing the very thing it forbids — are in
 [`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md).)*
