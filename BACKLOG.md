@@ -78,7 +78,7 @@ runnable harnesses live beside it.
   cannot be measured on this box: 120 transcripts contain **zero** rule-caused denials in that mode,
   because this machine runs `auto`. Generate it the only way it can be generated — work normally in
   default mode for an hour — then rerun `agentflow_join.py`, which now reports the split itself.
-- 📌 **Raise `MinHostVersion` to `1.1.5` at the next AgentFlow release.** It was published on
+- ✅ **DONE. `MinHostVersion` is `1.2.0`** (raised past 1.1.5 during the options-ABI cycle; the module has since published 1.1.6 and 1.1.7 against it, so the consent line names every permission bit it uses). Original entry below for the reasoning. It was published on
   2026-09-17 still declaring `1.0.0`, deliberately: raising it would have made the module
   uninstallable for everyone, because v1.1.5 has not been tagged. The cost of leaving it is that a
   host older than 1.1.5 has no name for permission bit 11, so
@@ -86,7 +86,7 @@ runnable harnesses live beside it.
   entirely. That gap is covered for now by the catalog DESCRIPTION, which every host renders and
   which states the transcript read in prose. Once v1.1.5 ships, raise the floor and the prose
   becomes belt-and-braces instead of the only disclosure.
-- 📌 **The answering half is BUILT but has never seen a real prompt.** `CdpApprover.cs` reads the
+- ✅ **CLOSED 2026-09-21: it has now pressed real prompts, for BOTH agents.** The closing criterion this entry set was an `auto-approve clicked` line in the diagnostic log, and there is one for Claude and one for Codex (`auto-approve clicked for a Codex command: pressing option 2, recognised as 'allow once'`), with the Codex transcript confirming the command then ran rather than being rejected. Original entry below. `CdpApprover.cs` reads the
   pending prompt out of the Claude Code webview and presses the approve-once row; `PressBudget.cs`
   is the death-loop guard this entry asked for (three identical presses, or ten in five minutes,
   and it stands down until the switch is toggled). Selectors were read out of the shipped bundle
@@ -183,6 +183,29 @@ from the sibling is the transcript parsing and the compound-command splitter, po
 
 ---
 
+- 📌 **Watching Codex stands down for a reason that is OURS, and the code used to blame
+  upstream for it.** `TranscriptReader.ReadCodex` handles three record kinds: the two call types
+  and `session_meta`, from which it reads only `cwd`. It never looks at `turn_context`, so
+  `session.Mode` stays null, every Codex session resolves as `unknown`, and the stand-down
+  allow-list of exactly `default` refuses it. The module's comment said "Codex's rollout
+  transcript records no permission mode at all"; that was measured wrong and is now corrected in
+  place.
+
+  **Measured 2026-09-21** over the 25 most recent rollouts on this box: every one carries
+  `turn_context`, all 25 carry `approval_policy`, and **6 were `on-request`** rather than
+  `never` -- sessions that genuinely stop and ask, which are exactly the ones worth watching.
+  The 2026-09-17 measurement that concluded the field did not exist almost certainly read
+  `session_meta` and stopped there.
+
+  To close: read `turn_context.approval_policy` and treat `never` as "cannot prompt, stand
+  down", anything else as watchable. **Do NOT map `collaboration_mode.mode`** -- it also reads
+  "default" while sitting beside `approval_policy: never` and full-access, so it is Claude's
+  word with the opposite meaning, and matching it would predict prompts in sessions incapable of
+  producing any. That is the precision failure the stand-down exists to prevent.
+
+  Note this is the NOTIFY half only. Auto-approve has read and pressed Codex prompts since
+  1.1.7 and touches no transcript.
+
 ## Open: left by the 1.1.6 options-ABI cycle (2026-09-18/19)
 
 The ABI additions, the shared notification sound and the AgentFlow pane rebuild each left something
@@ -204,9 +227,10 @@ reader would otherwise have to rediscover.
   as designed, but it changed behaviour for a pane nobody was editing.
 - ⬜ **`NotificationOutcome.Failed` is unexercised**, and so is its diagnostic-log line. It is
   reachable only through an unexpected exception, which no test could provoke.
-- 📌 **Nobody has heard the built-in chime.** It is asserted to be 0.75 s, to peak at 0.7 and to
-  start and end in exact silence. None of that measures whether it is pleasant, and a notification
-  sound that grates is a notification sound people switch off.
+- ✅ **CLOSED 2026-09-21: the owner listened and it is fine.** The measurements (0.75 s, peak
+  0.7, silence at both ends) never could settle this one, because "pleasant" is not a property a
+  test can assert. The only instrument for it was a person with ears, and that was always the
+  cheapest item on this list to close.
 - ⬜ **The notification-sound picker persists immediately, before Save**, matching "Reset to default
   settings" on the same pane. A user who picks a sound and then closes the window with Cancel keeps
   it. Consistent with its neighbour, still surprising.
@@ -661,25 +685,22 @@ leak soak and the `WeakReference` trap that cost the most time in building it.)*
   in the host and will catch the next module author, including third parties. Fix shape: prefer the type
   implementing `IModule`, then fall back to the scan. Host change, so it wants a release to be worth much.
 
-- 📌 **Hornet crosses the screen SIDEWAYS, upright, in what looks like a flight pose.**
-  Reported from a live desktop 2026-09-21 with a screenshot: she travels horizontally while her
-  body stays vertical and her face points along the direction of travel rather than down. If the
-  action really is flight, the sprite wants a downward-facing pose; if it is not, the wrong action
-  is being selected for horizontal movement.
+- ✅ **ANSWERED same day: it is `ClimbCeiling`, and nothing is wrong with it.** Reported as a
+  sideways flight pose; the owner then guessed the action and the surface, and was right on both.
+  Hornet's animation set has 31 entries, of which **25 is `GrabCeiling` and 26 is `ClimbCeiling`**,
+  alongside `GrabWall` and `ClimbWall`. Shimeji pets treat the underside of a window as a ceiling,
+  so she was climbing along the bottom edge of an application, not crossing open space.
 
-  Two questions, in order, because the second only matters if the first says flight:
+  The premise of the original filing was wrong, which is the part worth keeping: it asked "if this
+  is flight the sprite should face down", and it is not flight. A ceiling climb hangs from the
+  surface above, so the pose in the screenshot is what that action is supposed to look like.
 
-  1. WHICH action is running. Read the pet's own `actions.xml`/`behaviors.xml` from
-     `%LOCALAPPDATA%\DesktopAICompanion\companions\shimeji-hornet-9b9d1d` and identify the action
-     driving horizontal travel -- candidates are a Fly/Dash/Sprint action, or a Walk whose velocity
-     is being applied without a matching pose set.
-  2. WHETHER the pose matches. Shimeji sprites encode facing in the image, not in a transform, so a
-     flight action reusing a standing pose reads exactly like this.
-
-  Worth checking against the converter rather than assuming the source pet is wrong: this pet came
-  through `tools/ShimejiConvert`, and the shimeji census already tracks pets with unreachable
-  animations (7 of 53 at last count), so a mis-mapped action here would be the same class of defect
-  rather than a one-off. Not investigated yet -- filed as asked.
+  ⚠ **One question does survive**, and it is the converter one: nobody has checked that
+  `tools/ShimejiConvert` mapped the dedicated ceiling sprites rather than reusing a ground pose.
+  If it reused one, the action would still be correct and the ARTWORK would be wrong, which reads
+  exactly like the original report. Cheap to settle by eye: spawn her, wait for a ceiling climb,
+  and compare against the source pet's own `ClimbCeiling` frames. Left open as a note rather than
+  as an item, because there is no evidence of a defect yet.
 *(The closed entries from this section — and there are many, including four separate cases of an
 absence check defeated by a comment describing the very thing it forbids — are in
 [`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md).)*
