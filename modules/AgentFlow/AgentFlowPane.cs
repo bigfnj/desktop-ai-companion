@@ -94,7 +94,7 @@ namespace DesktopAICompanion.AgentFlow
         private const string GroupAgentFlow = "AgentFlow";
         private const string GroupVsCode = "VSCode Enablement";
         private const string GroupWhat = "What AgentFlow does";
-        private const string GroupAgents = "Which agents";
+        private const string GroupAgents = "Telling you when an agent is stuck";
 
         /// <summary>
         /// The schema, for a given pending pet choice.
@@ -244,7 +244,19 @@ namespace DesktopAICompanion.AgentFlow
                     Group = GroupWhat,
                 },
 
-                // ---- which agents --------------------------------------------------------------
+                // ---- who gets WATCHED for being stuck (not who gets approved) -------------------
+                new SettingField
+                {
+                    Id = "watchIntro",
+                    Kind = SettingKind.Info,
+                    Group = GroupAgents,
+                },
+                new SettingField
+                {
+                    Id = "watchState",
+                    Kind = SettingKind.Info,
+                    Group = GroupAgents,
+                },
                 new SettingField
                 {
                     Id = SettingWatchClaude,
@@ -255,14 +267,14 @@ namespace DesktopAICompanion.AgentFlow
                 new SettingField
                 {
                     Id = SettingWatchCodex,
-                    Label = "Watch Codex for stalled sessions",
+                    Label = "Watch Codex",
                     Kind = SettingKind.Bool,
                     Group = GroupAgents,
                 },
                 new SettingField
                 {
                     Id = "aboutCodex",
-                    Label = "Why watching Codex is off",
+                    Label = "About Codex",
                     Kind = SettingKind.Header,
                     Group = GroupAgents,
                 },
@@ -529,14 +541,12 @@ namespace DesktopAICompanion.AgentFlow
                 { "hdrAuto", "In auto mode the notify half stands down and says so. The permission "
                              + "rules stop predicting which calls will prompt there, so it would be "
                              + "wrong roughly 250 times for every time it was right." },
-                { "aboutCodex", "Auto-approve already handles Codex. It reads the prompt on "
-                                + "screen and uses no transcript at all, so this switch does not "
-                                + "affect it.\n\nThis is the other half: noticing a session that "
-                                + "has been waiting a while. It stays off because the transcript "
-                                + "reader does not yet read the record Codex keeps its approval "
-                                + "policy in, so every Codex session looks like an unknown mode "
-                                + "and is stood down. Codex does record it; this module does not "
-                                + "read it yet." },
+                { "watchIntro", "This is NOT auto-approve. Auto-approve clicks the button for "
+                                + "you and is set above. This section is only about being TOLD "
+                                + "when an agent has been sitting there waiting." },
+                { "watchState", WatchState },
+                { "aboutCodex", "Codex prompts are clicked for you already. Being told a Codex "
+                                + "session is stuck is not built yet." },
             };
         }
 

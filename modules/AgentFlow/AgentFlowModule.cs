@@ -115,6 +115,12 @@ namespace DesktopAICompanion.AgentFlow
         // Written on the UI thread only, read by the tray's DynamicText on the UI thread.
         private string _status = "no agents seen yet";
 
+        // The shape of the last scan, so the pane can say whether notifying is doing
+        // anything at all right now. Counts rather than the status STRING, because a pane
+        // keying on "standing down (auto mode)" would break the day that wording changes.
+        private int _lastSessions;
+        private int _lastStoodDown;
+
         // Guards against overlapping scans when a poll outlives its interval.
         private int _scanning;
 
@@ -122,7 +128,15 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.1.9",   // 1.1.9: a press can no longer land after Shutdown. Stopping the
+            Version = "1.1.10",  // 1.1.10: the watch section says what it is and whether it is
+                                 //        doing anything. Two checkboxes headed "Which agents"
+                                 //        read like they decide whether AgentFlow works with an
+                                 //        agent at all; they only pick who gets WATCHED for being
+                                 //        stuck, and that is asleep while every session decides
+                                 //        for itself. Both could be ticked, everything working,
+                                 //        and nothing ever happen. The owner wrote it and was
+                                 //        still confused by it, which is the whole argument.
+                                 // 1.1.9: a press can no longer land after Shutdown. Stopping the
                                  //        timer never stopped the poll already on a worker, and that
                                  //        poll ends in a CLICK, so the module could act on someone's
                                  //        behalf after they switched it off. Also drops a dead field
@@ -739,6 +753,8 @@ namespace DesktopAICompanion.AgentFlow
             _budget.Retain(live);
 
             _status = DescribeStatus(results.Count, blocked, stoodDown);
+            _lastSessions = results.Count;
+            _lastStoodDown = stoodDown;
 
             if (speakThis == null) return;
             string refusal;
@@ -811,6 +827,28 @@ namespace DesktopAICompanion.AgentFlow
                 return ((int)Math.Round(seconds)).ToString(CultureInfo.InvariantCulture) + "s";
             return ((int)Math.Round(seconds / 60.0)).ToString(CultureInfo.InvariantCulture) + "m";
         }
+
+        /// <summary>
+        /// Whether the NOTIFY half is currently doing anything, in words a user can act on.
+        ///
+        /// This exists because the owner of this module, who wrote it, was confused by his own
+        /// settings pane. Two checkboxes headed "Which agents" read like they decide whether
+        /// AgentFlow works with an agent at all. They do not: they only pick who gets WATCHED
+        /// for being stuck, which is a different job from pressing the button, and one that is
+        /// asleep entirely while every session is in a self-deciding mode. Both boxes could be
+        /// ticked, everything working exactly as designed, and nothing would ever happen.
+        /// </summary>
+        internal static string WatchStateLine(int sessions, int stoodDown)
+        {
+            if (sessions <= 0) return "Right now: no agent is running.";
+            if (stoodDown >= sessions)
+                return "Right now: SILENT. Every agent running is in a mode where it decides "
+                       + "for itself, so there is nothing to interrupt you about. These boxes "
+                       + "only do something in Claude's default mode, where it asks first.";
+            return "Right now: active. You will be told when an agent has been waiting.";
+        }
+
+        internal string WatchState { get { return WatchStateLine(_lastSessions, _lastStoodDown); } }
 
         internal static string DescribeStatus(int sessions, int blocked, int stoodDown)
         {
@@ -1675,6 +1713,7 @@ namespace DesktopAICompanion.AgentFlow
                               && SelfCheckCodexOptions(probe)
                               && SelfCheckCodexMode(probe)
                               && SelfCheckTeardown(probe)
+                              && SelfCheckWatchSection(probe)
                               && SelfCheckRefusalPrivacy(probe)
                               && SelfCheckCodexTransport(probe)
                               && SelfCheckCapabilityLog(probe)
@@ -3372,6 +3411,57 @@ namespace DesktopAICompanion.AgentFlow
         private static IReadOnlyDictionary<string, string> Shown(OptionsPane pane)
         {
             return pane.LoadPending(new Dictionary<string, string>(StringComparer.Ordinal));
+        }
+
+        /// <summary>
+        /// The watch section says whether it is doing anything, and every Info row it declares
+        /// actually has a value.
+        ///
+        /// An Info field renders its LOAD VALUE, not its Label, so a row declared in the schema
+        /// and missing from Load renders EMPTY -- a blank line in the pane with nothing to explain
+        /// it. That is the failure this whole section was added to prevent, so it would be a poor
+        /// joke to reintroduce it here.
+        /// </summary>
+        private static bool SelfCheckWatchSection(SelfTestProbe probe)
+        {
+            probe.Check("WITNESS with every session standing down, it says so plainly",
+                WatchStateLine(3, 3).IndexOf("SILENT", StringComparison.Ordinal) >= 0);
+            probe.Check("...and names the mode that has to change for it to do anything",
+                WatchStateLine(3, 3).IndexOf("default mode", StringComparison.Ordinal) >= 0);
+            probe.Check("WITNESS a session that is NOT standing down reads as active",
+                WatchStateLine(2, 1).IndexOf("active", StringComparison.Ordinal) >= 0
+                && WatchStateLine(2, 1).IndexOf("SILENT", StringComparison.Ordinal) < 0);
+            probe.Check("no agents at all says that, rather than claiming silence",
+                WatchStateLine(0, 0).IndexOf("no agent", StringComparison.Ordinal) >= 0);
+
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            using (var storage =
+                       new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-ws"))
+            {
+                host.UseStorage("agentflow", storage);
+                host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);
+                var module = new AgentFlowModule();
+                module.Init(host);
+                OptionsPane pane = host.OptionsPanes[0];
+                IReadOnlyDictionary<string, string> shown = Shown(pane);
+
+                foreach (SettingField f in pane.Schema)
+                {
+                    if (f == null || f.Kind != SettingKind.Info) continue;
+                    string value;
+                    probe.Check("WITNESS the Info row '" + f.Id + "' has text to render",
+                        shown.TryGetValue(f.Id, out value) && !string.IsNullOrEmpty(value));
+                }
+                // A Header renders Label plus an OPTIONAL paragraph, so a missing value degrades to
+                // a bold line rather than to nothing. Fine in general; not fine for this one, which
+                // is the sentence that stops someone thinking Codex is unsupported.
+                probe.Check("WITNESS the Codex note still says its prompts ARE clicked for you",
+                    shown["aboutCodex"].IndexOf("clicked for you", StringComparison.Ordinal) >= 0);
+                probe.Check("the watch section tells the user it is not auto-approve",
+                    shown["watchIntro"].IndexOf("NOT auto-approve", StringComparison.Ordinal) >= 0);
+                module.Shutdown();
+            }
+            return true;
         }
 
         private static bool SelfCheckTeardown(SelfTestProbe probe)
