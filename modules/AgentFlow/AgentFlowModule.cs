@@ -128,7 +128,15 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.1.10",  // 1.1.10: the watch section says what it is and whether it is
+            Version = "1.2.0",   // 1.2.0: it now tells you about a prompt it can SEE, rather than
+                                 //        only about one it predicted. The screen sweep runs
+                                 //        whenever the mode scans, not only when it presses, so a
+                                 //        prompt left alone -- Notify mode, an unrecognised option,
+                                 //        the budget standing down -- gets said out loud instead of
+                                 //        only logged. An observation needs no precision figure, and
+                                 //        it works for Codex, which has no rule corpus to predict
+                                 //        from. MINOR: new behaviour, not a fix.
+                                 // 1.1.10: the watch section says what it is and whether it is
                                  //        doing anything. Two checkboxes headed "Which agents"
                                  //        read like they decide whether AgentFlow works with an
                                  //        agent at all; they only pick who gets WATCHED for being
@@ -381,11 +389,38 @@ namespace DesktopAICompanion.AgentFlow
                 // this does not run at all.
                 string approvalNote = null;
                 bool sawPanel = false;
-                if (ShouldPressNow(autoApprove, answering))
+                ScreenPrompt seen = null;
+
+                // LOOK whenever the mode does anything at all; PRESS only in auto-approve. These
+                // used to be one condition, so a Notify-mode user got the weak signal (predicting
+                // from permission rules) while the strong one -- the prompt itself, already on
+                // screen and already readable -- went unused.
+                bool mayLook = answering && !_shuttingDown && _host != null && Enabled;
+                bool mayPress = ShouldPressNow(autoApprove, answering);
+                if (mayLook)
                 {
                     if (_resetPressBudget) { _resetPressBudget = false; _pressBudget.Reset(); }
-                    try { approvalNote = TryApproveOnce(cdpPort, _pressBudget, allProjects, similar, out sawPanel); }
-                    catch (Exception) { approvalNote = null; sawPanel = false; }
+                    ScreenPrompt found = null;
+                    try
+                    {
+                        approvalNote = CdpApprover.Sweep(cdpPort, view =>
+                        {
+                            bool didPress = false;
+                            string note = mayPress
+                                ? Decide(cdpPort, view, _pressBudget, allProjects, similar, out didPress)
+                                : "a prompt is waiting for " + DescribeSubject(view)
+                                  + " (auto-approve is off, so it was left alone)";
+                            if (!didPress)
+                                found = new ScreenPrompt
+                                {
+                                    Signature = view.Agent + "|" + string.Join("|", view.Options),
+                                    Subject = DescribeSubject(view),
+                                };
+                            return note;
+                        }, 1500, out sawPanel);
+                    }
+                    catch (Exception) { approvalNote = null; sawPanel = false; found = null; }
+                    seen = found;
                     // Nothing found means the last press landed, or there was never
                     // anything there. Either way the prompt in front of it is gone, so the
                     // repeat counter has nothing left to be suspicious about.
@@ -403,6 +438,7 @@ namespace DesktopAICompanion.AgentFlow
                     bool panelUp = sawPanel;
                     string note = approvalNote;
                     List<ApprovalEntry> forFeed = freshApprovals;
+                    ScreenPrompt forSpeech = seen;
                     PostToUi(() =>
                     {
                         // The instance may have been torn down between the worker finishing and
@@ -422,6 +458,7 @@ namespace DesktopAICompanion.AgentFlow
                             LogApprovals(forUi);
                         }
                         LogApprovalAttempt(note);
+                        AnnounceScreenPrompt(forSpeech);
                     });
                 }
               }
@@ -472,6 +509,19 @@ namespace DesktopAICompanion.AgentFlow
         internal static string Decide(int port, PromptView view, PressBudget budget,
                                       bool allProjects, bool similar)
         {
+            bool ignored;
+            return Decide(port, view, budget, allProjects, similar, out ignored);
+        }
+
+        /// <summary>
+        /// <paramref name="pressed"/> is false when a prompt was READ and left alone: an option
+        /// nobody recognised, the budget standing down, a disabled row. Those are the cases the
+        /// user most needs telling about, and until now the only trace was a log line.
+        /// </summary>
+        internal static string Decide(int port, PromptView view, PressBudget budget,
+                                      bool allProjects, bool similar, out bool pressed)
+        {
+            pressed = false;
             if (view == null || view.Options.Count == 0) return null;
 
             PromptDecision decision = PromptOptions.Choose(view.Options, allProjects, similar);
@@ -495,6 +545,7 @@ namespace DesktopAICompanion.AgentFlow
 
             string outcome = CdpApprover.Click(port, view.TargetId, decision.Index,
                                                decision.ChosenRaw, 1500, view.Agent);
+            pressed = string.Equals(outcome, "clicked", StringComparison.Ordinal);
             return "auto-approve " + outcome + " for " + DescribeSubject(view)
                    + ": " + decision.Reason;
         }
@@ -619,6 +670,33 @@ namespace DesktopAICompanion.AgentFlow
         /// on screen until the user answers it, so without this the same refusal would be
         /// written every ten seconds for as long as they were away from the keyboard.
         /// </summary>
+        /// <summary>
+        /// Say, once, that a prompt is sitting on screen that nothing is going to press.
+        ///
+        /// ONCE per prompt, not once per poll. The signature is the agent plus its option labels,
+        /// so the same prompt seen ten seconds later is the same prompt; a different one announces,
+        /// and the screen going quiet re-arms it. That is simpler than the transcript path's
+        /// cooldown budget for a good reason: a prompt is either there or it is not, so there is no
+        /// rate to limit, only a repeat to avoid.
+        ///
+        /// Honours the pause, because a user who silenced the companion meant all of it.
+        /// </summary>
+        internal void AnnounceScreenPrompt(ScreenPrompt seen)
+        {
+            if (seen == null) { _announcedScreenPrompt = null; return; }   // screen quiet: re-arm
+            if (_host == null || _shuttingDown) return;
+            if (string.Equals(seen.Signature, _announcedScreenPrompt, StringComparison.Ordinal)) return;
+            _announcedScreenPrompt = seen.Signature;
+
+            if (_budget != null && _budget.IsPaused(DateTime.UtcNow)) return;
+            Log("a prompt is waiting on screen for " + seen.Subject + " and nothing pressed it");
+            if (NotifySpeakOn && AgentMode.Speaks(Mode))
+            {
+                try { _host.SayAll("Something is waiting for you: " + seen.Subject + "."); }
+                catch (Exception) { }
+            }
+        }
+
         private void LogApprovalAttempt(string note)
         {
             if (string.IsNullOrEmpty(note)) { _lastApprovalNote = null; return; }
@@ -1178,6 +1256,29 @@ namespace DesktopAICompanion.AgentFlow
             return autoApprove && answering && !_shuttingDown && _host != null;
         }
 
+        /// <summary>
+        /// A prompt that is ON SCREEN and was not pressed, so the user can be told about it.
+        ///
+        /// This is an OBSERVATION, not the prediction the transcript watcher makes. That one
+        /// asks the permission rules "would this call have prompted?" and is right about 0.4%
+        /// of the time outside default mode, which is why it stands down almost everywhere.
+        /// Reading the actual prompt off the panel cannot be wrong about whether a prompt is
+        /// there, so it needs no precision measurement and works the same for both agents.
+        ///
+        /// Subject only. Never the command, never an option label: this is spoken aloud and
+        /// the same rule applies as to the log.
+        /// </summary>
+        internal sealed class ScreenPrompt
+        {
+            public string Signature;   // identity, so it is announced once and not per poll
+            public string Subject;     // safe to say out loud
+        }
+
+        /// <summary>The prompt last announced from the screen, so a poll every ten seconds does
+        /// not become a sentence every ten seconds. Cleared when the screen goes quiet, which is
+        /// what re-arms it for the next one.</summary>
+        private string _announcedScreenPrompt;
+
         private volatile bool _portAnswering;
 
         /// <summary>
@@ -1714,6 +1815,7 @@ namespace DesktopAICompanion.AgentFlow
                               && SelfCheckCodexMode(probe)
                               && SelfCheckTeardown(probe)
                               && SelfCheckWatchSection(probe)
+                              && SelfCheckScreenPrompt(probe)
                               && SelfCheckRefusalPrivacy(probe)
                               && SelfCheckCodexTransport(probe)
                               && SelfCheckCapabilityLog(probe)
@@ -3422,6 +3524,73 @@ namespace DesktopAICompanion.AgentFlow
         /// it. That is the failure this whole section was added to prevent, so it would be a poor
         /// joke to reintroduce it here.
         /// </summary>
+        /// <summary>
+        /// Telling the user about a prompt that is ON SCREEN and unpressed.
+        ///
+        /// The point of this path is that it is an observation rather than a prediction, so the
+        /// thing worth pinning is that it fires ONCE per prompt and re-arms when the screen goes
+        /// quiet. A notifier that repeats every poll is worse than none: it trains the user to
+        /// ignore it, and this one speaks out loud.
+        /// </summary>
+        private static bool SelfCheckScreenPrompt(SelfTestProbe probe)
+        {
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            using (var storage =
+                       new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-sp"))
+            {
+                host.UseStorage("agentflow", storage);
+                host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);   // no scan at Init
+                var module = new AgentFlowModule();
+                module.Init(host);
+
+                // Off only to keep Init from starting a scan. Speech is gated on the mode too, so
+                // switch to Notify now that Init is done -- otherwise this would assert that a
+                // switched-off module stays quiet, which is not the property under test.
+                host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Notify);
+                host.SettingsFor("agentflow").Set(SettingNotifySpeak, "true");
+
+                int Spoken() { return host.BroadcastLines.Count; }
+                var first = new ScreenPrompt { Signature = "codex|Deny|Allow once", Subject = "a Codex command" };
+
+                module.AnnounceScreenPrompt(first);
+                int afterFirst = Spoken();
+                probe.Check("WITNESS a prompt on screen is announced", afterFirst > 0);
+
+                module.AnnounceScreenPrompt(first);
+                module.AnnounceScreenPrompt(first);
+                probe.Check("WITNESS the SAME prompt is not announced again on the next poll",
+                    Spoken() == afterFirst);
+
+                var second = new ScreenPrompt { Signature = "codex|Deny|Allow once|Allow similar", Subject = "a Codex command" };
+                module.AnnounceScreenPrompt(second);
+                probe.Check("a DIFFERENT prompt is announced", Spoken() > afterFirst);
+                int afterSecond = Spoken();
+
+                // Quiet, then THE SAME prompt that was just announced. It has to be the same one,
+                // or the announcement is explained by the signature differing and the re-arm is
+                // never exercised -- which is exactly how the first version of this passed while
+                // the re-arm was mutated away.
+                module.AnnounceScreenPrompt(null);
+                module.AnnounceScreenPrompt(second);
+                probe.Check("WITNESS the screen going quiet re-arms it, so the SAME prompt "
+                            + "returning is announced again",
+                    Spoken() > afterSecond);
+
+                // Nothing spoken carries the command or an option label.
+                foreach (string line in host.BroadcastLines)
+                    probe.Check("WITNESS nothing spoken carries an option label",
+                        line.IndexOf("Allow once", StringComparison.Ordinal) < 0
+                        && line.IndexOf("Deny", StringComparison.Ordinal) < 0);
+
+                module.Shutdown();
+                int afterShutdown = Spoken();
+                module.AnnounceScreenPrompt(new ScreenPrompt { Signature = "x", Subject = "y" });
+                probe.Check("WITNESS nothing is announced after Shutdown",
+                    Spoken() == afterShutdown);
+            }
+            return true;
+        }
+
         private static bool SelfCheckWatchSection(SelfTestProbe probe)
         {
             probe.Check("WITNESS with every session standing down, it says so plainly",
