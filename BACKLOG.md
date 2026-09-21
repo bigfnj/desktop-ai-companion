@@ -253,23 +253,35 @@ four resource-lifetime defects and three dead members). These are the ones left.
   is field-like and observable but has no `HasSubs` property beside the other four. Neither matters
   for anything shipped today; both matter the first time a module subscribes. The test exists
   because Remembrance once shipped exactly that bug on `HostShutdown`.
-- ⬜ **`PostToUi` falls back to running inline, silently.** If `_ui` was never captured, every
-  `IHost` call in the posted lambda runs on the thread-pool worker with no diagnostic. Correct in
-  the shipped app (WinForms installs the context before `Init`), so this is about the failure being
-  undetectable rather than about it happening.
-- ⬜ **`Shutdown` does not cancel the in-flight poll.** A sweep, and a press, can complete after the
-  module is torn down and after the host has begun disposing.
-- ⬜ **`PromptDecision.UnsafeDetail` and `SetupReport.VsCodeRunning` are written and never read.**
-  The second costs a process enumeration on every pane open. Both are one-line removals; left only
-  because `UnsafeDetail` is the natural home for a "why did it refuse?" row nobody has built yet.
+- ✅ **CLOSED 1.1.9. It is recorded and surfaced on the pane**, not logged: the discovery
+  happens on a WORKER and `IHost` is UI-thread-only, so reporting a threading fault by
+  committing another one would be its own joke.
+- ✅ **CLOSED 1.1.9, and it was the real one on this list.** Stopping the timer prevents the
+  NEXT poll and does nothing about the one already on a worker, and that poll ends in a CLICK --
+  so the module could press a button on someone's behalf after they switched it off. A volatile
+  flag is now Shutdown's first act, and the press goes through one gate both the worker and the
+  self-test ask.
+
+  **The guard took two attempts to prove, and the failed one is the lesson.** Shutdown also nulls
+  `_host`, which makes the gate false on its own, so a test that called Shutdown and then asked
+  could not tell the flag from the null: the mutation removing the flag SURVIVED. What the flag
+  buys is the window between the start of Shutdown and the end of it, plus being volatile where
+  `_host` is not. `BeginShutdown` exists so that window can be asserted.
+- ✅ **CLOSED 1.1.9, differently for each.** `VsCodeRunning` is gone: written by `Inspect`, read
+  by nothing, and the write was a process enumeration per pane open. `UnsafeDetail` is KEPT and
+  finally read -- it exists so refusal text off someone's screen goes somewhere the diagnostic log
+  never sees while the logged reason carries only counts, and nothing reading it meant that
+  property was unenforced. It has an assertion now, mutation-proved by leaking the text into the
+  logged line.
 - ⬜ **The notification sound decodes on the UI thread, every time.** Up to 8 MiB read plus a decode
   into two ~21 MB LOH allocations, deliberately uncached (caching a large pick would be worse). A
   user who picks a 30-second WAV gets a UI stall per notice.
 - ⬜ **`DescribeNotificationSound` does a `File.Exists` on the UI thread** on every Preferences open
   and now after every Apply. Harmless for the default; blocks on a disconnected UNC path.
-- ⬜ **`AgentFlow.LoadPaneValues` is unreachable in production.** `LoadPending` replaces `Load`
-  entirely when supplied, so the host never calls it — only the self-test does. Harmless one-liner,
-  but the self-test is exercising a path the host does not take.
+- ✅ **CLOSED 1.1.9.** `Load` is removed and the assertions drive `LoadPending`, which is what the
+  host drives. `MinHostVersion` is 1.2.0, so no host that can load this module took the old path.
+  A test exercising a path production does not take is worse than no test, because it reads like
+  coverage.
 
 ## Open: second full-repo audit, 2026-09-17 (release machinery + plugin ABI)
 
