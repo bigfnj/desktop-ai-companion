@@ -165,10 +165,19 @@ namespace DesktopAICompanion.AgentFlow
                 detection.WouldHaveBeen = shadow.Outcome;
                 detection.Verdict = shadow.Verdict;
                 detection.Outcome = DetectionOutcome.StoodDownAutoMode;
-                detection.Reason = (string.IsNullOrEmpty(mode) ? "unknown" : mode)
-                                   + " mode: rules predict prompts at ~0.4% precision outside default"
-                                   + (shadow.Outcome == DetectionOutcome.Blocked
-                                        ? " (would have flagged it in default mode)" : "");
+                // The ~0.4% figure is a CLAUDE measurement, over Claude transcripts joined
+                // against Claude permission rules. Quoting it at a Codex session states a
+                // number nobody has measured for that agent, so Codex gets the honest reason
+                // instead: its policy is known, and its precision is not.
+                bool isCodex = string.Equals(session.Agent, TranscriptReader.AgentCodex,
+                                             StringComparison.OrdinalIgnoreCase);
+                string named = string.IsNullOrEmpty(mode) ? "unknown" : mode;
+                detection.Reason = isCodex
+                    ? "codex " + named + ": precision for Codex is unmeasured, so this stands "
+                      + "down rather than guessing"
+                    : named + " mode: rules predict prompts at ~0.4% precision outside default";
+                if (shadow.Outcome == DetectionOutcome.Blocked)
+                    detection.Reason += " (would have flagged it in default mode)";
                 return detection;
             }
 

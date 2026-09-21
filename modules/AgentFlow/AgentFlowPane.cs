@@ -251,14 +251,14 @@ namespace DesktopAICompanion.AgentFlow
                 new SettingField
                 {
                     Id = SettingWatchCodex,
-                    Label = "Watch Codex (reads it, but cannot act on it yet)",
+                    Label = "Watch Codex for stalled sessions",
                     Kind = SettingKind.Bool,
                     Group = GroupAgents,
                 },
                 new SettingField
                 {
                     Id = "aboutCodex",
-                    Label = "Why Codex is off",
+                    Label = "Why watching Codex is off",
                     Kind = SettingKind.Header,
                     Group = GroupAgents,
                 },
@@ -525,10 +525,14 @@ namespace DesktopAICompanion.AgentFlow
                 { "hdrAuto", "In auto mode the notify half stands down and says so. The permission "
                              + "rules stop predicting which calls will prompt there, so it would be "
                              + "wrong roughly 250 times for every time it was right." },
-                { "aboutCodex", "Codex's transcript does not record a permission mode, and AgentFlow "
-                                + "only acts in default mode, so a watched Codex session can only "
-                                + "ever stand down. The reading half works, so this becomes useful "
-                                + "the day that format carries a mode." },
+                { "aboutCodex", "Auto-approve already handles Codex. It reads the prompt on "
+                                + "screen and uses no transcript at all, so this switch does not "
+                                + "affect it.\n\nThis is the other half: noticing a session that "
+                                + "has been waiting a while. It stays off because the transcript "
+                                + "reader does not yet read the record Codex keeps its approval "
+                                + "policy in, so every Codex session looks like an unknown mode "
+                                + "and is stood down. Codex does record it; this module does not "
+                                + "read it yet." },
             };
         }
 

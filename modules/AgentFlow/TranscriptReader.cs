@@ -316,6 +316,7 @@ namespace DesktopAICompanion.AgentFlow
                 SessionId = Path.GetFileNameWithoutExtension(path),
             };
             var pending = new Dictionary<string, OutstandingCall>(StringComparer.Ordinal);
+            string policy = null;
 
             foreach (string line in ReadLines(path))
             {
@@ -327,6 +328,30 @@ namespace DesktopAICompanion.AgentFlow
                 JsonElement payload;
                 if (!record.TryGetProperty("payload", out payload)
                     || payload.ValueKind != JsonValueKind.Object) continue;
+
+                // turn_context names itself on the RECORD, and its payload carries no "type" at
+                // all -- so it has to be dispatched before the payload-type switch below, which
+                // would drop it on the `kind == null` guard.
+                //
+                // Worth stating because the first version of this did exactly that, and the
+                // self-test passed: the fixture invented a payload.type that no real rollout has.
+                // A fixture agreeing with the code it tests, rather than with the file format,
+                // is a test that can only ever confirm the author's belief. Caught by running
+                // the reader over a REAL truncated rollout, where it reported "codex unknown".
+                if (string.Equals(GetString(record, "type"), "turn_context", StringComparison.Ordinal))
+                {
+                    // Last writer wins: the policy is per TURN and can change mid-session, so the
+                    // newest record is the one describing whatever is outstanding now.
+                    //
+                    // approval_policy, NOT collaboration_mode.mode. The latter also says "default"
+                    // while sitting beside approval_policy `never` and full disk access: Claude's
+                    // word for "ask me every time", meaning the opposite. Reading it would predict
+                    // prompts in sessions that cannot produce any.
+                    string seenPolicy = GetString(payload, "approval_policy");
+                    if (!string.IsNullOrEmpty(seenPolicy)) policy = seenPolicy;
+                    continue;
+                }
+
                 string kind = GetString(payload, "type");
                 if (kind == null) continue;
 
@@ -362,6 +387,11 @@ namespace DesktopAICompanion.AgentFlow
                 }
             }
 
+            // Carried as the policy string itself rather than mapped onto one of Claude's mode
+            // names. They are different vocabularies, the stand-down allow-list is exactly
+            // "default", and translating `on-request` into `default` here would quietly opt
+            // Codex into firing on a population nobody has measured.
+            session.Mode = policy;
             foreach (OutstandingCall call in pending.Values) session.Outstanding.Add(call);
             try { session.LastWriteUtc = File.GetLastWriteTimeUtc(path); }
             catch (IOException) { session.LastWriteUtc = DateTime.UtcNow; }

@@ -122,7 +122,12 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.1.7",   // 1.1.7: Codex. It renders in a VS Code webview on the same debug
+            Version = "1.1.8",   // 1.1.8: reads Codex's approval policy out of turn_context, where
+                                 //        it actually lives. Nothing new FIRES -- precision for Codex
+                                 //        is unmeasured -- but the stand-down now names the real
+                                 //        policy instead of "unknown mode", and stops quoting a
+                                 //        Claude measurement at an agent nobody has measured.
+                                 // 1.1.7: Codex. It renders in a VS Code webview on the same debug
                                  //        port as Claude, so the transport already reached it -- the
                                  //        target filter was simply hardcoded to one extension id.
                                  //        Adds its vocabulary ("Allow once", "Allow similar
@@ -856,16 +861,27 @@ namespace DesktopAICompanion.AgentFlow
         private bool Enabled { get { return AgentMode.Scans(Mode); } }
         private bool WatchClaude { get { return _settings == null || _settings.GetBool(SettingWatchClaude, true); } }
         /// <summary>
-        /// OFF by default, and the reason is not caution. Codex's rollout transcript records no
-        /// permission mode at all, so every Codex session resolves as `unknown`, and the
-        /// stand-down is an allow-list of exactly `default` -- so a watched Codex session can only
-        /// ever stand down. Found against real data 2026-09-17: a live `rollout-` session logged
-        /// "unknown mode: standing down" on every poll.
+        /// OFF by default, and the reason is OURS, not upstream's.
         ///
-        /// Leaving it ON by default would ship a switch that cannot do anything, which reads to a
-        /// user as the module being broken rather than as Codex being unsupported. It stays as a
-        /// setting because the reader half genuinely works, so the day Codex's format carries a
-        /// mode this becomes useful without an ABI change.
+        /// This governs the NOTIFY half only. Auto-approve reads the prompt off the screen over
+        /// CDP and touches no transcript, so Codex prompts are pressed whatever this says.
+        ///
+        /// It is off because TranscriptReader.ReadCodex handles three record kinds -- the two call
+        /// types and `session_meta`, from which it takes only `cwd` -- and never looks at
+        /// `turn_context`. So Mode stays null, every Codex session resolves as `unknown`, and the
+        /// stand-down is an allow-list of exactly `default`.
+        ///
+        /// THE EARLIER CLAIM HERE WAS WRONG and is worth correcting rather than quietly editing:
+        /// this said "Codex's rollout transcript records no permission mode at all". It does.
+        /// Measured 2026-09-21 across the 25 most recent rollouts on this box, every one carries
+        /// `turn_context` with `approval_policy`, and 6 of the 25 were `on-request` -- sessions
+        /// that genuinely prompt, and exactly the ones worth watching. The 2026-09-17 measurement
+        /// that concluded otherwise almost certainly read `session_meta` and stopped there.
+        ///
+        /// Closing it means reading `turn_context.approval_policy` and mapping `never` to "cannot
+        /// prompt". NOT `collaboration_mode.mode`, which also says "default" while sitting beside
+        /// `approval_policy: never`: same word as Claude's default, opposite meaning, and
+        /// matching on it would predict prompts in sessions that cannot produce any.
         /// </summary>
         private bool WatchCodex { get { return _settings != null && _settings.GetBool(SettingWatchCodex, false); } }
         private bool Animate { get { return _settings != null && _settings.GetBool(SettingAnimate, false); } }
@@ -1597,6 +1613,7 @@ namespace DesktopAICompanion.AgentFlow
                               && SelfCheckLogPath(probe)
                               && SelfCheckAllProjects(probe)
                               && SelfCheckCodexOptions(probe)
+                              && SelfCheckCodexMode(probe)
                               && SelfCheckCodexTransport(probe)
                               && SelfCheckCapabilityLog(probe)
                               && SelfCheckPetChoices(probe)
@@ -3267,6 +3284,60 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("WITNESS the Codex clicker sends no keyboard event (" + banned + ")",
                     click.IndexOf(banned, StringComparison.Ordinal) < 0);
             }
+            return true;
+        }
+
+        /// <summary>
+        /// Codex's permission policy is READ now, and still not acted on.
+        ///
+        /// Phase one of closing the watch gap: the reader learns where Codex keeps the field, so
+        /// the stand-down can say something true. What does NOT change is what fires -- precision
+        /// for Codex is unmeasured, and the allow-list of exactly "default" is the thing standing
+        /// between this module and guessing.
+        /// </summary>
+        private static bool SelfCheckCodexMode(SelfTestProbe probe)
+        {
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-agentflow-codex-" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".jsonl");
+            try
+            {
+                System.IO.File.WriteAllText(scratch, "{\"type\":\"turn_context\",\"payload\":{\"approval_policy\":\"on-request\",\"collaboration_mode\":{\"mode\":\"default\"}}}\n{\"type\":\"response_item\",\"payload\":{\"type\":\"custom_tool_call\",\"call_id\":\"c1\",\"name\":\"shell\"}}");
+                AgentSession onRequest = TranscriptReader.ReadCodex(scratch);
+                probe.Check("WITNESS the approval policy is read out of turn_context",
+                    onRequest.Mode == "on-request");
+                probe.Check("...and collaboration_mode is NOT what gets read",
+                    onRequest.Mode != "default");
+                probe.Check("the call still registers as outstanding",
+                    onRequest.SawAnyCall && onRequest.Outstanding.Count == 1);
+
+                System.IO.File.WriteAllText(scratch, "{\"type\":\"turn_context\",\"payload\":{\"approval_policy\":\"never\",\"collaboration_mode\":{\"mode\":\"default\"}}}\n{\"type\":\"response_item\",\"payload\":{\"type\":\"custom_tool_call\",\"call_id\":\"c1\",\"name\":\"shell\"}}");
+                AgentSession never = TranscriptReader.ReadCodex(scratch);
+                probe.Check("a never-ask session reads as never, not as unknown",
+                    never.Mode == "never");
+
+                // Phase one changes no behaviour: both still stand down, because "default" is the
+                // whole allow-list and neither of these is it.
+                var rules = new RuleSet();
+                Detection d = BlockedDetector.Evaluate(onRequest, rules, 30.0,
+                    DateTime.UtcNow.AddMinutes(5));
+                probe.Check("WITNESS an on-request Codex session STILL stands down",
+                    d != null && d.Outcome == DetectionOutcome.StoodDownAutoMode);
+                probe.Check("WITNESS ...and the reason names its policy instead of unknown",
+                    d.Reason.IndexOf("on-request", StringComparison.Ordinal) >= 0
+                    && d.Reason.IndexOf("unknown", StringComparison.Ordinal) < 0);
+                probe.Check("WITNESS ...and stops quoting a Claude number at a Codex session",
+                    d.Reason.IndexOf("0.4%", StringComparison.Ordinal) < 0
+                    && d.Reason.IndexOf("unmeasured", StringComparison.Ordinal) >= 0);
+
+                // A transcript with no turn_context at all is the old shape, and must still be
+                // handled rather than throwing.
+                System.IO.File.WriteAllText(scratch, "{\"type\":\"response_item\",\"payload\":{\"type\":\"custom_tool_call\",\"call_id\":\"c1\",\"name\":\"shell\"}}");
+                AgentSession bare = TranscriptReader.ReadCodex(scratch);
+                probe.Check("a rollout with no turn_context still reads, with no policy",
+                    bare.SawAnyCall && string.IsNullOrEmpty(bare.Mode));
+            }
+            catch (Exception ex) { probe.Check("codex mode read: " + ex.Message, false); }
+            finally { try { System.IO.File.Delete(scratch); } catch { } }
             return true;
         }
 
