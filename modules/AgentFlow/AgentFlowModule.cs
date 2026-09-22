@@ -2102,6 +2102,7 @@ namespace DesktopAICompanion.AgentFlow
                               && SelfCheckShortSessionId(probe)
                               && SelfCheckAnimatesChosenPet(probe)
                               && SelfCheckPaneDoesNoRepeatWork(probe)
+                              && SelfCheckActiveTranscriptsAgrees(probe)
                               && SelfCheckRefusalPrivacy(probe)
                               && SelfCheckCodexTransport(probe)
                               && SelfCheckCapabilityLog(probe)
@@ -3984,6 +3985,104 @@ namespace DesktopAICompanion.AgentFlow
                 module.Shutdown();
             }
             return true;
+        }
+
+        /// <summary>
+        /// ActiveTranscripts switched from Directory.EnumerateFiles + a stat per file to
+        /// DirectoryInfo.EnumerateFiles, which is 2.7x faster because the write time arrives with
+        /// the enumeration. Faster is only worth having if it gives the SAME answer, so the old
+        /// implementation is kept here as the oracle and the two are compared on a fixture built
+        /// to exercise every branch: in-window, out-of-window, a skipped directory, and a nested
+        /// directory (the skip must match the immediate parent only).
+        ///
+        /// A differential test is only as strong as the axes its fixture varies, so the axes are
+        /// asserted too -- if every file landed in the window, the cutoff branch would be
+        /// untested and this would pass while doing nothing.
+        /// </summary>
+        private static bool SelfCheckActiveTranscriptsAgrees(SelfTestProbe probe)
+        {
+            var utf8 = new System.Text.UTF8Encoding(false);
+            string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-agentflow-enum-" + Guid.NewGuid().ToString("N").Substring(0, 10));
+            try
+            {
+                string nested = System.IO.Path.Combine(root, "project-a");
+                string skipped = System.IO.Path.Combine(root, "subagents");
+                string deepSkipName = System.IO.Path.Combine(nested, "subagents");
+                System.IO.Directory.CreateDirectory(nested);
+                System.IO.Directory.CreateDirectory(skipped);
+                System.IO.Directory.CreateDirectory(deepSkipName);
+
+                DateTime now = DateTime.UtcNow;
+                string fresh = System.IO.Path.Combine(nested, "fresh.jsonl");
+                string stale = System.IO.Path.Combine(nested, "stale.jsonl");
+                string hidden = System.IO.Path.Combine(skipped, "agent.jsonl");
+                string deepHidden = System.IO.Path.Combine(deepSkipName, "agent.jsonl");
+                string other = System.IO.Path.Combine(root, "loose.txt");
+                foreach (string p in new[] { fresh, stale, hidden, deepHidden })
+                    System.IO.File.WriteAllBytes(p, utf8.GetBytes("{}" + "\n"));
+                System.IO.File.WriteAllBytes(other, utf8.GetBytes("not a transcript"));
+                // Out of the 900 s window by a wide margin, set explicitly rather than waited for.
+                System.IO.File.SetLastWriteTimeUtc(stale, now.AddSeconds(-5000));
+
+                List<string> actual = TranscriptReader.ActiveTranscripts(root, 900.0, "subagents");
+                List<string> oracle = OracleActiveTranscripts(root, 900.0, "subagents");
+
+                probe.Check("WITNESS the fixture varies the window axis, so the cutoff is exercised",
+                    System.IO.File.GetLastWriteTimeUtc(stale) < now.AddSeconds(-900.0)
+                    && System.IO.File.GetLastWriteTimeUtc(fresh) >= now.AddSeconds(-900.0));
+                probe.Check("WITNESS ...and the skip axis, at two different depths",
+                    System.IO.File.Exists(hidden) && System.IO.File.Exists(deepHidden));
+
+                probe.Check("WITNESS the fast enumeration agrees with the old one exactly",
+                    string.Join("|", actual.ToArray()) == string.Join("|", oracle.ToArray()));
+                probe.Check("WITNESS ...and the answer is the one a human would give: "
+                            + "the fresh file, and only it",
+                    actual.Count == 1
+                    && actual[0].EndsWith("fresh.jsonl", StringComparison.OrdinalIgnoreCase));
+
+                // A missing root is not an exception, on either implementation.
+                probe.Check("a root that does not exist yields nothing rather than throwing",
+                    TranscriptReader.ActiveTranscripts(root + "-nope", 900.0, null).Count == 0);
+            }
+            catch (Exception ex) { probe.Check("active transcripts: " + ex.Message, false); }
+            finally { try { System.IO.Directory.Delete(root, true); } catch { } }
+            return true;
+        }
+
+        /// <summary>
+        /// The PREVIOUS implementation, kept only as the differential oracle above. Two syscalls
+        /// per file, which is exactly why it was replaced; correctness is not in question, which
+        /// is exactly why it makes a good oracle.
+        /// </summary>
+        private static List<string> OracleActiveTranscripts(string root, double windowSeconds,
+                                                            string skipDirectoryName)
+        {
+            var found = new List<KeyValuePair<DateTime, string>>();
+            if (string.IsNullOrEmpty(root) || !System.IO.Directory.Exists(root))
+                return new List<string>();
+            DateTime cutoff = DateTime.UtcNow.AddSeconds(-windowSeconds);
+            foreach (string path in System.IO.Directory.EnumerateFiles(
+                         root, "*.jsonl", System.IO.SearchOption.AllDirectories))
+            {
+                if (!string.IsNullOrEmpty(skipDirectoryName))
+                {
+                    string parent = System.IO.Path.GetFileName(
+                        System.IO.Path.GetDirectoryName(path) ?? string.Empty);
+                    if (string.Equals(parent, skipDirectoryName, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                }
+                DateTime written;
+                try { written = System.IO.File.GetLastWriteTimeUtc(path); }
+                catch (System.IO.IOException) { continue; }
+                catch (UnauthorizedAccessException) { continue; }
+                if (written >= cutoff)
+                    found.Add(new KeyValuePair<DateTime, string>(written, path));
+            }
+            found.Sort((left, right) => right.Key.CompareTo(left.Key));
+            var paths = new List<string>(found.Count);
+            foreach (KeyValuePair<DateTime, string> entry in found) paths.Add(entry.Value);
+            return paths;
         }
 
         private static bool SelfCheckScreenPrompt(SelfTestProbe probe)

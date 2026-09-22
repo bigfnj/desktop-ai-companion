@@ -180,6 +180,26 @@ namespace DesktopAICompanion.AgentFlow
         /// outstanding" whenever it happened to land on the quiet file. A blocked agent would have
         /// been missed entirely whenever a second session wrote more recently, which is the normal
         /// case on a machine running concurrent agents -- exactly the machine this is for.
+        ///
+        /// <para>
+        /// DirectoryInfo, NOT Directory.EnumerateFiles, and the difference is a syscall per file.
+        /// The string overload hands back paths, so the write time then costs a separate stat;
+        /// FileInfo arrives with that field already filled from the directory scan Windows just
+        /// did. MEASURED 2026-09-21, the two implementations alternating in one warm process over
+        /// this box's 705 Claude transcripts, both agreeing on the count every time:
+        ///
+        ///   strings + stat   31.7 / 28.7 / 27.6 / 17.6 / 26.3 / 27.0 ms
+        ///   FileInfo         11.1 / 11.4 /  9.2 /  7.3 / 10.5 / 10.5 ms
+        ///
+        /// That is the LOOP. This whole method, measured the same way before and after, went from
+        /// 18.3-20.9 ms to 11.0-12.6 ms -- 1.7x rather than 2.7x, because the sort and the list
+        /// building are unchanged and are now most of what is left. Quote the method number when
+        /// talking about what a tick costs; the loop number only says which loop is better.
+        ///
+        /// Warm on purpose. A fresh-process figure answers "which implementation is faster"; the
+        /// question here is what the five-hundredth tick of a long-running app costs, and cold
+        /// numbers overstate that -- 31 ms cold against 19 ms warm for the same code.
+        /// </para>
         /// </summary>
         public static List<string> ActiveTranscripts(string root, double windowSeconds,
                                                      string skipDirectoryName)
@@ -189,21 +209,23 @@ namespace DesktopAICompanion.AgentFlow
             DateTime cutoff = DateTime.UtcNow.AddSeconds(-windowSeconds);
             try
             {
-                foreach (string path in Directory.EnumerateFiles(root, "*.jsonl",
-                                                                 SearchOption.AllDirectories))
+                foreach (FileInfo file in new DirectoryInfo(root).EnumerateFiles(
+                             "*.jsonl", SearchOption.AllDirectories))
                 {
                     if (!string.IsNullOrEmpty(skipDirectoryName))
                     {
-                        string parent = Path.GetFileName(Path.GetDirectoryName(path) ?? string.Empty);
-                        if (string.Equals(parent, skipDirectoryName, StringComparison.OrdinalIgnoreCase))
+                        DirectoryInfo parent = file.Directory;
+                        if (parent != null && string.Equals(parent.Name, skipDirectoryName,
+                                                            StringComparison.OrdinalIgnoreCase))
                             continue;   // a blocked SUBAGENT is not a prompt the user can answer
                     }
-                    DateTime written;
-                    try { written = File.GetLastWriteTimeUtc(path); }
-                    catch (IOException) { continue; }
-                    catch (UnauthorizedAccessException) { continue; }
+                    // No try/catch around this the way the stat needed one: the value came with
+                    // the enumeration, so reading it cannot fail. A file deleted since the scan
+                    // yields its last known time rather than throwing, and the cursor that opens
+                    // it afterwards already handles a file that is no longer there.
+                    DateTime written = file.LastWriteTimeUtc;
                     if (written >= cutoff)
-                        found.Add(new KeyValuePair<DateTime, string>(written, path));
+                        found.Add(new KeyValuePair<DateTime, string>(written, file.FullName));
                 }
             }
             catch (IOException) { }
