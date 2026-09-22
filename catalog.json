@@ -2176,10 +2176,10 @@
       "id": "fortunes",
       "name": "Fortunes",
       "desc": "Offline smart fortunes and speech bubbles, picked contextually by a bundled bge-small embedding model. Ships a built-in corpus of ~3,200 lines (Classic Fortunes plus Dad Jokes), so it has something to say before you download a single pack.",
-      "version": "1.0.2",
+      "version": "1.0.3",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/fortunes.zip",
-      "sha256": "0f430dc9e6d0a7debbd951bfa3a5b44c1bbf390a68bfa8c8a3fc1c8a1a66dd4b",
-      "bytes": 30448368,
+      "sha256": "0c7ff7e9b96b21a5535f20bdabcc2fcf3cb02394c37b5dfc8774607cc354e904",
+      "bytes": 30448651,
       "permissions": "Speech, ScreenContext, Storage"
     },
     {
@@ -2196,10 +2196,10 @@
       "id": "petstudio",
       "name": "Companion Studio",
       "desc": "Check a companion's animations.xml before you use it: what the host would reject, which animations can never play, and how it actually looks running on your desktop. Edit the XML in place, watch any animation's real sprite frames, preview the companion temporarily on your desktop, then install it.",
-      "version": "1.0.3",
+      "version": "1.0.4",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/petstudio.zip",
-      "sha256": "cd5da56134abeaed868b071474d4e0392bc064f45e837e67b722b4756530dd10",
-      "bytes": 386973,
+      "sha256": "47b87b5803df8aa01e94f3fc9d1a6636ca2c611710c7fe7406d7ae6505e9407b",
+      "bytes": 387167,
       "permissions": "Speech, Companions, Storage"
     },
     {
