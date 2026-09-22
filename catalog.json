@@ -155,7 +155,7 @@
       "name": "Kuromi",
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-06n2wuu6/animations.xml",
-      "sha256": "8b96aa215dd4d5a90579fa51ce18f7bc7251bbf3a523b409a3a2da01a194c5d5",
+      "sha256": "3fa28ad1c4d8828d656fd7d3296c13254024a8b8c6ec3d611729dc2e8ae1aa96",
       "bytes": 4659347
     },
     {
@@ -163,7 +163,7 @@
       "name": "Cammy White",
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-08dkbwmb/animations.xml",
-      "sha256": "c9a86eb540735530b99dda73c7957ed46ecdacf6b28248dcd39af1fa2cf4451c",
+      "sha256": "64437c85e5884068c00f12a7c59c311dabbdd848f0ead327adfcc820ff50ed40",
       "bytes": 1848894
     },
     {
@@ -171,7 +171,7 @@
       "name": "Frieza",
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-1l2yvz73/animations.xml",
-      "sha256": "cdad5cc3e407171de95be6ed0137b08bc312d86aacd30024160298a09031946d",
+      "sha256": "454e73f1439a660e341b91cfa18fcf5f23dd4ac9867530138aed71010ccd94db",
       "bytes": 7063815
     },
     {
@@ -179,7 +179,7 @@
       "name": "Bugcat Capoo",
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-36po5aw2/animations.xml",
-      "sha256": "d82ae4189a78b6f22bf284d1a37434e7eff24a944e8b722227a8b4ca7d0db9da",
+      "sha256": "1597f36a25b58aef989320af0bea6f82b0e130891a76349974e9e16b25ae72e9",
       "bytes": 883685
     },
     {
@@ -187,7 +187,7 @@
       "name": "Коро",
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-3g8t9v4e/animations.xml",
-      "sha256": "44a953663035ae554cd440b13c60a33d464abe6e7a09a011fd67c84bd376fcea",
+      "sha256": "755c32b2207a71387eadd36510a6d336fdfd1b239d54b06e3727df8e018b423c",
       "bytes": 10194181
     },
     {
@@ -195,7 +195,7 @@
       "name": "Monkey D. Luffy",
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-3x56f4pl/animations.xml",
-      "sha256": "48d480744808eb6c3fe0290b9f67ac831fce8274f654129b82b6770e41cd7f2d",
+      "sha256": "24855add2b221d40c028dfe1d1e32f018153b9ca41a538743b29cb54f4cdbed7",
       "bytes": 2233662
     },
     {
@@ -203,7 +203,7 @@
       "name": "Hikari",
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-55atqs1b/animations.xml",
-      "sha256": "15c3bccecac7a83d3acb1aa7dad6ce772927dd7d17267a46e638c71bff47cc11",
+      "sha256": "35a51e69f761d52b42911663738981c45abb901d29a51b4464c3c290491ed616",
       "bytes": 1941548
     },
     {
@@ -227,7 +227,7 @@
       "name": "Nezuko Kamado",
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-7gb3ediv/animations.xml",
-      "sha256": "53a1a52add1d3b3bb3068550553a6e7c15202f29264d5236cf594a8d7b7fb8ee",
+      "sha256": "b8fdcf0f7bf49ef58c5364c605ee5de07a3e2a4adb05ece80c842dc6bcb10158",
       "bytes": 1894934
     },
     {
@@ -235,8 +235,8 @@
       "name": "skeleton Halloween",
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-88f9sqb5/animations.xml",
-      "sha256": "5d7006df4d9af8e171474a5dda3c54ae1acaccef6a7362e373ca0b2a85182fee",
-      "bytes": 3005024
+      "sha256": "5146d9c74ec555ee1c8033a715ce8816c4d18df72b7806d0e255f8919ee7ff22",
+      "bytes": 3005023
     },
     {
       "id": "shimeji-8opqq9of",
@@ -251,7 +251,7 @@
       "name": "Skitty",
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-8u2lojrb/animations.xml",
-      "sha256": "a1882cc18e8354dc47eacef4810a75425aee1a75c04e432762cc65b94e290c69",
+      "sha256": "aeb56518593396ef7ca0f5418563c98e72ddbaf9ef1e990b835a07b1dadbdff0",
       "bytes": 915921
     },
     {
@@ -259,7 +259,7 @@
       "name": "shiny wooper",
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-8vqm59ot/animations.xml",
-      "sha256": "f253e4780dc06f62016328c05a635487d08648de47ae0d8877e9299eea8b00e5",
+      "sha256": "08f52e4d8a9af8544f84de4441f598fd0299ff8b46f8ec69ba047b778f2cab94",
       "bytes": 717189
     },
     {
@@ -267,7 +267,7 @@
       "name": "wooper",
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-9imr7z1s/animations.xml",
-      "sha256": "bcfe5db73ee480ac249e619fb580adf353a4b7aa0c08a50530efd31ad8c6fe57",
+      "sha256": "5feabba885859bdd3c138d6ba6eaabd4d62ec49afd028e9f50e8df86161c5d7b",
       "bytes": 695336
     },
     {
@@ -275,7 +275,7 @@
       "name": "Vlad",
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-9qc0h184/animations.xml",
-      "sha256": "cc6eefaec04ce1361f90261c55785a686e5330f21711341ea63d93b93a4b02b5",
+      "sha256": "d85fccdbad466e57f662427a76f4b44821e6747b47872930addd57e3815fe6d5",
       "bytes": 1873556
     },
     {
@@ -283,8 +283,8 @@
       "name": "Alipheese Fateburn XVI",
       "author": "Local import",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-alipheese-fateburn-xvi/animations.xml",
-      "sha256": "78240e232e69288730424e184598385c4004bc3ebca7c1804b53102b482f17d7",
-      "bytes": 965799
+      "sha256": "f0311b421739cc50eb7323b1b9bd0f1f0a638ac00c7f3cf3b48618b7f9c00e21",
+      "bytes": 965798
     },
     {
       "id": "shimeji-brq51bkr",
@@ -307,15 +307,15 @@
       "name": "Cyn",
       "author": "shimejis.xyz",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-cyn/animations.xml",
-      "sha256": "1703c48d4da3010920455c39af3edfeb3963d86cada3ca64e98ab46ba3ac179d",
-      "bytes": 1653642
+      "sha256": "a734e95b4f0017b568a3f427b2d4377c99802125043c9b76480896c17452cfd2",
+      "bytes": 1653638
     },
     {
       "id": "shimeji-dqjd9s2d",
       "name": "SpongeBob",
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-dqjd9s2d/animations.xml",
-      "sha256": "c251e3223d75d8d3296fcf368e2db2819dbf4a9e5488ebf4a4d99059d036ba84",
+      "sha256": "e65afd714c026894e33a0096438b3f7cf9ee63684a6336a426234a686bd48ea7",
       "bytes": 2639414
     },
     {
@@ -323,55 +323,55 @@
       "name": "Gengar",
       "author": "Local import",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-gengar/animations.xml",
-      "sha256": "c9f7479d19373c11e95e2d62bca5d167b21af815f3772ffeccf8d3a738e0a532",
-      "bytes": 707244
+      "sha256": "36b01b2273eac9879ee70facc069b23e1417c2b5d891c4c37f0c42343e3f4afa",
+      "bytes": 707243
     },
     {
       "id": "shimeji-hornet-9b9d1d",
       "name": "Hornet",
       "author": "shimejis.xyz",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-hornet-9b9d1d/animations.xml",
-      "sha256": "0c967df7d10ebd55872d2c82d96a903d4c04f6eed36c331445a38f8a885e0147",
-      "bytes": 425902
+      "sha256": "a34fba31a980ca0cbe08056d99490da454ae460ca51d413a5e3b0726498a7bc6",
+      "bytes": 425901
     },
     {
       "id": "shimeji-kinitopet",
       "name": "KinitoPET",
       "author": "shimejis.xyz",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-kinitopet/animations.xml",
-      "sha256": "0896a170d57b64d6f9ea5863fa03de0bb6dc1a9e2700a5e0478ebdaaaad2ff02",
-      "bytes": 465136
+      "sha256": "814bd31e56c6061e5a10d9c45446740f3c8fdf2f31472babdb6b6f0ce13a4084",
+      "bytes": 465130
     },
     {
       "id": "shimeji-loona-hellhound",
       "name": "Loona the Hellhound",
       "author": "Local import",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-loona-hellhound/animations.xml",
-      "sha256": "cd9832233641ac7ce83d05f4fd88ef0452047461e83defd1660fc15303065c3a",
-      "bytes": 1021170
+      "sha256": "a37b524cd740b3b118993bcf9272290f0e717eb9936ec3488bf873a2fd00cc97",
+      "bytes": 1021169
     },
     {
       "id": "shimeji-ralsei",
       "name": "Ralsei",
       "author": "shimejis.xyz",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-ralsei/animations.xml",
-      "sha256": "f7422e7f8ba1b7dde0063730642722ce65b6ea46ac0e0f7d25f3359f4052e725",
-      "bytes": 601523
+      "sha256": "48e92788e0039794fe4855a28ee8bbec89afc9109ab958f74af38f8299c8ae3a",
+      "bytes": 601520
     },
     {
       "id": "shimeji-rick-and-morty-rick-by-starrii-chan",
       "name": "Rick",
       "author": "StarriiChan",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-rick-and-morty-rick-by-starrii-chan/animations.xml",
-      "sha256": "4a57636f48e8e53cd3cb697a2272ff6d1b690a66a7eb47b8edf178051c383401",
-      "bytes": 325525
+      "sha256": "b6639dc38136cbf3aeb04bbc14cd4cf9363cb0fa7f992e071752c5733d3dc101",
+      "bytes": 325524
     },
     {
       "id": "shimeji-serial-designation-j",
       "name": "Serial Designation J",
       "author": "shimejis.xyz",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-serial-designation-j/animations.xml",
-      "sha256": "fae21385fbc002099d2ab52a19af81326feda95e6d83a21bcd6adf74b50e1f0e",
+      "sha256": "476b20ce32ab94d7ebe9aaeb4062cf95b26934a9e818aecce5fee998cb8c3470",
       "bytes": 2528686
     },
     {
@@ -379,15 +379,15 @@
       "name": "Cartman",
       "author": "Phinbella-Flynn",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-south-park-cartman/animations.xml",
-      "sha256": "5e939c56bee8aa64389925966fdbd819b9499d6d1fdfcd7c084937d8569b330a",
-      "bytes": 559752
+      "sha256": "fa9f8d4544fe7b9ffc6d1c73c62add45d4d594a8cf6c9442288854a3c345ebe9",
+      "bytes": 559751
     },
     {
       "id": "shimeji-uzi-doorman-ef5c7d",
       "name": "Uzi Doorman",
       "author": "Kilkakon and Polar Summit",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-uzi-doorman-ef5c7d/animations.xml",
-      "sha256": "c3c57472688935c5f5aae491a6f8b3ee9c138a4a311df3a59c489343092852dc",
+      "sha256": "2082216ba21e750a299a10c2e66c6aced991403f1b90d669d1f1d8e34c3c64f1",
       "bytes": 1967714
     },
     {
@@ -395,8 +395,8 @@
       "name": "Gakupo",
       "author": "rikka-nyan",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-vocaloid-gakupo/animations.xml",
-      "sha256": "55b542089bd818e7565e9a09ba52ea5e4604ad181ae0543746f863c3753e25cf",
-      "bytes": 690439
+      "sha256": "1fd89f098b1f1457f371a4a56252a85f2e8e8e1e981a3c74f8e57382c32f1bd0",
+      "bytes": 690438
     },
     {
       "id": "shiny_sylveon",
