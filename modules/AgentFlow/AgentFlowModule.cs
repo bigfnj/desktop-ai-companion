@@ -447,6 +447,12 @@ namespace DesktopAICompanion.AgentFlow
             bool allProjects = ApproveForAllProjects;
             bool similar = ApproveSimilarCommands;
             int cdpPort = CdpPort;
+            // Snapshot on the UI THREAD with the rest of them. Enabled was the one setting the
+            // worker still went and fetched for itself, which meant reading the settings
+            // Dictionary<string, string> while Apply could be writing it from here. Every other
+            // value on this beat was already copied across the boundary; this one was missed
+            // because it hides behind two predicates instead of being named inline.
+            bool enabledNow = Enabled;
 
             // Reading and parsing transcripts is file IO plus JSON, so it never runs on the tick.
             // Nothing inside this task touches _host.
@@ -501,7 +507,7 @@ namespace DesktopAICompanion.AgentFlow
                 bool answering = false;
                 try
                 {
-                    if (ShouldProbePort())
+                    if (ShouldProbePort(enabledNow))
                     {
                         SetupReport report = VsCodeSetup.Inspect(ArgvPath, 200);
                         // Published as a whole, freshly-built instance. Inspect fills it locally
@@ -523,7 +529,7 @@ namespace DesktopAICompanion.AgentFlow
                 // used to be one condition, so a Notify-mode user got the weak signal (predicting
                 // from permission rules) while the strong one -- the prompt itself, already on
                 // screen and already readable -- went unused.
-                bool mayLook = MayLookNow(answering);
+                bool mayLook = MayLookNow(answering, enabledNow);
                 bool mayPress = ShouldPressNow(autoApprove, answering);
                 if (mayLook)
                 {
@@ -1502,9 +1508,9 @@ namespace DesktopAICompanion.AgentFlow
         /// now means adding a parameter here, which is a visible change to a documented decision
         /// rather than a word dropped into a condition.
         /// </summary>
-        internal bool ShouldProbePort()
+        internal bool ShouldProbePort(bool enabled)
         {
-            return Enabled && !_shuttingDown && _host != null;
+            return enabled && !_shuttingDown && _host != null;
         }
 
         /// <summary>
@@ -1516,9 +1522,9 @@ namespace DesktopAICompanion.AgentFlow
         /// stronger condition. A relationship between two booleans is not visible by reading
         /// either one; it needs an assertion, and an assertion needs something to call.
         /// </summary>
-        internal bool MayLookNow(bool answering)
+        internal bool MayLookNow(bool answering, bool enabled)
         {
-            return answering && !_shuttingDown && _host != null && Enabled;
+            return answering && !_shuttingDown && _host != null && enabled;
         }
 
         /// <summary>
@@ -4460,12 +4466,18 @@ namespace DesktopAICompanion.AgentFlow
                 // from the day it shipped. A relationship between two predicates is invisible in
                 // either one of them, so it is asserted here.
                 probe.Check("WITNESS the panel may be READ with auto-approve off",
-                    module.MayLookNow(true) && !module.ShouldPressNow(false, true));
+                    module.MayLookNow(true, true) && !module.ShouldPressNow(false, true));
                 probe.Check("WITNESS ...but nothing may be read with no port answering",
-                    !module.MayLookNow(false));
+                    !module.MayLookNow(false, true));
                 probe.Check("WITNESS a Notify-mode tick still probes the port, which is the "
                             + "value the whole look/press split depends on",
-                    module.ShouldProbePort());
+                    module.ShouldProbePort(true));
+                // The predicates take `enabled` as an argument now, so on its own the line
+                // above would pass even if no real mode ever supplied true. This is the
+                // other half: Notify is a mode that scans.
+                probe.Check("WITNESS ...and Notify really is a mode that scans, so that "
+                            + "argument is not hypothetical",
+                    AgentMode.Scans(AgentMode.Notify) && !AgentMode.Scans(AgentMode.Off));
 
                 probe.Check("a live module with the switch on and a port answering may press",
                     module.ShouldPressNow(true, true));
@@ -4482,7 +4494,7 @@ namespace DesktopAICompanion.AgentFlow
                     !module.ShouldPressNow(true, true));
                 probe.Check("WITNESS ...and so is a LOOK, which is the weaker of the two and so "
                             + "the one a shutdown guard is easiest to forget on",
-                    !module.MayLookNow(true));
+                    !module.MayLookNow(true, true));
 
                 module.Shutdown();
                 probe.Check("...and still refused once Shutdown has finished",

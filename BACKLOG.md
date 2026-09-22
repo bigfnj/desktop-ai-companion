@@ -57,11 +57,28 @@ a shipped claim* -- the Notify-mode screen watch and, in a different way, the `s
 Neither a green suite nor a live smoke test found them, because both were reached only in a mode
 nobody was exercising. Ask what input reaches a branch, not whether the branch looks right.
 
-- 📌 **The pane does blocking IO on the UI thread: a TCP connect and a file read on every open and
-  every dropdown change.** Opening the module's options stalls the app for the connect timeout when
-  VS Code is not listening. `OptionsPane` has no async contract, so the honest fix is to render from
-  the cached `_portAnswering` that the poll already refreshes and never probe from the UI thread at
-  all. Contained, but it is a behaviour change in what the pane shows the instant it opens.
+- ✅ **CLOSED in 1.3.2: the pane's blocking UI-thread IO.** It called `VsCodeSetup.Inspect` on every
+  open and every dropdown change. MEASURED, one call per fresh process: **30.7/30.1/30.7 ms** with
+  the port listening, **273.3/284.6/279.3 ms** with it closed. The poll worker now calls `Inspect`
+  in place of `Probe`, caches the report, and the pane renders the cache. The per-pet animation list
+  was separately read and parsed from disk **twice per load** (once for the dropdown's options, once
+  to pick its selection); memoised per pet, dropped on Save.
+
+  ⚠ **And a measurement that stopped a bad "optimisation", recorded because the idea is seductive.**
+  The 273 ms reads like a broken wait: a closed loopback port surely refuses instantly, so the
+  250 ms timeout looks like ceremony. It is not. A **synchronous** connect to a closed port on this
+  box takes **2,063 ms** to return `ConnectionRefused` (2063.1 / 2066.3 / 2066.1). The timeout is
+  the only reason the probe answers in a quarter-second instead of two. Two further theories were
+  measured and also wrong: that the host-string overload was taking a dual-stack multi-address path
+  (explicit IPv4 `IPEndPoint`: ~275 ms, identical) and that `BeginConnect`'s wait handle was not
+  signalled on refusal (`ConnectAsync` + `Task.Wait`: ~280 ms, identical). Three APIs agreeing to
+  the millisecond is a timeout working, not a bug. All of it now lives on `VsCodeSetup.Probe`.
+
+  **What remains, and was deliberately NOT done:** the tick still pays up to 250 ms on the worker
+  when the port is closed, once per ten seconds. A backoff would cut that, and was rejected: it
+  would delay noticing that VS Code has come up with the flag from 10 s to a minute, and "why did
+  it not press" is exactly the complaint that started this work. 2.5% of one background core is the
+  cheaper thing to spend.
 
 - 📌 **`RuleLoader.Load`'s `sources` count is read into a local and discarded** (`AgentFlowModule.cs`
   `Scan`). `sources == 0` means "no permission-rule file was found anywhere", which is a completely
@@ -71,11 +88,16 @@ nobody was exercising. Ask what input reaches a branch, not whether the branch l
   outs, plus a dedupe so it is not logged every ten seconds. Worth doing with the signature tidy-up
   rather than bolted on.
 
-- 📌 **The settings dictionary is read from the poll worker while the UI thread writes it.**
-  `Enabled` and `Mode` are read inside the tick; `Apply` writes the same unsynchronised
-  `Dictionary<string, string>` from the UI thread. A torn read here is unlikely and not impossible,
-  and the failure would be a corrupted dictionary rather than a stale bool. The fix is a snapshot
-  taken once per tick, which is also tidier than the current scattered property reads.
+- ✅ **CLOSED in 1.3.2: the settings dictionary was read from the poll worker.** `Enabled` was the
+  last one. Every other value the tick needs was already copied on the UI thread before `Task.Run`;
+  this one was missed because it hides behind two predicates rather than being named inline, so the
+  worker went and read the unsynchronised `Dictionary<string, string>` while `Apply` could be
+  writing it. `ShouldProbePort` and `MayLookNow` now take it as an argument and are pure functions
+  of their inputs.
+  **Note what that cost the test, and what was added back.** Injecting `enabled` means the
+  asymmetry assertion would pass even if no real mode ever supplied `true`, so a second assertion
+  now pins the other half: `AgentMode.Scans(Notify)` is true and `Scans(Off)` is false. A predicate
+  made pure is easier to test and easier to test VACUOUSLY.
 
 - 📌 **`ActiveTranscripts` is now the dominant cost of a tick, and the cursor is why.** The fold went
   from 535 ms to 0.3 ms, so what is left is the directory sweep. MEASURED 2026-09-21 by calling
