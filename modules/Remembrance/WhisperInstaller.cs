@@ -6,6 +6,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Net.Http;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -345,7 +346,7 @@ namespace DesktopAICompanion.RemembranceModule
             }
             catch (Exception ex)
             {
-                result.Message = DescribeChain(ex);
+                result.Message = DescribeFetchFailure("", ex);
                 return result;
             }
         }
@@ -411,6 +412,94 @@ namespace DesktopAICompanion.RemembranceModule
             return parts.Count == 0 ? "(no detail)" : string.Join(" -> ", parts.ToArray());
         }
 
+        /// <summary>
+        /// Was this connection killed LOCALLY rather than failing to open?
+        ///
+        /// WSAECONNABORTED (10053) and WSAECONNRESET (10054) mean a connection that was already
+        /// established went away, which is a different thing from a name that will not resolve or
+        /// a port that refuses. When it happens on every attempt from one program while other
+        /// programs on the same machine succeed, something on the box is doing it on purpose.
+        /// </summary>
+        internal static bool IsConnectionAborted(Exception ex)
+        {
+            for (Exception e = ex; e != null; e = e.InnerException)
+            {
+                var socket = e as SocketException;
+                if (socket == null) continue;
+                if (socket.SocketErrorCode == SocketError.ConnectionAborted) return true;
+                if (socket.SocketErrorCode == SocketError.ConnectionReset) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Microsoft Defender Network Protection: 0 off, 1 blocking, 2 audit, null unknown.
+        ///
+        /// Read from the registry rather than by running Get-MpPreference, because a settings pane
+        /// must not spawn PowerShell to render an error message. Policy path first: on a managed
+        /// machine the GPO value is the one in force and the effective key may disagree.
+        ///
+        /// MEASURED on two machines 2026-09-22, which is the whole reason this exists. The machine
+        /// where the download works reads 0; the machine where it fails reads 1, and on that one a
+        /// signed PowerShell reaches the same URL with HTTP 200 while this app's connection is
+        /// aborted mid-handshake. Network Protection scores the CALLING PROGRAM, and this app
+        /// ships unsigned with no prevalence, asking to download an executable from a release
+        /// page. That is the shape the feature exists to stop.
+        ///
+        /// Reading a machine policy value is not user content and needs no permission bit; it is
+        /// the same kind of local configuration read the module already does to find whisper-cli.
+        /// </summary>
+        internal static int? NetworkProtectionState()
+        {
+            string[] keys =
+            {
+                @"SOFTWARE\Policies\Microsoft\Windows Defender\Windows Defender Exploit Guard\Network Protection",
+                @"SOFTWARE\Microsoft\Windows Defender\Windows Defender Exploit Guard\Network Protection",
+            };
+            foreach (string key in keys)
+            {
+                try
+                {
+                    using (Microsoft.Win32.RegistryKey k =
+                               Microsoft.Win32.Registry.LocalMachine.OpenSubKey(key))
+                    {
+                        if (k == null) continue;
+                        object value = k.GetValue("EnableNetworkProtection");
+                        if (value == null) continue;
+                        return Convert.ToInt32(value, CultureInfo.InvariantCulture);
+                    }
+                }
+                catch (Exception) { }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// The failure, plus what to DO about it when the cause is recognisable.
+        ///
+        /// A dead end that reports a TLS exception chain is honest and useless. When the shape
+        /// says "something local killed this", the next step is not a retry, it is the two Browse
+        /// buttons that already exist on this pane: fetch the files in a browser, which endpoint
+        /// protection trusts, and point the module at them. Transcription is not blocked, only the
+        /// automatic download is, and nothing in the old message said so.
+        /// </summary>
+        internal static string DescribeFetchFailure(string prefix, Exception ex)
+        {
+            string text = prefix + DescribeChain(ex);
+            if (!IsConnectionAborted(ex)) return text;
+
+            text += "  This was cut off locally rather than failing to connect, which usually means "
+                  + "endpoint protection stopped it.";
+            int? protection = NetworkProtectionState();
+            if (protection == 1)
+                text += "  Microsoft Defender Network Protection is ON, and it terminates "
+                      + "connections made by programs it does not recognise. This app is unsigned, "
+                      + "so it will not be recognised.";
+            text += "  You do not need the download: fetch whisper.cpp and the model in a browser, "
+                  + "then use \"Browse for whisper-cli...\" and \"Browse for a model...\" below.";
+            return text;
+        }
+
         private static async Task<AssetLookup> ResolveAssetAsync(HttpClient http, CancellationToken cancellationToken)
         {
             string json;
@@ -434,7 +523,10 @@ namespace DesktopAICompanion.RemembranceModule
             }
             catch (Exception ex)
             {
-                return new AssetLookup { Failure = "Could not reach GitHub: " + DescribeChain(ex) };
+                return new AssetLookup
+                {
+                    Failure = DescribeFetchFailure("Could not reach GitHub: ", ex),
+                };
             }
 
             ReleaseAsset asset = ParseReleaseListJson(json);

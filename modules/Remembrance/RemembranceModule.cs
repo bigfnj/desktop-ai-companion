@@ -48,7 +48,18 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "1.0.6",   // 1.0.6: failures now report the whole exception chain.
+            Version = "1.0.7",   // 1.0.7: a blocked download now says what to do instead.
+                                 //        Diagnosed across two machines: the fetch is terminated
+                                 //        by Microsoft Defender Network Protection, which scores
+                                 //        the CALLING program and does not recognise an unsigned
+                                 //        app asking to download an executable. The machine where
+                                 //        it works reads EnableNetworkProtection 0; the one where
+                                 //        it fails reads 1, and a signed PowerShell gets HTTP 200
+                                 //        on the same URL there. Nothing in the module is wrong,
+                                 //        so the fix is to stop being a dead end: recognise the
+                                 //        local abort, report whether that policy is on, and
+                                 //        point at the two Browse buttons that already work.
+                                 // 1.0.6: failures now report the whole exception chain.   // 1.0.6: failures now report the whole exception chain.
                                  //        .NET renders a TLS fault as "The SSL connection could
                                  //        not be established, see inner exception" -- a message
                                  //        that names the information you need and withholds it --
@@ -1164,6 +1175,37 @@ namespace DesktopAICompanion.RemembranceModule
                 WhisperInstaller.DescribeHttpFailure(500, null).Contains("500"));
             check("a missing rate-limit header is not read as a spent quota",
                 !WhisperInstaller.DescribeHttpFailure(403, null).Contains("rate-limiting"));
+            // ---- a blocked download must become an instruction ----------------------
+            // Diagnosed across two machines 2026-09-22: Defender Network Protection terminates
+            // the connection, the module reported a TLS chain, and the pane became a dead end
+            // even though the two Browse buttons on it make the feature work anyway.
+            var aborted = new System.Net.Http.HttpRequestException(
+                "The SSL connection could not be established, see inner exception.",
+                new System.Security.Authentication.AuthenticationException(
+                    "Unable to read data from the transport connection.",
+                    new System.Net.Sockets.SocketException(10053)));
+            check("WITNESS a locally aborted connection is recognised as one",
+                WhisperInstaller.IsConnectionAborted(aborted));
+
+            string abortedText = WhisperInstaller.DescribeFetchFailure("Could not reach GitHub: ", aborted);
+            check("WITNESS ...and the message names the way out rather than stopping at the error",
+                abortedText.Contains("Browse for whisper-cli"));
+            check("WITNESS ...and still carries the underlying cause, not just the advice",
+                abortedText.Contains("transport connection"));
+
+            // The converse, because advice on every failure is noise rather than help. A 404 is
+            // not endpoint protection and must not be dressed up as it.
+            var notAborted = new System.Net.Http.HttpRequestException("404 (Not Found)");
+            check("WITNESS an ordinary failure is NOT blamed on endpoint protection",
+                !WhisperInstaller.IsConnectionAborted(notAborted)
+                && !WhisperInstaller.DescribeFetchFailure("", notAborted).Contains("Browse for whisper-cli"));
+
+            // Machine-dependent by nature, so this asserts only that it answers safely: the value
+            // is 0, 1 or 2 when Defender reports one and null when it does not, never a throw.
+            int? np = WhisperInstaller.NetworkProtectionState();
+            check("reading the Network Protection policy answers without throwing",
+                np == null || (np.Value >= 0 && np.Value <= 2));
+
             check("the install root is under the module's own storage",
                 WhisperInstaller.InstallRoot(@"c:\data\remembrance").Replace('/', '\\') == @"c:\data\remembrance\whisper");
             check("probing includes the DevToolbox location",
