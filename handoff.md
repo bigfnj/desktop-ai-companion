@@ -1,6 +1,6 @@
 ﻿# Desktop AI Companion — Session Handoff
 
-> Working notes for picking this up later. Last updated: **2026-09-11** (twelfth session).
+> Working notes for picking this up later. Last updated: **2026-09-22** (thirteenth session).
 > Fork of Adrianotiger/desktopPet, though no longer a GitHub fork: the repo was recreated fresh for
 > 1.0.0. Clone it wherever you like -- nothing here depends on the checkout path, and this file is
 > public, so no machine paths go in it.
@@ -9,7 +9,94 @@
 
 ---
 
-## START HERE (2026-09-11, twelfth session) — v1.1.4, and two checks that were lying
+## START HERE (2026-09-22, thirteenth session) — one bug class in three places, and a corpus
+
+A user-reported "companion gets stuck tripping" turned out to be **one mistake made independently in
+three places: judging an animation's INTENT by its VELOCITY instead of by the Type its source
+declares.** If you touch the Shimeji converter, assume there is a fourth site and go looking.
+
+### The bug class, and the three sites
+
+A Shimeji action carries `Type="Move"` / `"Stay"` / `"Animate"`. That is the source author saying
+"travel" / "hold this" / "play this through". The converter had `IsRestingPose` reading Type
+correctly while three neighbours guessed from motion:
+
+1. **`PetEmitter.IsLocomotion`** classified travel by velocity alone. A trip moves the pet 8px a
+   frame along the ground, so it looked exactly like a walk and got the walk's edge set -- "65% do
+   it again". That is 2.9 plays on average and five or more in 18% of runs.
+2. **The dwell assertion in `EmitterSelfTest`** selected "idle rest" by zero velocity, so it
+   expected a 9-12s dwell from anything that ended up standing still. It now asks the parsed config
+   for the source Type.
+3. **The `restsplit` migration** (format 0.6 -> 0.7) decided what counted as a lingering
+   "performance" the same way. That is what gave Hornet's `Bouncing` `repeat="33"` on two frames at
+   a flat 160ms: eleven seconds of two sprites alternating, with no self-edge anywhere. It was
+   reported separately, AFTER the trip fix, and it is why the first fix looked incomplete.
+
+The rule, measured rather than reasoned: convert a skin fresh and **every `Animate` animation emits
+at `repeat` 0**, while `Move` keeps 4-20 travel budgets and `Stay` keeps 1-11 rest dwells. No
+exceptions in the sample. Format is now **1.1**.
+
+### `reloop` is not like the other migrations
+
+`reloop <PetsDir> [<BundlesDir>]` repairs already-emitted pets. Two things make it different, both
+deliberate:
+
+- **It does not gate on one exact format version.** Every sibling migration does, which is what
+  makes them idempotent. This one's reach depends on an external corpus of source skins that the
+  repo does not contain, so a one-shot gate would let the first run -- with whatever corpus was on
+  hand -- permanently lock out a better one. Idempotence comes from the write instead: a pet with
+  nothing left to fix never gets rewritten. Verified by running it twice; the second run reports
+  `changed 0`.
+- **It takes a name -> Type CENSUS across a bundle corpus**, because the bundled Shimeji-EE conf only
+  declares 91 names and these skins use thousands. Per-pet mapping was tried first and rejected on
+  measurement: matching a converted pet back to its source archive by title resolved 7 of 25, and a
+  WRONG match is worse than none because it applies another skin's intent with full confidence. The
+  census needs no mapping and only **unanimous** names count -- the corpus disputes 96 of them,
+  including `jump` and `crawl`, and those are left alone. The corpus is the maintainer's local
+  harvested archive set; it is not in the repo and its location is in the private session notes, not
+  this public file.
+
+Parse confs with `ShimejiParser.ParseActionsXml`, never a regex. Two of my own conclusions were
+wrong until I switched: the parser counts only TOP-LEVEL `<Action>` declarations (a regex also counts
+nested references inside `Sequence` blocks, which is what made `jump` look disputed), and it
+canonicalises localised type values -- **`固定` maps to `Animate`, not Stay**, so the Japanese and
+English stock confs agree that Tripping is a performance.
+
+### Never re-convert the shipped pets wholesale
+
+`rejump`'s comment already warned that re-conversion would wipe Hornet's hand-edited `fall` /
+`Grapple3` frame swap. This session proved it with numbers: after migrating, **28 of Hornet's 32
+animations agree exactly with a fresh conversion**, and of the four that differ, two differ only in
+frame count with identical repeat (the hand edit) and one is a renamed action, meaning the archive
+on disk is a slightly different revision of the skin than the one originally converted. Migrating
+costs nothing; re-converting would have taken both losses to fix a repeat count.
+
+### Two things about distribution that are easy to get wrong
+
+- **The MSI carries no companions and no fortune packs.** `Stage-BundledContent.ps1` says so
+  outright, and only the portable ZIP bundles them offline. So a fresh MSI install on a machine
+  whose network is filtered gets the embedded eSheep and nothing else, with no way to see what
+  exists. Point such a machine at the portable ZIP.
+- **`v1.2.4` predates both pet fixes**, so the published portable ZIP carries the PRE-fix pets. The
+  catalog path delivers the corrected ones immediately; getting them offline needs a new release cut
+  so the ZIP re-stages them. That release would also carry PetStudio 1.0.5 into the bundled modules.
+
+`petstudio` 1.0.4 -> 1.0.5 is a real behaviour change, not a restale: that module source-links the
+conversion engine, so its importer recompiles the fixed classifier and a skin imported in the Studio
+no longer produces a self-looping trip. The publish-freshness gate is what caught the stale payload.
+
+### One number that reads like a regression and is not
+
+`BACKLOG.md` reports **67** unresolvable animation names, up from 17 earlier the same day. That is
+the migration reaching further, not rotting: the entry condition widened from "self-loops" to
+"self-loops OR carries a repeat count", which surfaces every unresolvable animation that has a
+dwell, and most of those are `Stay` holds and `Move` travel that are SUPPOSED to have one. It is a
+reporting surface, not a defect count. The tool prints the list on every run rather than swallowing
+it, which is the point.
+
+---
+
+## Previous START HERE (2026-09-11, twelfth session) — v1.1.4, and two checks that were lying
 
 Three things happened that a future reader needs, and the first two are the same lesson twice: **a
 check that measures the wrong thing is worse than no check, because it buys confidence.**
