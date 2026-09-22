@@ -663,20 +663,13 @@
         <opacity>1</opacity>
         <interval>40</interval>
       </end>
-      <sequence repeatfrom="0" repeat="68">
+      <sequence repeatfrom="0" repeat="0">
         <frame>111</frame>
         <frame>111</frame>
         <frame>111</frame>
         <frame>111</frame>
-        <next probability="65" only="none">20</next>
-        <next probability="35" only="none">1</next>
+        <next probability="100" only="none">1</next>
       </sequence>
-      <border>
-        <next probability="2" only="none">31</next>
-        <next probability="1" only="vertical">24</next>
-        <next probability="1" only="window-left">23</next>
-        <next probability="1" only="window-right">23</next>
-      </border>
       <gravity>
         <next probability="100" only="none">27</next>
       </gravity>

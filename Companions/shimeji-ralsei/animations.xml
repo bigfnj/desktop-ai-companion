@@ -622,7 +622,7 @@
         <opacity>1</opacity>
         <interval>240</interval>
       </end>
-      <sequence repeatfrom="0" repeat="1">
+      <sequence repeatfrom="0" repeat="0">
         <frame>41</frame>
         <frame>42</frame>
         <frame>43</frame>
@@ -637,15 +637,8 @@
         <frame>45</frame>
         <frame>45</frame>
         <frame>46</frame>
-        <next probability="65" only="none">20</next>
-        <next probability="35" only="none">1</next>
+        <next probability="100" only="none">1</next>
       </sequence>
-      <border>
-        <next probability="2" only="none">46</next>
-        <next probability="1" only="vertical">39</next>
-        <next probability="1" only="window-left">38</next>
-        <next probability="1" only="window-right">38</next>
-      </border>
       <gravity>
         <next probability="100" only="none">42</next>
       </gravity>
@@ -1041,19 +1034,12 @@
         <opacity>1</opacity>
         <interval>800</interval>
       </end>
-      <sequence repeatfrom="0" repeat="2">
+      <sequence repeatfrom="0" repeat="0">
         <frame>80</frame>
         <frame>80</frame>
         <frame>80</frame>
-        <next probability="65" only="none">35</next>
-        <next probability="35" only="none">1</next>
+        <next probability="100" only="none">1</next>
       </sequence>
-      <border>
-        <next probability="2" only="none">46</next>
-        <next probability="1" only="vertical">39</next>
-        <next probability="1" only="window-left">38</next>
-        <next probability="1" only="window-right">38</next>
-      </border>
       <gravity>
         <next probability="100" only="none">42</next>
       </gravity>

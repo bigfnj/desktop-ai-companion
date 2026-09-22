@@ -1858,7 +1858,7 @@
         <opacity>1</opacity>
         <interval>120</interval>
       </end>
-      <sequence repeatfrom="0" repeat="2">
+      <sequence repeatfrom="0" repeat="0">
         <frame>124</frame>
         <frame>125</frame>
         <frame>126</frame>
@@ -1869,19 +1869,8 @@
         <frame>131</frame>
         <frame>132</frame>
         <frame>133</frame>
-        <next probability="20" only="none">66</next>
-        <next probability="60" only="none">67</next>
-        <next probability="20" only="none">68</next>
-        <next probability="20" only="none">69</next>
-        <next probability="20" only="none">70</next>
-        <next probability="25" only="none">71</next>
+        <next probability="100" only="none">1</next>
       </sequence>
-      <border>
-        <next probability="100" only="vertical">64</next>
-        <next probability="200" only="window-left">64</next>
-        <next probability="200" only="window-right">64</next>
-        <next probability="100" only="none">71</next>
-      </border>
     </animation>
     <animation id="68">
       <name>HangFromCeiling</name>
@@ -1931,21 +1920,10 @@
         <opacity>1</opacity>
         <interval>120</interval>
       </end>
-      <sequence repeatfrom="0" repeat="6">
+      <sequence repeatfrom="0" repeat="0">
         <frame>132</frame>
-        <next probability="20" only="none">66</next>
-        <next probability="20" only="none">67</next>
-        <next probability="20" only="none">68</next>
-        <next probability="60" only="none">69</next>
-        <next probability="20" only="none">70</next>
-        <next probability="25" only="none">71</next>
+        <next probability="100" only="none">1</next>
       </sequence>
-      <border>
-        <next probability="100" only="vertical">64</next>
-        <next probability="200" only="window-left">64</next>
-        <next probability="200" only="window-right">64</next>
-        <next probability="100" only="none">71</next>
-      </border>
     </animation>
     <animation id="70">
       <name>ClimbCeiling</name>

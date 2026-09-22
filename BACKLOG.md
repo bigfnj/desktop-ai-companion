@@ -812,35 +812,30 @@ code. Two decisions that used to sit here are in
 "moves the user's windows" (48 actions) is refused deliberately, and a blank frame is legitimate so
 "no blank tiles" cannot be a corpus-wide gate. What remains open:
 
-- 📌 **48 self-looping animation names the `reloop` migration could not classify, and 10 of them are
-  a second, separate defect.**
-  CLOSES-WHEN: file-exists tools/ShimejiConvert.Engine/base-conf/actions.ja.xml
-  Filed 2026-09-22, alongside the fix for the trip loop the owner reported. `reloop` reads the source's
-  intent from the action NAME against the bundled conf, so it corrected the 25 self-loops whose names the
-  stock conf declares `Animate` and left 186 `Move`/`Stay` loops alone, correctly. The other 48 names are
-  not in the bundled conf and the tool PRINTS them on every run rather than passing over them. Most are
-  fine: `climb` x15, `descend` x15, `climb_ceiling` x18 and the `grab_*` names are travel or holds and
-  are meant to loop. Three groups are not:
-  - ⚠ **`jump` x10 and `jump_down` x10 are NOT a jump-detection bug, which is what this entry claimed
-    when it was written an hour earlier.** MEASURED across all 20: not one of them rises. `jump` is
-    `vy0 = 0` travelling -10px per frame, `jump_down` descends at `vy0 = +8`, and all ten pets are
-    byte-identical in this region, so they are one skin family re-skinned. `Launches()` therefore behaved
-    correctly -- there is no rise to detect. What probably happened is upstream and already documented at
-    `PetEmitter.cs:1266`: a rise too weak for `JumpMinLaunchY` is FLATTENED to zero, and the flattened
-    result then travels horizontally, which the velocity rule reads as locomotion. Whether the self-edge
-    is wrong depends entirely on whether the source said `Move` or `Animate`, and the name is not
-    evidence: `jump` is `Type="Move"` in plenty of real confs. Do not "fix" this without the source.
-  - **A Japanese-named skin.** `転ぶ` (trip over), `歩く` (walk), `走る` (run), `猛ダッシュ` (dash),
-    `壁を登る`, `壁に掴まる`, `天井を伝う`, `天井に掴まる` are the STOCK conf action names in the original
-    language; the bundled conf is the English translation, so only the English half can be resolved.
-    `VocabSelfTest` already proves the parser handles Japanese XML *vocabulary*, which is a different
-    thing from action names. One animation (`転ぶ`) is an actual defect; the other seven loop correctly.
-  - **Skin-specific performances** that look like real defects but cannot be judged without their source
-    conf: `Bouncing2`, `Shock`, `Teleport`, `BeginCrying`, `ChaseTheMouse`, `Grapple1`, `HangBlink`.
-  ⚠ The source skins are NOT on disk. Searched D: and the user profile for `behaviors.xml`, `actions.xml`,
-  `*shimeji*.zip` and `*shimeji*` directories on 2026-09-22 and found nothing outside `Companions/`, which
-  is why the fix had to be a migration rather than a re-conversion. Re-converting is the only route that
-  resolves the 48, and it needs the bundles back first.
+- 📌 **17 self-looping animation names remain unclassifiable, down from 48. Most of them are correct.**
+  CLOSES-WHEN: grep-present tools/ShimejiConvert/Program.cs "SkinLayout census"
+  Filed 2026-09-22, then largely resolved the same day when the owner pointed at the harvested bundle
+  corpus (`D:\.ai-work\shimeji-catalog`, 2778 archives). `reloop` now takes an optional bundles
+  directory and builds an action-name -> Type census across it, which answered 1990 names the bundled
+  conf does not carry and corrected 14 more animations across 7 pets, Hornet's `Grapple1` among them.
+  Only UNANIMOUS names count; the corpus disputes 96 and those stay unresolved.
+  What is left, and why none of it is urgent:
+  - **13 names absent from the corpus** (`climb_ceiling` x18, `descend` x15, `jump_down` x10,
+    `grab_wall`, `grab_ceiling`, `climb_wall`, `climb_wall_descend`, `walk_with_ie`, `walk_stick`,
+    `happy_walk`, `fall_`, `motion_3`, `motion_9`). These come from generator-made skins whose confs are
+    not in the harvest. Read them and they are almost all travel or holds, which are MEANT to loop.
+  - **4 names the corpus disputes with itself** (`Shock` 7/13 Stay, `crawl` 7/13, `idle` 2/4, `ずりずり`
+    634/656 Move). A majority is not evidence and acting on one would be guessing with extra steps.
+  ⚠ **Two of this entry's earlier claims were wrong and are kept here because the corrections are the
+  useful part.** First: `jump` x10 is NOT a jump-detection bug. Measured across all 20 `jump`/`jump_down`
+  animations, not one rises (`jump` is vy0=0 travelling -10px/frame), so `Launches()` had nothing to
+  detect; the likely cause is the documented flattening at `PetEmitter.cs:1266`. Second: the Japanese and
+  English stock confs do NOT disagree about `転ぶ`. The engine's own vocabulary table maps `固定` to
+  **Animate** (`静止` is Stay), so both call Tripping a performance, and Cartman's `転ぶ` was corrected
+  along with every other one.
+  A third route exists if the remaining 17 ever matter: `SkinLayout` could match a pet to its source
+  archive structurally rather than by title, which resolved only 7 of 25 pets and is why the census
+  exists at all.
 
 - ✅ **CLOSED 2026-09-22 in host 1.2.4.** The host now asserts it, and on its FIRST run it
   failed the module template, which registered an icon-less row while its own comments taught

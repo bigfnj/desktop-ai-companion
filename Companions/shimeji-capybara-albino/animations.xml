@@ -1361,14 +1361,8 @@
         <frame>99</frame>
         <frame>98</frame>
         <frame>96</frame>
-        <next probability="20" only="none">44</next>
-        <next probability="60" only="none">45</next>
-        <next probability="20" only="none">46</next>
-        <next probability="25" only="none">49</next>
+        <next probability="100" only="none">1</next>
       </sequence>
-      <border>
-        <next probability="100" only="none">49</next>
-      </border>
     </animation>
     <animation id="46">
       <name>ClimbWall</name>

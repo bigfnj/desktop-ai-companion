@@ -55,8 +55,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         }
 
         /// <summary>Parse an in-memory actions.xml string. For self-tests and callers that already hold the
-        /// document text rather than a directory on disk.</summary>
-        internal static ShimejiConfig ParseActionsXml(string actionsXml)
+        /// document text rather than a directory on disk -- the `reloop` migration reads confs straight out
+        /// of zip entries, where there is no directory to point <see cref="ParseConfDirectory"/> at, and
+        /// going through this parser rather than a regex is what makes a Japanese conf read as the same
+        /// data as an English one.</summary>
+        public static ShimejiConfig ParseActionsXml(string actionsXml)
         {
             var config = new ShimejiConfig();
             ParseActions(XDocument.Parse(actionsXml), config);

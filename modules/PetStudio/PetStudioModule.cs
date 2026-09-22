@@ -24,7 +24,14 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.0.4",   // 1.0.4: NO MODULE CHANGE. Republished because this module
+            Version = "1.0.5",   // 1.0.5: a REAL behaviour change, not just a restale. This module
+                                 //        source-links the Shimeji conversion engine, so its importer
+                                 //        recompiles PetEmitter.IsLocomotion, which stopped reading a
+                                 //        performance that travels as locomotion. A skin imported HERE
+                                 //        no longer produces a pet whose trip re-enters itself at 65%
+                                 //        and stutters 2.9 times in a row. Reported from a real desktop
+                                 //        on 24 of the 31 converted pets that ship.
+                                 // 1.0.4: NO MODULE CHANGE. Republished because this module
                                  //        source-links src/dotNet/Animations.cs, and the pet transition
                                  //        warning there now names its pet, state and eligibility
                                  //        context. Worth knowing: editing Animations.cs, Xml.cs or any

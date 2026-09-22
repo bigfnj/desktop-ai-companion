@@ -1583,7 +1583,7 @@
         <opacity>1</opacity>
         <interval>120</interval>
       </end>
-      <sequence repeatfrom="0" repeat="1">
+      <sequence repeatfrom="0" repeat="0">
         <frame>176</frame>
         <frame>177</frame>
         <frame>178</frame>
@@ -1591,15 +1591,8 @@
         <frame>180</frame>
         <frame>181</frame>
         <frame>182</frame>
-        <next probability="65" only="none">58</next>
-        <next probability="35" only="none">1</next>
+        <next probability="100" only="none">1</next>
       </sequence>
-      <border>
-        <next probability="2" only="none">77</next>
-        <next probability="1" only="vertical">61</next>
-        <next probability="1" only="window-left">60</next>
-        <next probability="1" only="window-right">60</next>
-      </border>
       <gravity>
         <next probability="100" only="none">73</next>
       </gravity>
@@ -1805,32 +1798,15 @@
         <opacity>1</opacity>
         <interval>160</interval>
       </end>
-      <sequence repeatfrom="0" repeat="6">
+      <sequence repeatfrom="0" repeat="0">
         <frame>118</frame>
         <frame>119</frame>
         <frame>120</frame>
         <frame>121</frame>
         <frame>122</frame>
         <frame>123</frame>
-        <next probability="20" only="none">62</next>
-        <next probability="20" only="none">63</next>
-        <next probability="60" only="none">64</next>
-        <next probability="20" only="none">65</next>
-        <next probability="20" only="none">66</next>
-        <next probability="20" only="none">67</next>
-        <next probability="20" only="none">68</next>
-        <next probability="20" only="none">69</next>
-        <next probability="20" only="none">70</next>
-        <next probability="20" only="none">71</next>
-        <next probability="20" only="none">72</next>
-        <next probability="25" only="none">73</next>
+        <next probability="100" only="none">1</next>
       </sequence>
-      <border>
-        <next probability="100" only="vertical">60</next>
-        <next probability="200" only="window-left">60</next>
-        <next probability="200" only="window-right">60</next>
-        <next probability="100" only="none">73</next>
-      </border>
     </animation>
     <animation id="65">
       <name>HangFromCeiling</name>
@@ -1886,27 +1862,10 @@
         <opacity>1</opacity>
         <interval>120</interval>
       </end>
-      <sequence repeatfrom="0" repeat="6">
+      <sequence repeatfrom="0" repeat="0">
         <frame>125</frame>
-        <next probability="20" only="none">62</next>
-        <next probability="20" only="none">63</next>
-        <next probability="20" only="none">64</next>
-        <next probability="20" only="none">65</next>
-        <next probability="60" only="none">66</next>
-        <next probability="20" only="none">67</next>
-        <next probability="20" only="none">68</next>
-        <next probability="20" only="none">69</next>
-        <next probability="20" only="none">70</next>
-        <next probability="20" only="none">71</next>
-        <next probability="20" only="none">72</next>
-        <next probability="25" only="none">73</next>
+        <next probability="100" only="none">1</next>
       </sequence>
-      <border>
-        <next probability="100" only="vertical">60</next>
-        <next probability="200" only="window-left">60</next>
-        <next probability="200" only="window-right">60</next>
-        <next probability="100" only="none">73</next>
-      </border>
     </animation>
     <animation id="67">
       <name>HangLooking</name>
@@ -1963,27 +1922,10 @@
         <opacity>1</opacity>
         <interval>120</interval>
       </end>
-      <sequence repeatfrom="0" repeat="6">
+      <sequence repeatfrom="0" repeat="0">
         <frame>128</frame>
-        <next probability="20" only="none">62</next>
-        <next probability="20" only="none">63</next>
-        <next probability="20" only="none">64</next>
-        <next probability="20" only="none">65</next>
-        <next probability="20" only="none">66</next>
-        <next probability="20" only="none">67</next>
-        <next probability="60" only="none">68</next>
-        <next probability="20" only="none">69</next>
-        <next probability="20" only="none">70</next>
-        <next probability="20" only="none">71</next>
-        <next probability="20" only="none">72</next>
-        <next probability="25" only="none">73</next>
+        <next probability="100" only="none">1</next>
       </sequence>
-      <border>
-        <next probability="100" only="vertical">60</next>
-        <next probability="200" only="window-left">60</next>
-        <next probability="200" only="window-right">60</next>
-        <next probability="100" only="none">73</next>
-      </border>
     </animation>
     <animation id="69">
       <name>HangLookingDown</name>
@@ -2040,27 +1982,10 @@
         <opacity>1</opacity>
         <interval>120</interval>
       </end>
-      <sequence repeatfrom="0" repeat="6">
+      <sequence repeatfrom="0" repeat="0">
         <frame>131</frame>
-        <next probability="20" only="none">62</next>
-        <next probability="20" only="none">63</next>
-        <next probability="20" only="none">64</next>
-        <next probability="20" only="none">65</next>
-        <next probability="20" only="none">66</next>
-        <next probability="20" only="none">67</next>
-        <next probability="20" only="none">68</next>
-        <next probability="20" only="none">69</next>
-        <next probability="60" only="none">70</next>
-        <next probability="20" only="none">71</next>
-        <next probability="20" only="none">72</next>
-        <next probability="25" only="none">73</next>
+        <next probability="100" only="none">1</next>
       </sequence>
-      <border>
-        <next probability="100" only="vertical">60</next>
-        <next probability="200" only="window-left">60</next>
-        <next probability="200" only="window-right">60</next>
-        <next probability="100" only="none">73</next>
-      </border>
     </animation>
     <animation id="71">
       <name>HangWriting</name>
@@ -2119,27 +2044,10 @@
         <opacity>1</opacity>
         <interval>120</interval>
       </end>
-      <sequence repeatfrom="0" repeat="6">
+      <sequence repeatfrom="0" repeat="0">
         <frame>136</frame>
-        <next probability="20" only="none">62</next>
-        <next probability="20" only="none">63</next>
-        <next probability="20" only="none">64</next>
-        <next probability="20" only="none">65</next>
-        <next probability="20" only="none">66</next>
-        <next probability="20" only="none">67</next>
-        <next probability="20" only="none">68</next>
-        <next probability="20" only="none">69</next>
-        <next probability="20" only="none">70</next>
-        <next probability="20" only="none">71</next>
-        <next probability="60" only="none">72</next>
-        <next probability="25" only="none">73</next>
+        <next probability="100" only="none">1</next>
       </sequence>
-      <border>
-        <next probability="100" only="vertical">60</next>
-        <next probability="200" only="window-left">60</next>
-        <next probability="200" only="window-right">60</next>
-        <next probability="100" only="none">73</next>
-      </border>
     </animation>
     <animation id="73">
       <name>fall</name>

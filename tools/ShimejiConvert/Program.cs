@@ -57,8 +57,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     if (args.Length != 2) return Usage();
                     return Rejump(args[1]);
                 case "reloop":
-                    if (args.Length != 2) return Usage();
-                    return Reloop(args[1]);
+                    if (args.Length != 2 && args.Length != 3) return Usage();
+                    return Reloop(args[1], args.Length == 3 ? args[2] : null);
                 case "reclimb":
                     if (args.Length != 2) return Usage();
                     return Reclimb(args[1]);
@@ -121,13 +121,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             Console.Error.WriteLine("                     flipping and standing still. Rises too weak to be jumps are flattened.");
             Console.Error.WriteLine("                     Needs no source skins (no new sprite frames are involved). Same two gates");
             Console.Error.WriteLine("                     as reweight, so hand-authored and already-migrated pets are skipped.");
-            Console.Error.WriteLine("  reloop <PetsDir>");
+            Console.Error.WriteLine("  reloop <PetsDir> [<BundlesDir>]");
             Console.Error.WriteLine("                     Migration: stop a performance that merely travels -- a trip, a bounce --");
             Console.Error.WriteLine("                     from carrying locomotion's \"65% do it again\" self-edge, which made a pet");
             Console.Error.WriteLine("                     stumble 2.9 times in a row on average. Classifies by the Type the bundled");
             Console.Error.WriteLine("                     conf declares for the action NAME, so walks, climbs and grabs keep their");
             Console.Error.WriteLine("                     loops. Names the conf does not know are left alone AND printed. Needs no");
             Console.Error.WriteLine("                     source skins. Same two gates as reweight, so re-running is safe.");
+            Console.Error.WriteLine("                     Give it a directory of source .zip skins and it also takes a name->Type");
+            Console.Error.WriteLine("                     census across that corpus, which answers names the bundled conf lacks.");
+            Console.Error.WriteLine("                     Only UNANIMOUS names count: one the corpus disputes stays unresolved.");
             Console.Error.WriteLine("  reclimb <PetsDir>");
             Console.Error.WriteLine("                     Migration: let a wall climb and a ceiling walk CROSS the surface in one");
             Console.Error.WriteLine("                     sequence instead of stopping every ~32px and rolling a 34% chance of");
@@ -1570,7 +1573,91 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         /// The three consequences below are the three things `loco` gates in BuildAnimation, and they have to
         /// move together or this output would not match a fresh conversion.
         /// </summary>
+        /// <summary>
+        /// An action-name -&gt; Type census taken across a CORPUS of source skins, used to answer names the
+        /// bundled conf has never heard of.
+        ///
+        /// Why a census and not a per-pet lookup: matching a converted pet back to its source archive by
+        /// title resolved only 7 of the 25 pets that still carried an unresolved self-loop, and a WRONG match
+        /// is worse than none, because it applies another skin's intent with full confidence. A census needs
+        /// no mapping. It answers a different and answerable question: across every conf in the corpus, is
+        /// this NAME ever declared as anything other than one Type?
+        ///
+        /// Unanimity is the whole guard. A name the corpus disagrees with itself about is not evidence of
+        /// anything and is left alone -- `jump` is Sequence in 28 of 29 confs and Move in the other, `crawl`
+        /// splits 7/13, and acting on a majority would be guessing with extra steps.
+        ///
+        /// Parsed with <see cref="ShimejiParser.ParseActionsXml"/> rather than a regex, so the engine's own
+        /// vocabulary handling applies and a Japanese conf is read as the same data as an English one. That
+        /// matters here: the original Japanese stock conf declares 転ぶ (Tripping) as 固定, which is Stay,
+        /// while the English translation of the same conf says Animate. Both are read; neither is Move; the
+        /// behaviour this migration cares about is the same either way.
+        /// </summary>
+        private static Dictionary<string, string> CorpusCensus(string bundlesDirectory, out int confs, out int skipped, out int disputed)
+        {
+            var seen = new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase);
+            confs = 0; skipped = 0; disputed = 0;
+
+            var archives = new List<string>(Directory.GetFiles(bundlesDirectory, "*.zip", SearchOption.AllDirectories));
+            archives.Sort(StringComparer.OrdinalIgnoreCase);
+            Console.WriteLine("census: scanning " + archives.Count + " archive(s) under " + bundlesDirectory);
+
+            foreach (string archive in archives)
+            {
+                try
+                {
+                    using (var zip = System.IO.Compression.ZipFile.OpenRead(archive))
+                    {
+                        foreach (System.IO.Compression.ZipArchiveEntry entry in zip.Entries)
+                        {
+                            string leaf = Path.GetFileName(entry.FullName);
+                            if (leaf.Length == 0 || !leaf.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)) continue;
+                            if (leaf.IndexOf("action", StringComparison.OrdinalIgnoreCase) < 0 &&
+                                leaf.IndexOf("動作", StringComparison.Ordinal) < 0) continue;
+                            if (entry.Length > 4 * 1024 * 1024) { skipped++; continue; }
+
+                            string text;
+                            try
+                            {
+                                using (Stream s = entry.Open())
+                                using (var reader = new StreamReader(s, Encoding.UTF8, true))
+                                    text = reader.ReadToEnd();
+                            }
+                            catch (Exception) { skipped++; continue; }
+
+                            ShimejiConfig parsed;
+                            try { parsed = ShimejiParser.ParseActionsXml(text); }
+                            catch (Exception) { skipped++; continue; }
+                            confs++;
+                            foreach (ShimejiAction act in parsed.Actions)
+                            {
+                                if (act == null || string.IsNullOrEmpty(act.Name) || string.IsNullOrEmpty(act.Type)) continue;
+                                Dictionary<string, int> byType;
+                                if (!seen.TryGetValue(act.Name, out byType))
+                                { byType = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase); seen[act.Name] = byType; }
+                                byType[act.Type] = (byType.ContainsKey(act.Type) ? byType[act.Type] : 0) + 1;
+                            }
+                        }
+                    }
+                }
+                catch (Exception) { skipped++; }
+            }
+
+            var census = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, Dictionary<string, int>> kv in seen)
+            {
+                if (kv.Value.Count != 1) { disputed++; continue; }
+                foreach (KeyValuePair<string, int> only in kv.Value) census[kv.Key] = only.Key;
+            }
+            return census;
+        }
+
         private static int Reloop(string petsDirectory)
+        {
+            return Reloop(petsDirectory, null);
+        }
+
+        private static int Reloop(string petsDirectory, string bundlesDirectory)
         {
             if (!Directory.Exists(petsDirectory)) { Console.Error.WriteLine("No such directory: " + petsDirectory); return 2; }
             var pets = new List<string>();
@@ -1589,6 +1676,29 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 Console.Error.WriteLine("The bundled conf declared no actions, so nothing can be classified.");
                 return 2;
             }
+            int baseNames = declared.Count;
+
+            // The corpus, when one is offered. The bundled conf stays AUTHORITATIVE: it is the conf these
+            // pets were actually converted against, so a corpus majority must never overrule it.
+            int censusConfs = 0, censusSkipped = 0, censusDisputed = 0, censusAdded = 0;
+            bool haveCorpus = !string.IsNullOrEmpty(bundlesDirectory);
+            if (haveCorpus)
+            {
+                if (!Directory.Exists(bundlesDirectory))
+                { Console.Error.WriteLine("No such bundles directory: " + bundlesDirectory); return 2; }
+                Dictionary<string, string> census = CorpusCensus(bundlesDirectory, out censusConfs, out censusSkipped, out censusDisputed);
+                foreach (KeyValuePair<string, string> kv in census)
+                    if (!declared.ContainsKey(kv.Key)) { declared[kv.Key] = kv.Value; censusAdded++; }
+                Console.WriteLine("census: " + censusConfs + " conf(s) parsed, " + censusSkipped + " skipped, " +
+                    censusDisputed + " name(s) the corpus disputes (left unresolvable), " + censusAdded +
+                    " name(s) added to the " + baseNames + " the bundled conf declares");
+            }
+            else
+            {
+                Console.WriteLine("census: none offered, so only the " + baseNames +
+                    " names in the bundled conf can be classified (pass a bundles directory to widen this)");
+            }
+            Console.WriteLine();
 
             int petsChanged = 0, skipped = 0, failures = 0, fixedLoops = 0;
             var unresolved = new SortedDictionary<string, int>(StringComparer.Ordinal);
@@ -1620,8 +1730,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 if (root.Header == null ||
                     !string.Equals(root.Header.Author, PetEmitter.ConvertedAuthor, StringComparison.Ordinal))
                 { Console.WriteLine(name.PadRight(36) + " skip (not converter output)"); skipped++; continue; }
-                if (!string.Equals(root.Header.Version, PetEmitter.ConvertedFormatVersionSelfLoopingIdles, StringComparison.Ordinal))
-                { Console.WriteLine(name.PadRight(36) + " skip (already at format " + (root.Header.Version ?? "?") + ")"); skipped++; continue; }
+                // Unlike its siblings, this migration does NOT gate on one exact version, and the reason is
+                // specific to it: how much it can repair depends on an external corpus of source skins that
+                // the repo does not contain. A one-shot version gate would mean the first run, with whatever
+                // corpus happened to be on hand, permanently locked out a better one. So it accepts any
+                // version it understands and re-reads them all. Idempotence comes from the WRITE instead:
+                // a pet with nothing left to fix falls out at `fixedHere == 0` and is never rewritten, so a
+                // second run with the same corpus changes no bytes, and a run with a wider one does more.
+                if (!string.Equals(root.Header.Version, PetEmitter.ConvertedFormatVersionSelfLoopingIdles, StringComparison.Ordinal) &&
+                    !string.Equals(root.Header.Version, PetEmitter.ConvertedFormatVersion, StringComparison.Ordinal))
+                { Console.WriteLine(name.PadRight(36) + " skip (format " + (root.Header.Version ?? "?") + ", not one this migration understands)"); skipped++; continue; }
                 if (root.Animations == null || root.Animations.Animation == null)
                 { Console.WriteLine(name.PadRight(36) + " skip (no animations)"); skipped++; continue; }
 
