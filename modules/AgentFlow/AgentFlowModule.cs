@@ -146,7 +146,16 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.4.0",   // 1.4.0: the approval limit is YOURS. It was a hard-coded 10
+            Version = "1.4.1",   // 1.4.1: two field reports against v1.2.4. The animation
+                                 //        dropdown showed the generic seven for a pet with its
+                                 //        own list, curable only by changing the pet and changing
+                                 //        back: the memo introduced in 1.3.2 cached a FALLBACK,
+                                 //        and the fallback is taken on every launch because
+                                 //        Pets() returns null for the whole of Init. Only an
+                                 //        authoritative answer is cached now. And an installed
+                                 //        pet that was not on screen could not be chosen at all,
+                                 //        so a pet you own was invisible while another was up.
+                                 // 1.4.0: the approval limit is YOURS. It was a hard-coded 10
                                  //        presses per five minutes, and on 2026-09-22 it stood the
                                  //        module down in the middle of the owner's ordinary work --
                                  //        two agent sessions reach ten in five minutes easily. It
@@ -4158,6 +4167,21 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("WITNESS a different pet recomputes rather than reusing the memo",
                     !ReferenceEquals(first, other));
 
+                // 5. A FAILED LOOKUP IS NOT REMEMBERED. This is the one the original memo got
+                //    wrong and this test did not catch, because every case above uses (any
+                //    pet), where the coverage list IS the answer and caching it is correct.
+                //    With no companion manager the lookup CANNOT succeed, so each call must
+                //    recompute -- a cache hit here is the v1.2.4 defect, where the animation
+                //    dropdown showed the generic seven for a pet with its own list until you
+                //    changed the pet and changed it back.
+                string[] failedOnce = module.AnimationChoicesForSelfTest("shimeji-nobody");
+                string[] failedTwice = module.AnimationChoicesForSelfTest("shimeji-nobody");
+                probe.Check("WITNESS a lookup that could not succeed is not cached, so it is "
+                            + "retried rather than pinned for the life of the pane",
+                    !ReferenceEquals(failedOnce, failedTwice));
+                probe.Check("...and it still answers with the coverage list rather than nothing",
+                    failedOnce.Length > 0 && failedTwice.Length == failedOnce.Length);
+
                 module.Shutdown();
             }
             return true;
@@ -5319,20 +5343,40 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("a null type contributes nothing",
                     AgentFlowModule.PetDisplay(null) == "");
 
-                // ---- the list is the pets ON SCREEN -------------------------------
-                // Reported from a real pane: it offered every installed companion, which on
-                // this machine is a scrolling list of folder ids for a choice about the two
-                // pets the user is looking at.
+                // ---- ON SCREEN FIRST, THEN EVERY INSTALLED PET ---------------------
+                // THIS DECISION REVERSED ON 2026-09-22, and the reversal is the interesting
+                // part. The list was narrowed to on-screen-only because the owner reported the
+                // opposite defect: "it offered every installed companion, which on this machine
+                // is a scrolling list of folder ids for a choice about the two pets the user is
+                // looking at." Both reports are real and they contradict each other, so the
+                // tie-break is measurement rather than preference.
+                //
+                // Measured on the reporting machine, 2026-09-22: THREE pets are installed
+                // (pink_sheep, shimeji-brq51bkr, shimeji-hornet-9b9d1d), so "every installed"
+                // is a four-row dropdown, not a scroll. And every one resolves to a NAME --
+                // Pearl, Jesus Our Lord, Hornet -- so the "folder ids" half of the original
+                // complaint is about naming, which PetDisplay already fixed, rather than about
+                // length. What was left was a pet the owner owns being unpickable: "agentflow
+                // pet does not see pearl", with Hornet on screen and Pearl installed.
+                //
+                // If the installed set ever grows past what a dropdown can carry, the answer is
+                // a different control, not hiding pets the user owns.
                 host.CompanionManager = new FakePets(
                     new[] { "pink_sheep", "Pearl", "shimeji-hornet-9b9d1d", "Hornet",
                             "shimeji-brq51bkr", "Jesus Our Lord", "esheep64", "eSheep (default)" },
                     new[] { "pink_sheep", "shimeji-hornet-9b9d1d" });
 
                 var listed = new List<string>(module.PetChoicesForSelfTest());
-                probe.Check("WITNESS only the pets on screen are offered, not all installed",
-                    listed.Count == 3 && listed.Contains("Pearl") && listed.Contains("Hornet"));
-                probe.Check("WITNESS ...so a pet that is merely installed is absent",
-                    !listed.Contains("Jesus Our Lord") && !listed.Contains("eSheep (default)"));
+                probe.Check("WITNESS an installed pet that is NOT on screen can still be chosen",
+                    listed.Contains("Jesus Our Lord") && listed.Contains("eSheep (default)"));
+                probe.Check("WITNESS ...alongside the ones that are up",
+                    listed.Contains("Pearl") && listed.Contains("Hornet"));
+                probe.Check("WITNESS the on-screen pets come FIRST, so the likely choice is not "
+                            + "buried under the library",
+                    listed.IndexOf("Pearl") < listed.IndexOf("Jesus Our Lord")
+                    && listed.IndexOf("Hornet") < listed.IndexOf("Jesus Our Lord"));
+                probe.Check("WITNESS no pet is listed twice when it is both installed and up",
+                    listed.FindAll(delegate(string n) { return n == "Pearl"; }).Count == 1);
                 probe.Check("WITNESS they are offered by name, not by folder id",
                     !listed.Contains("pink_sheep") && !listed.Contains("shimeji-hornet-9b9d1d"));
                 probe.Check("(any pet) is still first, so the generic choice remains",

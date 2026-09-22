@@ -363,15 +363,17 @@ namespace DesktopAICompanion.AgentFlow
                     choices.Add(display);
             }
 
-            // Nothing up: offer what is installed, so the setting can be chosen in advance.
-            if (choices.Count == 1)
+            // EVERY INSTALLED PET, not only when none is on screen. This used to be guarded
+            // by `choices.Count == 1`, so the moment any companion was up the installed list was
+            // never consulted and a pet the user owns but has not spawned could not be chosen at
+            // all. Reported against v1.2.4: "agentflow pet does not see pearl", with Hornet on
+            // screen. The on-screen ones are added first so the likely choice stays near the top.
+            foreach (CompanionTypeInfo type in InstalledPets())
             {
-                foreach (CompanionTypeInfo type in InstalledPets())
-                {
-                    string display = PetDisplay(type);
-                    if (display.Length > 0 && !choices.Contains(display)) choices.Add(display);
-                }
-                return choices.ToArray();
+                string display = PetDisplay(type);
+                if (display.Length > 0 && display != PetAnimations.AnyPet
+                    && !choices.Contains(display))
+                    choices.Add(display);
             }
 
             // Keep a previously chosen pet visible even once it has gone, so opening the pane
@@ -480,14 +482,43 @@ namespace DesktopAICompanion.AgentFlow
             string key = pet ?? "";
             if (_choicesCache != null && string.Equals(_choicesPet, key, StringComparison.Ordinal))
                 return _choicesCache;
-            string[] computed = ComputeAnimationChoices(pet);
-            _choicesPet = key;
-            _choicesCache = computed;
+
+            bool authoritative;
+            string[] computed = ComputeAnimationChoices(pet, out authoritative);
+
+            // A FAILED LOOKUP IS NEVER REMEMBERED, and the first version of this memo did
+            // remember one. Reported against v1.2.4: the animation list showed the generic
+            // seven for a pet that has its own, and the ONLY way to get the real list was to
+            // change the pet and change it back.
+            //
+            // The chain: Init sets _initialising, BuildPane builds the schema immediately, and
+            // Pets() returns null while _initialising is true -- deliberately, see that field.
+            // So the very first computation for the stored pet ALWAYS falls back, and caching
+            // it pinned the fallback under the right key for the life of the pane. Flipping to
+            // another pet evicted the single slot; flipping back recomputed with the manager
+            // live and finally succeeded, which is exactly the reported workaround.
+            //
+            // The irony is recorded six lines above _initialising: the HOST used to cache the
+            // permission refusal that this guard exists to avoid, "which made it permanent: the
+            // pet dropdown offered nothing but (any pet) for the life of the process". Same bug
+            // class, moved into the module and pointed at a different dropdown.
+            if (authoritative)
+            {
+                _choicesPet = key;
+                _choicesCache = computed;
+            }
             return computed;
         }
 
-        private string[] ComputeAnimationChoices(string pet)
+        /// <summary>
+        /// <paramref name="authoritative"/> separates "this IS the answer" from "we could not
+        /// find out". Only the first may be cached: see AnimationChoices. The coverage list is
+        /// the real answer for (any pet) and a guess for everything else, and the two are
+        /// indistinguishable by value, which is why the flag exists rather than a contents test.
+        /// </summary>
+        private string[] ComputeAnimationChoices(string pet, out bool authoritative)
         {
+            authoritative = true;
             if (string.IsNullOrEmpty(pet) || pet == PetAnimations.AnyPet)
             {
                 var generic = new List<string>();
@@ -509,7 +540,10 @@ namespace DesktopAICompanion.AgentFlow
             }
             catch (Exception) { }
             // A pet whose XML cannot be read falls back to the coverage list rather than to an
-            // empty dropdown, which would read as "this pet has no animations".
+            // empty dropdown, which would read as "this pet has no animations". NOT authoritative:
+            // the manager is null for the whole of Init, so this path is taken at least once on
+            // every launch and is right again moments later.
+            authoritative = false;
             var fallback = new List<string>();
             foreach (string name in PetAnimations.AnyPetCandidates) fallback.Add(name);
             return fallback.ToArray();

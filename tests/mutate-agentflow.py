@@ -55,6 +55,7 @@ READER = os.path.join(MODULE_DIR, "TranscriptReader.cs")
 CDP = os.path.join(MODULE_DIR, "CdpApprover.cs")
 PROMPTOPTS = os.path.join(MODULE_DIR, "PromptOptions.cs")
 BUDGETPRESS = os.path.join(MODULE_DIR, "PressBudget.cs")
+PANE = os.path.join(MODULE_DIR, "AgentFlowPane.cs")
 DOT = os.path.join(MODULE_DIR, "StatusDot.cs")
 MODE = os.path.join(MODULE_DIR, "AgentMode.cs")
 QUIPS = os.path.join(MODULE_DIR, "Quips.cs")
@@ -705,6 +706,40 @@ CASES = (
         "                if (!normalized.EndsWith(destination, StringComparison.Ordinal)) continue;",
         "                if (normalized.IndexOf(destination, StringComparison.Ordinal) < 0) continue;",
         "the phrase inside the command does not make it all-projects",
+    ),
+    (
+        # v1.2.4 field report: the animation dropdown showed the generic seven for a pet that
+        # has its own list, and the only cure was changing the pet and changing it back. The
+        # memo was caching a FALLBACK, and the fallback is taken on every launch because Pets()
+        # returns null for the whole of Init. Caching it pinned the wrong answer under the right
+        # key for the life of the pane.
+        "a failed animation lookup is cached and so stays failed",
+        PANE,
+        "            if (authoritative)\n"
+        "            {\n"
+        "                _choicesPet = key;\n"
+        "                _choicesCache = computed;\n"
+        "            }",
+        "            {\n"
+        "                _choicesPet = key;\n"
+        "                _choicesCache = computed;\n"
+        "            }",
+        "a lookup that could not succeed is not cached",
+    ),
+    (
+        # v1.2.4 field report: "agentflow pet does not see pearl". Installed pets were offered
+        # ONLY when nothing was on screen, so a pet the owner owns but has not spawned could not
+        # be chosen at all.
+        "installed pets are hidden whenever any pet is on screen",
+        PANE,
+        "            foreach (CompanionTypeInfo type in InstalledPets())\n"
+        "            {\n"
+        "                string display = PetDisplay(type);",
+        "            if (choices.Count == 1)\n"
+        "            foreach (CompanionTypeInfo type in InstalledPets())\n"
+        "            {\n"
+        "                string display = PetDisplay(type);",
+        "an installed pet that is NOT on screen can still be chosen",
     ),
 )
 
