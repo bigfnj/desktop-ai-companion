@@ -291,16 +291,16 @@
       "name": "Jesus Our Lord",
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-brq51bkr/animations.xml",
-      "sha256": "35615c448d36bcf606387bb967dffddb0c53a1e4a9b0a0bd7f4507bf4a90e449",
-      "bytes": 4723924
+      "sha256": "fbcf31942af49346da790b89f52f8e5657df1f0d05d5debc2a24259760430624",
+      "bytes": 4723618
     },
     {
       "id": "shimeji-capybara-albino",
       "name": "Capybara",
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-capybara-albino/animations.xml",
-      "sha256": "0603b73d1837e5347db6ac5e954df220bc363b10defc779c80800ed9578e041e",
-      "bytes": 410409
+      "sha256": "e05551c7d8c9ffb7a2fcf27e6c0dc40d2df1d337a4e4498d623b07a713d82e5d",
+      "bytes": 410165
     },
     {
       "id": "shimeji-cyn",
@@ -331,8 +331,8 @@
       "name": "Hornet",
       "author": "shimejis.xyz",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-hornet-9b9d1d/animations.xml",
-      "sha256": "31ec6588c25e31616470c105e72d540a04ca4ee129c30b4a33fe1c66f6d71d84",
-      "bytes": 426213
+      "sha256": "0c967df7d10ebd55872d2c82d96a903d4c04f6eed36c331445a38f8a885e0147",
+      "bytes": 425902
     },
     {
       "id": "shimeji-kinitopet",
@@ -355,8 +355,8 @@
       "name": "Ralsei",
       "author": "shimejis.xyz",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-ralsei/animations.xml",
-      "sha256": "a34179ea6129ea11ea7156c857cc4cc0eb53fe9ab58be086b910a3334923fa19",
-      "bytes": 602143
+      "sha256": "f7422e7f8ba1b7dde0063730642722ce65b6ea46ac0e0f7d25f3359f4052e725",
+      "bytes": 601523
     },
     {
       "id": "shimeji-rick-and-morty-rick-by-starrii-chan",
@@ -371,24 +371,24 @@
       "name": "Serial Designation J",
       "author": "shimejis.xyz",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-serial-designation-j/animations.xml",
-      "sha256": "bfd8002789badf4372b952a2142f0f84083dc6b5df7b089497a0ba05ad2711b7",
-      "bytes": 2533241
+      "sha256": "fae21385fbc002099d2ab52a19af81326feda95e6d83a21bcd6adf74b50e1f0e",
+      "bytes": 2528686
     },
     {
       "id": "shimeji-south-park-cartman",
       "name": "Cartman",
       "author": "Phinbella-Flynn",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-south-park-cartman/animations.xml",
-      "sha256": "240f9e6992df8645425d3fc70a809342c190d2d586cb5031833689053c2bc511",
-      "bytes": 560062
+      "sha256": "5e939c56bee8aa64389925966fdbd819b9499d6d1fdfcd7c084937d8569b330a",
+      "bytes": 559752
     },
     {
       "id": "shimeji-uzi-doorman-ef5c7d",
       "name": "Uzi Doorman",
       "author": "Kilkakon and Polar Summit",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-uzi-doorman-ef5c7d/animations.xml",
-      "sha256": "e9ed511eeed534b463c2aeead1c6e58226e425478eb56594d3d42ff3f38f4c1e",
-      "bytes": 1968776
+      "sha256": "c3c57472688935c5f5aae491a6f8b3ee9c138a4a311df3a59c489343092852dc",
+      "bytes": 1967714
     },
     {
       "id": "shimeji-vocaloid-gakupo",
@@ -2196,10 +2196,10 @@
       "id": "petstudio",
       "name": "Companion Studio",
       "desc": "Check a companion's animations.xml before you use it: what the host would reject, which animations can never play, and how it actually looks running on your desktop. Edit the XML in place, watch any animation's real sprite frames, preview the companion temporarily on your desktop, then install it.",
-      "version": "1.0.4",
+      "version": "1.0.5",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/petstudio.zip",
-      "sha256": "47b87b5803df8aa01e94f3fc9d1a6636ca2c611710c7fe7406d7ae6505e9407b",
-      "bytes": 387167,
+      "sha256": "5cba87fd6b7057b09f316f938208581f54c95ce83a5f601614ca2e0404604800",
+      "bytes": 387200,
       "permissions": "Speech, Companions, Storage"
     },
     {
