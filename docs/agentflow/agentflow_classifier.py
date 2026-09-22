@@ -47,6 +47,7 @@ APPROVE_ALL_PROJECTS = "approve-all-projects"   # a rule saved to the USER setti
 MODE_CHANGE = "mode-change"        # alters the permission mode, sometimes persistently
 REJECT = "reject"                  # declines the call
 FREE_TEXT = "free-text"            # "other" / tell the agent something instead
+APPROVE_SIMILAR = "approve-similar"   # Codex: this call AND whatever it judges similar
 UNKNOWN = "unknown"                # not in the table: refuse the whole prompt
 
 # Table entries ending in a single space are PREFIX TEMPLATES (a runtime value is
@@ -62,10 +63,20 @@ KNOWN = {
     "yes, allow access to ": APPROVE_ONCE,
     "yes, allow access to": APPROVE_ONCE,
     "allow": APPROVE_ONCE,
+    # Codex. Its own EXACT entry rather than relying on the bare "allow" above, which is
+    # an exact match and does not cover it. Mirrors PromptOptions.cs:129-132.
+    "allow once": APPROVE_ONCE,
 
     # -- wider than one call --------------------------------------------------
     "yes, allow all edits this session": APPROVE_WIDER,
     "yes, and don't ask again": APPROVE_WIDER,
+
+    # -- Codex only: wider than one call, narrower than a standing grant -----
+    # Kept as its own class rather than folded into APPROVE_WIDER, matching the C# enum.
+    # A user can reasonably want exactly this and nothing wider, and what "similar" MEANS
+    # is Codex's judgement rather than ours -- which is also why it is off by default:
+    # neither side can state the blast radius of a grant the other agent scopes.
+    "allow similar commands": APPROVE_SIMILAR,
 
     # -- changes the permission mode -----------------------------------------
     "yes, and auto-accept": MODE_CHANGE,

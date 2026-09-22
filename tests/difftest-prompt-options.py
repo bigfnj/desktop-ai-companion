@@ -38,6 +38,7 @@ KIND_MAP = {
     "ModeChange": REF.MODE_CHANGE,
     "Reject": REF.REJECT,
     "FreeText": REF.FREE_TEXT,
+    "ApproveSimilar": REF.APPROVE_SIMILAR,
 }
 
 _ENTRY = re.compile(r'Entry\("((?:[^"\\]|\\.)*)",\s*OptionKind\.(\w+)\)')
