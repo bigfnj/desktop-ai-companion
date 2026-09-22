@@ -1240,8 +1240,10 @@ own residue reports rather than estimated:
 *(The ⬜ and ⚠️ items interleaved through the rest of this section were open when this entry was
 written; where each went is worth being precise about, because this pointer had already gone stale
 once by naming items that were nowhere. **Still open in [`../BACKLOG.md`](../BACKLOG.md):** the
-unique-tray-icon convention, the 1px sprite line on Jesus Our Lord's fall frame, and the blank-frame
-gate. **Closed by decision and now in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md):** `totalCount` is
+unique-tray-icon convention and the blank-frame gate. (The 1px sprite line was listed here too
+until 2026-09-21, when it turned out to have been FIXED by `bf983ff2f` on the same day it was
+filed — a later commit than the one that filed it. This pointer had gone stale in exactly the
+way its own sentence warns about.) **Closed by decision and now in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md):** `totalCount` is
 do-not-build, and the live-value ABI gap is noted rather than scheduled. **`ChaseMouse` /
 `ChaseMouse2`** — the only item on the phase list never built — is in [`BLOCKED.md`](BLOCKED.md),
 because what it needs first is a judgement call rather than code. **Gone from the backlog, and in git

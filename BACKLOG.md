@@ -653,13 +653,37 @@ code. Two decisions that used to sit here are in
   `loader.ShutdownAll`. `TrayConventions.CheckTrayIcons` is already IN ModuleKit, so calling it from
   the host adds no ModuleKit member and therefore costs no republish — see the ModuleKit entry in
   [`docs/DESIGN-REGISTER.md`](docs/DESIGN-REGISTER.md) for why that distinction decides the design.
-- ⬜ **A dark 1px line on the left edge of Jesus Our Lord's fall frame.** NOT a conversion artifact: the
-  baked tile (88) and its left neighbour (87) were both rendered out of the shipped sheet and are clean,
-  and the sheet is 2560x2560 with exact 256px tiles, so there is no rounding slop in the compositor.
-  That leaves runtime tile sampling in the host (bilinear filtering picking up a column from the
-  neighbouring tile when the companion is scaled). Fix is host-side, either sampling with a half-pixel inset or
-  clamping, so it needs a release. Reported 2026-08-28.
+- ✅ **CLOSED 2026-09-21: already fixed, on the same day it was filed, by a later commit.**
+  The entry was written by `f04edd649` ("logs the two findings that are NOT fixed"), and
+  `bf983ff2f` ("Fix the dark rim on downscaled frames") landed after it and was never linked
+  back. `docs/HISTORY-post-1.0.0.md:1243` still forwarded here as open, so the staleness
+  propagated.
 
+  **The diagnosis in the entry was also wrong about the mechanism.** It blamed runtime tile
+  sampling, but sprites are pre-sliced into standalone `Bitmap`s at load (`src/dotNet/Xml.cs:621`)
+  and the sheet is disposed at `:531`, so nothing can sample across a tile boundary at runtime.
+  The draw path blits whole bitmaps 1:1 through `UpdateLayeredWindow`
+  (`src/dotNet/FormCompanion.cs:401`) with no `DrawImage`, no interpolation and no source
+  sub-rect. The real cause was at LOAD time, in the smooth-downscale path, and the shipped fix
+  is extract-then-scale at `Xml.cs:657-689`: cut the tile 1:1 unfiltered, then scale that
+  standalone bitmap, whose edges are real image edges.
+
+  ⚠ **Do not re-propose `WrapMode.TileFlipXY`.** It is the textbook remedy and it was tried
+  and MEASURED here: darkest edge pixel 236 without it, 237 with it, 254 with extract-then-scale
+  (`Xml.cs:645-656`). The wrap applies to the image, not to a source sub-rectangle.
+
+  Regression net exists: `src/dotNet/RuntimeHardeningSelfTest.cs:506-535` builds a 64x32 sheet
+  with tile 0 black and tile 1 white, downscales tile 1, and asserts the darkest pixel is >= 250
+  — any dark pixel could only have come from across the boundary. Runs in `--hardening-selftest`,
+  which the gate runs.
+
+  Two loose ends, recorded rather than actioned. The entry's geometry no longer matches the
+  shipped pack: it cites tile 88 on a 2560x2560 sheet, and `Companions/shimeji-brq51bkr` now
+  declares 9x8 tiles on a 2304x2048 PNG, so **tile 88 does not exist** — the pack was
+  re-converted on 2026-09-09, after the report. And for a 256px cell `ScalePolicy.FitFactorForFrameD`
+  caps the factor at 1.0, so at 100% or above this pet does not take the downscale path at all.
+  **Nothing records whether the reporter re-observed the line after `bf983ff2f`**; if it is ever
+  seen again it is a new bug, not this one.
 ### Module SDK follow-ups
 
 - 📌 **`ModulePermissions` cannot disclose input monitoring or process
