@@ -45,6 +45,61 @@ Anything closed that still carries standing value was extracted rather than dele
 
 ---
 
+## Open: AgentFlow post-publish audit (2026-09-21)
+
+Twenty findings. **Twelve are fixed and shipped in agentflow 1.3.1 + host 1.2.3**; see the commit
+`AgentFlow 1.3.1: fix nine defects the post-publish audit found` for what each one was and 7/7
+mutation results. What is left is below. The audit was worth more than the feature it audited:
+four defects were in code committed the same day, and two made a shipped version note false.
+
+**The lesson worth keeping, above any individual item.** Two findings were *unreachable code behind
+a shipped claim* -- the Notify-mode screen watch and, in a different way, the `sawPanel` report.
+Neither a green suite nor a live smoke test found them, because both were reached only in a mode
+nobody was exercising. Ask what input reaches a branch, not whether the branch looks right.
+
+- 📌 **The pane does blocking IO on the UI thread: a TCP connect and a file read on every open and
+  every dropdown change.** Opening the module's options stalls the app for the connect timeout when
+  VS Code is not listening. `OptionsPane` has no async contract, so the honest fix is to render from
+  the cached `_portAnswering` that the poll already refreshes and never probe from the UI thread at
+  all. Contained, but it is a behaviour change in what the pane shows the instant it opens.
+
+- 📌 **`RuleLoader.Load`'s `sources` count is read into a local and discarded** (`AgentFlowModule.cs`
+  `Scan`). `sources == 0` means "no permission-rule file was found anywhere", which is a completely
+  different state from "rules loaded, none matched" -- and it is the state a user gets when their
+  rules live somewhere unexpected, with no explanation and every call reading Undecidable. Not fixed
+  because surfacing it needs another `out` on `Scan`, which already carries eight parameters and two
+  outs, plus a dedupe so it is not logged every ten seconds. Worth doing with the signature tidy-up
+  rather than bolted on.
+
+- 📌 **The settings dictionary is read from the poll worker while the UI thread writes it.**
+  `Enabled` and `Mode` are read inside the tick; `Apply` writes the same unsynchronised
+  `Dictionary<string, string>` from the UI thread. A torn read here is unlikely and not impossible,
+  and the failure would be a corrupted dictionary rather than a stale bool. The fix is a snapshot
+  taken once per tick, which is also tidier than the current scattered property reads.
+
+- 📌 **`ActiveTranscripts` is now the dominant cost of a tick, and the cursor is why.** The fold went
+  from 535 ms to 0.3 ms, so what is left is the directory sweep: MEASURED 2026-09-21 in fresh
+  processes, ~45 ms for 705 Claude transcripts and ~17 ms for 247 Codex ones, every ten seconds,
+  which is around half a percent of one core. Not urgent. The real fix is a `FileSystemWatcher` per
+  root feeding the same `SessionCache`, which would take a quiet tick to near zero; the reason to
+  wait is that a watcher has its own failure modes (buffer overflow, network paths, missed events on
+  some filesystems) and would need the polling sweep kept as a reconciliation pass anyway.
+
+- 📌 **Two 1.3.1 fixes are defended by structure rather than by an assertion, and both say so in
+  their own comments.** `sawPanel` reporting false after a successful press needs a fake CDP server
+  to test -- worth building, because it would also cover `Interpret`, `Parse` and the Codex click
+  template, which are currently only asserted against recorded strings. And the port probe that made
+  looking imply pressing was a value the *caller* computed, not a predicate anything could call; it
+  now lives in `ShouldProbePort()`, which takes no `autoApprove` argument, so reintroducing the bug
+  means adding a parameter to a documented decision rather than dropping a word into a condition.
+
+- 📌 **The audit reported four self-test assertions that cannot fail; one was found and fixed, three
+  are unlocated.** The fixed one asserted `candidates.Count > 1` twice in a row, the second time as
+  though it were checking something else. The other three were not named in a form that survived the
+  audit, and hunting them blind costs more than it returns; the right tool is a pass over every
+  `probe.Check` in the module asking what input makes it false. Filed rather than guessed at,
+  because a check that cannot fail is worse than no check: it reads as coverage.
+
 ## 🚢 AgentFlow — PUBLISHED (notify half, 2026-09-17)
 
 **Status: published as 1.0.0 and live in the catalog.** `modules/AgentFlow/` is built by `build.ps1`,
@@ -618,6 +673,37 @@ Both original entries in full, with the pre-tag verification that WAS performed 
   is not a rectangle. A companion crossing at floor level would walk into empty space. Handing off mid-animation
   across a DPI change is the second hazard.
   Pinning (v1.9.12) is the escape hatch meanwhile: a pinned companion stays put by construction.
+
+  **SCOPED 2026-09-21, and the answer is that this is a project, not a contained change.** Counted,
+  not estimated: ~30 expression sites in `FormCompanion.cs` across 16 distinct decisions, 5 helper
+  signatures in `Animations.cs`, and 6 `DesktopGeometry` primitives all resolve against one screen
+  rectangle. `FormCompanion.cs:1438-1449` clamps the position into `workArea` **every tick**, so
+  traversal means deleting the invariant the other 15 decisions are written against, not adding a
+  case to them. No union over `Screen.AllScreens` exists anywhere in the tree, and there is no
+  taskbar map.
+  **The part that makes it a breaking change rather than a big one:** `screenW`, `screenH`, `areaW`
+  and `areaH` are a PUBLIC pet-XML contract (`Xml.cs:424-429`). Third-party pets compute against
+  them, so redefining them as virtual-desktop extents changes the meaning of expressions in packs
+  this project does not own; keeping them per-monitor while the walk is virtual means two coordinate
+  systems in one expression evaluator. Four test files also pin the current single-rect source text.
+  Whoever picks this up should decide the XML contract question FIRST, because every other decision
+  follows from it.
+
+- ⬜ **The pet XML validator's positive-probability guarantee does not survive the runtime
+  eligibility filter, and live pets hit it.** `CompanionXmlValidator.cs:672` refuses any pet whose
+  transition set sums to zero probability, which reads as a guarantee that a companion can always
+  pick a next animation. `Animations.cs:1005-1018` then filters by `TNextAnimation.Eligible(anim.only,
+  where)` BEFORE summing, so a state whose every transition is conditioned on a `where` the
+  companion is not currently in has zero eligible weight, logs `no eligible positive-probability
+  transition`, and returns -1. Found 2026-09-21 in the maintainer's own diagnostics: bursts of 2 to 3
+  at 17:18, 17:54, 17:55 and 18:11 during ordinary use, with two pets on screen.
+  **What is NOT known, and should be measured before fixing:** what the companion does after the -1,
+  whether the bursts correlate with a specific pet or a specific transition (the log line carries
+  neither, which is its own defect), and whether the user can see anything wrong. It may be
+  invisible and harmless. The cheap first step is to put the pet type and the state id in that
+  warning, then look again -- a warning that cannot identify its subject cannot be acted on.
+  The validator could also be strengthened to require positive eligible weight per `where` bucket,
+  which would reject some currently-accepted third-party pets, so that is a decision not a fix.
 
 ### Shimeji conversion: the open remainder
 
