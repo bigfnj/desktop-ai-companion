@@ -78,9 +78,16 @@ nobody was exercising. Ask what input reaches a branch, not whether the branch l
   taken once per tick, which is also tidier than the current scattered property reads.
 
 - 📌 **`ActiveTranscripts` is now the dominant cost of a tick, and the cursor is why.** The fold went
-  from 535 ms to 0.3 ms, so what is left is the directory sweep: MEASURED 2026-09-21 in fresh
-  processes, ~45 ms for 705 Claude transcripts and ~17 ms for 247 Codex ones, every ten seconds,
-  which is around half a percent of one core. Not urgent. The real fix is a `FileSystemWatcher` per
+  from 535 ms to 0.3 ms, so what is left is the directory sweep. MEASURED 2026-09-21 by calling
+  `ActiveTranscripts` from a .NET harness, one call per fresh process, interleaved: **31.7/30.4/30.8
+  ms** for the Claude root (705 files, skipping `subagents`) and **21.8/20.4/25.2 ms** for the Codex
+  root (247 files), every ten seconds, which is around half a percent of one core.
+  ⚠ These replace figures of 45 ms and 17 ms that were first committed here from a **Python
+  `os.walk` proxy** rather than from the real method. The proxy was wrong in BOTH directions, over
+  by 45% on one root and under by 30% on the other, and it hid the more interesting fact: cost is
+  **not** linear in file count, because the Codex store nests a directory per day. A proxy for an
+  fs benchmark has now been wrong here every time it has been used.
+  Not urgent. The real fix is a `FileSystemWatcher` per
   root feeding the same `SessionCache`, which would take a quiet tick to near zero; the reason to
   wait is that a watcher has its own failure modes (buffer overflow, network paths, missed events on
   some filesystems) and would need the polling sweep kept as a reconciliation pass anyway.

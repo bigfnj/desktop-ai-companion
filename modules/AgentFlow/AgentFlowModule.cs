@@ -157,10 +157,14 @@ namespace DesktopAICompanion.AgentFlow
                                  //        re-read whole on every tick. THE FOLD specifically, not
                                  //        the whole tick: measured against this box's real 46.2 MB
                                  //        transcript in fresh interleaved processes, 535 ms became
-                                 //        0.3 ms. The tick also sweeps both transcript roots, which
-                                 //        is ~65 ms for 952 files and is now the dominant term --
-                                 //        so the honest whole-tick figure is roughly 600 ms to 65,
-                                 //        not 535 to 0.3. The watch section also now says when
+                                 //        0.3 ms. The tick also sweeps the transcript roots, ~31 ms
+                                 //        for Claude and ~22 ms for Codex, which is now the
+                                 //        dominant term -- so the honest whole-tick figure is
+                                 //        roughly 590 ms to 53 with both watched, not 535 to 0.3.
+                                 //        (Those two were first quoted from a Python proxy and were
+                                 //        wrong in BOTH directions; re-measured in .NET 2026-09-21
+                                 //        by calling ActiveTranscripts directly.)
+                                 //        The watch section also now says when
                                  //        auto-approve is already covering prompts, rather than
                                  //        greying boxes that are the only way to see an agent
                                  //        outside the editor.
@@ -1089,9 +1093,13 @@ namespace DesktopAICompanion.AgentFlow
         ///
         /// Greying these was asked for to conserve resources, and the cursor removed most of the
         /// resource: the FOLD went from 535 ms per tick to 0.3 ms, measured. What is left is the
-        /// directory sweep, which each watch flag does gate -- ~45 ms for 705 Claude transcripts,
-        /// ~17 ms for 247 Codex ones, once per ten seconds. That is around half a percent of one
-        /// core, so greying would save something, and not much. What it would COST is the larger
+        /// directory sweep, which each watch flag does gate. MEASURED 2026-09-21 by calling
+        /// ActiveTranscripts itself from a .NET harness, one call per fresh process, interleaved:
+        /// 31.7/30.4/30.8 ms for the Claude root (705 files, skipping subagents) and
+        /// 21.8/20.4/25.2 ms for the Codex root (247 files), once per ten seconds. Note it is not
+        /// linear in file count -- Codex has a third as many files and costs two thirds as much,
+        /// because that store nests a directory per day. Around half a percent of one core either
+        /// way, so greying would save something, and not much. What it would COST is the larger
         /// number: the transcript watcher is the only thing that can see an
         /// agent running OUTSIDE the VS Code window, so disabling it whenever the screen watcher
         /// is up would trade a capability for a saving that no longer exists. So the pane reports
