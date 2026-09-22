@@ -54,6 +54,9 @@ namespace DesktopAICompanion.AgentFlow
         private const string SettingWatchClaude = "watchClaude";
         private const string SettingWatchCodex = "watchCodex";
         private const string SettingCooldown = "cooldownSeconds";
+        /// <summary>How many prompts auto-approve may press in five minutes. See
+        /// <see cref="PressBudget.DefaultPressLimit"/>; the default is the maximum.</summary>
+        private const string SettingPressLimit = "pressLimit";
         private const string SettingAnimate = "animate";
 
         /// <summary>The one choice that replaces `enabled` + `autoApprove`. See AgentMode.</summary>
@@ -143,7 +146,22 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.3.2",   // 1.3.2: the options pane no longer does blocking IO on the UI
+            Version = "1.4.0",   // 1.4.0: the approval limit is YOURS. It was a hard-coded 10
+                                 //        presses per five minutes, and on 2026-09-22 it stood the
+                                 //        module down in the middle of the owner's ordinary work --
+                                 //        two agent sessions reach ten in five minutes easily. It
+                                 //        is now a pane setting, 1 to 9999, DEFAULTING TO 9999, so
+                                 //        on means on and a backstop is something you ask for.
+                                 //        Also fixes the repeat guard, which latched the module off
+                                 //        after three DIFFERENT compound-command prompts: they all
+                                 //        sign as `Bash|Yes|No`, having no wider-grant row to tell
+                                 //        them apart, and a compound command can never be
+                                 //        wildcarded so it is exactly the kind that always prompts.
+                                 //        A confirmed click now clears the repeat counter, which is
+                                 //        the direct evidence the prompt went away; the guard still
+                                 //        fires when a click genuinely does not land. A self-test
+                                 //        had pinned the collision as correct behaviour.
+                                 // 1.3.2: the options pane no longer does blocking IO on the UI
                                  //        thread. It used to call VsCodeSetup.Inspect on every
                                  //        open AND every dropdown change: MEASURED 273-285 ms with
                                  //        the debugging port closed, because the probe inside it
@@ -288,6 +306,7 @@ namespace DesktopAICompanion.AgentFlow
             // on every launch until the pane happened to be saved again -- the setting persisted
             // perfectly and did nothing, which is worse than not persisting.
             _budget.SetCooldownSeconds(CooldownSeconds);
+            _pressBudget.SetPressLimit(PressLimit);
 
             // Captured here because Init runs on the host's UI thread. The scan runs on a worker
             // and must never touch IHost from there -- every service on that interface is
@@ -592,7 +611,21 @@ namespace DesktopAICompanion.AgentFlow
                             Apply(forApply);
                             LogApprovals(forUi);
                         }
-                        foreach (string resetNote in forResets) Log(resetNote);
+                        // Everything on this channel is a one-off EXCEPT the no-rule-files
+                        // note, which describes a state and would otherwise be written every ten
+                        // seconds for as long as it held. Deduped here and re-armed below, so it
+                        // says it again if the rules vanish a second time.
+                        bool noRuleFiles = false;
+                        foreach (string resetNote in forResets)
+                        {
+                            if (resetNote == NoRuleFilesNote)
+                            {
+                                noRuleFiles = true;
+                                if (_saidNoRuleFiles) continue;
+                            }
+                            Log(resetNote);
+                        }
+                        _saidNoRuleFiles = noRuleFiles;
                         LogApprovalAttempt(note);
                         AnnounceScreenPrompt(forSpeech);
                     });
@@ -667,6 +700,13 @@ namespace DesktopAICompanion.AgentFlow
             string outcome = CdpApprover.Click(port, view.TargetId, decision.Index,
                                                decision.ChosenRaw, 1500, view.Agent);
             pressed = string.Equals(outcome, "clicked", StringComparison.Ordinal);
+            // A click the CDP layer CONFIRMED is the direct evidence that this prompt is gone, so
+            // the next identical-looking one is a different prompt rather than the same one
+            // refusing to close. Without this the repeat guard counted three distinct
+            // compound-command prompts -- which all sign as `Bash|Yes|No`, having no wider-grant
+            // row to tell them apart -- as one prompt pressed three times, and latched the module
+            // off in the middle of ordinary work. See PressBudget.NotePromptCleared.
+            if (pressed && budget != null) budget.NotePromptCleared();
             return "auto-approve " + outcome + " for " + DescribeSubject(view)
                    + ": " + decision.Reason;
         }
@@ -873,6 +913,11 @@ namespace DesktopAICompanion.AgentFlow
         {
             int sources;
             RuleSet rules = RuleLoader.Load(RuleLoader.DefaultPaths(), out sources);
+            // NO RULE FILES AT ALL is a different state from "rules loaded, nothing matched", and
+            // until now the difference was thrown away: `sources` was read into this local and
+            // never used. Zero means every call reads Undecidable for ever with no explanation,
+            // which is exactly what a user whose settings live somewhere unexpected would see.
+            if (sources == 0 && resetNotes != null) resetNotes.Add(NoRuleFilesNote);
             DateTime now = DateTime.UtcNow;
             var results = new List<Detection>();
             approved = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -1161,6 +1206,18 @@ namespace DesktopAICompanion.AgentFlow
                                    + " agents, working";
         }
 
+        /// <summary>
+        /// Said once when no permission-rule file was found anywhere.
+        ///
+        /// Carried on the `resetNotes` channel rather than a ninth parameter on Scan, which
+        /// already takes eight plus two outs across sixteen call sites. Unlike everything else on
+        /// that channel this is a STATE rather than an event, so it would repeat every ten
+        /// seconds; the caller dedupes it and re-arms when rules reappear.
+        /// </summary>
+        internal const string NoRuleFilesNote =
+            "no permission-rule file was found, so nothing can predict which calls will prompt; "
+            + "the notify half stands down until one appears";
+
         /// <summary>What every Codex transcript filename begins with. See <see cref="Short"/>.</summary>
         private const string CodexNamePrefix = "rollout-";
 
@@ -1192,6 +1249,13 @@ namespace DesktopAICompanion.AgentFlow
         private volatile bool _ranInline;
 
         internal bool RanInline { get { return _ranInline; } }
+
+        /// <summary>Seams for SelfCheckPostToUi, which has to force both branches of PostToUi.
+        /// Neither branch is reachable from a self-test otherwise: the only production caller is
+        /// the scan worker, and every test that gets this far seeds mode Off so no scan runs.</summary>
+        internal void SetUiContextForSelfTest(SynchronizationContext context) { _ui = context; }
+
+        internal void PostToUiForSelfTest(Action action) { PostToUi(action); }
 
         private void PostToUi(Action action)
         {
@@ -1225,6 +1289,17 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         private bool Enabled { get { return AgentMode.Scans(Mode); } }
         private bool WatchClaude { get { return _settings == null || _settings.GetBool(SettingWatchClaude, true); } }
+
+        /// <summary>The user's approval limit, defaulting to the maximum so on means on.</summary>
+        private int PressLimit
+        {
+            get
+            {
+                return _settings == null
+                    ? PressBudget.DefaultPressLimit
+                    : _settings.GetInt(SettingPressLimit, PressBudget.DefaultPressLimit);
+            }
+        }
         /// <summary>
         /// OFF by default, and the reason is OURS, not upstream's.
         ///
@@ -1323,6 +1398,10 @@ namespace DesktopAICompanion.AgentFlow
             // about and the companion said it all again. Turning the cooldown up -- what a user
             // does when it is too chatty -- made it briefly chattier.
             if (_budget != null) _budget.SetCooldownSeconds(CooldownSeconds);
+            // Same reason as the cooldown above: a limit the user just raised has to reach the
+            // live budget now, not at the next launch, because raising it is what someone does
+            // the moment it has just stood the module down.
+            if (_pressBudget != null) _pressBudget.SetPressLimit(PressLimit);
             return ok;
         }
 
@@ -1463,6 +1542,10 @@ namespace DesktopAICompanion.AgentFlow
         /// is an action.
         /// </summary>
         private volatile bool _shuttingDown;
+
+        /// <summary>Whether the no-rule-files note has already been written. See
+        /// <see cref="NoRuleFilesNote"/>; cleared as soon as a scan finds a rule file again.</summary>
+        private bool _saidNoRuleFiles;
 
         /// <summary>
         /// The last argv.json + port inspection, written by the poll worker and read by the UI
@@ -2102,13 +2185,29 @@ namespace DesktopAICompanion.AgentFlow
                               && SelfCheckShortSessionId(probe)
                               && SelfCheckAnimatesChosenPet(probe)
                               && SelfCheckPaneDoesNoRepeatWork(probe)
+                              && SelfCheckPostToUi(probe)
+                              && SelfCheckNoRuleFilesIsSaid(probe)
                               && SelfCheckActiveTranscriptsAgrees(probe)
                               && SelfCheckRefusalPrivacy(probe)
                               && SelfCheckCodexTransport(probe)
                               && SelfCheckCapabilityLog(probe)
                               && SelfCheckPetChoices(probe)
                               && SelfCheckCacheBound(probe);
-                    probe.Check("every logic group ran", ok);
+                    // `ok` is deliberately NOT asserted. It is the && of every group above, and
+                    // 38 of the 39 groups end in a literal `return true`, while a group that threw
+                    // is caught upstream and never reaches this line -- so `probe.Check("every
+                    // logic group ran", ok)`, which used to sit here, was true by construction and
+                    // asserted nothing. It was the assertion most likely to be read as "the suite
+                    // ran", which is what made it worth removing rather than leaving.
+                    //
+                    // What IS checkable is the defect that would actually cost coverage: a group
+                    // declared and never wired. See DeclaredSelfCheckMethods.
+                    probe.Check("WITNESS every SelfCheck group declared on this type is wired "
+                                + "into the chain above (" + DeclaredSelfCheckMethods()
+                                    .ToString(CultureInfo.InvariantCulture) + " declared, "
+                                + SelfCheckGroupCount.ToString(CultureInfo.InvariantCulture)
+                                + " expected)",
+                        DeclaredSelfCheckMethods() == SelfCheckGroupCount);
 
                     OptionsPane pane = host.OptionsPanes[0];
                     pane.Save(new Dictionary<string, string>
@@ -3203,18 +3302,42 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("WITNESS a prompt that goes away each time never trips the repeat cap",
                 cleared.TryPress(same, t0.AddSeconds(30), out refusal));
 
-            // ---- the rate limit, the backstop ----------------------------------------
+            // ---- the rate limit, which is now the USER'S NUMBER ----------------------
+            // Default first, because that is what decides whether the module interferes with
+            // ordinary work out of the box. The owner's ruling on 2026-09-22 was that on means
+            // on, after a hard-coded cap of 10 per five minutes stood the module down mid-session
+            // with two agents running: "it should be unlimited, it is either on or off -- if you
+            // want a budget it should be another option".
+            probe.Check("WITNESS the default approval limit is the MAXIMUM, so a fresh install "
+                        + "never stands itself down on a busy session",
+                new PressBudget().PressLimit == PressBudget.MaxPressLimit
+                && PressBudget.DefaultPressLimit == PressBudget.MaxPressLimit);
+
+            const int Chosen = 4;
             var rate = new PressBudget();
+            rate.SetPressLimit(Chosen);
             int pressed = 0;
-            for (int i = 0; i < PressBudget.MaxPressesPerWindow + 5; i++)
+            for (int i = 0; i < Chosen + 5; i++)
             {
                 // A fresh signature each time, so ONLY the rate limit can stop this.
                 if (rate.TryPress(PromptSignature("tool" + i.ToString(CultureInfo.InvariantCulture)),
                                   t0.AddSeconds(i), out refusal))
                     pressed++;
             }
-            probe.Check("WITNESS the rate cap stops an unattended run of distinct prompts",
-                pressed == PressBudget.MaxPressesPerWindow);
+            probe.Check("WITNESS a limit the user set is the limit that applies",
+                pressed == Chosen);
+            probe.Check("...and the refusal points at the setting rather than at a mystery",
+                refusal != null
+                && refusal.IndexOf("approval limit", StringComparison.Ordinal) >= 0);
+
+            // Nonsense in settings.json cannot switch the cap off or invert it.
+            var clamped = new PressBudget();
+            clamped.SetPressLimit(0);
+            probe.Check("WITNESS a zero limit clamps up rather than blocking everything",
+                clamped.PressLimit == PressBudget.MinPressLimit);
+            clamped.SetPressLimit(int.MaxValue);
+            probe.Check("...and an absurd one clamps down to the maximum",
+                clamped.PressLimit == PressBudget.MaxPressLimit);
 
             // ...and it is a WINDOW, not a lifetime total: past it, work resumes.
             probe.Check("WITNESS the rate cap expires rather than latching forever",
@@ -3236,16 +3359,46 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("WITNESS two Bash prompts with different options are different prompts",
                 PressBudget.Signature("Bash", new[] { "Yes", "Yes, allow Bash(npm test)" })
                 != PressBudget.Signature("Bash", new[] { "Yes", "Yes, allow Bash(npm run lint)" }));
-            probe.Check("...and the identical prompt is the same prompt",
-                PressBudget.Signature("Bash", new[] { "Yes", "No" })
-                == PressBudget.Signature("Bash", new[] { "Yes", "No" }));
+            // ⚠ THIS PAIR OF LINES USED TO PIN THE BUG AS CORRECT BEHAVIOUR. The second one
+            // read "...and the identical prompt is the same prompt" and asserted that
+            // Signature("Bash", {Yes, No}) equals itself -- which is both unfalsifiable and, worse,
+            // a statement that two DIFFERENT compound commands are one prompt. They sign
+            // identically because a compound command gets no wider-grant row to tell it apart,
+            // and that is not the rare case: a compound command can never be wildcarded, so it is
+            // precisely the kind that always prompts. Three of them in a row latched the module
+            // off on 2026-09-22.
+            //
+            // The signature is still label-based, deliberately -- the reader keeps command text
+            // out of PromptView on purpose. What changed is that a CONFIRMED click now clears the
+            // repeat counter, so the collision no longer accumulates. That is asserted here.
+            var distinct = new PressBudget();
+            string compound = PressBudget.Signature("Bash", new[] { "Yes", "No" });
+            int through = 0;
+            for (int i = 0; i < PressBudget.MaxIdenticalPresses + 4; i++)
+            {
+                if (distinct.TryPress(compound, t0.AddSeconds(i * 10), out refusal)) through++;
+                distinct.NotePromptCleared();   // what a confirmed click now reports
+            }
+            probe.Check("WITNESS a run of compound-command prompts, which all sign alike, is not "
+                        + "mistaken for one stuck prompt once each click is confirmed",
+                through == PressBudget.MaxIdenticalPresses + 4);
+
+            // And the guard still works for the thing it is FOR: clicks that never land.
+            var stuckForReal = new PressBudget();
+            for (int i = 0; i < PressBudget.MaxIdenticalPresses; i++)
+                stuckForReal.TryPress(compound, t0.AddSeconds(i * 10), out refusal);
+            probe.Check("WITNESS ...while a click that never lands still stands the module down",
+                !stuckForReal.TryPress(compound, t0.AddSeconds(99), out refusal)
+                && refusal != null
+                && refusal.IndexOf("not taking", StringComparison.Ordinal) >= 0);
 
             // ---- and it has to be WIRED IN, not merely correct -----------------------
             // Everything above passes just as well when Decide never calls it. This is the
             // assertion that fails if the guard is bypassed, which is the only way it ever
             // gets bypassed: by someone deleting four lines that looked defensive.
             var spent = new PressBudget();
-            for (int i = 0; i < PressBudget.MaxPressesPerWindow; i++)
+            spent.SetPressLimit(PressBudget.MinPressLimit);
+            for (int i = 0; i < PressBudget.MinPressLimit; i++)
                 spent.TryPress(PromptSignature("t" + i.ToString(CultureInfo.InvariantCulture)),
                                DateTime.UtcNow, out refusal);
             string blocked = Decide(1, Fake(new[] { "Yes", "Yes, and don't ask again" }), spent, false);
@@ -3471,12 +3624,27 @@ namespace DesktopAICompanion.AgentFlow
                 line != null && line.IndexOf("token-abc123", StringComparison.Ordinal) < 0
                 && line.IndexOf("curl -H", StringComparison.Ordinal) < 0);
 
-            // ...and passing no collector keeps the old behaviour exactly: nothing is kept.
-            var none = new List<ApprovalEntry>();
-            BlockedDetector.ApprovedSince(OneApprovedCall(Secret), rules,
+            // ...and passing no collector keeps the old behaviour exactly.
+            //
+            // CANNOT-FAIL ASSERTION REMOVED HERE. The previous version built an empty
+            // List<ApprovalEntry>, passed `null` to ApprovedSince rather than the list, and then
+            // asserted the list was empty -- true by construction, unfalsifiable by any change to
+            // the method, and it left the actual claim untested. The claim is that a null
+            // collector changes nothing about the TALLY, so it is now asserted against the tally
+            // the collector run produced.
+            Dictionary<string, int> withoutCollector = BlockedDetector.ApprovedSince(
+                OneApprovedCall(Secret), rules,
                 new HashSet<string>(StringComparer.Ordinal), null);
-            probe.Check("WITNESS a caller that asks for nothing is handed nothing",
-                none.Count == 0);
+            bool sameTally = withoutCollector.Count == tally.Count;
+            foreach (KeyValuePair<string, int> entry in tally)
+            {
+                int other;
+                if (!withoutCollector.TryGetValue(entry.Key, out other) || other != entry.Value)
+                    sameTally = false;
+            }
+            probe.Check("WITNESS a null collector leaves the tally identical, and the tally is "
+                        + "not empty, so neither half of that is vacuous",
+                sameTally && tally.Count > 0);
             return true;
         }
 
@@ -3523,8 +3691,16 @@ namespace DesktopAICompanion.AgentFlow
             // and would render as a blank dropdown row.
             probe.Check("WITNESS an empty name is legal XML and is skipped anyway",
                 !names.Contains("") && names.Count == 3);
-            probe.Check("an animation with no name element is skipped",
-                names.Count == 3);
+            // A DIFFERENT branch, on its own fixture. PetAnimations.cs:84 drops an animation with
+            // no <name> child at all; :88 drops one whose name is empty. The previous version
+            // asserted `names.Count == 3` twice in a row against the same unmodified list, the
+            // second time labelled as though it checked this branch -- so deleting either skip
+            // failed the same single assertion and the second label was decoration.
+            probe.Check("WITNESS an animation with no name ELEMENT is skipped, which is not the "
+                        + "same branch as the empty-name skip",
+                PetAnimations.FromXml("<animations><animations>"
+                    + "<animation><id>7</id></animation>"
+                    + "</animations></animations>").Count == 0);
             probe.Check("the list is sorted, so the dropdown is not in file order",
                 names[0] == "sit");
 
@@ -4085,6 +4261,159 @@ namespace DesktopAICompanion.AgentFlow
             return paths;
         }
 
+        /// <summary>
+        /// How many `SelfCheck*` groups the chain in SelfTest is expected to call.
+        ///
+        /// This constant is the LINK between two things reflection cannot bridge: it can enumerate
+        /// the methods declared on this type, but it cannot see which ones the `&&` chain calls.
+        /// So the count is asserted against the declarations, and adding a group means wiring it
+        /// AND bumping this. Being made to touch it is the mechanism rather than an inconvenience:
+        /// a group that is declared and never called looks exactly like coverage and runs never.
+        /// </summary>
+        private const int SelfCheckGroupCount = 40;
+
+        /// <summary>Count the `SelfCheck*` methods this type declares. `DeclaredOnly` still sees
+        /// every part of the partial class, because they compile into one type. Deliberately NOT
+        /// named SelfCheck-anything, or it would count itself.</summary>
+        private static int DeclaredSelfCheckMethods()
+        {
+            int found = 0;
+            foreach (System.Reflection.MethodInfo method in typeof(AgentFlowModule).GetMethods(
+                         System.Reflection.BindingFlags.Static
+                         | System.Reflection.BindingFlags.Public
+                         | System.Reflection.BindingFlags.NonPublic
+                         | System.Reflection.BindingFlags.DeclaredOnly))
+                if (method.Name.StartsWith("SelfCheck", StringComparison.Ordinal)) found++;
+            return found;
+        }
+
+        /// <summary>A SynchronizationContext that runs the callback at once and counts it, so a
+        /// test can tell "was POSTED" from "ran inline" without a message loop.</summary>
+        private sealed class CountingSyncContext : SynchronizationContext
+        {
+            internal int Posted;
+            public override void Post(SendOrPostCallback d, object state)
+            {
+                Posted++;
+                d(state);
+            }
+        }
+
+        /// <summary>
+        /// Both branches of PostToUi, forced.
+        ///
+        /// Replaces an assertion that could not fail: `probe.Check("the UI thread was captured, so
+        /// nothing ran inline", !module.RanInline)`. `_ranInline` is written in exactly one place,
+        /// inside PostToUi, whose only production caller is the scan worker -- and every test that
+        /// reached that line seeded mode Off precisely so no scan would start. So `!RanInline` was
+        /// true by construction. Worse, the flag's meaning inverts in that context: it is set when
+        /// NO SynchronizationContext was captured, which under --module-selftest (no message loop)
+        /// is the expected state, so had the line ever been reached it would have failed for a
+        /// reason with nothing to do with this module.
+        ///
+        /// A flag that is only ever asserted false proves nothing until something proves it can go
+        /// true. Both halves are here.
+        /// </summary>
+        private static bool SelfCheckPostToUi(SelfTestProbe probe)
+        {
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            using (var storage =
+                       new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-ui"))
+            {
+                host.UseStorage("agentflow", storage);
+                host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);   // no scan at Init
+                var module = new AgentFlowModule();
+                module.Init(host);
+
+                // 1. No context: the action must still be delivered, and the flag must SAY so.
+                module.SetUiContextForSelfTest(null);
+                bool inlineRan = false;
+                module.PostToUiForSelfTest(delegate { inlineRan = true; });
+                probe.Check("WITNESS with no context captured, PostToUi still delivers the action",
+                    inlineRan);
+                probe.Check("WITNESS ...and reports that it ran inline, which is the flag's whole "
+                            + "job and is what makes asserting it false elsewhere mean anything",
+                    module.RanInline);
+
+                // 2. A context: the action is POSTED, and the flag stays clear. A fresh module,
+                //    because the flag is one-way by design.
+                var second = new AgentFlowModule();
+                second.Init(host);
+                var context = new CountingSyncContext();
+                second.SetUiContextForSelfTest(context);
+                bool postedRan = false;
+                second.PostToUiForSelfTest(delegate { postedRan = true; });
+                probe.Check("WITNESS with a context captured, the action goes through Post",
+                    postedRan && context.Posted == 1);
+                probe.Check("WITNESS ...and the inline flag stays clear, so the two routes are "
+                            + "distinguishable rather than both reporting the same thing",
+                    !second.RanInline);
+
+                second.Shutdown();
+                module.Shutdown();
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// "No rule file anywhere" must be distinguishable from "rules loaded, nothing matched".
+        ///
+        /// Driven through USERPROFILE rather than a seam, because RuleLoader.DefaultPaths derives
+        /// its three paths from the profile directory -- so this exercises the path production
+        /// takes, including the file probing, rather than a parallel one built for the test.
+        ///
+        /// Both directions are asserted. A test that only proved the note appears would pass
+        /// against a Scan that emitted it unconditionally, which is the more likely mistake.
+        /// </summary>
+        private static bool SelfCheckNoRuleFilesIsSaid(SelfTestProbe probe)
+        {
+            string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-agentflow-rules-" + Guid.NewGuid().ToString("N").Substring(0, 10));
+            string homeWas = Environment.GetEnvironmentVariable(RuleLoader.HomeVariable);
+            string claudeWas = Environment.GetEnvironmentVariable(TranscriptReader.ClaudeRootVariable);
+            string codexWas = Environment.GetEnvironmentVariable(TranscriptReader.CodexRootVariable);
+            try
+            {
+                string empty = System.IO.Path.Combine(root, "no-transcripts");
+                System.IO.Directory.CreateDirectory(empty);
+                Environment.SetEnvironmentVariable(RuleLoader.HomeVariable, root);
+                Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, empty);
+                Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, empty);
+
+                // 1. Nothing on disk: the note is emitted.
+                var notes = new List<string>();
+                Dictionary<string, int> approved;
+                Scan(true, false, 30.0, new HashSet<string>(StringComparer.Ordinal),
+                     out approved, null, null, notes);
+                probe.Check("WITNESS with no settings file anywhere, the scan SAYS so rather "
+                            + "than silently predicting nothing",
+                    notes.Contains(NoRuleFilesNote));
+
+                // 2. One readable rule file: the note must NOT be emitted. Without this the test
+                //    would pass against a Scan that emitted it every time.
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(root, ".claude"));
+                var utf8 = new System.Text.UTF8Encoding(false);
+                System.IO.File.WriteAllBytes(
+                    System.IO.Path.Combine(root, ".claude", "settings.json"),
+                    utf8.GetBytes("{\"permissions\":{\"allow\":[\"Bash(git status)\"]}}"));
+                var quiet = new List<string>();
+                Scan(true, false, 30.0, new HashSet<string>(StringComparer.Ordinal),
+                     out approved, null, null, quiet);
+                probe.Check("WITNESS ...and stays quiet once one exists, so the note tracks the "
+                            + "state instead of being unconditional",
+                    !quiet.Contains(NoRuleFilesNote));
+            }
+            catch (Exception ex) { probe.Check("no-rule-files note: " + ex.Message, false); }
+            finally
+            {
+                Environment.SetEnvironmentVariable(RuleLoader.HomeVariable, homeWas);
+                Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, claudeWas);
+                Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, codexWas);
+                try { System.IO.Directory.Delete(root, true); } catch { }
+            }
+            return true;
+        }
+
         private static bool SelfCheckScreenPrompt(SelfTestProbe probe)
         {
             var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
@@ -4599,7 +4928,8 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("...and still refused once Shutdown has finished",
                     !module.ShouldPressNow(true, true));
 
-                probe.Check("the UI thread was captured, so nothing ran inline", !module.RanInline);
+                // The "nothing ran inline" assertion that used to sit here could not fail and is
+                // now SelfCheckPostToUi, which forces both branches. See that method.
             }
             return true;
         }

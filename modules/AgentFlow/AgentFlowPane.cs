@@ -147,6 +147,17 @@ namespace DesktopAICompanion.AgentFlow
                 },
                 new SettingField
                 {
+                    Id = SettingPressLimit,
+                    Label = "...at most this many prompts every 5 minutes",
+                    Kind = SettingKind.Int,
+                    Min = PressBudget.MinPressLimit,
+                    Max = PressBudget.MaxPressLimit,
+                    Group = GroupAgentFlow,
+                    // Only meaningful while approving, like the two rows above it.
+                    EnabledWhen = SettingMode + "=" + AgentMode.ToDisplay(AgentMode.AutoApprove),
+                },
+                new SettingField
+                {
                     Id = SettingThreshold,
                     Label = "Say something after this many seconds of waiting",
                     Kind = SettingKind.Int,
@@ -535,6 +546,7 @@ namespace DesktopAICompanion.AgentFlow
                 { SettingMode, AgentMode.ToDisplay(Mode) },
                 { SettingThreshold, ((int)ThresholdSeconds).ToString(CultureInfo.InvariantCulture) },
                 { SettingCooldown, CooldownSeconds.ToString(CultureInfo.InvariantCulture) },
+                { SettingPressLimit, PressLimit.ToString(CultureInfo.InvariantCulture) },
                 { SettingWatchClaude, WatchClaude ? "true" : "false" },
                 { SettingWatchCodex, WatchCodex ? "true" : "false" },
                 { SettingAnimate, Animate ? "true" : "false" },

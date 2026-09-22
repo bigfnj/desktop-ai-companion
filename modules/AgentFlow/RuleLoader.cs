@@ -16,9 +16,25 @@ namespace DesktopAICompanion.AgentFlow
     public static class RuleLoader
     {
         /// <summary>Settings files in evaluation order. Missing ones are skipped, not an error.</summary>
+        /// <summary>Environment override for the directory holding Claude's settings files.
+        /// Same convention, and the same two reasons, as
+        /// <see cref="TranscriptReader.ClaudeRootVariable"/>: an agent can keep its state
+        /// somewhere else, and it is the only way to exercise rule discovery without writing into
+        /// the user's real settings. Must be fully qualified or it is ignored.</summary>
+        public static readonly string HomeVariable = "AGENTFLOW_CLAUDE_HOME";
+
         public static IEnumerable<string> DefaultPaths()
         {
-            string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            // NOT Environment.GetEnvironmentVariable("USERPROFILE"): GetFolderPath goes to the
+            // shell API and ignores that variable entirely, measured 2026-09-22, so overriding it
+            // does nothing. This is a separate, explicit override for the same reason the
+            // transcript roots have one.
+            string overridden = Environment.GetEnvironmentVariable(HomeVariable);
+            string home = !string.IsNullOrWhiteSpace(overridden)
+                          && Path.IsPathRooted(overridden)
+                          && overridden.IndexOf(Path.VolumeSeparatorChar) == 1
+                ? overridden
+                : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             yield return Path.Combine(home, ".claude", "settings.json");
             yield return Path.Combine(home, ".claude", "remote-settings.json");
             yield return Path.Combine(home, ".claude", "settings.local.json");

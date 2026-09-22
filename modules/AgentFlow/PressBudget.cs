@@ -33,9 +33,27 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>Identical presses in a row before it stops. Three, not one: a prompt can
         /// legitimately recur (the same command asked twice), and two in a row is not yet a loop.</summary>
         internal const int MaxIdenticalPresses = 3;
-        internal const int MaxPressesPerWindow = 10;
+        /// <summary>
+        /// The rate cap's range and its DEFAULT, which is the top of that range.
+        ///
+        /// It was a hard-coded 10 per five minutes, and on 2026-09-22 that stood the module down
+        /// in the middle of the owner's ordinary work: two agent sessions running side by side
+        /// reach ten presses in five minutes easily, and the log said so while the prompts sat
+        /// there. The owner's ruling was "it should be unlimited, it is either on or off -- if you
+        /// want a budget it should be another option where the user can put an approval limit".
+        ///
+        /// So the default is the MAXIMUM. Out of the box, on means on; a user who wants a backstop
+        /// dials it down, rather than discovering one they never asked for. The cap is still real
+        /// code rather than removed, because "approve at most N while I am away" is a reasonable
+        /// thing to want and there is now a way to ask for it.
+        /// </summary>
+        internal const int MinPressLimit = 1;
+        internal const int MaxPressLimit = 9999;
+        internal const int DefaultPressLimit = MaxPressLimit;
+
         internal static readonly TimeSpan Window = TimeSpan.FromMinutes(5);
 
+        private int _pressLimit = DefaultPressLimit;
         private readonly List<DateTime> _presses = new List<DateTime>();
         private string _lastSignature;
         private int _identical;
@@ -70,11 +88,13 @@ namespace DesktopAICompanion.AgentFlow
             }
 
             Prune(nowUtc);
-            if (_presses.Count >= MaxPressesPerWindow)
+            if (_presses.Count >= _pressLimit)
             {
                 refusal = string.Format(CultureInfo.InvariantCulture,
-                    "standing down: {0} presses in the last {1} minutes is more than this is willing "
-                    + "to do unattended", _presses.Count, (int)Window.TotalMinutes);
+                    "standing down: {0} presses in the last {1} minutes reaches the approval limit "
+                    + "you set. Raise it in the AgentFlow options, or switch auto-approve off and "
+                    + "on to start a fresh window.",
+                    _presses.Count, (int)Window.TotalMinutes);
                 return false;
             }
 
@@ -87,12 +107,35 @@ namespace DesktopAICompanion.AgentFlow
         /// Called when a press was made and the prompt then went away, which is what success looks
         /// like. Clears the repeat counter so a busy hour of genuine prompts is not mistaken for a
         /// loop -- the rate cap still applies.
+        ///
+        /// ⚠ THIS EXISTED AND WAS CALLED IN ONLY ONE OF THE TWO PLACES IT HAD TO BE, which is why
+        /// the guard it protects misfired on 2026-09-22. It ran when a whole sweep found nothing,
+        /// and a busy session never has such a sweep -- so three DIFFERENT compound-command
+        /// prompts in a row, which all carry the identical signature `Bash|Yes|No` because a
+        /// compound command gets no wider-grant row to distinguish it, counted as one prompt
+        /// pressed three times and latched the module off. It is now also called on a click the
+        /// CDP layer confirmed as "clicked", which is the direct evidence that the prompt went
+        /// away, so the repeat guard only fires when a click genuinely does not take -- which is
+        /// what its message has always claimed.
         /// </summary>
         public void NotePromptCleared()
         {
             _identical = 0;
             _lastSignature = null;
         }
+
+        /// <summary>
+        /// How many presses are allowed in a five-minute window. Clamped, so a settings file
+        /// holding nonsense cannot switch the cap off or invert it.
+        /// </summary>
+        public void SetPressLimit(int limit)
+        {
+            _pressLimit = limit < MinPressLimit ? MinPressLimit
+                        : (limit > MaxPressLimit ? MaxPressLimit : limit);
+        }
+
+        /// <summary>What the cap currently is, for the pane and the assertions.</summary>
+        public int PressLimit { get { return _pressLimit; } }
 
         /// <summary>Forget everything. The switch moving is the user saying "try again".</summary>
         public void Reset()
