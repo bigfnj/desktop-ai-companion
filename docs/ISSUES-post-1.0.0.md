@@ -21,7 +21,7 @@ Each entry ends with what was actually changed and how it was verified.
 BUG-001 to BUG-004 are cited by number from code comments in `modules/AiBrain/`, `modules/PetStudio/`
 and `src/dotNet/`, from [`RELEASE-CHECKLIST.md`](RELEASE-CHECKLIST.md), from
 [`../handoff.md`](../handoff.md) and from `.github/workflows/build.yml`. The numbers are never reused;
-the next bug filed in `BACKLOG.md` is BUG-005.
+the next bug filed in `BACKLOG.md` is BUG-006.
 
 | | |
 |---|---|
@@ -40,6 +40,69 @@ not by a gate; BUG-004 was found by the release checklist's own leak soak.
 including the parts that turned out to be WRONG, because two of them were wrong in instructive ways: the
 suspected cause of BUG-003(a) was refuted by measurement, and BUG-001's mechanism was mis-attributed once
 before being traced properly. Each entry ends with what was actually changed and how it was verified.
+
+### BUG-005 — a converted companion stutters: the same short animation replayed, or two frames held for eleven seconds
+
+| | |
+|---|---|
+| Bugs | BUG-005(a) the self-looping performance, BUG-005(b) the inflated performance dwell |
+| Found | 2026-09-22, by the maintainer watching the shipped build. (b) was reported AFTER (a) was fixed and read as "the fix didn't work" |
+| Fixed by | host-side emitter change plus the `reloop` migration; 25 animations for (a), 85 for (b), across 26 of the 31 converted companions |
+
+**One root cause with three independent sites.** A Shimeji action DECLARES its intent:
+`Type="Move"` is travel, `"Stay"` is a hold, `"Animate"` is a performance played through once.
+`PetEmitter.IsRestingPose` read that attribute and its own comment states the principle outright:
+"Type is the right discriminator because it is the source's own statement of intent." Three
+neighbours inferred it from VELOCITY instead, and each produced a different visible defect.
+
+**(a) `IsLocomotion` judged travel by velocity alone.** A trip moves the companion 8px a frame along
+the ground, so it was indistinguishable from a walk and was handed the walk's edge set: "65% keep
+going, 35% re-decide". That is 2.9 plays on average and five or more in 18% of runs. Reported as
+Rick move #15 and Hornet move #19, and confirmed against the INSTALLED artefact (Hornet's `Tripping`
+is animation id 19) rather than only the repo. Fixed by reading Type first; the change can only ever
+REMOVE the locomotion classification, never grant it, so the climbs and grabs kept their loops.
+
+**(b) `restsplit` inflated a performance into an idle dwell.** `Bouncing` re-entered nothing — its
+single edge already went to the hub — and still played two frames at a flat 160ms with
+`repeat="33"`, about eleven seconds. The format 0.6 → 0.7 migration decided what counted as a
+lingering "performance" by velocity and hub-reachability, so a stationary Animate got a 9-12s rest
+budget. The source says 2 poses of 4 ticks: a 320ms one-shot.
+
+**The third site is a TEST, and it would have blocked the fix.** The dwell assertion in
+`EmitterSelfTest` selected "idle rest" by zero velocity and required 9-12s from it. Adding a
+`Type="Move"` fixture that never moves made it fail immediately. It now asks the parsed config for
+the source Type and only skips when the source positively says otherwise, so no existing coverage
+was lost.
+
+**Two diagnoses of mine were WRONG and are kept here, because both changed a conclusion.**
+
+- I filed the ten self-looping `jump` animations as a jump-detection bug and called it the next thing
+  worth doing. Measured across all twenty `jump`/`jump_down` animations: not one rises. `jump` is
+  `vy0 = 0` travelling -10px per frame. `Launches()` had nothing to detect, and the likely cause is
+  the documented flattening of a too-weak rise. Retracted the same day.
+- I reported that the Japanese and English stock confs disagree about `転ぶ`, the Japanese Tripping,
+  because a regex census read its type as `固定`. The engine's own vocabulary table maps `固定` to
+  **Animate**, not Stay. The confs agree. This is why the migration parses confs with
+  `ShimejiParser.ParseActionsXml` and not a regex: the same switch also revealed that a regex counts
+  nested `<Action>` references inside `Sequence` blocks, which is what made `jump` look disputed.
+
+**Why a migration and not a re-conversion, with the number that settles it.** The source archives
+existed but re-converting would regenerate identical pixels and silently discard hand edits, which
+`rejump`'s comment had already warned about. After migrating, **28 of Hornet's 32 animations agree
+exactly with a fresh conversion**; of the four that differ, two differ only in frame count with
+identical repeat (its hand-edited `fall` / `Grapple3` swap) and one is a renamed action, meaning the
+archive on disk is a slightly different revision of the skin than the one originally converted.
+
+**Verification.** Mutation tested 4/4 FIRED against a green baseline with the built artefact's
+timestamp asserted to advance: removing the Type check names `Stumble`, removing the velocity check
+names `Brace`, restoring the idle-dwell path names `Bounce`, and weakening the fixture-count guard
+reports that the rule is not being tested across both the travelling and stationary kinds. That last
+case exists because the new whole-graph assertion was a ONE-case test until a stationary `Bounce` was
+added beside the travelling `Stumble` — a fix handling only the moving kind would have passed. The
+migration is idempotent by measurement, not by claim: a second run reports `changed 0`. Verified in
+the real installed app, and against the bytes raw.githubusercontent actually serves.
+
+---
 
 ### BUG-001 — the tray icon is missing after an MSI install that launches the app
 
