@@ -812,13 +812,19 @@ code. Two decisions that used to sit here are in
 "moves the user's windows" (48 actions) is refused deliberately, and a blank frame is legitimate so
 "no blank tiles" cannot be a corpus-wide gate. What remains open:
 
-- 📌 **17 self-looping animation names remain unclassifiable, down from 48. Most of them are correct.**
+- 📌 **67 animation names remain unclassifiable. Most of them are correct.**
   CLOSES-WHEN: grep-present tools/ShimejiConvert/Program.cs "SkinLayout census"
   Filed 2026-09-22, then largely resolved the same day when the owner pointed at the harvested bundle
   corpus (`D:\.ai-work\shimeji-catalog`, 2778 archives). `reloop` now takes an optional bundles
   directory and builds an action-name -> Type census across it, which answered 1990 names the bundled
   conf does not carry and corrected 14 more animations across 7 pets, Hornet's `Grapple1` among them.
   Only UNANIMOUS names count; the corpus disputes 96 and those stay unresolved.
+  ⚠ **The count went 17 -> 67 the same day, and that is the migration reaching FURTHER, not
+  regressing.** A second defect was reported: `Bouncing` juggling two frames for ~11s with no
+  self-edge at all, stretched by `restsplit`'s velocity-based idea of a "performance". So the entry
+  condition widened from "self-loops" to "self-loops OR carries a repeat count", which surfaces
+  every animation with a dwell whose name cannot be resolved -- mostly `Stay` holds and `Move`
+  travel that are SUPPOSED to have one. The number is a reporting surface, not a defect count.
   What is left, and why none of it is urgent:
   - **13 names absent from the corpus** (`climb_ceiling` x18, `descend` x15, `jump_down` x10,
     `grab_wall`, `grab_ceiling`, `climb_wall`, `climb_wall_descend`, `walk_with_ie`, `walk_stick`,
