@@ -265,7 +265,7 @@
         <opacity>1</opacity>
         <interval>120</interval>
       </end>
-      <sequence repeatfrom="0" repeat="6">
+      <sequence repeatfrom="0" repeat="0">
         <frame>18</frame>
         <frame>19</frame>
         <frame>20</frame>
@@ -302,7 +302,7 @@
         <opacity>1</opacity>
         <interval>200</interval>
       </end>
-      <sequence repeatfrom="0" repeat="6">
+      <sequence repeatfrom="0" repeat="0">
         <frame>31</frame>
         <frame>32</frame>
         <frame>33</frame>
@@ -358,7 +358,7 @@
         <opacity>1</opacity>
         <interval>3666</interval>
       </end>
-      <sequence repeatfrom="0" repeat="2">
+      <sequence repeatfrom="0" repeat="0">
         <frame>38</frame>
         <next probability="100" only="none">1</next>
       </sequence>
@@ -382,7 +382,7 @@
         <opacity>1</opacity>
         <interval>160</interval>
       </end>
-      <sequence repeatfrom="0" repeat="1">
+      <sequence repeatfrom="0" repeat="0">
         <frame>40</frame>
         <frame>41</frame>
         <frame>42</frame>
@@ -434,7 +434,7 @@
         <opacity>1</opacity>
         <interval>160</interval>
       </end>
-      <sequence repeatfrom="0" repeat="3">
+      <sequence repeatfrom="0" repeat="0">
         <frame>56</frame>
         <frame>57</frame>
         <frame>58</frame>
@@ -548,7 +548,7 @@
         <opacity>1</opacity>
         <interval>120</interval>
       </end>
-      <sequence repeatfrom="0" repeat="6">
+      <sequence repeatfrom="0" repeat="0">
         <frame>76</frame>
         <frame>77</frame>
         <frame>78</frame>
@@ -610,7 +610,7 @@
         <opacity>1</opacity>
         <interval>160</interval>
       </end>
-      <sequence repeatfrom="0" repeat="33">
+      <sequence repeatfrom="0" repeat="0">
         <frame>100</frame>
         <frame>101</frame>
         <next probability="100" only="none">1</next>
@@ -690,7 +690,7 @@
         <opacity>1</opacity>
         <interval>3666</interval>
       </end>
-      <sequence repeatfrom="0" repeat="2">
+      <sequence repeatfrom="0" repeat="0">
         <frame>99</frame>
         <next probability="100" only="none">1</next>
       </sequence>

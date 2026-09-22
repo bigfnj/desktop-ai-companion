@@ -1701,6 +1701,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             Console.WriteLine();
 
             int petsChanged = 0, skipped = 0, failures = 0, fixedLoops = 0;
+            int unloopedTotal = 0, deflatedTotal = 0;
             var unresolved = new SortedDictionary<string, int>(StringComparer.Ordinal);
             foreach (string petDir in pets)
             {
@@ -1753,7 +1754,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 if (hub == null)
                 { Console.WriteLine(name.PadRight(36) + " skip (no hub to return to)"); skipped++; continue; }
 
-                int fixedHere = 0;
+                int fixedHere = 0, unloopedHere = 0, deflatedHere = 0;
                 foreach (XmlData.AnimationNode a in root.Animations.Animation)
                 {
                     if (a == null || a == hub || a.Sequence == null || a.Sequence.Next == null) continue;
@@ -1761,7 +1762,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     bool loopsOnItself = false;
                     foreach (XmlData.NextNode n in a.Sequence.Next)
                         if (n != null && n.Value == a.Id) loopsOnItself = true;
-                    if (!loopsOnItself) continue;
+                    bool inflated = ParseCoord(a.Sequence.RepeatCount) != 0;
+                    // A performance can be wrong in EITHER of two ways, and the first version of this
+                    // migration only looked for the first. `Bouncing` on Hornet re-entered nothing -- its
+                    // one edge already went to the hub -- and still played two frames for eleven seconds,
+                    // because `restsplit` gave it a 9-12s idle dwell. Reported from a real desktop
+                    // 2026-09-22 as a two-frame juggle that was NOT the trip, after the trip was fixed.
+                    if (!loopsOnItself && !inflated) continue;
 
                     string type;
                     if (a.Name == null || !declared.TryGetValue(a.Name, out type))
@@ -1770,22 +1777,34 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                         unresolved[key] = (unresolved.ContainsKey(key) ? unresolved[key] : 0) + 1;
                         continue;
                     }
-                    // Move and Stay keep their loops: a walk repeating is a walk, and a wall grab holding is
-                    // the hold. Only Animate is a one-shot that was never meant to re-enter itself.
+                    // Move and Stay keep BOTH their loops and their repeat counts: a walk repeating is a
+                    // walk, a wall grab holding is the hold, and a Stay's dwell is the whole point of
+                    // `restsplit`. Only Animate is a one-shot. MEASURED against a fresh conversion of the
+                    // Hornet bundle with the fixed emitter: all 10 of its Animate animations come out at
+                    // repeat 0 with no exceptions, while Move keeps 4-20 and Stay keeps 1-11. The magic
+                    // animations (fall, drag, kill, sync) are not in any source conf, so they never resolve
+                    // here and their own repeat counts -- 20, 240, 3 -- are left alone.
                     if (!string.Equals(type, "Animate", StringComparison.OrdinalIgnoreCase)) continue;
 
-                    // 1. The edge that caused the report: play once, then hand back to the hub.
-                    a.Sequence.Next = new[] { new XmlData.NextNode { Value = hub.Id, Probability = 100, OnlyFlag = "none" } };
-                    // 2. A performance plays exactly once; the repeat count was a walk's travel budget.
-                    a.Sequence.RepeatCount = "0";
-                    // 3. The border set is locomotion's -- turn at the edge, grab a wall, grip a window side.
-                    //    A trip reaching the screen edge should finish and return, not start climbing.
-                    a.Border = null;
+                    if (loopsOnItself)
+                    {
+                        // The edge that caused the first report: play once, then hand back to the hub.
+                        a.Sequence.Next = new[] { new XmlData.NextNode { Value = hub.Id, Probability = 100, OnlyFlag = "none" } };
+                        // The border set is locomotion's -- turn at the edge, grab a wall, grip a window
+                        // side. A trip reaching the screen edge should finish and return, not start climbing.
+                        a.Border = null;
+                        unloopedHere++;
+                    }
+                    if (inflated)
+                    {
+                        a.Sequence.RepeatCount = "0";
+                        deflatedHere++;
+                    }
                     fixedHere++;
                 }
 
                 if (fixedHere == 0)
-                { Console.WriteLine(name.PadRight(36) + " skip (no self-looping performances)"); skipped++; continue; }
+                { Console.WriteLine(name.PadRight(36) + " skip (no misplayed performances)"); skipped++; continue; }
 
                 root.Header.Version = PetEmitter.ConvertedFormatVersion;
                 string outXml = ShimejiEngine.Serialize(root);
@@ -1798,8 +1817,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
 
                 if (!hadCrLf) outXml = outXml.Replace("\r\n", "\n");
                 File.WriteAllText(path, outXml, new UTF8Encoding(hadBom));
-                petsChanged++; fixedLoops += fixedHere;
-                Console.WriteLine(name.PadRight(36) + " unlooped " + fixedHere + " performance(s)");
+                petsChanged++; fixedLoops += fixedHere; unloopedTotal += unloopedHere; deflatedTotal += deflatedHere;
+                Console.WriteLine(name.PadRight(36) + " fixed " + fixedHere + " performance(s): " +
+                    unloopedHere + " unlooped, " + deflatedHere + " deflated");
             }
 
             Console.WriteLine();
@@ -1813,7 +1833,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     Console.WriteLine("    " + kv.Key.PadRight(30) + " x" + kv.Value);
                 Console.WriteLine();
             }
-            Console.WriteLine("pets " + pets.Count + "   changed " + petsChanged + "   performances unlooped " + fixedLoops +
+            Console.WriteLine("pets " + pets.Count + "   changed " + petsChanged + "   performances fixed " + fixedLoops +
+                " (" + unloopedTotal + " unlooped, " + deflatedTotal + " deflated)" +
                 "   unresolved names " + unresolved.Count + "   skipped " + skipped + "   failures " + failures);
             return failures == 0 ? 0 : 1;
         }

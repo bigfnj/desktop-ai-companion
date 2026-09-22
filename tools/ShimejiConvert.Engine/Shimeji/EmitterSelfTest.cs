@@ -136,6 +136,29 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                         failures.Add("Type=Animate 'Stumble' repeats '" + (stumble.Sequence.RepeatCount ?? "(null)") +
                             "' times; a performance plays exactly once");
                 }
+                // The rule the `reloop` migration encodes, asserted on the WHOLE graph rather than on one
+                // named fixture, so a future action cannot quietly acquire a dwell it should not have.
+                // Measured against a fresh conversion of the Hornet bundle: all 10 of its Animate
+                // animations come out at repeat 0, while Move keeps 4-20 and Stay keeps 1-11.
+                int animateSeen = 0;
+                foreach (XmlData.AnimationNode a in r.Root != null && r.Root.Animations != null &&
+                                                    r.Root.Animations.Animation != null
+                             ? r.Root.Animations.Animation : new XmlData.AnimationNode[0])
+                {
+                    if (a == null || a.Sequence == null) continue;
+                    if (!string.Equals(SourceTypeOf(config, a.Name), "Animate", StringComparison.OrdinalIgnoreCase)) continue;
+                    animateSeen++;
+                    if (!string.Equals(a.Sequence.RepeatCount, "0", StringComparison.Ordinal))
+                        failures.Add("Type=Animate '" + a.Name + "' repeats '" +
+                            (a.Sequence.RepeatCount ?? "(null)") + "' times; a performance plays exactly once, " +
+                            "and an inflated repeat is what made two frames juggle for eleven seconds");
+                }
+                // Guard the guard: the assertion above is vacuous if the fixture stops producing Animate
+                // animations, and it silently was a ONE-case test until Bounce was added beside Stumble.
+                if (animateSeen < 2)
+                    failures.Add("only " + animateSeen + " Animate animation(s) emitted, so 'every performance " +
+                        "plays once' is not being tested across both the travelling and stationary kinds");
+
                 XmlData.AnimationNode brace = FindAnimationNamed(r, "Brace");
                 if (brace == null) failures.Add("no 'Brace' animation emitted, so the zero-velocity Move case is untested");
                 else if (brace.Sequence != null && brace.Sequence.Next != null)
@@ -1167,6 +1190,20 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
       <Animation>
         <Pose Image=""/w1.png"" ImageAnchor=""20,60"" Velocity=""-8,0"" Duration=""8"" />
         <Pose Image=""/w2.png"" ImageAnchor=""20,60"" Velocity=""-4,0"" Duration=""4"" />
+      </Animation>
+    </Action>
+    <!-- A performance that does NOT travel, which is Hornet's Bouncing exactly: Type=""Animate"", two
+         poses, zero velocity. Reported from a real desktop 2026-09-22 as a two-frame juggle, AFTER the
+         trip was fixed and separately from it. It never had a self-edge to remove; what it had was a
+         9-12s idle dwell, because the `restsplit` migration decided ""performance"" by velocity instead
+         of by declared Type and stretched two frames over eleven seconds.
+         Its presence is what stops the assertion below being a one-case test. Stumble travels and Bounce
+         does not, so ""every Animate plays once"" is checked across both, and a fix that only handles the
+         moving kind cannot pass. -->
+    <Action Name=""Bounce"" Type=""Animate"" BorderType=""Floor"">
+      <Animation>
+        <Pose Image=""/j1.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""4"" />
+        <Pose Image=""/j2.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""4"" />
       </Animation>
     </Action>
     <!-- The OTHER half of the same predicate: Type=""Move"" but it never actually moves. Travel is declared

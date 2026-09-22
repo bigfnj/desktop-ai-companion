@@ -1613,7 +1613,7 @@
         <opacity>1</opacity>
         <interval>80</interval>
       </end>
-      <sequence repeatfrom="0" repeat="4">
+      <sequence repeatfrom="0" repeat="0">
         <frame>183</frame>
         <frame>183</frame>
         <frame>183</frame>

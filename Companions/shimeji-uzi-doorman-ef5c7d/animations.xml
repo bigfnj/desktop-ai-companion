@@ -1668,7 +1668,7 @@
         <opacity>1</opacity>
         <interval>80</interval>
       </end>
-      <sequence repeatfrom="0" repeat="4">
+      <sequence repeatfrom="0" repeat="0">
         <frame>167</frame>
         <frame>167</frame>
         <frame>167</frame>
@@ -1700,7 +1700,7 @@
         <opacity>1</opacity>
         <interval>80</interval>
       </end>
-      <sequence repeatfrom="0" repeat="4">
+      <sequence repeatfrom="0" repeat="0">
         <frame>168</frame>
         <frame>168</frame>
         <frame>168</frame>
@@ -1732,7 +1732,7 @@
         <opacity>1</opacity>
         <interval>80</interval>
       </end>
-      <sequence repeatfrom="0" repeat="4">
+      <sequence repeatfrom="0" repeat="0">
         <frame>169</frame>
         <frame>169</frame>
         <frame>169</frame>

@@ -102,7 +102,7 @@
         <opacity>1</opacity>
         <interval>120</interval>
       </end>
-      <sequence repeatfrom="0" repeat="9">
+      <sequence repeatfrom="0" repeat="0">
         <frame>5</frame>
         <frame>6</frame>
         <frame>7</frame>
@@ -322,7 +322,7 @@
         <opacity>1</opacity>
         <interval>120</interval>
       </end>
-      <sequence repeatfrom="0" repeat="9">
+      <sequence repeatfrom="0" repeat="0">
         <frame>22</frame>
         <frame>23</frame>
         <frame>24</frame>
@@ -505,7 +505,7 @@
         <opacity>1</opacity>
         <interval>240</interval>
       </end>
-      <sequence repeatfrom="0" repeat="8">
+      <sequence repeatfrom="0" repeat="0">
         <frame>61</frame>
         <frame>62</frame>
         <frame>63</frame>
@@ -564,7 +564,7 @@
         <opacity>1</opacity>
         <interval>160</interval>
       </end>
-      <sequence repeatfrom="0" repeat="10">
+      <sequence repeatfrom="0" repeat="0">
         <frame>81</frame>
         <frame>82</frame>
         <frame>83</frame>
