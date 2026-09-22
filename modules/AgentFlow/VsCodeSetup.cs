@@ -285,6 +285,24 @@ namespace DesktopAICompanion.AgentFlow
         /// the port is open, and a connect answers it without this module speaking CDP or pulling in
         /// an HTTP client. Short timeout, because it runs behind a button press.
         /// </summary>
+        /// <summary>
+        /// Is anything listening on that loopback port?
+        ///
+        /// DO NOT "SIMPLIFY" THE TIMEOUT AWAY. The obvious reading is that a closed loopback port
+        /// refuses instantly, so the wait is pointless ceremony. MEASURED 2026-09-21, one call per
+        /// fresh process: a synchronous connect to a closed port on this box takes **2,063 ms** to
+        /// come back with ConnectionRefused (2063.1 / 2066.3 / 2066.1). The bound is the only
+        /// reason this returns in a quarter of a second instead of two.
+        ///
+        /// Also measured, because each looked like the bug at the time and none was: an explicit
+        /// IPv4 IPEndPoint instead of the host string, and ConnectAsync + Task.Wait instead of
+        /// BeginConnect, both come back at ~275 ms against a closed port, identical to this. The
+        /// ~250 ms is the timeout doing its job, not a wait failing to notice an answer. Three
+        /// APIs agreeing to the millisecond is what that looks like.
+        ///
+        /// A LISTENING port answers in ~25 ms including process start, so the fast path is fast
+        /// and needs nothing.
+        /// </summary>
         public static bool Probe(int port, int timeoutMilliseconds)
         {
             if (port <= 0 || port > 65535) return false;

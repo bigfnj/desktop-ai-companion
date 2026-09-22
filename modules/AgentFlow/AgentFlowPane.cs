@@ -447,7 +447,35 @@ namespace DesktopAICompanion.AgentFlow
                 if (!string.IsNullOrEmpty(type.TypeId)) return type.TypeId;
             return PetAnimations.AnyPet;
         }
+        private string _choicesPet;
+        private string[] _choicesCache;
+
+        /// <summary>
+        /// The animation names a pet offers, memoised by pet id.
+        ///
+        /// One LoadValues asked for this TWICE -- once through BuildSchema to fill the dropdown,
+        /// once through StoredAnimName to pick which entry is selected -- so every pane open and
+        /// every dropdown change read and parsed the pet's XML twice over, on the UI thread. The
+        /// memo collapses that to once, and also covers the common case of opening the pane
+        /// repeatedly without changing pets.
+        ///
+        /// CAVEAT, and it is why this is invalidated on Save rather than never: a pet edited in
+        /// PetStudio while this pane is open keeps the old list until the pane is saved or the
+        /// module reloads. That is a stale dropdown, not a wrong animation -- the name is resolved
+        /// against the live XML when it is actually played.
+        /// </summary>
         private string[] AnimationChoices(string pet)
+        {
+            string key = pet ?? "";
+            if (_choicesCache != null && string.Equals(_choicesPet, key, StringComparison.Ordinal))
+                return _choicesCache;
+            string[] computed = ComputeAnimationChoices(pet);
+            _choicesPet = key;
+            _choicesCache = computed;
+            return computed;
+        }
+
+        private string[] ComputeAnimationChoices(string pet)
         {
             if (string.IsNullOrEmpty(pet) || pet == PetAnimations.AnyPet)
             {
@@ -540,8 +568,12 @@ namespace DesktopAICompanion.AgentFlow
                                 + "you and is set above. This section is only about being TOLD "
                                 + "when an agent has been sitting there waiting." },
                 { "watchState", WatchState },
-                { "aboutCodex", "Codex prompts are clicked for you already. Being told a Codex "
-                                + "session is stuck is not built yet." },
+                { "aboutCodex", "Codex prompts are clicked for you already. Being TOLD a Codex "
+                                + "session is stuck is newer and more cautious: it waits three "
+                                + "minutes, where Claude waits thirty seconds, because a Codex "
+                                + "transcript carries no command to check against your permission "
+                                + "rules, so the wait is the only evidence there is. Sessions that "
+                                + "never stop to ask are skipped entirely." },
             };
         }
 

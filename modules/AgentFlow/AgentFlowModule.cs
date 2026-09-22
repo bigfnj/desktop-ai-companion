@@ -143,7 +143,17 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.3.1",   // 1.3.1: audit fixes. The Notify-mode screen watch 1.2.0 promised
+            Version = "1.3.2",   // 1.3.2: the options pane no longer does blocking IO on the UI
+                                 //        thread. It used to call VsCodeSetup.Inspect on every
+                                 //        open AND every dropdown change: MEASURED 273-285 ms with
+                                 //        the debugging port closed, because the probe inside it
+                                 //        bounds a connect that takes 2,063 ms to be refused. The
+                                 //        poll worker now caches that inspection and the pane
+                                 //        renders the cache. The per-pet animation list was also
+                                 //        read and parsed from disk TWICE per load, once for the
+                                 //        dropdown and once to pick its selection; memoised per
+                                 //        pet, dropped on Save.
+                                 // 1.3.1: audit fixes. The Notify-mode screen watch 1.2.0 promised
                                  //        was unreachable; a successful press reported "cannot see
                                  //        the panel"; a saved cooldown never reached the budget
                                  //        until the pane was re-saved; the pet dropdown could not
@@ -475,11 +485,30 @@ namespace DesktopAICompanion.AgentFlow
 
                 // Refresh the cached port state on the same beat, so the tray can show whether
                 // approving could actually happen without probing a socket on menu open.
+                //
+                // INSPECT, not Probe, and the extra work is the point: Inspect answers both "is
+                // the port answering" and "what does argv.json say", and the pane needed the
+                // second one. It used to get it by calling Inspect ITSELF, on the UI thread, on
+                // every pane open AND every dropdown change.
+                //
+                // MEASURED 2026-09-21, one call per fresh process: Inspect costs 30.7/30.1/30.7 ms
+                // with the port listening, and 273.3/284.6/279.3 ms with it closed -- because the
+                // probe inside it has to bound a connect that takes two full seconds to be
+                // refused (see VsCodeSetup.Probe). So a user who has not set up the debugging port
+                // paid a quarter-second freeze to open the options, and another one per combo box
+                // they touched. Doing it here costs this worker one small file read on a beat that
+                // was already opening that socket, and costs the UI thread nothing at all.
                 bool answering = false;
                 try
                 {
                     if (ShouldProbePort())
-                        answering = VsCodeSetup.Probe(cdpPort, 200);
+                    {
+                        SetupReport report = VsCodeSetup.Inspect(ArgvPath, 200);
+                        // Published as a whole, freshly-built instance. Inspect fills it locally
+                        // and returns it, so nothing else can observe a half-written report.
+                        _setupCache = report;
+                        answering = report.State == SetupState.Listening;
+                    }
                 }
                 catch { answering = false; }
 
@@ -1249,6 +1278,10 @@ namespace DesktopAICompanion.AgentFlow
         private bool SavePaneValues(IReadOnlyDictionary<string, string> values)
         {
             if (_settings == null || values == null) return false;
+            // Drop the memoised animation list. Saving is the one moment a user could have edited
+            // a pet in PetStudio and come back here expecting the dropdown to know about it.
+            _choicesPet = null;
+            _choicesCache = null;
             foreach (KeyValuePair<string, string> entry in values)
             {
                 // Info rows have no value to store, and writing them would put paragraphs of
@@ -1426,6 +1459,14 @@ namespace DesktopAICompanion.AgentFlow
         private volatile bool _shuttingDown;
 
         /// <summary>
+        /// The last argv.json + port inspection, written by the poll worker and read by the UI
+        /// thread. Volatile because those are different threads and the reference is the handoff;
+        /// the instance itself is never mutated after Inspect returns it, so a reader either sees
+        /// the previous whole report or the new whole report and never a mixture.
+        /// </summary>
+        private volatile SetupReport _setupCache;
+
+        /// <summary>
         /// Shutdown's FIRST act, on its own so the guard can be tested in isolation.
         ///
         /// Shutdown also nulls _host, which would make ShouldPressNow false anyway -- so a test
@@ -1541,9 +1582,34 @@ namespace DesktopAICompanion.AgentFlow
         /// edit and the restart the first is true and the second is false, and a status that
         /// collapsed them would report success for a setup that cannot work yet.
         /// </summary>
+        /// <summary>
+        /// The argv.json / port status line, rendered from what the POLL last saw.
+        ///
+        /// Reads no file and opens no socket. This runs from the pane's Load, which the host calls
+        /// on every open and again on every dropdown change, and it used to call Inspect directly:
+        /// a file read, a JSON parse and a TCP connect on the UI thread, so opening the options
+        /// with nothing listening froze the app for the connect timeout, twice over if you then
+        /// touched a combo box.
+        ///
+        /// The cache is refreshed by the tick, which runs on a worker and already opens that
+        /// socket. Cold only in the window between Init and the first tick completing, which is
+        /// under a second; that one case pays for itself synchronously rather than showing a
+        /// user a blank where a status line belongs.
+        /// </summary>
+        /// <summary>Seams for the assertions about repeat work. Both targets are private and both
+        /// properties are about NOT doing something, which is only observable by calling.</summary>
+        internal string SetupStatusLineForSelfTest() { return SetupStatusLine(); }
+
+        internal string[] AnimationChoicesForSelfTest(string pet) { return AnimationChoices(pet); }
+
         private string SetupStatusLine()
         {
-            SetupReport report = VsCodeSetup.Inspect(ArgvPath, 250);
+            SetupReport report = _setupCache;
+            if (report == null)
+            {
+                report = VsCodeSetup.Inspect(ArgvPath, 250);
+                _setupCache = report;
+            }
             switch (report.State)
             {
                 case SetupState.Listening:
@@ -2029,6 +2095,7 @@ namespace DesktopAICompanion.AgentFlow
                               && SelfCheckSavedSettingsReachInit(probe)
                               && SelfCheckShortSessionId(probe)
                               && SelfCheckAnimatesChosenPet(probe)
+                              && SelfCheckPaneDoesNoRepeatWork(probe)
                               && SelfCheckRefusalPrivacy(probe)
                               && SelfCheckCodexTransport(probe)
                               && SelfCheckCapabilityLog(probe)
@@ -3846,6 +3913,67 @@ namespace DesktopAICompanion.AgentFlow
                 module.PlayChosenAnimation();
                 probe.Check("choosing any pet still reaches every pet",
                     host.PlayedAnimations.Count == coverage);
+
+                module.Shutdown();
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Neither of the pane's two per-load costs may touch the disk or a socket twice.
+        ///
+        /// Both were measured, not guessed: Inspect is 273-285 ms against a closed port because
+        /// the probe inside it bounds a two-second connect, and it ran on the UI THREAD on every
+        /// pane open and every dropdown change. The animation list was read and parsed twice per
+        /// load, once for the dropdown's options and once to pick its selected entry.
+        ///
+        /// Reference equality is the assertion for the memo, deliberately. "Same contents" would
+        /// pass against a function that recomputed identical contents, which is the exact thing
+        /// being removed.
+        /// </summary>
+        private static bool SelfCheckPaneDoesNoRepeatWork(SelfTestProbe probe)
+        {
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            using (var storage =
+                       new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-cache"))
+            {
+                host.UseStorage("agentflow", storage);
+                host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);   // no scan at Init
+                var module = new AgentFlowModule();
+                module.Init(host);
+
+                // 1. The status line comes from the POLL's cache, not from a fresh Inspect. Seeded
+                //    with a state the real machine cannot be in, so a line matching it could only
+                //    have come from here.
+                module._setupCache = new SetupReport
+                {
+                    State = SetupState.Unreadable,
+                    Path = "seeded-argv.json",
+                    Detail = "seeded by the self-test",
+                };
+                string line = module.SetupStatusLineForSelfTest();
+                probe.Check("WITNESS the pane's status line is rendered from the cached inspection",
+                    line != null
+                    && line.IndexOf("seeded-argv.json", StringComparison.Ordinal) >= 0);
+
+                // 2. ...and a later poll replaces it, so the cache cannot go stale for ever.
+                module._setupCache = new SetupReport { State = SetupState.Listening, Port = 65000 };
+                probe.Check("WITNESS ...and a fresh inspection replaces it",
+                    module.SetupStatusLineForSelfTest().IndexOf(
+                        "65000", StringComparison.Ordinal) >= 0);
+
+                // 3. The animation list is computed once per pet, not once per caller.
+                string[] first = module.AnimationChoicesForSelfTest(PetAnimations.AnyPet);
+                string[] again = module.AnimationChoicesForSelfTest(PetAnimations.AnyPet);
+                probe.Check("WITNESS asking twice for one pet's animations does not recompute",
+                    ReferenceEquals(first, again));
+                probe.Check("...and the list is not empty, so the memo is memoising something",
+                    first.Length > 0);
+
+                // 4. A different pet must not be served the previous pet's list.
+                string[] other = module.AnimationChoicesForSelfTest("shimeji-cyn");
+                probe.Check("WITNESS a different pet recomputes rather than reusing the memo",
+                    !ReferenceEquals(first, other));
 
                 module.Shutdown();
             }
