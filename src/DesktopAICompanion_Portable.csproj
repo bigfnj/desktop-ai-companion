@@ -93,6 +93,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      Source-linked from ModuleKit rather than referenced. The host has no ProjectReference to
+      ModuleKit at all, and adding one would put ModuleKit.dll beside the exe and change the
+      build graph for one 30-line check. Compiling the file keeps DESIGN-REGISTER.md's rule
+      intact and adds nothing to the output that was not already there.
+    -->
+    <Compile Include="DesktopAICompanion.ModuleKit\SelfTestProbe.cs" Link="Generated\SelfTestProbe.cs" />
+    <Compile Include="DesktopAICompanion.ModuleKit\Testing\TrayConventions.cs" Link="Generated\TrayConventions.cs" />
     <Compile Include="dotNet\Animations.cs" />
     <Compile Include="dotNet\AnimationReachability.cs" />
     <Compile Include="dotNet\AudioOutput.cs" />

@@ -93,7 +93,29 @@ namespace DesktopAICompanion.Plugins
                     ok &= Check(sb, "declares a parseable Version (the update check compares it)",
                         Version.TryParse(module.Info.Version, out parsed));
 
-                    ok &= RunModuleSelfTest(sb, module.GetType().Assembly, moduleId);
+                    ok &= RunModuleSelfTest(sb, module.GetType(), moduleId);
+
+                    // THE CONVENTION, ENFORCED BY THE HOST rather than by each module choosing to.
+                    // The check has lived in ModuleKit since 2026-09-17 and exactly one module
+                    // called it, so five others could break the convention freely. The tray is
+                    // shared by the host and six modules: an icon-less row reads as a rendering
+                    // bug beside its neighbours, and two rows with one glyph look like duplicates.
+                    //
+                    // Uses the `out reason` overload, not CheckTrayIcons: that one takes
+                    // ModuleKit's SelfTestProbe, and this file reports through a StringBuilder.
+                    // A bare false in a six-module menu does not say which row broke it.
+                    //
+                    // SCOPE, honestly: --module-selftest runs for four of the seven in-tree
+                    // modules (Invoke-SelfTests.ps1), so this covers those four plus every
+                    // out-of-tree module. Submenu icons are NOT covered -- TrayConventions walks
+                    // only the top level, and AgentFlow sets IconPng on a child -- because
+                    // recursing is a ModuleKit change that would stale all seven published
+                    // payloads.
+                    string trayReason;
+                    bool trayOk = DesktopAICompanion.ModuleKit.Testing.TrayConventions
+                        .EveryTrayEntryHasAUniqueIcon(host.TrayItems, out trayReason);
+                    ok &= Check(sb, "every tray entry it registered has its own unique icon"
+                                    + (trayOk ? "" : " -- " + trayReason), trayOk);
 
                     loader.ShutdownAll(s => sb.AppendLine("  " + s));
 
@@ -134,22 +156,95 @@ namespace DesktopAICompanion.Plugins
             return Finish(moduleId, sb, ok);
         }
 
+        /// <summary>
+        /// Resolve the module's self-test entry point, preferring the identity we already have.
+        ///
+        /// The previous version walked <c>Assembly.GetTypes()</c> and took the FIRST match, which
+        /// had three sharp edges at once. GetTypes() order is not specified, so the winner could
+        /// change between rebuilds; <c>BindingFlags.NonPublic</c> was included, so a private
+        /// helper could outrank the module's real entry point; and <c>parameters[0].IsOut</c>
+        /// alone would have accepted <c>out int</c>. Reminder's six helper methods were renamed to
+        /// SelfCheck to dodge this, which is a module working around a host defect.
+        ///
+        /// The loader has already resolved the module instance by the time this runs, so the
+        /// unambiguous answer is free: look at the module's own type first, then at other
+        /// <see cref="IModule"/> implementations, and only then scan -- deterministically, and
+        /// FAILING on more than one match. "Two methods claim to be this module's self-test, here
+        /// are their names" beats a coin flip, and it is the only version that holds for a
+        /// third-party module this repo does not own.
+        /// </summary>
+        private static bool TryFindSelfTest(Type moduleType, out MethodInfo entry, out string ambiguity)
+        {
+            entry = null;
+            ambiguity = null;
+            if (moduleType == null) return false;
+
+            entry = SelfTestOn(moduleType);
+            if (entry != null) return true;
+
+            Assembly assembly = moduleType.Assembly;
+            var candidates = new List<MethodInfo>();
+            var owners = new List<string>();
+            Type[] types;
+            try { types = assembly.GetTypes(); }
+            catch (ReflectionTypeLoadException ex) { types = ex.Types ?? new Type[0]; }
+
+            // Prefer other IModule implementations before anything else in the assembly.
+            foreach (Type type in types)
+            {
+                if (type == null || type == moduleType) continue;
+                if (!typeof(IModule).IsAssignableFrom(type)) continue;
+                MethodInfo found = SelfTestOn(type);
+                if (found != null) { entry = found; return true; }
+            }
+
+            foreach (Type type in types)
+            {
+                if (type == null) continue;
+                MethodInfo found = SelfTestOn(type);
+                if (found == null) continue;
+                candidates.Add(found);
+                owners.Add(type.FullName ?? type.Name);
+            }
+            if (candidates.Count == 1) { entry = candidates[0]; return true; }
+            if (candidates.Count > 1)
+            {
+                owners.Sort(StringComparer.Ordinal);
+                ambiguity = "more than one type declares static bool SelfTest(out string): "
+                            + string.Join(", ", owners.ToArray())
+                            + ". Put it on the module type, or rename the others.";
+                return false;
+            }
+            return false;
+        }
+
+        /// <summary>The exact shape, on one type. PUBLIC and STATIC only, and the parameter must be
+        /// <c>out string</c> rather than merely out-anything.</summary>
+        private static MethodInfo SelfTestOn(Type type)
+        {
+            MethodInfo candidate;
+            try
+            {
+                candidate = type.GetMethod("SelfTest", BindingFlags.Public | BindingFlags.Static);
+            }
+            catch (AmbiguousMatchException) { return null; }
+            if (candidate == null || candidate.ReturnType != typeof(bool)) return null;
+            ParameterInfo[] parameters = candidate.GetParameters();
+            if (parameters.Length != 1 || !parameters[0].IsOut) return null;
+            return parameters[0].ParameterType == typeof(string).MakeByRefType() ? candidate : null;
+        }
+
         /// <summary>Find and run the module's own <c>public static bool SelfTest(out string)</c>. Absent is a
         /// FAILURE rather than a skip: a module with no self-test is exactly what this flag exists to catch,
         /// and a silent pass here would be indistinguishable from a real one.</summary>
-        private static bool RunModuleSelfTest(StringBuilder sb, Assembly moduleAssembly, string moduleId)
+        private static bool RunModuleSelfTest(StringBuilder sb, Type moduleType, string moduleId)
         {
-            MethodInfo entry = null;
-            foreach (Type type in moduleAssembly.GetTypes())
+            MethodInfo entry;
+            string ambiguity;
+            if (!TryFindSelfTest(moduleType, out entry, out ambiguity) && ambiguity != null)
             {
-                MethodInfo candidate = type.GetMethod("SelfTest",
-                    BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
-                if (candidate == null) continue;
-                ParameterInfo[] parameters = candidate.GetParameters();
-                if (candidate.ReturnType != typeof(bool)) continue;
-                if (parameters.Length != 1 || !parameters[0].IsOut) continue;
-                entry = candidate;
-                break;
+                sb.AppendLine("FAIL: " + ambiguity);
+                return false;
             }
 
             if (!Check(sb, "the module exposes static bool SelfTest(out string detail)", entry != null))
@@ -303,7 +398,16 @@ namespace DesktopAICompanion.Plugins
                 return new List<string>();
             }
             public bool OpenLink(string moduleId, string httpsUrl) { return false; }
-            public void AddTrayItems(IEnumerable<TrayItem> items) { }
+            /// <summary>Records rather than discards, so the tray convention can be asserted
+            /// over what the module actually registered. It threw these away until 2026-09-22,
+            /// which is why the convention existed in ModuleKit and was enforced by exactly one
+            /// module that chose to call it.</summary>
+            internal readonly List<TrayItem> TrayItems = new List<TrayItem>();
+
+            public void AddTrayItems(IEnumerable<TrayItem> items)
+            {
+                if (items != null) TrayItems.AddRange(items);
+            }
             public void AddOptionsPane(OptionsPane pane) { }
             public void PublishContext(string moduleId, string key, string valueJson) { }
             public string ReadContext(string key) { return ""; }
