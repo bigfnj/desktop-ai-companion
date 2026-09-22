@@ -399,7 +399,11 @@ CASES = (
         # Same off-by-one, against the field that replaced it.
         "            if (_presses.Count >= _pressLimit)",
         "            if (_presses.Count > _pressLimit)",
-        "the rate cap stops an unattended run",
+        # Label follows the assertion, which was rewritten in agentflow 1.4.0 when the cap
+        # became a user setting. The mutation was still being caught; it was caught by a
+        # DIFFERENT assertion than this case named, which the harness reports as WRONG
+        # rather than as a pass -- the distinction that makes that verdict worth having.
+        "a limit the user set is the limit that applies",
     ),
     (
         "the rate window never expires, so the cap latches forever",
