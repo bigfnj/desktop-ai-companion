@@ -105,6 +105,28 @@ namespace DesktopAICompanion
             Write(LogCategory.App, "info", null,
                 "--- " + SafeProductName() + " " + SafeProductVersion() + " starting, " +
                 DateTime.Now.ToString("o", CultureInfo.InvariantCulture) + " ---");
+
+            // WHICH DATA ROOT, named on every launch. The layout is chosen from where the exe
+            // sits (AppPaths.Resolve), so the same build launched from a different directory is a
+            // different installation with different settings -- and every symptom of that is a
+            // MISSING behaviour: modules load, the app looks healthy, and a feature the user
+            // switched on last week is simply off because this copy has never been configured.
+            //
+            // That cost 2h10m on 2026-09-21. A relaunch from the build directory ran with an
+            // empty store, AgentFlow's auto-approve was therefore off, and prompts sat unanswered
+            // while the log said "auto-approve is off" in a FILE NOBODY WAS READING -- because
+            // the file had also moved, for the same reason. Nothing in either log said which root
+            // it was. Note the single-instance slot is keyed on this path too (Program.cs
+            // TryAcquireInstanceSlot), so two roots means two apps side by side with no warning.
+            try
+            {
+                string kind = AppPaths.IsDataRootOverridden
+                    ? "overridden by " + AppPaths.DataRootOverrideEnvironmentVariable
+                    : (AppPaths.IsInstalled ? "installed" : "portable, beside the exe");
+                Write(LogCategory.App, "info", null,
+                      "data root (" + kind + "): " + AppPaths.DataRoot);
+            }
+            catch (Exception) { }
         }
 
         /// <summary>
