@@ -123,6 +123,14 @@ try {
     try { & (Join-Path $repoRoot 'packaging\Test-ContentCatalogIntegrity.ps1') }
     catch { $failures.Add('Test-ContentCatalogIntegrity.ps1: ' + $_.Exception.Message) }
 
+    # Backlog entries that state a machine-checkable closing criterion are evaluated here, because
+    # three of them were found stale on 2026-09-21/22 -- each fixed by later work in the cycle that
+    # filed it, none linking back. This fires in the same run that proves the fix works, while the
+    # author is still looking at it.
+    Write-Host '=== backlog closing criteria' -ForegroundColor Cyan
+    try { & (Join-Path $repoRoot 'tests\Test-BacklogClosingCriteria.ps1') }
+    catch { $failures.Add('Test-BacklogClosingCriteria.ps1: ' + $_.Exception.Message) }
+
     # The module template is built by nothing else, so it would rot unnoticed: this scaffolds a throwaway
     # module from it, builds it, and removes it again.
     Write-Host '=== module template' -ForegroundColor Cyan

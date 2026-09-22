@@ -80,7 +80,12 @@ nobody was exercising. Ask what input reaches a branch, not whether the branch l
   it not press" is exactly the complaint that started this work. 2.5% of one background core is the
   cheaper thing to spend.
 
-- 📌 **`RuleLoader.Load`'s `sources` count is read into a local and discarded** (`AgentFlowModule.cs`
+- ✅ **CLOSED 2026-09-22 in agentflow 1.4.0.** `sources == 0` now emits `NoRuleFilesNote`
+  once, deduped and re-armed by the caller. Tested BOTH directions -- it must appear with no
+  settings file anywhere and stay quiet once one exists -- because a test that only proved it
+  appears would pass against a scan that emitted it unconditionally. Original entry:
+  **`RuleLoader.Load`'s `sources` count was read into a local and discarded** (`AgentFlowModule.cs`
+  CLOSES-WHEN: grep-present modules/AgentFlow/AgentFlowModule.cs "NoRuleFilesNote"
   `Scan`). `sources == 0` means "no permission-rule file was found anywhere", which is a completely
   different state from "rules loaded, none matched" -- and it is the state a user gets when their
   rules live somewhere unexpected, with no explanation and every call reading Undecidable. Not fixed
@@ -127,6 +132,7 @@ nobody was exercising. Ask what input reaches a branch, not whether the branch l
   some filesystems) and would need the polling sweep kept as a reconciliation pass anyway.
 
 - 📌 **Two 1.3.1 fixes are defended by structure rather than by an assertion, and both say so in
+  CLOSES-WHEN: file-exists modules/AgentFlow/FakeCdpServer.cs
   their own comments.** `sawPanel` reporting false after a successful press needs a fake CDP server
   to test -- worth building, because it would also cover `Interpret`, `Parse` and the Codex click
   template, which are currently only asserted against recorded strings. And the port probe that made
@@ -134,7 +140,13 @@ nobody was exercising. Ask what input reaches a branch, not whether the branch l
   now lives in `ShouldProbePort()`, which takes no `autoApprove` argument, so reintroducing the bug
   means adding a parameter to a documented decision rather than dropping a word into a condition.
 
-- 📌 **The audit reported four self-test assertions that cannot fail; one was found and fixed, three
+- ✅ **CLOSED 2026-09-22: all four found and fixed.** The unlocated three were an empty list
+  never passed to anything, a verbatim duplicate of the assertion above it, and a flag that no
+  test could ever set. The fourth, worst one was `probe.Check("every logic group ran", ok)`,
+  a tautology reading as "the suite ran"; it is replaced by a reflection tripwire that fails
+  when a SelfCheck group is declared and never wired. Original entry:
+  **The audit reported four self-test assertions that cannot fail; one was found and fixed, three
+  CLOSES-WHEN: grep-present modules/AgentFlow/AgentFlowModule.cs "DeclaredSelfCheckMethods"
   are unlocated.** The fixed one asserted `candidates.Count > 1` twice in a row, the second time as
   though it were checking something else. The other three were not named in a form that survived the
   audit, and hunting them blind costs more than it returns; the right tool is a pass over every
@@ -304,6 +316,7 @@ that was flagged rather than fixed. None of these blocked the work; all of them 
 reader would otherwise have to rediscover.
 
 - 📌 **`RevealsPath` containment is data-root wide, not module-storage narrow.** `PaneView` receives
+  CLOSES-WHEN: grep-present src/dotNet/Plugins/CompanionHost.cs "ModuleOwningPane"
   an `OptionsPane` with no module identity, so the host can only enforce "inside the app data root".
   `CompanionHost.ModuleDataDir` builds every module's storage as `<dataRoot>\modules\<id>`, so today
   that is arithmetically the same rule — but it means module A can reveal a file sitting in module
@@ -360,6 +373,7 @@ four resource-lifetime defects and three dead members). These are the ones left.
   into two ~21 MB LOH allocations, deliberately uncached (caching a large pick would be worse). A
   user who picks a 30-second WAV gets a UI stall per notice.
 - ⬜ **`DescribeNotificationSound` does a `File.Exists` on the UI thread** on every Preferences open
+  CLOSES-WHEN: grep-absent src/Portable/Wpf/OptionsShell.cs "System.IO.File.Exists(path)"
   and now after every Apply. Harmless for the default; blocks on a disconnected UNC path.
 - ✅ **CLOSED 1.1.9.** `Load` is removed and the assertions drive `LoadPending`, which is what the
   host drives. `MinHostVersion` is 1.2.0, so no host that can load this module took the old path.
@@ -393,7 +407,11 @@ commits. What is left is here, and the three that are DECISIONS rather than work
   human-facing inventory and ships in the payload, and it already says in its own words that it is
   not a rights clearance.
 
-- 📌 **Fortunes still cannot report a smart picker that fails for the second reason.**
+- ✅ **CLOSED 2026-09-22 in fortunes 1.0.3**, via the static `LogSink` pattern AiBrain and
+  ScrollLockBlinker already use. Wired before `RebuildEngine` so the first stand-down is not
+  the one that gets missed, and nulled in Shutdown. Original entry:
+  **Fortunes could not report a smart picker that fails for the second reason.**
+  CLOSES-WHEN: grep-present modules/Fortunes/engine/SmartFortunes.cs "LogSink"
   The instrumentation added `smart=on model=present|ABSENT`, which catches the shipping-level cause.
   It does not catch "model present, native onnxruntime fails to load": `SmartFortunes.WarmCore`
   returns silently when the embedder is not ready, `_ready` stays false for ever, and
@@ -439,6 +457,7 @@ clean. One residual remains open; the rest are closed and in
 [`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md).
 
 ### 📌 Nothing scans a shipped DLL for an embedded build path, so the fix has no regression net
+  CLOSES-WHEN: grep-present packaging/Test-ModulePublishFreshness.ps1 "CodeView"
 
 The defect is fixed. `DebugType=embedded` is set in both
 `src/DesktopAICompanion.ModuleKit/DesktopAICompanion.ModuleKit.csproj:60` and
@@ -607,6 +626,7 @@ there.
     automatic duck-while-a-bubble-is-up idea is the part that remains open.
 
 - ⬜ **Automatic ducking is still not implemented**, and the groundwork for it shipped with the
+  CLOSES-WHEN: grep-present src/dotNet/AudioOutput.cs "DuckWhileBubbleUp"
   v1.6.0 module-audio ABI: that work added per-owner input tracking, and its own entry records why it
   stopped there — it "changes how the app sounds, so it wants its own decision and a setting". The
   full entry is in [`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md).
@@ -669,7 +689,9 @@ Both original entries in full, with the pre-tag verification that WAS performed 
 
 ### Open, found 2026-09-01 while chasing companion behaviour
 
-- 📌 **The live smoke test has never been walked, across TEN releases (v1.9.4 → v1.9.13).** Everything
+- ✅ **CLOSED 2026-09-22, owner walked it.** (The glyph was left open when the closure was
+  written, so it kept counting as open -- the same link-back slip, one line smaller.)
+  Original entry: **The live smoke test had never been walked, across TEN releases (v1.9.4 → v1.9.13).** Everything
   shipped in that span rests on the gate, the behaviour soaks and the mutation suites — none of which opens a
   window and looks at it.
   **This is no longer theoretical.** Four of those ten releases exist only because the USER ran the app and
@@ -790,7 +812,12 @@ code. Two decisions that used to sit here are in
 "moves the user's windows" (48 actions) is refused deliberately, and a blank frame is legitimate so
 "no blank tiles" cannot be a corpus-wide gate. What remains open:
 
-- ⬜ **CONVENTION: every tray entry carries its own unique icon — the check now exists in ModuleKit, and
+- ✅ **CLOSED 2026-09-22 in host 1.2.4.** The host now asserts it, and on its FIRST run it
+  failed the module template, which registered an icon-less row while its own comments taught
+  the convention. Scope is narrower than this entry assumed: `--module-selftest` covers four
+  of seven in-tree modules, plus every out-of-tree one. Submenu icons stay unenforced.
+  Original entry: **CONVENTION: every tray entry carries its own unique icon — the check now exists in ModuleKit, and
+  CLOSES-WHEN: grep-present src/dotNet/Plugins/ModuleConventionSelfTest.cs "EveryTrayEntryHasAUniqueIcon"
   the one edit that would enforce it everywhere is in the HOST, not in five modules.** The tray is shared
   by the host and six modules, so an icon-less row reads as a rendering bug beside its neighbours and two
   rows with the same glyph look like duplicates. 32x32 ARGB PNG, shipped as an `EmbeddedResource`, read
@@ -846,6 +873,7 @@ code. Two decisions that used to sit here are in
 ### Module SDK follow-ups
 
 - 📌 **`ModulePermissions` cannot disclose input monitoring or process
+  CLOSES-WHEN: grep-present src/DesktopAICompanion.Contracts/PluginApi.cs "ProcessList"
   launch, and a SHIPPED module under-discloses because of it.** `BlinkingLedModule.cs:59` declares
   `ModulePermissions.Speech | ModulePermissions.Storage` while `engine/ScrollLockBlinker.cs`
   P/Invokes `SendInput`, and `:57` says so in a comment — *"There is no ModulePermissions flag for
@@ -861,7 +889,11 @@ code. Two decisions that used to sit here are in
   added for Remembrance and AgentFlow. The port assessment it came out of is
   [`docs/IDEAS.md`](docs/IDEAS.md) idea 18.
 
-- 📌 **`--module-selftest=<id>` picks the FIRST `bool SelfTest(out string)` in the assembly, which may not be
+- ✅ **CLOSED 2026-09-22 in host 1.2.4.** Resolved by identity instead: the loaded module's own
+  type first, then other IModule implementations, then a deterministic scan that FAILS on more
+  than one match. Public and static only, and `out string` exactly. Original entry:
+  **`--module-selftest=<id>` picked the FIRST `bool SelfTest(out string)` in the assembly, which may not be
+  CLOSES-WHEN: grep-present src/dotNet/Plugins/ModuleConventionSelfTest.cs "TryFindSelfTest"
   the module's own.** `ModuleConventionSelfTest.RunModuleSelfTest` reflects over every type and breaks on the
   first match, including non-public ones. Reminder had six pure helpers each exposing exactly that signature,
   so any of them could have won over `ReminderModule.SelfTest` — non-deterministically, by metadata order.
