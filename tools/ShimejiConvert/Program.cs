@@ -56,6 +56,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 case "rejump":
                     if (args.Length != 2) return Usage();
                     return Rejump(args[1]);
+                case "reloop":
+                    if (args.Length != 2) return Usage();
+                    return Reloop(args[1]);
                 case "reclimb":
                     if (args.Length != 2) return Usage();
                     return Reclimb(args[1]);
@@ -118,6 +121,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             Console.Error.WriteLine("                     flipping and standing still. Rises too weak to be jumps are flattened.");
             Console.Error.WriteLine("                     Needs no source skins (no new sprite frames are involved). Same two gates");
             Console.Error.WriteLine("                     as reweight, so hand-authored and already-migrated pets are skipped.");
+            Console.Error.WriteLine("  reloop <PetsDir>");
+            Console.Error.WriteLine("                     Migration: stop a performance that merely travels -- a trip, a bounce --");
+            Console.Error.WriteLine("                     from carrying locomotion's \"65% do it again\" self-edge, which made a pet");
+            Console.Error.WriteLine("                     stumble 2.9 times in a row on average. Classifies by the Type the bundled");
+            Console.Error.WriteLine("                     conf declares for the action NAME, so walks, climbs and grabs keep their");
+            Console.Error.WriteLine("                     loops. Names the conf does not know are left alone AND printed. Needs no");
+            Console.Error.WriteLine("                     source skins. Same two gates as reweight, so re-running is safe.");
             Console.Error.WriteLine("  reclimb <PetsDir>");
             Console.Error.WriteLine("                     Migration: let a wall climb and a ceiling walk CROSS the surface in one");
             Console.Error.WriteLine("                     sequence instead of stopping every ~32px and rolling a 34% chance of");
@@ -1526,6 +1536,167 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             Console.WriteLine();
             Console.WriteLine("pets " + pets.Count + "   changed " + petsChanged + "   renamed " + renamed +
                 "   refused " + refused + "   skipped " + skipped + "   failures " + failures);
+            return failures == 0 ? 0 : 1;
+        }
+
+        /// <summary>
+        /// Migration: stop a performance that merely TRAVELS from looping on itself.
+        ///
+        /// Reported from a real desktop 2026-09-22 as a companion getting stuck tripping -- the same short
+        /// stumble replaying several times in a row. The emitter classified locomotion by velocity alone, and
+        /// a trip moves the pet along the ground, so it was handed the walk's edge set: "65% do it again, 35%
+        /// re-decide". That is 2.9 plays on average and five or more in 18% of runs.
+        ///
+        /// A migration rather than a re-conversion, for the reason `rejump` gives: no new sprite FRAME is
+        /// involved, only edges. It is also the only route available -- the source skins are not on disk, and
+        /// re-converting would regenerate 31 sprite sheets to produce identical pixels while wiping Hornet's
+        /// hand-edited fall/Grapple3 frame swap.
+        ///
+        /// HOW IT KNOWS, without the source. The emitted XML cannot be re-judged by velocity, because velocity
+        /// is exactly the signal that was wrong. What it does carry is the source's ACTION NAME, and the
+        /// bundled Shimeji-EE conf declares a Type for each of those names -- the source author's own
+        /// statement of intent, which is what <see cref="PetEmitter"/> now reads. So the type table comes from
+        /// <see cref="ShimejiParser.ParseBundledConf"/>, never from a list written out here: a hardcoded
+        /// "Tripping and Bouncing" would be a guess that silently rots the next time the conf changes.
+        ///
+        /// It therefore runs DEGRADED by construction, and says so on every run. A skin that shipped its own
+        /// conf can use names the bundled one has never heard of, and for those the migration has no source
+        /// intent to read and leaves them exactly as they are. Those names are PRINTED rather than passed over
+        /// in silence, because an unfixed loop that nobody is told about is the same defect reported again in
+        /// a month. Measured over the 31 converted pets that ship: 25 self-loops resolve to Animate and are
+        /// corrected, 186 resolve to Move or Stay and are correctly left alone (walk, run, dash, the climbs,
+        /// the grabs -- those loops are the point), and 96 cannot be resolved by name.
+        ///
+        /// The three consequences below are the three things `loco` gates in BuildAnimation, and they have to
+        /// move together or this output would not match a fresh conversion.
+        /// </summary>
+        private static int Reloop(string petsDirectory)
+        {
+            if (!Directory.Exists(petsDirectory)) { Console.Error.WriteLine("No such directory: " + petsDirectory); return 2; }
+            var pets = new List<string>();
+            foreach (string candidate in Directory.GetDirectories(petsDirectory))
+                if (File.Exists(Path.Combine(candidate, "animations.xml"))) pets.Add(candidate);
+            pets.Sort(StringComparer.OrdinalIgnoreCase);
+            if (pets.Count == 0) { Console.Error.WriteLine("Found no <dir>" + Path.DirectorySeparatorChar + "animations.xml under " + petsDirectory); return 2; }
+
+            // The source's own Type declarations, read from the bundled conf rather than restated here.
+            var declared = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (ShimejiAction act in ShimejiParser.ParseBundledConf().Actions)
+                if (act != null && !string.IsNullOrEmpty(act.Name) && !declared.ContainsKey(act.Name))
+                    declared[act.Name] = act.Type ?? "";
+            if (declared.Count == 0)
+            {
+                Console.Error.WriteLine("The bundled conf declared no actions, so nothing can be classified.");
+                return 2;
+            }
+
+            int petsChanged = 0, skipped = 0, failures = 0, fixedLoops = 0;
+            var unresolved = new SortedDictionary<string, int>(StringComparer.Ordinal);
+            foreach (string petDir in pets)
+            {
+                string name = Path.GetFileName(petDir);
+                string path = Path.Combine(petDir, "animations.xml");
+                // Whether the file on disk starts with a UTF-8 BOM. The shipped pets have one and a fresh
+                // conversion does not, so writing the emitter's own encoding unconditionally would strip 3
+                // bytes from every pet it touches -- a content change on line 1 of 24 files that has nothing
+                // to do with a trip looping, buried under the change that does. git normalises the CRLF this
+                // writer also introduces (.gitattributes: `* text=auto eol=lf`), but it does not normalise a
+                // BOM, so that one has to be preserved here.
+                byte[] rawBytes = File.ReadAllBytes(path);
+                bool hadBom = rawBytes.Length >= 3 && rawBytes[0] == 0xEF && rawBytes[1] == 0xBB && rawBytes[2] == 0xBF;
+                // And the line endings, for a sharper reason than tidiness. `catalog.json` records a sha256
+                // of each companion's animations.xml as SERVED from raw.githubusercontent, which is the
+                // committed blob, and .gitattributes normalises that to LF. The serializer emits CRLF. Write
+                // CRLF into an LF working tree and every byte of the file differs from the bytes the
+                // catalog will be asked to describe, so the catalog is regenerated against a file nobody
+                // will ever download. Match what was there and the two agree by construction.
+                bool hadCrLf = false;
+                for (int i = 1; i < rawBytes.Length; i++)
+                    if (rawBytes[i] == 0x0A) { hadCrLf = rawBytes[i - 1] == 0x0D; break; }
+
+                XmlData.RootNode root; string error;
+                if (!ShimejiEngine.TryValidate(File.ReadAllText(path, Encoding.UTF8), out root, out error))
+                { Console.WriteLine(name.PadRight(36) + " SKIP (invalid: " + error + ")"); skipped++; continue; }
+                if (root.Header == null ||
+                    !string.Equals(root.Header.Author, PetEmitter.ConvertedAuthor, StringComparison.Ordinal))
+                { Console.WriteLine(name.PadRight(36) + " skip (not converter output)"); skipped++; continue; }
+                if (!string.Equals(root.Header.Version, PetEmitter.ConvertedFormatVersionSelfLoopingIdles, StringComparison.Ordinal))
+                { Console.WriteLine(name.PadRight(36) + " skip (already at format " + (root.Header.Version ?? "?") + ")"); skipped++; continue; }
+                if (root.Animations == null || root.Animations.Animation == null)
+                { Console.WriteLine(name.PadRight(36) + " skip (no animations)"); skipped++; continue; }
+
+                // The hub is the animation with the most outgoing edges, which is how `rejump` finds it too.
+                XmlData.AnimationNode hub = null;
+                foreach (XmlData.AnimationNode a in root.Animations.Animation)
+                {
+                    if (a == null || a.Sequence == null || a.Sequence.Next == null) continue;
+                    if (hub == null || a.Sequence.Next.Length > hub.Sequence.Next.Length) hub = a;
+                }
+                if (hub == null)
+                { Console.WriteLine(name.PadRight(36) + " skip (no hub to return to)"); skipped++; continue; }
+
+                int fixedHere = 0;
+                foreach (XmlData.AnimationNode a in root.Animations.Animation)
+                {
+                    if (a == null || a == hub || a.Sequence == null || a.Sequence.Next == null) continue;
+
+                    bool loopsOnItself = false;
+                    foreach (XmlData.NextNode n in a.Sequence.Next)
+                        if (n != null && n.Value == a.Id) loopsOnItself = true;
+                    if (!loopsOnItself) continue;
+
+                    string type;
+                    if (a.Name == null || !declared.TryGetValue(a.Name, out type))
+                    {
+                        string key = a.Name ?? "(unnamed)";
+                        unresolved[key] = (unresolved.ContainsKey(key) ? unresolved[key] : 0) + 1;
+                        continue;
+                    }
+                    // Move and Stay keep their loops: a walk repeating is a walk, and a wall grab holding is
+                    // the hold. Only Animate is a one-shot that was never meant to re-enter itself.
+                    if (!string.Equals(type, "Animate", StringComparison.OrdinalIgnoreCase)) continue;
+
+                    // 1. The edge that caused the report: play once, then hand back to the hub.
+                    a.Sequence.Next = new[] { new XmlData.NextNode { Value = hub.Id, Probability = 100, OnlyFlag = "none" } };
+                    // 2. A performance plays exactly once; the repeat count was a walk's travel budget.
+                    a.Sequence.RepeatCount = "0";
+                    // 3. The border set is locomotion's -- turn at the edge, grab a wall, grip a window side.
+                    //    A trip reaching the screen edge should finish and return, not start climbing.
+                    a.Border = null;
+                    fixedHere++;
+                }
+
+                if (fixedHere == 0)
+                { Console.WriteLine(name.PadRight(36) + " skip (no self-looping performances)"); skipped++; continue; }
+
+                root.Header.Version = PetEmitter.ConvertedFormatVersion;
+                string outXml = ShimejiEngine.Serialize(root);
+                XmlData.RootNode reparsed; string reError;
+                if (!ShimejiEngine.TryValidate(outXml, out reparsed, out reError))
+                { Console.Error.WriteLine(name.PadRight(36) + " FAIL (re-validate: " + reError + ")"); failures++; continue; }
+                GraphReport graph = ShimejiEngine.Analyze(reparsed);
+                if (graph != null && graph.Unreachable.Count > 0)
+                { Console.Error.WriteLine(name.PadRight(36) + " FAIL (unreachable: " + string.Join(",", graph.Unreachable) + ")"); failures++; continue; }
+
+                if (!hadCrLf) outXml = outXml.Replace("\r\n", "\n");
+                File.WriteAllText(path, outXml, new UTF8Encoding(hadBom));
+                petsChanged++; fixedLoops += fixedHere;
+                Console.WriteLine(name.PadRight(36) + " unlooped " + fixedHere + " performance(s)");
+            }
+
+            Console.WriteLine();
+            if (unresolved.Count > 0)
+            {
+                // Said on every run, including a clean one, because this is the half the migration cannot do.
+                Console.WriteLine("DEGRADED: " + unresolved.Count + " self-looping name(s) are not in the bundled conf, so their");
+                Console.WriteLine("source intent is unknown and they were LEFT AS THEY ARE. Travel names among these");
+                Console.WriteLine("(climb, descend, walk_*) are correct to loop; the rest need the source skin to judge:");
+                foreach (KeyValuePair<string, int> kv in unresolved)
+                    Console.WriteLine("    " + kv.Key.PadRight(30) + " x" + kv.Value);
+                Console.WriteLine();
+            }
+            Console.WriteLine("pets " + pets.Count + "   changed " + petsChanged + "   performances unlooped " + fixedLoops +
+                "   unresolved names " + unresolved.Count + "   skipped " + skipped + "   failures " + failures);
             return failures == 0 ? 0 : 1;
         }
 

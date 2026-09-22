@@ -946,9 +946,33 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             return string.Equals(e.Source.Type, "Stay", StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// Is this animation TRAVEL, as opposed to a performance that happens to move?
+        ///
+        /// Type first, and that is the fix. Velocity alone cannot tell walking from stumbling: a
+        /// trip moves the pet 8px a frame along the ground and so looked exactly like a walk, which
+        /// handed it the locomotion edge "65% keep going, 35% re-decide". A pet then tripped 2.9
+        /// times in a row on average and five or more times in 18% of runs. Reported from a real
+        /// desktop 2026-09-22 as a companion getting stuck tripping, on 24 of the 31 converted
+        /// pets that ship.
+        ///
+        /// The source already answers this and the answer was sitting unread. The stock conf says
+        /// `Walk` and `Run` are Type="Move" while `Tripping` is Type="Animate", and the emitter's
+        /// own comment beside the repeat logic calls an Animate "a one-shot performance (a trip, a
+        /// bounce, a needle throw) which plays exactly once". IsRestingPose three lines below even
+        /// states the principle outright: "Type is the right discriminator because it is the
+        /// source's own statement of intent." This method simply never applied it.
+        ///
+        /// SURGICAL BY CONSTRUCTION: adding a condition can only ever REMOVE the locomotion
+        /// classification, never grant it, so nothing that loops today starts looping differently.
+        /// ClimbWall and ClimbCeiling are Move and keep their loops; GrabWall and GrabCeiling are
+        /// Stay and were never locomotion. The velocity test stays as the second half, because a
+        /// Move action that never moves is not travel either.
+        /// </summary>
         private static bool IsLocomotion(Emitted e)
         {
             if (e.Source == null || e.Source.Animations.Count == 0) return false;
+            if (!string.Equals(e.Source.Type, "Move", StringComparison.OrdinalIgnoreCase)) return false;
             foreach (ShimejiPose p in e.Source.Animations[0].Poses)
                 if (p.VelX != 0 || p.VelY != 0) return true;
             return false;
@@ -1435,9 +1459,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         // plays in both directions, AND budgets the reachability floor (see HubFloorBudgetPercent). Each
         // migration rewrites exactly one version and skips the rest, which is what makes a run idempotent.
         //
-        // This alignment is a point in time, not a property: the next format change makes this 1.1 while the
-        // product moves independently. The number is a migration gate, not a release version.
-        public const string ConvertedFormatVersion = "1.0";
+        // -> 1.1 stops classifying a performance that happens to travel as locomotion, so a trip no longer
+        // carries the "65% do it again" self-edge; what `reloop` produces.
+        //
+        // This alignment is a point in time, not a property: the format moves on its own while the product
+        // moves independently. The number is a migration gate, not a release version.
+        public const string ConvertedFormatVersion = "1.1";
+
+        /// <summary>The version emitted while <see cref="IsLocomotion"/> judged by velocity alone, so any
+        /// performance that moved the pet along the ground -- a trip, a bounce -- was handed the locomotion
+        /// self-edge and repeated itself 2.9 times on average; what the `reloop` migration looks for.</summary>
+        public const string ConvertedFormatVersionSelfLoopingIdles = "1.0";
 
         /// <summary>The version emitted before the hub weighting was damped and floored; what the reweight
         /// migration looks for.</summary>

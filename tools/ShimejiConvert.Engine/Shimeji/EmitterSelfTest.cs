@@ -112,6 +112,53 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 if (!HasAnimationNamed(r, "kill")) failures.Add("no 'kill' magic animation emitted");
                 if (!HasAnimationNamed(r, "sync")) failures.Add("no 'sync' magic animation emitted");
 
+                // ---- A PERFORMANCE THAT TRAVELS IS NOT LOCOMOTION ----
+                // Both halves, deliberately. Stumble must lose the self-edge AND Walk must keep it: "nothing
+                // loops" would satisfy the first assertion alone while destroying every walk in the pack, and
+                // that is the mutation this pair exists to catch. The border goes with it -- turning at a
+                // screen edge and grabbing a wall are travel's, and a trip that reaches the edge should
+                // finish and hand back rather than start climbing.
+                XmlData.AnimationNode stumble = FindAnimationNamed(r, "Stumble");
+                XmlData.AnimationNode walk = FindAnimationNamed(r, "Walk");
+                if (stumble == null) failures.Add("no 'Stumble' animation emitted, so the Animate case is untested");
+                else if (stumble.Sequence == null || stumble.Sequence.Next == null)
+                    failures.Add("'Stumble' emitted with no sequence edges at all");
+                else
+                {
+                    foreach (XmlData.NextNode n in stumble.Sequence.Next)
+                        if (n != null && n.Value == stumble.Id)
+                            failures.Add("Type=Animate 'Stumble' kept locomotion's self-edge at " +
+                                n.Probability + "%, so it replays itself instead of playing once");
+                    if (stumble.Border != null)
+                        failures.Add("Type=Animate 'Stumble' kept locomotion's border set, so a trip that " +
+                            "reaches a screen edge turns or grabs a wall");
+                    if (!string.Equals(stumble.Sequence.RepeatCount, "0", StringComparison.Ordinal))
+                        failures.Add("Type=Animate 'Stumble' repeats '" + (stumble.Sequence.RepeatCount ?? "(null)") +
+                            "' times; a performance plays exactly once");
+                }
+                XmlData.AnimationNode brace = FindAnimationNamed(r, "Brace");
+                if (brace == null) failures.Add("no 'Brace' animation emitted, so the zero-velocity Move case is untested");
+                else if (brace.Sequence != null && brace.Sequence.Next != null)
+                    foreach (XmlData.NextNode n in brace.Sequence.Next)
+                        if (n != null && n.Value == brace.Id)
+                            failures.Add("Type=Move 'Brace' never moves, yet it got locomotion's self-edge at " +
+                                n.Probability + "%; travel is declared intent AND real motion");
+
+                if (walk == null) failures.Add("no 'Walk' animation emitted, so the Move case is untested");
+                else if (walk.Sequence == null || walk.Sequence.Next == null)
+                    failures.Add("'Walk' emitted with no sequence edges at all");
+                else
+                {
+                    bool walkLoops = false;
+                    foreach (XmlData.NextNode n in walk.Sequence.Next)
+                        if (n != null && n.Value == walk.Id) walkLoops = true;
+                    if (!walkLoops)
+                        failures.Add("Type=Move 'Walk' lost its self-edge, so the pet re-decides every two " +
+                            "frames and never crosses the screen");
+                    if (walk.Border == null)
+                        failures.Add("Type=Move 'Walk' lost its border set, so it cannot turn at a screen edge");
+                }
+
                 // ---- REST DWELL, SPLIT BY ROLE ----
                 // The dwell was wrong twice: ~9s everywhere (the pet stood around, "doesn't do anything") then
                 // ~1.2s everywhere (which cut the performances the user wants to watch). The resolution is that
@@ -162,6 +209,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     if (ParseIntOrZero(a.Start != null ? a.Start.Y : null) != 0) continue;
                     if (ParseIntOrZero(a.End != null ? a.End.X : null) != 0) continue;
                     if (ParseIntOrZero(a.End != null ? a.End.Y : null) != 0) continue;
+                    // A REST is what the source called Stay, not merely anything that ends up standing still.
+                    // Zero velocity was a proxy for intent here, which is the same mistake the emitter made
+                    // when it read a trip as a walk: `Brace` is declared Move and simply never moves, so it
+                    // is a one-shot and lingering 9-12s on it would be wrong. Only skip when the source
+                    // positively says otherwise -- a name absent from the config (the magic fall/drag/kill
+                    // animations) keeps the old, broader assertion rather than quietly losing coverage.
+                    string sourceType = SourceTypeOf(config, a.Name);
+                    if (sourceType != null && !string.Equals(sourceType, "Stay", StringComparison.OrdinalIgnoreCase))
+                        continue;
                     int dwell = TotalDwellMs(a);
                     if (a.Id == restHubId)
                     {
@@ -796,6 +852,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             return false;
         }
 
+        /// <summary>The Type the SOURCE declared for this action name, or null when the name is not one of
+        /// the source's actions (the emitter's own magic fall/drag/kill/sync animations).</summary>
+        private static string SourceTypeOf(ShimejiConfig config, string name)
+        {
+            if (config == null || name == null) return null;
+            foreach (ShimejiAction act in config.Actions)
+                if (act != null && string.Equals(act.Name, name, StringComparison.Ordinal)) return act.Type;
+            return null;
+        }
+
         private static XmlData.AnimationNode FindAnimationNamed(ConversionResult r, string name)
         {
             if (r.Root == null || r.Root.Animations == null || r.Root.Animations.Animation == null) return null;
@@ -1087,6 +1153,30 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
       <Animation>
         <Pose Image=""/w1.png"" ImageAnchor=""20,60"" Velocity=""-2,0"" Duration=""${5+Math.random()*5}"" />
         <Pose Image=""/w2.png"" ImageAnchor=""20,60"" Velocity=""-2,0"" Duration=""6"" />
+      </Animation>
+    </Action>
+    <!-- A PERFORMANCE THAT TRAVELS, which is the stock conf's Tripping in miniature: Type=""Animate"", so the
+         author says ""play this through"", but it moves the pet along the ground exactly like the Walk above.
+         The emitter used to classify locomotion by velocity alone and so could not tell these two apart; it
+         handed this one the walk's ""65% do it again"" self-edge and the pet stumbled 2.9 times in a row.
+         Reported from a real desktop 2026-09-22 on 24 of the 31 converted pets that ship.
+         Walk and Stumble must come out DIFFERENT, and the assertions check both halves, because a fix that
+         stops the stumble looping by stopping everything looping would break the walk and pass a one-sided
+         test. -->
+    <Action Name=""Stumble"" Type=""Animate"" BorderType=""Floor"">
+      <Animation>
+        <Pose Image=""/w1.png"" ImageAnchor=""20,60"" Velocity=""-8,0"" Duration=""8"" />
+        <Pose Image=""/w2.png"" ImageAnchor=""20,60"" Velocity=""-4,0"" Duration=""4"" />
+      </Animation>
+    </Action>
+    <!-- The OTHER half of the same predicate: Type=""Move"" but it never actually moves. Travel is declared
+         intent AND real motion, and until this action existed the velocity half of the test was dead weight
+         that no fixture could exercise. Deleting it from the emitter left the suite green, which is how a
+         guard nobody can fail gets shipped. -->
+    <Action Name=""Brace"" Type=""Move"" BorderType=""Floor"">
+      <Animation>
+        <Pose Image=""/w2.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""6"" />
+        <Pose Image=""/w1.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""6"" />
       </Animation>
     </Action>
     <!-- A MULTI-frame rest whose first frame bakes in a long hold (75 ticks = 3000ms), exactly like Hornet's

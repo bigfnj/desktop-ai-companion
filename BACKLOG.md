@@ -812,6 +812,31 @@ code. Two decisions that used to sit here are in
 "moves the user's windows" (48 actions) is refused deliberately, and a blank frame is legitimate so
 "no blank tiles" cannot be a corpus-wide gate. What remains open:
 
+- 📌 **48 self-looping animation names the `reloop` migration could not classify, and 10 of them are
+  a second, separate defect.**
+  CLOSES-WHEN: grep-present tools/ShimejiConvert.Engine/Emit/PetEmitter.cs "ConvertedFormatVersionSelfLoopingJumps"
+  Filed 2026-09-22, alongside the fix for the trip loop the owner reported. `reloop` reads the source's
+  intent from the action NAME against the bundled conf, so it corrected the 25 self-loops whose names the
+  stock conf declares `Animate` and left 186 `Move`/`Stay` loops alone, correctly. The other 48 names are
+  not in the bundled conf and the tool PRINTS them on every run rather than passing over them. Most are
+  fine: `climb` x15, `descend` x15, `climb_ceiling` x18 and the `grab_*` names are travel or holds and
+  are meant to loop. Three groups are not:
+  - **`jump` x10 and `jump_down` x10.** A jump that re-enters itself at 65% is the same failure shape in
+    a different classifier: jump detection did not fire on these ten pets, so `rejump` never gave them the
+    three-phase arc either. This is the one worth doing, and it is `Launches()` rather than
+    `IsLocomotion()`.
+  - **A Japanese-named skin.** `転ぶ` (trip over), `歩く` (walk), `走る` (run), `猛ダッシュ` (dash),
+    `壁を登る`, `壁に掴まる`, `天井を伝う`, `天井に掴まる` are the STOCK conf action names in the original
+    language; the bundled conf is the English translation, so only the English half can be resolved.
+    `VocabSelfTest` already proves the parser handles Japanese XML *vocabulary*, which is a different
+    thing from action names. One animation (`転ぶ`) is an actual defect; the other seven loop correctly.
+  - **Skin-specific performances** that look like real defects but cannot be judged without their source
+    conf: `Bouncing2`, `Shock`, `Teleport`, `BeginCrying`, `ChaseTheMouse`, `Grapple1`, `HangBlink`.
+  ⚠ The source skins are NOT on disk. Searched D: and the user profile for `behaviors.xml`, `actions.xml`,
+  `*shimeji*.zip` and `*shimeji*` directories on 2026-09-22 and found nothing outside `Companions/`, which
+  is why the fix had to be a migration rather than a re-conversion. Re-converting is the only route that
+  resolves the 48, and it needs the bundles back first.
+
 - ✅ **CLOSED 2026-09-22 in host 1.2.4.** The host now asserts it, and on its FIRST run it
   failed the module template, which registered an icon-less row while its own comments taught
   the convention. Scope is narrower than this entry assumed: `--module-selftest` covers four
