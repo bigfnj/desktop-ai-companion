@@ -2216,20 +2216,20 @@
       "id": "remembrance",
       "name": "Remembrance",
       "desc": "Records a meeting (your microphone + the system output over WASAPI loopback), transcribes it offline with a local Whisper, names it from your calendar (via the Reminder module) or a timestamp, snapshots the screen on a hotkey, and purges the audio + snapshots after 72 hours while keeping the transcript. Needs a local Whisper (whisper-cli + a model) set up in options, and the machine's own console - a Remote Desktop session presents no real microphone.",
-      "version": "1.0.5",
+      "version": "1.0.6",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/remembrance.zip",
-      "sha256": "da8a457c58ecf79f36cfaf7288bc6bacec5a9a0777f027f6f860e376a5e8fe64",
-      "bytes": 7066581,
+      "sha256": "332545a2d834c80011927141d6ce98e71ab32bd26909da3faadaf97851d9633d",
+      "bytes": 7066735,
       "permissions": "Speech, Microphone, SystemAudio, ScreenContext, Hotkey, Storage, Network"
     },
     {
       "id": "blinkingled",
       "name": "Blinking LED",
       "desc": "Blinks your keyboard's Scroll Lock light so the machine reads as active. Six speeds from Glacial to Hyper, switchable from the tray, and your companion has an opinion about each one. It works by pressing Scroll Lock, a key no application acts on, so nothing is ever typed anywhere; Windows still counts it as activity, which is the whole point. Caps Lock stops it.",
-      "version": "1.0.2",
+      "version": "1.0.3",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/blinkingled.zip",
-      "sha256": "8b7704f0150a6493bf05dd4a56b0dcd7a8facc75b6fdb18ebd1af148954f8545",
-      "bytes": 49145,
+      "sha256": "a4ff0023876b0a6e080e18cde8a5a193ea9ae7a7c92078a13e152090b2820533",
+      "bytes": 49462,
       "permissions": "Speech, Storage, InputSynthesis"
     },
     {
