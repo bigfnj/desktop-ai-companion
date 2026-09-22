@@ -144,7 +144,17 @@ namespace DesktopAICompanion.Ai
                 }
                 if (snapshot == null || snapshot.Count == 0 ||
                     snapshot.Count > VectorCache.MaximumEntries || !Available)
+                {
+                    // Also previously silent. Distinguished from each other because they want
+                    // different responses: an oversized pool is a configuration the user can
+                    // change, and !Available is the feature being off.
+                    if (snapshot != null && snapshot.Count > VectorCache.MaximumEntries)
+                        Say("smart index stood down: the fortune pool is larger than the vector "
+                            + "cache allows, so the plain picker is used");
+                    else if (!Available)
+                        Say("smart index stood down: smart mode is not available");
                     return;
+                }
 
                 Task previous = _warmTask;
                 var cancellation =
@@ -177,6 +187,26 @@ namespace DesktopAICompanion.Ai
             }
         }
 
+        /// <summary>
+        /// Where this engine reports why it gave up, since it has no IHost of its own.
+        ///
+        /// Same shape and the same reason as AiBrain.LogSink and ScrollLockBlinker's sink: an
+        /// engine class is constructed by its module and never handed the host, so a static hook
+        /// the module wires in Init and nulls in Shutdown is the only route out. Read into a local
+        /// before use, because Shutdown can null it from another thread mid-call.
+        ///
+        /// CARRIES NO FORTUNE TEXT, ever. The repo-wide rule for these sinks is a category and a
+        /// cause, never user-visible content.
+        /// </summary>
+        internal static Action<string> LogSink;
+
+        private static void Say(string line)
+        {
+            Action<string> sink = LogSink;
+            if (sink == null) return;
+            try { sink(line); } catch { }
+        }
+
         private void WarmCore(
             List<FortuneEntry> pool,
             CancellationTokenSource cancellation)
@@ -188,7 +218,18 @@ namespace DesktopAICompanion.Ai
                 token.ThrowIfCancellationRequested();
                 embedderReady = _embed.IsReady;
             }
-            if (!embedderReady) return;
+            if (!embedderReady)
+            {
+                // REASON TWO, and it was silent. Reason one -- the model asset missing -- is
+                // already reported as `smart=on model=ABSENT` by DescribeEngine. This is the other
+                // one: the asset is present but the native onnxruntime failed to load, so
+                // _embed.IsReady is false. The bare `return` here left _ready false for ever,
+                // which made SmartStatusFor answer "Smart index warming ..." indefinitely -- a
+                // status that cannot be distinguished from "still working" and never resolves.
+                Say("smart index stood down: the embedder is present but not ready, so the "
+                    + "smart picker stays off and the plain picker is used");
+                return;
+            }
 
             BuildTopicPrototypes(token);   // ~12 direct embeds; enables context->topic routing in Pick
 

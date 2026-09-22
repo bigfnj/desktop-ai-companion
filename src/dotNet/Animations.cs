@@ -959,7 +959,8 @@ namespace DesktopAICompanion
         public int SetNextBorderAnimation(int animationID, TNextAnimation.TOnly where, out TNextAnimation.TOnly chosenOnly)
         {
             StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info, "border detected");
-            return SetNextGeneralAnimation(SheepAnimations[animationID].EndBorder, where, out chosenOnly);
+            return SetNextGeneralAnimation(SheepAnimations[animationID].EndBorder, where,
+                                           "border", animationID, out chosenOnly);
         }
 
             /// <summary>
@@ -971,7 +972,8 @@ namespace DesktopAICompanion
         public int SetNextSequenceAnimation(int animationID, TNextAnimation.TOnly where)
         {
             StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info, "animation is over");
-            return SetNextGeneralAnimation(SheepAnimations[animationID].EndAnimation, where);
+            return SetNextGeneralAnimation(SheepAnimations[animationID].EndAnimation, where,
+                                           "sequence", animationID);
         }
 
             /// <summary>
@@ -983,7 +985,8 @@ namespace DesktopAICompanion
         public int SetNextGravityAnimation(int animationID, TNextAnimation.TOnly where)
         {
             StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info, "gravity detected");
-            return SetNextGeneralAnimation(SheepAnimations[animationID].EndGravity, where);
+            return SetNextGeneralAnimation(SheepAnimations[animationID].EndGravity, where,
+                                           "gravity", animationID);
         }
 
             /// <summary>
@@ -992,13 +995,16 @@ namespace DesktopAICompanion
             /// <param name="list">List of animations that can be executed.</param>
             /// <param name="where">Where the pet is "walking"</param>
             /// <returns>ID of the next animation to play. -1 if there is no animation.</returns>
-        private int SetNextGeneralAnimation(List<TNextAnimation> list, TNextAnimation.TOnly where)
+        private int SetNextGeneralAnimation(List<TNextAnimation> list, TNextAnimation.TOnly where,
+                                            string kind, int animationID)
         {
             TNextAnimation.TOnly ignored;
-            return SetNextGeneralAnimation(list, where, out ignored);
+            return SetNextGeneralAnimation(list, where, kind, animationID, out ignored);
         }
 
-        private int SetNextGeneralAnimation(List<TNextAnimation> list, TNextAnimation.TOnly where, out TNextAnimation.TOnly chosenOnly)
+        private int SetNextGeneralAnimation(List<TNextAnimation> list, TNextAnimation.TOnly where,
+                                            string kind, int animationID,
+                                            out TNextAnimation.TOnly chosenOnly)
         {
             int iDefaultID = -1;
             chosenOnly = TNextAnimation.TOnly.NONE;
@@ -1013,7 +1019,25 @@ namespace DesktopAICompanion
                 }
                 if (totalWeight <= 0)
                 {
-                    StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.warning, "no eligible positive-probability transition");
+                    // NAMES ITS SUBJECT, since 2026-09-22. This fires in bursts during ordinary
+                    // use -- the owner's own diagnostics show 2 to 3 at a time -- and the old line
+                    // carried neither the pet nor the state, so nothing could be correlated and
+                    // nothing could be acted on. It is also not harmless: the caller treats -1 as
+                    // "spawn", and Play() re-rolls the monitor under multiscreen, so this is one
+                    // of the paths that teleports a companion.
+                    //
+                    // The validator (CompanionXmlValidator.cs:672) refuses any pet whose
+                    // transition set sums to zero, which reads as a guarantee that this cannot
+                    // happen. It sums ALL transitions; the loop above filters by eligibility
+                    // FIRST, so a state whose every transition is conditioned on a `where` the
+                    // pet is not currently in has zero eligible weight and the guarantee does not
+                    // reach here.
+                    StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.warning,
+                        "no eligible positive-probability transition: pet '"
+                        + (PetTypeId ?? "") + "' " + (kind ?? "?") + " state "
+                        + animationID.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                        + ", where=" + where + ", " + list.Count
+                        + " candidate(s) declared and none eligible");
                     return -1;
                 }
                 long selectedWeight = NextWeight(totalWeight);

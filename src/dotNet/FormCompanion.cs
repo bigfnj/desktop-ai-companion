@@ -1412,6 +1412,12 @@ namespace DesktopAICompanion
                         {
                             PositionX = Left;
                             PositionY = Top - OffsetY;
+                            // The window may have been dragged to another monitor, carrying the
+                            // pet with it. Without this the pet stands on the new screen while
+                            // its physics keep resolving against the old one; see
+                            // AdoptScreenUnderPet. Cheap per tick: a Contains test per screen,
+                            // and UpdateValues only runs when the index actually changes.
+                            AdoptScreenUnderPet();
                             return;
                         }
                         else
@@ -2176,29 +2182,43 @@ namespace DesktopAICompanion
             /// Shared by the real MouseUp and by NextStep's self-heal for a MouseUp that never arrived, so a
             /// recovered drag ends on exactly the same path as a normal one.
             /// </summary>
+        /// <summary>
+        /// Adopt whichever monitor the pet's centre now sits on.
+        ///
+        /// Shared by the two paths that carry a pet across a monitor boundary without walking it:
+        /// a drag-and-drop, and a window-follow where the pet grips a title bar the user drags to
+        /// another screen. THE SECOND ONE DID NOT DO THIS. That left <see cref="DisplayIndex"/>
+        /// pointing at the monitor the pet came FROM while every physics decision -- the border
+        /// turns, gravity, the work-area clamp -- resolved against that stale rectangle. The
+        /// 8192px of slack in <see cref="Animations.ClampVirtualPosition"/> is the only reason it
+        /// was not obviously broken: the pet just behaved as though the walls were elsewhere.
+        /// "A companion on the wrong monitor" is one of the user-reported bugs in BACKLOG.md that
+        /// the whole automated suite passed straight over.
+        ///
+        /// Deliberately NOT gated on GetMultiscreen(). Owner decision 2026-09-22: a drag is an
+        /// explicit user action and a window-follow follows one, so neither should be refused.
+        /// That setting governs spawn placement, and its label now says so rather than promising
+        /// companions "stay on the one they appear on", which was never true.
+        /// </summary>
+        private void AdoptScreenUnderPet()
+        {
+            Point petCenter = new Point(Left + Width / 2, Top + Height / 2);
+            for (var k = 0; k < Screen.AllScreens.Length; k++)
+            {
+                if (!Screen.AllScreens[k].Bounds.Contains(petCenter)) continue;
+                if (DisplayIndex != k)
+                {
+                    DisplayIndex = k;
+                    CurrentAnimation.UpdateValues(DisplayIndex);
+                }
+                return;
+            }
+        }
+
         private void EndDrag()
         {
-            if (IsDragging)
-            {
-                // if it was dragged, check if the screen is different
-                // if(Program.MyData.GetMultiscreen()) <-- If manually moved to another screen, set the new screen as default screen.
-                {
-                    Point petCenter = new Point(Left + Width / 2, Top + Height / 2);
-                    for(var k=0;k<Screen.AllScreens.Length;k++)
-                    {
-                        Rectangle bounds = Screen.AllScreens[k].Bounds;
-                        if (bounds.Contains(petCenter))
-                        {
-                            if (DisplayIndex != k)
-                            {
-                                DisplayIndex = k;
-                                CurrentAnimation.UpdateValues(DisplayIndex);
-                            }
-                            break;
-                        }
-                    }
-                }
-            }
+            // Dragged somewhere else: adopt whichever monitor it was dropped on.
+            if (IsDragging) AdoptScreenUnderPet();
 			IsDragging = false;
             ResetDragSwing();   // next drag starts hanging straight, not mid-swing from the last one
         }

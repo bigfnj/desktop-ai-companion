@@ -102,6 +102,10 @@ namespace DesktopAICompanion.FortunesModule
                     FortunePaths.SetRoot(storage.DataDirectory);
             }
             catch { }
+            // Wired BEFORE RebuildEngine, because RebuildEngine is what starts the warm task and
+            // a sink attached afterwards would miss the first stand-down -- which is the one that
+            // matters on a machine where the embedder never loads at all.
+            SmartFortunes.LogSink = delegate(string line) { Log(line); };
             RebuildEngine();
 
             host.CompanionSpawned += OnPetSpawned;
@@ -1339,6 +1343,9 @@ namespace DesktopAICompanion.FortunesModule
             if (_dropResponder != null) { try { _dropResponder.Dispose(); } catch { } _dropResponder = null; }
             if (_pokeResponder != null) { try { _pokeResponder.Dispose(); } catch { } _pokeResponder = null; }
             if (_smart != null) { try { _smart.Dispose(); } catch { } _smart = null; }
+            // Static, so it outlives the instance unless dropped here. Same contract as
+            // AiBrain.LogSink, which is nulled in its own Shutdown for the same reason.
+            SmartFortunes.LogSink = null;
             _provider = null;
             _host = null;
         }

@@ -299,7 +299,14 @@ namespace DesktopAICompanion.Wpf
                     new SettingField { Id = "runAtStartup", Label = "Run at Windows startup", Kind = SettingKind.Bool, Group = "Startup & window" },
                     new SettingField { Id = "windowForeground", Label = "Bring collided window to front", Kind = SettingKind.Bool, Group = "Startup & window" },
                     new SettingField { Id = "stealFocus", Label = "Keep companion above the taskbar", Kind = SettingKind.Bool, Group = "Startup & window" },
-                    new SettingField { Id = "multiscreen", Label = "Let companions spawn on any screen (they stay on the one they appear on)", Kind = SettingKind.Bool, Group = "Startup & window" },
+                    // Says what it actually governs, which is SPAWN PLACEMENT and nothing else.
+                    // The old parenthetical, "(they stay on the one they appear on)", was false:
+                    // a drag to another monitor re-homes the companion (FormCompanion.EndDrag) and
+                    // a fullscreen app on its screen relocates it to the nearest free one
+                    // (RelocateToDisplay), and NEITHER consults this setting. The owner reported
+                    // seeing exactly that with this setting off, which is how the wording was
+                    // caught. Those two paths are deliberate and stay; only the promise was wrong.
+                    new SettingField { Id = "multiscreen", Label = "Let companions spawn on any screen", Kind = SettingKind.Bool, Group = "Startup & window" },
                     // Says what it actually governs. BuildStartupSpawnPlan uses the saved pet MIX whenever there
                     // is one and only falls back to this count, so the old bare "Companions at startup" label claimed
                     // authority it does not have: set it to 2 with a six-pet mix and you still get six.
