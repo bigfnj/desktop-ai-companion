@@ -67,7 +67,7 @@ namespace DesktopAICompanion.SampleModule
                     Group = 50,
                     Order = 0,
                     Click = SayHello,
-                    // IconPng = EmbeddedResources.LoadBytes(typeof(SampleModule).Assembly, "icon.png"),
+                    IconPng = EmbeddedResources.LoadBytes(typeof(SampleModule).Assembly, "icon.png"),
                 },
             });
 

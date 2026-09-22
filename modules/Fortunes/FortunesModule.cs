@@ -43,7 +43,13 @@ namespace DesktopAICompanion.FortunesModule
         {
             Id = "fortunes",
             Name = "Fortunes",
-            Version = "1.0.2",   // 1.0.1: republished so the bundled ModuleKit.dll no longer carries the
+            Version = "1.0.3",   // 1.0.3: the smart picker now says why it stood down when the model
+                                 //        asset is PRESENT but the native onnxruntime did not load. That
+                                 //        was a bare return, so the status answered "Smart index
+                                 //        warming ..." for ever: a state indistinguishable from progress
+                                 //        that never resolves. Reported through a static LogSink, the
+                                 //        pattern AiBrain and ScrollLockBlinker already use.
+                                 // 1.0.1: republished so the bundled ModuleKit.dll no longer carries the
                                  //        maintainer's absolute build path (Contracts + ModuleKit moved to
                                  //        DebugType=embedded, which also gives authors symbols the discarded
                                  //        .snupkg never delivered). NO functional change here. The bump exists

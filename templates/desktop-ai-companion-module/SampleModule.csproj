@@ -48,10 +48,14 @@
 
   <!-- Files your module reads at runtime (a tray icon, seed data). Read them with
        EmbeddedResources.LoadBytes/LoadText/LoadJson, which match on the trailing file name.
+
+       The icon is REQUIRED, not decorative. The host asserts that every tray entry carries its
+       own unique icon, so a scaffolded module that drops this fails its own self-test. Replace
+       the placeholder with your own 32x32 ARGB PNG; keep the file name or update the
+       LoadBytes call in SampleModule.cs to match. -->
   <ItemGroup>
     <EmbeddedResource Include="Resources\icon.png" />
   </ItemGroup>
-  -->
 
   <!-- ==== Optional flavours: uncomment only what you actually need ====
 

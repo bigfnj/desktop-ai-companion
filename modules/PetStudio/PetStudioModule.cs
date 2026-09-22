@@ -24,7 +24,13 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.0.3",   // 1.0.2: republished so the bundled ModuleKit.dll no longer carries the
+            Version = "1.0.4",   // 1.0.4: NO MODULE CHANGE. Republished because this module
+                                 //        source-links src/dotNet/Animations.cs, and the pet transition
+                                 //        warning there now names its pet, state and eligibility
+                                 //        context. Worth knowing: editing Animations.cs, Xml.cs or any
+                                 //        other host file this csproj compiles stales THIS payload, the
+                                 //        same way a ModuleKit edit stales all seven.
+                                 // 1.0.2: republished so the bundled ModuleKit.dll no longer carries the
                                  //        maintainer's absolute build path (Contracts + ModuleKit moved to
                                  //        DebugType=embedded). NO functional change here; the bump exists
                                  //        because the catalog offers an update by VERSION, so without it the
