@@ -33,7 +33,8 @@ namespace DesktopAICompanion.AgentFlow
     {
         public string Agent;          // "claude" or "codex"
         public string SessionId;
-        public string Path;
+        // Path removed 2026-09-21: written by every reader and read by nothing. The cursor
+        // keys on the path itself, so nothing downstream ever needed it on the session.
         public string Cwd;
         public string Mode;           // permission mode last seen
         public DateTime LastWriteUtc;
@@ -251,7 +252,6 @@ namespace DesktopAICompanion.AgentFlow
             var session = new AgentSession
             {
                 Agent = agent,
-                Path = path,
                 SessionId = Path.GetFileNameWithoutExtension(path),
                 Cwd = state.Cwd,
                 Mode = state.Mode,

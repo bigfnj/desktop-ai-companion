@@ -81,9 +81,22 @@ namespace DesktopAICompanion.AgentFlow
         /// record, it is a runaway or a corrupted file, and buffering it would be the bug.</summary>
         private const int MaxLineBytes = 16 * 1024 * 1024;
 
-        /// <summary>How much of the file head identifies it. Enough to cover a whole first
-        /// record's worth of distinguishing prefix without being a second read of note.</summary>
-        private const int HeadBytes = 64;
+        /// <summary>
+        /// How much of the file head identifies it.
+        ///
+        /// MEASURED on this machine's 952 real transcripts, because the first value here was
+        /// reasoned to and was wrong. Distinct heads by prefix length:
+        ///
+        ///    64 B   422 of 952 -- one prefix shared by 104 files, another by 90
+        ///   128 B   952 of 952
+        ///   256 B   952 of 952
+        ///
+        /// 64 bytes is not a fingerprint on this corpus, it is a format banner: Claude records
+        /// open with a fixed key order, so `{"parentUuid":null,"isSidechain":...` is most of the
+        /// budget before anything session-specific appears. 128 is where every file separates;
+        /// 256 is that with a doubling of margin, and it is still one buffered read.
+        /// </summary>
+        private const int HeadBytes = 256;
 
         private readonly string _path;
         private readonly string _agent;
@@ -92,6 +105,21 @@ namespace DesktopAICompanion.AgentFlow
         private long _offset;
         private DateTime _createdUtc;
         private bool _seenOnce;
+
+        /// <summary>
+        /// The last write time we actually observed, kept for two jobs.
+        ///
+        /// It is how a replacement of EXACTLY the current length is noticed: no new bytes means
+        /// nothing would otherwise open the file, so the head check never runs and the cursor
+        /// reports a dead session's state for ever. A file that was written without growing is
+        /// the only case that pays for the extra open, and an idle tick is not that case.
+        ///
+        /// And it is what a FAILED stat reports instead of "now". Returning DateTime.UtcNow from
+        /// a transient IO error restarted the idle clock, so a genuinely stalled agent read as
+        /// Working every time its transcript was briefly unreadable -- the failure mode being
+        /// watched for was erased by the act of failing to look.
+        /// </summary>
+        private DateTime _writtenUtc = DateTime.UtcNow;
 
         /// <summary>
         /// The first bytes of the file we are resuming into, so a replacement is detectable.
@@ -103,8 +131,8 @@ namespace DesktopAICompanion.AgentFlow
         /// that is longer or equal would otherwise be resumed into at a stale offset, splicing the
         /// tail of one file onto the state of another.
         ///
-        /// Compared only when we were going to open the file anyway, so it costs a seek and 64
-        /// bytes rather than a syscall on an idle tick.
+        /// Compared whenever the file is opened at all, which is when it grew OR when it was
+        /// written without growing -- never on a quiet tick, where the stat is the only syscall.
         /// </summary>
         private byte[] _head;
 
@@ -140,8 +168,9 @@ namespace DesktopAICompanion.AgentFlow
             if (!Stat(out length, out createdUtc, out writtenUtc))
             {
                 // Gone or unreadable. Report what we already folded rather than inventing an empty
-                // session: a transcript that vanishes mid-poll has not un-happened.
-                return Snapshot(writtenUtc);
+                // session: a transcript that vanishes mid-poll has not un-happened. The LAST KNOWN
+                // write time, not now -- see _writtenUtc.
+                return Snapshot(_writtenUtc);
             }
 
             if (_seenOnce)
@@ -162,11 +191,18 @@ namespace DesktopAICompanion.AgentFlow
             _createdUtc = createdUtc;
             _seenOnce = true;
 
-            if (length > _offset)
+            // Grew: read the new bytes, and verify identity on the way past.
+            // Same length but TOUCHED: nothing to read, yet the file may have been swapped for a
+            // same-sized one. Verify identity alone, which is the only way that case is ever seen.
+            bool grew = length > _offset;
+            bool touchedWithoutGrowing =
+                !grew && _offset > 0 && resetReason == null && writtenUtc != _writtenUtc;
+            if (grew || touchedWithoutGrowing)
             {
                 string swapped = Consume(length);
                 if (swapped != null && resetReason == null) resetReason = swapped;
             }
+            _writtenUtc = writtenUtc;
             return Snapshot(writtenUtc);
         }
 
@@ -191,10 +227,14 @@ namespace DesktopAICompanion.AgentFlow
             catch (UnauthorizedAccessException) { return false; }
         }
 
-        /// <summary>Read from the committed offset to <paramref name="length"/>, folding whole
-        /// lines and leaving any partial tail for next time.</summary>
-        /// <summary>Returns a reset reason when the file turned out not to be the one we were
-        /// resuming into; null on the ordinary path.</summary>
+        /// <summary>
+        /// Read from the committed offset to <paramref name="length"/>, folding whole lines and
+        /// leaving any partial tail for next time. Returns a reset reason when the file turned out
+        /// not to be the one we were resuming into; null on the ordinary path.
+        ///
+        /// Called with length == _offset when the file was written without growing, in which case
+        /// there is nothing to read and the identity check is the whole point of the call.
+        /// </summary>
         private string Consume(long length)
         {
             string swapped = null;
@@ -305,7 +345,6 @@ namespace DesktopAICompanion.AgentFlow
             var session = new AgentSession
             {
                 Agent = _agent,
-                Path = _path,
                 SessionId = System.IO.Path.GetFileNameWithoutExtension(_path),
                 Cwd = _state.Cwd,
                 Mode = _state.Mode,

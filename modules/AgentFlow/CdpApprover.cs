@@ -357,6 +357,7 @@ namespace DesktopAICompanion.AgentFlow
             if (string.IsNullOrEmpty(browserUrl)) return null;
 
             bool sawReadable = false;
+            string pressed = null;
             try
             {
                 using (var session = new CdpSession(browserUrl, timeoutMs))
@@ -383,7 +384,11 @@ namespace DesktopAICompanion.AgentFlow
                             if (view == null || view.Options.Count == 0) continue;
                             view.Agent = agent;
                             string note = press(view);
-                            if (note != null) return note;
+                            // BREAK, never return. Returning from here skipped the
+                            // `sawPanel = sawReadable` below, so every sweep that actually
+                            // pressed something reported "cannot see the agent panel" -- the tray
+                            // went amber at the exact moment the feature worked.
+                            if (note != null) { pressed = note; break; }
                         }
                         finally { session.Detach(sessionId); }
                     }
@@ -407,6 +412,7 @@ namespace DesktopAICompanion.AgentFlow
             // "could not see" rather than leaving a stale true behind: the tray dot goes green on
             // this, and green has to mean a panel was read on THIS pass.
             sawPanel = sawReadable;
+            if (pressed != null) return pressed;
             if (!sawReadable)
                 return "cannot see inside the agent panel: the debugging port answers, "
                        + "but nothing in it exposes the conversation. Approving cannot work "

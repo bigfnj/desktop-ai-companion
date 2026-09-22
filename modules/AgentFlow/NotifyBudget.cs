@@ -77,6 +77,17 @@ namespace DesktopAICompanion.AgentFlow
         public bool IsPaused(DateTime nowUtc) { return nowUtc < _pausedUntilUtc; }
 
         /// <summary>
+        /// Enter the pause directly, for tests about what the pause SUPPRESSES.
+        ///
+        /// A seam rather than a convenience. Reaching the pause honestly takes five recorded
+        /// notifications inside the window, which makes the setup a test of Record -- and a caller
+        /// that then asserts "nothing was announced" cannot tell a working suppression from a
+        /// budget that refused for some other reason. One line here, and the assertion is about
+        /// the thing it names.
+        /// </summary>
+        internal void PauseForSelfTest(DateTime untilUtc) { _pausedUntilUtc = untilUtc; }
+
+        /// <summary>
         /// Change the cooldown on the LIVE budget, keeping every one-shot, the window and any
         /// active pause. The alternative -- constructing a replacement -- is what the pane used to
         /// do, and it silently re-armed prompts that had already been announced.

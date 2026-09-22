@@ -476,11 +476,6 @@ namespace DesktopAICompanion.AgentFlow
             return fallback.ToArray();
         }
 
-        private IReadOnlyDictionary<string, string> LoadPaneValues()
-        {
-            return LoadValues(null);
-        }
-
         private IReadOnlyDictionary<string, string> LoadPendingValues(
             IReadOnlyDictionary<string, string> pending)
         {

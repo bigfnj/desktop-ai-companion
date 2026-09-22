@@ -20,21 +20,29 @@ namespace DesktopAICompanion.AgentFlow
     /// every comparable tool presses the button and none of them tells a human anything.
     ///
     /// <para>
-    /// OBSERVE ONLY, DELIBERATELY. This module never answers a prompt, and that is a standing
-    /// decision rather than an unfinished feature. Four public tools that do answer were read at
-    /// source level (see docs/agentflow/README.md) and ALL FOUR press a wider grant than the one
+    /// IT DOES PRESS, SINCE 1.2.0, AND ONLY EVER THE NARROWEST ROW. This paragraph used to say
+    /// the opposite and was left behind by the feature; it is corrected here rather than deleted,
+    /// because the reasoning still governs the design. Four public tools that answer prompts were
+    /// read at source level (see docs/agentflow/README.md) and ALL FOUR press a wider grant than
     /// they advertise -- an "always allow", an "accept all", or a blind Enter on whichever row the
-    /// cursor happens to rest on. Four authors, four architectures, one destination. Pressing
-    /// anything is therefore not in this version, and the safety classifier that would be needed
-    /// first already exists as a research harness beside that document.
+    /// cursor happens to rest on. Four authors, four architectures, one destination.
+    ///
+    /// So the classifier came first and the press came second. PromptOptions.Choose reads the
+    /// option LABELS and will only press a once-only row; an unrecognised label refuses the whole
+    /// prompt rather than guessing, and nothing is ever pressed by keystroke -- in Codex's panel
+    /// Escape is Deny, so a synthetic key is a wrong answer, not a near miss. Auto-approve is off
+    /// until a user turns it on, and the modes are layered so that watching does not imply
+    /// pressing: Notify reads the same panel and only tells you about it.
     /// </para>
     ///
     /// <para>
     /// WHAT IT READS, AND WHY THAT NEEDS SAYING. It reads the agents' own JSONL transcripts, which
     /// contain every command run, every path touched, and the full text of what the user typed.
-    /// Nothing is sent anywhere -- this module makes no network call at all -- and nothing from a
-    /// transcript is ever logged or spoken: the bubble names a tool and a project folder, never a
-    /// command, an argument or a path. It declares
+    /// Nothing leaves this machine: the only socket it opens is a LOOPBACK one, to the editor's
+    /// own debugging port, and there is no outbound call anywhere in the module. (The older
+    /// wording here, "no network call at all", stopped being true when CDP arrived.) Nothing from
+    /// a transcript or a panel is ever logged or spoken: the bubble names a tool and a project
+    /// folder, never a command, an argument or a path. It declares
     /// <see cref="ModulePermissions.AgentTranscripts"/> so that read is visible in the Modules pane
     /// BEFORE a user installs it.
     /// </para>
@@ -112,6 +120,9 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         private readonly HashSet<string> _explained = new HashSet<string>(StringComparer.Ordinal);
 
+        /// <summary>Test seam: a bound nothing observes is not a bound.</summary>
+        internal int ExplainedCountForSelfTest { get { return _explained.Count; } }
+
         // Written on the UI thread only, read by the tray's DynamicText on the UI thread.
         private string _status = "no agents seen yet";
 
@@ -132,14 +143,27 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.3.0",   // 1.3.0: transcripts are read FORWARD from a cursor instead of
-                                 //        re-read whole on every tick. Measured against this box's
-                                 //        real 46.2 MB transcript, in fresh interleaved processes:
-                                 //        535 ms per tick became 0.3 ms. One cold read per file per
-                                 //        process remains; it used to happen six times a minute for
-                                 //        ever. The watch section also now says when auto-approve is
-                                 //        already covering prompts, rather than greying boxes that
-                                 //        are the only way to see an agent outside the editor.
+            Version = "1.3.1",   // 1.3.1: audit fixes. The Notify-mode screen watch 1.2.0 promised
+                                 //        was unreachable; a successful press reported "cannot see
+                                 //        the panel"; a saved cooldown never reached the budget
+                                 //        until the pane was re-saved; the pet dropdown could not
+                                 //        affect which pet animated; a paused prompt was announced
+                                 //        to nobody and then never again; every Codex session
+                                 //        logged as the same id; and three cursor defects (a
+                                 //        same-length replacement, a 64-byte head that 104 real
+                                 //        transcripts share, a failed stat restarting the idle
+                                 //        clock). 7/7 mutations FIRED on the new guards.
+                                 // 1.3.0: transcripts are read FORWARD from a cursor instead of
+                                 //        re-read whole on every tick. THE FOLD specifically, not
+                                 //        the whole tick: measured against this box's real 46.2 MB
+                                 //        transcript in fresh interleaved processes, 535 ms became
+                                 //        0.3 ms. The tick also sweeps both transcript roots, which
+                                 //        is ~65 ms for 952 files and is now the dominant term --
+                                 //        so the honest whole-tick figure is roughly 600 ms to 65,
+                                 //        not 535 to 0.3. The watch section also now says when
+                                 //        auto-approve is already covering prompts, rather than
+                                 //        greying boxes that are the only way to see an agent
+                                 //        outside the editor.
                                  // 1.2.0: it now tells you about a prompt it can SEE, rather than
                                  //        only about one it predicted. The screen sweep runs
                                  //        whenever the mode scans, not only when it presses, so a
@@ -245,6 +269,11 @@ namespace DesktopAICompanion.AgentFlow
             // ModuleConventionSelfTest returns null from both GetSettings and GetStorage on purpose.
             _settings = host.GetSettings(Info.Id) ?? new MemoryModuleSettings();
             _budget = new NotifyBudget();
+            // Seed it from what the user actually saved. Constructing with the default and only
+            // ever correcting it in Apply meant a cooldown set last week was silently the default
+            // on every launch until the pane happened to be saved again -- the setting persisted
+            // perfectly and did nothing, which is worse than not persisting.
+            _budget.SetCooldownSeconds(CooldownSeconds);
 
             // Captured here because Init runs on the host's UI thread. The scan runs on a worker
             // and must never touch IHost from there -- every service on that interface is
@@ -312,7 +341,67 @@ namespace DesktopAICompanion.AgentFlow
 
         private void OnCompanionSpawned(ICompanion companion)
         {
+            // Prune on the way in as well as in AnyCompanionCanSpeak. That was the only pruner,
+            // so with notify-speech off nothing ever called it and a long session accumulated a
+            // dead handle per despawn for the life of the instance.
+            PruneCompanions();
             if (companion != null) _companions.Add(companion);
+        }
+
+        /// <summary>Drop handles for pets that have gone away. There is no CompanionRemoved
+        /// event, so asking the host is the only way the list can be made truthful.</summary>
+        private void PruneCompanions()
+        {
+            IHost host = _host;
+            if (host == null) return;
+            for (int index = _companions.Count - 1; index >= 0; index--)
+            {
+                bool alive;
+                try { alive = host.IsCompanionAlive(_companions[index]); }
+                catch (Exception) { alive = false; }
+                if (!alive) _companions.RemoveAt(index);
+            }
+        }
+
+        /// <summary>
+        /// Play the stored animation, on the stored PET.
+        ///
+        /// The pet half of that sentence used to be discarded. PetAnimations.Candidates took a
+        /// pet argument it never read, and the result went to PlayAnimationAll, which reaches
+        /// every live pet by contract -- so the pane's pet dropdown, and the animation list that
+        /// cascades off it, could not affect anything a user would see. Picking "shimeji-cyn /
+        /// wave" played wave on whichever pets happened to define it.
+        ///
+        /// A named pet that is NOT on screen falls back to every pet rather than to silence:
+        /// the stored choice can outlive the pet it was made for, and the ordered candidate list
+        /// exists precisely so that case degrades instead of failing.
+        /// </summary>
+        private void PlayChosenAnimation()
+        {
+            IHost host = _host;
+            if (host == null) return;
+            var candidates = new List<string>(PetAnimations.Candidates(
+                _settings == null ? "" : _settings.Get(SettingAnimName, "")));
+
+            string wanted = StoredAnimPet;
+            if (!string.IsNullOrEmpty(wanted) && wanted != PetAnimations.AnyPet)
+            {
+                PruneCompanions();
+                foreach (ICompanion companion in _companions)
+                {
+                    if (!string.Equals(companion.TypeId, wanted, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    foreach (string name in candidates)
+                    {
+                        try { if (host.TryPlayAnimation(companion, name)) return; }
+                        catch (Exception) { }
+                    }
+                    // It is on screen and defines none of these. Stop anyway: the user named a
+                    // pet, and animating a DIFFERENT one is not a graceful degradation of that.
+                    return;
+                }
+            }
+            host.PlayAnimationAll(candidates);
         }
 
         /// <summary>
@@ -324,15 +413,8 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         private bool AnyCompanionCanSpeak()
         {
-            IHost host = _host;
-            if (host == null) return false;
-            for (int index = _companions.Count - 1; index >= 0; index--)
-            {
-                bool alive;
-                try { alive = host.IsCompanionAlive(_companions[index]); }
-                catch (Exception) { alive = false; }
-                if (!alive) _companions.RemoveAt(index);
-            }
+            if (_host == null) return false;
+            PruneCompanions();
             return _companions.Count > 0;
         }
 
@@ -392,7 +474,7 @@ namespace DesktopAICompanion.AgentFlow
                 bool answering = false;
                 try
                 {
-                    if (autoApprove)
+                    if (ShouldProbePort())
                         answering = VsCodeSetup.Probe(cdpPort, 200);
                 }
                 catch { answering = false; }
@@ -408,7 +490,7 @@ namespace DesktopAICompanion.AgentFlow
                 // used to be one condition, so a Notify-mode user got the weak signal (predicting
                 // from permission rules) while the strong one -- the prompt itself, already on
                 // screen and already readable -- went unused.
-                bool mayLook = answering && !_shuttingDown && _host != null && Enabled;
+                bool mayLook = MayLookNow(answering);
                 bool mayPress = ShouldPressNow(autoApprove, answering);
                 if (mayLook)
                 {
@@ -486,28 +568,6 @@ namespace DesktopAICompanion.AgentFlow
             });
         }
 
-        /// <summary>
-        /// Look for a pending permission prompt and press the approve-once row, once.
-        ///
-        /// Returns a line worth logging, or null when there was nothing to do. Null is the
-        /// normal answer: a prompt is rare and a line every ten seconds saying "nothing"
-        /// would bury the log this module exists to make readable.
-        ///
-        /// THE DECISION IS NOT MADE HERE. This reads text, hands it to PromptOptions, and does
-        /// what it is told; PromptOptions refuses anything it does not recognise, refuses a
-        /// prompt with no approve-once row, and refuses one with more than one. There is no
-        /// heuristic in this method and there should never be: the module was asked to be
-        /// lightweight, and a guess about which button to press is the one kind of wrong this
-        /// feature cannot afford.
-        /// </summary>
-        internal static string TryApproveOnce(int port, PressBudget budget, bool allProjects,
-                                             bool similar,
-                                             out bool sawPanel)
-        {
-            return CdpApprover.Sweep(port, view => Decide(port, view, budget, allProjects, similar), 1500,
-                                     out sawPanel);
-        }
-
         /// <summary>Four-argument form: no Codex opt-in. Kept so the existing assertions read as
         /// what they are about, rather than each carrying a false argument.</summary>
         internal static string Decide(int port, PromptView view, PressBudget budget,
@@ -520,6 +580,13 @@ namespace DesktopAICompanion.AgentFlow
         /// What to do about one prompt that was read. Split out from the sweep so it can be
         /// exercised without an editor: everything above it is sockets, and everything in it is
         /// the decision, which is the half worth asserting.
+        ///
+        /// THERE IS NO HEURISTIC HERE AND THERE SHOULD NEVER BE. This reads labels, hands them
+        /// to PromptOptions and does what it is told; PromptOptions refuses anything it does not
+        /// recognise, refuses a prompt with no approve-once row, and refuses one with more than
+        /// one. A guess about which button to press is the single kind of wrong this feature
+        /// cannot afford. (Inherited from TryApproveOnce, removed 2026-09-21 once the tick
+        /// called the sweep directly; the reasoning outlived the wrapper.)
         /// </summary>
         internal static string Decide(int port, PromptView view, PressBudget budget,
                                       bool allProjects, bool similar)
@@ -679,13 +746,6 @@ namespace DesktopAICompanion.AgentFlow
         private volatile bool _resetPressBudget;
 
         /// <summary>
-        /// Write what the approver did, and do it once per distinct outcome.
-        ///
-        /// The repeat guard matters more than it looks. A prompt the classifier refuses stays
-        /// on screen until the user answers it, so without this the same refusal would be
-        /// written every ten seconds for as long as they were away from the keyboard.
-        /// </summary>
-        /// <summary>
         /// Say, once, that a prompt is sitting on screen that nothing is going to press.
         ///
         /// ONCE per prompt, not once per poll. The signature is the agent plus its option labels,
@@ -694,16 +754,20 @@ namespace DesktopAICompanion.AgentFlow
         /// cooldown budget for a good reason: a prompt is either there or it is not, so there is no
         /// rate to limit, only a repeat to avoid.
         ///
-        /// Honours the pause, because a user who silenced the companion meant all of it.
+        /// Honours the pause, because a user who silenced the companion meant all of it -- and
+        /// CHECKS THE PAUSE BEFORE SPENDING THE ONE-SHOT. Marking the prompt announced and then
+        /// returning burned the single announcement this prompt will ever get on a tick that
+        /// delivered nothing, so a prompt that appeared during a pause stayed silent for the rest
+        /// of its life. A guard that says "already said" has to be set where something was said.
         /// </summary>
         internal void AnnounceScreenPrompt(ScreenPrompt seen)
         {
             if (seen == null) { _announcedScreenPrompt = null; return; }   // screen quiet: re-arm
             if (_host == null || _shuttingDown) return;
             if (string.Equals(seen.Signature, _announcedScreenPrompt, StringComparison.Ordinal)) return;
-            _announcedScreenPrompt = seen.Signature;
-
             if (_budget != null && _budget.IsPaused(DateTime.UtcNow)) return;
+
+            _announcedScreenPrompt = seen.Signature;
             Log("a prompt is waiting on screen for " + seen.Subject + " and nothing pressed it");
             if (NotifySpeakOn && AgentMode.Speaks(Mode))
             {
@@ -712,6 +776,13 @@ namespace DesktopAICompanion.AgentFlow
             }
         }
 
+        /// <summary>
+        /// Write what the approver did, and do it once per distinct outcome.
+        ///
+        /// The repeat guard matters more than it looks. A prompt the classifier refuses stays on
+        /// screen until the user answers it, so without this the same refusal would be written
+        /// every ten seconds for as long as they were away from the keyboard.
+        /// </summary>
         private void LogApprovalAttempt(string note)
         {
             if (string.IsNullOrEmpty(note)) { _lastApprovalNote = null; return; }
@@ -900,6 +971,22 @@ namespace DesktopAICompanion.AgentFlow
             // can notify again about a genuinely new prompt without ever repeating an old one.
             _budget.Retain(live);
 
+            // Same bound as every other set in this module: what the current tick can see, not
+            // how long the app has run. This one had no prune at all and grew for the life of the
+            // instance -- slowly, because it is one key per session per outcome, but without limit.
+            var liveSessions = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Detection detection in results)
+                if (detection.Session != null && detection.Session.SessionId != null)
+                    liveSessions.Add(detection.Session.SessionId);
+            var forgotten = new List<string>();
+            foreach (string key in _explained)
+            {
+                int slash = key.IndexOf('/');
+                if (!liveSessions.Contains(slash > 0 ? key.Substring(0, slash) : key))
+                    forgotten.Add(key);
+            }
+            foreach (string key in forgotten) _explained.Remove(key);
+
             _status = DescribeStatus(results.Count, blocked, stoodDown);
             _lastSessions = results.Count;
             _lastStoodDown = stoodDown;
@@ -952,12 +1039,7 @@ namespace DesktopAICompanion.AgentFlow
             if (NotifySoundOn) _host.PlayNotificationSound(Info.Id);
             if (Animate)
             {
-                // The pet's OWN animation, with the coverage list behind it. The previous
-                // list was boing/jump/run, and boing exists on one of the 53 bundled pets,
-                // so this silently did nothing on nineteen of them.
-                var candidates = new List<string>(PetAnimations.Candidates(
-                    StoredAnimPet, _settings == null ? "" : _settings.Get(SettingAnimName, "")));
-                _host.PlayAnimationAll(candidates);
+                PlayChosenAnimation();
             }
             _budget.Record(speakThis, now);
             // "spoke" rather than "notified", and only on the path where a companion was on screen
@@ -1005,9 +1087,12 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>
         /// NOT greyed out, and that is a decision rather than an omission.
         ///
-        /// Greying these was asked for to conserve resources, and the cursor removed the resource:
-        /// a transcript scan went from 535 ms per tick to 0.3 ms, measured. What greying would
-        /// still cost is real, though -- the transcript watcher is the only thing that can see an
+        /// Greying these was asked for to conserve resources, and the cursor removed most of the
+        /// resource: the FOLD went from 535 ms per tick to 0.3 ms, measured. What is left is the
+        /// directory sweep, which each watch flag does gate -- ~45 ms for 705 Claude transcripts,
+        /// ~17 ms for 247 Codex ones, once per ten seconds. That is around half a percent of one
+        /// core, so greying would save something, and not much. What it would COST is the larger
+        /// number: the transcript watcher is the only thing that can see an
         /// agent running OUTSIDE the VS Code window, so disabling it whenever the screen watcher
         /// is up would trade a capability for a saving that no longer exists. So the pane reports
         /// the overlap instead of enforcing it.
@@ -1033,12 +1118,20 @@ namespace DesktopAICompanion.AgentFlow
                                    + " agents, working";
         }
 
+        /// <summary>What every Codex transcript filename begins with. See <see cref="Short"/>.</summary>
+        private const string CodexNamePrefix = "rollout-";
+
         private static string Short(AgentSession session)
         {
             if (session == null || string.IsNullOrEmpty(session.SessionId)) return "?";
-            return session.SessionId.Length <= 8
-                ? session.SessionId
-                : session.SessionId.Substring(0, 8);
+            string id = session.SessionId;
+            // Codex names its transcripts rollout-<timestamp>-<uuid>, so the leading eight
+            // characters are the literal "rollout-" for every session that has ever run: every
+            // Codex line in the diagnostic log named the same session, and two running side by
+            // side were indistinguishable. The tail of the uuid separates as well as its head.
+            if (id.Length > 8 && id.StartsWith(CodexNamePrefix, StringComparison.OrdinalIgnoreCase))
+                return id.Substring(id.Length - 8);
+            return id.Length <= 8 ? id : id.Substring(0, 8);
         }
 
         /// <summary>Log a per-session explanation once per run. Carries no command text.</summary>
@@ -1325,11 +1418,6 @@ namespace DesktopAICompanion.AgentFlow
         private volatile bool _shuttingDown;
 
         /// <summary>
-        /// May a press happen right now? One place, so the worker and the self-test ask the same
-        /// question, and so the shutdown case cannot be reintroduced by an inline condition that
-        /// forgets it.
-        /// </summary>
-        /// <summary>
         /// Shutdown's FIRST act, on its own so the guard can be tested in isolation.
         ///
         /// Shutdown also nulls _host, which would make ShouldPressNow false anyway -- so a test
@@ -1340,9 +1428,48 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         internal void BeginShutdown() { _shuttingDown = true; }
 
+        /// <summary>
+        /// May a press happen right now? One place, so the worker and the self-test ask the same
+        /// question, and so the shutdown case cannot be reintroduced by an inline condition that
+        /// forgets it.
+        /// </summary>
         internal bool ShouldPressNow(bool autoApprove, bool answering)
         {
             return autoApprove && answering && !_shuttingDown && _host != null;
+        }
+
+        /// <summary>
+        /// Should this tick probe the debugging port at all?
+        ///
+        /// TAKES NO autoApprove ARGUMENT, deliberately, and that absence is the guard. The probe
+        /// used to sit inside `if (autoApprove)`, so `answering` was false throughout Notify and
+        /// Log modes -- which made <see cref="MayLookNow"/> (which requires it) impossible to
+        /// satisfy without <see cref="ShouldPressNow"/> also being satisfiable, and left the
+        /// Notify branch inside the sweep unreachable from the day it shipped. The 1.2.0 note
+        /// promised those users the prompt itself; they got the permission-rule prediction only.
+        ///
+        /// No assertion can see that defect from outside: it was a value the caller computed,
+        /// not a predicate anyone could call. What prevents its return is that reintroducing it
+        /// now means adding a parameter here, which is a visible change to a documented decision
+        /// rather than a word dropped into a condition.
+        /// </summary>
+        internal bool ShouldProbePort()
+        {
+            return Enabled && !_shuttingDown && _host != null;
+        }
+
+        /// <summary>
+        /// May the panel be READ right now? Strictly weaker than <see cref="ShouldPressNow"/>:
+        /// looking is what Notify and Log modes want, and pressing is what auto-approve adds.
+        ///
+        /// Exists as a seam because the two were once inline and the caller had made looking
+        /// depend on a value only computed for pressing, which silently reduced this to the
+        /// stronger condition. A relationship between two booleans is not visible by reading
+        /// either one; it needs an assertion, and an assertion needs something to call.
+        /// </summary>
+        internal bool MayLookNow(bool answering)
+        {
+            return answering && !_shuttingDown && _host != null && Enabled;
         }
 
         /// <summary>
@@ -1710,25 +1837,6 @@ namespace DesktopAICompanion.AgentFlow
         /// What it buys there is that the newest line has a timestamp, so "when did it stop"
         /// stops being a question about other subsystems' logging habits.
         /// </summary>
-        /// <summary>
-        /// Self-test only: stop polling and wait for the poll Init already started.
-        ///
-        /// Init ENDS with OnTick, so a scan is in flight the moment Init returns -- and with no
-        /// SynchronizationContext to post to, PostToUi runs the result INLINE on that worker, which
-        /// writes the first capability line. Anything counting log lines straight after Init is
-        /// therefore racing a background task it never started.
-        ///
-        /// That race is not theoretical and not symmetrical. It passed on the maintainer's machine
-        /// every time, because the scan there reads thousands of real transcripts and loses; it
-        /// failed on CI every time, because a runner has none and the scan finishes first. Green
-        /// locally and red on the runner, which is the worst way to find out.
-        /// </summary>
-        internal void QuiesceForSelfTest()
-        {
-            if (_timer != null) _timer.Stop();
-            for (int i = 0; i < 400 && Volatile.Read(ref _scanning) != 0; i++)
-                System.Threading.Thread.Sleep(5);
-        }
 
         /// <summary>Self-test only: forget what was last logged, so the next call records again.</summary>
         internal void ResetCapabilityLogForSelfTest() { _lastLoggedCapability = null; }
@@ -1903,12 +2011,16 @@ namespace DesktopAICompanion.AgentFlow
                               && SelfCheckCodexOptions(probe)
                               && SelfCheckCodexMode(probe)
                               && SelfCheckCodexWatch(probe)
+                              && SelfCheckExplainedPruned(probe)
                               && SelfCheckTeardown(probe)
                               && SelfCheckFoldEquivalence(probe)
                               && SelfCheckCursorResets(probe)
                               && SelfCheckScanEquivalence(probe)
                               && SelfCheckWatchSection(probe)
                               && SelfCheckScreenPrompt(probe)
+                              && SelfCheckSavedSettingsReachInit(probe)
+                              && SelfCheckShortSessionId(probe)
+                              && SelfCheckAnimatesChosenPet(probe)
                               && SelfCheckRefusalPrivacy(probe)
                               && SelfCheckCodexTransport(probe)
                               && SelfCheckCapabilityLog(probe)
@@ -3341,13 +3453,13 @@ namespace DesktopAICompanion.AgentFlow
 
             // The chosen name leads, then the coverage fallbacks -- so a pet that has been
             // swapped since the choice was made degrades instead of doing nothing.
-            IReadOnlyList<string> candidates = PetAnimations.Candidates("shimeji-cyn", "wave");
+            IReadOnlyList<string> candidates = PetAnimations.Candidates("wave");
             probe.Check("WITNESS the chosen animation is tried first",
                 candidates.Count > 1 && candidates[0] == "wave");
             probe.Check("...and a fallback follows it, so a swapped pet still animates",
-                candidates.Count > 1);
-            probe.Check("choosing no pet still yields the coverage list",
-                PetAnimations.Candidates(PetAnimations.AnyPet, PetAnimations.AnyPet).Count > 1);
+                candidates.Count > 1 && candidates[1] != "wave");
+            probe.Check("choosing no animation still yields the coverage list",
+                PetAnimations.Candidates(PetAnimations.AnyPet).Count > 1);
 
             // WITNESS the defect this replaces. The shipped list was boing,jump,run: boing is
             // on ONE of 53 pets, so "Play an animation" was a silent no-op on nineteen of them.
@@ -3625,6 +3737,113 @@ namespace DesktopAICompanion.AgentFlow
         /// quiet. A notifier that repeats every poll is worse than none: it trains the user to
         /// ignore it, and this one speaks out loud.
         /// </summary>
+        /// <summary>
+        /// Two settings that persisted perfectly and then did nothing, which is worse than not
+        /// persisting: the pane shows the saved value back, so there is nothing to notice.
+        /// </summary>
+        private static bool SelfCheckSavedSettingsReachInit(SelfTestProbe probe)
+        {
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            using (var storage =
+                       new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-init"))
+            {
+                host.UseStorage("agentflow", storage);
+                host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);   // no scan at Init
+                host.SettingsFor("agentflow").Set(SettingCooldown, "300");
+                probe.Check("WITNESS the saved cooldown is not the default it would be confused with",
+                    300.0 != NotifyBudget.DefaultCooldownSeconds);
+
+                var module = new AgentFlowModule();
+                module.Init(host);
+                probe.Check("WITNESS a cooldown saved last week is live at the NEXT launch, "
+                            + "not only after the pane is saved again",
+                    module._budget.CooldownSeconds == 300.0);
+                module.Shutdown();
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Session ids in the log have to distinguish sessions, and for Codex they did not.
+        /// </summary>
+        private static bool SelfCheckShortSessionId(SelfTestProbe probe)
+        {
+            var codexOne = new AgentSession
+            {
+                SessionId = "rollout-2026-09-21T08-13-43-01a0c487-b562-7013-aaf8-9f619e2ae5fa",
+            };
+            var codexTwo = new AgentSession
+            {
+                SessionId = "rollout-2026-09-21T08-14-27-01a0c488-6153-7eb3-a58d-efa00d079ecd",
+            };
+            probe.Check("WITNESS two Codex sessions are told apart in the log",
+                Short(codexOne) != Short(codexTwo));
+            probe.Check("WITNESS ...which the leading characters could not do, being the "
+                        + "literal filename prefix every Codex transcript shares",
+                codexOne.SessionId.Substring(0, 8) == codexTwo.SessionId.Substring(0, 8));
+
+            var claude = new AgentSession { SessionId = "d5d95e35-1b61-45ed-92e3-76dd5d60d9ab" };
+            probe.Check("a Claude session still reads as the head of its uuid",
+                Short(claude) == "d5d95e35");
+            probe.Check("a short id is passed through whole",
+                Short(new AgentSession { SessionId = "abc" }) == "abc");
+            probe.Check("no session at all is not an exception", Short(null) == "?");
+            return true;
+        }
+
+        /// <summary>
+        /// The pane's pet dropdown has to change what happens, and for its whole life it could
+        /// not: the pet was dropped on the floor and every animation went to every pet.
+        ///
+        /// The fake makes the two paths tell themselves apart. TryPlayAnimation records ONE name
+        /// (the first that plays), PlayAnimationAll records the WHOLE candidate list -- so the
+        /// count is the evidence for which one ran, without needing the fake to know about pets.
+        /// </summary>
+        private static bool SelfCheckAnimatesChosenPet(SelfTestProbe probe)
+        {
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            using (var storage =
+                       new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-anim"))
+            {
+                host.UseStorage("agentflow", storage);
+                host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);   // no scan at Init
+                host.SettingsFor("agentflow").Set(SettingAnimPet, "shimeji-cyn");
+                host.SettingsFor("agentflow").Set(SettingAnimName, "wave");
+                var module = new AgentFlowModule();
+                module.Init(host);
+
+                int coverage = PetAnimations.Candidates("wave").Count;
+                probe.Check("WITNESS the candidate list is longer than one, so the two paths "
+                            + "cannot be confused by their record count",
+                    coverage > 1);
+
+                host.RaiseCompanionSpawned(
+                    new DesktopAICompanion.ModuleKit.Testing.FakeCompanion(1, "shimeji-cyn"));
+                host.PlayedAnimations.Clear();
+                module.PlayChosenAnimation();
+                probe.Check("WITNESS the chosen animation goes to the chosen pet ALONE",
+                    host.PlayedAnimations.Count == 1 && host.PlayedAnimations[0] == "wave");
+
+                // A pet of a DIFFERENT type on screen must not collect it.
+                host.PlayedAnimations.Clear();
+                host.SettingsFor("agentflow").Set(SettingAnimPet, "shimeji-nobody");
+                module.PlayChosenAnimation();
+                probe.Check("WITNESS a choice whose pet is not on screen falls back to every pet "
+                            + "rather than to silence",
+                    host.PlayedAnimations.Count == coverage);
+
+                // And the explicit any-pet choice still means every pet.
+                host.PlayedAnimations.Clear();
+                host.SettingsFor("agentflow").Set(SettingAnimPet, PetAnimations.AnyPet);
+                module.PlayChosenAnimation();
+                probe.Check("choosing any pet still reaches every pet",
+                    host.PlayedAnimations.Count == coverage);
+
+                module.Shutdown();
+            }
+            return true;
+        }
+
         private static bool SelfCheckScreenPrompt(SelfTestProbe probe)
         {
             var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
@@ -3674,6 +3893,20 @@ namespace DesktopAICompanion.AgentFlow
                     probe.Check("WITNESS nothing spoken carries an option label",
                         line.IndexOf("Allow once", StringComparison.Ordinal) < 0
                         && line.IndexOf("Deny", StringComparison.Ordinal) < 0);
+
+                // A PAUSED prompt must survive the pause. The guard used to be set before the
+                // pause was checked, so the single announcement this prompt will ever get was
+                // spent on a tick that delivered nothing: silenced once, silent for ever.
+                var third = new ScreenPrompt { Signature = "codex|Deny|Allow always", Subject = "a Codex command" };
+                module._budget.PauseForSelfTest(DateTime.UtcNow.AddMinutes(30));
+                int beforePaused = Spoken();
+                module.AnnounceScreenPrompt(third);
+                probe.Check("WITNESS a paused companion says nothing", Spoken() == beforePaused);
+
+                module._budget.PauseForSelfTest(DateTime.MinValue);
+                module.AnnounceScreenPrompt(third);
+                probe.Check("WITNESS ...and the SAME prompt is still announced once the pause ends",
+                    Spoken() > beforePaused);
 
                 module.Shutdown();
                 int afterShutdown = Spoken();
@@ -3937,11 +4170,56 @@ namespace DesktopAICompanion.AgentFlow
                     swapped.Outstanding.Count == 3
                     && swapped.Outstanding.TrueForAll(c => c.Id != null && c.Id[0] == 'b'));
 
-                // 4. A missing file reports what was already folded rather than inventing empty.
+                // 4. A missing file reports what was already folded rather than inventing empty,
+                //    AND KEEPS THE CLOCK. Reporting DateTime.UtcNow from a failed stat restarted
+                //    the idle timer, so a genuinely stalled agent read as Working every time its
+                //    transcript was briefly unreadable -- the watched-for failure erased by the
+                //    act of failing to look.
+                DateTime lastSeen = swapped.LastWriteUtc;
                 System.IO.File.Delete(path);
                 AgentSession gone = cursor.Advance(out reason);
                 probe.Check("WITNESS a vanished transcript keeps what it had already folded",
                     gone.Outstanding.Count == 3);
+                probe.Check("WITNESS ...and keeps the last write time, so the idle clock runs on",
+                    gone.LastWriteUtc == lastSeen);
+
+                // 5. EQUAL-LENGTH replacement, differing only past the first 64 bytes. Nothing
+                //    grows, so on the old code nothing opened the file at all and the head check
+                //    never ran; and at 64 bytes it could not have separated these anyway.
+                //    MEASURED on this machine: 952 real transcripts share only 422 distinct
+                //    64-byte heads, one prefix covering 104 files. At 128 bytes all 952 separate.
+                string pad = new string('p', 60);
+                string first = "{\"pad\":\"" + pad + "\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"d1\",\"name\":\"Bash\"}]}}\n";
+                string second = "{\"pad\":\"" + pad + "\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"e1\",\"name\":\"Bash\"}]}}\n";
+                probe.Check("WITNESS the fixtures are equal length and differ only after byte 64",
+                    utf8.GetByteCount(first) == utf8.GetByteCount(second)
+                    && first.Length > 64 && first.Substring(0, 64) == second.Substring(0, 64)
+                    && first != second);
+                System.IO.File.WriteAllBytes(path, utf8.GetBytes(first));
+                var equal = new TranscriptCursor(path, TranscriptReader.AgentClaude);
+                AgentSession beforeSwap = equal.Advance(out reason);
+                probe.Check("the equal-length fixture folded",
+                    beforeSwap.Outstanding.Count == 1 && beforeSwap.Outstanding[0].Id == "d1");
+
+                // Written in place, so length and creation time are both unchanged. The write
+                // time is SET rather than trusted: two WriteAllBytes calls this close together
+                // can land on one filesystem timestamp, and the test would then pass or fail on
+                // scheduling instead of on the behaviour it is about.
+                System.IO.File.WriteAllBytes(path, utf8.GetBytes(second));
+                System.IO.File.SetLastWriteTimeUtc(
+                    path, System.IO.File.GetLastWriteTimeUtc(path).AddSeconds(5));
+                AgentSession sameSize = equal.Advance(out reason);
+                probe.Check("WITNESS a replacement of EXACTLY the same length is caught",
+                    reason != null && reason.IndexOf("different file", StringComparison.Ordinal) >= 0);
+                probe.Check("WITNESS ...and the new file's state replaced the old one's",
+                    sameSize.Outstanding.Count == 1 && sameSize.Outstanding[0].Id == "e1");
+
+                // 6. A tick with nothing written must not be a reset: the design rests on an
+                //    unchanged length and write time costing one stat and no open.
+                AgentSession quiet = equal.Advance(out reason);
+                probe.Check("WITNESS a tick with nothing written is not a reset", reason == null);
+                probe.Check("...and holds the state it already had",
+                    quiet.Outstanding.Count == 1 && quiet.Outstanding[0].Id == "e1");
             }
             catch (Exception ex) { probe.Check("cursor resets: " + ex.Message, false); }
             finally { try { System.IO.File.Delete(path); } catch { } }
@@ -4035,6 +4313,24 @@ namespace DesktopAICompanion.AgentFlow
                 var module = new AgentFlowModule();
                 module.Init(host);
 
+                // Notify is the mode the next two assertions are ABOUT: it scans, and it never
+                // presses. Set after Init so Init itself still starts no scan.
+                host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Notify);
+
+                // LOOKING IS WEAKER THAN PRESSING, and it has to be, or the Notify and Log
+                // modes never read the panel at all. The two conditions were once inline and the
+                // caller fed `mayLook` a value only computed when auto-approve was on, which
+                // quietly made them equal: the Notify branch inside the sweep was unreachable
+                // from the day it shipped. A relationship between two predicates is invisible in
+                // either one of them, so it is asserted here.
+                probe.Check("WITNESS the panel may be READ with auto-approve off",
+                    module.MayLookNow(true) && !module.ShouldPressNow(false, true));
+                probe.Check("WITNESS ...but nothing may be read with no port answering",
+                    !module.MayLookNow(false));
+                probe.Check("WITNESS a Notify-mode tick still probes the port, which is the "
+                            + "value the whole look/press split depends on",
+                    module.ShouldProbePort());
+
                 probe.Check("a live module with the switch on and a port answering may press",
                     module.ShouldPressNow(true, true));
                 probe.Check("...but not with the switch off",
@@ -4048,6 +4344,9 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("WITNESS a press is refused the instant shutdown BEGINS, while the "
                             + "host is still attached and the port still answering",
                     !module.ShouldPressNow(true, true));
+                probe.Check("WITNESS ...and so is a LOOK, which is the weaker of the two and so "
+                            + "the one a shutdown guard is easiest to forget on",
+                    !module.MayLookNow(true));
 
                 module.Shutdown();
                 probe.Check("...and still refused once Shutdown has finished",
@@ -4087,6 +4386,51 @@ namespace DesktopAICompanion.AgentFlow
         /// calls the longest gap was 121.2 s and nothing exceeded 180 s. Claude's 30 s would have
         /// fired on 946 of them.
         /// </summary>
+        /// <summary>
+        /// The per-session explanation set is bounded by what is live, not by uptime.
+        ///
+        /// It had no prune at all: one key per session per outcome, added for ever and cleared
+        /// only at Shutdown. Slow growth is still growth, and every other set in this module
+        /// already prunes against the current tick.
+        /// </summary>
+        private static bool SelfCheckExplainedPruned(SelfTestProbe probe)
+        {
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            using (var storage =
+                       new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-ex"))
+            {
+                host.UseStorage("agentflow", storage);
+                host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);
+                var module = new AgentFlowModule();
+                module.Init(host);
+
+                Func<string, Detection> stoodDown = id => new Detection
+                {
+                    Session = new AgentSession { Agent = TranscriptReader.AgentCodex, SessionId = id },
+                    Outcome = DetectionOutcome.StoodDownAutoMode,
+                    Reason = "because",
+                };
+
+                module.Apply(new List<Detection> { stoodDown("alpha") });
+                probe.Check("WITNESS a session is remembered so it is not explained twice",
+                    module.ExplainedCountForSelfTest == 1);
+
+                module.Apply(new List<Detection> { stoodDown("alpha") });
+                probe.Check("...and is not remembered twice", module.ExplainedCountForSelfTest == 1);
+
+                module.Apply(new List<Detection> { stoodDown("beta") });
+                probe.Check("WITNESS a session that is no longer live is forgotten",
+                    module.ExplainedCountForSelfTest == 1);
+
+                module.Apply(new List<Detection>());
+                probe.Check("WITNESS nothing live means nothing remembered",
+                    module.ExplainedCountForSelfTest == 0);
+
+                module.Shutdown();
+            }
+            return true;
+        }
+
         private static bool SelfCheckCodexWatch(SelfTestProbe probe)
         {
             var rules = new RuleSet();

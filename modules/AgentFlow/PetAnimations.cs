@@ -100,14 +100,18 @@ namespace DesktopAICompanion.AgentFlow
         }
 
         /// <summary>
-        /// The candidate list to hand PlayAnimationAll for a stored choice.
+        /// The ordered candidate list for a stored animation choice.
         ///
-        /// A single name for a specific pet, because the user picked it off that pet's own list --
-        /// but the ordered-candidate convention is kept anyway (AiBrain, Reminder and StartUp all
-        /// use it) so a pet that has since been swapped degrades to the coverage list instead of
-        /// doing nothing at all.
+        /// The chosen name leads, because the user picked it off a pet's own list; the coverage
+        /// list follows (the convention AiBrain, Reminder and StartUp all use) so a pet that has
+        /// since been swapped degrades instead of doing nothing at all.
+        ///
+        /// TAKES NO PET. It used to, and never read it, which made the whole thing look like it
+        /// honoured the pane's pet dropdown while the only consumer handed the result to
+        /// PlayAnimationAll -- every pet, by contract. Choosing a pet could not change what
+        /// happened. Which pet to play on is now the caller's business, where it is visible.
         /// </summary>
-        internal static IReadOnlyList<string> Candidates(string pet, string animation)
+        internal static IReadOnlyList<string> Candidates(string animation)
         {
             var list = new List<string>();
             if (!string.IsNullOrEmpty(animation) && animation != AnyPet) list.Add(animation);
