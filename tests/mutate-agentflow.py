@@ -318,7 +318,9 @@ CASES = (
     (
         "the tray shows green whatever the port is doing",
         MODULE,
-        "                case ApproveState.CannotSee:\n                    return _portAnswering\n                        ? \"Auto-approve: on, but cannot see the Claude Code panel\"\n                        : \"Auto-approve: on, waiting for VS Code\";",
+        # Says "agent panel" since Codex support; this read "Claude Code panel" and so matched
+        # nothing at all, which is a guard that stopped guarding without anyone being told.
+        "                case ApproveState.CannotSee:\n                    return _portAnswering\n                        ? \"Auto-approve: on, but cannot see the agent panel\"\n                        : \"Auto-approve: on, waiting for VS Code\";",
         "                case ApproveState.CannotSee: return \"Auto-approve: on\";",
         "on-but-unreachable is the orange state",
     ),
@@ -393,8 +395,10 @@ CASES = (
     (
         "the rate cap is off by one, in the permissive direction",
         BUDGETPRESS,
-        "            if (_presses.Count >= MaxPressesPerWindow)",
-        "            if (_presses.Count > MaxPressesPerWindow)",
+        # The cap became a per-user setting in agentflow 1.4.0 and the constant went with it.
+        # Same off-by-one, against the field that replaced it.
+        "            if (_presses.Count >= _pressLimit)",
+        "            if (_presses.Count > _pressLimit)",
         "the rate cap stops an unattended run",
     ),
     (
@@ -625,8 +629,11 @@ CASES = (
     (
         "the animation call site goes back to the hardcoded list",
         MODULE,
-        '                var candidates = new List<string>(PetAnimations.Candidates(',
-        '                var candidates = new List<string> { "boing", "jump", "run" }; if (false) _ = new List<string>(PetAnimations.Candidates(',
+        # Moved into PlayChosenAnimation when per-pet playback landed, losing four spaces of
+        # indent, and Candidates() no longer takes a pet. `if (_host == null)` rather than
+        # `if (false)`: the latter is unreachable code, which this tree compiles as an error.
+        '            var candidates = new List<string>(PetAnimations.Candidates(',
+        '            var candidates = new List<string> { "boing", "jump", "run" }; if (_host == null) _ = new List<string>(PetAnimations.Candidates(',
         "the animation played is not the one-pet list any more",
     ),
     (

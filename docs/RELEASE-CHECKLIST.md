@@ -71,12 +71,29 @@ Desktop AI Companion ships **unsigned** Windows x64 builds. To cut a release:
 
    | harness | proves | expect |
    |---|---|---|
-   | [`tests/mutate-agentflow.py`](../tests/mutate-agentflow.py) | `--module-selftest=agentflow` is not a rubber stamp | `23/23 fired.` |
-   | [`tests/mutate-selftest-guards.py`](../tests/mutate-selftest-guards.py) | the host self-test assertions that were previously unfailable | `15/15 fired.` |
-   | [`tests/mutate-hardening-guards.py`](../tests/mutate-hardening-guards.py) | the source invariants in `runtime-hardening-selftest.ps1` | `13/13 fired.` |
-   | [`tests/mutate-diagnostics.py`](../tests/mutate-diagnostics.py) | the diagnostic-log guards | `22/22 fired.` |
+   | [`tests/mutate-agentflow.py`](../tests/mutate-agentflow.py) | `--module-selftest=agentflow` is not a rubber stamp | exit 0 |
+   | [`tests/mutate-selftest-guards.py`](../tests/mutate-selftest-guards.py) | the host self-test assertions that were previously unfailable | exit 0 |
+   | [`tests/mutate-hardening-guards.py`](../tests/mutate-hardening-guards.py) | the source invariants in `runtime-hardening-selftest.ps1` | exit 0 |
+   | [`tests/mutate-diagnostics.py`](../tests/mutate-diagnostics.py) | the diagnostic-log guards | exit 0 |
    | [`tests/difftest-prompt-options.py`](../tests/difftest-prompt-options.py) | the C# prompt-option classifier still agrees with the Python reference | `no disagreements` |
    | [`docs/agentflow/agentflow_classifier.py --audit`](../docs/agentflow/agentflow_classifier.py) | the option table still covers the INSTALLED Claude Code bundle | `audit OK: all 12 bundle options classified.` |
+
+   **EXIT CODE, NOT A COUNT, AND THAT IS A CORRECTION.** This table used to name an exact
+   figure per harness -- `23/23 fired.` and so on. On 2026-09-22 `mutate-agentflow.py` reported
+   **80/83**, and the documented number was **23**: it had drifted by sixty cases and nobody
+   noticed, so comparing against it would have flagged nothing. A hand-maintained duplicate of a
+   fact the machine already knows will eventually contradict it, and then it is worse than
+   absent, because it looks like a check.
+
+   Every harness already returns non-zero unless every case fires, so the exit code is the
+   authority and cannot go stale. Read the printed ratio for information; judge on the exit code.
+
+   ⚠ **A NO-OP IS NOT A PASS EITHER.** When a harness prints `NO-OP (pattern matched 0 times)` it
+   means the source it mutates has MOVED and that guard is no longer being tested at all -- a
+   silent loss of coverage rather than a failure. Three cases here were NO-OP on 2026-09-22
+   because that day's work renamed a tray string, replaced a constant with a user setting, and
+   moved a call site. Re-point them at the current source and confirm each one FIRES; a
+   re-targeted case that still does not fire is a real gap.
 
    The last two are not mutation suites and are cheap, but they belong in the same step: the
    classifier is what decides whether AgentFlow presses a button, its table is transcribed BY HAND
