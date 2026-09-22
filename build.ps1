@@ -222,7 +222,10 @@ $moduleProjects = @(
     (Join-Path $repoRoot 'modules\BlinkingLed\BlinkingLed.csproj'),
     #   - AgentFlow: notices when a coding agent (Claude Code, Codex) is sitting blocked on a permission
     #     prompt and has the companion say so. Reads the agents' own JSONL transcripts, which is why it
-    #     declares ModulePermissions.AgentTranscripts. Observe-only by decision: it never answers a prompt.
+    #     declares ModulePermissions.AgentTranscripts. It can also APPROVE a prompt, one call at a time,
+    #     which is off by default and is why it declares InputSynthesis and Network too. (This comment
+    #     read "observe-only by decision: it never answers a prompt" until 2026-09-22, four minor
+    #     versions after that stopped being true.)
     (Join-Path $repoRoot 'modules\AgentFlow\AgentFlow.csproj')
 )
 foreach ($moduleProject in $moduleProjects) {

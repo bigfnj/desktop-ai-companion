@@ -1,7 +1,7 @@
 ﻿# Live smoke test
 
 **What this is.** The checks that require a human to open the app and look at it. Everything else in this
-repo (the gate, 109 source invariants, 19 self-tests, two soaks, the mutation suites) proves the code does
+repo (the gate, 113 source invariants, 19 self-tests, two soaks, the mutation suites) proves the code does
 what it says. Nothing in it proves the code says the right thing.
 
 *(Those two numbers were wrong three times, so they are now GATE-ENFORCED rather than maintained:
@@ -218,7 +218,8 @@ Run the MSI **over a running app** — that is the path that used to fail.
 - [ ] **H9. Companion Studio.** Open a companion, edit the XML, preview it on the desktop. Then the behaviour timeline:
       drag animations into a chain and press **Run**. This button has no automated coverage at all.
 - [ ] **H10. Blinking LED.** Toggle it, confirm the Scroll Lock light blinks and the companion comments.
-- [ ] **H11. AgentFlow — a real blocked agent.** Not in the catalog (built, never published), so it is
+- [ ] **H11. AgentFlow — a real blocked agent.** Published in the catalog since 2026-09-17 and now at
+      1.4.1, so a defect here reaches every user who opens the Modules pane. It is also
       present only in a dev build. Leave a coding agent sitting on a permission prompt **in `default` mode**
       for longer than the threshold, and confirm the companion says so, naming the tool and the project
       folder. Then answer the prompt and confirm it does **not** repeat itself on the next poll.

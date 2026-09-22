@@ -1236,6 +1236,27 @@ Assert-True ($assertSiteCount -gt 50) (
 Assert-True ($selfTestFlagCount -gt 10) (
     "Invoke-SelfTests.ps1's flag table is countable (found $selfTestFlagCount)")
 
+# The project count in Readme.md, guarded for the same reason the self-test count above is. Added
+# 2026-09-22 after an audit found "All sixteen projects target net10.0-windows" had been correct when
+# written and wrong ever since a test project was added: `git ls-tree` at that commit returns exactly
+# 16. The self-test count next to it had NOT rotted in the same period, and the only difference between
+# the two numbers was that one of them was asserted. Spelled-out numerals, because that is how the
+# sentence is written and a digit would not match.
+$projectCount = @(git -C $repoRoot ls-files '*.csproj').Count
+$numeralNames = @{ 14 = 'fourteen'; 15 = 'fifteen'; 16 = 'sixteen'; 17 = 'seventeen';
+                   18 = 'eighteen'; 19 = 'nineteen'; 20 = 'twenty' }
+Assert-True ($projectCount -gt 10) (
+    "the tracked project count is countable (found $projectCount)")
+Assert-True ($numeralNames.ContainsKey($projectCount)) (
+    "the project count $projectCount has a spelled-out name in this check's table -- add it")
+$documentedProjects = [regex]::Match($readmeSource, '(?m)^All ([a-z]+) projects target')
+Assert-True ($documentedProjects.Success) 'Readme.md states a project count'
+Assert-True ($documentedProjects.Groups[1].Value -eq $numeralNames[$projectCount]) (
+    "Readme.md's project count matches the tracked .csproj files" +
+    $(if ($documentedProjects.Groups[1].Value -ne $numeralNames[$projectCount]) {
+        " -- it says '$($documentedProjects.Groups[1].Value)', there are $projectCount" +
+        " ('$($numeralNames[$projectCount])')" } else { '' }))
+
 foreach ($docPair in @(@{ Name = 'SMOKETEST.md'; Text = $smokeSource },
                        @{ Name = 'Readme.md';    Text = $readmeSource })) {
     $documentedSelfTests = [regex]::Match($docPair.Text, '(\d+) self-tests')

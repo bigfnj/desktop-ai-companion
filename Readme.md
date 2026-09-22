@@ -53,7 +53,7 @@ shows each module's declared permissions *before* it downloads anything, and ins
 SHA-256 check against the published `catalog.json`. Modules load at startup, so installing or
 removing one restarts the app (it reopens straight back on the Modules pane). Uninstalling removes
 the module and its settings. Published today: **Fortunes**, **AI Brain**, **Companion Studio**, **Reminder**,
-**Remembrance** and **Blinking LED**.
+**Remembrance**, **Blinking LED** and **AgentFlow**.
 
 A module that fails to load says so, with the reason and a **Reinstall** that keeps its data — rather
 than sitting there claiming it needs a restart forever.
@@ -323,18 +323,35 @@ That speech styling is available to any module through a shared helper, and **Pr
 has two independent switches — **companion sounds** (a companion's own effects) and **notification sounds** (module
 chimes) — so you can silence one category without the other.
 
-### 🎙️ Remembrance (optional module, new)
+### 🎙️ Remembrance (optional module)
 <img align="right" width="66" src="Companions/pink_sheep/icon.png" alt="Pearl the pink sheep">
 
 A local "meeting memory" module: records the meeting (your microphone plus the system output over WASAPI
 loopback), transcribes it **offline** with a local Whisper (whisper.cpp), names the file from the calendar
 (via the Reminder module) or a timestamp, snapshots the screen on a hotkey, and purges the audio and
 snapshots after 72 hours while keeping the transcript and the calendar attendee roster. Everything stays on
-the machine. It needs a local Whisper set up (a `whisper-cli.exe` plus a model), and it records only from the
+the machine. It can also write an optional plain-language **summary** beside the transcript, off by
+default, using a local Ollama over loopback; there is deliberately no cloud transcription and no cloud
+summary path. It needs a local Whisper set up (a `whisper-cli.exe` plus a model), and it records only from the
 machine's own console session — a Remote Desktop session presents no real microphone or speakers. Requires
 the v1.0.0 (or newer) host.
 
-### 💡 Blinking LED (optional module, new)
+### 🚦 AgentFlow (optional module)
+<img align="right" width="66" src="docs/images/agentflow-icon.jpg" alt="AgentFlow">
+
+Notices when a coding agent (Claude Code, Codex) is sitting blocked on a permission prompt, and has the
+companion tell you. It reads those agents' own JSONL transcripts, which is why it declares
+`AgentTranscripts`.
+
+It can also **answer the prompt for you**, one call at a time, if you switch that on. That half is off by
+default and is the reason the module declares `InputSynthesis` and `Network` as well: approving means
+synthesising input into another application. Between them that is the most invasive permission set any
+module here asks for — `Speech, Animation, Storage, AgentTranscripts, InputSynthesis, Network, Companions,
+Audio` — so the consent prompt names all eight before it loads. A per-window press limit is available in
+the options pane and **defaults to effectively unlimited** (9999), so it is a brake you can set rather
+than one that is already on. Requires the v1.2.0 (or newer) host.
+
+### 💡 Blinking LED (optional module)
 
 Blinks your keyboard's **Scroll Lock light** so the machine reads as active, at one of six speeds
 (Glacial through Hyper) switchable from the tray or the options pane. It works by pressing Scroll Lock,
@@ -368,7 +385,8 @@ added. The tray dialogs also follow your **Windows light/dark theme**.
 
 ## Install
 
-Each GitHub release provides two Windows x64 artifacts:
+Each GitHub release provides two Windows x64 application artifacts, plus `SHA256SUMS.txt` and the two
+module-authoring NuGet packages:
 
 - **`DesktopAICompanion.msi`** — a per-user installer (no admin).
 - **`DesktopAICompanion-Portable.zip`** — unzip anywhere and run `DesktopAICompanion.exe`.
@@ -400,9 +418,10 @@ them against `SHA256SUMS.txt` on the release.
   screen they no longer all say the same line at the same moment — a reaction belongs to one companion.
 - **Options** opens with **Preferences** and **Modules** pinned in that order, then everything else
   sorted alphabetically. That tail mixes core panes and module panes together rather than listing modules
-  after core ones, so **Companions** (core) sits among them. On a full install it reads: **AI Brain**
-  (provider / model / key / OCR / triggers), **Blinking LED**, **Companion Studio**, **Companions**,
-  **Fortunes** (content level / sources / packs / smart toggle), **Remembrance**, **Reminders**.
+  after core ones, so **Companions** (core) sits among them. On a full install it reads: **AgentFlow**,
+  **AI Brain** (provider / model / key / OCR / triggers), **Blinking LED**, **Companion Studio**,
+  **Companions**, **Fortunes** (content level / sources / packs / smart toggle), **Remembrance**,
+  **Reminders**.
 - **Options → Companions** gives each companion a **size** and, on a multi-monitor desktop, a **screen**. Leave the
   screen on *Any* and the companion spawns wherever; name a monitor and it stays there, and it **hides rather
   than moving** if a fullscreen app takes that screen over. The dropdown is hidden on a single monitor,
@@ -426,8 +445,8 @@ downloaded companion and installed module and installs a clean copy. It also clo
 of asking you to, offers a working **Repair**, and launches the companion when it finishes.
 
 An installed copy stores mutable data under `%LOCALAPPDATA%\DesktopAICompanion`. A portable copy stores it
-under `data\` beside the executable. Supported files from the legacy `%APPDATA%\DesktopPet` location
-are migrated when needed.
+under `data\` beside the executable. Supported files from the legacy `%LOCALAPPDATA%\DesktopPet`
+(settings, vector cache) and `%APPDATA%\DesktopPet` (fortunes) locations are migrated when needed.
 
 ---
 
@@ -440,11 +459,14 @@ current companion instantly. They vary a lot: some are plain walkers, and a few 
 
 Thirty-one of them are **converted Shimeji skins** — Hornet, Ralsei, Cyn, KinitoPET, Gengar,
 SpongeBob, Uzi Doorman, Cartman and friends — imported with the repo's own converter rather than
-hand-authored. They walk, rest, **jump**, **swing from your hand** while dragged, **climb the screen
-edges**, and **cross the ceiling** once they reach the top. They also use **all four edges of your
+hand-authored. They walk, rest, **swing from your hand** while dragged, **climb the screen
+edges**, and **cross the ceiling** once they reach the top; the ones that came with jump frames also
+**jump**. They also use **all four edges of your
 windows**: stand on the top, grip a side and climb down the frame, jump into the underside and hang
-from it, and swing round the corner between the two. A few **sit and look at your pointer**. Each
-ships an honest import report of what the conversion simplified or dropped.
+from it, and swing round the corner between the two. A few **sit and look at your pointer**.
+Companion Studio shows an honest import report of what the conversion simplified or dropped when **you**
+import a skin yourself; the already-converted companions in the catalog ship the `animations.xml` alone,
+so their reports were produced at conversion time and are not distributed with them.
 
 The **colored sheep** are the deepest, and the gallery shows them by their character names rather than
 their colour (the thumbnail already shows that): **Ben** (blue), **Gus** (green), **Omar** (orange),
@@ -476,7 +498,7 @@ bathtub escape. Every companion's exact moves and odds live in its `animations.x
 
 Requires the **.NET 10 SDK** — exactly 10.0.302, pinned in [`global.json`](global.json) with
 `rollForward: disable` so a different patch fails fast instead of quietly building something untested.
-All sixteen projects target `net10.0-windows`, except AI Brain and Remembrance, which pin
+All seventeen projects target `net10.0-windows`, except AI Brain and Remembrance, which pin
 `net10.0-windows10.0.19041.0` because they call Windows 10 2004 APIs (built-in OCR, audio capture). MSI builds also require WiX 5.0.2.
 
 ```powershell
@@ -509,8 +531,11 @@ upstream fortune files, because the topic/genre labels cannot be regenerated.
 
 - The Shimeji conversion engine lives in [`tools/ShimejiConvert.Engine`](tools/ShimejiConvert.Engine/)
   and is **shared**: Companion Studio source-links it for in-app import (above), and the
-  [`tools/ShimejiConvert`](tools/ShimejiConvert/) CLI drives it for batch/dev use (`verify`, `convert`,
-  `convertroot`, `convertbundle`). It recompiles `CompanionXmlValidator.cs` rather than reimplementing the
+  [`tools/ShimejiConvert`](tools/ShimejiConvert/) CLI drives it for batch/dev use: `verify`, `classify`
+  and `convert` / `convertroot` / `convertbundle` for import, plus a family of re-emit migrations
+  (`rebalance`, `reweight`, `rejump`, `reloop`, `reclimb`, `restdwell`, `restsplit`, `dedupe`,
+  `undirect`) that re-time and re-wire already-converted companions in place. Run it with no arguments
+  for the current list. It recompiles `CompanionXmlValidator.cs` rather than reimplementing the
   rules, so converted companions are graded by exactly what the app enforces. It bundles libwebp's `dwebp`
   (BSD) to decode Android-bundle WebP sprites with alpha, since the Windows WebP codec drops it.
 
