@@ -1902,6 +1902,7 @@ namespace DesktopAICompanion.AgentFlow
                               && SelfCheckAllProjects(probe)
                               && SelfCheckCodexOptions(probe)
                               && SelfCheckCodexMode(probe)
+                              && SelfCheckCodexWatch(probe)
                               && SelfCheckTeardown(probe)
                               && SelfCheckFoldEquivalence(probe)
                               && SelfCheckCursorResets(probe)
@@ -4077,6 +4078,71 @@ namespace DesktopAICompanion.AgentFlow
             return true;
         }
 
+        /// <summary>
+        /// A Codex session that asks before it acts CAN now be watched, on a threshold measured
+        /// against a control group rather than borrowed from Claude.
+        ///
+        /// The control is what makes the number meaningful: sessions running approval_policy
+        /// `never` cannot ask a human, so every stall in them is machine-only. Over 18,974 such
+        /// calls the longest gap was 121.2 s and nothing exceeded 180 s. Claude's 30 s would have
+        /// fired on 946 of them.
+        /// </summary>
+        private static bool SelfCheckCodexWatch(SelfTestProbe probe)
+        {
+            var rules = new RuleSet();
+            DateTime start = DateTime.UtcNow.AddHours(-1);
+
+            Func<string, double, Detection> look = (policy, idleSeconds) =>
+            {
+                var session = new AgentSession
+                {
+                    Agent = TranscriptReader.AgentCodex,
+                    SessionId = "rollout-x",
+                    Mode = policy,
+                    SawAnyCall = true,
+                    LastWriteUtc = start,
+                };
+                session.Outstanding.Add(new OutstandingCall
+                {
+                    Id = "k1", Tool = "shell", Command = null, StartedUtc = start, Mode = null,
+                });
+                return BlockedDetector.Evaluate(session, rules, 30.0,
+                                                start.AddSeconds(idleSeconds));
+            };
+
+            probe.Check("WITNESS a never-ask session stands down however long it has stalled",
+                look("never", 9999).Outcome == DetectionOutcome.StoodDownAutoMode);
+            probe.Check("...and says it is not waiting on anyone, not that precision is unmeasured",
+                look("never", 9999).Reason.IndexOf("never stops to ask", StringComparison.Ordinal) >= 0);
+            probe.Check("an unknown policy also stands down",
+                look(null, 9999).Outcome == DetectionOutcome.StoodDownAutoMode);
+
+            probe.Check("WITNESS an on-request session under the threshold reads as working",
+                look(BlockedDetector.CodexOnRequest, 120).Outcome == DetectionOutcome.Working);
+            probe.Check("WITNESS ...and over it reads as BLOCKED, which is the new capability",
+                look(BlockedDetector.CodexOnRequest, 200).Outcome == DetectionOutcome.Blocked);
+
+            // The threshold is the measurement. Borrowing Claude's 30 s would have fired on 5%
+            // of calls in sessions that cannot prompt at all.
+            probe.Check("WITNESS Codex waits longer than Claude before calling it a person",
+                BlockedDetector.CodexStallSeconds > BlockedDetector.DefaultThresholdSeconds * 2);
+            probe.Check("WITNESS the threshold clears the longest machine-only gap measured (121.2s)",
+                BlockedDetector.CodexStallSeconds > 121.2);
+
+            // Claude is untouched by any of this.
+            var claude = new AgentSession
+            {
+                Agent = TranscriptReader.AgentClaude, SessionId = "c", Mode = "auto",
+                SawAnyCall = true, LastWriteUtc = start,
+            };
+            claude.Outstanding.Add(new OutstandingCall
+                { Id = "z", Tool = "Bash", Command = "ls", StartedUtc = start });
+            probe.Check("WITNESS a Claude auto-mode session still stands down, unchanged",
+                BlockedDetector.Evaluate(claude, rules, 30.0, start.AddSeconds(9999)).Outcome
+                    == DetectionOutcome.StoodDownAutoMode);
+            return true;
+        }
+
         private static bool SelfCheckCodexMode(SelfTestProbe probe)
         {
             string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
@@ -4097,19 +4163,21 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("a never-ask session reads as never, not as unknown",
                     never.Mode == "never");
 
-                // Phase one changes no behaviour: both still stand down, because "default" is the
-                // whole allow-list and neither of these is it.
+                // These asserted that an on-request session still stood down, which was PHASE ONE
+                // on purpose: the policy was read but not yet acted on, because precision for
+                // Codex was unmeasured. It has since been measured against a control group that
+                // cannot prompt, so the behaviour they pinned is deliberately gone. Kept, pointed
+                // at the new intent, rather than deleted -- the reading half is still what makes
+                // the acting half possible.
                 var rules = new RuleSet();
                 Detection d = BlockedDetector.Evaluate(onRequest, rules, 30.0,
                     DateTime.UtcNow.AddMinutes(5));
-                probe.Check("WITNESS an on-request Codex session STILL stands down",
-                    d != null && d.Outcome == DetectionOutcome.StoodDownAutoMode);
-                probe.Check("WITNESS ...and the reason names its policy instead of unknown",
-                    d.Reason.IndexOf("on-request", StringComparison.Ordinal) >= 0
-                    && d.Reason.IndexOf("unknown", StringComparison.Ordinal) < 0);
-                probe.Check("WITNESS ...and stops quoting a Claude number at a Codex session",
-                    d.Reason.IndexOf("0.4%", StringComparison.Ordinal) < 0
-                    && d.Reason.IndexOf("unmeasured", StringComparison.Ordinal) >= 0);
+                probe.Check("WITNESS reading the policy is what lets an on-request session act",
+                    d != null && d.Outcome == DetectionOutcome.Blocked);
+                probe.Check("WITNESS ...and it says the session asks before it acts",
+                    d.Reason.IndexOf("asks before it acts", StringComparison.Ordinal) >= 0);
+                probe.Check("WITNESS ...and quotes no Claude precision number at a Codex session",
+                    d.Reason.IndexOf("0.4%", StringComparison.Ordinal) < 0);
 
                 // A transcript with no turn_context at all is the old shape, and must still be
                 // handled rather than throwing.

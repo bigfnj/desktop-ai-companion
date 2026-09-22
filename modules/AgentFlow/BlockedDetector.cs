@@ -99,6 +99,34 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         public const string ModeDefault = "default";
 
+        /// <summary>The Codex policy under which a session actually stops and asks.</summary>
+        public const string CodexOnRequest = "on-request";
+
+        /// <summary>
+        /// How long a Codex call must sit before it is a person, not a slow command.
+        ///
+        /// MEASURED 2026-09-21 on this machine's corpus, and the control group is what makes
+        /// it trustworthy: sessions running `approval_policy: never` CANNOT ask a human, so
+        /// every gap in them is machine-only. Across 18,974 such calls the longest gap was
+        /// 121.2 s, and the count over each threshold was:
+        ///
+        ///    30 s   946 false alarms (4.99%)
+        ///   120 s    36            (0.19%)
+        ///   180 s     0            (0.00%)
+        ///
+        /// In `on-request` sessions 5 of 171 calls exceeded 180 s, at 320, 351, 449, 1112 and
+        /// 2922 seconds. The last three are 7, 18 and 49 minutes, which are a person.
+        ///
+        /// SIX TIMES Claude's 30 s, deliberately. Claude gets a second, independent question
+        /// answered by the permission rules ("would this have prompted?"); Codex has no rule
+        /// corpus, so the stall is the only signal and it has to carry the whole weight.
+        /// Borrowing Claude's threshold would fire on 5% of calls that cannot prompt at all.
+        ///
+        /// One machine's corpus. A number this clean deserves re-measuring elsewhere before
+        /// it is believed generally.
+        /// </summary>
+        public const double CodexStallSeconds = 180.0;
+
         /// <summary>Evaluate one session. Pure: no clock of its own, no IO, no host calls.</summary>
         public static Detection Evaluate(AgentSession session, RuleSet rules,
                                          double thresholdSeconds, DateTime nowUtc)
@@ -138,6 +166,38 @@ namespace DesktopAICompanion.AgentFlow
             detection.Call = oldest;
 
             string mode = oldest.Mode ?? session.Mode;
+
+            // CODEX DECIDES ON THE STALL ALONE, and that is not a shortcut. The rule join
+            // exists to answer "would this call have prompted?", which Claude needs because
+            // `default` mode still auto-allows whatever the user's rules cover. Codex answers
+            // that question itself, per session, in approval_policy -- and it carries neither
+            // Command nor Argument, so EvaluateCall would return Undecidable every time and a
+            // Codex session could never reach Blocked however long it waited.
+            if (string.Equals(session.Agent, TranscriptReader.AgentCodex,
+                              StringComparison.OrdinalIgnoreCase))
+            {
+                if (!string.Equals(mode, CodexOnRequest, StringComparison.OrdinalIgnoreCase))
+                {
+                    detection.Outcome = DetectionOutcome.StoodDownAutoMode;
+                    detection.Reason = "codex " + (string.IsNullOrEmpty(mode) ? "unknown" : mode)
+                                       + ": this session never stops to ask, so nothing here is "
+                                       + "waiting on you";
+                    return detection;
+                }
+                if (detection.IdleSeconds < CodexStallSeconds)
+                {
+                    detection.Outcome = DetectionOutcome.Working;
+                    detection.Reason = "outstanding for " + Format(detection.IdleSeconds)
+                                       + ", under the " + Format(CodexStallSeconds) + " threshold";
+                    return detection;
+                }
+                detection.Outcome = DetectionOutcome.Blocked;
+                detection.Reason = "stalled " + Format(detection.IdleSeconds) + " on "
+                                   + (oldest.Tool ?? "?")
+                                   + " in a session that asks before it acts";
+                return detection;
+            }
+
             if (!string.Equals(mode, ModeDefault, StringComparison.OrdinalIgnoreCase))
             {
                 // Stand down, but WORK OUT THE ANSWER ANYWAY and keep it in WouldHaveBeen.
