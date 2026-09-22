@@ -257,6 +257,26 @@ id_rsa
 id_rsa.*
 id_ed25519
 id_ed25519.*
+# The other two SSH key types. Added 2026-09-22 after a sweep found them to be the only private-key
+# shapes in this block with NO coverage at all, which is the asymmetry the certificate comment above
+# warns about: half a key family listed reads as "handled" while the other half walks through.
+id_ecdsa
+id_ecdsa.*
+id_dsa
+id_dsa.*
+# Whole credential directories, not just loose files. A copied-in .ssh or .aws is the likelier
+# accident than a bare key file, and neither is matched by any pattern above.
+.ssh/
+.aws/
+# Cheap remaining credential forms. No plausible route into a WinForms/WPF repo, listed for the same
+# reason as the certificate formats: the block's job is that a stray local file cannot become a
+# commit, and completeness is what makes that hold.
+*.credentials
+*.token
+*.ovpn
+*.kdbx
+*.asc
+*.gpg
 secrets.json
 secrets/
 credentials.json
