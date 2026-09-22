@@ -99,7 +99,19 @@ nobody was exercising. Ask what input reaches a branch, not whether the branch l
   now pins the other half: `AgentMode.Scans(Notify)` is true and `Scans(Off)` is false. A predicate
   made pure is easier to test and easier to test VACUOUSLY.
 
-- 📌 **`ActiveTranscripts` is now the dominant cost of a tick, and the cursor is why.** The fold went
+- ✅ **CLOSED 2026-09-22 as not worth doing, with the numbers.** Kept rather than deleted because
+  the idea is obvious enough to be re-proposed. A `FileSystemWatcher` here would need: one watcher
+  per root with `IncludeSubdirectories`; a thread-safe set of touched paths, since events arrive on
+  threadpool threads while the tick runs on its own worker; a forced full reconcile on the `Error`
+  event, because a buffer overflow loses an unknown set of changes; a full enumeration at startup
+  regardless, because a watcher knows nothing about files that existed before it started; disposal
+  on `Shutdown`, in a module that has already shipped four resource-lifetime defects; **and the
+  polling sweep kept anyway** as a reconciliation pass, because watchers miss events on network
+  paths and some filesystems. What it buys, measured warm after the one-syscall-per-file change:
+  **11.0-12.6 ms per ten-second tick**, about 0.1% of one core. That is a second ingest path which
+  can go silently stale, for a tenth of a percent. Same reasoning that rejected the probe backoff.
+
+  Original entry, for the measurements: **`ActiveTranscripts` is the dominant cost of a tick.** The fold went
   from 535 ms to 0.3 ms, so what is left is the directory sweep. MEASURED 2026-09-21 by calling
   `ActiveTranscripts` from a .NET harness, one call per fresh process, interleaved: **31.7/30.4/30.8
   ms** for the Claude root (705 files, skipping `subagents`) and **21.8/20.4/25.2 ms** for the Codex
@@ -182,10 +194,18 @@ runnable harnesses live beside it.
   tick auto-approve, work in a `default`-mode session until something prompts, and confirm the
   diagnostic log carries an `auto-approve clicked for <tool>` line. Until then the self-test's own
   doc comment says the press path is only exercised against a closed port.
-- ⬜ CPU as a second discriminator. Per-tree CPU separates 240x and is mode-independent, but it is
-  blocked on attributing a process to a session: activity alignment is never WRONG (0 of 4
-  gradings) and its coverage flips run to run. The transcript-only detector needs none of this,
-  which is why the module shipped without it.
+- ✅ **DROPPED 2026-09-22, owner delegated the judgement.** The 240x separation is real, measured,
+  and is not the problem: **attribution is**, and every route to it is closed or degenerate. Open
+  file handles: measured negative, the agent appends and closes. `cwd`: three concurrent sessions
+  shared one workspace slug. `--resume` on the command line: launch state only, and a fresh session
+  carries none. Activity alignment is built and has never been WRONG across four gradings, but its
+  coverage flips run to run -- 7/24, then 0, then 5/5 four minutes later -- and the 5/5 was
+  arithmetic, not evidence, because only one transcript emitted a tool call in that window. That is
+  the degenerate-axis failure this repo has already recorded once. On top of which none of it
+  exists in the shipped C#: it lives in `agentflow_cpu.py`, so this is greenfield module work on an
+  unsolved research problem, aimed at the modes where the shipped detector already stands down by
+  design. This entry's own last sentence was the answer all along: the transcript-only detector
+  needs none of it, which is why the module shipped without it.
 
 The idea: the companion notices a coding agent (Claude Code, Codex) sitting blocked on a permission
 prompt, says so, and optionally answers it. The pet framing is presence — noticing your agent has
@@ -267,28 +287,15 @@ from the sibling is the transcript parsing and the compound-command splitter, po
 
 ---
 
-- 📌 **Watching Codex stands down for a reason that is OURS, and the code used to blame
-  upstream for it.** `TranscriptReader.ReadCodex` handles three record kinds: the two call types
-  and `session_meta`, from which it reads only `cwd`. It never looks at `turn_context`, so
-  `session.Mode` stays null, every Codex session resolves as `unknown`, and the stand-down
-  allow-list of exactly `default` refuses it. The module's comment said "Codex's rollout
-  transcript records no permission mode at all"; that was measured wrong and is now corrected in
-  place.
+- ✅ **CLOSED 2026-09-22: done, and this entry outlived it by a day.** The closing criterion the
+  entry set was "read `turn_context.approval_policy` and treat `never` as cannot-prompt". That
+  shipped in 1.3.0: `TranscriptReader.cs:382` matches the `turn_context` record, `:388` reads
+  `approval_policy`, and `BlockedDetector.cs:103`/`:179` stand down on anything that is not
+  `on-request`. The entry's "do NOT map `collaboration_mode.mode`" warning is honoured and the
+  reason is recorded in the code comment at `TranscriptReader.cs:384-386`.
 
-  **Measured 2026-09-21** over the 25 most recent rollouts on this box: every one carries
-  `turn_context`, all 25 carry `approval_policy`, and **6 were `on-request`** rather than
-  `never` -- sessions that genuinely stop and ask, which are exactly the ones worth watching.
-  The 2026-09-17 measurement that concluded the field did not exist almost certainly read
-  `session_meta` and stopped there.
-
-  To close: read `turn_context.approval_policy` and treat `never` as "cannot prompt, stand
-  down", anything else as watchable. **Do NOT map `collaboration_mode.mode`** -- it also reads
-  "default" while sitting beside `approval_policy: never` and full-access, so it is Claude's
-  word with the opposite meaning, and matching it would predict prompts in sessions incapable of
-  producing any. That is the precision failure the stand-down exists to prevent.
-
-  Note this is the NOTIFY half only. Auto-approve has read and pressed Codex prompts since
-  1.1.7 and touches no transcript.
+  Third stale entry found in two days, all three fixed by later work in the cycle that filed them,
+  none linking back. The others were the 1px sprite line and the host-event blind spots.
 
 ## Open: left by the 1.1.6 options-ABI cycle (2026-09-18/19)
 
@@ -306,20 +313,10 @@ reader would otherwise have to rediscover.
   whose paragraph is derived from settings will show stale text after Apply until the pane is
   reopened. AgentFlow's three explanation headers are static prose, so nothing is wrong today; the
   first `Header` carrying live state will hit it.
-- ⬜ **Adding an Info row flipped the Preferences pane's `RefreshAfterApply` to true**, so the whole
-  pane now rebuilds after Apply and resets its scroll position. That is the Info mechanism working
-  as designed, but it changed behaviour for a pane nobody was editing.
-- ⬜ **`NotificationOutcome.Failed` is unexercised**, and so is its diagnostic-log line. It is
-  reachable only through an unexpected exception, which no test could provoke.
 - ✅ **CLOSED 2026-09-21: the owner listened and it is fine.** The measurements (0.75 s, peak
   0.7, silence at both ends) never could settle this one, because "pleasant" is not a property a
   test can assert. The only instrument for it was a person with ears, and that was always the
   cheapest item on this list to close.
-- ⬜ **The notification-sound picker persists immediately, before Save**, matching "Reset to default
-  settings" on the same pane. A user who picks a sound and then closes the window with Cancel keeps
-  it. Consistent with its neighbour, still surprising.
-- ⬜ **MP3 validation at pick time runs through the OS ACM codec**, so a machine without that codec
-  refuses the pick rather than failing at play time. Not tested; it needs a box without the codec.
 - ⬜ **A junction part way along a path is now resolved, a symlink test still is not.** Containment
   uses `GetFinalPathNameByHandle`, which handles both — but the symlink assertion reports DEGRADED
   on an account that cannot create one, and this account cannot. The junction case covers the
@@ -658,10 +655,10 @@ window.
   two where a glance is the only evidence -- one poke past the fifth, one press of "Check for
   companions and updates".
 
-- 📌 **The About / Help window has only ever been eyeballed as a rendered PNG.** The WPF rebuild was
-  verified by rendering the window to an image, not by opening it from the tray on an installed
-  build, and the capture followed this box's dark OS setting, so the light-theme variant is
-  unobserved. Worth a glance on the next reinstall.
+- ✅ **CLOSED 2026-09-22: the owner looked.** Reported walked personally. Recording the instrument
+  rather than a measurement, deliberately: "does this window look right" is not a property any test
+  can assert, so a person opening it was always the only closing evidence available -- same as the
+  notification-sound pleasantness item closed on 2026-09-21.
 
 Both original entries in full, with the pre-tag verification that WAS performed beside the gap:
 [`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md).
@@ -685,7 +682,13 @@ Both original entries in full, with the pre-tag verification that WAS performed 
   sentence were both stale within two weeks of being written.
   The ten-row table in `docs/RELEASE-CHECKLIST.md` that it replaces had not grown with the
   product since before companions could climb — part of why walking it never felt worth the time. Handed to the
-  maintainer the same day; **still unwalked until a report comes back.**
+  maintainer the same day.
+
+  ✅ **CLOSED 2026-09-22: the owner walked it.** Reported walked personally. Recording the
+  instrument rather than a measurement: opening a window and looking at it is the one thing no gate
+  in this repo can do, which is why the entry existed and why a person's report is the only
+  evidence that could ever have closed it. The watchlist in `SMOKETEST.md` stays live for the next
+  release; this entry was about the ten-release GAP, and the gap is closed.
 
 - 📌 **Companion Studio's behaviour-timeline Run button has no automated coverage.** There is no way to drive the
   tray from a test, previews auto-hide under a fullscreen foreground window, and an isolated
@@ -705,20 +708,59 @@ Both original entries in full, with the pre-tag verification that WAS performed 
   across a DPI change is the second hazard.
   Pinning (v1.9.12) is the escape hatch meanwhile: a pinned companion stays put by construction.
 
-  **SCOPED 2026-09-21, and the answer is that this is a project, not a contained change.** Counted,
-  not estimated: ~30 expression sites in `FormCompanion.cs` across 16 distinct decisions, 5 helper
-  signatures in `Animations.cs`, and 6 `DesktopGeometry` primitives all resolve against one screen
-  rectangle. `FormCompanion.cs:1438-1449` clamps the position into `workArea` **every tick**, so
-  traversal means deleting the invariant the other 15 decisions are written against, not adding a
-  case to them. No union over `Screen.AllScreens` exists anywhere in the tree, and there is no
-  taskbar map.
-  **The part that makes it a breaking change rather than a big one:** `screenW`, `screenH`, `areaW`
-  and `areaH` are a PUBLIC pet-XML contract (`Xml.cs:424-429`). Third-party pets compute against
-  them, so redefining them as virtual-desktop extents changes the meaning of expressions in packs
-  this project does not own; keeping them per-monitor while the walk is virtual means two coordinate
-  systems in one expression evaluator. Four test files also pin the current single-rect source text.
-  Whoever picks this up should decide the XML contract question FIRST, because every other decision
-  follows from it.
+  ⚠ **The 2026-09-21 scoping that called this a project was WRONG, in two specific ways, and both
+  claims were load-bearing. Corrected 2026-09-22 after the owner said "I have seen Hornet jump
+  monitors a few times".** The owner was right. Keep the corrections; do not restore the originals.
+
+  **Wrong claim 1: the per-tick clamp is not a containment invariant.** The scoping said
+  `FormCompanion.cs:1438-1449` "clamps the position into `workArea` every tick, so traversal means
+  deleting the invariant the other 15 decisions are written against." That clamp allows **8192px of
+  slack on every side** (`Animations.cs:14`, `:103-119`) and its own doc comment calls it an
+  integer-overflow guard, not containment. It is also skipped entirely on drag and window-follow
+  ticks, which `return` before reaching it. The real containment invariant is two `if` statements:
+  `FormCompanion.cs:1077` and `:1128`, the border turns.
+
+  **Wrong claim 2: the pet-XML contract is not a blocker, and it was named as THE blocker.**
+  `screenW`/`screenH`/`areaW`/`areaH` are already resolved PER MONITOR, from
+  `Screen.AllScreens[screenIndex]` (`Xml.cs:424-429`), and `CurrentAnimation.UpdateValues(DisplayIndex)`
+  re-parses them whenever a pet is re-homed -- which `EndDrag` and `RelocateToDisplay` already do
+  today. A handoff-at-the-boundary design keeps the contract exactly as it is: no ABI change, no
+  third-party pack breakage, no second coordinate system. The concern was true of a
+  virtual-desktop design and irrelevant to the one that fits this code.
+
+  **What actually exists.** Walking between monitors does not. RELOCATION does, four ways, and two
+  of them ignore the "Allow multiple screens" setting entirely (whose default is off) -- which is
+  why the owner saw it with the setting off:
+
+  | Path | Kind | Honours the setting? | Re-homes `DisplayIndex`? |
+  |---|---|---|---|
+  | Respawn re-rolls the screen (`Play`, `:615-629`) | teleport | yes | yes, randomly |
+  | Drag and drop (`EndDrag`, `:2179-2200`) | move + re-home | **no**, gate commented out at `:2184` | yes, by pet centre |
+  | Fullscreen stand-down (`RelocateToDisplay`, `:1938-1946`) | teleport | **no check at all** | yes, nearest free |
+  | Window-follow (`FollowWindow`, `:1973-1974`) | **continuous** | **no** | **no** |
+
+  Note the respawn trigger is live, not theoretical: `SetNewAnimationCore` calls `Play(false)` when
+  the transition graph dead-ends (`:819-821`), which is the `no eligible positive-probability
+  transition` burst recorded further down this file.
+
+  **Owner decision 2026-09-22: the behaviour stays, the label gets fixed.** A drag is an explicit
+  user action and fullscreen stand-down is a get-out-of-the-way safety behaviour; neither should be
+  gated. `OptionsShell.cs:302` currently promises companions "stay on the one they appear on",
+  which is false, and becomes a statement about where they SPAWN.
+
+  **So this splits into four, none of them XL:**
+  - **23a** Re-home `DisplayIndex` after `FollowWindow`, reusing the loop already in `EndDrag`. This
+    is a LIVE BUG: a pet riding a window to monitor B keeps resolving every physics decision against
+    monitor A's `workArea`, and the 8192px slack is the only reason it is not obviously broken.
+    Note "a companion on the wrong monitor" is one of the four user-found bugs listed under the live
+    smoke-test entry in this file.
+  - **23b** Nothing to do, per the owner decision above.
+  - **23c** Fix the false label at `OptionsShell.cs:302`.
+  - **23d** Real traversal: an adjacency function in `DesktopGeometry` beside
+    `ChooseRelocationTarget` (pure rectangle geometry, trivially testable), then hand off at
+    `:1077`/`:1128` instead of turning -- set `DisplayIndex`, call `UpdateValues`, translate the
+    position. The floor discontinuity on this box (3440x1440 beside 2560x1080, floors 360px apart)
+    resolves by falling, and `AnimationFall` already exists.
 
 - ⬜ **The pet XML validator's positive-probability guarantee does not survive the runtime
   eligibility filter, and live pets hit it.** `CompanionXmlValidator.cs:672` refuses any pet whose
@@ -818,17 +860,6 @@ code. Two decisions that used to sit here are in
   The audio half of this finding is closed: `Microphone`, `SystemAudio` and `AgentTranscripts` were
   added for Remembrance and AgentFlow. The port assessment it came out of is
   [`docs/IDEAS.md`](docs/IDEAS.md) idea 18.
-
-- 📌 **Third-party module ecosystem (Phase B).** Signing + per-publisher consent, a signed third-party index
-  (or a curated links page first), and NuGet-publishing Contracts/ModuleKit/the template so a module can live
-  outside this repo. Designed but deliberately unbuilt — see `docs/module-ecosystem-roadmap.md`, which also
-  records the open questions and argues the cheap steps first.
-
-*(Everything else from this section is closed and in
-[`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md), including the committed module-window
-leak soak and the `WeakReference` trap that cost the most time in building it.)*
-
-### Bugs & maintenance
 
 - 📌 **`--module-selftest=<id>` picks the FIRST `bool SelfTest(out string)` in the assembly, which may not be
   the module's own.** `ModuleConventionSelfTest.RunModuleSelfTest` reflects over every type and breaks on the
