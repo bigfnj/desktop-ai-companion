@@ -251,10 +251,49 @@ namespace DesktopAICompanion.BlinkingLed
             public InputUnion U;
         }
 
+        /// <summary>
+        /// THE UNION MUST BE SIZED BY ITS LARGEST MEMBER, NOT BY THE ONE WE USE.
+        ///
+        /// Win32's INPUT is a tagged union over MOUSEINPUT, KEYBDINPUT and HARDWAREINPUT, and
+        /// SendInput validates cbSize against the full thing. Declaring only KEYBDINPUT made
+        /// Marshal.SizeOf(typeof(INPUT)) report 32 on x64 where Windows requires 40, so every
+        /// call was refused with ERROR_INVALID_PARAMETER (87) and the LED never blinked at all.
+        /// Reported from the pane on 2026-09-22 as "Windows refused the input (error 87)".
+        ///
+        /// MEASURED, both shapes, in one process on this box:
+        ///   INPUT with only KEYBDINPUT   32 bytes   SendInput sent=0 err=87
+        ///   INPUT with the full union    40 bytes   SendInput sent=2 err=0
+        ///
+        /// MouseInput and HardwareInput are never read. They exist so the union is the size the
+        /// API expects, which is why they are not dead code and must not be "tidied away".
+        /// </summary>
         [StructLayout(LayoutKind.Explicit)]
         private struct InputUnion
         {
+            [FieldOffset(0)] public MOUSEINPUT mi;
             [FieldOffset(0)] public KEYBDINPUT ki;
+            [FieldOffset(0)] public HARDWAREINPUT hi;
+        }
+
+        /// <summary>Present only to size <see cref="InputUnion"/>. Never read.</summary>
+        [StructLayout(LayoutKind.Sequential)]
+        private struct MOUSEINPUT
+        {
+            public int dx;
+            public int dy;
+            public uint mouseData;
+            public uint dwFlags;
+            public uint time;
+            public IntPtr dwExtraInfo;
+        }
+
+        /// <summary>Present only to size <see cref="InputUnion"/>. Never read.</summary>
+        [StructLayout(LayoutKind.Sequential)]
+        private struct HARDWAREINPUT
+        {
+            public uint uMsg;
+            public ushort wParamL;
+            public ushort wParamH;
         }
 
         [StructLayout(LayoutKind.Sequential)]
@@ -269,5 +308,18 @@ namespace DesktopAICompanion.BlinkingLed
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+
+        /// <summary>
+        /// What SendInput requires cbSize to be, from the pointer size alone: 40 on x64, 28 on
+        /// x86. Exposed so a self-test can assert the marshalled struct matches WITHOUT needing a
+        /// window station, which is the gap that let error 87 ship. The delivery assertion is
+        /// deliberately outcome-agnostic so it passes on a headless runner, and that makes a
+        /// permanently broken interop indistinguishable from a runner refusing input. A size
+        /// check has no such excuse: it is the same answer everywhere.
+        /// </summary>
+        internal static int RequiredInputSize { get { return IntPtr.Size == 8 ? 40 : 28; } }
+
+        /// <summary>The size this build will actually pass as cbSize.</summary>
+        internal static int MarshalledInputSize { get { return Marshal.SizeOf(typeof(INPUT)); } }
     }
 }

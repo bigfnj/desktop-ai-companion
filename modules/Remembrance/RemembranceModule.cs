@@ -48,7 +48,12 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "1.0.5",   // 1.0.5: the summary dropdown fills ITSELF on first open, and
+            Version = "1.0.6",   // 1.0.6: failures now report the whole exception chain.
+                                 //        .NET renders a TLS fault as "The SSL connection could
+                                 //        not be established, see inner exception" -- a message
+                                 //        that names the information you need and withholds it --
+                                 //        and three catch blocks passed only ex.Message through
+                                 //        to the pane, so the cause was unknowable from the UI.   // 1.0.5: the summary dropdown fills ITSELF on first open, and
                                  //        preselects. It was only ever filled by the "Find local
                                  //        summary models" button, so until you guessed that a button
                                  //        was a prerequisite rather than a refresh, the control was an

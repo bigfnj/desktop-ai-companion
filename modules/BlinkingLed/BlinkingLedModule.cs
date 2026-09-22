@@ -31,7 +31,12 @@ namespace DesktopAICompanion.BlinkingLed
         {
             Id = "blinkingled",
             Name = "Blinking LED",
-            Version = "1.0.2",   // 1.0.1: republished so the bundled ModuleKit.dll no longer carries the
+            Version = "1.0.3",   // 1.0.3: the LED never blinked on x64, on any machine. The
+                                 //        Win32 INPUT union must be sized by its LARGEST member
+                                 //        and was sized by KEYBDINPUT, so cbSize was 32 where
+                                 //        SendInput requires 40 and every call was refused with
+                                 //        ERROR_INVALID_PARAMETER (87). Measured both shapes in
+                                 //        one process: 32 -> sent=0 err=87, 40 -> sent=2 err=0.   // 1.0.1: republished so the bundled ModuleKit.dll no longer carries the
                                  //        maintainer's absolute build path (Contracts + ModuleKit moved to
                                  //        DebugType=embedded). NO functional change here; the bump exists
                                  //        because the catalog offers an update by VERSION, so without it the
@@ -804,6 +809,22 @@ namespace DesktopAICompanion.BlinkingLed
                     // holds on a machine that accepts synthesized input and on a headless runner that
                     // refuses it. (>= 1 rather than == 1 because the blink timer may already have toggled
                     // once by now if something is pumping messages.)
+                    // THE SIZE, FIRST, because the delivery assertion below cannot catch a
+                    // broken one. SendInput validates cbSize and answers ERROR_INVALID_PARAMETER
+                    // when it is wrong; the INPUT union was sized by KEYBDINPUT rather than by
+                    // its largest member, so cbSize was 32 where x64 requires 40 and the LED
+                    // never blinked on any machine. It shipped because the delivery assertion is
+                    // deliberately outcome-agnostic -- it has to pass on a headless runner that
+                    // refuses synthesized input -- which makes a permanently broken interop look
+                    // exactly like a runner doing its job.
+                    //
+                    // A marshalled struct size is the same answer on every machine, headless or
+                    // not, so this one has no excuse to be vague.
+                    probe.Check("WITNESS the INPUT struct is the size SendInput demands ("
+                                + ScrollLockBlinker.MarshalledInputSize + " vs "
+                                + ScrollLockBlinker.RequiredInputSize + ")",
+                        ScrollLockBlinker.MarshalledInputSize == ScrollLockBlinker.RequiredInputSize);
+
                     module._blinker.BlinkOnce();
                     probe.Check("a blink attempt records whether Windows accepted it",
                         CountLogged(host.LoggedLines, "blink delivery") >= 1);

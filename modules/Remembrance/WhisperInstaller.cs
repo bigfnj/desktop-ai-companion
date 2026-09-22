@@ -345,7 +345,7 @@ namespace DesktopAICompanion.RemembranceModule
             }
             catch (Exception ex)
             {
-                result.Message = ex.Message;
+                result.Message = DescribeChain(ex);
                 return result;
             }
         }
@@ -384,6 +384,33 @@ namespace DesktopAICompanion.RemembranceModule
                    " for the whisper.cpp release list.";
         }
 
+        /// <summary>
+        /// The whole exception chain, because for the failures that matter here the OUTER message
+        /// is the useless half.
+        ///
+        /// .NET reports a TLS failure as "The SSL connection could not be established, see inner
+        /// exception" -- a message that names the existence of the information you need and then
+        /// withholds it. Reported from a real pane on 2026-09-22: the button said exactly that,
+        /// and the cause was unknowable from the UI without attaching a debugger. The inner
+        /// exception is usually an AuthenticationException wrapping a Win32Exception whose text
+        /// names the actual Schannel fault.
+        ///
+        /// Capped at four links and de-duplicated, because a chain can repeat the same sentence
+        /// and a settings pane is not a stack trace viewer.
+        /// </summary>
+        internal static string DescribeChain(Exception ex)
+        {
+            var parts = new List<string>();
+            for (Exception e = ex; e != null && parts.Count < 4; e = e.InnerException)
+            {
+                string message = (e.Message ?? "").Trim();
+                if (message.Length == 0) continue;
+                if (parts.Contains(message)) continue;
+                parts.Add(message);
+            }
+            return parts.Count == 0 ? "(no detail)" : string.Join(" -> ", parts.ToArray());
+        }
+
         private static async Task<AssetLookup> ResolveAssetAsync(HttpClient http, CancellationToken cancellationToken)
         {
             string json;
@@ -407,7 +434,7 @@ namespace DesktopAICompanion.RemembranceModule
             }
             catch (Exception ex)
             {
-                return new AssetLookup { Failure = "Could not reach GitHub: " + ex.Message };
+                return new AssetLookup { Failure = "Could not reach GitHub: " + DescribeChain(ex) };
             }
 
             ReleaseAsset asset = ParseReleaseListJson(json);
@@ -605,7 +632,7 @@ namespace DesktopAICompanion.RemembranceModule
                 }
                 return true;
             }
-            catch (Exception ex) { detail = ex.Message; return false; }
+            catch (Exception ex) { detail = DescribeChain(ex); return false; }
             finally
             {
                 try { if (Directory.Exists(scratch)) Directory.Delete(scratch, true); } catch { }
