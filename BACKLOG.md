@@ -814,17 +814,22 @@ code. Two decisions that used to sit here are in
 
 - 📌 **48 self-looping animation names the `reloop` migration could not classify, and 10 of them are
   a second, separate defect.**
-  CLOSES-WHEN: grep-present tools/ShimejiConvert.Engine/Emit/PetEmitter.cs "ConvertedFormatVersionSelfLoopingJumps"
+  CLOSES-WHEN: file-exists tools/ShimejiConvert.Engine/base-conf/actions.ja.xml
   Filed 2026-09-22, alongside the fix for the trip loop the owner reported. `reloop` reads the source's
   intent from the action NAME against the bundled conf, so it corrected the 25 self-loops whose names the
   stock conf declares `Animate` and left 186 `Move`/`Stay` loops alone, correctly. The other 48 names are
   not in the bundled conf and the tool PRINTS them on every run rather than passing over them. Most are
   fine: `climb` x15, `descend` x15, `climb_ceiling` x18 and the `grab_*` names are travel or holds and
   are meant to loop. Three groups are not:
-  - **`jump` x10 and `jump_down` x10.** A jump that re-enters itself at 65% is the same failure shape in
-    a different classifier: jump detection did not fire on these ten pets, so `rejump` never gave them the
-    three-phase arc either. This is the one worth doing, and it is `Launches()` rather than
-    `IsLocomotion()`.
+  - ⚠ **`jump` x10 and `jump_down` x10 are NOT a jump-detection bug, which is what this entry claimed
+    when it was written an hour earlier.** MEASURED across all 20: not one of them rises. `jump` is
+    `vy0 = 0` travelling -10px per frame, `jump_down` descends at `vy0 = +8`, and all ten pets are
+    byte-identical in this region, so they are one skin family re-skinned. `Launches()` therefore behaved
+    correctly -- there is no rise to detect. What probably happened is upstream and already documented at
+    `PetEmitter.cs:1266`: a rise too weak for `JumpMinLaunchY` is FLATTENED to zero, and the flattened
+    result then travels horizontally, which the velocity rule reads as locomotion. Whether the self-edge
+    is wrong depends entirely on whether the source said `Move` or `Animate`, and the name is not
+    evidence: `jump` is `Type="Move"` in plenty of real confs. Do not "fix" this without the source.
   - **A Japanese-named skin.** `転ぶ` (trip over), `歩く` (walk), `走る` (run), `猛ダッシュ` (dash),
     `壁を登る`, `壁に掴まる`, `天井を伝う`, `天井に掴まる` are the STOCK conf action names in the original
     language; the bundled conf is the English translation, so only the English half can be resolved.
