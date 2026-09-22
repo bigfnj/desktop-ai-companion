@@ -60,6 +60,15 @@ namespace DesktopAICompanion.RemembranceModule
             "https://api.github.com/repos/ggml-org/whisper.cpp/releases?per_page=20";
         private const string ModelUrlPrefix = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/";
 
+        /// <summary>
+        /// The human releases PAGE, not the API endpoint the installer uses.
+        ///
+        /// A person needs to see the asset list and pick the build for their machine; the API URL
+        /// would hand them JSON. Separate constant rather than deriving one from the other,
+        /// because they are different things that happen to share a repository.
+        /// </summary>
+        public const string ReleasesPageUrl = "https://github.com/ggml-org/whisper.cpp/releases/latest";
+
         // GitHub rejects API requests with no User-Agent.
         private const string UserAgent = "DesktopAICompanion-Remembrance";
 

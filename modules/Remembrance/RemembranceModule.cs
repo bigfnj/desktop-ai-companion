@@ -48,7 +48,12 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "1.0.7",   // 1.0.7: a blocked download now says what to do instead.
+            Version = "1.0.8",   // 1.0.8: a button that opens both downloads in the browser,
+                                 //        which is the path endpoint protection trusts. The model
+                                 //        link follows the dropdown, so what you download is what
+                                 //        "Set up Whisper for me" would have fetched rather than
+                                 //        one of eleven files in that repository.
+                                 // 1.0.7: a blocked download says what to do instead.   // 1.0.7: a blocked download now says what to do instead.
                                  //        Diagnosed across two machines: the fetch is terminated
                                  //        by Microsoft Defender Network Protection, which scores
                                  //        the CALLING program and does not recognise an unsigned
@@ -552,6 +557,10 @@ namespace DesktopAICompanion.RemembranceModule
                         InvokeAsync = SetUpWhisperAsync },
                     new PaneAction { Label = "Find an installed Whisper", Group = "Transcription", ReloadPaneAfter = true,
                         InvokeAsync = () => Task.FromResult(DetectWhisper()) },
+                    // Between the automatic route and the manual one, because that is the order
+                    // a stuck user needs: it failed, here are the files, now point at them.
+                    new PaneAction { Label = "Open the download pages…", Group = "Transcription", ReloadPaneAfter = false,
+                        InvokeAsync = () => Task.FromResult(OpenWhisperDownloads()) },
                     new PaneAction { Label = "Browse for whisper-cli…", Group = "Transcription", ReloadPaneAfter = true,
                         InvokeAsync = () => Task.FromResult(BrowseFile("whisperExe", "whisper-cli", new[] { "exe" })) },
                     new PaneAction { Label = "Browse for a model…", Group = "Transcription", ReloadPaneAfter = true,
@@ -931,6 +940,50 @@ namespace DesktopAICompanion.RemembranceModule
         }
 
         /// <summary>Open the Ollama download page, for the case where the runtime is missing entirely.</summary>
+        /// <summary>
+        /// Open both downloads in the browser: the whisper.cpp release page, and the exact model
+        /// file the dropdown above is set to.
+        ///
+        /// THE BROWSER IS THE TRUSTED PATH, and that is the entire point. Diagnosed 2026-09-22:
+        /// Defender Network Protection terminates this app's own fetch because it scores the
+        /// calling program and this one is unsigned with no prevalence, while the same URL
+        /// answers a browser or a signed PowerShell with HTTP 200. Rather than fight that, hand
+        /// the two URLs over and let the Browse buttons take it from there.
+        ///
+        /// The MODEL url follows the dropdown rather than being a fixed link to the directory, so
+        /// what downloads is what "Set up Whisper for me" would have fetched. Nothing else on
+        /// this pane would tell the user which of the eleven files in that repository they need.
+        ///
+        /// Both are reported by name even on success, because a browser opening behind the
+        /// options window is easy to miss and a silent tick would read as nothing happening.
+        /// </summary>
+        internal string OpenWhisperDownloadsForSelfTest() { return OpenWhisperDownloads(); }
+
+        private string OpenWhisperDownloads()
+        {
+            string modelId = WhisperInstaller.ResolveModelId(
+                _settings.Get("whisperModelChoice", WhisperInstaller.DefaultModelId));
+            string modelUrl = WhisperInstaller.ModelUrl(modelId);
+
+            var opened = new List<string>();
+            var refused = new List<string>();
+            foreach (string url in new[] { WhisperInstaller.ReleasesPageUrl, modelUrl })
+            {
+                bool ok;
+                try { ok = _host.OpenLink(Id, url); }
+                catch (Exception) { ok = false; }
+                (ok ? opened : refused).Add(url);
+            }
+
+            if (refused.Count == 0)
+                return "✓ opened " + string.Join("  and  ", opened.ToArray())
+                     + "  Save both, then use \"Browse for whisper-cli…\" and \"Browse for a model…\".";
+            if (opened.Count == 0)
+                return "✗ the host would not open " + string.Join(" or ", refused.ToArray());
+            return "⚠ opened " + string.Join(", ", opened.ToArray())
+                 + " but not " + string.Join(", ", refused.ToArray());
+        }
+
         private string OpenOllamaSite()
         {
             try
@@ -1175,6 +1228,54 @@ namespace DesktopAICompanion.RemembranceModule
                 WhisperInstaller.DescribeHttpFailure(500, null).Contains("500"));
             check("a missing rate-limit header is not read as a spent quota",
                 !WhisperInstaller.DescribeHttpFailure(403, null).Contains("rate-limiting"));
+            // ---- the download button opens the right two pages -----------------------
+            // The model link has to FOLLOW the dropdown. A fixed link would quietly send someone
+            // to a different model than "Set up Whisper for me" would have fetched, and nothing
+            // on the pane would contradict it -- the file would simply be the wrong size and the
+            // transcription slower or worse than they chose.
+            {
+                var linkHost = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                using (var linkStore =
+                           new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("remembrance-links"))
+                {
+                    linkHost.UseStorage("remembrance", linkStore);
+                    var linkModule = new RemembranceModule();
+                    linkModule.Init(linkHost);
+
+                    linkModule._settings.Set("whisperModelChoice", "ggml-small.en.bin");
+                    linkModule._settings.Save();
+                    linkHost.OpenedLinks.Clear();
+                    string said = linkModule.OpenWhisperDownloadsForSelfTest();
+
+                    check("WITNESS the button opens exactly two pages, not one and not a guess",
+                        linkHost.OpenedLinks.Count == 2);
+                    check("WITNESS one of them is the human releases page, not the JSON API",
+                        linkHost.OpenedLinks.Contains(WhisperInstaller.ReleasesPageUrl)
+                        && WhisperInstaller.ReleasesPageUrl.IndexOf("api.github.com",
+                               StringComparison.OrdinalIgnoreCase) < 0);
+                    check("WITNESS the model link FOLLOWS the dropdown rather than being fixed",
+                        linkHost.OpenedLinks.Contains(
+                            WhisperInstaller.ModelUrl("ggml-small.en.bin")));
+
+                    // And it changes when the choice changes, which is the half that would still
+                    // pass against a hardcoded link if only the line above were asserted.
+                    linkModule._settings.Set("whisperModelChoice", "ggml-tiny.en.bin");
+                    linkModule._settings.Save();
+                    linkHost.OpenedLinks.Clear();
+                    linkModule.OpenWhisperDownloadsForSelfTest();
+                    check("WITNESS ...and it tracks a CHANGED choice",
+                        linkHost.OpenedLinks.Contains(WhisperInstaller.ModelUrl("ggml-tiny.en.bin"))
+                        && !linkHost.OpenedLinks.Contains(
+                               WhisperInstaller.ModelUrl("ggml-small.en.bin")));
+
+                    check("the result names both pages, since a browser opening behind the "
+                          + "options window is easy to miss",
+                        said.IndexOf("huggingface", StringComparison.OrdinalIgnoreCase) >= 0
+                        && said.IndexOf("github", StringComparison.OrdinalIgnoreCase) >= 0);
+                    linkModule.Shutdown();
+                }
+            }
+
             // ---- a blocked download must become an instruction ----------------------
             // Diagnosed across two machines 2026-09-22: Defender Network Protection terminates
             // the connection, the module reported a TLS chain, and the pane became a dead end
