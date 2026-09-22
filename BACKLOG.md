@@ -331,12 +331,14 @@ Nine findings were fixed in the same cycle (the Audio permission, the second tra
 re-entrancy guard, `Log` mode, the version policy, the auto-mode greying, `EnabledWhen` trimming,
 four resource-lifetime defects and three dead members). These are the ones left.
 
-- 📌 **`ModuleConventionSelfTest` cannot see two of the six host events.** `ContextChanged` is
-  declared in its fake host with `add { } remove { }` accessors, so a subscription is not merely
-  unobserved — it is *discarded*, and a module leaking it can never be caught. `FullscreenChanged`
-  is field-like and observable but has no `HasSubs` property beside the other four. Neither matters
-  for anything shipped today; both matter the first time a module subscribes. The test exists
-  because Remembrance once shipped exactly that bug on `HostShutdown`.
+- ✅ **CLOSED: fixed during the 1.2.x cycle, and this entry outlived it.** `ContextChanged` is
+  field-like in the fake host now, and both blind spots have `HasSubs` properties beside the other
+  four, so the leak check covers six of six: `ModuleConventionSelfTest.cs:111-118` names each
+  event, `:235-240` provides the properties, and `:249-250` raises the two that were previously
+  unobservable. Original entry: `ContextChanged` was declared `add { } remove { }`, so a
+  subscription was *discarded* rather than merely unobserved and a module leaking it could never be
+  caught; `FullscreenChanged` kept its subscribers but nothing looked. The test exists because
+  Remembrance once shipped exactly that bug on `HostShutdown`.
 - ✅ **CLOSED 1.1.9. It is recorded and surfaced on the pane**, not logged: the discovery
   happens on a WORKER and `IHost` is UI-thread-only, so reporting a threading fault by
   committing another one would be its own joke.
