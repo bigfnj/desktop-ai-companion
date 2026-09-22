@@ -14,7 +14,7 @@ and live in [`HISTORY-post-1.0.0.md`](HISTORY-post-1.0.0.md) with their numbers 
 several are cited by number elsewhere: grep `backlog #` to find them, which today reaches
 `../handoff.md` (#9 and #17) plus [`HISTORY-pre-1.0.0.md`](HISTORY-pre-1.0.0.md) and
 [`ISSUES-pre-1.0.0.md`](ISSUES-pre-1.0.0.md) (#8, #9, #11, #12, #14, #15, #16, #17). The next one
-filed is 19. Glyphs are
+filed is 20. Glyphs are
 [`../BACKLOG.md`](../BACKLOG.md)'s: ✅ done · 📌 open with the reasoning recorded · ⬜ not started ·
 ⚠ a caveat or an unobserved claim.
 
@@ -116,6 +116,52 @@ Neither happens by leaving it here.
     (`Program`/`Main`/single-instance/`NotifyIcon`/`OpenFileDialog`/`MessageBox`/custom Forms),
     rebuild the surface as tray items + a declarative pane, and be disciplined about tearing down
     OS-global state on ALC unload (hooks, Scroll-Lock state, audio devices).
+
+19. **Remembrance: an "AI Doodle" recap image generated from the meeting transcript** (queued
+    2026-09-22, owner's request, unscoped). After a meeting is transcribed, produce a landscape 16:9
+    doodle-notes infographic summarising it, following the owner's existing prompt at
+    `D:\.ai-work\Doodle Prompt for Chat GPT.txt` (whiteboard/sketchnote style, white background,
+    black marker outlines, colourful rounded boxes, arrows, sticky notes, icons; a hard NO-PEOPLE
+    rule with speakers represented by name labels, initials, role cards and ownership tags; strict
+    source fidelity, invent nothing not in the notes).
+
+    **Where it hooks, exactly.** The pipeline already ends record -> transcribe -> optional local
+    summary, and the module announces "Summary ready." at `RemembranceModule.cs:291` after
+    `WriteSummaryAsync` writes beside the transcript. A doodle step is a third artefact written to
+    the same place and a fourth announcement. Nothing about the recording or transcription half
+    needs to change, which is what makes this an idea rather than a rework.
+
+    **The one piece that does not exist yet is image generation, and the choice of route is the
+    whole decision.** The prompt was written for ChatGPT, which is a cloud service. Remembrance's
+    entire design statement is that a meeting never leaves the box: a local Whisper, a loopback
+    Ollama, and the module's own comment saying so. Three routes, with what each actually costs:
+
+    - **Cloud image API.** Faithful to the prompt as written, and the only route that renders the
+      aesthetic well today. It also sends a MEETING TRANSCRIPT to a third party, which is the exact
+      thing the module promises not to do. That needs a new `ModulePermissions` bit, per-run consent
+      rather than a one-time toggle, and it fires the consent re-prompt for every existing user. Not
+      a small addition dressed as a setting.
+    - **Local diffusion (SDXL / FLUX in the media venv).** Keeps the promise, and shares the single
+      RTX 4090 with the owner's own work, so it inherits the ask-before-inference rule and has to say
+      how long it holds the card. The real risk is not VRAM though: a doodle-notes infographic is
+      mostly LETTERING, and legible hand-written section headers are the known weak point of
+      diffusion models. The prompt itself bans "tiny unreadable microtext", so the format's success
+      criterion is the thing the route is worst at. Worth one measured trial before any scoping.
+    - **Deterministic render from a structured plan.** The local LLM emits a layout rather than a
+      picture -- sections, ownership tags, arrows, and icons chosen from a fixed bundled set -- and
+      the module draws it. Text is then real text and legible at any zoom, the no-people rule holds
+      by construction because there are no people in the icon set, and it runs offline with no GPU
+      at all. It gives up the hand-drawn feel, which is a real loss and may be most of the appeal.
+
+    **A constraint worth stating before anyone picks a route:** the no-people rule cannot be checked
+    by looking at the output of a generative route without a second model to detect people, so on
+    routes 1 and 2 it is a request rather than a guarantee. Route 3 is the only one where it is
+    enforceable. Same for source fidelity: "invent no statistics" is a prompt instruction to a
+    generative model and a structural property of a deterministic renderer.
+
+    **Not yet decided and not yet worth deciding:** whether this runs automatically after every
+    meeting or on a pane button. Automatic is what was asked for; a button is the cheaper first
+    version and answers whether the output is good enough to want automatically.
 
 ## Render the last known update offers with no network
 
