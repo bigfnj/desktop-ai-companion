@@ -21,7 +21,7 @@ fix was attempted and had to be reverted.
 | propose a design that looks obviously missing | [Settled decisions](#settled-decisions--do-not-re-propose) |
 | write "a module cannot do X, so the ABI needs a verb" | [Known ABI gaps](#known-abi-gaps), then grep `PluginApi.cs` for the verb |
 | file a converted companion's look as a bug | [Decisions that read as defects](#decisions-that-read-as-defects) |
-| cite a bug number, or file a new one | [Known bugs (post-1.0.0)](#known-bugs-post-100) — the next number filed is BUG-007 |
+| cite a bug number, or file a new one | [Known bugs (post-1.0.0)](#known-bugs-post-100) — the next number filed is BUG-008 |
 | write a count into a document | [Numbers in documentation](#numbers-in-documentation) |
 | explain why a warning did not fire, or trust a warning count | [Measurements that corrected an explanation](#measurements-that-corrected-an-explanation) |
 
@@ -261,11 +261,12 @@ diagnosis, the wrong turns, the fix, and how each was verified — are in
 [`ISSUES-post-1.0.0.md`](ISSUES-post-1.0.0.md). Bugs are numbered `BUG-00N` and the number is never
 reused, so a commit, a test or a code comment can cite one; `modules/AiBrain/`,
 `modules/PetStudio/`, `src/dotNet/`, `docs/RELEASE-CHECKLIST.md` and `handoff.md` all cite them
-today. **The next one filed is BUG-007**, and it is filed in [`../BACKLOG.md`](../BACKLOG.md).
+today. **The next one filed is BUG-008**, and it is filed in [`../BACKLOG.md`](../BACKLOG.md).
 
 | bug | | fixed |
 |---|---|---|
-| BUG-006 | auto-approve could not see most Codex prompts: the reader anchored on a control Codex only sometimes renders | agentflow 1.4.2, 2026-09-23; verified by pressing the still-open prompt that found it |
+| BUG-006 | auto-approve could not see most Codex prompts: the reader anchored on a control Codex only sometimes renders | agentflow 1.4.2, 2026-09-23; verified by pressing the still-open prompt that found it. Its second defect — a missed selector being silent — fixed in 1.4.3 |
+| BUG-007 | nine of the fourteen prompt shapes logged as "an unrecognised prompt", including the commonest one | agentflow 1.4.3, 2026-09-23; table re-derived from bundle 2.1.280 |
 | BUG-001 | the tray icon is missing after an MSI install that launches the app | host 1.1.1 → 1.1.3, across all four of its symptoms |
 | BUG-005 | a converted companion stutters: a performance replayed itself, or held two frames for ~11s | 2026-09-22, both halves; one root cause with three sites, one of them a test |
 | BUG-002 | the vision feature does nothing, silently, when the configured model is not installed | 2026-09-10, all four items |

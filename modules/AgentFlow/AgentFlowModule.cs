@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using DesktopAICompanion.ModuleKit;
@@ -146,7 +147,22 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.4.2",   // 1.4.2: auto-approve could not see MOST Codex prompts. The
+            Version = "1.4.3",   // 1.4.3: the two things 1.4.2 left open, both about the log
+                                 //        telling the truth. A prompt card this build cannot
+                                 //        read now reports itself as such -- a fifth
+                                 //        ReadOutcome, Blind -- instead of spelling itself
+                                 //        'none', which is what an idle editor says; the
+                                 //        companion says it out loud, because an approver
+                                 //        that has gone blind looks exactly like one with
+                                 //        nothing to do. And the header table was re-derived
+                                 //        from bundle 2.1.280: it listed 4 of the 14 shapes,
+                                 //        so nine logged as "an unrecognised prompt" --
+                                 //        including the shell prompt, the commonest of all,
+                                 //        which is a template and so was never a row.
+                                 //        Matching is longest-wins now, because "allow
+                                 //        searching in <path>?" and "allow searching for this
+                                 //        query?" are different tools.
+                                 // 1.4.2: auto-approve could not see MOST Codex prompts. The
                                  //        reader opened by querying the split button's
                                  //        aria-label and gave up when it was absent -- but Codex
                                  //        renders that dropdown only when it has a wider grant to
@@ -562,7 +578,7 @@ namespace DesktopAICompanion.AgentFlow
                 // user's switch and a port that answered this tick: either one missing and
                 // this does not run at all.
                 string approvalNote = null;
-                bool sawPanel = false;
+                bool sawPanel = false, sawBlind = false;
                 ScreenPrompt seen = null;
 
                 // LOOK whenever the mode does anything at all; PRESS only in auto-approve. These
@@ -591,9 +607,27 @@ namespace DesktopAICompanion.AgentFlow
                                     Subject = DescribeSubject(view),
                                 };
                             return note;
-                        }, 1500, out sawPanel);
+                        }, 1500, out sawPanel, out sawBlind);
                     }
-                    catch (Exception) { approvalNote = null; sawPanel = false; found = null; }
+                    catch (Exception)
+                    {
+                        approvalNote = null; sawPanel = false; sawBlind = false; found = null;
+                    }
+                    // A card nobody could read is the one case with no PromptView to describe,
+                    // and it is the case the user most needs told OUT LOUD rather than left in
+                    // a log file: from the outside, an approver that has gone blind and an
+                    // approver with nothing to do look exactly alike. Only when nothing else
+                    // was found, so a readable prompt on another target still wins the bubble.
+                    if (found == null && sawBlind)
+                        found = new ScreenPrompt
+                        {
+                            // Constant, so the once-per-prompt guard holds it to one sentence
+                            // for as long as the unreadable card stays on screen.
+                            Signature = "blind-card",
+                            Subject = "a prompt it cannot read",
+                            Notice = "There is a prompt on screen this build cannot read, "
+                                     + "so nothing was pressed.",
+                        };
                     seen = found;
                     // Nothing found means the last press landed, or there was never
                     // anything there. Either way the prompt in front of it is gone, so the
@@ -744,22 +778,70 @@ namespace DesktopAICompanion.AgentFlow
         /// The static half of each prompt header this agent renders, and what it is safe to
         /// call it in a log line.
         ///
-        /// Read out of the shipped bundle on 2026-09-18: FIVE shapes, and only the last names
-        /// its tool in a &lt;strong&gt;. The other four supply their own renderer --
-        /// "Make this edit to &lt;path&gt;?" and friends -- which is why the first real prompt
-        /// pressed logged itself as "an unnamed tool".
+        /// RE-DERIVED from the shipped bundle on 2026-09-23 (webview/index.js, 2.1.280) by
+        /// reading every `permissionRequestHeader` render site. There are FOURTEEN, not the
+        /// five this comment used to claim, and only the generic fallback names its tool in a
+        /// &lt;strong&gt;; the other thirteen supply their own renderer. Four were listed here,
+        /// so nine shapes logged as "an unrecognised prompt" -- which reads like the safety net
+        /// firing at the moment it worked perfectly, and which is what the maintainer saw on
+        /// every ordinary shell prompt, the single most common shape there is.
+        ///
+        /// LONGEST MATCH WINS, as in PromptOptions and for the same reason: "allow searching
+        /// in &lt;path&gt;?" and "allow searching for this query?" are different tools, and a
+        /// first-match-wins scan over a prefix table answers whichever happens to be declared
+        /// first.
         ///
         /// An ALLOWLIST, for the same reason PromptOptions is one: a header shape nobody has
         /// seen yet can contain anything, and the safe response to not recognising it is to
         /// say so rather than to echo it into a file meant to be attachable to a public issue.
+        /// Every value on the right is written HERE, so none of it comes off the screen.
         /// </summary>
         private static readonly KeyValuePair<string, string>[] KnownHeaders =
         {
+            // -- a path span was removed before matching, hence the trailing " ?" shapes ----
             new KeyValuePair<string, string>("make this edit to", "an edit"),
             new KeyValuePair<string, string>("allow reading from", "a file read"),
             new KeyValuePair<string, string>("allow write to", "a file write"),
             new KeyValuePair<string, string>("use skill", "a skill"),
+            new KeyValuePair<string, string>("allow glob search in", "a glob search"),
+            new KeyValuePair<string, string>("allow grep in", "a grep search"),
+            new KeyValuePair<string, string>("allow searching in", "a search"),
+
+            // -- no path, so these render as complete sentences ---------------------------
+            new KeyValuePair<string, string>("allow this glob command", "a glob search"),
+            new KeyValuePair<string, string>("allow this grep command", "a grep search"),
+            new KeyValuePair<string, string>("allow this search", "a search"),
+            new KeyValuePair<string, string>("allow searching for this query", "a web search"),
+            new KeyValuePair<string, string>("allow fetching this url", "a web fetch"),
+            new KeyValuePair<string, string>("allow network connection to this host",
+                                             "a network connection"),
+            new KeyValuePair<string, string>("accept this plan", "a plan"),
+            new KeyValuePair<string, string>("continue planning", "a plan"),
         };
+
+        /// <summary>
+        /// The shell prompt, which is a template rather than a fixed string and so cannot be a
+        /// table row: the bundle renders `["Allow this ", commandLabel, " command?"]`, and
+        /// `commandLabel` is the tool's own word for itself -- "bash", "PowerShell".
+        ///
+        /// Checked BEFORE the table and anchored at BOTH ends, because the prefix alone also
+        /// covers "allow this glob command" and "allow this search", which are different tools
+        /// with their own rows. The label between the anchors is never read: it is text from
+        /// the screen, and this function's whole job is to answer in words written here.
+        ///
+        /// This is the shape that sent the most common prompt of all to "an unrecognised
+        /// prompt" in the log for as long as the table has existed.
+        /// </summary>
+        private const string ShellHeaderPrefix = "allow this ";
+        private const string ShellHeaderSuffix = " command?";
+
+        internal static bool IsShellHeader(string normalizedHeader)
+        {
+            if (normalizedHeader == null) return false;
+            return normalizedHeader.StartsWith(ShellHeaderPrefix, StringComparison.Ordinal)
+                && normalizedHeader.EndsWith(ShellHeaderSuffix, StringComparison.Ordinal)
+                && normalizedHeader.Length > ShellHeaderPrefix.Length + ShellHeaderSuffix.Length;
+        }
 
         /// <summary>
         /// What was approved, in terms safe to write down.
@@ -782,16 +864,27 @@ namespace DesktopAICompanion.AgentFlow
             if (string.Equals(view.Agent, CdpApprover.AgentCodex, StringComparison.Ordinal))
                 return "a Codex command";
 
-            string header = (view.UnsafeHeader ?? "").Trim().ToLowerInvariant();
+            // Whitespace collapsed as well as trimmed: the header is assembled from several
+            // JSX children and a removed path span leaves a double space behind, so
+            // "make this edit to  ?" would miss a table row that a human reading the screen
+            // would say matched.
+            string header = CollapseSpaces((view.UnsafeHeader ?? "").ToLowerInvariant());
+            if (IsShellHeader(header)) return "a shell command";
+
+            // Longest match wins. First-match-wins over a prefix table makes the answer depend
+            // on declaration order, which is how two different tools end up sharing a row.
+            string best = null;
+            int bestLength = -1;
             foreach (KeyValuePair<string, string> known in KnownHeaders)
             {
                 if (!header.StartsWith(known.Key, StringComparison.Ordinal)) continue;
-                string extension = SafeExtension(view.PathExtension);
-                return extension.Length == 0
-                    ? known.Value
-                    : known.Value + " (." + extension + ")";
+                if (known.Key.Length <= bestLength) continue;
+                best = known.Value;
+                bestLength = known.Key.Length;
             }
-            return "an unrecognised prompt";
+            if (best == null) return "an unrecognised prompt";
+            string extension = SafeExtension(view.PathExtension);
+            return extension.Length == 0 ? best : best + " (." + extension + ")";
         }
 
         /// <summary>
@@ -802,6 +895,23 @@ namespace DesktopAICompanion.AgentFlow
         /// the leaf, which splits nothing here. Anything that does not look like an extension
         /// is dropped rather than trimmed, because a half-parsed path is still a path.
         /// </summary>
+        /// <summary>Trim and squeeze runs of whitespace to one space. Not a general
+        /// normaliser: it exists so a removed path span cannot leave a gap that defeats a
+        /// prefix match.</summary>
+        internal static string CollapseSpaces(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return "";
+            var builder = new StringBuilder(value.Length);
+            bool pendingSpace = false;
+            foreach (char ch in value)
+            {
+                if (char.IsWhiteSpace(ch)) { pendingSpace = builder.Length > 0; continue; }
+                if (pendingSpace) { builder.Append(' '); pendingSpace = false; }
+                builder.Append(ch);
+            }
+            return builder.ToString();
+        }
+
         internal static string SafeExtension(string extension)
         {
             if (string.IsNullOrEmpty(extension) || extension.Length > 8) return "";
@@ -868,10 +978,16 @@ namespace DesktopAICompanion.AgentFlow
             if (_budget != null && _budget.IsPaused(DateTime.UtcNow)) return;
 
             _announcedScreenPrompt = seen.Signature;
-            Log("a prompt is waiting on screen for " + seen.Subject + " and nothing pressed it");
+            Log(seen.Notice
+                ?? ("a prompt is waiting on screen for " + seen.Subject
+                    + " and nothing pressed it"));
             if (NotifySpeakOn && AgentMode.Speaks(Mode))
             {
-                try { _host.SayAll("Something is waiting for you: " + seen.Subject + "."); }
+                try
+                {
+                    _host.SayAll(seen.Notice
+                                 ?? ("Something is waiting for you: " + seen.Subject + "."));
+                }
                 catch (Exception) { }
             }
         }
@@ -1647,6 +1763,18 @@ namespace DesktopAICompanion.AgentFlow
         {
             public string Signature;   // identity, so it is announced once and not per poll
             public string Subject;     // safe to say out loud
+            /// <summary>
+            /// A complete sentence that REPLACES both default templates, or null for an
+            /// ordinary prompt.
+            ///
+            /// Exists because the two templates take a subject and read "waiting on screen for
+            /// &lt;X&gt;" -- which assumes the subject is a thing the prompt is ABOUT. The
+            /// unreadable-card notice is a statement about the reader instead, and forcing it
+            /// through the templates produced "waiting on screen for a prompt it cannot read",
+            /// which says the wrong thing in the one case that most needs saying clearly.
+            /// Written here, so it is as safe to log as any other constant in this file.
+            /// </summary>
+            public string Notice;
         }
 
         /// <summary>The prompt last announced from the screen, so a poll every ten seconds does
@@ -3110,11 +3238,30 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("WITNESS an unreachable panel is not reported as no prompt",
                 CdpApprover.Interpret("unreachable") == ReadOutcome.Unreachable
                 && CdpApprover.Interpret("none") == ReadOutcome.NoPrompt);
-            probe.Check("the four read outcomes are told apart",
+            probe.Check("the five read outcomes are told apart",
                 CdpApprover.Interpret(null) == ReadOutcome.NoAnswer
                 && CdpApprover.Interpret("unreachable") == ReadOutcome.Unreachable
                 && CdpApprover.Interpret("none") == ReadOutcome.NoPrompt
+                && CdpApprover.Interpret("blind") == ReadOutcome.Blind
                 && CdpApprover.Interpret("{\"options\":[]}") == ReadOutcome.Prompt);
+
+            // BUG-006's second half. A card on screen that yields no options is NOT the idle
+            // case, and until 1.4.2 both spelled themselves 'none' -- so the log said the same
+            // nothing whether the module was working or had gone blind.
+            probe.Check("WITNESS an unreadable card is not reported as an empty screen",
+                CdpApprover.Interpret("blind") != ReadOutcome.NoPrompt
+                && CdpApprover.Interpret("blind") != ReadOutcome.Prompt);
+            // Both readers have to be able to SAY it, or the outcome exists and never occurs.
+            string claudeRead = CdpApprover.ReadExpressionForSelfTest;
+            string codexRead = CdpApprover.CodexReadExpressionForSelfTest;
+            probe.Check("WITNESS both readers can report a card they could not read",
+                claudeRead.IndexOf("'blind'", StringComparison.Ordinal) >= 0
+                && codexRead.IndexOf("'blind'", StringComparison.Ordinal) >= 0);
+            // The distinction is only worth anything if the TOP-LEVEL miss still says 'none':
+            // an editor with no prompt in it must not cry blind every ten seconds.
+            probe.Check("WITNESS a panel with no card at all still reports nothing waiting",
+                claudeRead.IndexOf("if (!c) return 'none'", StringComparison.Ordinal) >= 0
+                && codexRead.IndexOf("if (!card) return 'none'", StringComparison.Ordinal) >= 0);
 
             // ...and the expression has to LOOK in the nested frame, in that order: decide
             // reachability first, because a container query against the outer shell can only
@@ -3183,6 +3330,40 @@ namespace DesktopAICompanion.AgentFlow
                 DescribeSubject(Header("allow reading from ?", "md")) == "a file read (.md)"
                 && DescribeSubject(Header("allow write to ?", "")) == "a file write"
                 && DescribeSubject(Header("use skill ?", "")) == "a skill");
+
+            // THE MOST COMMON PROMPT THERE IS, and it logged as "an unrecognised prompt" for
+            // as long as this table has existed: the bundle renders the shell header as
+            // `["Allow this ", commandLabel, " command?"]`, which is a template and so was
+            // never a row. Observed in the maintainer's own log on 2026-09-23.
+            probe.Check("WITNESS a shell prompt is named, not filed as unrecognised",
+                DescribeSubject(Header("Allow this bash command?", "")) == "a shell command"
+                && DescribeSubject(Header("Allow this PowerShell command?", ""))
+                   == "a shell command");
+            // ...and the template must not swallow the tools whose headers merely start the
+            // same way. These are real rows with their own answers.
+            probe.Check("WITNESS the shell template does not swallow its neighbours",
+                DescribeSubject(Header("Allow this glob command", "")) == "a glob search"
+                && DescribeSubject(Header("Allow this grep command", "")) == "a grep search"
+                && DescribeSubject(Header("Allow this search", "")) == "a search");
+            probe.Check("the remaining shapes read off bundle 2.1.280 are named",
+                DescribeSubject(Header("Allow glob search in ?", "")) == "a glob search"
+                && DescribeSubject(Header("Allow grep in ?", "")) == "a grep search"
+                && DescribeSubject(Header("Allow fetching this url?", "")) == "a web fetch"
+                && DescribeSubject(Header("Allow network connection to this host?", ""))
+                   == "a network connection"
+                && DescribeSubject(Header("Accept this plan?", "")) == "a plan"
+                && DescribeSubject(Header("Continue planning", "")) == "a plan");
+            // Longest match wins, and this pair is why. "allow searching in <path>?" is Search
+            // and "allow searching for this query?" is WebSearch; under first-match-wins over a
+            // prefix table the answer depends on which row was declared first.
+            probe.Check("WITNESS two headers sharing a prefix get their own answers",
+                DescribeSubject(Header("Allow searching in ?", "")) == "a search"
+                && DescribeSubject(Header("Allow searching for this query?", ""))
+                   == "a web search");
+            // A removed path span leaves a double space behind. Without collapsing, the
+            // header no longer starts with the row it obviously matches.
+            probe.Check("WITNESS the gap a removed path leaves does not defeat the match",
+                DescribeSubject(Header("make this edit to   ?", "cs")) == "an edit (.cs)");
             probe.Check("a tool named in the header still wins, and is not overridden",
                 DescribeSubject(Tool("Bash")) == "Bash");
 

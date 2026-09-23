@@ -21,7 +21,7 @@ Each entry ends with what was actually changed and how it was verified.
 BUG-001 to BUG-004 are cited by number from code comments in `modules/AiBrain/`, `modules/PetStudio/`
 and `src/dotNet/`, from [`RELEASE-CHECKLIST.md`](RELEASE-CHECKLIST.md), from
 [`../handoff.md`](../handoff.md) and from `.github/workflows/build.yml`. The numbers are never reused;
-the next bug filed in `BACKLOG.md` is BUG-007.
+the next bug filed in `BACKLOG.md` is BUG-008.
 
 | | |
 |---|---|
@@ -109,6 +109,74 @@ new anchor does not fire on an idle panel either. Six assertions replace the one
 bug, including two that fail if either expression ever again abandons a prompt for want of a
 dropdown. `docs/agentflow/agentflow_cdp_probe.py` replays both reads against a live editor and warns
 when its copies have drifted from the module.
+
+**The second defect was fixed separately, in 1.4.3.** The silence above is not a consequence of the
+selector — it is its own gap, and it would hide the next selector change just as well as it hid this
+one. There is now a fifth `ReadOutcome`, `Blind`: the top-level anchor missing still answers `none`,
+but anything structural BELOW it answers `blind`, and the sweep reports that as a build problem
+rather than as an idle editor. The companion says it out loud, because the whole failure mode is
+that an approver which has gone blind is indistinguishable from one with nothing to do.
+
+It is a reporting outcome and never an actionable one: nothing is pressed on a `blind` read, since
+not being able to read the options is precisely the state in which pressing would be a guess.
+
+Cost, measured rather than assumed — `agentflow_cdp_probe.py --time 40` against the live editor,
+median of 40 round trips per expression per target: **no extra CDP round trips and no extra DOM
+queries**, because `blind` is a different return value from a call the sweep already made. The read
+expressions grew 49 characters (Claude) and 2 (Codex), and the measured evaluate cost was unchanged
+at 0.3–0.8 ms per target. A whole sweep of four webview targets costs a few milliseconds once every
+ten seconds.
+
+Verified for the failure that would actually hurt — a false alarm every ten seconds: across six
+minutes of live polling over four webview targets with no prompt on screen, `blind` was never once
+reported. The `blind` branch itself has NOT been seen in the wild, and cannot be until a shipped
+build changes its markup; it rests on the assertions, not on an observation.
+
+### BUG-007 — nine of the fourteen prompt shapes logged as "an unrecognised prompt"
+
+| | |
+|---|---|
+| Bugs | BUG-007 the prompt-header table was four rows against fourteen shapes |
+| Found | 2026-09-23, in the maintainer's own log, while verifying the BUG-006 fix |
+| Fixed by | agentflow 1.4.3 — table re-derived from bundle 2.1.280, longest-match, plus the template row |
+
+**Cosmetic, and worth a number anyway**, because what it corrupted was the log — the one artefact
+this module asks users to attach to an issue, and the thing every diagnosis in this file was built
+from. A prompt that was recognised, classified correctly and pressed correctly wrote itself down as:
+
+```
+auto-approve clicked for an unrecognised prompt: pressing option 1, recognised as 'yes'
+```
+
+which reads as the safety net firing at the exact moment it worked perfectly. The same sentence is
+what a genuine classifier refusal would produce.
+
+`DescribeSubject` falls back to a header table when a prompt names no tool in a `<strong>`. The
+comment above that table said the bundle had "FIVE shapes". Re-reading every `permissionRequestHeader`
+render site in 2.1.280 found **fourteen**, of which only the generic fallback uses `<strong>`. Four
+were listed, so nine were unnamed — including the shell prompt, which is the commonest of all and
+which could never have been a row because it is a template: the bundle renders
+`["Allow this ", commandLabel, " command?"]`, with the tool's own word for itself in the middle.
+
+**Fixed** by re-deriving the table, adding the shell template as an explicit prefix+suffix check
+anchored at BOTH ends (the prefix alone also covers "Allow this glob command" and "Allow this
+search", which are different tools with their own rows), and switching from first-match to
+**longest-match**. That last one is not tidiness: "allow searching in &lt;path&gt;?" is `Search` and
+"allow searching for this query?" is `WebSearch`, and under first-match-wins over a prefix table the
+answer depends on which row happens to be declared first. Whitespace is collapsed before matching,
+because removing the path span leaves a double space where it used to be.
+
+The allowlist property is unchanged and is the reason this is safe: every value on the right-hand
+side is written in the source file, so an unrecognised header is still named rather than echoed, and
+no text from the screen reaches the log.
+
+**Verified** by eleven assertions covering all fourteen shapes, the template's three near-misses, the
+prefix collision and the double-space case; 450 assertions, `RESULT=PASS`. NOT verified against a
+live render: raising a Claude permission prompt needs a session in `default` mode, and every session
+on the box at the time was in `auto`, which is the mode that does not prompt. The table is derived
+from the bundle's own strings, which is the same standing as the option table in `PromptOptions` —
+and that one has an `--audit` in `agentflow_classifier.py` that re-derives it from whatever is
+installed. This one does not yet. That is the obvious next thing.
 
 ### BUG-005 — a converted companion stutters: the same short animation replayed, or two frames held for eleven seconds
 

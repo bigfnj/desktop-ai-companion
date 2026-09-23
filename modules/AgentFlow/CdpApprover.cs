@@ -61,7 +61,7 @@ namespace DesktopAICompanion.AgentFlow
     /// "shortcutNum" span carrying the keyboard digit. The hash suffix ("_qlaBag") is regenerated
     /// per build, so every selector here matches the semantic PREFIX and never the whole class.
     /// </summary>
-    /// <summary>What a read of one target actually told us. Four answers, not two.</summary>
+    /// <summary>What a read of one target actually told us. Five answers, not two.</summary>
     internal enum ReadOutcome
     {
         /// <summary>The target did not answer at all.</summary>
@@ -72,6 +72,21 @@ namespace DesktopAICompanion.AgentFlow
         NoPrompt,
         /// <summary>There is a prompt.</summary>
         Prompt,
+        /// <summary>
+        /// A prompt card is on screen and this build could not get options out of it.
+        ///
+        /// The fifth answer, added in 1.4.2 because BUG-006 had no way to be SAID. Every
+        /// structural miss below the top-level anchor used to fold into <see cref="NoPrompt"/>,
+        /// and the sweep treats that as the ordinary idle case -- so a selector that had stopped
+        /// matching and an editor with nothing on screen wrote the identical nothing to the log.
+        /// The 2026-09-18 post-mortem in this file separated Unreachable from NoPrompt for
+        /// exactly this reason and stopped one level too high.
+        ///
+        /// It is a REPORTING outcome and never an actionable one: nothing is pressed on a Blind
+        /// read, because not being able to read the options is precisely the state in which
+        /// pressing would be a guess.
+        /// </summary>
+        Blind,
     }
 
     internal static class CdpApprover
@@ -95,6 +110,7 @@ namespace DesktopAICompanion.AgentFlow
             if (string.Equals(raw, "unreachable", StringComparison.Ordinal))
                 return ReadOutcome.Unreachable;
             if (string.Equals(raw, "none", StringComparison.Ordinal)) return ReadOutcome.NoPrompt;
+            if (string.Equals(raw, "blind", StringComparison.Ordinal)) return ReadOutcome.Blind;
             return ReadOutcome.Prompt;
         }
 
@@ -154,8 +170,10 @@ namespace DesktopAICompanion.AgentFlow
   if (!a.doc || a.elements < MinElements) return 'unreachable';
   var c = a.doc.querySelector('[class*=""permissionRequestContainer""]');
   if (!c) return 'none';
+  // Below here the card EXISTS, so anything that goes wrong is a structural miss and must
+  // not be reported as an idle editor. See ReadOutcome.Blind.
   var bc = c.querySelector('[class*=""buttonContainer""]');
-  if (!bc) return 'none';
+  if (!bc) return 'blind';
   var out = { tool: '', header: '', ext: '', options: [], disabled: [] };
   var hd = c.querySelector('[class*=""permissionRequestHeader""]');
   if (hd) {
@@ -187,6 +205,9 @@ namespace DesktopAICompanion.AgentFlow
     out.options.push(t.trim());
     out.disabled.push(!!b.disabled);
   }
+  // A button container holding no buttons is the same kind of miss as no container at all.
+  // This used to return JSON with an empty options array, which the sweep skipped silently.
+  if (out.options.length === 0) return 'blind';
   return JSON.stringify(out);
 })()";
 
@@ -248,8 +269,10 @@ namespace DesktopAICompanion.AgentFlow
   if (!a.doc || a.elements < MinElements) return 'unreachable';
   var card = a.doc.querySelector('[class*=""@container/approval-card""]');
   if (!card) return 'none';
+  // Below here the card EXISTS. Everything that follows is structure, and a structural miss
+  // is not an idle editor -- it is this build having gone blind. See ReadOutcome.Blind.
   var form = card.querySelector('form');
-  if (!form) return 'none';
+  if (!form) return 'blind';
   var trigger = form.querySelector('button[aria-label=""Approval options""]');
   var out = { tool: '', header: '', ext: '', options: [], disabled: [] };
   var btns = form.querySelectorAll('button');
@@ -259,7 +282,7 @@ namespace DesktopAICompanion.AgentFlow
     out.options.push((b.innerText || b.textContent || '').replace(/\s+/g, ' ').trim());
     out.disabled.push(!!b.disabled);
   }
-  if (out.options.length === 0) return 'none';
+  if (out.options.length === 0) return 'blind';
   return JSON.stringify(out);
 })()";
 
@@ -368,7 +391,22 @@ namespace DesktopAICompanion.AgentFlow
         public static string Sweep(int port, Func<PromptView, string> press, int timeoutMs,
                                    out bool sawPanel)
         {
+            bool ignored;
+            return Sweep(port, press, timeoutMs, out sawPanel, out ignored);
+        }
+
+        /// <summary>
+        /// <paramref name="sawBlind"/> is the answer BUG-006 had no way to give: a prompt card
+        /// was on screen and this build could not get options out of it. The caller needs it
+        /// separately from the returned note because the note is only logged, and the one thing
+        /// a user must not have to read a log file to discover is that approving has silently
+        /// stopped working.
+        /// </summary>
+        public static string Sweep(int port, Func<PromptView, string> press, int timeoutMs,
+                                   out bool sawPanel, out bool sawBlind)
+        {
             sawPanel = false;
+            sawBlind = false;
 
             // Both agents, Claude first. They render in separate webviews on the SAME debug
             // port, share no markup, and are read by different expressions -- so the agent
@@ -383,7 +421,8 @@ namespace DesktopAICompanion.AgentFlow
             string browserUrl = BrowserSocketUrl(port, timeoutMs);
             if (string.IsNullOrEmpty(browserUrl)) return null;
 
-            bool sawReadable = false;
+            bool sawReadable = false, sawUnreadableCard = false;
+            string blindAgent = null;
             string pressed = null;
             try
             {
@@ -407,8 +446,27 @@ namespace DesktopAICompanion.AgentFlow
                                 || outcome == ReadOutcome.Unreachable) continue;
                             sawReadable = true;
                             if (outcome == ReadOutcome.NoPrompt) continue;
+                            // A card that would not yield options. Recorded and carried on
+                            // past, never pressed: not being able to read the options is
+                            // exactly the state in which pressing would be a guess. Another
+                            // target may still hold a prompt this build CAN read, so the
+                            // sweep finishes rather than returning here.
+                            if (outcome == ReadOutcome.Blind)
+                            {
+                                sawUnreadableCard = true;
+                                if (blindAgent == null) blindAgent = agent;
+                                continue;
+                            }
                             PromptView view = Parse(targetId, raw);
-                            if (view == null || view.Options.Count == 0) continue;
+                            // Parse failing after a non-Blind read is the same class of miss:
+                            // the expression answered with something that was not 'none' and
+                            // did not come apart into options.
+                            if (view == null || view.Options.Count == 0)
+                            {
+                                sawUnreadableCard = true;
+                                if (blindAgent == null) blindAgent = agent;
+                                continue;
+                            }
                             view.Agent = agent;
                             string note = press(view);
                             // BREAK, never return. Returning from here skipped the
@@ -439,11 +497,20 @@ namespace DesktopAICompanion.AgentFlow
             // "could not see" rather than leaving a stale true behind: the tray dot goes green on
             // this, and green has to mean a panel was read on THIS pass.
             sawPanel = sawReadable;
+            sawBlind = sawUnreadableCard;
             if (pressed != null) return pressed;
             if (!sawReadable)
                 return "cannot see inside the agent panel: the debugging port answers, "
                        + "but nothing in it exposes the conversation. Approving cannot work "
                        + "until that is fixed -- it is not the same as 'no prompt waiting'.";
+            // Said loudly and named as a BUILD problem, because the user cannot fix it and the
+            // only wrong response is to assume the screen is quiet. The agent name is from this
+            // file's own constants, never from the page.
+            if (sawUnreadableCard)
+                return "a " + (blindAgent == AgentCodex ? "Codex" : "Claude Code")
+                       + " prompt is on screen and this build cannot read its options -- the "
+                       + "panel's markup has changed. Nothing was pressed, and this is NOT the "
+                       + "same as 'no prompt waiting'. Answer it yourself and report the build.";
             return null;
         }
 

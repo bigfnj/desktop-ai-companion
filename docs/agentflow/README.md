@@ -606,7 +606,7 @@ issue unedited. The module's log still is.
 | `agentflow_join.py` | Does knowing the permission rules kill the false alarms? | `python agentflow_join.py --files 120 \| --selftest \| --difftest` |
 | `agentflow_classifier.py` | Which prompt option is safe to press? | `python agentflow_classifier.py --selftest \| --audit \| --mutate` |
 | `agentflow_cpu.py` | Does agent CPU separate blocked from working? | `python agentflow_cpu.py --verify \| --attribute \| --validate \| --interval 2 --count 20 --csv out.csv \| --report out.csv` |
-| `agentflow_cdp_probe.py` | A prompt is on screen and nothing pressed it — which read returned `none`? | `python agentflow_cdp_probe.py --raw` |
+| `agentflow_cdp_probe.py` | A prompt is on screen and nothing pressed it — which read returned `none`? And what does a read cost? | `python agentflow_cdp_probe.py --raw \| --time 40` |
 
 `agentflow_cpu.py --verify` is the only one of the five that can be run with no agent present and
 no data: it proves its own measurement mechanism. `--validate` needs at least two sessions running

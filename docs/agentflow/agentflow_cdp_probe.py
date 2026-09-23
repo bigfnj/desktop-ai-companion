@@ -3,16 +3,20 @@
 
 The shipped module reads a prompt with two expressions and nothing else: a Claude
 one anchored on the `permissionRequestContainer` CSS-module prefix, and a Codex one
-anchored on `button[aria-label="Approval options"]`. When a prompt is on screen and
-AgentFlow does not press it, the question is always which of those two returned
-'none' -- and the diagnostic log cannot say, because a read that finds nothing is
-indistinguishable from an idle editor.
+anchored on the card's Tailwind container name `@container/approval-card`. When a
+prompt is on screen and AgentFlow does not press it, the question is always which of
+those two returned 'none'.
+
+Since 1.4.2 the module can say 'blind' -- a card was found and no options came out of
+it -- so that case is no longer silent in its own log. 'none' still cannot be told
+from an idle editor, and never can be: it is the answer BOTH give.
 
 This prints, per webview target: the outcome of each expression verbatim, plus a
-RAW dump of every button the target holds. The raw dump is what tells a selector
-miss (buttons exist, expression says 'none') from an empty panel.
+RAW dump of every button the target holds. The raw dump is what tells a top-level
+selector miss (buttons exist, expression says 'none') from an empty panel -- the one
+shape the module still cannot self-report.
 
-    python agentflow_cdp_probe.py [--port 9321] [--raw]
+    python agentflow_cdp_probe.py [--port 9321] [--raw] [--time N]
 
 Prints prompt option labels, which is the whole point, so its output is NOT safe to
 paste into a public issue unedited -- unlike the module's own log, which is.
@@ -52,7 +56,7 @@ CLAUDE_READ = "(function () {" + DOCUMENT_PRELUDE + r"""
   var c = a.doc.querySelector('[class*="permissionRequestContainer"]');
   if (!c) return 'none';
   var bc = c.querySelector('[class*="buttonContainer"]');
-  if (!bc) return 'none';
+  if (!bc) return 'blind';
   var out = { tool: '', header: '', ext: '', options: [], disabled: [] };
   var hd = c.querySelector('[class*="permissionRequestHeader"]');
   if (hd) {
@@ -77,6 +81,7 @@ CLAUDE_READ = "(function () {" + DOCUMENT_PRELUDE + r"""
     out.options.push(t.trim());
     out.disabled.push(!!b.disabled);
   }
+  if (out.options.length === 0) return 'blind';
   return JSON.stringify(out);
 })()"""
 
@@ -86,7 +91,7 @@ CODEX_READ = "(function () {" + DOCUMENT_PRELUDE + r"""
   var card = a.doc.querySelector('[class*="@container/approval-card"]');
   if (!card) return 'none';
   var form = card.querySelector('form');
-  if (!form) return 'none';
+  if (!form) return 'blind';
   var trigger = form.querySelector('button[aria-label="Approval options"]');
   var out = { tool: '', header: '', ext: '', options: [], disabled: [] };
   var btns = form.querySelectorAll('button');
@@ -96,7 +101,7 @@ CODEX_READ = "(function () {" + DOCUMENT_PRELUDE + r"""
     out.options.push((b.innerText || b.textContent || '').replace(/\s+/g, ' ').trim());
     out.disabled.push(!!b.disabled);
   }
-  if (out.options.length === 0) return 'none';
+  if (out.options.length === 0) return 'blind';
   return JSON.stringify(out);
 })()"""
 
@@ -131,6 +136,10 @@ LOAD_BEARING = [
     "card.querySelector('form')",
     'button[aria-label=""Approval options""]',
     "b === trigger",
+    # Added after these copies went stale against 1.4.3 and the guard stayed quiet,
+    # because every substring it knew about was still there. A drift guard is only as
+    # good as the list, so anything the copies are supposed to mirror belongs in it.
+    "return 'blind'",
 ]
 
 
@@ -232,12 +241,54 @@ class Browser(object):
             pass
 
 
+def timed(port, rounds):
+    """Median wall time of one Runtime.evaluate per expression, per target.
+
+    Measures the WHOLE round trip -- serialise, send, execute, receive -- because that is
+    what a tick actually pays. The expressions are timed against the same attached session
+    one after another, so the connection cost is common to all of them and cancels.
+    """
+    import statistics
+    import time
+
+    browser = Browser(port)
+    try:
+        for target_id, ext, _ in targets(port):
+            session = browser.attach(target_id)
+            if not session:
+                continue
+            print("target %s  extensionId=%s  (%d rounds)" % (target_id[:12], ext, rounds))
+            for name, expression in (("claude-read", CLAUDE_READ),
+                                     ("codex-read", CODEX_READ),
+                                     ("codex-pre-1.4.2", CODEX_READ_PRE_142)):
+                samples = []
+                for _ in range(rounds):
+                    start = time.perf_counter()
+                    browser.evaluate(session, expression)
+                    samples.append((time.perf_counter() - start) * 1000.0)
+                samples.sort()
+                print("  %-16s median %6.2f ms   min %6.2f   max %6.2f   chars %d"
+                      % (name, statistics.median(samples), samples[0], samples[-1],
+                         len(expression)))
+            browser.send("Target.detachFromTarget", {"sessionId": session})
+    finally:
+        browser.close()
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=9321)
     parser.add_argument("--raw", action="store_true",
                         help="dump every button on each target, not just the two reads")
+    parser.add_argument("--time", type=int, default=0, metavar="N",
+                        help="time N evaluations of each expression per target and stop. "
+                             "Answers 'what does a change to the read expression cost', "
+                             "which is otherwise guessed at.")
     args = parser.parse_args()
+
+    if args.time:
+        return timed(args.port, args.time)
 
     drift = check_drift(os.path.join(os.path.dirname(os.path.abspath(__file__)), SOURCE))
     for warning in drift:
