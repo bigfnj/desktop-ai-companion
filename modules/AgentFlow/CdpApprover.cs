@@ -206,29 +206,53 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>
         /// Read a Codex permission prompt.
         ///
-        /// Anchored on aria, not on classes. Codex is styled with Tailwind utilities, so the
-        /// container reads "ms-auto flex min-w-0 items-center gap-2 ..." -- layout atoms that say
-        /// nothing about what the element IS and change whenever the design does. The one stable
-        /// hook on the card is the split button's own aria-label, and the enclosing <form> groups
-        /// exactly the prompt's buttons. Both were read off a live prompt on 2026-09-21.
+        /// ANCHORED ON THE CARD, NOT ON THE DROPDOWN, and the difference is the whole of
+        /// BUG-006. This used to open with `button[aria-label="Approval options"]` and return
+        /// 'none' when it was absent, on the reasoning that the split button's aria-label was
+        /// the one stable hook the card offered. It is not a hook on the CARD at all -- it is a
+        /// hook on a control the card only sometimes renders. Verbatim from the shipped bundle
+        /// (openai.chatgpt 26.917.62051, webview/assets/app-initial-*.js), the approve control
+        /// branches on whether Codex has a wider grant to offer:
         ///
-        /// THE TRIGGER IS NOT AN OPTION. It carries no text, so returning it would hand the
-        /// classifier an empty string, and one unrecognised option refuses the whole prompt -- so
-        /// including it would make Codex permanently unactionable while looking like a
-        /// classifier problem. It is dropped by identity, not by "skip blank labels", because
-        /// dropping blanks would also hide a real option that failed to render.
+        ///     p = c.scopedApproveAction
+        ///     N = p == null ? jsxs(XS,  { ..., type: 'submit', ... })            // plain button
+        ///                   : jsxs(Pgi, { ..., secondaryAriaLabel: 'Approval options', ... })
+        ///
+        /// So every prompt with nothing scoped to offer -- a language runtime, anything Codex
+        /// will not generalise into "allow similar commands" -- renders the plain branch and
+        /// carries no such element. MEASURED over CDP on 2026-09-23 against a live, unanswered
+        /// prompt: `approvalOptionsTrigger=0`, `forms=1`, and the form holding exactly
+        /// "Deny Esc" and "Allow once ⏎". The reader returned 'none' on its first line, so
+        /// the sweep skipped a prompt that the classifier would have pressed correctly, and
+        /// logged nothing at all -- 'none' means "no prompt" and there is no third answer for
+        /// "there is one, I just could not find it". See docs/agentflow/agentflow_cdp_probe.py,
+        /// which replays both expressions against a live editor.
+        ///
+        /// The replacement anchor is the card's Tailwind CONTAINER NAME, `@container/approval-
+        /// card`. That is not a layout atom: it is the name the authors gave the thing, and
+        /// every responsive class on the card (`@max-md/approval-card:...`) is derived from it,
+        /// so it cannot be renamed quietly. Buttons are still scoped to the enclosing <form>,
+        /// which groups the actions and excludes the header, the command body and its chrome.
+        ///
+        /// THE TRIGGER IS NOT AN OPTION, and is now OPTIONAL as well. It carries no text, so
+        /// returning it would hand the classifier an empty string, and one unrecognised option
+        /// refuses the whole prompt -- so including it would make the split-button shape
+        /// permanently unactionable while looking like a classifier problem. It is dropped by
+        /// identity, not by "skip blank labels", because dropping blanks would also hide a real
+        /// option that failed to render. What it must NEVER again do is decide whether there is
+        /// a prompt at all.
         /// </summary>
         private const string CodexReadExpression = @"
 (function () {" + DocumentPrelude + @"
   var a = appDocument();
   if (!a.doc || a.elements < MinElements) return 'unreachable';
-  var trigger = a.doc.querySelector('button[aria-label=""Approval options""]');
-  if (!trigger) return 'none';
-  var card = trigger.closest ? trigger.closest('form') : null;
-  if (!card) card = trigger.parentElement ? trigger.parentElement.parentElement : null;
+  var card = a.doc.querySelector('[class*=""@container/approval-card""]');
   if (!card) return 'none';
+  var form = card.querySelector('form');
+  if (!form) return 'none';
+  var trigger = form.querySelector('button[aria-label=""Approval options""]');
   var out = { tool: '', header: '', ext: '', options: [], disabled: [] };
-  var btns = card.querySelectorAll('button');
+  var btns = form.querySelectorAll('button');
   for (var i = 0; i < btns.length; i++) {
     var b = btns[i];
     if (b === trigger) continue;
@@ -245,7 +269,10 @@ namespace DesktopAICompanion.AgentFlow
         /// trips and the panel is live throughout.
         ///
         /// The index counts options with the trigger EXCLUDED, so the same filter has to run here
-        /// or index 1 means a different button in each expression.
+        /// or index 1 means a different button in each expression. For the same reason it has to
+        /// anchor on the same element the reader did: anchoring the read on the card and the
+        /// click on the dropdown would make the two disagree about which buttons exist on every
+        /// prompt that has no dropdown -- which is most of them.
         ///
         /// A plain .click() is enough. That was verified against a live prompt rather than
         /// assumed: the option buttons respond to it, while the split button's own trigger needs
@@ -263,13 +290,13 @@ namespace DesktopAICompanion.AgentFlow
 (function () {" + DocumentPrelude + @"
   var a = appDocument();
   if (!a.doc) return 'gone';
-  var trigger = a.doc.querySelector('button[aria-label=""Approval options""]');
-  if (!trigger) return 'gone';
-  var card = trigger.closest ? trigger.closest('form') : null;
-  if (!card) card = trigger.parentElement ? trigger.parentElement.parentElement : null;
+  var card = a.doc.querySelector('[class*=""@container/approval-card""]');
   if (!card) return 'gone';
+  var form = card.querySelector('form');
+  if (!form) return 'gone';
+  var trigger = form.querySelector('button[aria-label=""Approval options""]');
   var opts = [];
-  var btns = card.querySelectorAll('button');
+  var btns = form.querySelectorAll('button');
   for (var i = 0; i < btns.length; i++) { if (btns[i] !== trigger) opts.push(btns[i]); }
   var idx = __INDEX__;
   if (idx < 0 || idx >= opts.length) return 'gone';

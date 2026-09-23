@@ -146,7 +146,19 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.4.1",   // 1.4.1: two field reports against v1.2.4. The animation
+            Version = "1.4.2",   // 1.4.2: auto-approve could not see MOST Codex prompts. The
+                                 //        reader opened by querying the split button's
+                                 //        aria-label and gave up when it was absent -- but Codex
+                                 //        renders that dropdown only when it has a wider grant to
+                                 //        offer, so every plain two-button card ("Deny" /
+                                 //        "Allow once") read as 'none', which is the same answer
+                                 //        as an idle editor. Nothing was pressed and nothing was
+                                 //        logged. Now anchored on the card's own container name,
+                                 //        with the dropdown optional and still excluded from the
+                                 //        options when present. Found against a live prompt on
+                                 //        2026-09-23; the self-test had pinned the old anchor as
+                                 //        correct behaviour.
+                                 // 1.4.1: two field reports against v1.2.4. The animation
                                  //        dropdown showed the generic seven for a pet with its
                                  //        own list, curable only by changing the pet and changing
                                  //        back: the memo introduced in 1.3.2 cached a FALLBACK,
@@ -3935,9 +3947,27 @@ namespace DesktopAICompanion.AgentFlow
                 built.IndexOf("{0}", StringComparison.Ordinal) < 0
                 && built.IndexOf("{1}", StringComparison.Ordinal) < 0);
 
-            // Anchored on aria, because every class on that card is a Tailwind layout atom.
-            probe.Check("the reader anchors on the split button's aria-label",
-                read.IndexOf("Approval options", StringComparison.Ordinal) >= 0);
+            // BUG-006, and the assertion that used to sit here asserted the bug: "the reader
+            // anchors on the split button's aria-label" was true, was the defect, and passed.
+            // Codex renders that split button only when it has a wider grant to offer, so the
+            // reader answered 'none' -- indistinguishable from an idle editor -- on every
+            // two-button prompt. Measured against a live one on 2026-09-23.
+            probe.Check("the reader anchors on the approval CARD, not on the optional dropdown",
+                read.IndexOf("@container/approval-card", StringComparison.Ordinal) >= 0);
+            probe.Check("WITNESS a prompt with no dropdown is still READ, not abandoned",
+                read.IndexOf("if (!trigger) return 'none'", StringComparison.Ordinal) < 0);
+            probe.Check("WITNESS the clicker does not abandon it either",
+                click.IndexOf("if (!trigger) return 'gone'", StringComparison.Ordinal) < 0);
+            // Read and click must count the same buttons or an index means two different rows.
+            probe.Check("WITNESS both expressions anchor on the same element",
+                click.IndexOf("@container/approval-card", StringComparison.Ordinal) >= 0);
+            probe.Check("...and both scope the options to the card's own form",
+                read.IndexOf("card.querySelector('form')", StringComparison.Ordinal) >= 0
+                && click.IndexOf("card.querySelector('form')", StringComparison.Ordinal) >= 0);
+            // Optional, but still recognised: the split-button shape has to keep working.
+            probe.Check("WITNESS the dropdown is still found when the card does render one",
+                read.IndexOf("Approval options", StringComparison.Ordinal) >= 0
+                && click.IndexOf("Approval options", StringComparison.Ordinal) >= 0);
 
             // The trigger carries no text. Returned as an option it would classify Unknown, and
             // one unknown option refuses the whole prompt -- so Codex would be permanently

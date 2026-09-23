@@ -23,7 +23,7 @@ no paths, and an 8-character session prefix rather than an id that identifies a 
 **To see it speak you need a session in `default` permission mode**, blocked on a prompt for longer
 than the threshold. In `auto`, `acceptEdits` or `plan` it stands down by design, because measured
 precision outside `default` is ~0.4%.
-This directory holds the five harnesses that decided whether it was buildable and what they
+This directory holds the six harnesses that decided whether it was buildable and what they
 measured. Read it before proposing work, because several of the obvious designs are ruled out by
 numbers rather than opinion, and two of the numbers recorded here were themselves wrong once and
 are marked as superseded.
@@ -166,10 +166,17 @@ nobody has measured yet defaults to standing down rather than to firing.
 produced an empty log, because the module properly did nothing — so a working run and a completely
 broken one were byte-identical. Silence is the one outcome that cannot be told apart from failure.
 
-**Codex is read but cannot be acted on.** Its rollout format records no permission mode, so every
-Codex session resolves as `unknown` and the allow-list refuses it. `watchCodex` therefore defaults
-OFF: a switch that cannot do anything reads to a user as a broken module rather than as an
-unsupported agent. The reading half works, so it becomes useful the day that format carries a mode.
+**A Codex TRANSCRIPT is read but cannot be acted on.** Its rollout format records no permission
+mode, so every Codex session resolves as `unknown` and the allow-list refuses it. `watchCodex`
+therefore defaults OFF: a switch that cannot do anything reads to a user as a broken module rather
+than as an unsupported agent. The reading half works, so it becomes useful the day that format
+carries a mode.
+
+This is a statement about the TRANSCRIPT half only, and it was read as covering both for a while.
+Codex prompts on SCREEN are pressed, by the same CDP path that presses Claude's, and `watchCodex`
+does not gate that — the sweep visits both agents' webviews unconditionally. Getting those two
+confused is how BUG-006 sat unnoticed: an auto-approve that never fired for Codex looked like the
+documented state of affairs rather than like a selector that had stopped matching.
 
 **A call the rules cannot address is UNDECIDABLE, not would-prompt.** `Agent` carries no command,
 so evaluating `Agent()` matched no rule and nothing-matched returns would-prompt — a verdict that
@@ -583,9 +590,14 @@ cycles, and the `consecutiveErrors > 5` branch only logs.
 
 ## The harnesses
 
-All five are standalone Python 3, no dependencies, read-only. They print tool names, counts and
+Five are standalone Python 3, no dependencies, read-only. They print tool names, counts and
 durations — never command arguments, never tool output, never a path or prompt text out of a
 transcript. Any production code has to hold the same line, especially out of the diagnostic log.
+
+The sixth, `agentflow_cdp_probe.py`, is the exception on both counts and is marked as such in its
+own docstring: it needs `websocket-client`, and it PRINTS OPTION LABELS, because what it exists to
+answer is "what did the reader see on this prompt". Its output is not safe to attach to a public
+issue unedited. The module's log still is.
 
 | script | what it answers | run |
 |---|---|---|
@@ -594,6 +606,7 @@ transcript. Any production code has to hold the same line, especially out of the
 | `agentflow_join.py` | Does knowing the permission rules kill the false alarms? | `python agentflow_join.py --files 120 \| --selftest \| --difftest` |
 | `agentflow_classifier.py` | Which prompt option is safe to press? | `python agentflow_classifier.py --selftest \| --audit \| --mutate` |
 | `agentflow_cpu.py` | Does agent CPU separate blocked from working? | `python agentflow_cpu.py --verify \| --attribute \| --validate \| --interval 2 --count 20 --csv out.csv \| --report out.csv` |
+| `agentflow_cdp_probe.py` | A prompt is on screen and nothing pressed it — which read returned `none`? | `python agentflow_cdp_probe.py --raw` |
 
 `agentflow_cpu.py --verify` is the only one of the five that can be run with no agent present and
 no data: it proves its own measurement mechanism. `--validate` needs at least two sessions running

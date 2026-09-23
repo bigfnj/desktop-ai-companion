@@ -21,7 +21,7 @@ Each entry ends with what was actually changed and how it was verified.
 BUG-001 to BUG-004 are cited by number from code comments in `modules/AiBrain/`, `modules/PetStudio/`
 and `src/dotNet/`, from [`RELEASE-CHECKLIST.md`](RELEASE-CHECKLIST.md), from
 [`../handoff.md`](../handoff.md) and from `.github/workflows/build.yml`. The numbers are never reused;
-the next bug filed in `BACKLOG.md` is BUG-006.
+the next bug filed in `BACKLOG.md` is BUG-007.
 
 | | |
 |---|---|
@@ -40,6 +40,75 @@ not by a gate; BUG-004 was found by the release checklist's own leak soak.
 including the parts that turned out to be WRONG, because two of them were wrong in instructive ways: the
 suspected cause of BUG-003(a) was refuted by measurement, and BUG-001's mechanism was mis-attributed once
 before being traced properly. Each entry ends with what was actually changed and how it was verified.
+
+### BUG-006 — auto-approve could not see most Codex prompts, and said nothing about it
+
+| | |
+|---|---|
+| Bugs | BUG-006 the Codex reader anchored on an optional control |
+| Found | 2026-09-23, by the maintainer leaving an unanswered prompt on screen and asking why nothing pressed it |
+| Fixed by | agentflow 1.4.2 — re-anchored on the card, six assertions, and a live-editor probe |
+
+**The reader's first line decided there was no prompt.** `CdpApprover.CodexReadExpression` opened
+with `querySelector('button[aria-label="Approval options"]')` and returned `'none'` when it found
+nothing. That selector is the split button that opens Codex's approval-scope menu — and Codex
+renders it only when it has a wider grant to offer. Verbatim from the shipped bundle
+(`openai.chatgpt 26.917.62051`, `webview/assets/app-initial-*.js`):
+
+```js
+p = c.scopedApproveAction
+N = p == null ? jsxs(XS,  { ..., type: 'submit', ... })            // plain button
+              : jsxs(Pgi, { ..., secondaryAriaLabel: 'Approval options', ... })
+```
+
+So a prompt with nothing scoped to offer — a language runtime, anything Codex will not generalise
+into "allow similar commands" — renders the plain branch, carries no such element, and was
+invisible. That is not an edge case; it is most prompts.
+
+**The anchor was chosen for the right reason and was still wrong.** The 2026-09-21 note in the
+source argued that every class on that card is a Tailwind layout atom (`ms-auto flex min-w-0
+items-center gap-2 ...`) and that the aria-label was therefore the only stable hook. Both halves
+were true of the prompt in front of it. What was missed is that the hook belongs to a control the
+card only sometimes renders, so "stable" was being measured on the wrong axis: it was stable across
+*builds* and absent across *prompts*.
+
+**Nothing in the log could have said so, and that is the second defect.** The reader has exactly
+one way to say "no prompt" and the sweep treats it as the normal idle case, so a missed selector and
+an editor with nothing on screen produce the identical silence. This is the same conflation as the
+2026-09-18 `Unreachable`-vs-`NoPrompt` bug in the same file, one level further down — and the signal
+that would have separated them was right there in the DOM: `forms=1` with two buttons in it. The
+diagnostic log for the whole episode reads as a healthy module.
+
+**The self-test asserted the bug.** `SelfCheckCodexTransport` carried
+`probe.Check("the reader anchors on the split button's aria-label", ...)`. It was true, it was the
+defect, and it passed — the same failure mode as BUG-005's third site, where a test encoded the
+wrong discriminator and would have blocked the fix.
+
+**Fixed** by anchoring on the card's own Tailwind container name, `@container/approval-card`, which
+is what the authors called the thing rather than how they laid it out, and from which every
+responsive class on the card (`@max-md/approval-card:...`) is derived — so it cannot be renamed
+quietly. Options stay scoped to the enclosing `<form>`, which groups the actions and excludes the
+header and command body. The dropdown trigger is now optional and, when present, still excluded from
+the options by identity. The clicker was re-anchored identically, because a read and a click that
+count different buttons make an index mean two different rows.
+
+**Verified in the installed app, not only by the self-test.** The same unanswered prompt was read
+by both expressions over CDP: the old anchor answered `none`, the new one answered
+`{"options":["Deny Esc","Allow once ⏎"],"disabled":[false,false]}`. The module was then built,
+installed to `%LOCALAPPDATA%\Programs\Desktop AI Companion\modules\agentflow\` and launched against
+that still-open prompt:
+
+```
+12:44:20.290  [module] module loaded: agentflow 1.4.2
+12:44:22.698  [agentflow] auto-approve clicked for a Codex command: pressing option 2,
+              recognised as 'allow once' (approve-once); declined 0 wider or mode option(s)
+```
+
+Pressed 2.4 seconds after load. Re-probed afterwards: card gone, `forms=0`, reader `none` — so the
+new anchor does not fire on an idle panel either. Six assertions replace the one that asserted the
+bug, including two that fail if either expression ever again abandons a prompt for want of a
+dropdown. `docs/agentflow/agentflow_cdp_probe.py` replays both reads against a live editor and warns
+when its copies have drifted from the module.
 
 ### BUG-005 — a converted companion stutters: the same short animation replayed, or two frames held for eleven seconds
 
