@@ -170,13 +170,27 @@ The allowlist property is unchanged and is the reason this is safe: every value 
 side is written in the source file, so an unrecognised header is still named rather than echoed, and
 no text from the screen reaches the log.
 
-**Verified** by eleven assertions covering all fourteen shapes, the template's three near-misses, the
-prefix collision and the double-space case; 450 assertions, `RESULT=PASS`. NOT verified against a
-live render: raising a Claude permission prompt needs a session in `default` mode, and every session
-on the box at the time was in `auto`, which is the mode that does not prompt. The table is derived
-from the bundle's own strings, which is the same standing as the option table in `PromptOptions` —
-and that one has an `--audit` in `agentflow_classifier.py` that re-derives it from whatever is
-installed. This one does not yet. That is the obvious next thing.
+**Verified** by eleven assertions covering all fourteen shapes, the template's three near-misses,
+the prefix collision and the double-space case; 450 assertions, `RESULT=PASS`.
+
+**And then against a live render, by accident.** Deliberate attempts to raise one had all failed:
+a Claude permission prompt needs a session in `default` mode and every session on the box was in
+`auto`, which is the mode that does not prompt. Four crafted commands were all allowed outright.
+The prompt that settled it arrived unbidden, from the publish of this very fix:
+
+```
+13:11:43.634  [agentflow] auto-approve clicked for a shell command: pressing option 1,
+              recognised as 'yes' (approve-once); declined 0 wider or mode option(s)
+```
+
+`a shell command`, off the real header, where every previous line of its kind had read
+`an unrecognised prompt`. Worth recording that the first draft of this entry claimed the live check
+had not happened, and was committed saying so — the evidence landed in the log four minutes later.
+
+What is still missing is the maintenance story, not the verification. The option table in
+`PromptOptions` is justified by `agentflow_classifier.py --audit`, which re-derives it from whatever
+bundle is installed and is how it survived four releases. This table has no equivalent, so it will
+rot silently the next time the bundle adds a shape. That is the obvious next thing.
 
 ### BUG-005 — a converted companion stutters: the same short animation replayed, or two frames held for eleven seconds
 
