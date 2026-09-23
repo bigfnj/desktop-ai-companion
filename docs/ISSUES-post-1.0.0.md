@@ -21,7 +21,7 @@ Each entry ends with what was actually changed and how it was verified.
 BUG-001 to BUG-004 are cited by number from code comments in `modules/AiBrain/`, `modules/PetStudio/`
 and `src/dotNet/`, from [`RELEASE-CHECKLIST.md`](RELEASE-CHECKLIST.md), from
 [`../handoff.md`](../handoff.md) and from `.github/workflows/build.yml`. The numbers are never reused;
-the next bug filed in `BACKLOG.md` is BUG-008.
+the next bug filed in `BACKLOG.md` is BUG-009.
 
 | | |
 |---|---|
@@ -131,6 +131,106 @@ Verified for the failure that would actually hurt — a false alarm every ten se
 minutes of live polling over four webview targets with no prompt on screen, `blind` was never once
 reported. The `blind` branch itself has NOT been seen in the wild, and cannot be until a shipped
 build changes its markup; it rests on the assertions, not on an observation.
+
+### BUG-008 — the option table went stale against 2.1.280, and the audit could not see it
+
+| | |
+|---|---|
+| Bugs | BUG-008 two option labels shipped in 2.1.280 that the table did not know, and an audit blind to both |
+| Found | 2026-09-23, by `agentflow_classifier.py --audit`, while building the equivalent audit for headers |
+| Fixed by | agentflow 1.4.4 — both labels classified, and the audit scoped so it could see them at all |
+
+**Found by a gate, which is the only entry in this file that can say so.** Every other bug here was
+found by the maintainer using the shipped build. This one had no symptom anybody had noticed.
+
+Claude Code 2.1.280 labels the prompt's buttons from a pair of ternaries:
+
+```js
+G  = ($.toolName === "ExitPlanMode");   V = ($.toolName === "AskUserQuestion")
+_0 = "Yes";  if (G) _0 = q === "auto" ? "Yes, and use auto mode" : "Yes, and auto-accept";
+             else if (V) _0 = "Submit answers";
+m5 = "No";   if (G) m5 = H ? "Send feedback and keep planning" : "No, keep planning";
+```
+
+`Yes, and use auto mode` and `Send feedback and keep planning` were both new, and the table — last
+verified at 2.1.274 — had neither. One unrecognised option refuses the whole prompt, by design, so
+the prompt was declined with the log saying the capture had probably misread the screen. It had not.
+The table was six releases stale.
+
+**THE FIRST VERSION OF THIS ENTRY CLAIMED MORE THAN THAT, AND WAS WRONG.** It said auto-approve
+"had silently stopped working on every plan prompt". It had not, because it never worked on plan
+prompts and must not: `G` is `toolName === "ExitPlanMode"`, and on that prompt the primary row is a
+mode change, the second row is `Yes, and manually approve edits` — also a mode change — and the
+third declines. **There is no approve-once row on a plan prompt at all.** So the prompt was refused
+before the fix and is refused after it. What changed is WHICH refusal gets reported, not whether
+anything is pressed. The claim was written from the severity of the mechanism rather than from the
+prompt it actually applies to, and it was caught by being asked "so do we have a BUG-008?" rather
+than by any check here.
+
+So the defect is real and its blast radius is the LOG, which puts it in the same family as BUG-007:
+
+* the refusal said *"either the capture misread the prompt or the agent shipped a new option"*, when
+  the truthful answer was "this prompt offers nothing I am allowed to press". Both sentences decline
+  the prompt; only one of them is true, and the false one sends its reader looking for a broken
+  screen capture.
+* the companion said it out loud, once per prompt, for the same wrong reason.
+* no such refusal appears anywhere in the maintainer's diagnostic logs, so it is not observed in the
+  wild either — recorded because "found by a gate" and "never actually happened" are both true and
+  the second one is easy to leave out.
+
+**The latent hazard is the part worth keeping.** The option that was being masked is a PERMANENT
+MODE CHANGE, and unrecognised-option noise is exactly the pressure that talks somebody into
+loosening the matcher — a prefix on `"yes, and "` would have made every one of these press. The
+allowlist held because it fails closed. What failed was the maintenance, which is what an audit is
+for, and the audit was blind.
+
+**That blindness was the second defect and the more interesting one.** The pattern was `"Yes..."` or
+`"No, ..."` across the whole bundle, so `Send feedback and keep planning` and `Submit answers` were
+invisible: an audit reporting OK while missing three labels is worse than no audit, because it is
+trusted. Widening the verb set across 5 MB of minified editor produced **174** hits — "Allow",
+"Continue" and friends are ordinary UI words. The fix needed both halves: SCOPE the scan to a window
+around the prompt component's own style class, and only inside it widen the verbs. Region plus
+narrow verbs yields exactly the ten real labels and nothing else. If that class is ever renamed the
+scan falls back to the whole bundle and says so, because a scoped search that matches nothing would
+otherwise report a clean audit — the same failure this entry is about, one level up.
+
+**`Submit answers` is deliberately still unclassified**, and the audit prints that decision with its
+reason on every run rather than burying it in an ignore list. It is the approve row of an
+`AskUserQuestion` prompt: pressing it would submit whatever answers happen to be selected, which is
+answering for the user, not approving a call they asked for. No `OptionKind` means "recognised, and
+never ours to press", so leaving it Unknown gets the right behaviour through a message that blames
+the capture — the same wrong sentence described above, now knowingly. A `NeverPress` kind would fix
+the wording without changing a single press. That is an open design question, not an oversight.
+
+**The wrong sentence was then fixed properly, which is the part that actually helps.** Classifying
+the two labels turned *"the capture misread the prompt"* into *"no approve-once option present"* —
+accurate, and still the wrong shape, because it is filed under `refused:` alongside genuine faults.
+A prompt that is simply not this module's to answer is not a malfunction. `Decide` now falls back to
+the notification the notify half would have given:
+
+```
+a prompt is waiting for a plan, and nothing on it approves a single call -- left for you
+```
+
+The companion already said so out loud; this is the log catching up with it. The split is carried by
+a `RefusalKind` value rather than by the wording, because a caller branching on prose is a caller
+waiting to break — and the existing assertion for this case DID branch on the wording, matched
+`"no approve-once"`, and broke. It now asserts the `pressed` out-param instead, which is the thing
+that must never change.
+
+**Verified** by the difftest (78 cases, C# and the Python reference agreeing), `--mutate` (5/5
+fired), and assertions that the whole 2.1.280 plan prompt is now understood and still not pressed —
+recognising both rows must not make a prompt whose only approve-shaped option changes the permission
+mode suddenly pressable — that a genuine unrecognised option is STILL reported as a refusal, so
+softening the benign case did not soften everything, and that all four refusal kinds are
+distinguishable as values.
+
+**One more gate had quietly stopped checking, found on the way out.** `difftest-prompt-options.py`
+verifies that every `OptionKind` the C# defines is covered by its mapping, and it found them by
+scanning the whole of `PromptOptions.cs` for `Name = <n>,`. Adding a second enum to that file made
+it report `RefusalKind.None` as an unmapped `OptionKind` and fail a differential with nothing wrong
+in it. Now scoped to the `OptionKind` block, and it fails loudly if that block cannot be found —
+an unscoped scan standing in for a scoped one, for the third time in this episode.
 
 ### BUG-007 — nine of the fourteen prompt shapes logged as "an unrecognised prompt"
 

@@ -137,8 +137,24 @@ def main():
     print("cases: %d  (from %d table entries and %d self-test assertions)"
           % (checked, len(entries), len(asserted)))
 
-    # The mapping must cover every kind the C# enum defines, or a new kind silently skips checking.
-    enum_kinds = set(re.findall(r"^\s*(\w+) = \d+,", table_src, re.M))
+    # The mapping must cover every kind the C# enum defines, or a new kind silently skips
+    # checking.
+    #
+    # SCOPED TO THE OptionKind BLOCK. It used to scan the whole file for `Name = <n>,`,
+    # which is not a description of OptionKind but of "any enum member with an explicit
+    # value anywhere in PromptOptions.cs". The day a second enum appeared in that file
+    # (RefusalKind, 1.4.4) this reported `None` as an unmapped OptionKind and failed a
+    # differential that had nothing wrong with it. An unscoped scan standing in for a
+    # scoped one is the same mistake the option audit made against the bundle.
+    block = re.search(r"public enum OptionKind\s*\{(.*?)^\s*\}", table_src, re.S | re.M)
+    if not block:
+        print("FAIL: could not find the OptionKind enum -- this check is no longer "
+              "checking anything, which is worse than it failing")
+        return 1
+    enum_kinds = set(re.findall(r"^\s*(\w+) = \d+,", block.group(1), re.M))
+    if not enum_kinds:
+        print("FAIL: the OptionKind block parsed to zero members")
+        return 1
     missing = sorted(enum_kinds - set(KIND_MAP))
     if missing:
         print("FAIL: OptionKind has %d value(s) this differential cannot map: %s"

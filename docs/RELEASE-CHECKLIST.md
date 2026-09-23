@@ -76,7 +76,19 @@ Desktop AI Companion ships **unsigned** Windows x64 builds. To cut a release:
    | [`tests/mutate-hardening-guards.py`](../tests/mutate-hardening-guards.py) | the source invariants in `runtime-hardening-selftest.ps1` | exit 0 |
    | [`tests/mutate-diagnostics.py`](../tests/mutate-diagnostics.py) | the diagnostic-log guards | exit 0 |
    | [`tests/difftest-prompt-options.py`](../tests/difftest-prompt-options.py) | the C# prompt-option classifier still agrees with the Python reference | `no disagreements` |
-   | [`docs/agentflow/agentflow_classifier.py --audit`](../docs/agentflow/agentflow_classifier.py) | the option table still covers the INSTALLED Claude Code bundle | `audit OK: all 12 bundle options classified.` |
+   | [`docs/agentflow/agentflow_classifier.py --audit`](../docs/agentflow/agentflow_classifier.py) | the option table still covers the INSTALLED Claude Code bundle | `audit OK` |
+   | [`docs/agentflow/agentflow_headers.py --audit`](../docs/agentflow/agentflow_headers.py) | the prompt-HEADER table still covers the INSTALLED bundle, so the log names what it pressed | `audit OK` |
+   | [`docs/agentflow/agentflow_headers.py --selftest`](../docs/agentflow/agentflow_headers.py) | that audit's bundle extractor works, with no bundle installed | exit 0 |
+
+   Both AgentFlow audits read whatever Claude Code is installed, and **neither is a formality**:
+   run against 2.1.280 on 2026-09-23 they failed, together, on a bundle that had moved underneath
+   tables last verified at 2.1.274. The option audit found `Yes, and use auto mode` and
+   `Send feedback and keep planning` unclassified; the header audit found a shape that logged as
+   "an unrecognised prompt". Both defects land on the LOG rather than on what gets pressed — the
+   plan prompt those options belong to has no approve-once row and was never pressable — but both
+   made the module describe its own behaviour wrongly, in the file SUPPORT.md asks users to attach
+   to an issue. Neither had any other symptom. An audit that has never failed is the one to
+   distrust; these have.
 
    **EXIT CODE, NOT A COUNT, AND THAT IS A CORRECTION.** This table used to name an exact
    figure per harness -- `23/23 fired.` and so on. On 2026-09-22 `mutate-agentflow.py` reported

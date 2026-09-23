@@ -147,7 +147,27 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.4.3",   // 1.4.3: the two things 1.4.2 left open, both about the log
+            Version = "1.4.4",   // 1.4.4: the tables were six releases stale, and nothing was
+                                 //        checking. agentflow_headers.py is the header-table
+                                 //        equivalent of the option audit; on its first run it
+                                 //        found a shape the hand-derived table had missed.
+                                 //        Then the OPTION audit, pointed at 2.1.280, found
+                                 //        "Yes, and use auto mode" and "Send feedback and
+                                 //        keep planning" unclassified. Both are classified
+                                 //        now; the mode-change row is recognised and still
+                                 //        unpressable. That audit could not SEE either
+                                 //        label, so it is scoped to the prompt component and
+                                 //        widened only inside it -- widening alone gave 174
+                                 //        false hits across the bundle.
+                                 //        AND a prompt that is simply NOT OURS no longer
+                                 //        reads as a fault. A plan prompt offers two mode
+                                 //        changes and a decline, so there is nothing here
+                                 //        to press and there never was; it now falls back
+                                 //        to the plain "a prompt is waiting" notice instead
+                                 //        of a refusal that blamed the screen capture.
+                                 //        RefusalKind makes the two cases separable by the
+                                 //        caller rather than by reading prose.
+                                 // 1.4.3: the two things 1.4.2 left open, both about the log
                                  //        telling the truth. A prompt card this build cannot
                                  //        read now reports itself as such -- a fifth
                                  //        ReadOutcome, Blind -- instead of spelling itself
@@ -734,7 +754,23 @@ namespace DesktopAICompanion.AgentFlow
             if (view == null || view.Options.Count == 0) return null;
 
             PromptDecision decision = PromptOptions.Choose(view.Options, allProjects, similar);
-            if (!decision.WillPress) return decision.Reason;
+            if (!decision.WillPress)
+            {
+                // A prompt whose options are all RECOGNISED and none of which approves a
+                // single call is not a malfunction, and must not be described as one. The
+                // plan prompt is the ordinary case: ExitPlanMode offers two mode changes and
+                // a decline, so there is nothing here this module may ever press, and saying
+                // "refused" about it sends the reader looking for a fault that is not there.
+                //
+                // Fall back to the notification the notify half would have given -- a prompt
+                // is waiting, here is what it is about, it is yours to answer. The speech
+                // bubble already happens, because `pressed` stays false and the caller builds
+                // a ScreenPrompt from that; this is the LOG line catching up with it.
+                if (decision.Refusal == RefusalKind.NothingToPress)
+                    return "a prompt is waiting for " + DescribeSubject(view)
+                           + ", and nothing on it approves a single call -- left for you";
+                return decision.Reason;
+            }
 
             // The UI's own disabled flag wins over anything the text says. A row greyed out
             // because the request is already being answered is not an invitation.
@@ -817,6 +853,14 @@ namespace DesktopAICompanion.AgentFlow
                                              "a network connection"),
             new KeyValuePair<string, string>("accept this plan", "a plan"),
             new KeyValuePair<string, string>("continue planning", "a plan"),
+
+            // The degenerate branch of the question prompt, which renders in the header
+            // slot when it was handed no questions. Left out of the hand-derived table on
+            // the grounds that it is an error state; put in by agentflow_headers.py, which
+            // does not share that opinion and reported it on its first run against the
+            // bundle. A shape the table cannot name is a shape the log gets wrong,
+            // whatever the reason it renders.
+            new KeyValuePair<string, string>("no questions provided", "a question"),
         };
 
         /// <summary>
@@ -871,17 +915,7 @@ namespace DesktopAICompanion.AgentFlow
             string header = CollapseSpaces((view.UnsafeHeader ?? "").ToLowerInvariant());
             if (IsShellHeader(header)) return "a shell command";
 
-            // Longest match wins. First-match-wins over a prefix table makes the answer depend
-            // on declaration order, which is how two different tools end up sharing a row.
-            string best = null;
-            int bestLength = -1;
-            foreach (KeyValuePair<string, string> known in KnownHeaders)
-            {
-                if (!header.StartsWith(known.Key, StringComparison.Ordinal)) continue;
-                if (known.Key.Length <= bestLength) continue;
-                best = known.Value;
-                bestLength = known.Key.Length;
-            }
+            string best = MatchHeader(header, KnownHeaders);
             if (best == null) return "an unrecognised prompt";
             string extension = SafeExtension(view.PathExtension);
             return extension.Length == 0 ? best : best + " (." + extension + ")";
@@ -895,6 +929,37 @@ namespace DesktopAICompanion.AgentFlow
         /// the leaf, which splits nothing here. Anything that does not look like an extension
         /// is dropped rather than trimmed, because a half-parsed path is still a path.
         /// </summary>
+        /// <summary>
+        /// Longest matching prefix in <paramref name="table"/>, or null.
+        ///
+        /// TAKES THE TABLE rather than reading KnownHeaders directly, and that is the whole
+        /// reason it exists as a function. No key in the real table is a prefix of another, so
+        /// longest-match and first-match cannot be told apart by any header the shipped bundle
+        /// produces -- an assertion against the real table passes whichever strategy is
+        /// implemented, which is a test that cannot fail. A synthetic table with a deliberate
+        /// prefix collision can tell them apart, and the self-test uses one in BOTH declaration
+        /// orders, because a single order lets one of the wrong strategies pass by luck.
+        ///
+        /// Longest-match is the right rule regardless: it is what PromptOptions does, and the
+        /// day someone adds a row that IS a prefix of another, first-match would quietly hand
+        /// two different tools the same answer.
+        /// </summary>
+        internal static string MatchHeader(string header,
+                                           KeyValuePair<string, string>[] table)
+        {
+            if (header == null || table == null) return null;
+            string best = null;
+            int bestLength = -1;
+            foreach (KeyValuePair<string, string> known in table)
+            {
+                if (!header.StartsWith(known.Key, StringComparison.Ordinal)) continue;
+                if (known.Key.Length <= bestLength) continue;
+                best = known.Value;
+                bestLength = known.Key.Length;
+            }
+            return best;
+        }
+
         /// <summary>Trim and squeeze runs of whitespace to one space. Not a general
         /// normaliser: it exists so a removed path span cannot leave a gap that defeats a
         /// prefix match.</summary>
@@ -2786,10 +2851,79 @@ namespace DesktopAICompanion.AgentFlow
             {
                 "Yes, and auto-accept", "Yes, and manually approve edits",
                 "Yes, return to normal mode", "Yes, set auto mode as my default",
+                // 2.1.280. Found by agentflow_classifier.py --audit, not by inspection.
+                "Yes, and use auto mode",
             };
             PromptDecision never = PromptOptions.Choose(everyModeChange);
             probe.Check("WITNESS a prompt of ONLY mode changes presses nothing",
                 !never.WillPress);
+
+            // ---- the 2.1.280 plan prompt, whole -------------------------------------
+            // Its approve row is "Yes, and use auto mode" and its reject row is "Send
+            // feedback and keep planning" -- BOTH new, and until they were listed the
+            // prompt held two unrecognised options, so auto-approve refused every plan
+            // prompt and blamed the capture for it.
+            probe.Check("the 2.1.280 plan rows are recognised",
+                KindOf("Yes, and use auto mode") == OptionKind.ModeChange
+                && KindOf("Send feedback and keep planning") == OptionKind.Reject);
+            // Recognised is NOT pressable. There is no approve-once row on this prompt,
+            // and the nearest thing to one changes the permission mode permanently.
+            probe.Check("WITNESS the plan prompt is understood and still not pressed",
+                !PromptOptions.Choose(new List<string>
+                    { "Yes, and use auto mode", "Send feedback and keep planning" })
+                    .WillPress);
+
+            // ---- a prompt that is not ours is NOT a fault ---------------------------
+            // The four refusals are told apart as VALUES, because the caller has to branch
+            // on them and a reason string is prose, not a protocol.
+            probe.Check("WITNESS the four refusals are distinguishable",
+                PromptOptions.Choose(new List<string>()).Refusal == RefusalKind.NoOptions
+                && PromptOptions.Choose(new List<string> { "Yes", "Never heard of it" })
+                       .Refusal == RefusalKind.Unrecognised
+                && PromptOptions.Choose(new List<string> { "Yes", "Allow", "No" })
+                       .Refusal == RefusalKind.Ambiguous
+                && PromptOptions.Choose(new List<string>
+                       { "Yes, and use auto mode", "No, keep planning" })
+                       .Refusal == RefusalKind.NothingToPress);
+            // A pressed prompt refuses nothing, so the field cannot be left set by accident.
+            probe.Check("WITNESS a prompt that IS pressed reports no refusal",
+                PromptOptions.Choose(new List<string> { "Yes", "No" }).Refusal
+                    == RefusalKind.None);
+
+            // The whole 2.1.280 plan prompt, through Decide, on a closed port so nothing can
+            // be pressed even if the logic were wrong.
+            const int ClosedPort = 1;
+            var planRows = new[]
+            {
+                "Yes, and use auto mode", "Yes, and manually approve edits",
+                "Send feedback and keep planning",
+            };
+            string planNote = Decide(ClosedPort, Header2("Accept this plan?", planRows),
+                                     new PressBudget(), false);
+            probe.Check("WITNESS a plan prompt reads as a notification, not as a refusal",
+                planNote != null
+                && planNote.StartsWith("a prompt is waiting", StringComparison.Ordinal)
+                && planNote.IndexOf("refused", StringComparison.Ordinal) < 0);
+            probe.Check("...and it still names what is waiting, so the notice is useful",
+                planNote.IndexOf("a plan", StringComparison.Ordinal) >= 0);
+            // The other half of the split: a REAL fault must still announce itself as one.
+            // Without this, softening the benign case could soften everything.
+            string faultNote = Decide(ClosedPort,
+                Header2("Accept this plan?", new[] { "Yes", "Never heard of it" }),
+                new PressBudget(), false);
+            probe.Check("WITNESS an unrecognised option is still reported as a refusal",
+                faultNote != null
+                && faultNote.StartsWith("refused:", StringComparison.Ordinal));
+
+            // "Submit answers" is DELIBERATELY absent from the table: it submits the
+            // user's answers to a question rather than approving a call they asked for.
+            // Unknown is the intended classification, and one unknown refuses the whole
+            // prompt -- so this asserts a decision, not an accident. If a NeverPress kind
+            // is ever added, this is the assertion that has to change with it.
+            probe.Check("WITNESS the question prompt's submit row is never pressed",
+                KindOf("Submit answers") == OptionKind.Unknown
+                && !PromptOptions.Choose(new List<string> { "Submit answers", "No" })
+                    .WillPress);
             return true;
         }
 
@@ -3292,11 +3426,22 @@ namespace DesktopAICompanion.AgentFlow
                 unknown != null
                 && unknown.IndexOf("Do the thing", StringComparison.Ordinal) < 0);
 
+            // Only wider grants on offer, so nothing here approves ONE call.
+            //
+            // Asserted on the out-param, not on the wording. The wording changed in 1.4.4:
+            // this case now reads as a notification rather than as a refusal, because a
+            // prompt that is simply not ours to answer is not a malfunction and should not
+            // be described as one. The wording was a proxy for the thing that matters and
+            // the proxy moved; NOT PRESSED is the thing that matters, so check that.
+            bool pressedWider;
             string noApprove = Decide(ClosedPort, Fake(
-                new[] { "Yes, and don't ask again", "Yes, and auto-accept" }), budget, false);
-            probe.Check("WITNESS a prompt offering only wider grants is refused",
-                noApprove != null && noApprove.IndexOf("no approve-once",
-                    StringComparison.Ordinal) >= 0);
+                new[] { "Yes, and don't ask again", "Yes, and auto-accept" }), budget,
+                false, false, out pressedWider);
+            probe.Check("WITNESS a prompt offering only wider grants is never pressed",
+                !pressedWider && noApprove != null
+                && noApprove.IndexOf("approves a single call", StringComparison.Ordinal) >= 0);
+            probe.Check("WITNESS ...and is reported as waiting rather than as a fault",
+                noApprove.IndexOf("refused", StringComparison.Ordinal) < 0);
 
             string ambiguous = Decide(ClosedPort, Fake(new[] { "Yes", "Allow" }), budget, false);
             probe.Check("WITNESS two approve-once rows is ambiguous, so nothing is pressed",
@@ -3353,17 +3498,42 @@ namespace DesktopAICompanion.AgentFlow
                    == "a network connection"
                 && DescribeSubject(Header("Accept this plan?", "")) == "a plan"
                 && DescribeSubject(Header("Continue planning", "")) == "a plan");
-            // Longest match wins, and this pair is why. "allow searching in <path>?" is Search
-            // and "allow searching for this query?" is WebSearch; under first-match-wins over a
-            // prefix table the answer depends on which row was declared first.
-            probe.Check("WITNESS two headers sharing a prefix get their own answers",
+            // A REGRESSION GUARD ON THE TABLE, not a proof of the matcher: neither key is a
+            // prefix of the other, so first-match answers these identically. Said plainly
+            // because this assertion was written as though it proved longest-match, and the
+            // mutation that turns longest-match into first-match survives it.
+            probe.Check("the two searching headers are different tools",
                 DescribeSubject(Header("Allow searching in ?", "")) == "a search"
                 && DescribeSubject(Header("Allow searching for this query?", ""))
                    == "a web search");
+
+            // LONGEST-MATCH, pinned properly. No key in the real table is a prefix of another,
+            // so the strategy is invisible to every header the bundle can produce; a synthetic
+            // collision is the only thing that can separate the candidate rules. BOTH
+            // declaration orders, because one order lets first-match pass by luck and the
+            // other lets last-match pass by luck.
+            var collide = new[]
+            {
+                new KeyValuePair<string, string>("allow searching", "the short one"),
+                new KeyValuePair<string, string>("allow searching in", "the long one"),
+            };
+            var collideReversed = new[] { collide[1], collide[0] };
+            probe.Check("WITNESS the longest matching prefix wins, whatever the row order",
+                MatchHeader("allow searching in x?", collide) == "the long one"
+                && MatchHeader("allow searching in x?", collideReversed) == "the long one");
+            probe.Check("WITNESS ...and a header matching no row is not named",
+                MatchHeader("grant everlasting access", collide) == null
+                && MatchHeader(null, collide) == null
+                && MatchHeader("allow searching", null) == null);
             // A removed path span leaves a double space behind. Without collapsing, the
             // header no longer starts with the row it obviously matches.
             probe.Check("WITNESS the gap a removed path leaves does not defeat the match",
                 DescribeSubject(Header("make this edit to   ?", "cs")) == "an edit (.cs)");
+            // Found by docs/agentflow/agentflow_headers.py --audit on its first run, after
+            // the hand-derived table had been called complete. Kept as an assertion so the
+            // row cannot be removed again on the same reasoning that left it out.
+            probe.Check("WITNESS even the degenerate question header is named",
+                DescribeSubject(Header("No questions provided", "")) == "a question");
             probe.Check("a tool named in the header still wins, and is not overridden",
                 DescribeSubject(Tool("Bash")) == "Bash");
 
@@ -3433,6 +3603,14 @@ namespace DesktopAICompanion.AgentFlow
         }
 
         /// <summary>A prompt whose header names no tool, the way four of the five shapes do.</summary>
+        /// <summary>A prompt with a header AND options, for the Decide-level assertions.</summary>
+        private static PromptView Header2(string header, string[] options)
+        {
+            var view = new PromptView { TargetId = "t1", ToolName = "", UnsafeHeader = header };
+            foreach (string option in options) { view.Options.Add(option); view.Disabled.Add(false); }
+            return view;
+        }
+
         private static PromptView Header(string header, string extension)
         {
             return new PromptView

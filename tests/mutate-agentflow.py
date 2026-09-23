@@ -461,11 +461,43 @@ CASES = (
         "an edit prompt is named as an edit",
     ),
     (
+        # The pattern moved in 1.4.4 when the matcher was extracted, and this case went
+        # NO-OP -- it reported neither FIRED nor SURVIVED, so the privacy guard it exists
+        # to prove simply stopped being proved. A NO-OP is the quiet failure of a mutation
+        # harness and is why the runner prints one rather than skipping.
         "an unrecognised header is echoed into the log",
         MODULE,
-        '            return "an unrecognised prompt";',
-        "            return header;",
+        '            if (best == null) return "an unrecognised prompt";',
+        "            if (best == null) return header;",
         "an unrecognised header is named, not quoted",
+    ),
+    (
+        # 1.4.4: the shell template, which is the commonest prompt shape of all and is not
+        # a table row.
+        "the shell template is never recognised",
+        MODULE,
+        '            if (IsShellHeader(header)) return "a shell command";',
+        '            if (false) return "a shell command";',
+        "a shell prompt is named, not filed as unrecognised",
+    ),
+    (
+        # The suffix anchor is what stops "Allow this glob command" being called a shell
+        # command. Prefix-only is the obvious implementation and it is wrong.
+        "the shell template matches on its prefix alone",
+        MODULE,
+        "                && normalizedHeader.EndsWith(ShellHeaderSuffix, StringComparison.Ordinal)",
+        "                && true",
+        "the shell template does not swallow its neighbours",
+    ),
+    (
+        # Longest-match degraded to last-match. Survives every assertion made against the
+        # REAL table, because no key in it is a prefix of another -- only the synthetic
+        # collision in the self-test can catch this one, which is why that exists.
+        "the header matcher takes the last match, not the longest",
+        MODULE,
+        "                if (known.Key.Length <= bestLength) continue;",
+        "                if (false) continue;",
+        "the longest matching prefix wins, whatever the row order",
     ),
     (
         "the extension filter passes a path through",

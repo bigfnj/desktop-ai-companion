@@ -23,7 +23,7 @@ no paths, and an 8-character session prefix rather than an id that identifies a 
 **To see it speak you need a session in `default` permission mode**, blocked on a prompt for longer
 than the threshold. In `auto`, `acceptEdits` or `plan` it stands down by design, because measured
 precision outside `default` is ~0.4%.
-This directory holds the six harnesses that decided whether it was buildable and what they
+This directory holds the seven harnesses that decided whether it was buildable and what they
 measured. Read it before proposing work, because several of the obvious designs are ruled out by
 numbers rather than opinion, and two of the numbers recorded here were themselves wrong once and
 are marked as superseded.
@@ -594,10 +594,30 @@ Five are standalone Python 3, no dependencies, read-only. They print tool names,
 durations — never command arguments, never tool output, never a path or prompt text out of a
 transcript. Any production code has to hold the same line, especially out of the diagnostic log.
 
-The sixth, `agentflow_cdp_probe.py`, is the exception on both counts and is marked as such in its
-own docstring: it needs `websocket-client`, and it PRINTS OPTION LABELS, because what it exists to
+`agentflow_cdp_probe.py` is the exception on both counts and is marked as such in its own
+docstring: it needs `websocket-client`, and it PRINTS OPTION LABELS, because what it exists to
 answer is "what did the reader see on this prompt". Its output is not safe to attach to a public
-issue unedited. The module's log still is.
+issue unedited. The module's log still is. `agentflow_headers.py` prints bundle text for the same
+reason and carries the same warning.
+
+**The two audits are the load-bearing pair, and both failed the day they were pointed at a newer
+bundle.** `agentflow_classifier.py --audit` guards which button is safe to press;
+`agentflow_headers.py --audit` guards what the log calls the one it pressed. Against 2.1.280 on
+2026-09-23, with the tables last verified at 2.1.274, the first found two unclassified option
+labels and the second a header shape that logged as "an unrecognised prompt". Neither had any other
+symptom, in a module that had been running all day.
+
+Both land on the LOG, not on what gets pressed, and that is worth stating because the first write-up
+of BUG-008 claimed otherwise. The unclassified options belong to the ExitPlanMode prompt, whose rows
+are two mode changes and a decline — no approve-once row, so it was refused before the fix and is
+refused after it. The fix changes which refusal is reported. The reason it still matters is that
+"the capture misread the prompt" and "this prompt offers nothing I may press" send a reader to
+completely different places, and one of them was false.
+
+They differ in one way worth knowing. The classifier keeps a Python COPY of the C# table, kept
+honest by `tests/difftest-prompt-options.py`. The header audit has no difftest, so it PARSES the
+table straight out of `modules/AgentFlow/AgentFlowModule.cs` instead — a copy with nothing checking
+it is how this directory's own CDP probe went stale inside one version.
 
 | script | what it answers | run |
 |---|---|---|
@@ -607,6 +627,7 @@ issue unedited. The module's log still is.
 | `agentflow_classifier.py` | Which prompt option is safe to press? | `python agentflow_classifier.py --selftest \| --audit \| --mutate` |
 | `agentflow_cpu.py` | Does agent CPU separate blocked from working? | `python agentflow_cpu.py --verify \| --attribute \| --validate \| --interval 2 --count 20 --csv out.csv \| --report out.csv` |
 | `agentflow_cdp_probe.py` | A prompt is on screen and nothing pressed it — which read returned `none`? And what does a read cost? | `python agentflow_cdp_probe.py --raw \| --time 40` |
+| `agentflow_headers.py` | Does the prompt-HEADER table still cover the installed bundle, so the log names what it pressed? | `python agentflow_headers.py --audit \| --selftest \| --list` |
 
 `agentflow_cpu.py --verify` is the only one of the five that can be run with no agent present and
 no data: it proves its own measurement mechanism. `--validate` needs at least two sessions running

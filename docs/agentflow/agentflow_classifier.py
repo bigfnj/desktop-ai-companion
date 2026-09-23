@@ -80,6 +80,15 @@ KNOWN = {
 
     # -- changes the permission mode -----------------------------------------
     "yes, and auto-accept": MODE_CHANGE,
+    # 2.1.280: the other branch of the plan prompt's approve label,
+    #   _0 = G ? (q === "auto" ? "Yes, and use auto mode" : "Yes, and auto-accept")
+    # Found by --audit against the newer bundle. Until it was listed it classified
+    # Unknown, and one unknown option refuses the WHOLE prompt -- which on this prompt
+    # changed only the REASON given, not the outcome: G is toolName === 'ExitPlanMode',
+    # and that prompt's rows are two mode changes and a decline, so there is no
+    # approve-once row to press either way. The cost was a refusal that blamed the screen
+    # capture instead of saying there was nothing here it was allowed to press.
+    "yes, and use auto mode": MODE_CHANGE,
     "yes, and manually approve edits": MODE_CHANGE,
     "yes, return to normal mode": MODE_CHANGE,
     "yes, set auto mode as my default": MODE_CHANGE,
@@ -88,6 +97,9 @@ KNOWN = {
     "no": REJECT,
     "no, keep ": REJECT,
     "no, keep planning": REJECT,
+    # 2.1.280: the same prompt's reject label once feedback has been typed,
+    #   m5 = H ? "Send feedback and keep planning" : "No, keep planning"
+    "send feedback and keep planning": REJECT,
     "deny": REJECT,
     "reject": REJECT,
     "cancel": REJECT,
@@ -230,7 +242,64 @@ def choose(options):
 BUNDLE_GLOB = os.path.join(
     os.path.expanduser("~"), ".vscode", "extensions",
     "anthropic.claude-code-*", "webview", "index.js")
-_BUNDLE_OPTION = re.compile(r'"(Yes[^"\\]{0,60}|No, [^"\\]{0,60})"')
+# Widened on 2026-09-23, in TWO directions at once, because widening either alone is
+# wrong and the first attempt proved it.
+#
+# The old pattern was `Yes...` / `No, ...` across the whole 5 MB bundle. 2.1.280 labels
+# the prompt's buttons from ternaries whose branches include "Send feedback and keep
+# planning" and "Submit answers" -- neither starts with either word, so the audit could
+# not see them and reported OK while the table was missing two real labels and a third.
+#
+# Adding those verbs to a whole-bundle scan produced 174 hits: "Allow", "Continue" and
+# friends are ordinary words that appear all over an editor UI. So the scan is now
+# SCOPED to the prompt component -- a window around each use of the container's style
+# class -- and only inside it is the verb set widened. Region plus narrow verbs yields
+# exactly the ten real labels and nothing else; either half on its own does not.
+#
+# Still a HEURISTIC, and the hole is stated rather than papered over: a future label
+# opening with a verb that is not here is invisible to this audit. That is precisely why
+# the module refuses on an unrecognised option instead of guessing -- no audit of a
+# minified bundle can promise to be complete.
+_BUNDLE_OPTION = re.compile(r'"((?:Yes|No|Submit|Send)[^"\\]{0,60})"')
+
+# `S5.permissionRequestContainer` -- the style class being USED. The CSS-module map
+# nearby spells it `permissionRequestContainer:"permissionRequestContainer_qlaBag"`
+# with no leading dot, and matching that instead would centre the window on a table of
+# class names rather than on the component that renders the buttons.
+_PROMPT_COMPONENT = re.compile(r'\.permissionRequestContainer\b')
+_COMPONENT_WINDOW = 4000
+
+
+def _component_regions(blob):
+    """The text around each prompt-component render, or the whole blob if none matched.
+
+    Falling back to the whole blob matters: if the class is ever renamed, a scoped scan
+    would quietly search nothing and report OK. Wide and noisy beats narrow and blind.
+    """
+    spans = [(max(0, m.start() - _COMPONENT_WINDOW), m.end() + _COMPONENT_WINDOW)
+             for m in _PROMPT_COMPONENT.finditer(blob)]
+    if not spans:
+        return [blob], False
+    merged = []
+    for start, end in sorted(spans):
+        if merged and start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return [blob[start:end] for start, end in merged], True
+
+# Recognised, and deliberately NOT in KNOWN. Printed on every audit run WITH the reason,
+# because an ignore-list that hides its contents is how a decision quietly becomes an
+# oversight.
+DELIBERATELY_UNCLASSIFIED = {
+    "Submit answers":
+        "the approve row of a QUESTION prompt. Pressing it submits whatever answers are "
+        "selected, which is answering for the user rather than approving a call they "
+        "asked for. No OptionKind means 'recognised and never ours to press', so it is "
+        "left Unknown and the whole prompt refuses -- the behaviour we want, reached "
+        "through a refusal message that blames the capture. A NeverPress kind would fix "
+        "the wording without changing a single press.",
+}
 
 
 def audit(bundle_glob=BUNDLE_GLOB):
@@ -248,8 +317,17 @@ def audit(bundle_glob=BUNDLE_GLOB):
         print("audit: cannot read %s: %s" % (newest, exc))
         return 1
 
-    found = sorted(set(_BUNDLE_OPTION.findall(blob)))
+    regions, scoped = _component_regions(blob)
+    found = sorted(set(text for region in regions
+                       for text in _BUNDLE_OPTION.findall(region)))
     print("audit: %s" % os.path.basename(os.path.dirname(os.path.dirname(newest))))
+    print("scope: %d prompt-component region(s)%s"
+          % (len(regions), "" if scoped else "  -- FELL BACK TO THE WHOLE BUNDLE, the "
+                                             "container class was not found; expect noise"))
+    for text, reason in sorted(DELIBERATELY_UNCLASSIFIED.items()):
+        where = "present" if text in found else "NOT PRESENT"
+        print("  -- %r deliberately unclassified (%s in this bundle):" % (text, where))
+        print("       %s" % reason)
     unclassified = []
     for text in found:
         # A bundle string ending in a space is a TEMPLATE: the code appends a
@@ -257,6 +335,8 @@ def audit(bundle_glob=BUNDLE_GLOB):
         # comparing the wrong thing -- it is never what appears on screen -- so
         # render it with a stand-in first. Without this the audit reports its own
         # inputs as unclassifiable and reads like a table gap that isn't there.
+        if text in DELIBERATELY_UNCLASSIFIED:
+            continue
         probe = text + "<value>" if text.endswith(" ") else text
         kind, entry = classify(probe)
         note = " (as template)" if probe is not text else ""
@@ -271,7 +351,9 @@ def audit(bundle_glob=BUNDLE_GLOB):
         print("Until they are classified, choose() refuses every prompt containing "
               "them. That is the intended failure mode, not a bug.")
         return 1
-    print("\naudit OK: all %d bundle options classified." % len(found))
+    skipped = len([t for t in found if t in DELIBERATELY_UNCLASSIFIED])
+    print("\naudit OK: all %d bundle options classified (%d deliberately not)."
+          % (len(found) - skipped, skipped))
     return 0
 
 

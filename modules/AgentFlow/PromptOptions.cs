@@ -46,9 +46,40 @@ namespace DesktopAICompanion.AgentFlow
         ApproveSimilar = 7,
     }
 
+    /// <summary>
+    /// Why a prompt was not pressed, so a caller can tell a FAULT from a prompt that simply
+    /// is not this module's to answer.
+    ///
+    /// Added because those two were indistinguishable in the only thing the caller had: a
+    /// reason STRING, all of which began "refused:". A plan prompt offers two mode changes
+    /// and a decline, so it has no approve-once row and never will -- which is correct
+    /// behaviour, not a malfunction, and describing it with the same word as "the capture
+    /// misread the screen" sends the reader hunting a bug that is not there.
+    /// </summary>
+    public enum RefusalKind
+    {
+        /// <summary>A row was chosen. Nothing was refused.</summary>
+        None = 0,
+        /// <summary>Nothing was read off the prompt at all.</summary>
+        NoOptions,
+        /// <summary>At least one option nobody recognised. A FAULT: either the capture
+        /// misread the screen or the agent shipped something new.</summary>
+        Unrecognised,
+        /// <summary>Every option was recognised and none of them approves one call. NOT a
+        /// fault. The plan prompt is the ordinary example and there will be others.</summary>
+        NothingToPress,
+        /// <summary>More than one approve-once row, so an assumption about someone else's
+        /// UI is wrong and the safe answer is to press nothing.</summary>
+        Ambiguous,
+    }
+
     /// <summary>The decision about one prompt: which row to press, or why not to touch it.</summary>
     public sealed class PromptDecision
     {
+        /// <summary>Why nothing was pressed, as a value rather than as prose. Callers branch
+        /// on this; <see cref="Reason"/> is for the log and is not a protocol.</summary>
+        public RefusalKind Refusal = RefusalKind.None;
+
         /// <summary>Zero-based row to press, or -1 to press nothing.</summary>
         public int Index = -1;
         /// <summary>Why, written so it can say the run REFUSED rather than reporting success by omission.</summary>
@@ -140,6 +171,17 @@ namespace DesktopAICompanion.AgentFlow
 
             // -- changes the permission mode -------------------------------------------
             Entry("yes, and auto-accept", OptionKind.ModeChange),
+            // The OTHER branch of the same ternary, shipped in 2.1.280 and found by
+            // agentflow_classifier.py --audit on the newer bundle:
+            //     _0 = G ? (q === "auto" ? "Yes, and use auto mode" : "Yes, and auto-accept")
+            // Until it was listed, every plan prompt in an auto-configured session offered
+            // an option nothing recognised -- and one unknown option refuses the WHOLE
+            // prompt. That changed the REASON given, not the outcome: this prompt's rows
+            // are two mode changes and a decline, so there was never an approve-once row
+            // to press. The cost was a log line blaming the screen capture for a prompt
+            // that was simply not this module's to answer. Found by the audit, which is
+            // what the audit is for.
+            Entry("yes, and use auto mode", OptionKind.ModeChange),
             Entry("yes, and manually approve edits", OptionKind.ModeChange),
             Entry("yes, return to normal mode", OptionKind.ModeChange),
             Entry("yes, set auto mode as my default", OptionKind.ModeChange),
@@ -148,9 +190,30 @@ namespace DesktopAICompanion.AgentFlow
             Entry("no", OptionKind.Reject),
             Entry("no, keep ", OptionKind.Reject),
             Entry("no, keep planning", OptionKind.Reject),
+            // The reject row of the plan prompt when feedback has been typed -- the other
+            // branch of `m5 = H ? "Send feedback and keep planning" : "No, keep planning"`.
+            // Declines the plan, so Reject: it is the button paired with the approve row,
+            // not the free-text escape hatch, which on this prompt is the textarea.
+            Entry("send feedback and keep planning", OptionKind.Reject),
             Entry("deny", OptionKind.Reject),
             Entry("reject", OptionKind.Reject),
             Entry("cancel", OptionKind.Reject),
+
+            // DELIBERATELY ABSENT: "Submit answers".
+            //
+            // It is a real button -- the approve row of the question prompt, `_0` when the
+            // prompt is an AskUserQuestion -- and leaving it out is a decision, not an
+            // oversight. Pressing it would submit whatever answers happen to be selected,
+            // which is answering a question ON THE USER'S BEHALF rather than approving a
+            // call they already asked for. No kind in this enum means "recognised, and
+            // never ours to press", so the honest way to express that today is to leave it
+            // Unknown and let the whole prompt refuse -- which is the behaviour we want.
+            //
+            // The cost is the wording: the refusal blames the capture or a new option,
+            // when in fact the option is known and the answer is no. A NeverPress kind
+            // would fix the sentence without changing a single press.
+            // agentflow_classifier.py records the same decision so its audit stays green
+            // for a stated reason rather than by accident.
 
             // -- type something instead ------------------------------------------------
             Entry("other", OptionKind.FreeText),
@@ -385,6 +448,7 @@ namespace DesktopAICompanion.AgentFlow
             var decision = new PromptDecision();
             if (options == null || options.Count == 0)
             {
+                decision.Refusal = RefusalKind.NoOptions;
                 decision.Reason = "refused: no options were read off the prompt";
                 return decision;
             }
@@ -420,6 +484,7 @@ namespace DesktopAICompanion.AgentFlow
                 // logged, and an option nobody anticipated is exactly the string least safe to
                 // put in a file meant to be attachable to a public issue.
                 decision.UnsafeDetail = string.Join("; ", shown.ToArray());
+                decision.Refusal = RefusalKind.Unrecognised;
                 decision.Reason = string.Format(CultureInfo.InvariantCulture,
                     "refused: {0} of {1} options unrecognised -- either the capture misread "
                     + "the prompt or the agent shipped a new option; not pressing anything",
@@ -467,6 +532,8 @@ namespace DesktopAICompanion.AgentFlow
 
             if (approvals.Count == 0)
             {
+                // Recognised, and none of it ours. See RefusalKind.NothingToPress.
+                decision.Refusal = RefusalKind.NothingToPress;
                 decision.Reason = "refused: no approve-once option present on a prompt of "
                                   + options.Count.ToString(CultureInfo.InvariantCulture)
                                   + " recognised options";
@@ -474,6 +541,7 @@ namespace DesktopAICompanion.AgentFlow
             }
             if (approvals.Count > 1)
             {
+                decision.Refusal = RefusalKind.Ambiguous;
                 decision.Reason = string.Format(CultureInfo.InvariantCulture,
                     "refused: {0} approve-once options -- ambiguous, a prompt should offer exactly one",
                     approvals.Count);
