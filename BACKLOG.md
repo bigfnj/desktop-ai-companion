@@ -534,10 +534,14 @@ actions, 6–16 dropped and 26–34 degraded each.
 | breed autonomous sibling | 24 | genuine format limit, `<child>` auto-closes |
 | interact / transform / anchor | 16 | mostly two-shimeji `Interact` and `ScanMove` |
 
-📌 **Do the converter-gap cluster first — it is the only one where the capability already
-exists.** `Jumping` is unattempted in 11 of the 12 desktop skins and `Resisting` in 11; the
-residue report names these "a converter gap rather than a format limit". One change adds roughly
-22 animations across nearly every desktop companion. Everything else needs host or format work.
+**Where this stands as of 2026-09-24.** The converter-gap cluster that used to head this section is
+done, and the "not attempted" column with it. It said
+`Jumping` was unattempted in 11 of the 12 desktop skins and `Resisting` in 11. Measured 2026-09-24
+from the residue reports of a fresh conversion: across the 13 desktop pets, 1592 source actions
+account as 538 emitted, 89 dropped, 374 degraded and **0 not attempted**. The column was 34 before
+83d5eaf admitted the frame-playing embedded classes, 5 after it, and 0 once set-pieces converted as
+chains. Nothing in this table is a converter gap any more; what remains genuinely needs host or
+format work.
 
 ⚠ A hypothesis that did NOT survive, recorded so nobody re-runs it: the 18 Android companions
 were NOT built from the poorer source while a richer desktop zip sat in the catalog. Only 2 of 18
@@ -906,15 +910,6 @@ property nobody is testing. Each was verified by constructing the input that sho
 
 ### Converter correctness
 
-- 📌 **A synthesised climb never offers the edge into the ceiling, orphaning the region it rescued.**
-  `tools/ShimejiConvert.Engine/Emit/PetEmitter.cs:1289` reads `ClimbsUpward(e.Source)` — the SOURCE
-  velocity — while `SynthesiseClimbIfNeeded` writes its override into `e.ForcedVelY`, which `WillClimb`
-  (`:493`) honours and `ClimbsUpward` does not. A skin with static wall art plus ceiling actions
-  therefore emits ceiling spokes nothing points at, `Graph.Unreachable` is non-empty, `Accepted` is
-  false and the CLI exits 1 — the precise failure the comment at `:121-131` says the synthesis exists
-  to prevent. Not visible on the shipped corpus only because KinitoPET gained a real `ClimbWall`.
-  Related: after the synthesis runs, `wallSpokes.Any(WillClimb)` at `:133` is equivalent to
-  `wallSpokes.Count == 0` and does not test what it reads as.
 
 - 📌 **`restdwell` gives the HUB the performance dwell, then stamps a version `restsplit` skips.**
   `tools/ShimejiConvert/Program.cs:1065` and `:1079` pass `RestDwellTargetMs` (11000) with no hub
@@ -926,12 +921,6 @@ property nobody is testing. Each was verified by constructing the input that sho
   `reclimb`, `restdwell`, `restsplit` and `undirect` all stamp 1.1 rather than their own version, and
   nothing gates on 0.2, so a pet taken to 0.2 by `reweight` can never reach `rejump`.
 
-- 📌 **The 1024-tile cap is tested before the dedup pass, so a skin dedup would fit is rejected.**
-  `tools/ShimejiConvert.Engine/Shimeji/SpriteSheetBuilder.cs:87` checks `frames.Count > MaxTiles`
-  ahead of the byte-identical collapse at `:119-143` and never re-checks. The case the dedup comment
-  at `:110` names — an Android template duplicating sprite files — is exactly the one this rejects:
-  1100 distinct frames collapsing to ~600 fails with "1100 distinct frames exceeds the 1024-tile
-  limit".
 
 - 📌 **`minHostVersion` is parsed, written to modules.json, then dropped from the catalog.**
   `packaging/New-ContentCatalog.ps1:181-190` copies id/name/desc/version/url/sha256/bytes/permissions
