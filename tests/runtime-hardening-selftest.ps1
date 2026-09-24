@@ -1257,6 +1257,29 @@ Assert-True ($documentedProjects.Groups[1].Value -eq $numeralNames[$projectCount
         " -- it says '$($documentedProjects.Groups[1].Value)', there are $projectCount" +
         " ('$($numeralNames[$projectCount])')" } else { '' }))
 
+# THE NEXT BUG NUMBER, asserted rather than restated. BACKLOG.md carried "The next one filed is
+# BUG-005" for weeks after DESIGN-REGISTER.md had moved on to BUG-009, and four more post-mortems
+# were written in between without either line noticing. The number now lives in exactly one place
+# (the register) and is derived from the one thing that cannot drift: the post-mortems themselves.
+$issuesSource = Get-Content -LiteralPath (Join-Path $repoRoot 'docs\ISSUES-post-1.0.0.md') -Raw -Encoding UTF8
+$registerSource = Get-Content -LiteralPath (Join-Path $repoRoot 'docs\DESIGN-REGISTER.md') -Raw -Encoding UTF8
+$backlogSource = Get-Content -LiteralPath (Join-Path $repoRoot 'BACKLOG.md') -Raw -Encoding UTF8
+$bugHeadings = [regex]::Matches($issuesSource, '(?m)^#{2,4}\s+BUG-(\d+)\b')
+Assert-True ($bugHeadings.Count -gt 0) (
+    "ISSUES-post-1.0.0.md's bug post-mortems are countable (found $($bugHeadings.Count))")
+$highestBug = 0
+foreach ($m in $bugHeadings) { $n = [int] $m.Groups[1].Value; if ($n -gt $highestBug) { $highestBug = $n } }
+$expectedNextBug = 'BUG-{0:000}' -f ($highestBug + 1)
+$declaredNextBug = [regex]::Match($registerSource, 'The next one filed is (BUG-\d+)')
+Assert-True ($declaredNextBug.Success) 'DESIGN-REGISTER.md names the next bug number'
+Assert-True ($declaredNextBug.Groups[1].Value -eq $expectedNextBug) (
+    "DESIGN-REGISTER.md's next bug number follows the highest post-mortem" +
+    $(if ($declaredNextBug.Groups[1].Value -ne $expectedNextBug) {
+        " -- it says $($declaredNextBug.Groups[1].Value), the highest written up is BUG-{0:000}, so the next is $expectedNextBug" -f $highestBug } else { '' }))
+# And BACKLOG.md must not carry a competing copy of that number, which is how the two drifted apart.
+Assert-True (-not [regex]::IsMatch($backlogSource, 'next one filed is BUG-\d+')) (
+    'BACKLOG.md does not restate the next bug number; it points at the register, which owns it')
+
 foreach ($docPair in @(@{ Name = 'SMOKETEST.md'; Text = $smokeSource },
                        @{ Name = 'Readme.md';    Text = $readmeSource })) {
     $documentedSelfTests = [regex]::Match($docPair.Text, '(\d+) self-tests')

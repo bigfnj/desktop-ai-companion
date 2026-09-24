@@ -60,8 +60,22 @@ $glyphBox  = [char]::ConvertFromUtf32(0x2B1C)
 $glyphTick = [char]::ConvertFromUtf32(0x2705)
 $glyphStop = [char]::ConvertFromUtf32(0x1F6D1)
 
-$openPattern = '^\s*(-|###)\s*(' + [regex]::Escape($glyphPin) + '|' + [regex]::Escape($glyphBox) + ')'
-$closedPattern = '^\s*(-|###)\s*(' + [regex]::Escape($glyphTick) + '|' + [regex]::Escape($glyphStop) + ')'
+# The list marker is OPTIONAL. Requiring '- ' or '###' before the glyph is what this pattern used
+# to do, and it made four open items invisible -- three of them the newest in the file, written as a
+# bare pin at column zero. The report then said "14 open item(s)" with total confidence while the
+# real number was 18, and the one item on the file's stale list that had been wrong since the day it
+# was written was among the four it could not see.
+$markerPart = '^\s*(?:[-*]\s*|#{1,6}\s*)?'
+$openPattern = $markerPart + '(' + [regex]::Escape($glyphPin) + '|' + [regex]::Escape($glyphBox) + ')'
+$closedPattern = $markerPart + '(' + [regex]::Escape($glyphTick) + '|' + [regex]::Escape($glyphStop) + ')'
+
+# And a glyph the parser did not attribute to any item is now an ERROR rather than a silent skip.
+# Widening the pattern fixes the four shapes that exist TODAY; this is what stops the next new shape
+# from going quiet the same way, because a status glyph that reaches no item is either a parser gap
+# or a malformed entry and both want a human. Exempt: the "How this file works" section, which
+# explains what each glyph means and so necessarily writes them mid-sentence.
+$anyGlyph = '(' + [regex]::Escape($glyphPin) + '|' + [regex]::Escape($glyphBox) + '|' +
+            [regex]::Escape($glyphTick) + '|' + [regex]::Escape($glyphStop) + ')'
 
 # -Encoding UTF8 EXPLICITLY. Without it, PowerShell 5.1 reads a BOM-less UTF-8 file as ANSI, the
 # glyphs mangle, nothing matches the open-item pattern, and this reports "0 open items, OK" -- a
@@ -111,8 +125,25 @@ function Test-Criterion {
     }
 }
 
+# Where the legend stops and the backlog proper starts: the SECOND '## ' heading. Everything from
+# there on is entries, so a glyph there has to belong to one.
+$firstEntryLine = $lines.Count
+$seenHeadings = 0
+for ($h = 0; $h -lt $lines.Count; $h++) {
+    if ($lines[$h] -match '^##\s') {
+        $seenHeadings++
+        if ($seenHeadings -eq 2) { $firstEntryLine = $h; break }
+    }
+}
+
 for ($i = 0; $i -lt $lines.Count; $i++) {
     $line = $lines[$i]
+
+    # Orphan check first, so it sees the line whether or not the item patterns below claim it.
+    if ($i -ge $firstEntryLine -and $line -match $anyGlyph -and
+        -not ($line -match $openPattern) -and -not ($line -match $closedPattern)) {
+        $broken.Add("BACKLOG.md:$($i + 1) : a status glyph that belongs to no item. Put it at the start of a bullet or heading, or this item is invisible to every count in this report.")
+    }
 
     if ($line -match $openPattern) {
         $currentIsOpen = $true

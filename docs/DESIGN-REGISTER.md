@@ -256,7 +256,7 @@ that had to be reverted.
 
 ## Known bugs (post-1.0.0)
 
-**None open.** All four were fixed before the v1.1.0 tag (2026-09-10). The full post-mortems —
+**None open.** The full post-mortems —
 diagnosis, the wrong turns, the fix, and how each was verified — are in
 [`ISSUES-post-1.0.0.md`](ISSUES-post-1.0.0.md). Bugs are numbered `BUG-00N` and the number is never
 reused, so a commit, a test or a code comment can cite one; `modules/AiBrain/`,
