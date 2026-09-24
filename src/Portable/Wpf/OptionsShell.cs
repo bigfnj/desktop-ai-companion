@@ -742,10 +742,60 @@ namespace DesktopAICompanion.Wpf
             try { name = System.IO.Path.GetFileName(path); }
             catch (Exception) { name = path; }
             if (string.IsNullOrEmpty(name)) name = path;
-            bool there;
-            try { there = System.IO.File.Exists(path); }
-            catch (Exception) { there = false; }
-            return there ? name : ("✗ " + name + " is missing — the built-in chime will play");
+            // Three states, not two. This runs inside the pane's Load(), which PaneView.Build() calls on the
+            // WPF UI THREAD, and File.Exists against an unreachable UNC path blocks on the SMB connect
+            // timeout -- tens of seconds of frozen settings window for a user whose NAS is asleep. So the
+            // probe is bounded, and a probe that did not finish reports NEITHER present nor missing: calling
+            // a timeout "missing" would put a false ✗ on a file that is sitting there perfectly well.
+            bool? there = FileExistsBounded(path, FileProbeMs);
+            if (there == null) return name + " (on a drive that did not answer)";
+            return there.Value ? name : ("✗ " + name + " is missing — the built-in chime will play");
+        }
+
+        /// <summary>How long a settings pane will wait for the filesystem before giving up on it. Generous
+        /// for anything local (a fixed disk answers in microseconds) and far below the ~20s an unreachable
+        /// UNC path costs.</summary>
+        private const int FileProbeMs = 400;
+
+        /// <summary>
+        /// File.Exists with a deadline: true, false, or null for "did not answer in time".
+        ///
+        /// The worker is deliberately abandoned rather than aborted when it overruns. It is a thread-pool
+        /// thread blocked in a syscall that will return on its own, and there is no way to cancel a blocking
+        /// File.Exists; waiting for it is the exact thing this method exists to avoid.
+        /// </summary>
+        internal static bool? FileExistsBounded(string path, int timeoutMs)
+        {
+            if (string.IsNullOrEmpty(path)) return false;
+            return ProbeBounded(delegate { return System.IO.File.Exists(path); }, timeoutMs);
+        }
+
+        /// <summary>
+        /// The deadline itself, with the filesystem call passed in.
+        ///
+        /// Split out so the self-test can hand it something that is GUARANTEED to block. Testing this
+        /// against a real unreachable UNC path looked reasonable and was worthless: the first call took the
+        /// full 400ms, and the second returned in 2ms because Windows had cached the unreachable host. A
+        /// timing assertion that the unbounded version also passes is not a test, and that is precisely what
+        /// the mutation run showed.
+        /// </summary>
+        internal static bool? ProbeBounded(Func<bool> probe, int timeoutMs)
+        {
+            if (probe == null) return false;
+            try
+            {
+                bool result = false;
+                var done = new System.Threading.ManualResetEventSlim(false);
+                System.Threading.ThreadPool.QueueUserWorkItem(delegate
+                {
+                    try { result = probe(); }
+                    catch (Exception) { result = false; }
+                    finally { try { done.Set(); } catch (ObjectDisposedException) { } }
+                });
+                if (!done.Wait(timeoutMs)) return null;
+                return result;
+            }
+            catch (Exception) { return false; }
         }
 
         /// <summary>Show the picker and return the chosen path, or null for "the user changed nothing".

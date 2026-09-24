@@ -892,6 +892,45 @@ namespace DesktopAICompanion
                     try { Directory.Delete(revealRoot, true); } catch { }
                     try { Directory.Delete(revealSibling, true); } catch { }
                 }
+
+                // ---- THE SETTINGS WINDOW MUST NOT WAIT ON A SLEEPING NAS ----
+                // DescribeNotificationSound runs inside the Preferences pane's Load(), which PaneView.Build()
+                // calls on the WPF UI thread. File.Exists against an unreachable UNC path blocks on the SMB
+                // connect timeout, so the unbounded version froze the whole window for tens of seconds for a
+                // user whose chime lives on a NAS that is asleep.
+                //
+                // The assertion that matters is the DEADLINE, not the verdict: a bound that still answers
+                // true and false correctly but takes 20s to say "did not answer" has fixed nothing. Both are
+                // checked, because a probe hard-wired to return null would satisfy the timing one alone.
+                string probeFile = Path.Combine(Path.GetTempPath(), "dp-probe-" + Guid.NewGuid().ToString("N") + ".wav");
+                try
+                {
+                    File.WriteAllText(probeFile, "x");
+                    ok &= Check(sb, "a bounded file probe still finds a file that is there",
+                        DesktopAICompanion.Wpf.OptionsShell.FileExistsBounded(probeFile, 2000) == true);
+                    ok &= Check(sb, "a bounded file probe still reports a file that is not there",
+                        DesktopAICompanion.Wpf.OptionsShell.FileExistsBounded(probeFile + ".gone", 2000) == false);
+
+                    // A probe that is GUARANTEED to block, rather than a real unreachable UNC path. The UNC
+                    // version of this test was written first and was worthless: the first call took the full
+                    // 400ms and the second returned in 2ms, because Windows caches an unreachable host, so
+                    // the unbounded implementation passed it too. Sleeping five seconds cannot be cached.
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    bool? dead = DesktopAICompanion.Wpf.OptionsShell.ProbeBounded(
+                        delegate { System.Threading.Thread.Sleep(5000); return true; }, 400);
+                    sw.Stop();
+                    ok &= Check(sb, "a filesystem call that hangs gives the settings window back anyway (took "
+                        + sw.ElapsedMilliseconds + "ms)", sw.ElapsedMilliseconds < 2000);
+                    // And it must never turn a timeout into the false accusation: a path we could not reach
+                    // is not a path we know is missing.
+                    ok &= Check(sb, "a probe that did not answer reports neither present nor missing", dead == null);
+                    string desc = DesktopAICompanion.Wpf.OptionsShell.DescribeNotificationSound(probeFile);
+                    ok &= Check(sb, "a present chime is described without a missing-file warning",
+                        desc != null && !desc.StartsWith("✗"));
+                    ok &= Check(sb, "an absent chime is still described as missing",
+                        (DesktopAICompanion.Wpf.OptionsShell.DescribeNotificationSound(probeFile + ".gone") ?? "").StartsWith("✗"));
+                }
+                finally { try { File.Delete(probeFile); } catch { } }
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
 
