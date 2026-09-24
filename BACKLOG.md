@@ -620,16 +620,6 @@ open-item blindness plus the bug-number drift.
 ### Data loss or a crash, on a path that runs
 
 
-- 📌 **Reminder wipes its fired-event set on every empty feed, so a restart re-nags.**
-  `modules/Reminder/ReminderModule.cs:244` runs `_fired.RemoveWhere(...)` unconditionally, BEFORE any
-  check on `snap.Error` or `events.Count`, and `:272` persists the emptied set. An empty feed is
-  routine, not exceptional: `CachingCalendarSource.Fetch` returns empty with `Error: LoadingMessage`
-  whenever `_cache` is null, which is its first call, and `Init` calls `CheckDue()` directly at `:146`.
-  So it happens on the first tick of every launch, and again after every options Apply (`:669`
-  rebuilds the source). A 10:00 meeting with lead 15 fires at 09:45; restart at 09:50; the set is
-  wiped; the feed loads 20s later; `now` is still inside `DueNow`'s `[start-15, start+1]` window and
-  the same meeting announces again with chime, animation and bubble. The module's own header at `:15`
-  claims "remembers which fired so a restart never re-nags".
 
 - 📌 **Fortunes clears its staged pack selection before knowing whether the save worked.**
   `modules/Fortunes/FortunesModule.cs:648` calls `_stagedDisabled.Clear()` ahead of the caller seeing
