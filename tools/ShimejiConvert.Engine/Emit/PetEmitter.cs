@@ -74,6 +74,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         public static ConversionResult Emit(ShimejiConfig config, SpriteSheet sheet, Func<string, Bitmap> load, string skinName, Func<string, byte[]> loadSound = null)
         {
             var result = new ConversionResult { Residue = new ResidueReport() };
+            CollapsedSources = new HashSet<string>(StringComparer.Ordinal);   // per-conversion, not per-process
             skinName = string.IsNullOrWhiteSpace(skinName) ? "Shimeji" : skinName.Trim();
 
             // --- gather sprite-bearing primitives and the magic sources ---
@@ -195,6 +196,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     }
             }
 
+            // Set-pieces last, after the name-undirecting pass so their synthetic `<seq>_<n>_<member>`
+            // names are left alone, and before Ids are handed out so the chain can reference them.
+            List<Emitted> chainSteps = ExpandSetPieces(config, sheet, spokes, all, hub);
+
             for (int i = 0; i < all.Count; i++) all[i].Id = i + 1;
 
             // --- build each animation node ---
@@ -233,6 +238,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
 
             var nodes = new List<AnimationNode>();
             foreach (Emitted e in spokes)
+                nodes.Add(BuildSpoke(e, hub, fall, turn, wallEntry, wallExit, ceilingEntry, landRun));
+            // The non-entry steps of each set-piece. Built the same way as a spoke so they inherit the jump
+            // arcs, walk budgets and dwell timing, but absent from HubSpokes so nothing can select them
+            // directly -- their only route in is the chain.
+            foreach (Emitted e in chainSteps)
                 nodes.Add(BuildSpoke(e, hub, fall, turn, wallEntry, wallExit, ceilingEntry, landRun));
             foreach (Emitted e in wallSpokes)
                 nodes.Add(BuildWallSpoke(e, fall, wallSpokes, ceilingEntry, hub));
@@ -303,7 +313,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             if (soundNodes.Count > 0)
                 root.Sounds = new SoundsNode { Sound = soundNodes.ToArray() };
 
-            BuildResidue(config, result.Residue, sheet.IsAlpha);
+            BuildResidue(config, result.Residue, sheet.IsAlpha, all);
             AppendSoundResidue(result.Residue, soundWanted, soundCaptured, loadSound != null);
 
             // --- validate + round-trip + reachability ---
@@ -338,6 +348,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             // sprites but no CLIMBING action, so a static grab pose can be animated upward -- see
             // SynthesiseClimbIfNeeded.
             public int? ForcedVelY;
+            // One step of a converted SET-PIECE. When set, this animation's only exit is that animation, at
+            // probability 100, so a scripted run plays in order and always completes. That is the whole
+            // reason a set-piece can be converted at all: a member like "walk off screen" is only safe when
+            // the return leg is structurally its sole successor, not a weighted option among many.
+            public Emitted ChainNext;
             // A gaze pose: emitted with the faceCursor sequence action so it is aimed at the pointer on
             // entry, rather than held facing an arbitrary direction.
             public bool IsGaze;
@@ -477,6 +492,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             return false;
         }
 
+        /// <summary>Source actions merged away by <see cref="CollapseDirectionPairs"/> as duplicates or
+        /// left/right mirrors. Converted, just not under their own name, and the accounting needs to say so
+        /// rather than report them as unexplained.</summary>
+        private static HashSet<string> CollapsedSources = new HashSet<string>(StringComparer.Ordinal);
+
+        private static void RecordCollapsed(Emitted e)
+        {
+            if (e != null && e.Source != null && e.Source.Name != null) CollapsedSources.Add(e.Source.Name);
+        }
+
         private static List<Emitted> CollapseDirectionPairs(List<Emitted> candidates)
         {
             var kept = new List<Emitted>();
@@ -489,7 +514,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 int existing = kept.FindIndex(k => k.IsGaze == e.IsGaze && SameFrames(k, e) && MirrorsOrDuplicates(k, e));
                 if (existing < 0) { kept.Add(e); continue; }
                 // Prefer the LEFTWARD variant: unmirrored art is what the engine treats as left-facing.
-                if (FirstVelX(e) < 0 && FirstVelX(kept[existing]) >= 0) kept[existing] = e;
+                // Whichever loses, record it: its source action is real and converted, just merged into an
+                // identical sibling, and the residue must be able to say that rather than leave it silent.
+                if (FirstVelX(e) < 0 && FirstVelX(kept[existing]) >= 0)
+                {
+                    RecordCollapsed(kept[existing]);
+                    kept[existing] = e;
+                }
+                else RecordCollapsed(e);
             }
             return kept;
         }
@@ -889,11 +921,58 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         // 128 the floor already needs, and they never raise max(AnchorY), so admitting them cannot pad the
         // cell. That padding is the exact failure the old exclusion existed to avoid (pet floats, ground
         // detection breaks), so it is asserted in the self-test rather than left to this comment.
+        /// <summary>
+        /// Names of the actions that are members of a convertible SET-PIECE, decided from the config alone.
+        ///
+        /// Shared by <see cref="PosesToComposite"/> and <see cref="ExpandSetPieces"/> on purpose, and for the
+        /// same reason VariantFor is: the compositor and the emitter must make the SAME choice or the frames
+        /// the emitter asks for were never drawn. Getting that wrong is silent -- FramesOf simply returns
+        /// nothing and the step vanishes -- and it is the bug the gaze comment below already records.
+        ///
+        /// Config-only by necessity: the sheet does not exist yet when the compositor needs this answer.
+        /// </summary>
+        public static HashSet<string> SetPieceMemberNames(ShimejiConfig config)
+        {
+            var members = new HashSet<string>(StringComparer.Ordinal);
+            var byName = new Dictionary<string, ShimejiAction>(StringComparer.Ordinal);
+            foreach (ShimejiAction a in config.Actions)
+                if (a.Name != null && !byName.ContainsKey(a.Name)) byName[a.Name] = a;
+
+            foreach (ShimejiAction seq in config.Actions)
+            {
+                if (!string.Equals(seq.Type, "Sequence", StringComparison.Ordinal)) continue;
+                if (seq.Group != FidelityGroup.Group1 || seq.ReferencedActions == null) continue;
+                if (seq.ReferencedActions.Count < 2 || seq.ReferencedActions.Count > 8) continue;
+
+                var names = new List<string>();
+                bool ok = true;
+                foreach (string name in seq.ReferencedActions)
+                {
+                    ShimejiAction m;
+                    if (!byName.TryGetValue(name, out m)) { ok = false; break; }
+                    if (m.Group != FidelityGroup.Group1) { ok = false; break; }
+                    if (string.Equals(m.Type, "Sequence", StringComparison.Ordinal)
+                        || string.Equals(m.Type, "Select", StringComparison.Ordinal)) { ok = false; break; }
+                    if (IsWallAction(m) || IsCeilingAction(m)) { ok = false; break; }
+                    // Absorbed elsewhere (Look is a facing change, Offset a nudge, Fall/Dragged/SelfDestruct
+                    // become magic animations): contributes no step, so skip it without failing the run.
+                    if (m.Class != null && !IsFramePlayingEmbeddedClass(m)) continue;
+                    ShimejiAnimation v = VariantFor(m);
+                    if (v == null || v.Poses.Count == 0) { ok = false; break; }
+                    names.Add(m.Name);
+                }
+                if (!ok || names.Count < 2) continue;
+                foreach (string n in names) members.Add(n);
+            }
+            return members;
+        }
+
         public static List<ShimejiPose> PosesToComposite(ShimejiConfig config)
         {
             var poses = new List<ShimejiPose>();
             ShimejiAction fall = FirstWithClass(config, "Fall");
             ShimejiAction drag = FirstWithClass(config, "Dragged");
+            HashSet<string> setPieceMembers = SetPieceMemberNames(config);
             foreach (ShimejiAction a in config.Actions)
             {
                 bool ceiling = IsCeilingAction(a);
@@ -901,7 +980,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 // condition makes it Group2), so leaving it out meant its sprite was never drawn into the sheet,
                 // FramesOf found no matching key, and the spoke was dropped for having zero frames -- silently,
                 // one step before the faceCursor tag that was supposed to be the whole point.
-                if (!(IsFloorAction(a) || IsWallAction(a) || ceiling || IsGazeAction(a) || a == fall || a == drag)) continue;
+                // Set-piece members belong here for the same reason the gaze does: they are emitted as chain
+                // steps, so their sprites must be in the sheet even though IsFloorAction rejects them
+                // (they carry BorderType="None"). Capybara's gator ride is the case -- four of its legs were
+                // silently reduced to zero frames without this.
+                bool setPieceMember = a.Name != null && setPieceMembers.Contains(a.Name);
+                if (!(IsFloorAction(a) || IsWallAction(a) || ceiling || IsGazeAction(a) || a == fall || a == drag
+                      || setPieceMember)) continue;
 
                 // The DRAG action is the one place every <Animation> block matters, not just the first. Its
                 // blocks are not alternatives to choose between -- they are the frames of a SWING, one per
@@ -1315,6 +1400,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
 
             NextNode[] next;
             if (e == hub) next = HubChoices(hub);
+            // A SET-PIECE step. Checked before the jump and locomotion cases on purpose: the chain is the
+            // only thing making these members safe to emit, so nothing may override it. A weighted exit here
+            // would let the pet stop half way through and, for an off-screen leg, strand itself.
+            else if (e.ChainNext != null) next = new[] { Next(e.ChainNext.Id, 100, "none") };
             // PHASE 2 of a jump, the DESCENT. A jump hands to `fall` rather than looping on itself or
             // returning to a standing hub, which is the shape yellow_sheep uses (`jump` -> `jump_down2`, a
             // dedicated falling pose that keeps going until something is underneath). It matters only when the
@@ -1748,6 +1837,104 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         // through every helper. Single-threaded emit, so a static is safe and keeps the signatures clean.
         private static List<Emitted> HubSpokes = new List<Emitted>();
 
+        /// <summary>Names of the Sequence composites that were converted as chains, so the residue can say
+        /// a set-piece was reproduced instead of counting it among the ones that were not.</summary>
+        private static HashSet<string> ExpandedSetPieces = new HashSet<string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Convert a Shimeji Sequence composite into a deterministic CHAIN of animations.
+        ///
+        /// A set-piece is a scripted run of other actions. Capybara's gator ride is Walk, Look, OffScreen,
+        /// BackOnScreen, GatorRideAction, OffScreen2, BackOnScreen2, Dash, reachable as two behaviours at
+        /// Frequency 60. Its members are only safe to emit when the ORDER is guaranteed: a leg that walks
+        /// the pet off screen needs the return leg as its sole successor, or the pet leaves the visible area
+        /// with nothing able to bring it back. That is why those five were withheld rather than emitted.
+        ///
+        /// Concatenating the members into one animation is the obvious approach and the format forbids it.
+        /// animations.xsd gives an animation exactly one &lt;start&gt; and one &lt;end&gt; step, interpolated
+        /// across all of its frames, so a run that reverses direction cannot be expressed at all: the pet
+        /// would drift one way throughout. A chain can express it, because each member keeps its own
+        /// start/end pair and &lt;next&gt; at probability 100 carries the order.
+        ///
+        /// Only the FIRST member joins the hub. The rest are reachable solely through the chain, so they
+        /// can never be selected in isolation, and the last hands back to the hub.
+        ///
+        /// Deliberately narrow. A chain is built only when it RECOVERS a member that is otherwise withheld;
+        /// without that filter every pet would gain duplicate copies of animations it already had. Frames
+        /// are indices into the shared sheet, so a chain costs animation nodes, not sprite bytes.
+        /// </summary>
+        private static List<Emitted> ExpandSetPieces(ShimejiConfig config, SpriteSheet sheet,
+                                                     List<Emitted> spokes, List<Emitted> all, Emitted hub)
+        {
+            const int MinMembers = 2;
+            const int MaxMembers = 8;
+            var extra = new List<Emitted>();
+            ExpandedSetPieces = new HashSet<string>(StringComparer.Ordinal);
+
+            var byName = new Dictionary<string, ShimejiAction>(StringComparer.Ordinal);
+            foreach (ShimejiAction a in config.Actions)
+                if (a.Name != null && !byName.ContainsKey(a.Name)) byName[a.Name] = a;
+
+            var alreadyEmitted = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Emitted e in spokes)
+                if (e.Source != null && e.Source.Name != null) alreadyEmitted.Add(e.Source.Name);
+
+            foreach (ShimejiAction seq in config.Actions)
+            {
+                if (!string.Equals(seq.Type, "Sequence", StringComparison.Ordinal)) continue;
+                if (seq.Group != FidelityGroup.Group1) continue;
+                if (seq.ReferencedActions == null) continue;
+                if (seq.ReferencedActions.Count < MinMembers || seq.ReferencedActions.Count > MaxMembers) continue;
+
+                // Resolve EVERY member or refuse the whole sequence. A partial chain is worse than none:
+                // dropping a middle leg is precisely how a member ends up stranded off screen.
+                var members = new List<ShimejiAction>();
+                bool ok = true, recovers = false;
+                foreach (string name in seq.ReferencedActions)
+                {
+                    ShimejiAction m;
+                    if (!byName.TryGetValue(name, out m)) { ok = false; break; }
+                    if (m.Group != FidelityGroup.Group1) { ok = false; break; }
+                    if (string.Equals(m.Type, "Sequence", StringComparison.Ordinal)
+                        || string.Equals(m.Type, "Select", StringComparison.Ordinal)) { ok = false; break; }
+                    if (IsWallAction(m) || IsCeilingAction(m)) { ok = false; break; }
+                    // SKIP rather than refuse. A member that is absorbed elsewhere (Look is a facing
+                    // change, Offset a positional nudge, Fall/Dragged/SelfDestruct become the magic
+                    // animations) contributes no step of its own, and refusing the whole run because of one
+                    // is what kept the gator ride unconverted: its second member is an embedded Look.
+                    // Dropping it costs the turn, which is exactly what "absorbed as flip" already means.
+                    if (m.Class != null && !IsFramePlayingEmbeddedClass(m)) continue;
+                    // A member with no frames in the SHEET refuses the whole run, and must not be skipped.
+                    // Skipping it produced exactly the hazard this design exists to prevent: the gator ride
+                    // emitted as Walk -> OffScreen2 -> Dash, a leg that walks the pet off screen with its
+                    // return leg missing. If this fires, the compositor and SetPieceMemberNames have
+                    // disagreed about what to draw, which is a bug rather than a property of the skin.
+                    if (FramesOf(m, sheet).Count == 0) { ok = false; break; }
+                    if (!alreadyEmitted.Contains(m.Name)) recovers = true;
+                    members.Add(m);
+                }
+                if (!ok || !recovers || members.Count < MinMembers) continue;
+
+                string baseName = SanitizeName(seq.Name);
+                var steps = new List<Emitted>();
+                for (int i = 0; i < members.Count; i++)
+                    steps.Add(new Emitted
+                    {
+                        Name = baseName + "_" + (i + 1) + "_" + SanitizeName(members[i].Name),
+                        Source = members[i],
+                        Frames = FramesOf(members[i], sheet),
+                    });
+                for (int i = 0; i < steps.Count - 1; i++) steps[i].ChainNext = steps[i + 1];
+                steps[steps.Count - 1].ChainNext = hub;
+
+                ExpandedSetPieces.Add(seq.Name);
+                spokes.Add(steps[0]);          // the set-piece's only entry point
+                all.Add(steps[0]);
+                for (int i = 1; i < steps.Count; i++) { all.Add(steps[i]); extra.Add(steps[i]); }
+            }
+            return extra;
+        }
+
         private static AnimationNode BuildFall(Emitted fall, Emitted hub)
         {
             return new AnimationNode
@@ -1878,10 +2065,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             return null;
         }
 
-        private static void BuildResidue(ShimejiConfig config, ResidueReport residue, bool alpha)
+        private static void BuildResidue(ShimejiConfig config, ResidueReport residue, bool alpha,
+                                         List<Emitted> emitted)
         {
             ShimejiAction fallAction = FirstWithClass(config, "Fall");
             ShimejiAction dragAction = FirstWithClass(config, "Dragged");
+            // Computed up front because "not attempted" must not name an action that a SET-PIECE chain did
+            // emit. Capybara's five BorderType="None" legs are the case: withheld as standalone spokes, then
+            // emitted as chain steps, and the report claimed both at once until this filter existed.
+            var emittedNames = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Emitted e in emitted)
+                if (e.Source != null && e.Source.Name != null) emittedNames.Add(e.Source.Name);
             var notOnFloor = new List<string>();
             foreach (ShimejiAction a in config.Actions)
             {
@@ -1902,7 +2096,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     });
                 else if (a.Group == FidelityGroup.Group1 && a.Animations.Count > 0 && a.Animations[0].Poses.Count > 0
                          && !IsFloorAction(a) && !IsWallAction(a) && !IsCeilingAction(a)
-                         && a != fallAction && a != dragAction)
+                         && a != fallAction && a != dragAction
+                         && !(a.Name != null && emittedNames.Contains(a.Name)))
                     // Whatever is left over once floor, wall, ceiling and jump have all had their turn: a
                     // Group1 posed action whose BorderType is none of the four regions.
                     notOnFloor.Add(a.Name);
@@ -1949,6 +2144,96 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             if (riseFlattened.Count > 0)
                 residue.Notes.Add("These animations rise in the original but too gently to be jumps, so they play flat along the ground instead: " + string.Join(", ", riseFlattened) + ". The sprites and timing are kept; only the upward drift is dropped. Passing it through unchanged is what made a grapple pose and a flight cycle read as broken little jumps.");
             residue.Notes.Add("Per-pose velocity is reduced to one start/end pair per animation, and 'walk to a target x' becomes a fixed-length walk that turns at the screen edge.");
+
+            // ---- complete accounting ---------------------------------------------------------------------
+            // A loss report's implicit promise is that it says what became of the source, and this one did
+            // not. Measured on the Zim skin: 35 of 98 top-level actions appeared in neither the emitted pet
+            // nor any residue list, 32 of them Type="Sequence". Silence is the worst answer here, because an
+            // action absorbed on purpose and one quietly lost read identically from outside.
+            //
+            // Every action now lands in exactly ONE bucket and the buckets must sum to the total. Anything
+            // that reaches none of them is named as a reporting bug rather than omitted -- the check can
+            // fail, which is the whole point of adding it.
+            // emittedNames is hoisted to the top of this method, because "not attempted" needs it too.
+            var droppedNames = new HashSet<string>(StringComparer.Ordinal);
+            foreach (ResidueItem d in residue.Dropped) droppedNames.Add(d.Name);
+            var degradedNames = new HashSet<string>(StringComparer.Ordinal);
+            foreach (ResidueItem d in residue.Degraded) degradedNames.Add(d.Name);
+            var notAttemptedNames = new HashSet<string>(notOnFloor, StringComparer.Ordinal);
+
+            int nEmit = 0, nDrop = 0, nDeg = 0, nNot = 0, nAbsorbed = 0, nComposite = 0, nChained = 0, nCollapsed = 0;
+            var absorbedNames = new List<string>();
+            var collapsedNames = new List<string>();
+            var unaccounted = new List<string>();
+            foreach (ShimejiAction a in config.Actions)
+            {
+                string n = a.Name ?? "";
+                // Priority order, because the buckets genuinely overlap: a gaze is emitted AND recorded as
+                // degraded, so counting both lists would double it and the total would not balance.
+                if (emittedNames.Contains(n)) { nEmit++; }
+                else if (droppedNames.Contains(n)) { nDrop++; }
+                else if (degradedNames.Contains(n)) { nDeg++; }
+                else if (notAttemptedNames.Contains(n)) { nNot++; }
+                else if (a == fallAction || a == dragAction
+                         || string.Equals(a.Class, "SelfDestruct", StringComparison.Ordinal)
+                         || string.Equals(a.Class, "Look", StringComparison.Ordinal)
+                         || string.Equals(a.Class, "Offset", StringComparison.Ordinal))
+                {
+                    nAbsorbed++;
+                    absorbedNames.Add(n);
+                }
+                else if (a.Name != null && CollapsedSources.Contains(a.Name))
+                {
+                    nCollapsed++;
+                    collapsedNames.Add(a.Name);
+                }
+                else if (string.Equals(a.Type, "Sequence", StringComparison.Ordinal)
+                         || string.Equals(a.Type, "Select", StringComparison.Ordinal))
+                {
+                    if (a.Name != null && ExpandedSetPieces.Contains(a.Name)) nChained++;
+                    else nComposite++;
+                }
+                else { unaccounted.Add(n); }
+            }
+
+            int synthesised = 0;
+            foreach (Emitted e in emitted) if (e.Source == null) synthesised++;
+            residue.Notes.Add(string.Format(
+                "Accounting for all {0} source actions: {1} emitted as animations, {2} dropped, {3} degraded, "
+                + "{4} not attempted, {5} absorbed (they become the magic fall/drag/kill animations, the flip "
+                + "action, or an offset baked into the sheet), {6} Sequence/Select composites that order OTHER "
+                + "actions rather than carrying frames of their own, {9} merged into an identical sibling "
+                + "animation. These sum to the total by construction. "
+                + "The pet carries {7} animations rather than {1} because {8} are synthesised by the converter "
+                + "with no source action behind them, and a gaze is counted here as emitted even though it is "
+                + "also listed as degraded.",
+                config.Actions.Count, nEmit, nDrop, nDeg, nNot, nAbsorbed, nComposite + nChained,
+                emitted.Count, synthesised, nCollapsed));
+            if (nChained > 0)
+                residue.Notes.Add("Set-pieces CONVERTED as chains (" + nChained + "): "
+                    + string.Join(", ", ExpandedSetPieces) + ". Each member is emitted as its own animation "
+                    + "and linked with next at probability 100, so the run plays in order and always "
+                    + "completes. Only its first step is reachable from the hub; the rest can be entered "
+                    + "only through the chain, which is what makes a leg that walks off screen safe to emit "
+                    + "at all. Concatenating them into a single animation is NOT possible: the format gives "
+                    + "an animation one start and one end velocity for all its frames, so a run that "
+                    + "reverses direction would drift one way and never come back.");
+            if (collapsedNames.Count > 0)
+                residue.Notes.Add("Merged into an identical sibling (" + collapsedNames.Count + "): "
+                    + string.Join(", ", collapsedNames) + ". Same frames and same velocities as an animation "
+                    + "already emitted, so they are converted, just not under their own name.");
+            if (absorbedNames.Count > 0)
+                residue.Notes.Add("Absorbed rather than lost: " + string.Join(", ", absorbedNames) + ".");
+            if (nComposite > 0)
+                residue.Notes.Add("The " + nComposite + " Sequence/Select composites are where a skin's "
+                    + "SET-PIECES live (a scripted run of other actions, e.g. walk off screen then come back). "
+                    + "desktopPet has no composite animation, so the pet performs their MEMBER actions "
+                    + "individually via the hub graph and the scripted order is not reproduced. A member whose "
+                    + "meaning depends on that order is deliberately withheld rather than emitted alone.");
+            if (unaccounted.Count > 0)
+                residue.Notes.Add("UNACCOUNTED (" + unaccounted.Count + "): " + string.Join(", ", unaccounted)
+                    + ". These reached none of the buckets above, so this report cannot say what became of "
+                    + "them. That is a bug in the accounting, not a property of the skin.");
 
             // (Sound residue is appended by AppendSoundResidue after emit, which knows how many clips were
             // actually captured vs dropped -- BuildResidue can only see that a pose named one.)
