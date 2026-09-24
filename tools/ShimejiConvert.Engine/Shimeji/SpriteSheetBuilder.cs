@@ -45,6 +45,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     {
         public const int MaxCell = 256;                       // CompanionXmlValidator.MaximumSpriteFrameDimension
         public const int MaxTiles = 1024;                     // SpriteFrameStore.MaximumFrames
+        // How many distinct frames this will decode before the dedup pass tells it the real count. Four
+        // times the cap: high enough that no real skin is refused by it, low enough that a malformed one
+        // cannot make the converter decode unbounded bitmaps looking for a number it already exceeded.
+        public const int MaxTilesBeforeDedup = MaxTiles * 4;
         public const int MaxSheetDimension = 4096;            // CompanionXmlValidator.MaximumImageDimension
         public const int XmlBudgetBytes = 12 * 1024 * 1024;   // CompanionXmlValidator.MaximumXmlBytes (raised from 4:
                                                               // lets a frame-heavy skin fill the 4096 sheet up to
@@ -84,9 +88,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 if (seen.Add(p.FrameKey)) frames.Add(p);
             }
             if (frames.Count == 0) { error = "the skin has no sprite poses to composite."; return false; }
-            if (frames.Count > MaxTiles)
+            // NOT the tile cap. That is applied AFTER the byte-identical collapse below, because the collapse
+            // routinely removes hundreds of cells and testing the cap first rejected skins that would have
+            // fit comfortably -- the Android-Shimeji templates the dedup comment names are exactly that
+            // shape, roughly 1100 distinct FrameKeys collapsing to about 600. This is only a bound on how
+            // much this method will LOAD before it knows the real number, so a malformed skin cannot make it
+            // decode unbounded bitmaps. Generous by design: no plausible skin sits between these two limits.
+            if (frames.Count > MaxTilesBeforeDedup)
             {
-                error = string.Format("{0} distinct frames exceeds the {1}-tile limit.", frames.Count, MaxTiles);
+                error = string.Format(
+                    "{0} distinct frames is more than this converter will even load ({1}); the tile limit is {2}.",
+                    frames.Count, MaxTilesBeforeDedup, MaxTiles);
                 return false;
             }
 
@@ -140,6 +152,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                         deduped.Add(f);
                     }
                     frames = deduped;
+                }
+
+                // NOW the tile cap, on what the sheet will actually carry.
+                if (frames.Count > MaxTiles)
+                {
+                    error = string.Format(
+                        "{0} distinct frames exceeds the {1}-tile limit (after collapsing byte-identical cells).",
+                        frames.Count, MaxTiles);
+                    return false;
                 }
 
                 // 3. anchor-aligned unscaled cell size. Every frame's anchor maps to O=(Ox,Oy); the cell must

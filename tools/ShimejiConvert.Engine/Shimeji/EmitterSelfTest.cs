@@ -179,6 +179,22 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                             if (step.Gravity != null)
                                 failures.Add("set-piece step '" + step.Name + "' kept a gravity edge; it routes " +
                                     "to 'fall', and 'fall' returns to the hub, so the rest of the run is skipped");
+                            // ZERO VERTICAL VELOCITY, and this is the assertion that makes the only="none"
+                            // border above safe rather than lucky. The engine raises a border only when the
+                            // MOVE would cross it, so a step that never travels vertically can only ever meet
+                            // a left/right screen edge, and meeting one advances the run by a step, which is
+                            // the behaviour we want. Give a step downward velocity and it raises the taskbar
+                            // border on every tick while standing on the floor, so the chain would race
+                            // through its remaining legs in a handful of ticks instead of performing them.
+                            // Measured across the 13 shipped desktop pets: 0 of 327 chain steps carry vertical
+                            // velocity, so the property holds today by accident of the corpus. This is what
+                            // stops it being an accident.
+                            int vy0 = ParseIntOrZero(step.Start != null ? step.Start.Y : null);
+                            int vy1 = ParseIntOrZero(step.End != null ? step.End.Y : null);
+                            if (vy0 != 0 || vy1 != 0)
+                                failures.Add("set-piece step '" + step.Name + "' travels vertically (start y=" +
+                                    vy0 + ", end y=" + vy1 + "), so it raises the floor border every tick and " +
+                                    "its only=\"none\" border edge skips the rest of the run in a few ticks");
                         }
                     }
                 }
@@ -901,6 +917,70 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 else if (lonelyGaze.Sequence == null || !string.Equals(lonelyGaze.Sequence.Action, "faceCursor", StringComparison.Ordinal))
                     failures.Add("the second gaze carries no faceCursor action");
 
+                // REFUSED BY POLICY is its own bucket, and it must be VISIBLE. Asserting on the named note
+                // rather than on a count, because a silent refusal reads exactly like a silent loss and the
+                // whole accounting rewrite exists to stop the report going quiet about an action.
+                if (!r.Residue.Notes.Exists(s => s.IndexOf("REFUSED on purpose", StringComparison.Ordinal) >= 0
+                                                 && s.IndexOf("OpenSomething", StringComparison.Ordinal) >= 0))
+                    failures.Add("a Type=OpenURL action was not reported as refused by policy; if it reached "
+                        + "no bucket at all the accounting line prints it as UNACCOUNTED instead");
+                if (r.Residue.Notes.Exists(s => s.IndexOf("UNACCOUNTED", StringComparison.Ordinal) >= 0))
+                    failures.Add("the residue reports UNACCOUNTED actions, which it calls a bug in the "
+                        + "accounting in its own words");
+                if (ResidueHas(r.Residue.Dropped, "OpenSomething"))
+                    failures.Add("a refused action was filed under DROPPED, which says the converter could "
+                        + "not do it rather than that it will not");
+
+                // ---- A SKIN WHOSE WALL ART DOES NOT CLIMB ----
+                // SynthesiseClimbIfNeeded invents an upward velocity for a skin that has wall sprites but no
+                // CLIMBING action, so the ceiling region it already owns stays reachable. The main fixture
+                // cannot exercise it: its ClimbWall genuinely climbs, so the synthesis never runs and every
+                // assertion about it is vacuous. Reverting the fix below to read the SOURCE velocity passed
+                // the whole suite, which is how that was discovered.
+                //
+                // The variant is the same config with ClimbWall's upward pose flattened to 0,0 -- one edit,
+                // so nothing else about the skin differs and the ceiling's fate is the only variable.
+                string flatWallXml = SyntheticActionsXml.Replace(
+                    "<Pose Image=\"/c2.png\" ImageAnchor=\"20,60\" Velocity=\"0,-2\" Duration=\"4\" />",
+                    "<Pose Image=\"/c2.png\" ImageAnchor=\"20,60\" Velocity=\"0,0\" Duration=\"4\" />");
+                if (flatWallXml == SyntheticActionsXml)
+                    failures.Add("the flat-wall variant did not change the fixture, so the synthesised-climb "
+                        + "case below is untested -- ClimbWall's pose must have been edited");
+                else
+                {
+                    ShimejiConfig flatConfig = ShimejiParser.ParseActionsXml(flatWallXml);
+                    SpriteSheet flatSheet; string flatErr;
+                    if (!SpriteSheetBuilder.Build(Emit.PetEmitter.PosesToComposite(flatConfig), load, false,
+                                                  out flatSheet, out flatErr))
+                        failures.Add("the flat-wall variant would not composite: " + flatErr);
+                    else
+                    {
+                        ConversionResult fr = PetEmitter.Emit(flatConfig, flatSheet, load, "FlatWall");
+                        if (fr.Graph != null && fr.Graph.Unreachable.Count != 0)
+                            failures.Add("a skin whose wall art does not climb emitted UNREACHABLE animations ("
+                                + string.Join(",", fr.Graph.Unreachable) + "); the synthesised climb exists to "
+                                + "keep the ceiling reachable and it is not being consulted");
+                        if (!fr.Accepted)
+                            failures.Add("a skin whose wall art does not climb was NOT accepted, so it cannot "
+                                + "be converted at all: " + fr.Error);
+                        // And the synthesis must have actually happened, or the two assertions above pass for
+                        // the wrong reason (a ceiling that was dropped is also never unreachable).
+                        XmlData.AnimationNode flatCeiling = null;
+                        foreach (XmlData.AnimationNode a in fr.Root != null && fr.Root.Animations != null &&
+                                                            fr.Root.Animations.Animation != null
+                                     ? fr.Root.Animations.Animation : new XmlData.AnimationNode[0])
+                            if (a != null && a.Name != null &&
+                                a.Name.IndexOf("Ceiling", StringComparison.OrdinalIgnoreCase) >= 0)
+                            { flatCeiling = a; break; }
+                        if (flatCeiling == null)
+                            failures.Add("the flat-wall variant kept no ceiling animation at all, so 'the "
+                                + "ceiling is still reachable' is vacuous");
+                        else if (!HasBorderEdgeTo(fr, flatCeiling.Id, "horizontal"))
+                            failures.Add("no only=\"horizontal\" edge reaches the ceiling on the flat-wall "
+                                + "variant, so the synthesised climb never offers the way in");
+                    }
+                }
+
                 if (!ResidueHas(r.Residue.Dropped, "ThrowIe")) failures.Add("Group3 ThrowIe not recorded as dropped");
                 if (!ResidueHas(r.Residue.Degraded, "SitAndLookAtMouse")) failures.Add("Group2 cursor action not recorded as degraded");
                 // ...and says what was actually lost. The classifier's stock reason ("needs cursorX/cursorY,
@@ -1522,6 +1602,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         <Pose Image=""/e2.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""4"" />
       </Animation>
     </Action>
+    <!-- An action this converter REFUSES rather than cannot do. KinitoPET ships three of these and one
+         points at a file host. A companion installed from a skin catalogue does not get to open links, so
+         the residue report has to SAY it was refused: before this bucket existed the three reached none of
+         the accounting categories and were printed as UNACCOUNTED, which was the report admitting it could
+         not say what became of them. -->
+    <Action Name=""OpenSomething"" Type=""OpenURL"" URL=""https://example.invalid/"" />
     <Action Name=""RunOff"" Type=""Move"" BorderType=""None"">
       <Animation>
         <Pose Image=""/m.png"" ImageAnchor=""20,60"" Velocity=""-6,0"" Duration=""6"" />

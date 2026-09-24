@@ -122,6 +122,67 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 {
                     foreach (Bitmap b in dupOwned.Values) b.Dispose();
                 }
+
+                // ---- THE TILE CAP IS TESTED ON WHAT THE SHEET CARRIES, NOT ON WHAT WAS ASKED FOR ----
+                // The cap used to be applied BEFORE the byte-identical collapse above, so a skin the collapse
+                // would have fitted was refused outright: the Android-Shimeji templates the dedup comment
+                // names duplicate their sprite files, roughly 1100 distinct FrameKeys collapsing to about
+                // 600. This fixture is that shape in miniature -- MaxTiles + 40 poses that are all the SAME
+                // picture at the same anchor under different names, so they collapse to one cell.
+                var capOwned = new Dictionary<string, Bitmap>(StringComparer.Ordinal);
+                try
+                {
+                    var capPoses = new List<ShimejiPose>();
+                    Bitmap one = Solid(12, 12, Color.FromArgb(255, 30, 140, 210));
+                    for (int i = 0; i < SpriteSheetBuilder.MaxTiles + 40; i++)
+                    {
+                        string nm = "/cap" + i + ".png";
+                        capOwned[nm] = new Bitmap(one);
+                        capPoses.Add(new ShimejiPose { Image = nm, AnchorX = 6, AnchorY = 12, Duration = 1 });
+                    }
+                    one.Dispose();
+                    Func<string, Bitmap> capLoad = delegate(string n) { return new Bitmap(capOwned[n]); };
+                    SpriteSheet capSheet; string capErr;
+                    bool capOk = SpriteSheetBuilder.Build(capPoses, capLoad, true, out capSheet, out capErr);
+                    if (!capOk)
+                        failures.Add("a skin of " + capPoses.Count + " duplicate frames was refused, though they "
+                            + "collapse to one cell: " + capErr);
+                    else
+                    {
+                        var cells = new HashSet<int>();
+                        foreach (var kv in capSheet.FrameIndexByKey) cells.Add(kv.Value);
+                        if (cells.Count != 1)
+                            failures.Add("the duplicate-frame skin should occupy ONE cell, got " + cells.Count
+                                + "; without that the cap assertion above proves nothing");
+                        if (capSheet.FrameIndexByKey.Count != capPoses.Count)
+                            failures.Add("every one of the " + capPoses.Count + " poses must still resolve to a "
+                                + "tile, got " + capSheet.FrameIndexByKey.Count);
+                    }
+
+                    // And the cap must still REFUSE what genuinely does not fit, or moving it made it inert.
+                    var tooMany = new List<ShimejiPose>();
+                    for (int i = 0; i < SpriteSheetBuilder.MaxTiles + 40; i++)
+                    {
+                        string nm = "/big" + i + ".png";
+                        // A genuinely different colour per frame. The first version of this used
+                        // (i % 251, i*7 % 251, i*13 % 251), and 251 is prime, so the triple depends only on
+                        // i mod 251: frames i and i+251 were IDENTICAL, the dedup collapsed 1064 of them to
+                        // 251, and the assertion below failed against correct code. Splitting i across the
+                        // three channels gives one unique colour per frame up to 16.7 million.
+                        capOwned[nm] = Solid(4, 4, Color.FromArgb(255, (i >> 16) & 0xFF, (i >> 8) & 0xFF, i & 0xFF));
+                        tooMany.Add(new ShimejiPose { Image = nm, AnchorX = 2, AnchorY = 4, Duration = 1 });
+                    }
+                    SpriteSheet bigSheet; string bigErr;
+                    if (SpriteSheetBuilder.Build(tooMany, capLoad, true, out bigSheet, out bigErr))
+                        failures.Add("a skin of " + tooMany.Count + " DISTINCT frames was accepted; the "
+                            + SpriteSheetBuilder.MaxTiles + "-tile cap is inert");
+                    else if (bigErr == null || bigErr.IndexOf("tile limit", StringComparison.OrdinalIgnoreCase) < 0)
+                        failures.Add("the cap refused, but not with a tile-limit message: " + bigErr);
+                }
+                finally
+                {
+                    foreach (Bitmap b in capOwned.Values) b.Dispose();
+                }
             }
             finally
             {

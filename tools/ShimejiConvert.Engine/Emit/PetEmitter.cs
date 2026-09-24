@@ -1286,7 +1286,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             // unreachable any other way. A floor animation could not use it even if it had the edge, because
             // IsFloorAction rejects upward velocity, so nothing on the floor ever travels up to meet it.
             var border = new List<NextNode>();
-            bool climbs = ClimbsUpward(e.Source);
+            // WillClimb, not ClimbsUpward. ClimbsUpward reads the SOURCE poses; WillClimb also honours
+            // e.ForcedVelY, which is where SynthesiseClimbIfNeeded puts the upward velocity it invents for a
+            // skin whose wall art is a static grab. Asking the source meant a synthesised climb answered
+            // "no", so it got neither the only="horizontal" edge into the ceiling nor the only="window-top"
+            // edge onto a window lip. The ceiling spokes were then emitted with nothing pointing at them,
+            // Graph.Unreachable came back non-empty, Accepted was false and the CLI exited 1 -- which is the
+            // exact failure the synthesis was written to prevent. Invisible on the shipped corpus only
+            // because KinitoPET has since gained a real ClimbWall, so nothing reaches the synthesis path.
+            bool climbs = WillClimb(e);
             if (ceilingEntry != null && climbs)
                 border.Add(Next(ceilingEntry.Id, BorderCeilingWeight, "horizontal"));
             // The top of a WINDOW is a surface the pet can stand on, not a dead end, so a pet climbing the
@@ -2180,6 +2188,23 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             return null;
         }
 
+        /// <summary>
+        /// An action this converter REFUSES on purpose, rather than one it cannot do.
+        ///
+        /// Shimeji's Type="OpenURL" opens a link in the user's browser. Three of KinitoPET's actions use it
+        /// and one points at a file host (files.catbox.moe). A desktop companion downloaded from a skin
+        /// catalogue that can open arbitrary URLs is not a feature to implement later; it is the reason this
+        /// bucket says "refused" and not "unsupported". Nothing here should ever grow an emit path.
+        ///
+        /// It is a BUCKET rather than a silent skip because the residue report's promise is that every source
+        /// action is accounted for. These three used to reach none of the buckets and were printed as
+        /// UNACCOUNTED -- correctly, since the report could not say what became of them.
+        /// </summary>
+        internal static bool IsRefusedByPolicy(ShimejiAction a)
+        {
+            return a != null && string.Equals(a.Type, "OpenURL", StringComparison.OrdinalIgnoreCase);
+        }
+
         private static void BuildResidue(ShimejiConfig config, ResidueReport residue, bool alpha,
                                          List<Emitted> emitted)
         {
@@ -2277,7 +2302,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             var notAttemptedNames = new HashSet<string>(notOnFloor, StringComparer.Ordinal);
 
             int nEmit = 0, nDrop = 0, nDeg = 0, nNot = 0, nAbsorbed = 0, nComposite = 0, nChained = 0, nCollapsed = 0;
+            int nRefused = 0;
             var absorbedNames = new List<string>();
+            var refusedNames = new List<string>();
             var collapsedNames = new List<string>();
             var unaccounted = new List<string>();
             foreach (ShimejiAction a in config.Actions)
@@ -2308,6 +2335,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     if (a.Name != null && ExpandedSetPieces.Contains(a.Name)) nChained++;
                     else nComposite++;
                 }
+                else if (IsRefusedByPolicy(a))
+                {
+                    nRefused++;
+                    refusedNames.Add(n);
+                }
                 else { unaccounted.Add(n); }
             }
 
@@ -2318,12 +2350,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 + "{4} not attempted, {5} absorbed (they become the magic fall/drag/kill animations, the flip "
                 + "action, or an offset baked into the sheet), {6} Sequence/Select composites that order OTHER "
                 + "actions rather than carrying frames of their own, {9} merged into an identical sibling "
-                + "animation. These sum to the total by construction. "
+                + "animation, {10} refused by policy. These sum to the total by construction. "
                 + "The pet carries {7} animations rather than {1} because {8} are synthesised by the converter "
                 + "with no source action behind them, and a gaze is counted here as emitted even though it is "
                 + "also listed as degraded.",
                 config.Actions.Count, nEmit, nDrop, nDeg, nNot, nAbsorbed, nComposite + nChained,
-                emitted.Count, synthesised, nCollapsed));
+                emitted.Count, synthesised, nCollapsed, nRefused));
             if (nChained > 0)
                 residue.Notes.Add("Set-pieces CONVERTED as chains (" + nChained + "): "
                     + string.Join(", ", ExpandedSetPieces) + ". Each member is emitted as its own animation "
@@ -2339,6 +2371,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     + "already emitted, so they are converted, just not under their own name.");
             if (absorbedNames.Count > 0)
                 residue.Notes.Add("Absorbed rather than lost: " + string.Join(", ", absorbedNames) + ".");
+            if (refusedNames.Count > 0)
+                residue.Notes.Add("REFUSED on purpose (" + refusedNames.Count + "): "
+                    + string.Join(", ", refusedNames) + ". These open a URL in your browser (Shimeji's "
+                    + "Type=\"OpenURL\"). A companion installed from a skin catalogue does not get to open "
+                    + "links, so this is a deliberate refusal rather than a converter limitation, and it "
+                    + "will not be added later.");
             if (nComposite > 0)
                 residue.Notes.Add("The " + nComposite + " Sequence/Select composites are where a skin's "
                     + "SET-PIECES live (a scripted run of other actions, e.g. walk off screen then come back). "
