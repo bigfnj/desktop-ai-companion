@@ -24,7 +24,16 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.0.5",   // 1.0.5: a REAL behaviour change, not just a restale. This module
+            Version = "1.0.6",   // 1.0.6: another REAL behaviour change through the source-linked
+                                 //        engine. PetEmitter now converts a Sequence composite as a
+                                 //        CHAIN (each member its own animation, linked at
+                                 //        probability 100, only the first reachable from the hub), so
+                                 //        a skin imported HERE can keep a scripted set-piece whose
+                                 //        members were previously withheld -- a leg that walks off
+                                 //        screen is only safe when its return leg is structurally the
+                                 //        sole successor. The residue report also accounts for every
+                                 //        source action now instead of going silent on a third of them.
+                                 // 1.0.5: a REAL behaviour change, not just a restale. This module
                                  //        source-links the Shimeji conversion engine, so its importer
                                  //        recompiles PetEmitter.IsLocomotion, which stopped reading a
                                  //        performance that travels as locomotion. A skin imported HERE
