@@ -47,10 +47,10 @@
       <sequence repeatfrom="0" repeat="0">
         <frame>0</frame>
         <next probability="4" only="none">1</next>
-        <next probability="112" only="none">2</next>
+        <next probability="103" only="none">2</next>
         <next probability="7" only="none">3</next>
         <next probability="7" only="none">4</next>
-        <next probability="83" only="none">5</next>
+        <next probability="71" only="none">5</next>
         <next probability="7" only="none">6</next>
         <next probability="7" only="none">7</next>
         <next probability="7" only="none">8</next>
@@ -64,6 +64,8 @@
         <next probability="7" only="none">16</next>
         <next probability="7" only="none">17</next>
         <next probability="25" only="none">18</next>
+        <next probability="8" only="none">28</next>
+        <next probability="8" only="none">32</next>
       </sequence>
       <gravity>
         <next probability="100" only="none">23</next>
@@ -558,6 +560,204 @@
         <frame>33</frame>
         <next probability="100" only="none">23</next>
       </sequence>
+    </animation>
+    <animation id="28">
+      <name>ワークエリアの下辺の左の端っこで座る_1_歩く</name>
+      <start>
+        <x>-2</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>240</interval>
+      </start>
+      <end>
+        <x>-2</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>240</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="2">
+        <frame>0</frame>
+        <frame>1</frame>
+        <frame>0</frame>
+        <frame>2</frame>
+        <next probability="100" only="none">29</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">29</next>
+      </border>
+    </animation>
+    <animation id="32">
+      <name>ワークエリアの下辺の右の端っこで座る_1_歩く</name>
+      <start>
+        <x>-2</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>240</interval>
+      </start>
+      <end>
+        <x>-2</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>240</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="2">
+        <frame>0</frame>
+        <frame>1</frame>
+        <frame>0</frame>
+        <frame>2</frame>
+        <next probability="100" only="none">33</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">33</next>
+      </border>
+    </animation>
+    <animation id="29">
+      <name>ワークエリアの下辺の左の端っこで座る_2_立つ</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>3666</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>3666</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="2">
+        <frame>0</frame>
+        <next probability="100" only="none">30</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">30</next>
+      </border>
+    </animation>
+    <animation id="30">
+      <name>ワークエリアの下辺の左の端っこで座る_3_立つ</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>3666</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>3666</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="2">
+        <frame>0</frame>
+        <next probability="100" only="none">31</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">31</next>
+      </border>
+    </animation>
+    <animation id="31">
+      <name>ワークエリアの下辺の左の端っこで座る_4_座る</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>3666</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>3666</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="2">
+        <frame>3</frame>
+        <next probability="100" only="none">1</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">1</next>
+      </border>
+    </animation>
+    <animation id="33">
+      <name>ワークエリアの下辺の右の端っこで座る_2_立つ</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>3666</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>3666</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="2">
+        <frame>0</frame>
+        <next probability="100" only="none">34</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">34</next>
+      </border>
+    </animation>
+    <animation id="34">
+      <name>ワークエリアの下辺の右の端っこで座る_3_立つ</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>3666</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>3666</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="2">
+        <frame>0</frame>
+        <next probability="100" only="none">35</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">35</next>
+      </border>
+    </animation>
+    <animation id="35">
+      <name>ワークエリアの下辺の右の端っこで座る_4_座る</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>3666</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>3666</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="2">
+        <frame>3</frame>
+        <next probability="100" only="none">1</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">1</next>
+      </border>
     </animation>
     <animation id="19">
       <name>壁に掴まる</name>

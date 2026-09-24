@@ -48,27 +48,34 @@
         <frame>0</frame>
         <frame>1</frame>
         <next probability="4" only="none">1</next>
-        <next probability="103" only="none">2</next>
-        <next probability="99" only="none">3</next>
-        <next probability="46" only="none">4</next>
-        <next probability="106" only="none">5</next>
-        <next probability="13" only="none">6</next>
-        <next probability="13" only="none">7</next>
+        <next probability="94" only="none">2</next>
+        <next probability="89" only="none">3</next>
+        <next probability="41" only="none">4</next>
+        <next probability="83" only="none">5</next>
+        <next probability="10" only="none">6</next>
+        <next probability="10" only="none">7</next>
         <next probability="34" only="none">8</next>
-        <next probability="34" only="none">9</next>
-        <next probability="34" only="none">10</next>
-        <next probability="34" only="none">11</next>
+        <next probability="10" only="none">9</next>
+        <next probability="10" only="none">10</next>
+        <next probability="10" only="none">11</next>
         <next probability="17" only="none">12</next>
         <next probability="58" only="none">13</next>
         <next probability="74" only="none">14</next>
-        <next probability="13" only="none">15</next>
-        <next probability="13" only="none">16</next>
+        <next probability="10" only="none">15</next>
+        <next probability="10" only="none">16</next>
         <next probability="25" only="none">17</next>
-        <next probability="13" only="none">18</next>
-        <next probability="13" only="none">19</next>
+        <next probability="10" only="none">18</next>
+        <next probability="10" only="none">19</next>
         <next probability="34" only="none">20</next>
         <next probability="24" only="none">21</next>
         <next probability="34" only="none">22</next>
+        <next probability="10" only="none">32</next>
+        <next probability="10" only="none">37</next>
+        <next probability="10" only="none">41</next>
+        <next probability="10" only="none">45</next>
+        <next probability="10" only="none">49</next>
+        <next probability="10" only="none">53</next>
+        <next probability="10" only="none">57</next>
       </sequence>
       <gravity>
         <next probability="100" only="none">27</next>
@@ -801,6 +808,873 @@
       <gravity>
         <next probability="100" only="none">27</next>
       </gravity>
+    </animation>
+    <animation id="32">
+      <name>SitWhileDanglingLegs_1_SitWithLegsUp</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>3666</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>3666</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="2">
+        <frame>18</frame>
+        <next probability="100" only="none">33</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">33</next>
+      </border>
+    </animation>
+    <animation id="37">
+      <name>WalkLeftAlongFloorAndSit_1_Walk</name>
+      <start>
+        <x>-2</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>240</interval>
+      </start>
+      <end>
+        <x>-2</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>240</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="0">
+        <frame>2</frame>
+        <frame>3</frame>
+        <frame>2</frame>
+        <frame>4</frame>
+        <frame>2</frame>
+        <frame>3</frame>
+        <frame>2</frame>
+        <frame>4</frame>
+        <frame>2</frame>
+        <frame>3</frame>
+        <frame>2</frame>
+        <frame>4</frame>
+        <frame>5</frame>
+        <frame>3</frame>
+        <frame>2</frame>
+        <frame>4</frame>
+        <next probability="100" only="none">38</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">38</next>
+      </border>
+    </animation>
+    <animation id="41">
+      <name>WalkRightAlongFloorAndSit_1_Walk</name>
+      <start>
+        <x>-2</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>240</interval>
+      </start>
+      <end>
+        <x>-2</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>240</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="0">
+        <frame>2</frame>
+        <frame>3</frame>
+        <frame>2</frame>
+        <frame>4</frame>
+        <frame>2</frame>
+        <frame>3</frame>
+        <frame>2</frame>
+        <frame>4</frame>
+        <frame>2</frame>
+        <frame>3</frame>
+        <frame>2</frame>
+        <frame>4</frame>
+        <frame>5</frame>
+        <frame>3</frame>
+        <frame>2</frame>
+        <frame>4</frame>
+        <next probability="100" only="none">42</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">42</next>
+      </border>
+    </animation>
+    <animation id="45">
+      <name>RunLeftAlongFloorAndSit_1_Run</name>
+      <start>
+        <x>-4</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>120</interval>
+      </start>
+      <end>
+        <x>-4</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>120</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="0">
+        <frame>6</frame>
+        <frame>7</frame>
+        <frame>6</frame>
+        <frame>8</frame>
+        <frame>6</frame>
+        <frame>7</frame>
+        <frame>6</frame>
+        <frame>8</frame>
+        <frame>6</frame>
+        <frame>7</frame>
+        <frame>6</frame>
+        <frame>8</frame>
+        <frame>9</frame>
+        <frame>7</frame>
+        <frame>6</frame>
+        <frame>8</frame>
+        <next probability="100" only="none">46</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">46</next>
+      </border>
+    </animation>
+    <animation id="49">
+      <name>RunRightAlongFloorAndSit_1_Run</name>
+      <start>
+        <x>-4</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>120</interval>
+      </start>
+      <end>
+        <x>-4</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>120</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="0">
+        <frame>6</frame>
+        <frame>7</frame>
+        <frame>6</frame>
+        <frame>8</frame>
+        <frame>6</frame>
+        <frame>7</frame>
+        <frame>6</frame>
+        <frame>8</frame>
+        <frame>6</frame>
+        <frame>7</frame>
+        <frame>6</frame>
+        <frame>8</frame>
+        <frame>9</frame>
+        <frame>7</frame>
+        <frame>6</frame>
+        <frame>8</frame>
+        <next probability="100" only="none">50</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">50</next>
+      </border>
+    </animation>
+    <animation id="53">
+      <name>DashLeftAlongFloorAndSit_1_Dash</name>
+      <start>
+        <x>-8</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>120</interval>
+      </start>
+      <end>
+        <x>-8</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>120</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="0">
+        <frame>6</frame>
+        <frame>7</frame>
+        <frame>6</frame>
+        <frame>8</frame>
+        <frame>6</frame>
+        <frame>7</frame>
+        <frame>6</frame>
+        <frame>8</frame>
+        <frame>6</frame>
+        <frame>7</frame>
+        <frame>6</frame>
+        <frame>8</frame>
+        <frame>9</frame>
+        <frame>7</frame>
+        <frame>6</frame>
+        <frame>8</frame>
+        <next probability="100" only="none">54</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">54</next>
+      </border>
+    </animation>
+    <animation id="57">
+      <name>DashRightAlongFloorAndSit_1_Dash</name>
+      <start>
+        <x>-8</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>120</interval>
+      </start>
+      <end>
+        <x>-8</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>120</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="0">
+        <frame>6</frame>
+        <frame>7</frame>
+        <frame>6</frame>
+        <frame>8</frame>
+        <frame>6</frame>
+        <frame>7</frame>
+        <frame>6</frame>
+        <frame>8</frame>
+        <frame>6</frame>
+        <frame>7</frame>
+        <frame>6</frame>
+        <frame>8</frame>
+        <frame>9</frame>
+        <frame>7</frame>
+        <frame>6</frame>
+        <frame>8</frame>
+        <next probability="100" only="none">58</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">58</next>
+      </border>
+    </animation>
+    <animation id="33">
+      <name>SitWhileDanglingLegs_2_SitWithLegsDown</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>700</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>120</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="6">
+        <frame>18</frame>
+        <frame>19</frame>
+        <frame>20</frame>
+        <frame>19</frame>
+        <next probability="100" only="none">34</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">34</next>
+      </border>
+    </animation>
+    <animation id="34">
+      <name>SitWhileDanglingLegs_3_SitAndDangleLegs</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>200</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>600</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="1">
+        <frame>18</frame>
+        <frame>21</frame>
+        <frame>22</frame>
+        <frame>23</frame>
+        <frame>19</frame>
+        <frame>21</frame>
+        <frame>22</frame>
+        <frame>23</frame>
+        <frame>18</frame>
+        <frame>21</frame>
+        <frame>22</frame>
+        <frame>23</frame>
+        <frame>20</frame>
+        <frame>24</frame>
+        <frame>25</frame>
+        <frame>23</frame>
+        <next probability="100" only="none">35</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">35</next>
+      </border>
+    </animation>
+    <animation id="35">
+      <name>SitWhileDanglingLegs_4_SitWithLegsDown</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>700</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>120</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="6">
+        <frame>18</frame>
+        <frame>19</frame>
+        <frame>20</frame>
+        <frame>19</frame>
+        <next probability="100" only="none">36</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">36</next>
+      </border>
+    </animation>
+    <animation id="36">
+      <name>SitWhileDanglingLegs_5_SitWithLegsUp</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>3666</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>3666</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="2">
+        <frame>18</frame>
+        <next probability="100" only="none">1</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">1</next>
+      </border>
+    </animation>
+    <animation id="38">
+      <name>WalkLeftAlongFloorAndSit_2_Stand</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>700</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>240</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="11">
+        <frame>0</frame>
+        <frame>1</frame>
+        <next probability="100" only="none">39</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">39</next>
+      </border>
+    </animation>
+    <animation id="39">
+      <name>WalkLeftAlongFloorAndSit_3_Stand</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>700</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>240</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="11">
+        <frame>0</frame>
+        <frame>1</frame>
+        <next probability="100" only="none">40</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">40</next>
+      </border>
+    </animation>
+    <animation id="40">
+      <name>WalkLeftAlongFloorAndSit_4_Sit</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>700</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>700</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="1">
+        <frame>10</frame>
+        <frame>11</frame>
+        <frame>10</frame>
+        <frame>12</frame>
+        <frame>10</frame>
+        <frame>12</frame>
+        <frame>10</frame>
+        <frame>12</frame>
+        <frame>10</frame>
+        <next probability="100" only="none">1</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">1</next>
+      </border>
+    </animation>
+    <animation id="42">
+      <name>WalkRightAlongFloorAndSit_2_Stand</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>700</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>240</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="11">
+        <frame>0</frame>
+        <frame>1</frame>
+        <next probability="100" only="none">43</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">43</next>
+      </border>
+    </animation>
+    <animation id="43">
+      <name>WalkRightAlongFloorAndSit_3_Stand</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>700</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>240</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="11">
+        <frame>0</frame>
+        <frame>1</frame>
+        <next probability="100" only="none">44</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">44</next>
+      </border>
+    </animation>
+    <animation id="44">
+      <name>WalkRightAlongFloorAndSit_4_Sit</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>700</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>700</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="1">
+        <frame>10</frame>
+        <frame>11</frame>
+        <frame>10</frame>
+        <frame>12</frame>
+        <frame>10</frame>
+        <frame>12</frame>
+        <frame>10</frame>
+        <frame>12</frame>
+        <frame>10</frame>
+        <next probability="100" only="none">1</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">1</next>
+      </border>
+    </animation>
+    <animation id="46">
+      <name>RunLeftAlongFloorAndSit_2_Stand</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>700</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>240</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="11">
+        <frame>0</frame>
+        <frame>1</frame>
+        <next probability="100" only="none">47</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">47</next>
+      </border>
+    </animation>
+    <animation id="47">
+      <name>RunLeftAlongFloorAndSit_3_Stand</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>700</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>240</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="11">
+        <frame>0</frame>
+        <frame>1</frame>
+        <next probability="100" only="none">48</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">48</next>
+      </border>
+    </animation>
+    <animation id="48">
+      <name>RunLeftAlongFloorAndSit_4_Sit</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>700</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>700</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="1">
+        <frame>10</frame>
+        <frame>11</frame>
+        <frame>10</frame>
+        <frame>12</frame>
+        <frame>10</frame>
+        <frame>12</frame>
+        <frame>10</frame>
+        <frame>12</frame>
+        <frame>10</frame>
+        <next probability="100" only="none">1</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">1</next>
+      </border>
+    </animation>
+    <animation id="50">
+      <name>RunRightAlongFloorAndSit_2_Stand</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>700</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>240</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="11">
+        <frame>0</frame>
+        <frame>1</frame>
+        <next probability="100" only="none">51</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">51</next>
+      </border>
+    </animation>
+    <animation id="51">
+      <name>RunRightAlongFloorAndSit_3_Stand</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>700</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>240</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="11">
+        <frame>0</frame>
+        <frame>1</frame>
+        <next probability="100" only="none">52</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">52</next>
+      </border>
+    </animation>
+    <animation id="52">
+      <name>RunRightAlongFloorAndSit_4_Sit</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>700</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>700</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="1">
+        <frame>10</frame>
+        <frame>11</frame>
+        <frame>10</frame>
+        <frame>12</frame>
+        <frame>10</frame>
+        <frame>12</frame>
+        <frame>10</frame>
+        <frame>12</frame>
+        <frame>10</frame>
+        <next probability="100" only="none">1</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">1</next>
+      </border>
+    </animation>
+    <animation id="54">
+      <name>DashLeftAlongFloorAndSit_2_Stand</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>700</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>240</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="11">
+        <frame>0</frame>
+        <frame>1</frame>
+        <next probability="100" only="none">55</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">55</next>
+      </border>
+    </animation>
+    <animation id="55">
+      <name>DashLeftAlongFloorAndSit_3_Stand</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>700</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>240</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="11">
+        <frame>0</frame>
+        <frame>1</frame>
+        <next probability="100" only="none">56</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">56</next>
+      </border>
+    </animation>
+    <animation id="56">
+      <name>DashLeftAlongFloorAndSit_4_Sit</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>700</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>700</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="1">
+        <frame>10</frame>
+        <frame>11</frame>
+        <frame>10</frame>
+        <frame>12</frame>
+        <frame>10</frame>
+        <frame>12</frame>
+        <frame>10</frame>
+        <frame>12</frame>
+        <frame>10</frame>
+        <next probability="100" only="none">1</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">1</next>
+      </border>
+    </animation>
+    <animation id="58">
+      <name>DashRightAlongFloorAndSit_2_Stand</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>700</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>240</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="11">
+        <frame>0</frame>
+        <frame>1</frame>
+        <next probability="100" only="none">59</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">59</next>
+      </border>
+    </animation>
+    <animation id="59">
+      <name>DashRightAlongFloorAndSit_3_Stand</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>700</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>240</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="11">
+        <frame>0</frame>
+        <frame>1</frame>
+        <next probability="100" only="none">60</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">60</next>
+      </border>
+    </animation>
+    <animation id="60">
+      <name>DashRightAlongFloorAndSit_4_Sit</name>
+      <start>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>700</interval>
+      </start>
+      <end>
+        <x>0</x>
+        <y>0</y>
+        <offsety>0</offsety>
+        <opacity>1</opacity>
+        <interval>700</interval>
+      </end>
+      <sequence repeatfrom="0" repeat="1">
+        <frame>10</frame>
+        <frame>11</frame>
+        <frame>10</frame>
+        <frame>12</frame>
+        <frame>10</frame>
+        <frame>12</frame>
+        <frame>10</frame>
+        <frame>12</frame>
+        <frame>10</frame>
+        <next probability="100" only="none">1</next>
+      </sequence>
+      <border>
+        <next probability="100" only="none">1</next>
+      </border>
     </animation>
     <animation id="23">
       <name>GrabWall</name>
