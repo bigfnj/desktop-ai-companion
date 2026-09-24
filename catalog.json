@@ -283,8 +283,8 @@
       "name": "Alipheese Fateburn XVI",
       "author": "Local import",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-alipheese-fateburn-xvi/animations.xml",
-      "sha256": "c64d825d497b119eb74cc707941fbb61935ff3a29b081235e12aede386f8a468",
-      "bytes": 1091610
+      "sha256": "9ea0417ba80b4633f3f88c3839011d3b3a2d9ab6961ccbddf4b7f652158f27b6",
+      "bytes": 1092016
     },
     {
       "id": "shimeji-brq51bkr",
@@ -299,16 +299,16 @@
       "name": "Capybara",
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-capybara-albino/animations.xml",
-      "sha256": "4554940eed962796ac43dbf7b0d85439402f71dcac0470094a77e4a62c1882dc",
-      "bytes": 529380
+      "sha256": "6a9f8965d47d5935397dc3f659e785c4671804ac718f61975209d518157865c1",
+      "bytes": 529584
     },
     {
       "id": "shimeji-cyn",
       "name": "Cyn",
       "author": "shimejis.xyz",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-cyn/animations.xml",
-      "sha256": "288a575ad639468627d8106efb4637fecb8f67812e68bdfea43e31ce21a7ab98",
-      "bytes": 1755400
+      "sha256": "03b9442c8a0cda14d59cb6eb3284a58808e4daec8de54fcc33b0e446641bf2fe",
+      "bytes": 1756009
     },
     {
       "id": "shimeji-dqjd9s2d",
@@ -323,80 +323,80 @@
       "name": "Gengar",
       "author": "Local import",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-gengar/animations.xml",
-      "sha256": "58f4cafc65eb06847e5807db7ad3bfce50ec4933933d5447491c448ded703a4d",
-      "bytes": 723696
+      "sha256": "1c2f4ca09ced0aaf14bc72ba660ef1323413bd714ad821a89d97e809edfd7140",
+      "bytes": 724102
     },
     {
       "id": "shimeji-hornet-9b9d1d",
       "name": "Hornet",
       "author": "shimejis.xyz",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-hornet-9b9d1d/animations.xml",
-      "sha256": "657da89048818f67a0cc19d704c606f02d6dbdffece309c86b82264565ed2480",
-      "bytes": 404136
+      "sha256": "4e4fd42c66ac5b26817791da36c9e3e6f5222da9613dc75f84841487109a8a73",
+      "bytes": 404339
     },
     {
       "id": "shimeji-kinitopet",
       "name": "KinitoPET",
       "author": "shimejis.xyz",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-kinitopet/animations.xml",
-      "sha256": "f6dce3e02c1cdc49916caaca993b377cdbc2bed079abdc551fadcf28684f1044",
-      "bytes": 514254
+      "sha256": "ba335e4863b54ec341d916001c0d941eae980b9c87bcad9e912470ee970a96b5",
+      "bytes": 514660
     },
     {
       "id": "shimeji-loona-hellhound",
       "name": "Loona the Hellhound",
       "author": "Local import",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-loona-hellhound/animations.xml",
-      "sha256": "162e43c3d126734b4a9863ae2a59c7f058ef739e887605b2fafe19cec042a897",
-      "bytes": 1033121
+      "sha256": "f61f010599698fe69906d522b28bdfe00fc8c12db4990860afa2590d105573d7",
+      "bytes": 1033324
     },
     {
       "id": "shimeji-ralsei",
       "name": "Ralsei",
       "author": "shimejis.xyz",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-ralsei/animations.xml",
-      "sha256": "f36a59fef40340511a288522232756a5bdfc290e81ffab54250c5613e6fdb3d9",
-      "bytes": 661895
+      "sha256": "db8f9e1b2c2f675123c6707a44ab3d174f2a7591c31c6843d7e41bfd3c653996",
+      "bytes": 662301
     },
     {
       "id": "shimeji-rick-and-morty-rick-by-starrii-chan",
       "name": "Rick",
       "author": "StarriiChan",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-rick-and-morty-rick-by-starrii-chan/animations.xml",
-      "sha256": "d7f8a388c5f08d3807406ddf522129e1588099411402ba3b484f0e8d599e02fa",
-      "bytes": 350756
+      "sha256": "e706c3dc88579e86fc9227596b2bf42b91fedec684d089c164a9a4b5398b1898",
+      "bytes": 351162
     },
     {
       "id": "shimeji-serial-designation-j",
       "name": "Serial Designation J",
       "author": "shimejis.xyz",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-serial-designation-j/animations.xml",
-      "sha256": "fabb555745436d1ee7d6649c44e6fdb10a9cd6473b78a2cc951f2297842c86a7",
-      "bytes": 2604842
+      "sha256": "c6b1ca1e9dd3fe1de822f44c0154e72900a226c65d2a22b76d9cd1e5236f8662",
+      "bytes": 2605248
     },
     {
       "id": "shimeji-south-park-cartman",
       "name": "Cartman",
       "author": "Phinbella-Flynn",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-south-park-cartman/animations.xml",
-      "sha256": "df2220a40c5ca1cea6849687346d48d2177b55132f796e39cce0902a0c409c4b",
-      "bytes": 644057
+      "sha256": "91870e081fcc4dda2c0dd54841ec57b2589d444ab6e19cae6a18711328ce1e96",
+      "bytes": 644463
     },
     {
       "id": "shimeji-uzi-doorman-ef5c7d",
       "name": "Uzi Doorman",
       "author": "Kilkakon and Polar Summit",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-uzi-doorman-ef5c7d/animations.xml",
-      "sha256": "ad98c02990092dbc9fd39c8d26e482c97bba8084916b831a6b92f3bc2596c2a4",
-      "bytes": 2061003
+      "sha256": "2c2231d9b4001fc94b633defbd47a0136b13541010ba2bbfbe640164a50af82f",
+      "bytes": 2062023
     },
     {
       "id": "shimeji-vocaloid-gakupo",
       "name": "Gakupo",
       "author": "rikka-nyan",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-vocaloid-gakupo/animations.xml",
-      "sha256": "817545a41884cfb51a95ef55622a5168f28bb8c1523c65d21a1840b106fba1ca",
-      "bytes": 808114
+      "sha256": "fed14f9aee973edfc7acaede0426306f8d4336353e19c76fa228909834362c8e",
+      "bytes": 808520
     },
     {
       "id": "shiny_sylveon",
@@ -2196,10 +2196,10 @@
       "id": "petstudio",
       "name": "Companion Studio",
       "desc": "Check a companion's animations.xml before you use it: what the host would reject, which animations can never play, and how it actually looks running on your desktop. Edit the XML in place, watch any animation's real sprite frames, preview the companion temporarily on your desktop, then install it.",
-      "version": "1.0.7",
+      "version": "1.0.8",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/petstudio.zip",
-      "sha256": "6412d6b1c7ef8ce44591aca910886b20026bc1ca82acd9c9dd8ab68654be6a75",
-      "bytes": 390612,
+      "sha256": "8e4da34185f77658374aeff50e1a3e87cf7ce60f45f31ba81e700d7eb1be3264",
+      "bytes": 391029,
       "permissions": "Speech, Companions, Storage"
     },
     {
@@ -2216,10 +2216,10 @@
       "id": "remembrance",
       "name": "Remembrance",
       "desc": "Records a meeting (your microphone + the system output over WASAPI loopback), transcribes it offline with a local Whisper, names it from your calendar (via the Reminder module) or a timestamp, snapshots the screen on a hotkey, and purges the audio + snapshots after 72 hours while keeping the transcript. Needs a local Whisper (whisper-cli + a model) set up in options, and the machine's own console - a Remote Desktop session presents no real microphone.",
-      "version": "1.0.8",
+      "version": "1.0.9",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/remembrance.zip",
-      "sha256": "40477de803e96c08c6a906a12d4688699106a69871e57b43035c3e420532423c",
-      "bytes": 7068753,
+      "sha256": "7627af98e21042829dacb3bd147ecb72db78a3ab24e88770b20bf6f4b3a9cf69",
+      "bytes": 7068886,
       "permissions": "Speech, Microphone, SystemAudio, ScreenContext, Hotkey, Storage, Network"
     },
     {
