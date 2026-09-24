@@ -24,7 +24,16 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.0.7",   // 1.0.7: the chain gate widened from "recovers a withheld member" to
+            Version = "1.0.8",   // 1.0.8: two ways the editor could save over the WRONG file, both of
+                                 //        them atomic and so unrecoverable. Picking a pet from "Analyze
+                                 //        installed companion" left _openedPath pointing at the file that
+                                 //        was open, so the next Save wrote the installed pet's XML over the
+                                 //        author's own and reported the victim's path as success. And Open
+                                 //        adopted the new path BEFORE reading it, so a file it failed to
+                                 //        read left the old content in the editor aimed at the new path.
+                                 //        Also carries the engine fix that gives every class-based jump its
+                                 //        landing edges, so a skin imported HERE hops instead of standing.
+                                 // 1.0.7: the chain gate widened from "recovers a withheld member" to
                                  //        "a behaviour with Frequency > 0 plays it", so a skin imported
                                  //        HERE reproduces the artist's scripted ORDER and not just the
                                  //        legs that would otherwise be lost: 2 of the 13 shipped pets

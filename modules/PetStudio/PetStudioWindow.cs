@@ -479,13 +479,20 @@ namespace DesktopAICompanion.PetStudioModule
                 if (dialog.ShowDialog(this) != true) return;
 
                 string path = dialog.FileName;
+                // READ FIRST, then adopt. These four assignments used to run before File.ReadAllText, so a
+                // file that could not be opened (another process holding it with FileShare.None) left the
+                // editor showing the PREVIOUS file's content while _openedPath pointed at the new one. The
+                // next Save then wrote the old content over the file it had just failed to read, and said it
+                // had saved. The catch below only writes a status line, which is what made it survivable
+                // enough to ship.
+                string text = File.ReadAllText(path);
                 _openedPath = path;
                 _path.Text = path;
                 _installId.Text = SuggestId(path);
                 _saveButton.IsEnabled = true;
                 HideImportLoss();               // the loss readout belongs to an import, not an opened file
                 RememberOpenDir(path);
-                SetEditorText(File.ReadAllText(path));
+                SetEditorText(text);
                 Analyze();
             }
             catch (Exception ex)
@@ -546,6 +553,12 @@ namespace DesktopAICompanion.PetStudioModule
                 return;
             }
             HideImportLoss();               // an installed pet carries no import-loss report
+            // The editor no longer holds the file that was open, so neither may Save. Without this the path
+            // survived the swap and Save wrote the INSTALLED pet's XML over the author's own file, atomically,
+            // reporting the victim's path back as a success -- with no partial file left to recover from.
+            // LoadConvertedIntoEditor already does exactly this for the import path, and says why.
+            _openedPath = null;
+            _installId.Text = SafeId(id);
             _path.Text = "Installed: " + id;
             SetEditorText(xml);
             Analyze();
