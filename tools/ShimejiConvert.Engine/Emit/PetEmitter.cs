@@ -1509,14 +1509,31 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             // climbs), i.e. the pet spent the difference mashed against the edge doing nothing.
             if (chained)
                 node.Border = new HitNode { Next = new[] { Next(e.ChainNext.Id, 100, "none") } };
-            if (loco && !chained)
+            // `loco || jump`, not `loco`. A jump is not always locomotion: IsLocomotion requires
+            // Type="Move", and the canonical Shimeji jump is Type="Embedded" Class="...action.Jump" whose
+            // launch lives in VelocityParam while its poses read Velocity="0,0". Gating the whole border
+            // block on loco therefore emitted every CLASS-BASED jump with no <border> element at all, which
+            // is precisely the defect the landing edges below were written to fix. Measured across the
+            // shipped pets: 27 jump-shaped animations carried no border node against 49 that did, and the
+            // 27 are the embedded ones -- Jumping in every pet, plus PullUpShimeji2, Launching, Lay an Egg2
+            // and Hypnosis!2. So every one of those hops ended in `fall` and then the hub's idle dwell, and
+            // the residue report told the user it would "either hop again or run off rather than stopping
+            // dead". The `rejump` migration (Program.cs) already attaches these edges to any hub-selectable
+            // gravity-less riser, so the migration and the emitter disagreed, with the migration right.
+            if ((loco || jump) && !chained)
             {
                 // Reach an edge -> turn (flip) and head back. At a LEFT/RIGHT screen edge specifically, the
                 // pet may instead grab the wall and climb: both entries are eligible there, so the weights
                 // decide (climb wins 1 in 3). At any other border only the only="none" turn matches, so
                 // behaviour away from the walls is exactly what it was.
-                var borderNext = new List<NextNode> { Next(turn.Id, BorderTurnWeight, "none") };
-                if (wallEntry != null) borderNext.Add(Next(wallEntry.Id, BorderClimbWeight, "vertical"));
+                //
+                // TRAVEL's edges, so they stay behind `loco`. A non-locomotion jump must NOT get the
+                // only="none" turn: that edge is eligible at the taskbar too, and a turn there is the exact
+                // "every landing was a facing flip into the hub's idle dwell" outcome the taskbar edges
+                // below exist to replace -- 30 of 31 landings on Hornet, before they were added.
+                var borderNext = new List<NextNode>();
+                if (loco) borderNext.Add(Next(turn.Id, BorderTurnWeight, "none"));
+                if (loco && wallEntry != null) borderNext.Add(Next(wallEntry.Id, BorderClimbWeight, "vertical"));
                 // The SIDE of a window is the same surface as a screen edge as far as the art is concerned,
                 // and every converted pet already carries wall poses it could previously only use at the two
                 // screen edges. This is the entry: walk off the side of a window you are standing on and
@@ -1526,7 +1543,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 // up into the window's top edge it just left, come over the lip, and put it back where it
                 // started -- a loop that costs a tick and shows nothing. Going down is the behaviour worth
                 // having, and the wall spokes chain among themselves, so it can still turn and climb back up.
-                if (wallExit != null)
+                if (loco && wallExit != null)
                 {
                     borderNext.Add(Next(wallExit.Id, BorderWindowGripWeight, "window-left"));
                     borderNext.Add(Next(wallExit.Id, BorderWindowGripWeight, "window-right"));
@@ -1553,7 +1570,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     if (landRun != null && landRun != e)
                         borderNext.Add(Next(landRun.Id, LandRunWeight, "taskbar"));
                 }
-                node.Border = new HitNode { Next = borderNext.ToArray() };
+                // A jump with no landRun and no ceiling has only its taskbar re-jump, which is still a
+                // border worth having. An empty set is not: emitting <border></border> would say the pet has
+                // an opinion about edges and then offer nothing.
+                if (borderNext.Count > 0) node.Border = new HitNode { Next = borderNext.ToArray() };
             }
             return node;
         }

@@ -50,6 +50,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 { "/hu.png", Solid(40, 60, Color.FromArgb(255, 160, 200, 240)) },
                 { "/l1.png", Solid(40, 60, Color.FromArgb(255, 90, 140, 200)) },
                 { "/l2.png", Solid(40, 60, Color.FromArgb(255, 70, 120, 180)) },
+                // Distinct colours on purpose: reusing BigJump's /j1 and /j2 made the embedded hop a
+                // byte-identical twin, CollapseDirectionPairs merged the two, and the fixture silently
+                // stopped testing the case it was added for.
+                { "/e1.png", Solid(40, 60, Color.FromArgb(255, 250, 150, 200)) },
+                { "/e2.png", Solid(40, 60, Color.FromArgb(255, 230, 130, 180)) },
             };
 
             try
@@ -175,6 +180,46 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                                 failures.Add("set-piece step '" + step.Name + "' kept a gravity edge; it routes " +
                                     "to 'fall', and 'fall' returns to the hub, so the rest of the run is skipped");
                         }
+                    }
+                }
+
+                // ---- A JUMP LANDS, WHETHER OR NOT IT IS LOCOMOTION ----
+                // The whole border block used to sit behind `loco`, which requires Type="Move". The
+                // canonical Shimeji jump is Type="Embedded" Class="...action.Jump", so it got no <border>
+                // at all: no taskbar re-jump, no landRun, no window-underside entry. Every hop ended in
+                // `fall` and then the hub's idle dwell, on 27 animations across the shipped pets, while the
+                // residue report told the user they would "hop again or run off rather than stopping dead".
+                // The assertion names the LANDING EDGE rather than "has a border", because a border carrying
+                // only a turn would satisfy the weaker claim and is the exact behaviour being replaced.
+                XmlData.AnimationNode embeddedHop = FindAnimationNamed(r, "HopEmbedded");
+                if (embeddedHop == null)
+                    failures.Add("no 'HopEmbedded' animation emitted, so the class-based jump is untested " +
+                        "and every border assertion here only ever saw a Type=Move jump");
+                else
+                {
+                    if (embeddedHop.Border == null || embeddedHop.Border.Next == null)
+                        failures.Add("the embedded-class jump 'HopEmbedded' got no border set, so it cannot " +
+                            "land: it falls to 'fall' and then stands there");
+                    else
+                    {
+                        bool landsOnTaskbar = false, turnsAtAnyEdge = false;
+                        foreach (XmlData.NextNode n in embeddedHop.Border.Next)
+                        {
+                            if (n == null) continue;
+                            if (string.Equals(n.OnlyFlag, "taskbar", StringComparison.Ordinal)) landsOnTaskbar = true;
+                            XmlData.AnimationNode t = FindAnimationById(r, n.Value);
+                            if (t != null && string.Equals(t.Name, "turn", StringComparison.Ordinal) &&
+                                (string.IsNullOrEmpty(n.OnlyFlag) || string.Equals(n.OnlyFlag, "none", StringComparison.Ordinal)))
+                                turnsAtAnyEdge = true;
+                        }
+                        if (!landsOnTaskbar)
+                            failures.Add("the embedded-class jump has a border but no only=\"taskbar\" edge, " +
+                                "so landing on the floor still decides nothing and the hop ends in the hub");
+                        // And it must NOT pick up travel's only="none" turn, which is eligible at the taskbar
+                        // too: a turn there is the facing-flip-into-idle outcome the taskbar edges replace.
+                        if (turnsAtAnyEdge)
+                            failures.Add("the embedded-class jump took locomotion's only=\"none\" turn, which " +
+                                "is eligible on landing and flips the pet into the hub instead of re-jumping");
                     }
                 }
 
@@ -1465,6 +1510,18 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
          RunOff travels left and ReturnOn travels back right, so the run REVERSES DIRECTION: that is exactly
          what animations.xsd cannot express as one animation (one <start>, one <end>, interpolated across
          every frame) and it is why a chain exists at all rather than a concatenation. -->
+    <!-- THE CANONICAL SHIMEJI JUMP, which is not Type=""Move"". base-conf/actions.xml declares Jumping as
+         Type=""Embedded"" Class=""...action.Jump"": the launch lives in VelocityParam and every pose reads
+         Velocity=""0,0"", so IsLocomotion is false for it. Every jump fixture above is Type=""Move"", which
+         is why the border assertions below passed for years while 27 jump-shaped animations across the
+         shipped pets were emitted with no <border> element at all. -->
+    <Action Name=""HopEmbedded"" Type=""Embedded"" Class=""com.group_finity.mascot.action.Jump""
+            VelocityParam=""14"" BorderType=""Floor"">
+      <Animation>
+        <Pose Image=""/e1.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""4"" />
+        <Pose Image=""/e2.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""4"" />
+      </Animation>
+    </Action>
     <Action Name=""RunOff"" Type=""Move"" BorderType=""None"">
       <Animation>
         <Pose Image=""/m.png"" ImageAnchor=""20,60"" Velocity=""-6,0"" Duration=""6"" />
