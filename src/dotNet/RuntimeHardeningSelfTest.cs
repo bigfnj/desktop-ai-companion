@@ -231,6 +231,58 @@ namespace DesktopAICompanion
                 Check("no pets yields an empty mix", StartUp.DeriveOnScreenMix(new CompanionTypeRegistry.Entry[0]).Count == 0);
                 aMix.Dispose(); xMix.Dispose();
 
+                // ---- THE MAGIC ANIMATION IDS MUST NAME SOMETHING THAT EXISTS ----
+                // AnimationDrag and AnimationFall defaulted to the literal id 1 and were overwritten only by
+                // an animation literally named "drag"/"fall". Nothing requires id 1 to exist: the validator
+                // only asks that ids be unique positive integers. A pet numbered from 2 therefore sent
+                // GetAnimation(1) down the unknown-id path, which returns a synthetic animation with ID 0,
+                // and the next tick's SheepAnimations[0] threw "The given key was not present" -- caught,
+                // shown as Fatal Error, and the pet's timer left disabled for the rest of the session.
+                //
+                // Three cases, because the resolution has three tiers and only the last one cannot fail.
+                var xRes = new Xml(1); var aRes = new Animations(xRes);
+                aRes.AddAnimation(7, "walk"); aRes.AddAnimation(8, "fall_hard"); aRes.AddAnimation(9, "grabbed");
+                aRes.ResolveMagicAnimations();
+                Check("a pet numbered from 2 gets a drag id that EXISTS",
+                    aRes.SheepAnimations.ContainsKey(aRes.AnimationDrag));
+                Check("a pet numbered from 2 gets a fall id that EXISTS",
+                    aRes.SheepAnimations.ContainsKey(aRes.AnimationFall));
+                Check("fall resolves by NAME when no animation is called exactly \"fall\" (fall_hard)",
+                    aRes.AnimationFall == 8);
+                aRes.Dispose(); xRes.Dispose();
+
+                // No name to go on at all: it must still land on a real id rather than a hopeful 1.
+                var xBare = new Xml(1); var aBare = new Animations(xBare);
+                aBare.AddAnimation(4, "one"); aBare.AddAnimation(5, "two");
+                aBare.ResolveMagicAnimations();
+                Check("with no matching name it falls back to the LOWEST declared id, not the literal 1",
+                    aBare.AnimationDrag == 4 && aBare.AnimationFall == 4);
+                aBare.Dispose(); xBare.Dispose();
+
+                // And a pet that DOES declare them keeps exactly what the parser chose: this fix must not
+                // move behaviour on the pets that were already correct, which is most of them.
+                var xOk = new Xml(1); var aOk = new Animations(xOk);
+                aOk.AddAnimation(1, "stand"); aOk.AddAnimation(2, "drag"); aOk.AddAnimation(3, "fall");
+                aOk.AnimationDrag = 2; aOk.AnimationFall = 3;
+                aOk.ResolveMagicAnimations();
+                Check("a pet that declares drag and fall is left untouched",
+                    aOk.AnimationDrag == 2 && aOk.AnimationFall == 3);
+                aOk.Dispose(); xOk.Dispose();
+
+                // ssj-goku's exact shape, which is why the defaults are now -1 rather than 1. It DOES declare
+                // "drag" at id 1 and does NOT declare "fall", only fall_short / fall_end1 / fall_fast. With a
+                // default of 1 the unset fall id silently pointed at the DRAG pose and looked declared, so no
+                // amount of resolving could tell the two apart. Releasing the pet played it hanging.
+                var xGoku = new Xml(1); var aGoku = new Animations(xGoku);
+                aGoku.AddAnimation(1, "drag"); aGoku.AddAnimation(2, "walk"); aGoku.AddAnimation(5, "fall_short");
+                aGoku.AnimationDrag = 1;                   // what the parser sets from the exact name
+                aGoku.ResolveMagicAnimations();
+                Check("an undeclared fall does NOT resolve to the drag pose just because it is id 1",
+                    aGoku.AnimationFall != aGoku.AnimationDrag);
+                Check("...it resolves to the animation whose NAME says falling (fall_short)",
+                    aGoku.AnimationFall == 5);
+                aGoku.Dispose(); xGoku.Dispose();
+
                 if (ok) sb.AppendLine("PASS: CompanionTypeRegistry lifetime self-test.");
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }

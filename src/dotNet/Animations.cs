@@ -658,13 +658,16 @@ namespace DesktopAICompanion
         public double ScaleFactorD { get { return instanceXml.ScaleFactorD; } }
         
             /// <summary>
-            /// Animation ID once the pet is being dragged (default: 1)
+            /// Animation ID once the pet is being dragged. -1 until the parser finds an animation named
+            /// "drag"; ResolveMagicAnimations then turns that into a real id. NOT 1: see that method for
+            /// what a hopeful 1 cost, and note AnimationKill has used -1 for "not declared" all along.
             /// </summary>
-        public int AnimationDrag = 1;
+        public int AnimationDrag = -1;
             /// <summary>
-            /// Animation ID for the falling animation, after the dragged pet was released (default: 1)
+            /// Animation ID for the falling animation, after the dragged pet was released. -1 until
+            /// declared; see <see cref="AnimationDrag"/> and ResolveMagicAnimations.
             /// </summary>
-        public int AnimationFall = 1;
+        public int AnimationFall = -1;
             /// <summary>
             /// Animation ID once the pet should be closed (default: -1) 
             /// </summary>
@@ -893,6 +896,62 @@ namespace DesktopAICompanion
             retSpawn.Start.Interval.Compute = "1000";
             retSpawn.Start.Interval.Value = 1000;
             return retSpawn;
+        }
+
+        /// <summary>
+        /// Point <see cref="AnimationDrag"/> and <see cref="AnimationFall"/> at animations that EXIST, once
+        /// the whole set is known. Called by the parser after the last SaveAnimation.
+        ///
+        /// Both used to default to the literal id 1 and were overwritten only when the pet declared an
+        /// animation literally named "drag" or "fall". Nothing required id 1 to be either of those things, or
+        /// to exist at all -- CompanionXmlValidator only asks that ids be unique positive integers -- so the
+        /// default was a guess dressed as a value, and it was wrong two different ways:
+        ///
+        ///   THE WRONG ANIMATION, on pets that ship today. Of the 53 installed companions, pingus and negima
+        ///   declare no "drag" and ssj-goku declares no "fall". Picking up a pingus played its WALK cycle
+        ///   while it hung from the cursor; negima played fall_asuna, its fast-fall pose; releasing ssj-goku
+        ///   played the drag pose, and it recovered only because that animation happens to carry a gravity
+        ///   edge.
+        ///
+        ///   A CRASH AND A PERMANENT FREEZE, on any pet whose ids start above 1. GetAnimation returns a
+        ///   synthetic TAnimation with ID 0 for an unknown id, and 0 is never a key, so the next tick's
+        ///   SheepAnimations[0] threw. Timer1_Tick caught it, showed "Fatal Error: The given key was not
+        ///   present in the dictionary" and left the timer disabled: that pet is dead for the session. A
+        ///   hand-authored pet numbered from 2 reaches this by being dragged and released, and drag-and-drop
+        ///   of a local animations.xml is a shipped feature whose only gate is the validator.
+        ///
+        /// Resolution order: an exact magic name (already applied by the parser), then a name CONTAINING the
+        /// word, then the lowest declared id. The last of those is the one that cannot fail, and it is why
+        /// this method fixes the freeze even for a pet whose vocabulary it does not recognise.
+        /// </summary>
+        public void ResolveMagicAnimations()
+        {
+            if (SheepAnimations == null || SheepAnimations.Count == 0) return;
+            int lowest = int.MaxValue;
+            foreach (int key in SheepAnimations.Keys) if (key < lowest) lowest = key;
+
+            AnimationDrag = ResolveMagicAnimation(AnimationDrag, "drag", lowest);
+            AnimationFall = ResolveMagicAnimation(AnimationFall, "fall", lowest);
+        }
+
+        private int ResolveMagicAnimation(int current, string word, int lowest)
+        {
+            // Already pointing at a real animation (the parser matched the exact name, or the default of 1
+            // happens to exist): leave it alone. Changing it would move behaviour on every pet that is fine.
+            // The parser already found an exact match and set this: that is the artist's own answer.
+            if (SheepAnimations.ContainsKey(current)) return current;
+            // Ascending key order, not dictionary order, so two runs of the same pet always pick the same
+            // animation. Dictionary<int,_> enumeration is unspecified, and a pet that drags differently on
+            // alternate launches would be a far worse bug than the one being fixed.
+            var keys = new List<int>(SheepAnimations.Keys);
+            keys.Sort();
+            foreach (int key in keys)
+            {
+                string name = SheepAnimations[key].Name;   // TAnimation is a struct; no null to guard
+                if (!string.IsNullOrEmpty(name) &&
+                    name.IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0) return key;
+            }
+            return lowest;
         }
 
             /// <summary>

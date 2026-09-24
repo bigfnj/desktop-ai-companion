@@ -348,6 +348,10 @@ namespace DesktopAICompanion
                 animations.SaveAnimation(ani, node.Id);
             }
 
+            // Every animation is now known, so the magic ids can be resolved against the real set rather
+            // than left on a default that may name nothing. See ResolveMagicAnimations.
+            animations.ResolveMagicAnimations();
+
             // for each spawn
             if (AnimationXML.Spawns.Spawn != null)
             {
