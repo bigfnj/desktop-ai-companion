@@ -1475,9 +1475,19 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             // an edge, fatal for a jump, which is airborne by design and would be cut off at frame one. Not
                 // one of yellow_sheep's 22 upward animations carries a gravity node, for exactly this reason.
             // The arc's forced descent brings the pet down instead, and `fall`'s own border edge lands it.
-            if (fall != null && e != fall && !jump)
+            //
+            // A SET-PIECE STEP gets neither gravity nor border, and that is the only thing that makes the
+            // run a guarantee rather than a hope. ChainNext controls the SEQUENCE edge alone, so without
+            // this a locomotion step still took turn / wallEntry / window-left|right on border contact and
+            // any non-jump step still handed to `fall`, and `fall` returns to the hub -- abandoning the run
+            // part-way. Capybara's gator ride carries Walk and Dash, both Type="Move", so the two chains
+            // that already shipped in 8162ab9 had exactly this hole. A leg that walks the pet off screen is
+            // only safe when its return leg cannot be skipped. The chain's last step hands to the hub, which
+            // has its own gravity, so a run that ends mid-air still recovers.
+            bool chained = e.ChainNext != null;
+            if (fall != null && e != fall && !jump && !chained)
                 node.Gravity = new HitNode { Next = new[] { Next(fall.Id, 100, "none") } };
-            if (loco)
+            if (loco && !chained)
             {
                 // Reach an edge -> turn (flip) and head back. At a LEFT/RIGHT screen edge specifically, the
                 // pet may instead grab the wall and climb: both entries are eligible there, so the weights
