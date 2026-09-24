@@ -60,7 +60,15 @@ namespace DesktopAICompanion.ReminderModule
         {
             Id = Id,
             Name = "Reminder",
-            Version = "1.0.2",   // 1.0.1: republished so the bundled ModuleKit.dll no longer carries the
+            Version = "1.0.3",   // 1.0.3: a restart no longer re-nags. The fired-event set was pruned
+                                 //        against the feed BEFORE any check on snap.Error, and an empty feed
+                                 //        is routine: CachingCalendarSource returns no events with
+                                 //        "Loading the calendar" on its first call, and Init calls CheckDue
+                                 //        directly. So the set was wiped and written to disk on every launch,
+                                 //        and a meeting still inside its lead window announced a second time
+                                 //        with chime, animation and bubble. The module header has always
+                                 //        promised the opposite.
+                                 // 1.0.1: republished so the bundled ModuleKit.dll no longer carries the
                                  //        maintainer's absolute build path (Contracts + ModuleKit moved to
                                  //        DebugType=embedded). NO functional change here; the bump exists
                                  //        because the catalog offers an update by VERSION, so without it the
@@ -237,11 +245,7 @@ namespace DesktopAICompanion.ReminderModule
 
                 IReadOnlyList<CalendarEvent> events = snap.Events ?? (IReadOnlyList<CalendarEvent>)Array.Empty<CalendarEvent>();
 
-                // Keep the fired set bounded: drop composite ids whose EVENT no longer appears in the feed.
-                // Fired ids are "<eventId>@<lead>", so compare on the event-id part.
-                var feedIds = new HashSet<string>(StringComparer.Ordinal);
-                foreach (CalendarEvent e in events) if (e != null && e.Id != null) feedIds.Add(e.Id);
-                bool changed = _fired.RemoveWhere(id => !feedIds.Contains(ReminderScheduler.EventIdOf(id))) > 0;
+                bool changed = PruneFiredAgainstFeed(snap, _fired);
 
                 DateTimeOffset now = DateTimeOffset.Now;
                 PublishMeetingContext(now, events);
@@ -1222,6 +1226,42 @@ namespace DesktopAICompanion.ReminderModule
                 if (!string.IsNullOrWhiteSpace(id)) _fired.Add(id.Trim());
         }
 
+        /// <summary>
+        /// Drop fired ids whose EVENT no longer appears in the feed, but ONLY when the feed is a trustworthy
+        /// view of the calendar. Returns true when anything was removed.
+        ///
+        /// This used to prune unconditionally, before any look at snap.Error, and that undid the one promise
+        /// this module's header makes: "remembers which fired so a restart never re-nags".
+        ///
+        /// An empty feed is ROUTINE here, not exceptional. CachingCalendarSource.Fetch captures _cache under
+        /// its lock BEFORE kicking the background refresh, so the FIRST call always returns no events with
+        /// Error = "Loading the calendar…". Init calls CheckDue directly, so that first call happens on every
+        /// single launch, and Save rebuilds the source so it happens again after every options Apply.
+        ///
+        /// The failure that follows: a 10:00 meeting with a 15-minute lead fires at 09:45 and "cal1|uid@15"
+        /// is saved. Restart at 09:50. Init, CheckDue, empty feed, the whole set wiped and written to disk.
+        /// Twenty seconds later the feed loads, `now` is still inside DueNow's [start-15, start+1] window,
+        /// and the same meeting announces again with chime, animation and bubble.
+        ///
+        /// Gating on Error alone is the whole fix, and it keeps the case the prune exists for: a feed that
+        /// loaded and is genuinely empty has Error empty, so its stale ids are still dropped. Skipping the
+        /// prune cannot leak either, because the set only GROWS when an event fires, and firing needs events.
+        /// </summary>
+        internal static bool PruneFiredAgainstFeed(CalendarSnapshot snap, HashSet<string> fired)
+        {
+            if (snap == null || fired == null || fired.Count == 0) return false;
+            // Any error means this is a partial or not-yet-loaded view. Pruning against it would treat
+            // "I cannot see your calendar" as "your calendar is empty".
+            if (!string.IsNullOrEmpty(snap.Error)) return false;
+
+            IReadOnlyList<CalendarEvent> events =
+                snap.Events ?? (IReadOnlyList<CalendarEvent>)Array.Empty<CalendarEvent>();
+            // Fired ids are "<eventId>@<lead>", so compare on the event-id part.
+            var feedIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (CalendarEvent e in events) if (e != null && e.Id != null) feedIds.Add(e.Id);
+            return fired.RemoveWhere(id => !feedIds.Contains(ReminderScheduler.EventIdOf(id))) > 0;
+        }
+
         private void SaveFired()
         {
             _settings.Set("fired", string.Join("\n", _fired));
@@ -1277,6 +1317,52 @@ namespace DesktopAICompanion.ReminderModule
                 sb.AppendLine((condition ? "PASS: " : "FAIL: ") + name);
                 if (!condition) ok = false;
             };
+
+            // ---- A RESTART MUST NOT RE-NAG ----
+            // The fired set used to be pruned against the feed unconditionally, before any look at
+            // snap.Error. An empty feed is routine here: CachingCalendarSource.Fetch captures its cache
+            // BEFORE kicking the background refresh, so the first call of every launch returns no events with
+            // Error set, and Init calls CheckDue directly. The set was therefore wiped and written to disk on
+            // every start, and a meeting still inside its lead window announced a second time.
+            Func<string, CalendarEvent[], CalendarSnapshot> snapOf = (err, evs) =>
+                new CalendarSnapshot { Events = evs, Error = err };
+            Func<HashSet<string>> firedOf = () =>
+                new HashSet<string>(new[] { "cal1|uid@15", "cal1|other@5" }, StringComparer.Ordinal);
+
+            // The exact shape of the first tick of every launch.
+            HashSet<string> f1 = firedOf();
+            bool pruned1 = PruneFiredAgainstFeed(
+                snapOf("Loading the calendar…", Array.Empty<CalendarEvent>()), f1);
+            check("a still-loading feed prunes nothing (pruned=" + pruned1 + " count=" + f1.Count + ")", !pruned1 && f1.Count == 2);
+
+            // A feed that failed outright, for the same reason: this is not evidence the calendar is empty.
+            HashSet<string> f2 = firedOf();
+            PruneFiredAgainstFeed(snapOf("cal1: the server said 503", Array.Empty<CalendarEvent>()), f2);
+            check("a failed feed prunes nothing", f2.Count == 2);
+
+            // A PARTIAL failure still carries the healthy slots' events, and its ids must survive too: the
+            // combined error means one slot failed, not that the missing events were cancelled.
+            HashSet<string> f3 = firedOf();
+            PruneFiredAgainstFeed(
+                snapOf("cal2: unreachable", new[] { new CalendarEvent { Id = "cal1|uid" } }), f3);
+            check("a partial failure keeps ids the surviving slot cannot vouch for", f3.Count == 2);
+
+            // And the case the prune EXISTS for still works, or this would be a fix that removed the feature.
+            HashSet<string> f4 = firedOf();
+            bool pruned4 = PruneFiredAgainstFeed(
+                snapOf("", new[] { new CalendarEvent { Id = "cal1|uid" } }), f4);
+            check("a loaded feed still drops an id whose event is gone",
+                pruned4 && f4.Count == 1 && f4.Contains("cal1|uid@15"));
+
+            // A calendar that loaded and is genuinely empty: every id is stale and all of them go.
+            HashSet<string> f5 = firedOf();
+            check("a loaded but empty calendar drops everything",
+                PruneFiredAgainstFeed(snapOf("", Array.Empty<CalendarEvent>()), f5) && f5.Count == 0);
+
+            // Nothing to do is not a change, or CheckDue would write the settings file on every tick.
+            check("an unchanged set reports no change",
+                !PruneFiredAgainstFeed(snapOf("", new[] { new CalendarEvent { Id = "cal1|uid" },
+                                                          new CalendarEvent { Id = "cal1|other" } }), firedOf()));
 
             IReadOnlyList<string> defaults = ParseAnimationCandidates(DefaultReactAnimations);
             check("the default reaction list parses to several candidates", defaults.Count == 4);
