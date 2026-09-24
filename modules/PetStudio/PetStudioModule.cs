@@ -24,7 +24,15 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.0.8",   // 1.0.8: two ways the editor could save over the WRONG file, both of
+            Version = "1.0.9",   // 1.0.9: four engine fixes reach the importer. A Type="OpenURL" action is
+                                 //        now REFUSED and said so in the loss report rather than reaching no
+                                 //        bucket at all; a skin whose wall art does not climb keeps a
+                                 //        reachable ceiling instead of failing conversion outright; the
+                                 //        1024-tile cap is applied AFTER byte-identical cells collapse, so a
+                                 //        sprite-duplicating skin that fits is no longer refused; and a
+                                 //        set-piece chain step may not travel vertically, which is what makes
+                                 //        its border edge safe rather than lucky.
+                                 // 1.0.8: two ways the editor could save over the WRONG file, both of
                                  //        them atomic and so unrecoverable. Picking a pet from "Analyze
                                  //        installed companion" left _openedPath pointing at the file that
                                  //        was open, so the next Save wrote the installed pet's XML over the
