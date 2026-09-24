@@ -24,7 +24,17 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.0.6",   // 1.0.6: another REAL behaviour change through the source-linked
+            Version = "1.0.7",   // 1.0.7: the chain gate widened from "recovers a withheld member" to
+                                 //        "a behaviour with Frequency > 0 plays it", so a skin imported
+                                 //        HERE reproduces the artist's scripted ORDER and not just the
+                                 //        legs that would otherwise be lost: 2 of the 13 shipped pets
+                                 //        chained before, 13 of 13 now. A chain entry's hub weight is
+                                 //        divided by its member count, because a weight is a selection
+                                 //        probability while a Frequency describes a share of the pet's
+                                 //        life, and an eight-member run picked as often as a one-shot
+                                 //        Sit occupies eight times the minutes. Uncorrected that cost
+                                 //        20-30 points of wall and ceiling reach on every pet.
+                                 // 1.0.6: another REAL behaviour change through the source-linked
                                  //        engine. PetEmitter now converts a Sequence composite as a
                                  //        CHAIN (each member its own animation, linked at
                                  //        probability 100, only the first reachable from the hub), so
