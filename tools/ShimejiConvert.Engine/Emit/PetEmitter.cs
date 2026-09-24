@@ -1701,6 +1701,106 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         /// `undirect` migration looks for.</summary>
         public const string ConvertedFormatVersionDirectionalNames = "0.8";
 
+        /// <summary>
+        /// THE MIGRATION LADDER, declared once so a migration cannot invent its own rung.
+        ///
+        /// Each entry is: the format version a pet is AT, the CLI verb that moves it on, and the version that
+        /// verb stamps. A full run of the verbs in this order walks a pet from any rung to
+        /// <see cref="ConvertedFormatVersion"/>.
+        ///
+        /// It exists because six of the eight migrations used to stamp the LATEST version instead of their
+        /// own next rung, and the damage was invisible: a pet at 0.3 ran `rejump`, which fixed its jumps and
+        /// stamped 1.1, and then `reclimb`, `restsplit`, `dedupe` and `undirect` each printed
+        /// "skip (already at format 1.1)". The pet ended up claiming to be fully migrated while still
+        /// carrying short climbs, wrong rest dwells, duplicate sprite cells and _left/_right action names.
+        /// Measured on cartman forced to 0.3, before this table existed. Only `reweight` (0.1 -> 0.2) and
+        /// `dedupe` (0.7 -> 0.8) were doing it correctly, and the comment on
+        /// <see cref="ConvertedFormatVersionDampedWeights"/> had the whole rule written down all along.
+        ///
+        /// Two rungs are deliberately not one-to-one:
+        ///   0.5 AND 0.6 both go to `restsplit`, which lands them at 0.7. A 0.5 pet has long rests and a 0.6
+        ///   pet has uniformly short ones, and restsplit sets an absolute target per ROLE rather than
+        ///   adjusting what is there, so it is correct from either. The retired `restdwell` used to own 0.5.
+        ///   0.2 has NO onward verb. 0.3 is the version that gained the ceiling region, and a region needs
+        ///   sprite frames that only a conversion from the source skin can produce. A pet stranded at 0.2
+        ///   must be re-converted, and <see cref="FormatVersionIsStranded"/> is what makes the tool say so
+        ///   instead of printing a skip line that reads like "nothing to do".
+        /// </summary>
+        private static readonly string[][] FormatLadder = new string[][]
+        {
+            new[] { ConvertedFormatVersionFlatWeights,      "reweight",  ConvertedFormatVersionDampedWeights },
+            new[] { ConvertedFormatVersionLooseJumps,       "rejump",    ConvertedFormatVersionShortClimbs },
+            new[] { ConvertedFormatVersionShortClimbs,      "reclimb",   ConvertedFormatVersionLongRests },
+            new[] { ConvertedFormatVersionLongRests,        "restsplit", ConvertedFormatVersionDuplicateCells },
+            new[] { ConvertedFormatVersionFlatRests,        "restsplit", ConvertedFormatVersionDuplicateCells },
+            new[] { ConvertedFormatVersionDuplicateCells,   "dedupe",    ConvertedFormatVersionDirectionalNames },
+            new[] { ConvertedFormatVersionDirectionalNames, "undirect",  ConvertedFormatVersionSelfLoopingIdles },
+            new[] { ConvertedFormatVersionSelfLoopingIdles, "reloop",    ConvertedFormatVersion },
+        };
+
+        /// <summary>
+        /// The version a migration must stamp when it accepts a pet at <paramref name="current"/>.
+        ///
+        /// A migration calls this rather than naming a constant, so the rung it advances to is the one the
+        /// ladder declares and the two can never disagree. Returns <see cref="ConvertedFormatVersion"/> for a
+        /// pet already at the current version, which is what lets `reloop` re-run idempotently on one.
+        /// </summary>
+        public static string NextFormatVersionAfter(string current)
+        {
+            if (string.Equals(current, ConvertedFormatVersion, StringComparison.Ordinal))
+                return ConvertedFormatVersion;
+            foreach (string[] rung in FormatLadder)
+                if (string.Equals(rung[0], current, StringComparison.Ordinal)) return rung[2];
+            return current;   // no rung: the caller should not have accepted this pet
+        }
+
+        /// <summary>The CLI verb that moves a pet off <paramref name="current"/>, or null when none can.</summary>
+        public static string MigrationVerbFor(string current)
+        {
+            foreach (string[] rung in FormatLadder)
+                if (string.Equals(rung[0], current, StringComparison.Ordinal)) return rung[1];
+            return null;
+        }
+
+        /// <summary>
+        /// True when a pet is at a converted format that no migration can move on, and is not already
+        /// current. Today that is only 0.2: see the ladder's own note for why a migration cannot add a
+        /// ceiling region. A caller that finds this should tell the user to RE-CONVERT rather than print a
+        /// skip line, because "skip (already at format 0.2)" reads as "nothing to do" and means the opposite.
+        /// </summary>
+        public static bool FormatVersionIsStranded(string current)
+        {
+            if (string.IsNullOrEmpty(current)) return false;
+            if (string.Equals(current, ConvertedFormatVersion, StringComparison.Ordinal)) return false;
+            return MigrationVerbFor(current) == null;
+        }
+
+        /// <summary>
+        /// The ladder itself, as {from, verb, next} triples in chronological order. Exposed so the self-test
+        /// can assert the SHAPE of the table and not merely that walking it terminates: a rung that stamps
+        /// the current version directly also terminates, and that is precisely the defect the table replaced.
+        /// </summary>
+        public static List<string[]> FormatLadderRungs()
+        {
+            var copy = new List<string[]>(FormatLadder.Length);
+            foreach (string[] rung in FormatLadder) copy.Add(new[] { rung[0], rung[1], rung[2] });
+            return copy;
+        }
+
+        /// <summary>Every format version this converter has ever stamped, oldest first, ending with the
+        /// current one. The self-test walks it to prove each rung reaches <see cref="ConvertedFormatVersion"/>.</summary>
+        public static List<string> KnownFormatVersions()
+        {
+            var seen = new List<string>();
+            foreach (string[] rung in FormatLadder)
+            {
+                if (!seen.Contains(rung[0])) seen.Add(rung[0]);
+                if (!seen.Contains(rung[2])) seen.Add(rung[2]);
+            }
+            if (!seen.Contains(ConvertedFormatVersion)) seen.Add(ConvertedFormatVersion);
+            return seen;
+        }
+
         /// <summary>Per-step travel a crossing surface pose is given. Public for the migration.</summary>
         public static int SurfaceStepPx { get { return SurfacePxPerStep; } }
 

@@ -62,9 +62,6 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 case "reclimb":
                     if (args.Length != 2) return Usage();
                     return Reclimb(args[1]);
-                case "restdwell":
-                    if (args.Length != 2) return Usage();
-                    return RestDwell(args[1]);
                 case "restsplit":
                     if (args.Length != 2) return Usage();
                     return RestSplit(args[1]);
@@ -137,15 +134,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             Console.Error.WriteLine("                     letting go, which put the screen ceiling 1 in 203,000 wall entries away.");
             Console.Error.WriteLine("                     Constant speed, flat interval, and enough repeats to cross any screen.");
             Console.Error.WriteLine("                     STATIC holds keep their time budget. Numbers only, so no source skins.");
-            Console.Error.WriteLine("  restdwell <PetsDir>");
-            Console.Error.WriteLine("                     Migration: shorten an over-long REST (held ~9s, single frames 10s) to the");
-            Console.Error.WriteLine("                     hand-authored ~1.2s dwell, so a pet stops standing idle 79% of the time.");
-            Console.Error.WriteLine("                     Only IDLE floor poses over the dwell ceiling are touched. Numbers only.");
             Console.Error.WriteLine("  restsplit <PetsDir>");
             Console.Error.WriteLine("                     Migration: split the rest dwell by role -- keep the HUB (return-to pose)");
             Console.Error.WriteLine("                     brief so the pet does not loiter, and lengthen every other idle to 9-12s");
             Console.Error.WriteLine("                     so a performance (sprawl, eat, dangle-legs) is long enough to watch.");
-            Console.Error.WriteLine("                     Supersedes the over-correction of restdwell. Numbers only.");
+            Console.Error.WriteLine("                     Takes a pet at format 0.5 or 0.6. RETIRED AND REPLACED `restdwell`, which");
+            Console.Error.WriteLine("                     inverted when the rest target was redefined from ~1.2s to 11s: it then");
+            Console.Error.WriteLine("                     LENGTHENED every rest it touched, hub included, while printing");
+            Console.Error.WriteLine("                     \"N rest(s) shortened\". Numbers only, so no source skins.");
             Console.Error.WriteLine("  dedupe <PetsDir>");
             Console.Error.WriteLine("                     Migration: drop sprite cells byte-identical to another cell, re-grid the");
             Console.Error.WriteLine("                     sheet and renumber every <frame>. Pixels only -- it proves every");
@@ -536,7 +532,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 }
                 if (!string.Equals(root.Header.Version, PetEmitter.ConvertedFormatVersionFlatWeights, StringComparison.Ordinal))
                 {
-                    Console.WriteLine(name.PadRight(36) + " skip (already at format " + (root.Header.Version ?? "?") + ")");
+                    Console.WriteLine(name.PadRight(36) + SkipOrStranded(root.Header.Version));
                     skipped++;
                     continue;
                 }
@@ -578,7 +574,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 for (int i = 0; i < edges.Length; i++)
                     if (edges[i].Probability != weights[i]) { edges[i].Probability = weights[i]; changedEdges++; }
 
-                root.Header.Version = PetEmitter.ConvertedFormatVersionDampedWeights;
+                root.Header.Version = PetEmitter.NextFormatVersionAfter(root.Header.Version);
 
                 string outXml = ShimejiEngine.Serialize(root);
                 XmlData.RootNode reparsed;
@@ -634,6 +630,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 {
                     Console.WriteLine(name.PadRight(28) + " SKIP (invalid: " + error + ")");
                     continue;
+                }
+                // The AUTHOR gate every sibling migration has, and this one's usage text has always claimed
+                // ("Non-converted pets are left untouched"). It was true in practice and not by construction:
+                // run against all 22 hand-authored companions, every one came back byte-identical, because
+                // none of their locomotion animations happened to match the retiming criteria. That is luck,
+                // not a guarantee, and it is the only migration that was relying on it.
+                if (root.Header == null ||
+                    !string.Equals(root.Header.Author, PetEmitter.ConvertedAuthor, StringComparison.Ordinal))
+                {
+                    Console.WriteLine(name.PadRight(28) + " skip (not converter output)"); continue;
                 }
                 if (root.Animations == null || root.Animations.Animation == null) { Console.WriteLine(name.PadRight(28) + " unchanged"); continue; }
 
@@ -731,7 +737,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 }
                 if (!string.Equals(root.Header.Version, PetEmitter.ConvertedFormatVersionLooseJumps, StringComparison.Ordinal))
                 {
-                    Console.WriteLine(name.PadRight(36) + " skip (already at format " + (root.Header.Version ?? "?") + ")");
+                    Console.WriteLine(name.PadRight(36) + SkipOrStranded(root.Header.Version));
                     skipped++;
                     continue;
                 }
@@ -827,7 +833,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
 
                 // Stamped even when nothing changed: a pet with no upward animation already behaves the way
                 // 1.3 says, and leaving it at 1.2 would make every future run re-examine it.
-                root.Header.Version = PetEmitter.ConvertedFormatVersion;
+                root.Header.Version = PetEmitter.NextFormatVersionAfter(root.Header.Version);
 
                 string outXml = ShimejiEngine.Serialize(root);
                 XmlData.RootNode reparsed;
@@ -905,7 +911,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 }
                 if (!string.Equals(root.Header.Version, PetEmitter.ConvertedFormatVersionShortClimbs, StringComparison.Ordinal))
                 {
-                    Console.WriteLine(name.PadRight(36) + " skip (already at format " + (root.Header.Version ?? "?") + ")");
+                    Console.WriteLine(name.PadRight(36) + SkipOrStranded(root.Header.Version));
                     skipped++;
                     continue;
                 }
@@ -968,7 +974,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     retimedHere++;
                 }
 
-                root.Header.Version = PetEmitter.ConvertedFormatVersion;
+                root.Header.Version = PetEmitter.NextFormatVersionAfter(root.Header.Version);
 
                 string outXml = ShimejiEngine.Serialize(root);
                 XmlData.RootNode reparsed;
@@ -1001,110 +1007,6 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         }
 
         /// <summary>
-        /// Migration: shorten an over-long REST to the hand-authored reference dwell.
-        ///
-        /// A rest was held ~9s (single-frame poses 10s), so converted pets stood idle 79% of the time; the
-        /// sheep holds each rest ~0.7s. This retimes idle floor poses to the emitter's current rest dwell.
-        ///
-        /// The one honest limitation, stated because the emitted form cannot resolve it: the source's
-        /// Stay/Animate flag is gone, so a rare idle one-shot PERFORMANCE (an eat, a vanish) whose current
-        /// hold is over the ceiling is shortened too. That is acceptable here -- such poses are rare and
-        /// low-weight, and a multi-second idle hold is the very sluggishness this fixes -- but it is the reason
-        /// a from-source re-conversion would be strictly cleaner if the corpus ever grows performances that
-        /// matter. Only IDLE poses (zero velocity) are touched, so a moving performance (a trip) is safe.
-        /// </summary>
-        private static int RestDwell(string petsDirectory)
-        {
-            if (!Directory.Exists(petsDirectory)) { Console.Error.WriteLine("No such directory: " + petsDirectory); return 2; }
-            var pets = new List<string>();
-            foreach (string candidate in Directory.GetDirectories(petsDirectory))
-                if (File.Exists(Path.Combine(candidate, "animations.xml"))) pets.Add(candidate);
-            pets.Sort(StringComparer.OrdinalIgnoreCase);
-            if (pets.Count == 0) { Console.Error.WriteLine("Found no <dir>\\animations.xml under " + petsDirectory); return 2; }
-
-            const int ceilingMs = 2600;   // matches the self-test: RestDwellMs + roundUp overshoot
-            int petsChanged = 0, skipped = 0, failures = 0, retimed = 0;
-            foreach (string petDir in pets)
-            {
-                string name = Path.GetFileName(petDir);
-                string path = Path.Combine(petDir, "animations.xml");
-                XmlData.RootNode root;
-                string error;
-                if (!ShimejiEngine.TryValidate(File.ReadAllText(path, Encoding.UTF8), out root, out error))
-                {
-                    Console.WriteLine(name.PadRight(36) + " SKIP (invalid: " + error + ")"); skipped++; continue;
-                }
-                if (root.Header == null ||
-                    !string.Equals(root.Header.Author, PetEmitter.ConvertedAuthor, StringComparison.Ordinal))
-                {
-                    Console.WriteLine(name.PadRight(36) + " skip (not converter output)"); skipped++; continue;
-                }
-                if (!string.Equals(root.Header.Version, PetEmitter.ConvertedFormatVersionLongRests, StringComparison.Ordinal))
-                {
-                    Console.WriteLine(name.PadRight(36) + " skip (already at format " + (root.Header.Version ?? "?") + ")"); skipped++; continue;
-                }
-                if (root.Animations == null || root.Animations.Animation == null)
-                {
-                    Console.WriteLine(name.PadRight(36) + " skip (no animations)"); skipped++; continue;
-                }
-
-                int here = 0;
-                foreach (XmlData.AnimationNode a in root.Animations.Animation)
-                {
-                    if (a == null || a.Gravity == null) continue;                 // wall/ceiling: not a floor rest
-                    if (IsMagicName(a.Name)) continue;
-                    if (StartX(a) != 0 || StartY(a) != 0 || EndX(a) != 0 || EndY(a) != 0) continue;   // moving: not a rest
-                    if (a.Sequence == null || a.Sequence.Frame == null || a.Sequence.Frame.Length == 0) continue;
-                    if (TotalDwellMs(a) <= ceilingMs) continue;                   // already short enough
-
-                    int frames = a.Sequence.Frame.Length;
-                    a.Sequence.RepeatFromFrame = 0;
-                    if (frames == 1)
-                    {
-                        int interval, repeat;
-                        PetEmitter.SingleFrameRestTiming(PetEmitter.RestDwellTargetMs, out interval, out repeat);
-                        a.Start.Interval = interval.ToString(CultureInfo.InvariantCulture);
-                        a.End.Interval = interval.ToString(CultureInfo.InvariantCulture);
-                        a.Sequence.RepeatCount = repeat.ToString(CultureInfo.InvariantCulture);
-                    }
-                    else
-                    {
-                        int i0 = Math.Min(ParseCoord(a.Start.Interval), PetEmitter.RestIntervalCapMs);
-                        int iN = Math.Min(ParseCoord(a.End.Interval), PetEmitter.RestIntervalCapMs);
-                        if (i0 < 1) i0 = PetEmitter.RestIntervalCapMs;
-                        if (iN < 1) iN = i0;
-                        a.Start.Interval = i0.ToString(CultureInfo.InvariantCulture);
-                        a.End.Interval = iN.ToString(CultureInfo.InvariantCulture);
-                        int passMs = frames * ((i0 + iN) / 2);
-                        a.Sequence.RepeatCount = PetEmitter.RepeatCountForBudget(passMs, PetEmitter.RestDwellTargetMs, 30, true)
-                            .ToString(CultureInfo.InvariantCulture);
-                    }
-                    here++;
-                }
-
-                root.Header.Version = PetEmitter.ConvertedFormatVersion;
-                string outXml = ShimejiEngine.Serialize(root);
-                XmlData.RootNode reparsed; string reError;
-                if (!ShimejiEngine.TryValidate(outXml, out reparsed, out reError))
-                {
-                    Console.Error.WriteLine(name.PadRight(36) + " FAIL (re-validate: " + reError + ")"); failures++; continue;
-                }
-                GraphReport graph = ShimejiEngine.Analyze(reparsed);
-                if (graph != null && graph.Unreachable.Count > 0)
-                {
-                    Console.Error.WriteLine(name.PadRight(36) + " FAIL (unreachable: " + string.Join(",", graph.Unreachable) + ")"); failures++; continue;
-                }
-                File.WriteAllText(path, outXml, new UTF8Encoding(false));
-                petsChanged++; retimed += here;
-                Console.WriteLine(name.PadRight(36) + " " + here + " rest(s) shortened");
-            }
-            Console.WriteLine();
-            Console.WriteLine("pets " + pets.Count + "   changed " + petsChanged + "   rests shortened " + retimed +
-                "   skipped " + skipped + "   failures " + failures);
-            return failures == 0 ? 0 : 1;
-        }
-
-        /// <summary>
         /// Migration: split the rest dwell by role. The previous pass (`restdwell`) shortened EVERY rest to
         /// ~1.2s, which cut the performances the user wants to watch (Sprawl, dangle-legs, eat-berry). This
         /// keeps the HUB brief (the return-to pose, so the pet does not loiter) and lengthens every other idle
@@ -1133,8 +1035,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 if (root.Header == null ||
                     !string.Equals(root.Header.Author, PetEmitter.ConvertedAuthor, StringComparison.Ordinal))
                 { Console.WriteLine(name.PadRight(36) + " skip (not converter output)"); skipped++; continue; }
-                if (!string.Equals(root.Header.Version, PetEmitter.ConvertedFormatVersionFlatRests, StringComparison.Ordinal))
-                { Console.WriteLine(name.PadRight(36) + " skip (already at format " + (root.Header.Version ?? "?") + ")"); skipped++; continue; }
+                // 0.5 AND 0.6, because this migration REPLACED restdwell rather than following it. It sets
+                // an absolute dwell per ROLE instead of adjusting whatever is there, so it is correct from
+                // either: 0.5 has long rests, 0.6 has uniformly short ones. A 0.5 pet no longer has to pass
+                // through the 0.6 over-correction to get here, which is what stranded it when restdwell
+                // stamped the latest version and this migration then skipped it.
+                if (!string.Equals(root.Header.Version, PetEmitter.ConvertedFormatVersionFlatRests, StringComparison.Ordinal) &&
+                    !string.Equals(root.Header.Version, PetEmitter.ConvertedFormatVersionLongRests, StringComparison.Ordinal))
+                { Console.WriteLine(name.PadRight(36) + SkipOrStranded(root.Header.Version)); skipped++; continue; }
                 if (root.Animations == null || root.Animations.Animation == null)
                 { Console.WriteLine(name.PadRight(36) + " skip (no animations)"); skipped++; continue; }
 
@@ -1179,7 +1087,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     if (a.Id != hubId) here++;
                 }
 
-                root.Header.Version = PetEmitter.ConvertedFormatVersion;
+                root.Header.Version = PetEmitter.NextFormatVersionAfter(root.Header.Version);
                 string outXml = ShimejiEngine.Serialize(root);
                 XmlData.RootNode reparsed; string reError;
                 if (!ShimejiEngine.TryValidate(outXml, out reparsed, out reError))
@@ -1234,7 +1142,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     !string.Equals(root.Header.Author, PetEmitter.ConvertedAuthor, StringComparison.Ordinal))
                 { Console.WriteLine(name.PadRight(36) + " skip (not converter output)"); skipped++; continue; }
                 if (!string.Equals(root.Header.Version, PetEmitter.ConvertedFormatVersionDuplicateCells, StringComparison.Ordinal))
-                { Console.WriteLine(name.PadRight(36) + " skip (already at format " + (root.Header.Version ?? "?") + ")"); skipped++; continue; }
+                { Console.WriteLine(name.PadRight(36) + SkipOrStranded(root.Header.Version)); skipped++; continue; }
                 if (root.Image == null || string.IsNullOrEmpty(root.Image.Png) ||
                     root.Animations == null || root.Animations.Animation == null)
                 { Console.WriteLine(name.PadRight(36) + " skip (no sheet or no animations)"); skipped++; continue; }
@@ -1249,7 +1157,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 if (outcome == DedupeOutcome.Failed)
                 { Console.Error.WriteLine(name.PadRight(36) + " " + report); failures++; continue; }
 
-                root.Header.Version = PetEmitter.ConvertedFormatVersionDirectionalNames;
+                root.Header.Version = PetEmitter.NextFormatVersionAfter(root.Header.Version);
                 string outXml = ShimejiEngine.Serialize(root);
                 XmlData.RootNode reparsed; string reError;
                 if (!ShimejiEngine.TryValidate(outXml, out reparsed, out reError))
@@ -1498,7 +1406,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     !string.Equals(root.Header.Author, PetEmitter.ConvertedAuthor, StringComparison.Ordinal))
                 { Console.WriteLine(name.PadRight(36) + " skip (not converter output)"); skipped++; continue; }
                 if (!string.Equals(root.Header.Version, PetEmitter.ConvertedFormatVersionDirectionalNames, StringComparison.Ordinal))
-                { Console.WriteLine(name.PadRight(36) + " skip (already at format " + (root.Header.Version ?? "?") + ")"); skipped++; continue; }
+                { Console.WriteLine(name.PadRight(36) + SkipOrStranded(root.Header.Version)); skipped++; continue; }
                 if (root.Animations == null || root.Animations.Animation == null)
                 { Console.WriteLine(name.PadRight(36) + " skip (no animations)"); skipped++; continue; }
 
@@ -1513,8 +1421,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                         n.EndsWith("_right", StringComparison.OrdinalIgnoreCase)) couldHaveRenamed++;
                 refused += couldHaveRenamed - map.Count;
 
-                if (map.Count == 0)
-                { Console.WriteLine(name.PadRight(36) + " skip (no directional names)"); skipped++; continue; }
+                // NOTHING TO RENAME IS NOT NOTHING TO DO. The version records the standard a pet MEETS, not
+                // whether this run edited it: a pet that never had a _left/_right name already satisfies the
+                // rung this migration exists to reach. Bailing here left it one rung short, and the next
+                // migration -- which gates on that rung -- then skipped it for ever. Falling through stamps
+                // the rung and re-validates, which is the same safety the renaming path gets.
+                bool nothingToRename = map.Count == 0;
+                if (nothingToRename &&
+                    string.Equals(root.Header.Version,
+                                  PetEmitter.NextFormatVersionAfter(root.Header.Version), StringComparison.Ordinal))
+                { Console.WriteLine(name.PadRight(36) + " skip (no directional names, already at that format)"); skipped++; continue; }
 
                 foreach (XmlData.AnimationNode a in root.Animations.Animation)
                 {
@@ -1523,7 +1439,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     if (map.TryGetValue(a.Name, out renamedTo)) a.Name = renamedTo;
                 }
 
-                root.Header.Version = PetEmitter.ConvertedFormatVersion;
+                root.Header.Version = PetEmitter.NextFormatVersionAfter(root.Header.Version);
                 string outXml = ShimejiEngine.Serialize(root);
                 XmlData.RootNode reparsed; string reError;
                 if (!ShimejiEngine.TryValidate(outXml, out reparsed, out reError))
@@ -1803,10 +1719,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     fixedHere++;
                 }
 
-                if (fixedHere == 0)
-                { Console.WriteLine(name.PadRight(36) + " skip (no misplayed performances)"); skipped++; continue; }
+                // Same reasoning as undirect: see the note there. A pet with no misplayed performance already
+                // meets this rung, and saying "skip" left it below the current format for ever.
+                if (fixedHere == 0 &&
+                    string.Equals(root.Header.Version,
+                                  PetEmitter.NextFormatVersionAfter(root.Header.Version), StringComparison.Ordinal))
+                { Console.WriteLine(name.PadRight(36) + " skip (no misplayed performances, already at that format)"); skipped++; continue; }
 
-                root.Header.Version = PetEmitter.ConvertedFormatVersion;
+                root.Header.Version = PetEmitter.NextFormatVersionAfter(root.Header.Version);
                 string outXml = ShimejiEngine.Serialize(root);
                 XmlData.RootNode reparsed; string reError;
                 if (!ShimejiEngine.TryValidate(outXml, out reparsed, out reError))
@@ -1854,6 +1774,26 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             double total = 0;
             for (int k = 0; k < steps; k++) total += i0 + (double)(iN - i0) * k / ip;
             return (int)Math.Round(total);
+        }
+
+        /// <summary>
+        /// What to print when a migration declines a pet because of its format version.
+        ///
+        /// "skip (already at format 0.2)" reads as "nothing to do", and for 0.2 it means the opposite: no
+        /// migration can move that pet on, because 0.3 is the version that gained the ceiling region and a
+        /// region needs sprite frames only a fresh conversion can produce. A pet stranded there stays
+        /// stranded however many verbs you run, and the old line never said so.
+        /// </summary>
+        private static string SkipOrStranded(string version)
+        {
+            string v = version ?? "?";
+            if (PetEmitter.FormatVersionIsStranded(version))
+                return " STRANDED at format " + v + " -- no migration can move this pet on; re-convert it "
+                     + "from its source skin";
+            string verb = PetEmitter.MigrationVerbFor(version);
+            if (verb != null)
+                return " skip (at format " + v + "; `" + verb + "` is the verb for it)";
+            return " skip (already at format " + v + ")";
         }
 
         private static bool IsMagicName(string name)

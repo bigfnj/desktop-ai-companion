@@ -981,6 +981,88 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     }
                 }
 
+                // ---- EVERY RUNG OF THE MIGRATION LADDER REACHES THE CURRENT FORMAT ----
+                // Six of the eight migrations used to stamp the LATEST version instead of their own next
+                // rung, and the damage was invisible from any one of them: a pet at 0.3 ran `rejump`, which
+                // fixed its jumps and stamped 1.1, and then reclimb, restsplit, dedupe and undirect each
+                // printed "skip (already at format 1.1)". It ended up claiming to be fully migrated while
+                // still carrying short climbs, wrong rest dwells, duplicate cells and _left/_right names.
+                // This walks the table instead of trusting it.
+                foreach (string from in PetEmitter.KnownFormatVersions())
+                {
+                    string at = from;
+                    int hops = 0;
+                    while (!string.Equals(at, PetEmitter.ConvertedFormatVersion, StringComparison.Ordinal))
+                    {
+                        string verb = PetEmitter.MigrationVerbFor(at);
+                        if (verb == null)
+                        {
+                            // 0.2 is the ONE allowed terminus, and it is allowed because a migration cannot
+                            // add a ceiling region: that needs sprite frames only a fresh conversion makes.
+                            // Any OTHER dead end is a rung somebody added without a verb to leave it by, and
+                            // a pet that lands there is stuck with no way to find out.
+                            if (!string.Equals(at, PetEmitter.ConvertedFormatVersionDampedWeights, StringComparison.Ordinal))
+                                failures.Add("format " + at + " (reached from " + from + ") has no migration "
+                                    + "verb, so a pet there can never reach " + PetEmitter.ConvertedFormatVersion
+                                    + "; only 0.2 is allowed to be a dead end");
+                            break;
+                        }
+                        string next = PetEmitter.NextFormatVersionAfter(at);
+                        if (string.Equals(next, at, StringComparison.Ordinal))
+                        {
+                            failures.Add("format " + at + " advances to itself via `" + verb + "`, so the "
+                                + "ladder loops for ever");
+                            break;
+                        }
+                        at = next;
+                        if (++hops > 20) { failures.Add("the ladder from " + from + " did not terminate"); break; }
+                    }
+                }
+                // The walk above is vacuous if the table is empty, and would also pass if it held exactly one
+                // entry naming the current version.
+                if (PetEmitter.KnownFormatVersions().Count < 5)
+                    failures.Add("the format ladder lists only " + PetEmitter.KnownFormatVersions().Count
+                        + " versions, so walking it proves nothing");
+
+                // ONLY THE LAST RUNG MAY STAMP THE CURRENT VERSION, and this is the assertion that catches
+                // the original defect. Termination alone does not: a rung that jumps straight to 1.1 also
+                // terminates, which is exactly how six migrations passed for months while skipping every
+                // migration after themselves. Mutation-tested by pointing `rejump` at the current version.
+                List<string[]> rungs = PetEmitter.FormatLadderRungs();
+                if (rungs.Count < 6)
+                    failures.Add("the format ladder holds only " + rungs.Count + " rungs; the shape assertions "
+                        + "below prove little against a gutted table");
+                for (int i = 0; i < rungs.Count; i++)
+                {
+                    bool last = i == rungs.Count - 1;
+                    bool stampsCurrent = string.Equals(rungs[i][2], PetEmitter.ConvertedFormatVersion,
+                                                       StringComparison.Ordinal);
+                    if (stampsCurrent && !last)
+                        failures.Add("rung " + rungs[i][0] + " (`" + rungs[i][1] + "`) stamps the CURRENT "
+                            + "format " + rungs[i][2] + " instead of its own next rung, so every migration "
+                            + "after it will skip the pet while it still needs them");
+                    if (last && !stampsCurrent)
+                        failures.Add("the last rung " + rungs[i][0] + " (`" + rungs[i][1] + "`) stamps "
+                            + rungs[i][2] + ", not the current format, so nothing ever reaches "
+                            + PetEmitter.ConvertedFormatVersion);
+                    if (string.Equals(rungs[i][0], rungs[i][2], StringComparison.Ordinal))
+                        failures.Add("rung " + rungs[i][0] + " (`" + rungs[i][1] + "`) stamps what it gates on");
+                }
+
+                // 0.2 is the one version a migration genuinely cannot move on: 0.3 gained the ceiling region
+                // and a region needs sprite frames only a fresh conversion produces. The tool has to SAY that
+                // rather than print a skip line, so the predicate that decides it is asserted both ways.
+                if (!PetEmitter.FormatVersionIsStranded(PetEmitter.ConvertedFormatVersionDampedWeights))
+                    failures.Add("format 0.2 is not reported as stranded, so a pet reweighted from 0.1 gets a "
+                        + "skip line that reads as 'nothing to do' and is never re-converted");
+                if (PetEmitter.FormatVersionIsStranded(PetEmitter.ConvertedFormatVersion))
+                    failures.Add("the CURRENT format is reported as stranded, which would tell every up-to-date "
+                        + "pet to be re-converted");
+                foreach (string v in PetEmitter.KnownFormatVersions())
+                    if (!string.Equals(v, PetEmitter.ConvertedFormatVersionDampedWeights, StringComparison.Ordinal)
+                        && PetEmitter.FormatVersionIsStranded(v))
+                        failures.Add("format " + v + " is on the ladder AND reported as stranded");
+
                 if (!ResidueHas(r.Residue.Dropped, "ThrowIe")) failures.Add("Group3 ThrowIe not recorded as dropped");
                 if (!ResidueHas(r.Residue.Degraded, "SitAndLookAtMouse")) failures.Add("Group2 cursor action not recorded as degraded");
                 // ...and says what was actually lost. The classifier's stock reason ("needs cursorX/cursorY,
