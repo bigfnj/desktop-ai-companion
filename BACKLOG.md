@@ -619,16 +619,6 @@ open-item blindness plus the bug-number drift.
 
 ### Data loss or a crash, on a path that runs
 
-- 📌 **`ScalePercent` is the one persisted field missing from both `Clone` and `MergeChangedFields`.**
-  CLOSES-WHEN: grep-present src/Portable/AppSettingsStore.cs "ScalePercent = source.ScalePercent"
-  Declared `src/Portable/AppSettingsStore.cs:48`, read as the global size fallback at
-  `LocalData.cs:266` and `:284`. All 41 other persisted fields appear in both methods; the comment at
-  `AppSettingsStore.cs:1124` documents exactly this failure mode — "a field not listed is silently
-  dropped and Save still returns true". It survives today only because `SaveMerged` usually writes
-  onto the document it just read back. Delete or corrupt settings.json (factory reset, or the
-  corrupt-primary recovery at `LoadCore`) so `TryRead` does not return `Loaded`, and
-  `target = Clone(settings)` drops it: every pet without a per-pet override silently reverts to 100%,
-  and `Save` returns true. Same loss in `Load()`'s catch, which returns `Clone(_baseline)`.
 
 - 📌 **Reminder wipes its fired-event set on every empty feed, so a restart re-nags.**
   `modules/Reminder/ReminderModule.cs:244` runs `_fired.RemoveWhere(...)` unconditionally, BEFORE any

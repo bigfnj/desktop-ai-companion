@@ -12,7 +12,9 @@
       "author": "Adriano",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/bbunny/animations.xml",
       "sha256": "cd0f42e6153a2e140f648852996c6f30c29754693d11409cbfce9fb85685c9f1",
-      "bytes": 33320
+      "bytes": 33320,
+      "animations": 8,
+      "sounds": 0
     },
     {
       "id": "blue_ham_ham",
@@ -20,7 +22,9 @@
       "author": "Michelle!",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/blue_ham_ham/animations.xml",
       "sha256": "f238908469f2fc27385c122c7bedf0167f882f86f65878da94f7bbfa003ee5c1",
-      "bytes": 40492
+      "bytes": 40492,
+      "animations": 17,
+      "sounds": 0
     },
     {
       "id": "blue_sheep",
@@ -28,7 +32,9 @@
       "author": "Oliver B.",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/blue_sheep/animations.xml",
       "sha256": "0a826f43db144452ae6af0be86d905e03a3f81b4676783247e95c78e05ce9128",
-      "bytes": 1150320
+      "bytes": 1150320,
+      "animations": 268,
+      "sounds": 35
     },
     {
       "id": "esheep64",
@@ -36,7 +42,9 @@
       "author": "Adriano",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/esheep64/animations.xml",
       "sha256": "0e0cc153ec5795dd3c37a7094d2eb912b95544a58fcfb1b9a203707ea96329cf",
-      "bytes": 158360
+      "bytes": 158360,
+      "animations": 54,
+      "sounds": 0
     },
     {
       "id": "fox",
@@ -44,7 +52,9 @@
       "author": "Michelle!",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/fox/animations.xml",
       "sha256": "a62c53b585bf9bcdf1c09fb8855f3dde43ce83063f705f83f8615857422495b8",
-      "bytes": 227063
+      "bytes": 227063,
+      "animations": 27,
+      "sounds": 5
     },
     {
       "id": "green_sheep",
@@ -52,7 +62,9 @@
       "author": "Oliver B.",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/green_sheep/animations.xml",
       "sha256": "d8b641b3d21fbd374c898d1970ff25ceae529ba862a07033ace06027809521b2",
-      "bytes": 1150330
+      "bytes": 1150330,
+      "animations": 268,
+      "sounds": 35
     },
     {
       "id": "mareep",
@@ -60,7 +72,9 @@
       "author": "Michelle!",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/mareep/animations.xml",
       "sha256": "164b5d72dc2bfb04e570659eb5e9046b0dcf0b0b31c284bdeae1152e1d2d133d",
-      "bytes": 19415
+      "bytes": 19415,
+      "animations": 13,
+      "sounds": 0
     },
     {
       "id": "mimiko",
@@ -68,7 +82,9 @@
       "author": "Madnuttah",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/mimiko/animations.xml",
       "sha256": "7cc3674e063eb89f6f8db8f53301f898fb20f516082f2b9b430f2f841cc23a78",
-      "bytes": 181771
+      "bytes": 181771,
+      "animations": 27,
+      "sounds": 5
     },
     {
       "id": "negima",
@@ -76,7 +92,9 @@
       "author": "Adriano",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/negima/animations.xml",
       "sha256": "1cde521333e0221f027b9415d369b3e5fe716cbce96764c56e92e762aba40f83",
-      "bytes": 93486
+      "bytes": 93486,
+      "animations": 15,
+      "sounds": 1
     },
     {
       "id": "neko",
@@ -84,7 +102,9 @@
       "author": "Adriano",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/neko/animations.xml",
       "sha256": "1778e5623e563446e12c8b73f6229b6dc6fd193f0696a6237075998cb62921c9",
-      "bytes": 163462
+      "bytes": 163462,
+      "animations": 27,
+      "sounds": 5
     },
     {
       "id": "orange_sheep",
@@ -92,7 +112,9 @@
       "author": "Oliver B.",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/orange_sheep/animations.xml",
       "sha256": "128f2f77b54d9356d7f890b4436cc9153052733957e1371e67ea15c69e433e2e",
-      "bytes": 1150706
+      "bytes": 1150706,
+      "animations": 268,
+      "sounds": 35
     },
     {
       "id": "pikachu",
@@ -100,7 +122,9 @@
       "author": "Michelle!",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/pikachu/animations.xml",
       "sha256": "f9a708b53eb0daee2f7466851f90ffc0c2d8ce92aa2bd0da46ce6ca1ae9ce7da",
-      "bytes": 18920
+      "bytes": 18920,
+      "animations": 13,
+      "sounds": 0
     },
     {
       "id": "pingus",
@@ -108,7 +132,9 @@
       "author": "Adriano",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/pingus/animations.xml",
       "sha256": "4695fe82103a6a392e8b3a864444cec411003c6821eaf090594878285f311d62",
-      "bytes": 119844
+      "bytes": 119844,
+      "animations": 28,
+      "sounds": 0
     },
     {
       "id": "pink_fox",
@@ -116,7 +142,9 @@
       "author": "Michelle!",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/pink_fox/animations.xml",
       "sha256": "9234db34e027b9eb8b2deea19d73a357cff3b254205cf69e3716cbc3215a2ed2",
-      "bytes": 223326
+      "bytes": 223326,
+      "animations": 27,
+      "sounds": 5
     },
     {
       "id": "pink_neko",
@@ -124,7 +152,9 @@
       "author": "Michelle!",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/pink_neko/animations.xml",
       "sha256": "14cdda675d9333c41fa5b861180a43dfc7742ef2545eb478a11cb20794619907",
-      "bytes": 152998
+      "bytes": 152998,
+      "animations": 27,
+      "sounds": 5
     },
     {
       "id": "pink_sheep",
@@ -132,7 +162,9 @@
       "author": "Oliver B.",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/pink_sheep/animations.xml",
       "sha256": "89452d689f1620257f7fa93f425888e46c8c13c35d0f75909e37c101b0bf7678",
-      "bytes": 1151316
+      "bytes": 1151316,
+      "animations": 268,
+      "sounds": 35
     },
     {
       "id": "purple_sheep",
@@ -140,7 +172,9 @@
       "author": "Oliver B.",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/purple_sheep/animations.xml",
       "sha256": "42e9244b9f21a25c8f7524f301179bd7d5c9f9673f89c213cb85a0ec8fb59c07",
-      "bytes": 1150309
+      "bytes": 1150309,
+      "animations": 268,
+      "sounds": 35
     },
     {
       "id": "red_sheep",
@@ -148,7 +182,9 @@
       "author": "Oliver B.",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/red_sheep/animations.xml",
       "sha256": "c1fa528b70a5a860422489089428e5792b8416dd7929f06e000dc4a12ba937c1",
-      "bytes": 1150620
+      "bytes": 1150620,
+      "animations": 268,
+      "sounds": 35
     },
     {
       "id": "shimeji-06n2wuu6",
@@ -156,7 +192,9 @@
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-06n2wuu6/animations.xml",
       "sha256": "3fa28ad1c4d8828d656fd7d3296c13254024a8b8c6ec3d611729dc2e8ae1aa96",
-      "bytes": 4659347
+      "bytes": 4659347,
+      "animations": 14,
+      "sounds": 0
     },
     {
       "id": "shimeji-08dkbwmb",
@@ -164,7 +202,9 @@
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-08dkbwmb/animations.xml",
       "sha256": "64437c85e5884068c00f12a7c59c311dabbdd848f0ead327adfcc820ff50ed40",
-      "bytes": 1848894
+      "bytes": 1848894,
+      "animations": 23,
+      "sounds": 0
     },
     {
       "id": "shimeji-1l2yvz73",
@@ -172,7 +212,9 @@
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-1l2yvz73/animations.xml",
       "sha256": "454e73f1439a660e341b91cfa18fcf5f23dd4ac9867530138aed71010ccd94db",
-      "bytes": 7063815
+      "bytes": 7063815,
+      "animations": 23,
+      "sounds": 0
     },
     {
       "id": "shimeji-36po5aw2",
@@ -180,7 +222,9 @@
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-36po5aw2/animations.xml",
       "sha256": "1597f36a25b58aef989320af0bea6f82b0e130891a76349974e9e16b25ae72e9",
-      "bytes": 883685
+      "bytes": 883685,
+      "animations": 23,
+      "sounds": 0
     },
     {
       "id": "shimeji-3g8t9v4e",
@@ -188,7 +232,9 @@
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-3g8t9v4e/animations.xml",
       "sha256": "755c32b2207a71387eadd36510a6d336fdfd1b239d54b06e3727df8e018b423c",
-      "bytes": 10194181
+      "bytes": 10194181,
+      "animations": 33,
+      "sounds": 0
     },
     {
       "id": "shimeji-3x56f4pl",
@@ -196,7 +242,9 @@
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-3x56f4pl/animations.xml",
       "sha256": "24855add2b221d40c028dfe1d1e32f018153b9ca41a538743b29cb54f4cdbed7",
-      "bytes": 2233662
+      "bytes": 2233662,
+      "animations": 23,
+      "sounds": 0
     },
     {
       "id": "shimeji-55atqs1b",
@@ -204,7 +252,9 @@
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-55atqs1b/animations.xml",
       "sha256": "35a51e69f761d52b42911663738981c45abb901d29a51b4464c3c290491ed616",
-      "bytes": 1941548
+      "bytes": 1941548,
+      "animations": 23,
+      "sounds": 0
     },
     {
       "id": "shimeji-5xs0ld2m",
@@ -212,7 +262,9 @@
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-5xs0ld2m/animations.xml",
       "sha256": "897327b31b6038cb9c81ce770b964106e1cd77dce5816b0b4f3a9c32da0087d8",
-      "bytes": 1461794
+      "bytes": 1461794,
+      "animations": 32,
+      "sounds": 0
     },
     {
       "id": "shimeji-76xviks0",
@@ -220,7 +272,9 @@
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-76xviks0/animations.xml",
       "sha256": "c80c9e699aba5b59471bd47a74d192655722ba6ed514c70984839effe43a1314",
-      "bytes": 2277183
+      "bytes": 2277183,
+      "animations": 33,
+      "sounds": 0
     },
     {
       "id": "shimeji-7gb3ediv",
@@ -228,7 +282,9 @@
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-7gb3ediv/animations.xml",
       "sha256": "b8fdcf0f7bf49ef58c5364c605ee5de07a3e2a4adb05ece80c842dc6bcb10158",
-      "bytes": 1894934
+      "bytes": 1894934,
+      "animations": 23,
+      "sounds": 0
     },
     {
       "id": "shimeji-88f9sqb5",
@@ -236,7 +292,9 @@
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-88f9sqb5/animations.xml",
       "sha256": "5146d9c74ec555ee1c8033a715ce8816c4d18df72b7806d0e255f8919ee7ff22",
-      "bytes": 3005023
+      "bytes": 3005023,
+      "animations": 13,
+      "sounds": 0
     },
     {
       "id": "shimeji-8opqq9of",
@@ -244,7 +302,9 @@
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-8opqq9of/animations.xml",
       "sha256": "ac385e6cc7ab0663d5bb54ab4638c602cc7081130a091fe4b4ccb9aa158a24f8",
-      "bytes": 1552498
+      "bytes": 1552498,
+      "animations": 33,
+      "sounds": 0
     },
     {
       "id": "shimeji-8u2lojrb",
@@ -252,7 +312,9 @@
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-8u2lojrb/animations.xml",
       "sha256": "aeb56518593396ef7ca0f5418563c98e72ddbaf9ef1e990b835a07b1dadbdff0",
-      "bytes": 915921
+      "bytes": 915921,
+      "animations": 23,
+      "sounds": 0
     },
     {
       "id": "shimeji-8vqm59ot",
@@ -260,7 +322,9 @@
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-8vqm59ot/animations.xml",
       "sha256": "08f52e4d8a9af8544f84de4441f598fd0299ff8b46f8ec69ba047b778f2cab94",
-      "bytes": 717189
+      "bytes": 717189,
+      "animations": 23,
+      "sounds": 0
     },
     {
       "id": "shimeji-9imr7z1s",
@@ -268,7 +332,9 @@
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-9imr7z1s/animations.xml",
       "sha256": "5feabba885859bdd3c138d6ba6eaabd4d62ec49afd028e9f50e8df86161c5d7b",
-      "bytes": 695336
+      "bytes": 695336,
+      "animations": 23,
+      "sounds": 0
     },
     {
       "id": "shimeji-9qc0h184",
@@ -276,7 +342,9 @@
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-9qc0h184/animations.xml",
       "sha256": "d85fccdbad466e57f662427a76f4b44821e6747b47872930addd57e3815fe6d5",
-      "bytes": 1873556
+      "bytes": 1873556,
+      "animations": 23,
+      "sounds": 0
     },
     {
       "id": "shimeji-alipheese-fateburn-xvi",
@@ -284,7 +352,9 @@
       "author": "Local import",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-alipheese-fateburn-xvi/animations.xml",
       "sha256": "9ea0417ba80b4633f3f88c3839011d3b3a2d9ab6961ccbddf4b7f652158f27b6",
-      "bytes": 1092016
+      "bytes": 1092016,
+      "animations": 74,
+      "sounds": 0
     },
     {
       "id": "shimeji-brq51bkr",
@@ -292,7 +362,9 @@
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-brq51bkr/animations.xml",
       "sha256": "fbcf31942af49346da790b89f52f8e5657df1f0d05d5debc2a24259760430624",
-      "bytes": 4723618
+      "bytes": 4723618,
+      "animations": 13,
+      "sounds": 0
     },
     {
       "id": "shimeji-capybara-albino",
@@ -300,7 +372,9 @@
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-capybara-albino/animations.xml",
       "sha256": "6a9f8965d47d5935397dc3f659e785c4671804ac718f61975209d518157865c1",
-      "bytes": 529584
+      "bytes": 529584,
+      "animations": 85,
+      "sounds": 0
     },
     {
       "id": "shimeji-cyn",
@@ -308,7 +382,9 @@
       "author": "shimejis.xyz",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-cyn/animations.xml",
       "sha256": "03b9442c8a0cda14d59cb6eb3284a58808e4daec8de54fcc33b0e446641bf2fe",
-      "bytes": 1756009
+      "bytes": 1756009,
+      "animations": 76,
+      "sounds": 0
     },
     {
       "id": "shimeji-dqjd9s2d",
@@ -316,7 +392,9 @@
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-dqjd9s2d/animations.xml",
       "sha256": "e65afd714c026894e33a0096438b3f7cf9ee63684a6336a426234a686bd48ea7",
-      "bytes": 2639414
+      "bytes": 2639414,
+      "animations": 23,
+      "sounds": 0
     },
     {
       "id": "shimeji-gengar",
@@ -324,7 +402,9 @@
       "author": "Local import",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-gengar/animations.xml",
       "sha256": "1c2f4ca09ced0aaf14bc72ba660ef1323413bd714ad821a89d97e809edfd7140",
-      "bytes": 724102
+      "bytes": 724102,
+      "animations": 60,
+      "sounds": 0
     },
     {
       "id": "shimeji-hornet-9b9d1d",
@@ -332,7 +412,9 @@
       "author": "shimejis.xyz",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-hornet-9b9d1d/animations.xml",
       "sha256": "4e4fd42c66ac5b26817791da36c9e3e6f5222da9613dc75f84841487109a8a73",
-      "bytes": 404339
+      "bytes": 404339,
+      "animations": 52,
+      "sounds": 0
     },
     {
       "id": "shimeji-kinitopet",
@@ -340,7 +422,9 @@
       "author": "shimejis.xyz",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-kinitopet/animations.xml",
       "sha256": "ba335e4863b54ec341d916001c0d941eae980b9c87bcad9e912470ee970a96b5",
-      "bytes": 514660
+      "bytes": 514660,
+      "animations": 70,
+      "sounds": 0
     },
     {
       "id": "shimeji-loona-hellhound",
@@ -348,7 +432,9 @@
       "author": "Local import",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-loona-hellhound/animations.xml",
       "sha256": "f61f010599698fe69906d522b28bdfe00fc8c12db4990860afa2590d105573d7",
-      "bytes": 1033324
+      "bytes": 1033324,
+      "animations": 51,
+      "sounds": 0
     },
     {
       "id": "shimeji-ralsei",
@@ -356,7 +442,9 @@
       "author": "shimejis.xyz",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-ralsei/animations.xml",
       "sha256": "db8f9e1b2c2f675123c6707a44ab3d174f2a7591c31c6843d7e41bfd3c653996",
-      "bytes": 662301
+      "bytes": 662301,
+      "animations": 72,
+      "sounds": 0
     },
     {
       "id": "shimeji-rick-and-morty-rick-by-starrii-chan",
@@ -364,7 +452,9 @@
       "author": "StarriiChan",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-rick-and-morty-rick-by-starrii-chan/animations.xml",
       "sha256": "e706c3dc88579e86fc9227596b2bf42b91fedec684d089c164a9a4b5398b1898",
-      "bytes": 351162
+      "bytes": 351162,
+      "animations": 43,
+      "sounds": 0
     },
     {
       "id": "shimeji-serial-designation-j",
@@ -372,7 +462,9 @@
       "author": "shimejis.xyz",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-serial-designation-j/animations.xml",
       "sha256": "c6b1ca1e9dd3fe1de822f44c0154e72900a226c65d2a22b76d9cd1e5236f8662",
-      "bytes": 2605248
+      "bytes": 2605248,
+      "animations": 116,
+      "sounds": 0
     },
     {
       "id": "shimeji-south-park-cartman",
@@ -380,7 +472,9 @@
       "author": "Phinbella-Flynn",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-south-park-cartman/animations.xml",
       "sha256": "91870e081fcc4dda2c0dd54841ec57b2589d444ab6e19cae6a18711328ce1e96",
-      "bytes": 644463
+      "bytes": 644463,
+      "animations": 35,
+      "sounds": 0
     },
     {
       "id": "shimeji-uzi-doorman-ef5c7d",
@@ -388,7 +482,9 @@
       "author": "Kilkakon and Polar Summit",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-uzi-doorman-ef5c7d/animations.xml",
       "sha256": "2c2231d9b4001fc94b633defbd47a0136b13541010ba2bbfbe640164a50af82f",
-      "bytes": 2062023
+      "bytes": 2062023,
+      "animations": 120,
+      "sounds": 0
     },
     {
       "id": "shimeji-vocaloid-gakupo",
@@ -396,7 +492,9 @@
       "author": "rikka-nyan",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-vocaloid-gakupo/animations.xml",
       "sha256": "fed14f9aee973edfc7acaede0426306f8d4336353e19c76fa228909834362c8e",
-      "bytes": 808520
+      "bytes": 808520,
+      "animations": 43,
+      "sounds": 0
     },
     {
       "id": "shiny_sylveon",
@@ -404,7 +502,9 @@
       "author": "Michelle!",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shiny_sylveon/animations.xml",
       "sha256": "2d3068d95382b49f6a88ba3552b9fe6244091742e223d4435576857013cf4af3",
-      "bytes": 22274
+      "bytes": 22274,
+      "animations": 13,
+      "sounds": 0
     },
     {
       "id": "ssj-goku",
@@ -412,7 +512,9 @@
       "author": "RedSparr0w",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/ssj-goku/animations.xml",
       "sha256": "b43023e061be98c9a0f69fb1e352fcc40565b97bf439c2890bf9293860382446",
-      "bytes": 54991
+      "bytes": 54991,
+      "animations": 24,
+      "sounds": 0
     },
     {
       "id": "yellow_neko",
@@ -420,7 +522,9 @@
       "author": "Michelle!",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/yellow_neko/animations.xml",
       "sha256": "e2a0b19dc5d1e311f0f87d5d076619873eb3c9a9c7af5f1ea0de1c651b002284",
-      "bytes": 152271
+      "bytes": 152271,
+      "animations": 27,
+      "sounds": 5
     },
     {
       "id": "yellow_sheep",
@@ -428,7 +532,9 @@
       "author": "Oliver B.",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/yellow_sheep/animations.xml",
       "sha256": "dc7cde06ab73de210899188611e7a07eb56e826f04ea4bc64590519fa5189cbe",
-      "bytes": 1150706
+      "bytes": 1150706,
+      "animations": 268,
+      "sounds": 35
     }
   ],
   "packs": [

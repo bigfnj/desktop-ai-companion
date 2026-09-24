@@ -563,6 +563,33 @@ namespace DesktopAICompanion.Wpf
                 FontSize = 11,
                 Margin = new Thickness(0, 6, 0, 0),
             });
+            // WHAT IT CONTAINS, before you commit to downloading it. An installed card has carried
+            // "N animations  ·  M sounds" since the gallery was built, and an available card showed only a
+            // size, so the one number a user actually chooses on was the one missing from the cards they
+            // were choosing between. The app cannot count this for itself here: GetStats reads the installed
+            // animations.xml, which is the file that has not been downloaded yet, so the counts ride in the
+            // catalog and are produced by New-ContentCatalog with the same two patterns GetStats uses.
+            //
+            // No sound TOGGLE, unlike the installed card: that preference is per installed pet and there is
+            // nothing yet to apply it to. Absent counts mean an older catalog, and then this renders the
+            // size line by itself exactly as before.
+            string contains = "";
+            if (pet.Animations > 0)
+            {
+                contains = pet.Animations + (pet.Animations == 1 ? " animation" : " animations");
+                if (pet.Sounds > 0)
+                    contains += "  ·  " + pet.Sounds + (pet.Sounds == 1 ? " sound" : " sounds");
+            }
+            if (contains.Length > 0)
+            {
+                sp.Children.Add(new TextBlock
+                {
+                    Text = contains,
+                    FontSize = 10,
+                    Foreground = Brushes.Gray,
+                    Margin = new Thickness(0, 2, 0, 0),
+                });
+            }
             if (pet.Bytes > 0)
             {
                 sp.Children.Add(new TextBlock

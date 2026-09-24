@@ -893,6 +893,85 @@ namespace DesktopAICompanion
                     try { Directory.Delete(revealSibling, true); } catch { }
                 }
 
+                // ---- AN "AVAILABLE TO DOWNLOAD" CARD SAYS WHAT THE PET CONTAINS ----
+                // An installed card has always carried "N animations  ·  M sounds"; a download card carried
+                // only a size, so the number a user actually chooses on was missing from the cards they were
+                // choosing between. The counts cannot be computed here, because GetStats reads the installed
+                // animations.xml and that is the file not yet downloaded, so they ride in the catalog.
+                //
+                // Reflected rather than driven through the pane, because building the whole gallery needs a
+                // live host and a catalog fetch; the card builder is the unit under test.
+                try
+                {
+                    var cardPane = (System.Windows.Controls.ContentControl)Activator.CreateInstance(
+                        typeof(DesktopAICompanion.Wpf.OptionsShell).Assembly
+                            .GetType("DesktopAICompanion.Wpf.CompanionsPaneControl"),
+                        true);
+                    System.Reflection.MethodInfo build = cardPane.GetType().GetMethod(
+                        "BuildDownloadCard",
+                        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                    Type ccType = typeof(DesktopAICompanion.Wpf.OptionsShell).Assembly
+                        .GetType("DesktopAICompanion.CatalogCompanion");
+                    ok &= Check(sb, "the download-card builder and catalog type are both reachable",
+                        build != null && ccType != null);
+                    if (build != null && ccType != null)
+                    {
+                        object cc = Activator.CreateInstance(ccType);
+                        ccType.GetField("Id").SetValue(cc, "blue_sheep");
+                        ccType.GetField("Name").SetValue(cc, "Pearl");
+                        ccType.GetField("Author").SetValue(cc, "Adriano");
+                        ccType.GetField("Bytes").SetValue(cc, 1150320);
+                        ccType.GetField("Animations").SetValue(cc, 268);
+                        ccType.GetField("Sounds").SetValue(cc, 35);
+                        var card = (System.Windows.FrameworkElement)build.Invoke(cardPane, new object[] { cc });
+                        string cardText = string.Join(" | ", TextOf(card));
+                        ok &= Check(sb, "a download card states the animation count (" + cardText + ")",
+                            cardText.IndexOf("268 animations", StringComparison.Ordinal) >= 0);
+                        ok &= Check(sb, "...and the sound count beside it",
+                            cardText.IndexOf("35 sounds", StringComparison.Ordinal) >= 0);
+                        ok &= Check(sb, "...and still states the download size",
+                            cardText.IndexOf("download", StringComparison.Ordinal) >= 0);
+                        // No per-pet sound TOGGLE: that preference applies to an installed pet and there is
+                        // nothing yet to apply it to. Asserted because the installed card's line does have
+                        // one, and copying that line wholesale is the obvious way to build this.
+                        ok &= Check(sb, "...without offering a sound on/off toggle for a pet you do not have",
+                            cardText.IndexOf("sound on", StringComparison.Ordinal) < 0 &&
+                            cardText.IndexOf("sound off", StringComparison.Ordinal) < 0);
+
+                        // An OLDER catalog carries neither count. The card must then read exactly as it did
+                        // before this existed, rather than announcing "0 animations".
+                        object older = Activator.CreateInstance(ccType);
+                        ccType.GetField("Id").SetValue(older, "bbunny");
+                        ccType.GetField("Name").SetValue(older, "Bbunny");
+                        ccType.GetField("Bytes").SetValue(older, 33320);
+                        string oldText = string.Join(" | ", TextOf((System.Windows.FrameworkElement)build.Invoke(cardPane, new object[] { older })));
+                        ok &= Check(sb, "a pre-counts catalog entry shows no count line at all (" + oldText + ")",
+                            oldText.IndexOf("animation", StringComparison.Ordinal) < 0 &&
+                            oldText.IndexOf("download", StringComparison.Ordinal) >= 0);
+
+                        // Render it, because the assertions above prove the strings and not the card.
+                        try
+                        {
+                            card.Measure(new System.Windows.Size(240, 400));
+                            card.Arrange(new System.Windows.Rect(0, 0, 240, card.DesiredSize.Height));
+                            card.UpdateLayout();
+                            var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(
+                                240, (int)Math.Max(1, card.DesiredSize.Height), 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+                            rtb.Render(card);
+                            var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                            enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
+                            using (var fs = File.Create(Path.Combine(Path.GetTempPath(), "dp-download-card.png")))
+                                enc.Save(fs);
+                        }
+                        catch (Exception ex) { sb.AppendLine("note: card render skipped (" + ex.GetType().Name + ")"); }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ok = false;
+                    sb.AppendLine("FAIL: download-card probe threw " + ex.GetType().Name + ": " + ex.Message);
+                }
+
                 // ---- THE SETTINGS WINDOW MUST NOT WAIT ON A SLEEPING NAS ----
                 // DescribeNotificationSound runs inside the Preferences pane's Load(), which PaneView.Build()
                 // calls on the WPF UI thread. File.Exists against an unreachable UNC path blocks on the SMB
@@ -938,6 +1017,29 @@ namespace DesktopAICompanion
             try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "dp-wpf-options-selftest.txt"), sb.ToString()); } catch { }
             Console.Out.Write(sb.ToString());
             return ok;
+        }
+
+        /// <summary>Every TextBlock string in a built card, so an assertion can read what the card actually
+        /// says rather than what the builder was asked for.</summary>
+        private static List<string> TextOf(System.Windows.DependencyObject root)
+        {
+            var found = new List<string>();
+            if (root == null) return found;
+            var tb = root as System.Windows.Controls.TextBlock;
+            if (tb != null && !string.IsNullOrWhiteSpace(tb.Text)) found.Add(tb.Text);
+            int n = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < n; i++)
+                found.AddRange(TextOf(System.Windows.Media.VisualTreeHelper.GetChild(root, i)));
+            if (n == 0)
+            {
+                var dec = root as System.Windows.Controls.Decorator;
+                if (dec != null) found.AddRange(TextOf(dec.Child));
+                var panel = root as System.Windows.Controls.Panel;
+                if (panel != null) foreach (System.Windows.UIElement c in panel.Children) found.AddRange(TextOf(c));
+                var cc2 = root as System.Windows.Controls.ContentControl;
+                if (cc2 != null) found.AddRange(TextOf(cc2.Content as System.Windows.DependencyObject));
+            }
+            return found;
         }
 
         private static bool Check(StringBuilder sb, string name, bool cond) { sb.AppendLine((cond ? "PASS: " : "FAIL: ") + name); return cond; }

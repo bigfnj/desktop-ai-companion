@@ -102,14 +102,43 @@ foreach ($dir in (Get-ChildItem -LiteralPath $petsRoot -Directory | Sort-Object 
     if (-not (Test-Path -LiteralPath $xml -PathType Leaf)) { continue }
     $id = $dir.Name
     $asset = Get-CatalogAsset $RepoRoot "Companions/$id/animations.xml" $xml
-    $pets += [ordered]@{
-        id     = $id
-        name   = if ($names.ContainsKey($id)) { $names[$id] } else { Get-PrettyName $id }
-        author = if ($authors.ContainsKey($id)) { $authors[$id] } else { '' }
-        url    = "$rawBase/Companions/$id/animations.xml"
-        sha256 = $asset.Sha256
-        bytes  = $asset.Bytes
+    # Animation and sound counts, so a card in "Available to download" can say what the pet CONTAINS and not
+    # only how many KB it is. The app cannot work these out for itself before downloading: its own GetStats
+    # reads the installed animations.xml, which is exactly the file the user has not got yet.
+    #
+    # Counted with the same two patterns CompanionsPaneControl.GetStats uses, deliberately, so an installed
+    # card and an available card of the same pet never disagree. Both are counts of opening tags, which is
+    # why `<animation ` carries its trailing space (it must not match `<animations>`) and `<sound` uses a
+    # word boundary.
+    $petText = Get-Content -LiteralPath $xml -Raw -Encoding UTF8
+    $animationCount = ([regex]::Matches($petText, '<animation\s')).Count
+    $soundCount = ([regex]::Matches($petText, '<sound\b')).Count
+    if ($animationCount -lt 1) {
+        throw ("Companion '$id' counted $animationCount animations. Every pet has at least one, so this is " +
+               "the count being wrong rather than the pet being empty, and a catalog that ships it would " +
+               "tell every user this companion is empty.")
     }
+    $pets += [ordered]@{
+        id         = $id
+        name       = if ($names.ContainsKey($id)) { $names[$id] } else { Get-PrettyName $id }
+        author     = if ($authors.ContainsKey($id)) { $authors[$id] } else { '' }
+        url        = "$rawBase/Companions/$id/animations.xml"
+        sha256     = $asset.Sha256
+        bytes      = $asset.Bytes
+        animations = $animationCount
+        sounds     = $soundCount
+    }
+}
+
+# A count that is zero for EVERY companion is a broken pattern, not a silent corpus. This check exists
+# because the sound pattern shipped mangled once: a backslash was eaten on the way into this file, ``
+# became a literal backspace byte, and every pet reported 0 sounds while the app's own card showed 35 for
+# the same skin. Animations were fine, so a per-pet guard on that number saw nothing wrong. Zero sounds is
+# legitimate for an individual pet, so the only version of this check that can fail is the corpus one.
+$withSounds = @($pets | Where-Object { $_.sounds -gt 0 }).Count
+if ($withSounds -lt 1) {
+    throw ("Not one of $($pets.Count) companions reported a single sound. Some of them certainly have " +
+           "sounds, so this is the counting pattern being wrong rather than the corpus being silent.")
 }
 
 # --- packs (per-source; collection metadata from packs\collections.json) -----

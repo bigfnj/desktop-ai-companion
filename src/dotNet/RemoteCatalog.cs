@@ -19,6 +19,12 @@ namespace DesktopAICompanion
         public string Url;
         public string Sha256;
         public int Bytes;
+        // What the pet CONTAINS, so a not-yet-downloaded card can say more than its size. Counted by
+        // New-ContentCatalog with the same two patterns CompanionsPaneControl.GetStats uses on an installed
+        // pet, so the two cards never disagree about the same companion. Zero means an older catalog that
+        // predates these fields, and the card then shows the size line alone as it always did.
+        public int Animations;
+        public int Sounds;
     }
 
     internal sealed class CatalogPack
@@ -75,6 +81,10 @@ namespace DesktopAICompanion
 
         private const int MaximumCatalogBytes = 512 * 1024;
         private const int MaximumEntries = 512;
+        // Ceiling for a catalog's animation/sound counts. The largest shipped companion carries 1133
+        // animations, so this is roughly 9x the real maximum: generous enough never to refuse a real pet,
+        // tight enough that a malformed entry is refused rather than rendered.
+        private const int MaximumCountedItems = 10000;
         internal const int MaximumModuleBytes = 100 * 1024 * 1024;   // generous but bounded module zip size
 
         public static async Task<RemoteCatalog> FetchAsync(CancellationToken cancellationToken)
@@ -232,12 +242,21 @@ namespace DesktopAICompanion
                         Author = JsonRead.Str(token["author"]).Trim(),
                         Url = JsonRead.Str(token["url"]).Trim(),
                         Sha256 = JsonRead.Str(token["sha256"]).Trim().ToLowerInvariant(),
-                        Bytes = JsonRead.IntOrNull(token["bytes"]) ?? 0
+                        Bytes = JsonRead.IntOrNull(token["bytes"]) ?? 0,
+                        // Absent in a catalog written before these fields existed, which is a supported
+                        // state: the card then shows the download size alone, exactly as it used to.
+                        Animations = JsonRead.IntOrNull(token["animations"]) ?? 0,
+                        Sounds = JsonRead.IntOrNull(token["sounds"]) ?? 0
                     };
                     if (!SecureDownload.IsSafeId(pet.Id) || !petIds.Add(pet.Id) ||
                         string.IsNullOrWhiteSpace(pet.Name) || pet.Name.Length > 128 ||
                         pet.Author.Length > 128 ||
                         pet.Bytes < 1 || pet.Bytes > CompanionXmlValidator.MaximumXmlBytes ||
+                        // Bounded like every other number here. These only ever render as text, so the risk
+                        // is a nonsense card rather than anything unsafe -- but an entry this file cannot
+                        // believe is an entry it rejects, and the largest shipped pet carries 1133.
+                        pet.Animations < 0 || pet.Animations > MaximumCountedItems ||
+                        pet.Sounds < 0 || pet.Sounds > MaximumCountedItems ||
                         !IsSha256(pet.Sha256) ||
                         !IsPetAssetUrl(pet.Url, pet.Id))
                         throw new InvalidDataException("Catalog contains an invalid pet entry.");
