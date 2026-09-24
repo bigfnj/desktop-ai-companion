@@ -26,6 +26,11 @@ import re
 import sys
 from collections import defaultdict
 
+# Animation names come from the source skin and are frequently Japanese. A Windows console is cp1252
+# by default, so printing one raises UnicodeEncodeError at the very end, after the whole soak has run.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 # TOnly, from Animations.cs
 NONE, TASKBAR, WINDOW, HORIZONTAL = 0x7F, 0x01, 0x02, 0x04
 HORIZONTAL_, VERTICAL = 0x06, 0x08
@@ -123,11 +128,17 @@ def classify(name):
     pets use the engine's own snake_case (climb_left, climb_ceiling_left). Matching only the first set
     silently scored every hand-authored pet as zero climbs, which is how this function got written the
     second time.
+
+    Third time: the converter also preserves JAPANESE names, because Shimeji-EE's own vocabulary is
+    Japanese and many skins never renamed their actions. Cartman climbs walls as 壁を登る and crosses
+    ceilings as 天井を伝う, and this function scored it 0.00% wall / 0.00% ceiling -- indistinguishable
+    from a pet that genuinely cannot climb, and it is the number the release decision reads. See
+    `surface_capable` below: a rate of zero now has to say WHICH of the two it is.
     """
     n = name.lower().replace("_", "")
-    if "ceiling" in n or "hang" in n or "cling" in n:
+    if "ceiling" in n or "hang" in n or "cling" in n or "天井" in n:
         return "ceiling"
-    if "wall" in n or n.startswith("climb") or n.startswith("grab"):
+    if "wall" in n or n.startswith("climb") or n.startswith("grab") or "壁" in n:
         return "wall"
     return "other"
 
@@ -138,6 +149,20 @@ def is_wall(name):
 
 def is_ceiling(name):
     return classify(name) == "ceiling"
+
+
+def surface_capable(anims):
+    """How many DECLARED animations classify as wall / ceiling.
+
+    A climb rate of 0.0% has two completely different meanings -- the pet owns no climb animation, or
+    it owns several and never reaches one -- and only the second is a regression. Printing the declared
+    counts beside the rate is what makes the difference visible; without it the abort condition reads
+    the same number in both worlds and can never fire.
+    """
+    c = defaultdict(int)
+    for a in anims.values():
+        c[classify(a.name)] += 1
+    return c["wall"], c["ceiling"]
 
 
 def simulate(anims, width, height, minutes, rng):
@@ -202,16 +227,23 @@ def simulate(anims, width, height, minutes, rng):
                     climbs += 1
                 if where == HORIZONTAL and is_ceiling(nn):
                     ceiling_reaches += 1
-        else:
-            frame += 1
-            if frame >= span:
-                frame = 0
-                # Gravity: off the floor, not already on a surface, and this animation has an opinion.
-                airborne = y < height - 1 and classify(a.name) == "other"
-                if airborne and a.gravity:
-                    nxt = pick(a.gravity, NONE, rng)
-                if nxt is None:
-                    nxt = pick(a.seq, TASKBAR if y >= height - 1 else NONE, rng)
+        # The engine advances AnimationStep on EVERY tick (FormCompanion.Timer1_Tick) and resolves the
+        # border and the sequence end within the same tick. Advancing only on the non-border branch made
+        # this simulation blind: an animation that raises a border every tick but has no eligible edge --
+        # a non-locomotion jump, which gets no <border> block at all because that is attached only when
+        # loco -- never progressed a frame, so the run was absorbed for the rest of its budget. Measured
+        # before this fix: 13.7 transitions per 30-simulated-minute run on cartman against the 570 the
+        # same pet reports now, i.e. every pet stalled within a couple of simulated minutes and "most-entered
+        # animation" only ever reported how fast the pet found a jump.
+        frame += 1
+        if nxt is None and frame >= span:
+            frame = 0
+            # Gravity: off the floor, not already on a surface, and this animation has an opinion.
+            airborne = y < height - 1 and classify(a.name) == "other"
+            if airborne and a.gravity:
+                nxt = pick(a.gravity, NONE, rng)
+            if nxt is None:
+                nxt = pick(a.seq, TASKBAR if y >= height - 1 else NONE, rng)
 
         if nxt is not None:
             if classify(a.name) == "wall" and anims[nxt].name.lower() == "fall":
@@ -272,6 +304,12 @@ def main():
     for k in ("other", "wall", "ceiling"):
         print("   %-8s %6.2f%%" % (k, 100.0 * tot.get(k, 0.0) / grand))
 
+    n_wall, n_ceil = surface_capable(anims)
+    print("\nDeclared surface animations   wall %d   ceiling %d%s"
+          % (n_wall, n_ceil,
+             "   <- none declared: a 0%% rate below is expected, not a regression"
+             if not (n_wall or n_ceil) else ""))
+
     print("\nWall and ceiling events, per %d-minute run" % minutes)
     print("   reached a side wall      %8.1f" % (agg["wall_hits"] / runs))
     print("   ... and climbed it       %8.1f   (%.1f%% of wall arrivals)"
@@ -287,6 +325,36 @@ def main():
           % (100.0 * runs_with_wall / runs, runs_with_wall, runs))
     print("   touched the ceiling      %6.1f%%  (%d of %d)"
           % (100.0 * runs_with_ceiling / runs, runs_with_ceiling, runs))
+
+    # Instrument health. Measured across the 13 converted desktop pets on
+    # 2026-09-24, a 30-minute run is 338-597 transitions; anything far below that means the pet is being absorbed somewhere and every other
+    # number on this page is measuring the absorption rather than the behaviour. Coverage is the
+    # companion metric: `unreachable=0` proves a path EXISTS, not that the pet ever takes it.
+    transitions = sum(visits.values())
+    declared = len(anims)
+    print("\nInstrument health")
+    print("   transitions per run      %8.1f   (measured band 340-600; far below = absorbed)"
+          % (float(transitions) / runs))
+    print("   distinct animations      %8d of %d declared  (%.0f%% coverage)"
+          % (len(visits), declared, 100.0 * len(visits) / max(1, declared)))
+
+    # Set-piece completion. A converted set-piece is emitted as `<seq>_<n>_<member>` steps chained at
+    # probability 100, so entries to the last step should equal entries to the first. A ratio below 1
+    # means a run is being abandoned part-way, which is the failure the chain exists to prevent and the
+    # one `verify` cannot see.
+    chains = defaultdict(dict)
+    for nm in visits:
+        m = re.match(r"^(.*)_(\d+)_[^_]*$", nm)
+        if m:
+            chains[m.group(1)][int(m.group(2))] = nm
+    if chains:
+        print("\nSet-piece completion (entries to last step / entries to first)")
+        for seq in sorted(chains):
+            steps = chains[seq]
+            first, last = steps[min(steps)], steps[max(steps)]
+            a_, b_ = visits.get(first, 0), visits.get(last, 0)
+            print("   %-26s %6.2f   (%d -> %d over %d runs)"
+                  % (seq[:26], (float(b_) / a_) if a_ else 0.0, a_, b_, runs))
 
     print("\nMost-entered animations")
     for nm, c in sorted(visits.items(), key=lambda kv: -kv[1])[:12]:

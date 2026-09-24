@@ -55,6 +55,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             try
             {
                 ShimejiConfig config = ShimejiParser.ParseActionsXml(SyntheticActionsXml);
+                // ParseActionsXml reads actions only; a real skin's frequencies arrive from behaviors.xml.
+                // Setting one here is what puts the set-piece through the PLAYED gate rather than the
+                // recovers-a-withheld-member one, so both halves of ExpandSetPieces' condition are exercised.
+                config.BehaviorFrequency["GatorRide"] = 60;
 
                 Func<string, Bitmap> load = delegate(string name) { return new Bitmap(owned[name]); };
 
@@ -104,6 +108,73 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                         int x = EvalOnFakeScreen(sp.X, sheet.CellWidth, sheet.CellHeight);
                         if (x < 0 || x > 1920 - sheet.CellWidth)
                             failures.Add("spawn " + sp.Id + " lands the pet off-screen horizontally (x=" + x + " of 1920)");
+                    }
+                }
+
+                // ---- SET-PIECE CHAIN: ORDER IS A GUARANTEE, NOT A WEIGHTING ----
+                // The property under test is not "a chain was emitted" but "a member cannot be reached except
+                // through the run, and the run cannot be abandoned part-way". Those are different claims, and
+                // only the second one prevents a pet walking off screen and staying there. Every step is
+                // checked, not just the entry: the bug this replaces (fixed in 40ab832) had a correct entry
+                // and correct sequence edges while gravity and the border still offered every step a way out.
+                var chainSteps = new List<XmlData.AnimationNode>();
+                foreach (XmlData.AnimationNode a in r.Root != null && r.Root.Animations != null &&
+                                                    r.Root.Animations.Animation != null
+                             ? r.Root.Animations.Animation : new XmlData.AnimationNode[0])
+                    if (a != null && a.Name != null && a.Name.StartsWith("GatorRide_", StringComparison.Ordinal))
+                        chainSteps.Add(a);
+                if (chainSteps.Count != 3)
+                    failures.Add("expected 3 set-piece chain steps for GatorRide, got " + chainSteps.Count +
+                        "; the whole set-piece block below is untested without them");
+                else
+                {
+                    int chainHubId = HubId(r);
+                    List<int> hubTargetsForChain = HubSequenceTargets(r);
+                    XmlData.AnimationNode s1 = FindAnimationNamed(r, "GatorRide_1_Walk");
+                    XmlData.AnimationNode s2 = FindAnimationNamed(r, "GatorRide_2_RunOff");
+                    XmlData.AnimationNode s3 = FindAnimationNamed(r, "GatorRide_3_ReturnOn");
+                    if (s1 == null || s2 == null || s3 == null)
+                        failures.Add("set-piece steps are not named <sequence>_<n>_<member> in source order: " +
+                            string.Join(", ", chainSteps.ConvertAll(delegate(XmlData.AnimationNode a) { return a.Name; }).ToArray()));
+                    else
+                    {
+                        // Exactly ONE entry point. A member that is selectable on its own is the stranding
+                        // hazard itself: RunOff travels off screen and only ReturnOn brings the pet back.
+                        if (!hubTargetsForChain.Contains(s1.Id))
+                            failures.Add("the set-piece's first step is not selectable from the hub, so the run can never start");
+                        if (hubTargetsForChain.Contains(s2.Id) || hubTargetsForChain.Contains(s3.Id))
+                            failures.Add("a set-piece MEMBER is selectable from the hub on its own; RunOff " +
+                                "walks the pet off screen and its return leg is then merely likely");
+                        // Chaining must not consume the ordinary spoke. Walk is a member here AND a walk.
+                        XmlData.AnimationNode plainWalk = FindAnimationNamed(r, "Walk");
+                        if (plainWalk == null || !hubTargetsForChain.Contains(plainWalk.Id))
+                            failures.Add("'Walk' stopped being an ordinary hub spoke because a set-piece uses it");
+
+                        var order = new List<XmlData.AnimationNode> { s1, s2, s3 };
+                        for (int i = 0; i < order.Count; i++)
+                        {
+                            XmlData.AnimationNode step = order[i];
+                            int want = i + 1 < order.Count ? order[i + 1].Id : chainHubId;
+                            List<int> seq = SequenceTargetsOf(step);
+                            if (seq.Count != 1 || seq[0] != want)
+                                failures.Add("set-piece step '" + step.Name + "' should hand to exactly one " +
+                                    "successor (" + want + "), got [" + string.Join(",", seq.ConvertAll(delegate(int v) { return v.ToString(); }).ToArray()) + "]");
+                            // A border must ANSWER, not escape. Nothing at all was measurably worse: with the
+                            // border ignored, a travelling step drove the pet into the screen edge and kept
+                            // pushing for the rest of its frames (across the 13 desktop pets that multiplied
+                            // wall arrivals 2-5x while climbs fell). Sending it to the next step ends the leg
+                            // early and keeps the run in order.
+                            if (step.Border == null || step.Border.Next == null || step.Border.Next.Length != 1)
+                                failures.Add("set-piece step '" + step.Name + "' has no single border edge, so " +
+                                    "a wall either strands it against the edge or offers it a way out of the run");
+                            else if (step.Border.Next[0].Value != want)
+                                failures.Add("set-piece step '" + step.Name + "' answers a border with " +
+                                    step.Border.Next[0].Value + " instead of its own successor " + want +
+                                    ", which abandons the run");
+                            if (step.Gravity != null)
+                                failures.Add("set-piece step '" + step.Name + "' kept a gravity edge; it routes " +
+                                    "to 'fall', and 'fall' returns to the hub, so the rest of the run is skipped");
+                        }
                     }
                 }
 
@@ -1385,6 +1456,31 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         <Pose Image=""/k3.png"" ImageAnchor=""20,60"" Velocity=""2,0"" Duration=""4"" />
         <Pose Image=""/k4.png"" ImageAnchor=""20,60"" Velocity=""2,0"" Duration=""4"" />
       </Animation>
+    </Action>
+    <!-- A SET-PIECE, in the shape the corpus actually ships it: Capybara's gator ride in miniature. The two
+         legs carry BorderType=""None"", which is what makes this worth testing rather than a formality:
+         IsFloorAction rejects them, so they are never hub spokes, their sprites reach the sheet only because
+         SetPieceMemberNames puts them there, and the only way the pet can ever play them is the chain. Walk
+         is a member AND an ordinary spoke, which is the case that catches a chain stealing the walk.
+         RunOff travels left and ReturnOn travels back right, so the run REVERSES DIRECTION: that is exactly
+         what animations.xsd cannot express as one animation (one <start>, one <end>, interpolated across
+         every frame) and it is why a chain exists at all rather than a concatenation. -->
+    <Action Name=""RunOff"" Type=""Move"" BorderType=""None"">
+      <Animation>
+        <Pose Image=""/m.png"" ImageAnchor=""20,60"" Velocity=""-6,0"" Duration=""6"" />
+        <Pose Image=""/m2.png"" ImageAnchor=""20,60"" Velocity=""-6,0"" Duration=""6"" />
+      </Animation>
+    </Action>
+    <Action Name=""ReturnOn"" Type=""Move"" BorderType=""None"">
+      <Animation>
+        <Pose Image=""/m2.png"" ImageAnchor=""20,60"" Velocity=""6,0"" Duration=""6"" />
+        <Pose Image=""/mn.png"" ImageAnchor=""20,60"" Velocity=""6,0"" Duration=""6"" />
+      </Animation>
+    </Action>
+    <Action Name=""GatorRide"" Type=""Sequence"">
+      <ActionReference Name=""Walk"" />
+      <ActionReference Name=""RunOff"" />
+      <ActionReference Name=""ReturnOn"" />
     </Action>
   </ActionList>
 </Mascot>";

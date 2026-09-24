@@ -353,6 +353,19 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             // reason a set-piece can be converted at all: a member like "walk off screen" is only safe when
             // the return leg is structurally its sole successor, not a weighted option among many.
             public Emitted ChainNext;
+            // Name to look this spoke's hub weight up by, when that is not Source.Name. A set-piece chain
+            // entry is the one case: its Source is the run's FIRST MEMBER, but the frequency a behaviour
+            // declared belongs to the SEQUENCE. Keying on Source.Name would credit the entry with the
+            // member's own weight and double-count the sequence's -- once on the entry, once on every
+            // member the behaviour also resolves to.
+            public string WeightKey;
+            // Number of steps in the set-piece this animation ENTERS; 1 for everything else. A hub weight is
+            // a selection probability, but what the artist's Frequency describes is how much of the pet's
+            // LIFE an activity should occupy, and those two only coincide for spokes of similar length. An
+            // eight-member chain picked as often as a one-shot Sit occupies roughly eight times the minutes.
+            // Dividing by the length is not a fudge factor: it is what makes the existing weight mean the
+            // thing it already claims to mean.
+            public int ChainLength = 1;
             // A gaze pose: emitted with the faceCursor sequence action so it is aimed at the pointer on
             // entry, rather than held facing an arbitrary direction.
             public bool IsGaze;
@@ -1487,6 +1500,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             bool chained = e.ChainNext != null;
             if (fall != null && e != fall && !jump && !chained)
                 node.Gravity = new HitNode { Next = new[] { Next(fall.Id, 100, "none") } };
+            // A chained step still needs an ANSWER to a border, just not an escape. Sending it to the next
+            // step keeps the run intact and in order while letting a wall end the current leg early, which
+            // is what a walk-off-screen leg should do anyway. Giving it nothing was measurably worse than
+            // giving it the wrong thing: with the border ignored, a locomoting step drives the pet into the
+            // screen edge and keeps pushing for the rest of its frames. Across the 13 desktop pets that
+            // multiplied wall ARRIVALS 2-5x while climbs fell (Hornet 13.3 -> 69.6 arrivals, 4.4 -> 2.7
+            // climbs), i.e. the pet spent the difference mashed against the edge doing nothing.
+            if (chained)
+                node.Border = new HitNode { Next = new[] { Next(e.ChainNext.Id, 100, "none") } };
             if (loco && !chained)
             {
                 // Reach an edge -> turn (flip) and head back. At a LEFT/RIGHT screen edge specifically, the
@@ -1795,9 +1817,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         {
             if (e == hub) return HubBaseWeight;
             int freq = 0;
-            if (spokeWeights != null && e.Source != null && e.Source.Name != null)
-                spokeWeights.TryGetValue(e.Source.Name, out freq);
-            return HubWeightFromFrequency(freq);
+            string key = e.WeightKey ?? (e.Source != null ? e.Source.Name : null);
+            if (spokeWeights != null && key != null)
+                spokeWeights.TryGetValue(key, out freq);
+            int w = HubWeightFromFrequency(freq);
+            // Length-correct a set-piece entry. See Emitted.ChainLength. Floored at 1 so a long run is
+            // always still selectable; ApplyHubMinimumShare then lifts it to the guaranteed share, which is
+            // the right outcome -- a scripted run should be occasional, not absent.
+            if (e.ChainLength > 1) w = Math.Max(1, w / e.ChainLength);
+            return w;
         }
 
         // Turn root behaviour frequencies into per-spoke selection weights. A <Behavior Name="X" Frequency="N">
@@ -1838,6 +1866,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             if (name == null || depth > MaxResolveDepth || !visited.Add(name)) return;
             ShimejiAction a;
             if (!byName.TryGetValue(name, out a)) return;
+            // A CHAINED sequence is a spoke in its own right and stops the walk. Descending into it as well
+            // would spend the behaviour's frequency twice -- once on the chain entry that now represents the
+            // run, and again on each member the walk reaches -- so the pet would play those members far more
+            // often than the artist asked, at the expense of every spoke not in a set-piece. Stopping here is
+            // what makes reproducing ORDER weight-neutral: the same frequency, spent on one entry.
+            if (ExpandedSetPieces.Contains(name)) { outSpokes.Add(name); return; }
             if (IsFloorAction(a)) { outSpokes.Add(name); return; }
             foreach (string reference in a.ReferencedActions)
                 ResolveSpokes(reference, byName, outSpokes, visited, depth + 1);
@@ -1869,10 +1903,50 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         /// Only the FIRST member joins the hub. The rest are reachable solely through the chain, so they
         /// can never be selected in isolation, and the last hands back to the hub.
         ///
-        /// Deliberately narrow. A chain is built only when it RECOVERS a member that is otherwise withheld;
-        /// without that filter every pet would gain duplicate copies of animations it already had. Frames
-        /// are indices into the shared sheet, so a chain costs animation nodes, not sprite bytes.
+        /// Two gates, not one. A chain is built when it RECOVERS a member that is otherwise withheld, or when
+        /// a root behaviour with Frequency &gt; 0 actually PLAYS the sequence. Structure alone is not a gate:
+        /// 555 composites in the corpus have 2..8 posed members and chaining all of them would bury each
+        /// pet's own weighting under dozens of duplicate hub options. Frames are indices into the shared
+        /// sheet, so a chain costs animation nodes, not sprite bytes.
         /// </summary>
+        /// <summary>
+        /// Names of the Sequence composites a root behaviour actually plays, reached through any depth of
+        /// Select/Sequence nesting.
+        ///
+        /// This is the gate that decides which set-pieces are worth reproducing in order. Structure alone is
+        /// far too generous: 555 composites in the corpus have 2..8 posed members, and chaining all of them
+        /// would give every pet dozens of extra hub options, diluting the artist's own weighting into noise.
+        /// A &lt;Behavior Frequency="N"&gt; naming the run is the artist SAYING the pet should perform it, and
+        /// it is the same signal BuildSpokeWeights already trusts for every other weight in the file.
+        /// </summary>
+        private static HashSet<string> BehaviourReferencedSequences(ShimejiConfig config)
+        {
+            var found = new HashSet<string>(StringComparer.Ordinal);
+            if (config == null || config.BehaviorFrequency.Count == 0) return found;
+
+            var byName = new Dictionary<string, ShimejiAction>(StringComparer.Ordinal);
+            foreach (ShimejiAction a in config.Actions)
+                if (a != null && a.Name != null && !byName.ContainsKey(a.Name)) byName[a.Name] = a;
+
+            foreach (KeyValuePair<string, int> kv in config.BehaviorFrequency)
+            {
+                if (kv.Value <= 0) continue;   // frequency 0 means the artist disabled it
+                CollectSequences(kv.Key, byName, found, new HashSet<string>(StringComparer.Ordinal), 0);
+            }
+            return found;
+        }
+
+        private static void CollectSequences(string name, Dictionary<string, ShimejiAction> byName,
+            HashSet<string> outSeqs, HashSet<string> visited, int depth)
+        {
+            if (name == null || depth > MaxResolveDepth || !visited.Add(name)) return;
+            ShimejiAction a;
+            if (!byName.TryGetValue(name, out a)) return;
+            if (string.Equals(a.Type, "Sequence", StringComparison.Ordinal)) outSeqs.Add(name);
+            foreach (string reference in a.ReferencedActions)
+                CollectSequences(reference, byName, outSeqs, visited, depth + 1);
+        }
+
         private static List<Emitted> ExpandSetPieces(ShimejiConfig config, SpriteSheet sheet,
                                                      List<Emitted> spokes, List<Emitted> all, Emitted hub)
         {
@@ -1888,6 +1962,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             var alreadyEmitted = new HashSet<string>(StringComparer.Ordinal);
             foreach (Emitted e in spokes)
                 if (e.Source != null && e.Source.Name != null) alreadyEmitted.Add(e.Source.Name);
+
+            HashSet<string> played = BehaviourReferencedSequences(config);
 
             foreach (ShimejiAction seq in config.Actions)
             {
@@ -1923,7 +1999,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     if (!alreadyEmitted.Contains(m.Name)) recovers = true;
                     members.Add(m);
                 }
-                if (!ok || !recovers || members.Count < MinMembers) continue;
+                // Two ways in, and they answer different questions. RECOVERS is about fidelity of content:
+                // a member that is otherwise withheld reaches the pet only through a chain. PLAYED is about
+                // fidelity of ORDER: the artist declared a behaviour that performs this run, so the pet
+                // should perform it as a run rather than as loose parts the hub shuffles. Either is reason
+                // enough; neither implies the other.
+                if (!ok || !(recovers || played.Contains(seq.Name)) || members.Count < MinMembers) continue;
 
                 string baseName = SanitizeName(seq.Name);
                 var steps = new List<Emitted>();
@@ -1936,6 +2017,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     });
                 for (int i = 0; i < steps.Count - 1; i++) steps[i].ChainNext = steps[i + 1];
                 steps[steps.Count - 1].ChainNext = hub;
+                // The entry carries the SEQUENCE's weight, not its first member's. ResolveSpokes stops at a
+                // chained sequence, so the behaviour frequency arrives here exactly once.
+                steps[0].WeightKey = seq.Name;
+                steps[0].ChainLength = steps.Count;
 
                 ExpandedSetPieces.Add(seq.Name);
                 spokes.Add(steps[0]);          // the set-piece's only entry point
