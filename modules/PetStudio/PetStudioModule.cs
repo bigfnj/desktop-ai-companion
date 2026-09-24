@@ -24,7 +24,16 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.0.9",   // 1.0.9: four engine fixes reach the importer. A Type="OpenURL" action is
+            Version = "1.1.0",   // 1.1.0: the source-linked engine gained the MIGRATION LADDER, declared once
+                                 //        so a migration cannot invent its own rung. Six of the eight used to
+                                 //        stamp the LATEST format instead of their own next one, so a pet at
+                                 //        0.3 ran `rejump` and every later migration then skipped it while it
+                                 //        still needed them. `restdwell` is retired: it inverted when the rest
+                                 //        target was redefined from ~1.2s to 11s and began LENGTHENING rests,
+                                 //        hub included, while printing "shortened". Nothing in this module
+                                 //        calls the migrations, but it compiles PetEmitter, so the payload is
+                                 //        stale without a bump.
+                                 // 1.0.9: four engine fixes reach the importer. A Type="OpenURL" action is
                                  //        now REFUSED and said so in the loss report rather than reaching no
                                  //        bucket at all; a skin whose wall art does not climb keeps a
                                  //        reachable ceiling instead of failing conversion outright; the
