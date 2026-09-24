@@ -51,22 +51,69 @@ namespace DesktopAICompanion.RemembranceModule
             };
         }
 
-        // Delete audio + screenshots older than the retention window; never a transcript. Runs over the whole
-        // tree so both storage modes are covered. Best-effort per file.
+        // Delete audio + screenshots older than the retention window; never a transcript. Best-effort per file.
+        //
+        // IT MAY ONLY DELETE FILES THIS MODULE WROTE, and that is the whole design of this method rather than
+        // a precaution bolted onto it. Root is the free-text `storageLocation` setting, labelled "Where
+        // recordings are stored" and also settable with a folder picker, so a user may perfectly reasonably
+        // point it at Documents (the PARENT of the default root) or at Pictures. This used to enumerate
+        // AllDirectories and File.Delete -- not the recycle bin -- every .wav, .mp3 and .png older than 72
+        // hours anywhere beneath it, and it runs on Init and then hourly. Pointed at Pictures, the first tick
+        // permanently destroyed the user's photo library with no prompt.
+        //
+        // Three independent narrowings, because one is a rule and three is a design:
+        //   * ONLY THIS MODULE'S OWN FILE SHAPES, which NamesThisModuleWrites spells out from the same
+        //     strings NewCapture builds paths from.
+        //   * ONE LEVEL DEEP. A capture is either a file in the root or a file in a capture folder directly
+        //     under it; this module never creates a third level, so recursing further can only ever reach
+        //     somebody else's data.
+        //   * NO .mp3, EVER. This module does not write one -- it records .wav and screenshots .png -- so
+        //     that extension could only ever have matched a file belonging to someone else.
         public void Purge()
         {
             try
             {
                 if (!Directory.Exists(Root)) return;
                 DateTime cutoff = DateTime.UtcNow - Retention;
-                foreach (string file in Directory.EnumerateFiles(Root, "*", SearchOption.AllDirectories))
+                PurgeOneDirectory(Root, cutoff, false);
+                foreach (string sub in Directory.EnumerateDirectories(Root))
+                    PurgeOneDirectory(sub, cutoff, true);
+            }
+            catch { }
+        }
+
+        private void PurgeOneDirectory(string dir, DateTime cutoff, bool insideCaptureFolder)
+        {
+            try
+            {
+                foreach (string file in Directory.EnumerateFiles(dir, "*", SearchOption.TopDirectoryOnly))
                 {
                     if (!IsEphemeral(file)) continue;
+                    if (!NamesThisModuleWrites(Path.GetFileName(file), insideCaptureFolder)) continue;
                     try { if (File.GetLastWriteTimeUtc(file) < cutoff) File.Delete(file); }
                     catch { }
                 }
             }
             catch { }
+        }
+
+        /// <summary>
+        /// Does this file name match something <see cref="NewCapture"/> would have produced?
+        ///
+        /// Derived from the same two strings NewCapture uses, so the two cannot drift apart silently: inside a
+        /// capture folder it writes "recording.wav" and "snap*.png"; flat in the root it writes
+        /// "{base}.wav" and "{base} - snap*.png". The flat audio case is the loose one -- any .wav in the root
+        /// matches -- and it has to be, because the base name is the user's meeting title and is not
+        /// recoverable from the file name alone. That is the case the one-level rule and the folder-per-capture
+        /// default exist to contain.
+        /// </summary>
+        internal static bool NamesThisModuleWrites(string fileName, bool insideCaptureFolder)
+        {
+            if (string.IsNullOrEmpty(fileName)) return false;
+            string lower = fileName.ToLowerInvariant();
+            if (insideCaptureFolder)
+                return lower == "recording.wav" || (lower.StartsWith("snap") && lower.EndsWith(".png"));
+            return lower.EndsWith(".wav") || (lower.Contains(" - snap") && lower.EndsWith(".png"));
         }
 
         // Only the recorded MEDIA is ephemeral. The written record is permanent: it is the thing worth
@@ -79,7 +126,9 @@ namespace DesktopAICompanion.RemembranceModule
             string lower = path.ToLowerInvariant();
             if (lower.EndsWith(".transcript.txt")) return false;
             if (lower.EndsWith(".summary.txt")) return false;
-            return lower.EndsWith(".wav") || lower.EndsWith(".mp3") || lower.EndsWith(".png");
+            // No .mp3. This module records .wav and screenshots .png; it has never written an .mp3, so that
+            // extension could only ever match a file belonging to somebody else.
+            return lower.EndsWith(".wav") || lower.EndsWith(".png");
         }
 
         public static string Sanitize(string name)

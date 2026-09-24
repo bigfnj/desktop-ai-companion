@@ -48,7 +48,15 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "1.0.8",   // 1.0.8: a button that opens both downloads in the browser,
+            Version = "1.0.9",   // 1.0.9: the hourly purge may now only delete files THIS MODULE wrote.
+                                 //        It used to enumerate AllDirectories under the user-chosen
+                                 //        storage folder and File.Delete -- not the recycle bin -- every
+                                 //        .wav, .mp3 and .png older than 72 hours, whoever wrote it. That
+                                 //        folder is free text labelled "Where recordings are stored", so
+                                 //        pointing it at Pictures destroyed the photo library on the next
+                                 //        Init. Now: this module's own file shapes only, one level deep,
+                                 //        and .mp3 is gone entirely because it never wrote one.
+                                 // 1.0.8: a button that opens both downloads in the browser,
                                  //        which is the path endpoint protection trusts. The model
                                  //        link follows the dropdown, so what you download is what
                                  //        "Set up Whisper for me" would have fetched rather than
