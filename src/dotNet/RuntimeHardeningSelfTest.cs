@@ -771,6 +771,41 @@ namespace DesktopAICompanion
                 Check("scale: the exact .5 case is what bit us, and is covered",
                     ScalePolicy.ScaleD(2, 0.25) == 0 && ScalePolicy.ScaleVelocity(2, 0.25) == 1);
 
+                // ---- THE GLOBAL SIZE PERCENT MUST SURVIVE A SAVE ----
+                // ScalePercent is the one persisted field absent from BOTH AppSettingsStore.Clone and
+                // MergeChangedFields. Diffed programmatically against all 50 members of the settings
+                // document: every other one appears in both, and the nine that do not are `const`.
+                // The comment above MergeChangedFields documents exactly this failure mode -- "a field not
+                // listed is silently dropped and Save still returns true".
+                //
+                // It survives a NORMAL save by luck: that path keeps the document read from disk, which
+                // still carries the value. The loss is the recovery path, where TryRead does not return
+                // Loaded (settings.json missing or corrupt) and SaveMerged falls back to Clone(settings),
+                // which drops the field. Save returns true and every pet without a per-pet override
+                // silently reverts to 100%.
+                string scaleProbePath = Path.Combine(
+                    Path.GetTempPath(), "dp-scaleprobe-selftest-" + Guid.NewGuid().ToString("N") + ".json");
+                try
+                {
+                    File.WriteAllText(scaleProbePath,
+                        "{\"schemaVersion\":2,\"scalePercent\":150}", new UTF8Encoding(false));
+                    var scaleStore = new AppSettingsStore(scaleProbePath, new string[0]);
+                    var sd = new LocalData(scaleStore);
+                    Check("scale percent: a hand-set global percent is read back",
+                        sd.GetEffectivePetScalePercent("nosuchpet") == 150);
+
+                    // The recovery path: the file is gone when the next save runs, so SaveMerged cannot
+                    // merge onto it and clones the in-memory document instead.
+                    File.Delete(scaleProbePath);
+                    sd.SetPetMonitor("probe", 0);        // any write, to drive a save
+
+                    var reopened = new AppSettingsStore(scaleProbePath, new string[0]);
+                    var sd2 = new LocalData(reopened);
+                    Check("scale percent: it survives a save that could not read the old file",
+                        sd2.GetEffectivePetScalePercent("nosuchpet") == 150);
+                }
+                finally { try { File.Delete(scaleProbePath); } catch { } }
+
                 // ---- PER-PET MONITOR PIN ----
                 // Pinning is stored per pet TYPE and validated against the CURRENT screen list on every read.
                 // A pin to an unplugged display must read as UNPINNED, or the pet would be hidden for ever on

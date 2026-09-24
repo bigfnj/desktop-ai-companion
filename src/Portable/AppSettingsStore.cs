@@ -1077,6 +1077,15 @@ namespace DesktopAICompanion
                 target.Volume = current.Volume;
             if (all || current.ScaleLevel != baseline.ScaleLevel)
                 target.ScaleLevel = current.ScaleLevel;
+            // ScalePercent belongs here for the same reason ScaleLevel does, and was the ONE persisted field
+            // missing from both this method and Clone. Diffed against all 50 members of the document: every
+            // other one appears in both. Nothing in the app writes it today -- it arrives from a hand-edited
+            // settings.json or an older build -- so the loss showed up only on the recovery path, where
+            // SaveMerged cannot read the old file and clones the in-memory document instead. The value went
+            // to 0, which means "follow the legacy level", and every pet without a per-pet override silently
+            // reverted to 100% while Save returned true.
+            if (all || current.ScalePercent != baseline.ScalePercent)
+                target.ScalePercent = current.ScalePercent;
             if (all || current.AutoStartPets != baseline.AutoStartPets)
                 target.AutoStartPets = current.AutoStartPets;
             if (all || current.MultiScreen != baseline.MultiScreen)
@@ -1183,6 +1192,7 @@ namespace DesktopAICompanion
                 SchemaVersion = source.SchemaVersion,
                 Volume = source.Volume,
                 ScaleLevel = source.ScaleLevel,
+                ScalePercent = source.ScalePercent,
                 AutoStartPets = source.AutoStartPets,
                 MultiScreen = source.MultiScreen,
                 WindowForeground = source.WindowForeground,
