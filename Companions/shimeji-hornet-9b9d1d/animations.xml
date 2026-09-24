@@ -621,6 +621,11 @@
         <frame>99</frame>
         <next probability="100" only="none">29</next>
       </sequence>
+      <border>
+        <next probability="100" only="window-bottom">27</next>
+        <next probability="3" only="taskbar">18</next>
+        <next probability="3" only="taskbar">2</next>
+      </border>
     </animation>
     <animation id="19">
       <name>Bouncing</name>

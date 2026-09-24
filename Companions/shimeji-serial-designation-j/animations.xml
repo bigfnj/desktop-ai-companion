@@ -1538,6 +1538,11 @@
         <frame>152</frame>
         <next probability="100" only="none">75</next>
       </sequence>
+      <border>
+        <next probability="100" only="window-bottom">64</next>
+        <next probability="3" only="taskbar">56</next>
+        <next probability="3" only="taskbar">3</next>
+      </border>
     </animation>
     <animation id="57">
       <name>Bouncing</name>
@@ -1706,6 +1711,11 @@
         <frame>188</frame>
         <next probability="100" only="none">75</next>
       </sequence>
+      <border>
+        <next probability="100" only="window-bottom">64</next>
+        <next probability="3" only="taskbar">61</next>
+        <next probability="3" only="taskbar">3</next>
+      </border>
     </animation>
     <animation id="80">
       <name>Stance_1_StandBlink</name>

@@ -1154,6 +1154,11 @@
         <frame>120</frame>
         <next probability="100" only="none">50</next>
       </sequence>
+      <border>
+        <next probability="100" only="window-bottom">48</next>
+        <next probability="3" only="taskbar">40</next>
+        <next probability="3" only="taskbar">2</next>
+      </border>
     </animation>
     <animation id="41">
       <name>Bouncing</name>
@@ -1284,6 +1289,11 @@
         <frame>139</frame>
         <next probability="100" only="none">50</next>
       </sequence>
+      <border>
+        <next probability="100" only="window-bottom">48</next>
+        <next probability="3" only="taskbar">44</next>
+        <next probability="3" only="taskbar">2</next>
+      </border>
     </animation>
     <animation id="45">
       <name>Launching</name>
@@ -1307,6 +1317,11 @@
         <frame>140</frame>
         <next probability="100" only="none">50</next>
       </sequence>
+      <border>
+        <next probability="100" only="window-bottom">48</next>
+        <next probability="3" only="taskbar">45</next>
+        <next probability="3" only="taskbar">2</next>
+      </border>
     </animation>
     <animation id="55">
       <name>LookingAround_1_LookingLeft</name>

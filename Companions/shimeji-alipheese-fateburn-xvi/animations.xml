@@ -749,6 +749,11 @@
         <frame>115</frame>
         <next probability="100" only="none">29</next>
       </sequence>
+      <border>
+        <next probability="100" only="window-bottom">27</next>
+        <next probability="3" only="taskbar">19</next>
+        <next probability="3" only="taskbar">2</next>
+      </border>
     </animation>
     <animation id="20">
       <name>Bouncing</name>
@@ -886,6 +891,11 @@
         <frame>143</frame>
         <next probability="100" only="none">29</next>
       </sequence>
+      <border>
+        <next probability="100" only="window-bottom">27</next>
+        <next probability="3" only="taskbar">23</next>
+        <next probability="3" only="taskbar">2</next>
+      </border>
     </animation>
     <animation id="24">
       <name>Divide1</name>

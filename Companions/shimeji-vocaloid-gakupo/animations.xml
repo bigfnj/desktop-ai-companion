@@ -433,6 +433,11 @@
         <frame>21</frame>
         <next probability="100" only="none">23</next>
       </sequence>
+      <border>
+        <next probability="100" only="window-bottom">21</next>
+        <next probability="3" only="taskbar">14</next>
+        <next probability="3" only="taskbar">2</next>
+      </border>
     </animation>
     <animation id="15">
       <name>Bouncing</name>
@@ -562,6 +567,11 @@
         <frame>32</frame>
         <next probability="100" only="none">23</next>
       </sequence>
+      <border>
+        <next probability="100" only="window-bottom">21</next>
+        <next probability="3" only="taskbar">18</next>
+        <next probability="3" only="taskbar">2</next>
+      </border>
     </animation>
     <animation id="28">
       <name>WalkLeftAlongFloorAndSit_1_Walk</name>

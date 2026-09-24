@@ -431,6 +431,11 @@
         <frame>23</frame>
         <next probability="100" only="none">23</next>
       </sequence>
+      <border>
+        <next probability="100" only="window-bottom">21</next>
+        <next probability="3" only="taskbar">14</next>
+        <next probability="3" only="taskbar">2</next>
+      </border>
     </animation>
     <animation id="15">
       <name>跳ねる</name>
@@ -560,6 +565,11 @@
         <frame>33</frame>
         <next probability="100" only="none">23</next>
       </sequence>
+      <border>
+        <next probability="100" only="window-bottom">21</next>
+        <next probability="3" only="taskbar">18</next>
+        <next probability="3" only="taskbar">2</next>
+      </border>
     </animation>
     <animation id="28">
       <name>ワークエリアの下辺の左の端っこで座る_1_歩く</name>

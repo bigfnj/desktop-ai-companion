@@ -1065,6 +1065,11 @@
         <frame>77</frame>
         <next probability="100" only="none">46</next>
       </sequence>
+      <border>
+        <next probability="100" only="window-bottom">44</next>
+        <next probability="3" only="taskbar">36</next>
+        <next probability="3" only="taskbar">2</next>
+      </border>
     </animation>
     <animation id="37">
       <name>Bouncing</name>
@@ -1217,6 +1222,11 @@
         <frame>94</frame>
         <next probability="100" only="none">46</next>
       </sequence>
+      <border>
+        <next probability="100" only="window-bottom">44</next>
+        <next probability="3" only="taskbar">41</next>
+        <next probability="3" only="taskbar">2</next>
+      </border>
     </animation>
     <animation id="51">
       <name>Sing_1_Singing1</name>

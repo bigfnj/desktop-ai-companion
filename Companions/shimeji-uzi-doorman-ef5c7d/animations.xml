@@ -1601,6 +1601,11 @@
         <frame>145</frame>
         <next probability="100" only="none">74</next>
       </sequence>
+      <border>
+        <next probability="100" only="window-bottom">69</next>
+        <next probability="3" only="taskbar">58</next>
+        <next probability="3" only="taskbar">26</next>
+      </border>
     </animation>
     <animation id="59">
       <name>Jumping2</name>
@@ -1623,6 +1628,11 @@
         <frame>147</frame>
         <next probability="100" only="none">74</next>
       </sequence>
+      <border>
+        <next probability="100" only="window-bottom">69</next>
+        <next probability="3" only="taskbar">59</next>
+        <next probability="3" only="taskbar">26</next>
+      </border>
     </animation>
     <animation id="60">
       <name>Bouncing</name>
@@ -1786,6 +1796,11 @@
         <frame>173</frame>
         <next probability="100" only="none">74</next>
       </sequence>
+      <border>
+        <next probability="100" only="window-bottom">69</next>
+        <next probability="3" only="taskbar">64</next>
+        <next probability="3" only="taskbar">26</next>
+      </border>
     </animation>
     <animation id="65">
       <name>Launching</name>
@@ -1809,6 +1824,11 @@
         <frame>174</frame>
         <next probability="100" only="none">74</next>
       </sequence>
+      <border>
+        <next probability="100" only="window-bottom">69</next>
+        <next probability="3" only="taskbar">65</next>
+        <next probability="3" only="taskbar">26</next>
+      </border>
     </animation>
     <animation id="66">
       <name>Launching2</name>
@@ -1832,6 +1852,11 @@
         <frame>175</frame>
         <next probability="100" only="none">74</next>
       </sequence>
+      <border>
+        <next probability="100" only="window-bottom">69</next>
+        <next probability="3" only="taskbar">66</next>
+        <next probability="3" only="taskbar">26</next>
+      </border>
     </animation>
     <animation id="79">
       <name>Looking_1_StandLookLeft</name>

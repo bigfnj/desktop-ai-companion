@@ -1246,6 +1246,11 @@
         <frame>119</frame>
         <next probability="100" only="none">44</next>
       </sequence>
+      <border>
+        <next probability="100" only="window-bottom">42</next>
+        <next probability="3" only="taskbar">35</next>
+        <next probability="3" only="taskbar">2</next>
+      </border>
     </animation>
     <animation id="36">
       <name>Bouncing</name>
@@ -1378,6 +1383,11 @@
         <frame>135</frame>
         <next probability="100" only="none">44</next>
       </sequence>
+      <border>
+        <next probability="100" only="window-bottom">42</next>
+        <next probability="3" only="taskbar">39</next>
+        <next probability="3" only="taskbar">2</next>
+      </border>
     </animation>
     <animation id="49">
       <name>ReadBook_1_SitWithLegsUp</name>

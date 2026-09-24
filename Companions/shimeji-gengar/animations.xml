@@ -487,6 +487,11 @@
         <frame>38</frame>
         <next probability="100" only="none">27</next>
       </sequence>
+      <border>
+        <next probability="100" only="window-bottom">25</next>
+        <next probability="3" only="taskbar">13</next>
+        <next probability="3" only="taskbar">2</next>
+      </border>
     </animation>
     <animation id="14">
       <name>Bouncing</name>
@@ -616,6 +621,11 @@
         <frame>50</frame>
         <next probability="100" only="none">27</next>
       </sequence>
+      <border>
+        <next probability="100" only="window-bottom">25</next>
+        <next probability="3" only="taskbar">17</next>
+        <next probability="3" only="taskbar">2</next>
+      </border>
     </animation>
     <animation id="18">
       <name>HatchAction</name>

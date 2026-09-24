@@ -520,6 +520,11 @@
         <frame>63</frame>
         <next probability="100" only="none">23</next>
       </sequence>
+      <border>
+        <next probability="100" only="window-bottom">21</next>
+        <next probability="3" only="taskbar">13</next>
+        <next probability="3" only="taskbar">4</next>
+      </border>
     </animation>
     <animation id="14">
       <name>Bouncing</name>
