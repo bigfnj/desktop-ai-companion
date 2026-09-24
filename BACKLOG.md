@@ -911,15 +911,6 @@ property nobody is testing. Each was verified by constructing the input that sho
 ### Converter correctness
 
 
-- 📌 **`restdwell` gives the HUB the performance dwell, then stamps a version `restsplit` skips.**
-  `tools/ShimejiConvert/Program.cs:1065` and `:1079` pass `RestDwellTargetMs` (11000) with no hub
-  exception, while `RestSplit:1156` correctly picks `HubDwellTargetMs` (2000). `:1085` then stamps
-  `ConvertedFormatVersion` ("1.1"), and `RestSplit` gates on "0.6". So a pet at format 0.5 gets an
-  11 s hub dwell — 5.5x intended — and `restsplit` prints "skip (already at format 1.1)" with no
-  migration able to reach it. The console line also says "N rest(s) shortened" while every one was
-  lengthened. Latent today: all 31 shipped converted pets are already at 1.1. Broader shape: `rejump`,
-  `reclimb`, `restdwell`, `restsplit` and `undirect` all stamp 1.1 rather than their own version, and
-  nothing gates on 0.2, so a pet taken to 0.2 by `reweight` can never reach `rejump`.
 
 
 - 📌 **`minHostVersion` is parsed, written to modules.json, then dropped from the catalog.**
