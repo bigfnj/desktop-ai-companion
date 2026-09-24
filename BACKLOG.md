@@ -960,3 +960,101 @@ product ideas nobody has scoped, and this file holds work that can be picked up.
 closed in [`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md). One piece of idea 18 did NOT
 move, because it is engineering debt rather than an idea: the `ModulePermissions` under-disclosure
 in a shipped module, which is now filed under "Module SDK follow-ups" above.
+
+---
+
+## Open: converter fidelity across the shimeji corpus (filed 2026-09-24, scoped 2026-09-25)
+
+⚠ **Filed first as a Zim-only item; a corpus census on 2026-09-25 showed it is not one.** The
+residue report is written beside each converted `animations.xml` and was never kept, so nothing
+here recorded what any of the 31 converted companions lost. Re-derived by re-running the real
+converter against every original source bundle; the reports are kept at
+`D:\.ai-work\shimeji-catalog\work\census\` (`census.md`, `census.json`, `residue\*.txt`).
+
+**30 of 31 censused** (Gengar failed on a multi-skin archive, a harness limit, not a defect):
+
+| source | companions | dropped | degraded | not attempted |
+|---|---|---|---|---|
+| shimeji.org Android bundles | 18 | 0 | 0 | 0 |
+| desktop Shimeji-EE skins | 12 | 82 | 365 | 34 |
+
+The 18 zeros are genuine and were checked as a distinct claim, because a clean sweep of zeros is
+exactly what a broken harness produces — the first run of this census did precisely that by
+invoking `convertroot`, which writes the XML but no residue file. Those bundles report **0
+state-dependent conditions** against 14–23 for the desktop skins: shimeji.org flattens them
+upstream, so there is nothing conditional left to lose. Every desktop-sourced companion lost
+actions, 6–16 dropped and 26–34 degraded each.
+
+**447 lost actions, but four root causes, and one dominates:**
+
+| cluster | actions | note |
+|---|---|---|
+| window-relative navigation (`activeIE`) | 353 | 79% of the total; needs window geometry the runtime does not expose |
+| cursor-position branching | 54 | needs `cursorX`/`selfX` conditions the format lacks |
+| breed autonomous sibling | 24 | genuine format limit, `<child>` auto-closes |
+| interact / transform / anchor | 16 | mostly two-shimeji `Interact` and `ScanMove` |
+
+📌 **Do the converter-gap cluster first — it is the only one where the capability already
+exists.** `Jumping` is unattempted in 11 of the 12 desktop skins and `Resisting` in 11; the
+residue report names these "a converter gap rather than a format limit". One change adds roughly
+22 animations across nearly every desktop companion. Everything else needs host or format work.
+
+⚠ A hypothesis that did NOT survive, recorded so nobody re-runs it: the 18 Android companions
+were NOT built from the poorer source while a richer desktop zip sat in the catalog. Only 2 of 18
+have a findable desktop counterpart and neither is better (45 vs 41, 36 vs 37, both on shared
+template configs). Weak evidence rather than proof — about half the 1786 desktop bundles ship
+under a generic `img/Shimeji/` folder and carry no character name to match on.
+
+### The Zim conversion specifically
+
+
+📌 A Shimeji skin for Zim converted and was accepted on the first run: 26 animations, valid,
+round-trips, 0 unreachable. Verified in the real app via `localxml=`, not just by the validator.
+The converter reported **6 actions dropped and 33 degraded**, and those 39 are the work.
+
+**They are four problems, not thirty-nine**, which is the part worth carrying into the estimate.
+Parsed from the residue file rather than tallied by hand:
+
+| cluster | count | tractability |
+|---|---|---|
+| window-relative navigation (`activeIE.*`) | 31 (27 degraded + 4 dropped) | needs host-side window geometry the format does not expose |
+| cursor-position branching (`cursorX`/`selfX`) | 6, all degraded | needs condition support the format lacks; one is a near-miss |
+| breeding an autonomous sibling (`Breed`) | 2, both dropped | genuine format limit — `<child>` auto-closes; treat as out of scope |
+| the converter's own unattempted mappings | 4 (`Jumping`, `Falling2`, `Resisting`, `Resisting2`) | **start here** — the residue report itself calls this a converter gap, not a format limit |
+
+⚠ Before writing "needs a host change" for cluster 1, grep `PluginApi.cs` for the verb, per the
+convention above. That exact sentence already cost one planning cycle in this repo.
+
+The full per-action lists, the reproduce commands, and the two fidelity caveats that are *not* in
+the 39 (the converter's fixed ~48px jump height, and 60 actions using script-computed values) are in
+`D:\.ai-work\shimeji-catalog\work\zim\HANDOFF.md`, beside the converted XML and its residue
+report. Kept out of this repo on purpose: see below.
+
+⚠ **Nothing about this is in the repo yet, and publishing is undecided.** The asset is a third
+party's sprite art of a character its owners hold, sourced from shimeji.org, which records **no
+author** for it — so the source-specific evidence `Companions/README.md` asks for (exact bytes,
+authorship, licence, attribution, redistribution scope) cannot be assembled for these bytes. That is
+a maintainer decision, not an engineering blocker. Fidelity work can proceed on the local copy
+regardless of how it lands.
+
+---
+
+## Open: rightsize the "Jesus Our Lord" companion (filed 2026-09-24)
+
+📌 `Companions/shimeji-brq51bkr` (`name` "Jesus Our Lord", author `shimeji.org`, source
+<https://shimeji.org/u/brq51bkr>) needs rightsizing.
+
+⚠ **Recorded as requested, with the intent NOT specified** — ask before acting rather than guessing.
+It could mean on-screen scale, the sprite-sheet cell size, the 4.7 MB file, or the tray icon.
+
+The geometry is already known, so do not go re-derive it. `tilesx` 9 and `tilesy` 8 are confirmed
+read out of the file today. The downscale-bleed entry above (search `tile 88`) records the sheet as
+2304x2048, which puts cells at exactly **256px — the `MaximumSpriteFrameDimension` cap**, and notes
+that `ScalePolicy.FitFactorForFrameD` caps the factor at 1.0 for a 256px cell, so at 100% or above
+this pet never takes the downscale path.
+
+⚠ That matters for scoping: if the complaint is "too big" or "too small" on screen, it is therefore
+**not** a sprite-resolution problem, because the art is already at the ceiling. It would be the
+runtime staging cap or the scale policy, and raising the former costs up to 4x sprite memory per
+companion and would also need `MaximumGeneratedBytes` raised — a change the shimeji work
+deliberately deferred once already. Confirm which way the complaint points before touching either.

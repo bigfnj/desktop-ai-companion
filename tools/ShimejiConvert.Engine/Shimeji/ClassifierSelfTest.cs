@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using DesktopAICompanion.Tools.ShimejiConvert.Emit;
 
 namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
 {
@@ -73,6 +74,39 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 }
             }
 
+            // The classifier and the emitter are two halves of one contract, and nothing compared them.
+            // ActionClassifier graded Regist, the Broadcast family and MoveWithTurn as Group1 with reasons
+            // that promise "converts as ordinary frames", and Jump as Group1 "jump arc" -- while
+            // PetEmitter.IsFloorAction refused every action carrying a Class outright. The result was not a
+            // wrong answer on either side: it was silent disagreement, reported as "not attempted" in the
+            // residue and measured on 2026-09-25 at 29 animations across 11 of the 12 desktop-sourced
+            // companions. Assert the AGREEMENT, so adding a class to one side without the other fails here.
+            foreach (ShimejiAction a in config.Actions)
+            {
+                if (a.Class == null || a.Group != FidelityGroup.Group1) continue;
+                bool emitterTakesIt = PetEmitter.IsFloorAction(a);
+                bool classifierPromisedFrames = PetEmitter.IsFramePlayingEmbeddedClass(a);
+                if (classifierPromisedFrames && !emitterTakesIt)
+                    failures.Add("contract: classifier grades '" + a.Name + "' (" + a.Class +
+                                 ") Group1 with frames, but PetEmitter.IsFloorAction refuses it -- " +
+                                 "it will be reported as 'not attempted'");
+                if (!classifierPromisedFrames && emitterTakesIt)
+                    failures.Add("contract: '" + a.Name + "' (" + a.Class + ") is handled as a magic " +
+                                 "animation or is not an animation, yet IsFloorAction admits it -- it " +
+                                 "would be emitted twice");
+            }
+
+            // An embedded Jump carries its launch in VelocityParam on the action, not in a pose, so its
+            // poses read Velocity="0,0". Admitting it to the floor graph WITHOUT recognising it as a jump
+            // emits an animation that never leaves the ground, which looks like a defect rather than a gap.
+            foreach (ShimejiAction a in config.Actions)
+            {
+                if (!string.Equals(a.Class, "Jump", StringComparison.Ordinal)) continue;
+                if (!PetEmitter.QualifiesAsJump(a))
+                    failures.Add("'" + a.Name + "' is an embedded Jump but QualifiesAsJump is false; it " +
+                                 "would emit flat along the floor");
+            }
+
             var sb = new StringBuilder();
             sb.AppendLine("classifier self-test: " + checkedCount + " synthetic actions across Group1/2/3");
             if (failures.Count == 0)
@@ -115,6 +149,18 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     </Action>
     <Action Name=""G1_Jumping"" Type=""Embedded"" Class=""com.group_finity.mascot.action.Jump"" VelocityParam=""20"">
       <Animation><Pose Image=""/e.png"" ImageAnchor=""64,128"" Velocity=""0,0"" Duration=""250"" /></Animation>
+    </Action>
+    <Action Name=""G1_Resisting"" Type=""Embedded"" Class=""com.group_finity.mascot.action.Regist"">
+      <Animation><Pose Image=""/i.png"" ImageAnchor=""64,128"" Velocity=""0,0"" Duration=""5"" /></Animation>
+    </Action>
+    <Action Name=""G1_CryingBroadcast"" Type=""Embedded"" Class=""com.group_finity.mascot.action.Broadcast"">
+      <Animation><Pose Image=""/j.png"" ImageAnchor=""64,128"" Velocity=""0,0"" Duration=""8"" /></Animation>
+    </Action>
+    <Action Name=""G1_MoveWithTurn"" Type=""Embedded"" Class=""com.group_finity.mascot.action.MoveWithTurn"">
+      <Animation><Pose Image=""/k.png"" ImageAnchor=""64,128"" Velocity=""-2,0"" Duration=""6"" /></Animation>
+    </Action>
+    <Action Name=""G1_SelfDestruct"" Type=""Embedded"" Class=""com.group_finity.mascot.action.SelfDestruct"">
+      <Animation><Pose Image=""/l.png"" ImageAnchor=""64,128"" Velocity=""0,0"" Duration=""16"" /></Animation>
     </Action>
     <Action Name=""G2_Cursor"" Type=""Stay"" BorderType=""Floor"">
       <Animation Condition=""#{mascot.environment.cursor.x &lt; 100}""><Pose Image=""/f.png"" ImageAnchor=""64,128"" Velocity=""0,0"" Duration=""250"" /></Animation>

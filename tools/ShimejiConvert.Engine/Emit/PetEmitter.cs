@@ -350,9 +350,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             return null;
         }
 
-        // A floor-appropriate primitive: Group1, has sprites, not Embedded (Look/Offset/Fall/Dragged/Jump/
-        // Regist), and Floor (or unset) border context. Wall/ceiling/climb primitives are excluded from the
-        // emitted behaviour -- they would play nonsensically on the floor -- and recorded in the residue.
+        // A floor-appropriate primitive: Group1, has sprites, Floor (or unset) border context, and either
+        // not Embedded at all or one of the frame-playing embedded classes (see
+        // IsFramePlayingEmbeddedClass -- Jump/Regist/Broadcast*/MoveWithTurn in, Look/Offset/Fall/Dragged/
+        // SelfDestruct out). Wall/ceiling/climb primitives are excluded from the emitted behaviour --
+        // they would play nonsensically on the floor -- and recorded in the residue.
         /// <summary>
         /// A wall primitive: Group1, has sprites, not Embedded, and its border context is Wall.
         ///
@@ -619,7 +621,18 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         {
             if (a == null || a.Group != FidelityGroup.Group1) return false;
             if (a.Animations.Count == 0 || a.Animations[0].Poses.Count == 0) return false;
-            if (a.Class != null) return false;   // Embedded actions are handled as magic or excluded
+            // Embedded actions used to be refused wholesale here, which silently contradicted the
+            // classifier. ActionClassifier already grades Regist as Group1 "drag-resist animation; plays
+            // as ordinary frames", the Broadcast family and MoveWithTurn as Group1 "converts as ordinary
+            // frames", and Jump as Group1 "jump arc" -- then the emitter declined all of them and the
+            // residue report listed them as "not attempted". Measured in the 2026-09-25 corpus census:
+            // Jumping unattempted in 11 of the 12 desktop-sourced companions and Resisting in 11, the
+            // single widest remaining converter gap.
+            //
+            // Fall / Dragged / SelfDestruct stay excluded because they become the magic fall/drag/kill
+            // animations, and emitting them as spokes as well would duplicate them. Look and Offset are a
+            // facing change and a positional nudge, not animations.
+            if (a.Class != null && !IsFramePlayingEmbeddedClass(a)) return false;
             if (a.BorderType != null && !string.Equals(a.BorderType, "Floor", StringComparison.Ordinal)) return false;
             // Upward velocity used to be rejected outright here, because an unbounded climb or fling launches
             // the pet off the top of the screen. That guard also refused every JUMP: 81 actions across 27
@@ -634,6 +647,31 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             // forced descent, no gravity) rather than passing the source velocity through. Bounded is what
             // makes it safe: whatever the source asked for, the pet comes back down.
             return true;
+        }
+
+        /// <summary>
+        /// Embedded classes whose frames are an ordinary animation, so they belong on the floor graph.
+        ///
+        /// This list is the emitter's half of a contract ActionClassifier already states: every class here
+        /// is graded Group1 there with a reason that promises frames will play. Adding a class to one side
+        /// without the other is what produced the "not attempted" gap, so change them together.
+        /// </summary>
+        internal static bool IsFramePlayingEmbeddedClass(ShimejiAction a)
+        {
+            if (a == null || a.Class == null) return false;
+            switch (a.Class)
+            {
+                case "Jump":            // arc emitted by BuildSpoke; see QualifiesAsJump
+                case "Regist":          // drag-resist wiggle, plays in place
+                case "Broadcast":
+                case "BroadcastStay":
+                case "BroadcastMove":
+                case "BroadcastJump":
+                case "MoveWithTurn":    // deprecated aliases of base animations
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         /// <summary>
@@ -668,7 +706,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         /// BuildSpoke emits, rather than a second opinion about it.</summary>
         internal static bool QualifiesAsJump(ShimejiAction a)
         {
-            return a != null && a.Animations.Count > 0 && LaunchVelY(a) <= JumpMinLaunchY;
+            if (a == null || a.Animations.Count == 0) return false;
+            // An embedded Jump declares its launch in VelocityParam on the ACTION, not in a pose, so its
+            // poses read Velocity="0,0" and the velocity test alone scores it flat -- admitting it to the
+            // floor graph without this would emit a jump animation that never leaves the ground. The arc
+            // the converter emits is its own bounded one regardless of the source's number (see the
+            // JumpPeakPx note below), so the class is sufficient evidence of intent.
+            if (string.Equals(a.Class, "Jump", StringComparison.Ordinal)) return true;
+            return LaunchVelY(a) <= JumpMinLaunchY;
         }
 
         /// <summary>True when an action rises, but too weakly to be a jump: its vertical velocity is dropped
