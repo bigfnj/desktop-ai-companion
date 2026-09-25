@@ -585,7 +585,7 @@ open-item blindness plus the bug-number drift.
 
 - 📌 **The composited tile is 2 rows shorter than the tallest source sprite, so its bottom is lost.**
   Measured while publishing Zim on 2026-09-25: all 55 source sprites are 130x130, the emitted tile is
-  162x128, and the tallest frames lose their bottom 2 rows. On  that is 43 of 6669
+  162x128, and the tallest frames lose their bottom 2 rows. On `shime41.png` that is 43 of 6669
   non-transparent pixels, **0.64%** -- the very bottom of the boots. Sub-perceptual at any size the pet
   is actually drawn, which is why it is filed rather than fixed, and why it should not be fixed by
   eyeballing: the tile width (162) is larger than the source (130), so the height is not a naive crop
