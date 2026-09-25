@@ -969,3 +969,24 @@ after the engine line, off the UI thread.
   from `Init`, `SavePaneValues`, `RescanAsync`, `ImportPacksAsync`, `DownloadPacksAsync` and
   `RebuildSmartIndexAsync`.
 
+
+## Closed 2026-09-25 - the speech bubble rebuilt its font on every paint
+
+The Font and Brush are now built once per bubble. Both derive only from _style, which is assigned
+once in the constructor and is never mutated anywhere in src/ or modules/, so nothing about them can
+change while a bubble exists. The Font mattered most: it is a CreateFontIndirect round trip into
+GDI, repeated 30-60 times over a ~6s bubble that follows a walking pet.
+
+Two things deliberately NOT changed. The Pen and StringFormat stay per-paint: they are managed
+allocations rather than GDI handles, so caching them would buy little while adding two more
+lifetimes to track. And UpdateRegion still runs whenever the tail moves -- the comment above it
+explains why, and it is correct: a same-size window move blits the old pixels, so a skipped repaint
+leaves the painted outline showing the OLD tail while the Region already clips to the new one.
+
+- 📌 **`FormSpeech` rebuilds its window region, font and brushes every tick while a bubble follows a
+  walking pet.** `src/dotNet/FormSpeech.cs`: the no-op guard at `:222` only fires when the pet has not
+  moved, so `UpdateRegion` (`:339`, fresh `GraphicsPath` + `Region`) and `OnPaint` (`:386`, another
+  path plus a `Pen`, a `Font` via `CreateFontIndirect`, a `SolidBrush` and a `StringFormat`) run 30-60
+  times per 6 s bubble. Everything is disposed, so this is cost rather than a leak; `_style` and
+  `_measuredDpi` already say exactly when the font must be rebuilt.
+

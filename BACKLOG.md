@@ -618,13 +618,6 @@ open-item blindness plus the bug-number drift.
   attempted at the tail of a long session: it is core fall/rise physics, and verifying it needs
   several pets falling at once, which is not something a self-test can stage.
 
-- 📌 **`FormSpeech` rebuilds its window region, font and brushes every tick while a bubble follows a
-  walking pet.** `src/dotNet/FormSpeech.cs`: the no-op guard at `:222` only fires when the pet has not
-  moved, so `UpdateRegion` (`:339`, fresh `GraphicsPath` + `Region`) and `OnPaint` (`:386`, another
-  path plus a `Pen`, a `Font` via `CreateFontIndirect`, a `SolidBrush` and a `StringFormat`) run 30-60
-  times per 6 s bubble. Everything is disposed, so this is cost rather than a leak; `_style` and
-  `_measuredDpi` already say exactly when the font must be rebuilt.
-
 - 📌 **`minHostVersion` is parsed, written to modules.json, then dropped from the catalog.**
   `packaging/New-ContentCatalog.ps1:181-190` copies id/name/desc/version/url/sha256/bytes/permissions
   and not `minHostVersion`; `grep -c minHostVersion catalog.json` is 0 against 5 in modules.json, and
