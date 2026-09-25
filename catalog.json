@@ -161,8 +161,8 @@
       "name": "Pink Sheep",
       "author": "Oliver B.",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/pink_sheep/animations.xml",
-      "sha256": "89452d689f1620257f7fa93f425888e46c8c13c35d0f75909e37c101b0bf7678",
-      "bytes": 1151316,
+      "sha256": "3d33ff50885fc4b53b113a9a455052fa2c7bad6cc5cf3715138723a7efa8bc51",
+      "bytes": 1151424,
       "animations": 268,
       "sounds": 35
     },
@@ -2332,10 +2332,10 @@
       "id": "remembrance",
       "name": "Remembrance",
       "desc": "Records a meeting (your microphone + the system output over WASAPI loopback), transcribes it offline with a local Whisper, names it from your calendar (via the Reminder module) or a timestamp, snapshots the screen on a hotkey, and purges the audio + snapshots after 72 hours while keeping the transcript. Needs a local Whisper (whisper-cli + a model) set up in options, and the machine's own console - a Remote Desktop session presents no real microphone.",
-      "version": "1.0.10",
+      "version": "1.0.11",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/remembrance.zip",
-      "sha256": "71fd6e6fbd7b615cffdcb80e64e6c25f3b93ca7ae52c50c62afc430881b3a516",
-      "bytes": 7069949,
+      "sha256": "9f2eab0f148c94adde452d60bb1f4d32773a7825eaa23511fddd5676e2c66491",
+      "bytes": 7070097,
       "permissions": "Speech, Microphone, SystemAudio, ScreenContext, Hotkey, Storage, Network"
     },
     {
