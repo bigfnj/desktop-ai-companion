@@ -1064,6 +1064,31 @@ namespace DesktopAICompanion.AgentFlow
         /// screen until the user answers it, so without this the same refusal would be written
         /// every ten seconds for as long as they were away from the keyboard.
         /// </summary>
+        /// <summary>Whether a pane id is a display-only row, per the schema the host actually rendered.
+        /// Schema-driven because the id-prefix guesses beside the call site were wrong for two of the eight
+        /// display-only ids, and a prefix guess is what put them there.</summary>
+        private bool IsDisplayOnlyField(string id)
+        {
+            if (_pane == null || _pane.Schema == null) return false;
+            foreach (SettingField field in _pane.Schema)
+                if (field != null && field.Id == id
+                    && (field.Kind == SettingKind.Info || field.Kind == SettingKind.Header))
+                    return true;
+            return false;
+        }
+
+        private string _lastDeferredNotice;
+
+        /// <summary>Write a deferral once per distinct reason. Same guard, and the same reason, as
+        /// <see cref="LogApprovalAttempt"/>: a blocked prompt sits there until the user answers it, so an
+        /// ungated line is written every ten seconds until they come back.</summary>
+        private void LogDeferredNotice(string note)
+        {
+            if (string.Equals(note, _lastDeferredNotice, StringComparison.Ordinal)) return;
+            _lastDeferredNotice = note;
+            Log(note);
+        }
+
         private void LogApprovalAttempt(string note)
         {
             if (string.IsNullOrEmpty(note)) { _lastApprovalNote = null; return; }
@@ -1303,35 +1328,45 @@ namespace DesktopAICompanion.AgentFlow
             // user cannot possibly have seen must remain pending rather than being spent. The
             // companion check is the one that was missing and swallowed the first notice after
             // every launch; SpeechEnabled has the same shape, so it is treated the same way.
-            if (!_host.SpeechEnabled)
-            {
-                Log("deferred a notice about " + (speakThis.ToolName ?? "?")
-                    + ": speech is switched off");
-                return;
-            }
-            if (!AnyCompanionCanSpeak())
-            {
-                Log("deferred a notice about " + (speakThis.ToolName ?? "?")
-                    + ": no companion on screen to say it");
-                return;
-            }
+            // These gate the SPEECH ONLY. They used to return, which withheld the chime and the
+            // animation too -- neither of which needs a speaker or a companion on screen -- so a user
+            // who turned app speech off and ticked "Play the notification sound" got nothing at all,
+            // contradicting the comment four lines down about wanting a chime and no chatter.
+            bool wantsSpeech = NotifySpeakOn && AgentMode.Speaks(Mode);
+            bool canSpeak = _host.SpeechEnabled && AnyCompanionCanSpeak();
+            bool spoke = wantsSpeech && canSpeak;
 
             // SayAll, not Say: this is a message to the USER, not a companion reacting to
             // something. The host routes it to exactly one companion, so several on screen do
             // not chant it in unison.
             // Three independent channels now, which is what the pane offers. A user who
             // wants a chime and no chatter gets exactly that.
-            if (NotifySpeakOn && AgentMode.Speaks(Mode)) _host.SayAll(line);
+            if (spoke) _host.SayAll(line);
             if (NotifySoundOn) _host.PlayNotificationSound(Info.Id);
             if (Animate)
             {
                 PlayChosenAnimation();
             }
+            // Deferral is for a notice the user ASKED to hear and could not: hold it rather than spend
+            // it. NOT for a user who simply has every channel switched off, and NOT for Log mode, whose
+            // delivery channel IS the log line below -- deferring there would make Log mode stop
+            // recording anything at all, which the assertion in SelfCheckNotifyChannels caught.
+            // The budget is deliberately not consumed on this path, so the repeat guard is what stops
+            // the line being written every ten seconds until the user comes back.
+            if (wantsSpeech && !canSpeak && !NotifySoundOn && !Animate)
+            {
+                LogDeferredNotice("deferred a notice about " + (speakThis.ToolName ?? "?")
+                                  + (!_host.SpeechEnabled
+                                     ? ": speech is switched off"
+                                     : ": no companion on screen to say it"));
+                return;
+            }
+            _lastDeferredNotice = null;
             _budget.Record(speakThis, now);
-            // "spoke" rather than "notified", and only on the path where a companion was on screen
-            // and speech was on. The previous wording was a log line that could not fail: it was
-            // written after SayAll returned, which it does whether or not anything was shown.
-            Log("spoke about " + (speakThis.ToolName ?? "?") + " waiting "
+            // Reports what ACTUALLY happened. "spoke about" was written after the SayAll line whether
+            // or not SayAll ran, so in Log mode -- which never speaks, by AgentMode.Speaks -- the log
+            // claimed speech every single time. A log line that cannot fail is not evidence.
+            Log((spoke ? "spoke about " : "signalled about ") + (speakThis.ToolName ?? "?") + " waiting "
                 + ((int)Math.Round(speakThis.IdleSeconds)).ToString(CultureInfo.InvariantCulture)
                 + "s in session " + Short(speakThis.Session));
         }
@@ -1574,6 +1609,14 @@ namespace DesktopAICompanion.AgentFlow
                 // "about". Writing one would put a paragraph of prose into settings.json.
                 if (entry.Key.StartsWith("hdr", StringComparison.Ordinal)) continue;
                 if (entry.Key == FieldApprovals) continue;
+                // ...and the same question asked properly, off the SCHEMA rather than off id prefixes.
+                // "watchIntro" and "watchState" are Info rows whose ids begin with neither "about" nor
+                // "hdr", so the three prefix guards above let both paragraphs through into settings.json.
+                // Nothing had noticed because the WPF host registers no reader for SettingKind.Info, so
+                // Collect() never sends them -- the filter was wrong for exactly the two ids the host
+                // happens not to hand over. The prefixes stay as a floor for the window before the pane
+                // is built.
+                if (IsDisplayOnlyField(entry.Key)) continue;
 
                 // The radio hands back the LABEL the user saw, not the stored id. Fortunes
                 // does the same for its content level, and for the same reason: the label
@@ -2278,8 +2321,17 @@ namespace DesktopAICompanion.AgentFlow
             // "Watching" restores Notify rather than whatever mode was last set, because
             // the row offers exactly two states and inventing a third from history would
             // make the tick mean something different depending on the past.
-            _settings.Set(SettingMode, enabled ? AgentMode.Notify : AgentMode.Off);
+            string next = enabled ? AgentMode.Notify : AgentMode.Off;
+            // A click on the row that is ALREADY ticked must do nothing. "Watching" is ticked whenever
+            // Scans(Mode) -- which is `mode != Off`, so Notify, Log AND AutoApprove all tick it -- and
+            // writing Notify unconditionally therefore DEMOTED auto-approve, or started the companion
+            // talking from Log, with no log line and nothing said. ToggleAutoApproveFromTray never had
+            // this hole: it logs and speaks on every change.
+            if (string.Equals(Mode, next, StringComparison.Ordinal)) return;
+            if (enabled && AgentMode.Scans(Mode)) return;
+            _settings.Set(SettingMode, next);
             _settings.Save();
+            Log("watching turned " + (enabled ? "ON" : "OFF") + " from the tray");
             if (enabled)
             {
                 if (_timer != null) _timer.Start();
@@ -2447,9 +2499,25 @@ namespace DesktopAICompanion.AgentFlow
                     probe.Check("an absurd threshold clamps to the floor",
                         clamped[SettingThreshold] == "10" && clamped[SettingCooldown] == "30");
 
-                    // An Info row is prose, not a value, and must never reach settings.json.
-                    probe.Check("info rows are not persisted",
-                        !clamped.ContainsKey("aboutAnswering"));
+                    // A display-only row is prose, not a value, and must never reach settings.json.
+                    //
+                    // Asserted against the SETTINGS STORE after a Save that actually carries the
+                    // display-only rows -- not against what the pane SHOWS. LoadPending is the thing that
+                    // PRODUCES those rows, because the host renders the loaded value for Info and Header,
+                    // so `!shown.ContainsKey(id)` is false for every REAL id and the old check could only
+                    // ever pass by naming one that does not exist. It named "aboutAnswering", which occurs
+                    // nowhere else in this repo.
+                    pane.Save(clamped);
+                    var leaked = new List<string>();
+                    foreach (SettingField field in pane.Schema)
+                    {
+                        if (field == null) continue;
+                        if (field.Kind != SettingKind.Info && field.Kind != SettingKind.Header) continue;
+                        if (module._settings.Get(field.Id, null) != null) leaked.Add(field.Id);
+                    }
+                    probe.Check("no display-only row reaches settings.json ("
+                                + string.Join(", ", leaked.ToArray()) + ")",
+                        leaked.Count == 0);
 
                     // WITNESS, and it is the defect the two Save calls above were already
                     // triggering with nothing watching. SavePaneValues used to REPLACE _budget so a
@@ -3115,6 +3183,19 @@ namespace DesktopAICompanion.AgentFlow
 
         /// <summary>Capability lines only: the tray toggle logs its own sentence, and counting
         /// that as a transition would hide a logger that never fires on its own.</summary>
+        /// <summary>How many logged lines contain <paramref name="fragment"/>. Same shape as
+        /// CapabilityLines below; a log assertion has to name the WORDS, because counting lines cannot
+        /// tell "spoke" from "signalled".</summary>
+        private static int CountLoggedContaining(
+            System.Collections.Generic.IEnumerable<string> lines, string fragment)
+        {
+            int n = 0;
+            if (lines != null)
+                foreach (string line in lines)
+                    if (line != null && line.IndexOf(fragment, StringComparison.Ordinal) >= 0) n++;
+            return n;
+        }
+
         private static int CapabilityLines(DesktopAICompanion.ModuleKit.Testing.RecordingHost host)
         {
             int n = 0;
@@ -3233,6 +3314,29 @@ namespace DesktopAICompanion.AgentFlow
 
                 probe.Check("WITNESS auto-approve is OFF until it is asked for",
                     !module.AutoApprove);
+
+                // The tray's "Watching" row is ticked whenever Scans(Mode), which is `mode != Off` --
+                // so Notify, Log AND AutoApprove all tick it. Clicking the row that is already ticked
+                // used to write Notify unconditionally, silently DEMOTING auto-approve with no log line
+                // and nothing said, or starting the companion talking from Log.
+                module._settings.Set(SettingMode, AgentMode.AutoApprove);
+                module._settings.Save();
+                module.SetEnabledFromTray(true);
+                probe.Check("pressing the already-ticked Watching row does not demote auto-approve",
+                    module.Mode == AgentMode.AutoApprove);
+                module._settings.Set(SettingMode, AgentMode.Log);
+                module._settings.Save();
+                module.SetEnabledFromTray(true);
+                probe.Check("...nor does it start Log mode talking",
+                    module.Mode == AgentMode.Log);
+                // WITNESS: the row still WORKS. Off -> Watching is a real transition and must land.
+                module.SetEnabledFromTray(false);
+                probe.Check("WITNESS the row still turns watching off", module.Mode == AgentMode.Off);
+                module.SetEnabledFromTray(true);
+                probe.Check("WITNESS ...and back on, to Notify, from a genuinely off state",
+                    module.Mode == AgentMode.Notify);
+                module._settings.Set(SettingMode, AgentMode.Notify);
+                module._settings.Save();
                 probe.Check("WITNESS the pane agrees it is off, rather than not saying",
                     Shown(pane)[SettingMode] == AgentMode.ToDisplay(AgentMode.Notify));
                 probe.Check("the tray says off, and the dot is the off one",
@@ -4215,6 +4319,14 @@ namespace DesktopAICompanion.AgentFlow
                         host4.BroadcastLines.Count == 0 && host4.SaidLines.Count == 0);
                     probe.Check("...while still scanning, which is the point of Log",
                         module4.Enabled);
+                    // ...and the LOG must not claim otherwise. "spoke about" was written after the
+                    // SayAll line whether or not SayAll ran, so Log mode -- which by definition never
+                    // speaks -- recorded speech every single time. A log line that cannot fail is worse
+                    // than no log line: it is evidence that always agrees with you.
+                    probe.Check("WITNESS Log mode does not LOG that it spoke",
+                        CountLoggedContaining(host4.LoggedLines, "spoke about") == 0);
+                    probe.Check("...it records that it signalled instead, so the notice is still traceable",
+                        CountLoggedContaining(host4.LoggedLines, "signalled about") >= 1);
                     module4.Shutdown();
                 }
             }
