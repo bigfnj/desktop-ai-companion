@@ -509,10 +509,17 @@ $checkFsStart = $formPetSource.IndexOf('private void CheckFullScreen()')
 $checkFsEnd   = $formPetSource.IndexOf("`n        private ", $checkFsStart + 40)
 if ($checkFsEnd -lt 0) { $checkFsEnd = $formPetSource.Length }
 $checkFsBody  = $formPetSource.Substring($checkFsStart, $checkFsEnd - $checkFsStart)
+# The POSITIVE half reads the comment-stripped body; the two NEGATIVE halves read the raw body.
+# That asymmetry is deliberate and is the whole correction. A comment containing
+# `if (Visible) Visible = false;` would satisfy the positive half over code that no longer hides at
+# all, so it must not see comments. But a comment merely MENTIONING `_fullscreenHidden` must not fail
+# a -notmatch, because prose about a latch is not a latch -- stripping there would fail correct code,
+# which is how this file's OptionsWindow check false-red four times in one session.
+$checkFsStripped = Remove-LineComments $checkFsBody
 Assert-True (
     $checkFsStart -gt 0 -and
     $checkFsBody -notmatch 'else if \(!_fullscreenHidden\)' -and
-    $checkFsBody -match 'if \(Visible\) Visible = false;'
+    $checkFsStripped -match 'if \(Visible\) Visible = false;'
 ) 'hiding for a fullscreen app is enforced every scan, not latched behind a flag'
 
 # The z-order walk is shared. It used to be throttled PER COMPANION, so one desktop-wide answer was
@@ -1096,10 +1103,23 @@ Assert-True (
     $releaseWorkflow -match '::warning::No signing certificate configured'
 ) 'a release with no signing secret warns and continues unsigned rather than failing'
 # And the key must not be left behind on a runner that outlives the job.
-Assert-True (
-    $releaseWorkflow -match 'Remove the signing certificate from the runner' -and
-    $releaseWorkflow -match 'if: always\(\)'
-) 'the signing certificate is scrubbed from the runner even when a build step fails'
+#
+# BOUND TO ITS OWN STEP. The old form matched the step's name anywhere in the file and `if: always()`
+# anywhere in the file, with nothing associating the two. release.yml happens to contain exactly one
+# `if: always()` today, so it passed by luck: move that line onto the artifact-upload step -- the
+# natural place for it -- and both assertions still passed while a failed build left the imported PFX
+# sitting on the runner, which is the property the assertion's own text claims.
+#
+# The slice runs from the step's `- name:` to the next `- name:` at the same indentation, which is the
+# same shape this file already uses to slice a C# method before asserting an ORDER inside it.
+$scrubStep = [regex]::Match(
+    $releaseWorkflow,
+    '(?s)^[ \t]*- name: Remove the signing certificate from the runner\r?\n(.*?)(?=^[ \t]*- name: |\z)',
+    [System.Text.RegularExpressions.RegexOptions]::Multiline)
+Assert-True ($scrubStep.Success) (
+    'the signing-certificate scrub step exists and could be sliced out for inspection')
+Assert-True ($scrubStep.Success -and $scrubStep.Groups[1].Value -match 'if:\s*always\(\)') (
+    'the signing certificate is scrubbed even when a build step fails (if: always() is on THAT step)')
 
 # Every WiX source must be well-formed XML.
 #
@@ -1272,8 +1292,15 @@ $updateBody = [regex]::Match(
     '(?s)private async Task UpdateModuleAsync\(.*?
         \}')
 Assert-True ($updateBody.Success) 'UpdateModuleAsync exists and could be sliced out for inspection'
-$consentIndex = $updateBody.Value.IndexOf('ModulePermissionConsent.NewlyRequested')
-$downloadIndex = $updateBody.Value.IndexOf('DownloadVerifiedAsync')
+# COMMENTS STRIPPED, like the structurally identical poke-sass order check thirty lines above, whose
+# note records that an unstripped version survived a revert. Without this, moving the consent block
+# below the download and writing "// ModulePermissionConsent.NewlyRequested is consulted here" above
+# the download satisfies the order assertion while consent happens after the bytes are on disk.
+# Verified safe for this file specifically: ModulesPaneControl.cs contains no `://`, so the line-comment
+# strip cannot eat a URL.
+$updateCode = Remove-LineComments $updateBody.Value
+$consentIndex = $updateCode.IndexOf('ModulePermissionConsent.NewlyRequested')
+$downloadIndex = $updateCode.IndexOf('DownloadVerifiedAsync')
 Assert-True ($consentIndex -ge 0) (
     'the module update path consults ModulePermissionConsent at all')
 Assert-True ($downloadIndex -ge 0) (
