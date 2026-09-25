@@ -228,12 +228,29 @@ $moduleProjects = @(
     #     versions after that stopped being true.)
     (Join-Path $repoRoot 'modules\AgentFlow\AgentFlow.csproj')
 )
+# EVERY declared project must EXIST. The loop below used to be wrapped in
+# `if (Test-Path $moduleProject)` with no else, so renaming or moving a module's .csproj meant it was
+# silently not built and this script still exited 0. Nothing downstream caught it either:
+# Test-ModulePublishFreshness globs `modules\<dir>\*.csproj` so it finds the new name and is happy, and
+# Invoke-SelfTests only checked that the output DIRECTORY existed -- so under the documented
+# `run-gate.ps1 -SkipClean` the PREVIOUS build's DLL was still on disk, loaded, and the gate printed
+# GATE PASSED over a module that had not been compiled.
+#
+# That is not hypothetical. It is the same shape that bit a mutation run in this repo on 2026-09-24:
+# build output was filtered, a module build that had not happened went unnoticed, and the mutation
+# silently scored the previous binary. A mutation verdict is only worth anything if the thing under
+# test was actually rebuilt, so this assertion is a prerequisite for every mutation run that follows.
+$missingModuleProjects = @($moduleProjects | Where-Object { -not (Test-Path -LiteralPath $_) })
+if ($missingModuleProjects.Count -gt 0) {
+    throw ("module project(s) declared in build.ps1 but not found on disk: " +
+           ($missingModuleProjects -join '; ') +
+           ". A module that cannot be found is a module that will not be built, and a build that " +
+           "skips it and exits 0 is how a stale DLL keeps the gate green.")
+}
 foreach ($moduleProject in $moduleProjects) {
-    if (Test-Path -LiteralPath $moduleProject) {
-        Write-Host "Building plugin module: $([System.IO.Path]::GetFileNameWithoutExtension($moduleProject))..." -ForegroundColor Cyan
-        & $dotnet build $moduleProject -c $configuration '--nologo' '-v:minimal'
-        if ($LASTEXITCODE -ne 0) { throw "module build failed ($moduleProject) (exit $LASTEXITCODE)" }
-    }
+    Write-Host "Building plugin module: $([System.IO.Path]::GetFileNameWithoutExtension($moduleProject))..." -ForegroundColor Cyan
+    & $dotnet build $moduleProject -c $configuration '--nologo' '-v:minimal'
+    if ($LASTEXITCODE -ne 0) { throw "module build failed ($moduleProject) (exit $LASTEXITCODE)" }
 }
 
 if ($Zip) {

@@ -132,9 +132,25 @@ if (-not (Test-Path -LiteralPath $ExecutablePath)) {
 
 if ($OutputRoot) {
     foreach ($moduleId in $RequiredModules) {
+        # The DLL, not the folder. Checking the directory is what let a stale build keep the gate
+        # green: under the documented `run-gate.ps1 -SkipClean` the previous build's output is still
+        # on disk, so a module whose .csproj moved -- and which therefore was not compiled at all --
+        # still had its folder, still loaded its OLD DLL, and still printed ok. build.ps1 now refuses
+        # to start with a missing project; this is the second half, for the case where the project
+        # exists but its output did not land.
         $moduleDirectory = Join-Path $OutputRoot (Join-Path 'modules' $moduleId)
         if (-not (Test-Path -LiteralPath $moduleDirectory)) {
             Write-Output ($FailurePrefix + "module '$moduleId' is missing from the build output; its self-test would skip-pass")
+            continue
+        }
+        # Anchored on the .deps.json, which names the module's OWN assembly. Counting *.dll is not
+        # enough: every module folder also carries DesktopAICompanion.ModuleKit.dll, so a folder
+        # whose module DLL is gone still holds one and an any-DLL count passes.
+        foreach ($deps in @(Get-ChildItem -LiteralPath $moduleDirectory -Filter '*.deps.json' -File -ErrorAction SilentlyContinue)) {
+            $assemblyName = $deps.Name -replace '\.deps\.json$', ''
+            if (-not (Test-Path -LiteralPath (Join-Path $moduleDirectory ($assemblyName + '.dll')))) {
+                Write-Output ($FailurePrefix + "module '$moduleId' has $($deps.Name) but no $assemblyName.dll; it was not built into the output and its self-test would load nothing or a stale copy")
+            }
         }
     }
 }
