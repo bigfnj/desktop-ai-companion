@@ -2282,10 +2282,10 @@
       "id": "fortunes",
       "name": "Fortunes",
       "desc": "Offline smart fortunes and speech bubbles, picked contextually by a bundled bge-small embedding model. Ships a built-in corpus of ~3,200 lines (Classic Fortunes plus Dad Jokes), so it has something to say before you download a single pack.",
-      "version": "1.0.4",
+      "version": "1.0.5",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/fortunes.zip",
-      "sha256": "eda7a9065852f15c4962a3f944d7edc8c14e0357b99e66438e72addc9cd373fc",
-      "bytes": 30448657,
+      "sha256": "5a34559202d312d918184b61a767842ce67197838c44565552eea0d0130b2f69",
+      "bytes": 30451001,
       "permissions": "Speech, ScreenContext, Storage"
     },
     {
