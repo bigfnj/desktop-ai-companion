@@ -170,10 +170,60 @@ namespace DesktopAICompanion.Plugins
             if (pet == null) return null;
             return _handles.GetValue(pet, p => new CompanionHandle(p, ++_nextPetId));
         }
-        internal void RaiseCompanionSpawned(FormCompanion pet) { var h = CompanionSpawned; if (h != null) Safe(() => h(HandleFor(pet))); }
-        internal void RaiseCompanionPoked(FormCompanion pet, int count) { var h = CompanionPoked; if (h != null) Safe(() => h(new PokeInfo { Pet = HandleFor(pet), PokeCount = count })); }
-        internal void RaiseCompanionLanded(FormCompanion pet) { var h = CompanionLanded; if (h != null) Safe(() => h(HandleFor(pet))); }
-        internal void RaiseShutdown() { var h = HostShutdown; if (h != null) Safe(() => h()); }
+        /// <summary>
+        /// Invoke every subscriber, and let one that throws cost only itself.
+        ///
+        /// PER HANDLER, NOT PER EVENT. These four used to wrap the whole multicast invocation in a single
+        /// Safe(...), which is a bare catch: the first subscriber that threw aborted the rest of the
+        /// invocation list, and the exception was swallowed with no log line. Four shipped modules
+        /// subscribe to CompanionSpawned in load order, and Fortunes.OnPetSpawned calls host.SayAll with
+        /// no internal guard, so anything thrown out of a bubble draw permanently cost Reminder its spawn
+        /// handler -- invisibly, and looking for all the world like a Reminder bug. The class doc above
+        /// promises a throwing module never breaks the host; that was true of the host and false of the
+        /// other modules.
+        ///
+        /// The failure is LOGGED now rather than swallowed. A handler that throws on every spawn would
+        /// otherwise write nothing anywhere, which is the shape this repo keeps finding: a fault that
+        /// leaves a working run and a broken run looking identical.
+        /// </summary>
+        private void RaiseEach<T>(Delegate root, string eventName, Action<T> call) where T : class
+        {
+            if (root == null) return;
+            foreach (Delegate d in root.GetInvocationList())
+            {
+                T typed = d as T;
+                if (typed == null) continue;
+                try { call(typed); }
+                catch (Exception ex)
+                {
+                    try
+                    {
+                        string owner = d.Target != null ? d.Target.GetType().Name : "?";
+                        Log(null, "a " + eventName + " handler in " + owner + " threw and was skipped: "
+                                  + ex.GetType().Name + ": " + ex.Message);
+                    }
+                    catch { }
+                }
+            }
+        }
+
+        internal void RaiseCompanionSpawned(FormCompanion pet)
+        {
+            RaiseEach<Action<ICompanion>>(CompanionSpawned, "CompanionSpawned", h => h(HandleFor(pet)));
+        }
+        internal void RaiseCompanionPoked(FormCompanion pet, int count)
+        {
+            var info = new PokeInfo { Pet = HandleFor(pet), PokeCount = count };
+            RaiseEach<Action<PokeInfo>>(CompanionPoked, "CompanionPoked", h => h(info));
+        }
+        internal void RaiseCompanionLanded(FormCompanion pet)
+        {
+            RaiseEach<Action<ICompanion>>(CompanionLanded, "CompanionLanded", h => h(HandleFor(pet)));
+        }
+        internal void RaiseShutdown()
+        {
+            RaiseEach<Action>(HostShutdown, "HostShutdown", h => h());
+        }
 
         /// <summary>
         /// Offer a drop tick to responders by priority (highest first) until one handles it. The drop belongs
@@ -428,8 +478,7 @@ namespace DesktopAICompanion.Plugins
         /// module-facing event is: a module throwing from its handler must not take the host's scan down.</summary>
         internal void RaiseFullscreenChanged(bool active)
         {
-            var h = FullscreenChanged;
-            if (h != null) Safe(() => h(active));
+            RaiseEach<Action<bool>>(FullscreenChanged, "FullscreenChanged", h => h(active));
         }
 
         public bool IsCompanionAlive(ICompanion pet)

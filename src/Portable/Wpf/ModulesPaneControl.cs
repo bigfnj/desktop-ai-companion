@@ -478,7 +478,34 @@ namespace DesktopAICompanion.Wpf
                 if (!IsLoaded) return;
 
                 string installDir = SafeModuleDir(module.Id);
-                if (Directory.Exists(installDir)) Directory.Delete(installDir, true);   // clean reinstall/update
+
+                // A REINSTALL NEVER DELETES IN PLACE. This used to open with
+                // Directory.Delete(installDir, true), and the Reinstall button is offered only for a
+                // module that is already on disk and FAILED to load -- which is exactly when this
+                // process may still hold its assembly. ModuleHost.LoadFrom calls
+                // alc.LoadFromAssemblyPath BEFORE it records the failure, and AssemblyLoadContext.Unload
+                // is a request rather than a synchronous unload: a module whose Init left a timer, a
+                // thread or a host subscription behind keeps its DLL memory-mapped for the process
+                // lifetime. The recursive delete would then remove deps.json, assets and the contracts
+                // DLL, hit the locked file, throw, and leave a half-deleted folder with no rollback.
+                //
+                // The neighbouring paths already know this. UpdateModuleAsync stages and swaps on the
+                // next launch (its own doc says the payload "cannot be written over the install folder
+                // from here"), and UninstallModule defers deletion for the same reason. So does this
+                // now, through the same machinery, which also gives it PendingModuleUpdates' move-aside
+                // rollback for free.
+                if (Directory.Exists(installDir))
+                {
+                    string stagedRepair = DesktopAICompanion.Plugins.PendingModuleUpdates.PrepareStagingDirectory(module.Id);
+                    using (var zipStream = new MemoryStream(bytes))
+                        await ZipFile.ExtractToDirectoryAsync(zipStream, stagedRepair, true, _netCts.Token);
+                    DesktopAICompanion.Plugins.PendingModuleUpdates.MarkForUpdate(module.Id);
+                    _status.Text = module.Name + " is ready to reinstall. Your settings are kept.";
+                    RestartToApply();
+                    return;
+                }
+
+                // A genuinely NEW module: nothing is loaded, nothing is locked, so unpack in place.
                 Directory.CreateDirectory(installDir);
                 // Awaited: see the update path. A synchronous unpack of a 31 MB module froze the window.
                 using (var zipStream = new MemoryStream(bytes))
@@ -489,7 +516,13 @@ namespace DesktopAICompanion.Wpf
                 RenderAvailable(DiffNew());
                 RestartToApply();
             }
-            catch (OperationCanceledException) { }
+            // Said out loud. A silent swallow here meant that pressing "Check for modules online"
+            // mid-extract (which cancels this token) left the status line reading "Checking for modules
+            // online" over a folder that had been emptied.
+            catch (OperationCanceledException)
+            {
+                if (IsLoaded) _status.Text = "Stopped installing " + module.Name + ".";
+            }
             catch (Exception ex) { if (IsLoaded) _status.Text = "Couldn't install " + module.Name + ": " + Short(ex.Message); }
             finally { if (IsLoaded) install.IsEnabled = true; }
         }

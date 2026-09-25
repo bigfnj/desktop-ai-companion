@@ -676,52 +676,38 @@ open-item blindness plus the bug-number drift.
   `_cloudModels` and `_modelIdByLabel` from pool threads with no synchronisation.
 ### Measured 2026-09-25: the positive-probability warning IS user-visible
 
-- 📌 **A pet walks off the bottom of the screen and respawns about 21 times an hour, and it is
-  not the converter.** The item asked for a live measurement. Two synthetic soaks measured nothing
-  useful and the reasons are worth keeping: 8 minutes with two default eSheep gave 0 occurrences, and
-  a second soak could not add converted pets at all because a fresh `DESKTOP_AI_COMPANION_DATA_ROOT`
-  has no installed companions — the isolation that makes the GUI smoke tests repeatable is exactly
-  what makes this measurement impossible.
+- ✅ **FIXED 2026-09-25 in content.** `Companions/pink_sheep/animations.xml` states 173
+  (`king_jump_top`) and 182 (`king_jumpB_top`) each gained
+  `<next probability="100" only="taskbar">166</next>`, which is the pet's own convention twice over:
+  `king_walk_top` (167), the same `_top` family, already answers the taskbar with exactly that line,
+  and both 173 and 182 already answered `only="window"` with the same target, `king_slamB` (166). A
+  window top and the taskbar are both horizontal surfaces this pet lands on, and it already knew what
+  to do on one of them.
 
-  The real measurement is the owner's installed 1.2.4 log,
-  `%LOCALAPPDATA%\DesktopAICompanion\diagnostics.log`: **335 occurrences over ~16 hours**
-  (2026-09-24 21:13 to 2026-09-25 13:21), about 21/hour, and **333 of the log's 934 lines, 36%**.
-  All from ONE pet, `pink_sheep`, all `kind=border`. The two converted pets installed alongside
-  (`shimeji-brq51bkr`, `shimeji-hornet-9b9d1d`) produced **zero**, which is the opposite of what this
-  item assumed.
+  The host option was NOT taken. Raising `TASKBAR | HORIZONTAL` at the call site would have fixed all
+  six states and every pet at once, and made every `only="horizontal"` edge in all 54 companions newly
+  eligible at the taskbar, changing landing behaviour for pets that are not broken. The enum's own
+  `HORIZONTAL_ = 0x06` (WINDOW|HORIZONTAL, deliberately excluding TASKBAR) says the distinction was
+  intended.
 
-  | count | state | where |
-  |---|---|---|
-  | 150 | 182 `king_jumpB_top` | TASKBAR |
-  | 119 | 173 `king_jump_top` | TASKBAR |
-  | 37 | 44 | 130 |
-  | 25 | 114 | 130 |
-  | 3 | 81 | 130 |
-  | 1 | 122 | 18 |
+  The measurement that drove it, kept because it is the only evidence that exists: the owner's
+  installed 1.2.4 log carried **335 occurrences over ~16 hours**, about 21/hour and 36% of the whole
+  diagnostic log, **all** from `pink_sheep` and **269 of them** these two states at the taskbar. The
+  two converted pets installed alongside produced **zero**, so this was never a converter problem.
+  Consequence at `FormCompanion.cs:1246`: no eligible transition sets `bLeavingScreen = true`, and a
+  sprite fully outside the monitor is respawned, so the pet walked off the bottom and reappeared.
 
-  **269 of 335 (80%) are two states at the taskbar.** `Eligible(only, where)` is `(only & where) != 0`
-  with `TASKBAR = 0x01`; both states declare their border edges as `only="horizontal"`,
-  `only="vertical"` and `only="window"` only, so nothing carries the 0x01 bit. It is an authoring gap,
-  not a host-semantics mismatch: `pink_sheep` uses `only="taskbar"` 105 times, and in the same family
-  `king_jump` (136), `king_jumpB` (179), `king_jump_up` (146) and `king_jump_down` (162) ALL declare a
-  taskbar edge. Only the two `_top` variants do not.
+  ⚠ **The remaining 66 occurrences are NOT fixed and are a different shape**: states 44, 114, 81
+  and 122 at `where=130` and `where=18`, which are window-edge situations rather than the taskbar.
+  Filed below rather than left implied.
 
-  The consequence is at `FormCompanion.cs:1246`: no eligible transition sets `bLeavingScreen = true`,
-  and a sprite fully outside the monitor is respawned. The pet does not land on the taskbar, it
-  carries on off the bottom and reappears.
-
-  **Two candidate fixes, and this needs an owner decision rather than a default.**
-  (1) Content: add a taskbar edge to states 173 and 182 in `Companions/pink_sheep/animations.xml`,
-  mirroring `king_jump` (136). Narrow, fixes 80% of occurrences, and is an art change — launch it and
-  watch the landing.
-  (2) Host: make the taskbar site raise `TASKBAR | HORIZONTAL`. Fixes all six states and every pet at
-  once, and makes every `only="horizontal"` edge in all 54 companions newly eligible at the taskbar,
-  which changes landing behaviour for pets that are not broken. The enum's own `HORIZONTAL_ = 0x06`
-  (WINDOW|HORIZONTAL, deliberately excluding TASKBAR) says the distinction was intended.
-  Recommended: (1).
-  CLOSES-WHEN: `Companions/pink_sheep/animations.xml` contains a taskbar-eligible border edge under
-  animation id 173.
-
+- 📌 **Four `pink_sheep` states cannot answer a border at `where=130` or `where=18`.** The
+  residue of the 407 measurement above: 37 at state 44, 25 at state 114, 3 at state 81, 1 at state
+  122, over the same 16 hours. Together they are 66 of the 335, about 4/hour. Not investigated beyond
+  counting, because the taskbar pair was 80% of the volume and is the one with a named, visible
+  consequence. Worth doing the same analysis: name each state, check whether a sibling in its own
+  family already declares the missing situation, and prefer the content fix if one does.
+  CLOSES-WHEN: a soak of `pink_sheep` records zero `no eligible positive-probability` warnings.
 ### Filed 2026-09-25 by the four parallel re-audits
 
 Verified before filing. The three code audits raised 39 findings between them; what is here is what
@@ -729,31 +715,6 @@ survived a second check, minus the 14 fixed on the day in `e31c5bb`.
 
 **Host, user-visible**
 
-- 📌 **Reinstalling a module deletes its folder in place, on the one path where the DLL is most
-  likely still locked.** `src/Portable/Wpf/ModulesPaneControl.cs:481` does
-  `Directory.Delete(installDir, true)` before extracting, and the Reinstall button is offered only for
-  a module already on disk that FAILED to load — exactly when the process may still hold its assembly,
-  because `ModuleHost.LoadFrom` loads it before recording the failure and `AssemblyLoadContext.Unload`
-  is a request, not a synchronous unload. The folder is left half-deleted with no rollback. The update
-  path at `:287` already knows this and stages to a swap-in folder instead. Same method, second issue:
-  `catch (OperationCanceledException) { }` at `:492` is silent, so pressing "Check for modules online"
-  mid-extract leaves an empty folder under a "Checking for modules online" status line.
-- 📌 **A failed module update throws away both the marker and the payload, and can strand the
-  module.** `src/dotNet/Plugins/PendingModuleUpdates.cs:114-131`: the catch logs and continues, the
-  finally deletes the staged payload, and the marker is deleted unconditionally. A `Directory.Move`
-  that loses to an indexer or antivirus costs the user the whole ~31 MB download with one debug-window
-  line and no message; the Modules pane then offers the same update again forever. Worse variant: if
-  the second move fails and the rollback also fails, the module's only install folder is stranded as
-  `module-staging/<id>.replaced`, which nothing later reads.
-- 📌 **One throwing module handler starves every later subscriber of every lifecycle event,
-  silently.** `src/dotNet/Plugins/CompanionHost.cs:206-209`, `:407`, `:737` wrap the whole multicast
-  invocation in one `Safe(...)`, which is a bare `catch { }`. The first handler that throws aborts the
-  invocation list. Four shipped modules subscribe to `CompanionSpawned` in load order, and
-  `Fortunes.OnPetSpawned` calls `host.SayAll` with no internal guard, so anything thrown out of a
-  bubble draw permanently costs Reminder its spawn handler. Nothing reaches the diagnostic log. The
-  class doc at `:17` promises a throwing module never breaks the host; that is true of the host and
-  false of the other modules. CLOSES-WHEN: `CompanionHost` iterates `GetInvocationList()` and guards
-  each handler separately.
 - 📌 **Pressing Apply in Preferences wipes the diagnostic-log mute for any module that is
   installed but not loaded.** `src/Portable/Wpf/OptionsShell.cs:464` calls `CollectMutedModules`
   unconditionally, and that rebuilds the whole string from `LoadedModules` only. A module whose `Init`
@@ -799,13 +760,6 @@ survived a second check, minus the 14 fixed on the day in `e31c5bb`.
 
 **Modules**
 
-- 📌 **Closing the app while recording loses the whole recording.**
-  `modules/Remembrance/RemembranceModule.cs:194` and `:263-306`: `StopRecording` flips `_recording`
-  false and then does every piece of real work inside a `Task.Run` it does not wait for. `OnHostShutdown`
-  returns in microseconds, `StartUp.cs:426` disposes the module host and `Alc.Unload()` runs, and the
-  process exits mid-`AudioRecorder.Stop()`. No mixed WAV, no transcript, and the two scratch WAVs keep
-  unfinalised RIFF headers because the `WaveFileWriter.Dispose()` that patches the data-chunk length only
-  runs in the `RecordingStopped` handler. `CaptureStore.Purge` deletes those after 72 hours.
 - 📌 **AgentFlow decodes WebSocket frames one chunk at a time.**
   `modules/AgentFlow/CdpApprover.cs:806` calls `Encoding.UTF8.GetString(buffer, 0, result.Count)` per
   `ReceiveAsync` with a 16 KB buffer, so a multi-byte sequence straddling the boundary decodes to U+FFFD

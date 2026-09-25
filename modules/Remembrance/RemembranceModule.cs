@@ -48,7 +48,13 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "1.0.10",   // 1.0.10: a transcription failure says WHICH failure; whisper's pipes drain
+            Version = "1.0.11",  // 1.0.11: closing the app while recording no longer loses the recording. Every
+                                  //         part of Stop ran inside a Task.Run nothing waited for, so the process
+                                  //         exited mid-AudioRecorder.Stop(): no mixed WAV, no transcript, and two
+                                  //         scratch files left with unfinalised RIFF headers that Purge deletes
+                                  //         after 72 hours. The save is synchronous on shutdown now; transcription
+                                  //         is skipped and both the status line and the log say so.
+                                  // 1.0.10: a transcription failure says WHICH failure; whisper's pipes drain
                                  //         concurrently so its timeout can fire; and the model-pull
                                  //         continuation no longer writes settings off the UI thread.
                                  // 1.0.9: the hourly purge may now only delete files THIS MODULE wrote.
@@ -165,7 +171,7 @@ namespace DesktopAICompanion.RemembranceModule
 
         public void Shutdown()
         {
-            try { if (_recording) StopRecording(); } catch { }
+            try { if (_recording) StopRecording(shuttingDown: true); } catch { }
             DisposeHotkeys();
             if (_purgeTimer != null)
             {
@@ -191,7 +197,9 @@ namespace DesktopAICompanion.RemembranceModule
             _host = null;
         }
 
-        private void OnHostShutdown() { try { if (_recording) StopRecording(); } catch { } }
+        // The host raises this BEFORE it disposes the module host, so this is the last moment at which
+        // a recording can still be saved. It asks for the synchronous path for that reason.
+        private void OnHostShutdown() { try { if (_recording) StopRecording(shuttingDown: true); } catch { } }
 
         // --- hotkeys ---------------------------------------------------------------------------------
 
@@ -260,7 +268,33 @@ namespace DesktopAICompanion.RemembranceModule
             }
         }
 
-        private void StopRecording()
+        private void StopRecording() { StopRecording(false); }
+
+        /// <summary>
+        /// Stop, save, and (unless the app is closing) transcribe.
+        ///
+        /// THE SAVE IS SYNCHRONOUS ON SHUTDOWN, and that is the whole point of the flag. Everything here
+        /// used to run inside a Task.Run that nothing waited for, so closing the app mid-recording lost
+        /// the recording outright: OnHostShutdown returned in microseconds, StartUp disposed the module
+        /// host, Alc.Unload() ran, and the process exited while the background task was still inside
+        /// AudioRecorder.Stop(). No mixed WAV, no transcript, and the two scratch files left with
+        /// unfinalised RIFF headers -- because the WaveFileWriter.Dispose() that patches the data-chunk
+        /// length runs only in the RecordingStopped handler and in DisposeSource. CaptureStore.Purge
+        /// then deletes them after 72 hours, so a 45-minute meeting became nothing at all.
+        ///
+        /// What is NOT waited for on shutdown is transcription: Whisper on a long recording takes
+        /// minutes, and the audio is the irreplaceable part. It is saved and can be transcribed later;
+        /// the status line and the log both say so rather than implying a transcript exists.
+        ///
+        /// THE COST IS REAL AND IS NOT A FEW MILLISECONDS. AudioRecorder.Stop waits up to 10 seconds per
+        /// source (there are two), and then runs MixToWhisperWav, which reads both scratch WAVs, downmixes
+        /// to mono, resamples to 16 kHz and writes the result -- for a 45-minute capture that is hundreds
+        /// of millions of samples. So closing the app WHILE RECORDING can block for tens of seconds on the
+        /// UI thread. That is the deliberate trade: the alternative shipped for months and simply lost the
+        /// meeting. It costs nothing on any shutdown where nothing is recording, which is all of them but
+        /// the one that matters.
+        /// </summary>
+        private void StopRecording(bool shuttingDown)
         {
             if (!_recording || _recorder == null) return;
             AudioRecorder recorder = _recorder;
@@ -278,6 +312,24 @@ namespace DesktopAICompanion.RemembranceModule
             _current = null;
             _lastStatus = "Saving: " + (paths != null ? paths.BaseName : "");
             Announce("Recording stopped. Saving and transcribing…");
+
+            if (shuttingDown)
+            {
+                try
+                {
+                    recorder.Stop();
+                    recorder.Dispose();
+                    _lastStatus = "Saved, not transcribed (app closed): " + paths.BaseName;
+                    try { _host.Log(Id, "stopped on shutdown: audio saved as " + paths.BaseName
+                                       + ", transcription skipped"); } catch { }
+                }
+                catch (Exception ex)
+                {
+                    _lastStatus = "Stop failed: " + ex.Message;
+                    try { _host.Log(Id, "stop on shutdown failed: " + ex.Message); } catch { }
+                }
+                return;
+            }
 
             Task.Run(async () =>
             {

@@ -110,6 +110,27 @@ namespace DesktopAICompanion.Plugins
                 ok &= Check(sb, "WITNESS an unknown pane object has no owner",
                     real.ModuleOwningPane(new OptionsPane { Title = "Never registered" }) == null);
 
+                // A throwing subscriber costs only itself.
+                //
+                // The raise sites used to wrap the whole multicast invocation in one catch, so the first
+                // handler that threw aborted the invocation list and every later subscriber was skipped,
+                // silently, for that event and every later one on the same path. Four shipped modules
+                // subscribe to CompanionSpawned; Fortunes.OnPetSpawned calls host.SayAll with no internal
+                // guard, so a throw out of a bubble draw permanently cost Reminder its spawn handler.
+                //
+                // Asserted on HostShutdown because it is the one raise site that takes no arguments and
+                // needs no live pet, so the check tests the ISOLATION and nothing else. Subscription order
+                // is the point: the thrower is first, so a per-event catch cannot reach the second.
+                bool secondRan = false;
+                Action thrower = delegate { throw new InvalidOperationException("self-test: a bad module"); };
+                Action survivor = delegate { secondRan = true; };
+                real.HostShutdown += thrower;
+                real.HostShutdown += survivor;
+                real.RaiseShutdown();
+                real.HostShutdown -= thrower;
+                real.HostShutdown -= survivor;
+                ok &= Check(sb, "a handler that throws does not starve the subscribers after it", secondRan);
+
                 loader.ShutdownAll(delegate { });
             }
             return ok;

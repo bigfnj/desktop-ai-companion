@@ -5826,6 +5826,7 @@
         <next probability="40" only="horizontal">171</next>
         <next probability="20" only="horizontal">172</next>
         <next probability="100" only="window">166</next>
+    <next probability="100" only="taskbar">166</next>
         <next probability="20" only="horizontal">234</next>
       </border>
     </animation>
@@ -6176,6 +6177,7 @@
         <next probability="40" only="horizontal">171</next>
         <next probability="20" only="horizontal">176</next>
         <next probability="100" only="window">166</next>
+    <next probability="100" only="taskbar">166</next>
         <next probability="100" only="vertical">186</next>
         <next probability="40" only="horizontal">172</next>
       </border>

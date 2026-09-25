@@ -85,9 +85,13 @@ namespace DesktopAICompanion.Plugins
         {
             List<string> ids = ReadIds(markerPath);
             if (ids.Count == 0) return;
+            // Ids whose swap failed. Their staged payload and their marker line both survive, so the next
+            // launch tries again instead of the user losing a verified download to a transient lock.
+            var unfinished = new List<string>();
             foreach (string id in ids)
             {
                 string staged = null;
+                bool swapped = false;
                 try
                 {
                     staged = StagedDirectory(id, stagingRoot);
@@ -97,6 +101,25 @@ namespace DesktopAICompanion.Plugins
                         continue;
                     }
                     string installDir = Path.Combine(modulesRoot, id);
+
+                    // Recover a strand. Swap moves the old copy to "<id>.replaced" before moving the new
+                    // one in and rolls back if that second move throws -- but if the ROLLBACK also throws,
+                    // the module's only remaining folder is that .replaced directory, which nothing on any
+                    // later launch used to read. Then the module is simply gone, with its settings intact
+                    // and nothing to load.
+                    string strandedCopy = Path.Combine(stagingRoot, id + ReplacedSuffix);
+                    if (!Directory.Exists(installDir) && Directory.Exists(strandedCopy))
+                    {
+                        try
+                        {
+                            Directory.Move(strandedCopy, installDir);
+                            if (log != null) log("recovered module '" + id + "' from an interrupted update");
+                        }
+                        catch (Exception ex)
+                        {
+                            if (log != null) log("could not recover module '" + id + "': " + ex.Message);
+                        }
+                    }
                     // Never install a module the user has since uninstalled: a removal ran first this launch,
                     // and moving the staged copy in would bring it back from the dead.
                     if (!Directory.Exists(installDir))
@@ -110,17 +133,36 @@ namespace DesktopAICompanion.Plugins
                         continue;
                     }
                     Swap(installDir, staged, id, stagingRoot, log);
+                    swapped = true;
                 }
                 catch (Exception ex)
                 {
-                    if (log != null) log("could not update '" + id + "': " + ex.Message);
+                    unfinished.Add(id);
+                    if (log != null)
+                        log("could not update '" + id + "': " + ex.Message +
+                            " -- keeping the staged copy so the next launch can retry");
                 }
                 finally
                 {
-                    try { if (staged != null && Directory.Exists(staged)) Directory.Delete(staged, true); } catch { }
+                    // Only on success. Deleting unconditionally threw away a verified payload the user had
+                    // waited for, alongside a marker that was deleted whatever happened, so a Directory.Move
+                    // that lost to an indexer or antivirus cost them the whole download with one debug-window
+                    // line, and the pane then offered the same update again forever.
+                    if (swapped)
+                    {
+                        try { if (staged != null && Directory.Exists(staged)) Directory.Delete(staged, true); } catch { }
+                    }
                 }
             }
-            try { File.Delete(markerPath); } catch { }
+            if (unfinished.Count > 0)
+            {
+                // Rewrite rather than delete: the ids that DID swap must not be retried.
+                try { File.WriteAllLines(markerPath, unfinished, new UTF8Encoding(false)); } catch { }
+            }
+            else
+            {
+                try { File.Delete(markerPath); } catch { }
+            }
             try
             {
                 if (Directory.Exists(stagingRoot) &&
