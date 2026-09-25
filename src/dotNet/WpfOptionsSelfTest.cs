@@ -893,6 +893,173 @@ namespace DesktopAICompanion
                     try { Directory.Delete(revealSibling, true); } catch { }
                 }
 
+                // 12b) RevealsPath is scoped to the OWNING MODULE, not the whole data root.
+                // Both roots are inside AppPaths.DataRoot, so the old rule allowed every one of these and
+                // the interesting assertion is the one that now REFUSES. Nothing is created on disk beyond
+                // the two probe files, and neither is ever opened: ResolveRevealTarget is the decision, and
+                // the Explorer call is downstream of it.
+                string alphaRoot = DesktopAICompanion.Wpf.PaneView.RevealRootFor("alpha");
+                string betaRoot = DesktopAICompanion.Wpf.PaneView.RevealRootFor("beta");
+                ok &= Check(sb, "a pane with no owning module keeps the data-root-wide rule",
+                    DesktopAICompanion.Wpf.PaneView.RevealRootFor(null) == AppPaths.DataRoot &&
+                    DesktopAICompanion.Wpf.PaneView.RevealRootFor("") == AppPaths.DataRoot);
+                ok &= Check(sb, "an owned pane is scoped to that module's own storage, inside the data root",
+                    alphaRoot != AppPaths.DataRoot && alphaRoot.StartsWith(AppPaths.DataRoot, StringComparison.OrdinalIgnoreCase) &&
+                    alphaRoot.EndsWith(Path.Combine("modules", "alpha"), StringComparison.OrdinalIgnoreCase));
+                ok &= Check(sb, "two modules do not share a reveal root", alphaRoot != betaRoot);
+                try
+                {
+                    Directory.CreateDirectory(alphaRoot);
+                    Directory.CreateDirectory(betaRoot);
+                    string alphaFile = Path.Combine(alphaRoot, "own.log");
+                    string betaFile = Path.Combine(betaRoot, "someone-elses.log");
+                    File.WriteAllText(alphaFile, "x");
+                    File.WriteAllText(betaFile, "x");
+                    string why;
+                    ok &= Check(sb, "WITNESS a module may still reveal a file in its OWN storage",
+                        DesktopAICompanion.Wpf.PaneView.ResolveRevealTarget(alphaFile, alphaRoot, out why) == alphaFile);
+                    // THE POINT. This is the case the data-root-wide rule allowed.
+                    ok &= Check(sb, "a module may NOT reveal a file inside another module's storage",
+                        DesktopAICompanion.Wpf.PaneView.ResolveRevealTarget(betaFile, alphaRoot, out why) == null && why != null);
+                    ok &= Check(sb, "WITNESS the old data-root-wide rule DID allow exactly that",
+                        DesktopAICompanion.Wpf.PaneView.ResolveRevealTarget(betaFile, AppPaths.DataRoot, out why) == betaFile);
+                }
+                finally
+                {
+                    try { Directory.Delete(alphaRoot, true); } catch { }
+                    try { Directory.Delete(betaRoot, true); } catch { }
+                }
+
+                // 13) PaneAction.InvokeWithPendingAsync. InvokeAsync takes no arguments, so an action
+                // could only ever see SAVED settings -- every "preview what I just chose" button in every
+                // module worked around that. These cases drive the REAL click handler, because the
+                // precedence and the guard widening both live in BuildActionRow rather than in the
+                // contract, and calling the delegate directly would exercise neither.
+                IReadOnlyDictionary<string, string> sawPending = null;
+                int plainInvokes = 0;
+                var pendingChoice = new SettingField
+                {
+                    Id = "flavour",
+                    Label = "Flavour",
+                    Kind = SettingKind.Enum,
+                    Options = new[] { "saved", "just-picked" },
+                };
+                var pendingSecret = new SettingField { Id = "key", Label = "Key", Kind = SettingKind.Secret };
+                var pendingPane = new OptionsPane
+                {
+                    Title = "Pending",
+                    Schema = new[] { pendingChoice, pendingSecret },
+                    Load = delegate
+                    {
+                        return new Dictionary<string, string>(StringComparer.Ordinal) { { "flavour", "saved" } };
+                    },
+                    Actions = new[]
+                    {
+                        // Only the new delegate. Before the guards were widened this rendered NO BUTTON.
+                        new PaneAction
+                        {
+                            Label = "Preview",
+                            InvokeWithPendingAsync = delegate(IReadOnlyDictionary<string, string> onScreen)
+                            {
+                                sawPending = onScreen;
+                                string flavour;
+                                if (onScreen == null || !onScreen.TryGetValue("flavour", out flavour)) flavour = "(absent)";
+                                return System.Threading.Tasks.Task.FromResult("✓ " + flavour);
+                            },
+                        },
+                        // Both set: the pending-aware one wins, and the other must not run at all.
+                        new PaneAction
+                        {
+                            Label = "Both",
+                            InvokeAsync = delegate
+                            {
+                                plainInvokes++;
+                                return System.Threading.Tasks.Task.FromResult("✗ the old delegate ran");
+                            },
+                            InvokeWithPendingAsync = delegate(IReadOnlyDictionary<string, string> onScreen)
+                            {
+                                return System.Threading.Tasks.Task.FromResult("✓ pending won");
+                            },
+                        },
+                        // WITNESS: unchanged behaviour for every module that never sets the new member.
+                        new PaneAction
+                        {
+                            Label = "Plain",
+                            InvokeAsync = delegate
+                            {
+                                plainInvokes++;
+                                return System.Threading.Tasks.Task.FromResult("✓ plain ran");
+                            },
+                        },
+                    },
+                };
+                var pendingView = new DesktopAICompanion.Wpf.PaneView(pendingPane);
+                var pendingRoot = pendingView.Build() as System.Windows.DependencyObject;
+                var pendingButtons = new List<System.Windows.Controls.Button>();
+                CollectAll(pendingRoot, pendingButtons);
+                ok &= Check(sb, "an action carrying only InvokeWithPendingAsync still renders a button",
+                    pendingButtons.Count == 3);
+                var pendingCombos = new List<System.Windows.Controls.ComboBox>();
+                CollectAll(pendingRoot, pendingCombos);
+                if (pendingButtons.Count == 3 && pendingCombos.Count == 1)
+                {
+                    // An edit the user has NOT applied. This is the whole point: Load said "saved".
+                    pendingCombos[0].SelectedItem = "just-picked";
+                    foreach (System.Windows.Controls.Button b in pendingButtons)
+                        b.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+
+                    ok &= Check(sb, "InvokeWithPendingAsync sees the value just chosen, not the saved one",
+                        StatusOf(pendingButtons[0]) != null && StatusOf(pendingButtons[0]).Text == "✓ just-picked");
+                    ok &= Check(sb, "...which is the value Load did NOT return",
+                        pendingPane.Load()["flavour"] == "saved");
+                    // The documented shape of the dictionary, same as Save and LoadPending receive.
+                    ok &= Check(sb, "a blank Secret is ABSENT from the pending values, never an empty string",
+                        sawPending != null && !sawPending.ContainsKey("key"));
+                    ok &= Check(sb, "when both delegates are set the pending-aware one wins",
+                        StatusOf(pendingButtons[1]) != null && StatusOf(pendingButtons[1]).Text == "✓ pending won");
+                    ok &= Check(sb, "WITNESS an action with no InvokeWithPendingAsync still runs InvokeAsync",
+                        StatusOf(pendingButtons[2]) != null && StatusOf(pendingButtons[2]).Text == "✓ plain ran");
+                    ok &= Check(sb, "...and the superseded InvokeAsync on the both-set action never ran",
+                        plainInvokes == 1);
+                }
+                else ok &= Check(sb, "pending probe rendered three buttons and one dropdown", false);
+
+                // A ListCard action has its own guard, in a different method from the pane-level one above.
+                var listPendingPane = new OptionsPane
+                {
+                    Title = "ListPending",
+                    Load = delegate { return new Dictionary<string, string>(StringComparer.Ordinal); },
+                    Lists = new[]
+                    {
+                        new ListCard
+                        {
+                            Title = "Packs",
+                            LoadItems = delegate { return new List<ListItem>(); },
+                            Actions = new[]
+                            {
+                                new PaneAction
+                                {
+                                    Label = "List preview",
+                                    InvokeWithPendingAsync = delegate(IReadOnlyDictionary<string, string> onScreen)
+                                    {
+                                        return System.Threading.Tasks.Task.FromResult("✓ list pending ran");
+                                    },
+                                },
+                            },
+                        },
+                    },
+                };
+                var listPendingRoot = new DesktopAICompanion.Wpf.PaneView(listPendingPane).Build() as System.Windows.DependencyObject;
+                var listPendingButtons = new List<System.Windows.Controls.Button>();
+                CollectAll(listPendingRoot, listPendingButtons);
+                if (listPendingButtons.Count == 1)
+                {
+                    listPendingButtons[0].RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                    ok &= Check(sb, "a ListCard action carrying only InvokeWithPendingAsync renders and runs",
+                        StatusOf(listPendingButtons[0]) != null && StatusOf(listPendingButtons[0]).Text == "✓ list pending ran");
+                }
+                else ok &= Check(sb, "list-card pending probe rendered its button", false);
+
                 // ---- AN "AVAILABLE TO DOWNLOAD" CARD SAYS WHAT THE PET CONTAINS ----
                 // An installed card has always carried "N animations  ·  M sounds"; a download card carried
                 // only a size, so the number a user actually chooses on was missing from the cards they were

@@ -189,13 +189,6 @@ The ABI additions, the shared notification sound and the AgentFlow pane rebuild 
 that was flagged rather than fixed. None of these blocked the work; all of them are things a future
 reader would otherwise have to rediscover.
 
-- 📌 **`RevealsPath` containment is data-root wide, not module-storage narrow.** `PaneView` receives
-  CLOSES-WHEN: grep-present src/dotNet/Plugins/CompanionHost.cs "ModuleOwningPane"
-  an `OptionsPane` with no module identity, so the host can only enforce "inside the app data root".
-  `CompanionHost.ModuleDataDir` builds every module's storage as `<dataRoot>\modules\<id>`, so today
-  that is arithmetically the same rule — but it means module A can reveal a file sitting in module
-  B's folder, or in the app's own settings folder. Narrowing it needs a module id on `OptionsPane`,
-  which is a contract change and therefore a host release.
 - ⬜ **`SchemaShellPane.RefreshAfterApply` scans for `Info` fields only, not `Header`.** A `Header`
   whose paragraph is derived from settings will show stale text after Apply until the pane is
   reopened. AgentFlow's three explanation headers are static prose, so nothing is wrong today; the
@@ -256,19 +249,6 @@ The feature shipped — "Show me 5 examples" and "5 about my screen" beside the 
 verified end to end against a live `gemma3:4b` by driving the real pane through UI Automation. That
 record, and how the five predicted constraints were answered, is in
 [`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md). Two threads it left open:
-
-### Still open: the pane cannot preview an UNAPPLIED dropdown value
-
-`PaneAction.InvokeAsync` takes no arguments, so a module action sees only saved settings. Every
-"preview what I just chose" affordance in any module hits this, and it is the one part of this item that
-was worked around rather than solved. The additive fix is a member carrying the pane's pending values,
-e.g. `Func<IReadOnlyDictionary<string,string>, Task<string>> InvokeWithPendingAsync`, which the host
-already has to hand (it passes the same dictionary to `Save` on Apply).
-
-Per THE HOST CONTRACT that means: additive only, `AssemblyVersion` stays `1.0.0.0`, and the product
-version bumps in the SAME commit. Sequencing cost is the real reason this was not done today — the host
-release has to ship before aibrain can declare `MinHostVersion` for it, so it is a host release plus a
-module publish, not a module publish.
 
 ### Nice-to-have, unchanged
 
@@ -471,26 +451,6 @@ code. Two decisions that used to sit here are in
   exists at all.
 
 ### Module SDK follow-ups
-
-- 📌 **`ModulePermissions` cannot disclose input MONITORING or process launch.**
-  CLOSES-WHEN: grep-present src/DesktopAICompanion.Contracts/PluginApi.cs "InputMonitoring"
-  The `InputSynthesis` half of this entry is DONE and the under-disclosure it described is gone:
-  the flag is declared at `src/DesktopAICompanion.Contracts/PluginApi.cs:104`, BlinkingLed declares it
-  at `modules/BlinkingLed/BlinkingLedModule.cs:73` and AgentFlow at
-  `modules/AgentFlow/AgentFlowModule.cs:339` (commits 601e944, 21aaebf). The old criterion grepped for
-  "ProcessList", a string that has never appeared in `PluginApi.cs`, so this item could not have closed
-  itself however much of it was fixed. Corrected 2026-09-24. What is left is
-  `InputMonitoring` / `LaunchProcess` if IdleLauncherTray is ever unblocked
-  ([`docs/BLOCKED.md`](docs/BLOCKED.md) T58). Additive to the enum, so safe; per the enum's own
-  comment these are DISCLOSURE flags rather than gates, and `docs/module-ecosystem-roadmap.md`
-  settles why containment would be security theatre. **Decide the flag per channel, not once for a
-  module** — the AgentFlow section at the top of this file reaches the same conclusion from the
-  other direction, having found four actuation channels of which none needs synthetic input.
-  The audio half of this finding is closed: `Microphone`, `SystemAudio` and `AgentTranscripts` were
-  added for Remembrance and AgentFlow. The port assessment it came out of is
-  [`docs/IDEAS.md`](docs/IDEAS.md) idea 18.
-
-
 
 ### Feature ideas (queued, not yet scoped)
 

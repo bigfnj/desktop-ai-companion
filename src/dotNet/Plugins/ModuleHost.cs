@@ -101,7 +101,13 @@ namespace DesktopAICompanion.Plugins
                         continue;
                     }
 
-                    module.Init(host);
+                    // Attribute everything registered inside Init to this module. The finally is the
+                    // whole point: a module that throws from Init must not leave the next one's panes
+                    // credited to it.
+                    var attributing = host as CompanionHost;
+                    if (attributing != null) attributing.BeginModuleInit(module.Info != null ? module.Info.Id : null);
+                    try { module.Init(host); }
+                    finally { if (attributing != null) attributing.EndModuleInit(); }
                     _loaded.Add(new Loaded { Module = module, Alc = alc, Directory = dir });
                     count++;
                     if (log != null)

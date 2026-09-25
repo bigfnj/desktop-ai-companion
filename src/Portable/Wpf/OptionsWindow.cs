@@ -715,7 +715,9 @@ namespace DesktopAICompanion.Wpf
             if (actions != null)
                 foreach (PaneAction a in actions)
                 {
-                    if (a == null || a.InvokeAsync == null) continue;
+                    // EITHER delegate makes this a real action. Reading only InvokeAsync here would
+                    // silently drop a module that supplies just the pending-aware one.
+                    if (a == null || (a.InvokeAsync == null && a.InvokeWithPendingAsync == null)) continue;
                     string g = a.Group ?? "";
                     if (!groupFields.ContainsKey(g)) { groupFields[g] = new List<SettingField>(); groupActions[g] = new List<PaneAction>(); order.Add(g); }
                     groupActions[g].Add(a);
@@ -1015,7 +1017,8 @@ namespace DesktopAICompanion.Wpf
             {
                 inner.Children.Add(new Separator { Margin = new Thickness(0, 6, 0, 4) });
                 foreach (PaneAction a in lc.Actions)
-                    if (a != null && a.InvokeAsync != null) inner.Children.Add(BuildActionRow(a));
+                    if (a != null && (a.InvokeAsync != null || a.InvokeWithPendingAsync != null))
+                        inner.Children.Add(BuildActionRow(a));
             }
 
             return NewCard(inner);
@@ -1066,7 +1069,16 @@ namespace DesktopAICompanion.Wpf
                 status.Text = "working…";
                 status.ClearValue(TextBlock.ForegroundProperty);
                 string result;
-                try { result = await action.InvokeAsync() ?? ""; }
+                // InvokeWithPendingAsync wins when a module supplies it, and it is handed what is on
+                // screen RIGHT NOW -- Collect() is called here, before the await, so an edit made while
+                // the action is running cannot retroactively change what the action was asked about.
+                // Same precedence shape as LoadPending over Load in Build().
+                try
+                {
+                    result = action.InvokeWithPendingAsync != null
+                        ? await action.InvokeWithPendingAsync(Collect()) ?? ""
+                        : action.InvokeAsync != null ? await action.InvokeAsync() ?? "" : "";
+                }
                 catch (Exception ex) { result = "failed: " + ex.Message; }
                 // RevealsPath: the return value is a file to show in Explorer, not a message. Empty, or
                 // already carrying a ✓/✗ marker, means the action chose to report the ordinary way instead
@@ -1110,19 +1122,23 @@ namespace DesktopAICompanion.Wpf
         /// <summary>
         /// Show a <see cref="PaneAction.RevealsPath"/> file in Explorer, or say why not.
         ///
-        /// The data root is the whole containment test, and that is not a shortcut: every module's storage
-        /// directory is already inside it, because CompanionHost hands out
-        /// <c>AppPaths.DataRoot\modules\{id}</c> and nothing else (CompanionHost.ModuleDataDir). A PaneView
-        /// is handed an OptionsPane and no module identity, so it could not name the calling module's own
-        /// folder even if that folder lived somewhere else. Written down here because it is the assumption
-        /// that would break quietly: a future host that gives a module a directory OUTSIDE the data root
-        /// turns this from "exactly the rule" into "too strict", and the symptom would be a refusal nobody
-        /// can explain.
+        /// Narrowed to the OWNING MODULE's storage directory where the host knows it, and only falling
+        /// back to the whole data root where it does not.
+        ///
+        /// The data-root-wide rule was arithmetically the same test -- every module's storage is
+        /// <c>AppPaths.DataRoot\modules\{id}</c> -- but it let module A reveal a file in module B's folder,
+        /// or in the app's own settings folder. The reason recorded here for not narrowing it was that "a
+        /// PaneView is handed an OptionsPane and no module identity". That was true of the PANE and false
+        /// of the HOST: CompanionHost now records which module contributed which pane during Init, so the
+        /// identity was always available one call away.
+        ///
+        /// A null owner is not a failure. The Preferences pane is built by the host itself and legitimately
+        /// has none, and it keeps the data-root rule, which is the rule it has always had.
         /// </summary>
-        private static string RevealInExplorer(string returned)
+        private string RevealInExplorer(string returned)
         {
             string refusal;
-            string full = ResolveRevealTarget(returned, AppPaths.DataRoot, out refusal);
+            string full = ResolveRevealTarget(returned, PermittedRevealRoot(), out refusal);
             if (full == null) return refusal;
             try
             {
@@ -1149,6 +1165,32 @@ namespace DesktopAICompanion.Wpf
         /// C:\Users\someone\taxes.pdf exist?" for any path a module cares to return, one refusal message at
         /// a time, which is a filesystem probe the plugin ABI does not otherwise offer.
         /// </summary>
+        /// <summary>The narrowest root this pane's action may reveal inside. Deliberately total: any
+        /// failure to resolve an owner yields the data root, so a reveal can never be made MORE permissive
+        /// by this lookup, only less.</summary>
+        private string PermittedRevealRoot()
+        {
+            string owner = null;
+            try
+            {
+                DesktopAICompanion.Plugins.CompanionHost host =
+                    Program.Mainthread != null ? Program.Mainthread.Host : null;
+                owner = host != null ? host.ModuleOwningPane(_pane) : null;
+            }
+            catch { }
+            return RevealRootFor(owner);
+        }
+
+        /// <summary>The root an action owned by <paramref name="ownerModuleId"/> may reveal inside; the
+        /// app-wide data root when there is no owner. Split out from the lookup above so it is reachable
+        /// from a self-test: the lookup needs a live Program.Mainthread and the DECISION does not, and an
+        /// untestable decision is how the old data-root-wide rule went unexamined for so long.</summary>
+        internal static string RevealRootFor(string ownerModuleId)
+        {
+            if (string.IsNullOrEmpty(ownerModuleId)) return AppPaths.DataRoot;
+            return DesktopAICompanion.Plugins.CompanionHost.ModuleDataDirectoryPath(ownerModuleId);
+        }
+
         internal static string ResolveRevealTarget(string returned, string dataRoot, out string refusal)
         {
             refusal = null;

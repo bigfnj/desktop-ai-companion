@@ -102,6 +102,48 @@ namespace DesktopAICompanion.Modules
         // does NOT cover: Hotkey is the reverse direction (the module RECEIVES a keypress through
         // the host), and this is the module PRESSING one.
         InputSynthesis = 1 << 12,
+
+        // Watches keyboard or mouse activity it was not sent -- a low-level hook, polled key state,
+        // raw input, or an idle timer built on GetLastInputInfo.
+        //
+        // The reverse direction from InputSynthesis above, and NOT the same thing as Hotkey: a
+        // hotkey is one combination the user chose and the host delivers, whereas this sees
+        // activity the user did not direct at the pet at all.
+        //
+        // NO MODULE DECLARES THIS TODAY and none needs it: searched on 2026-09-24 for
+        // GetAsyncKeyState, GetKeyState, SetWindowsHookEx, GetLastInputInfo and the raw-input
+        // registrations, across modules\ and src\ -- zero hits. It is here for the idle-launcher
+        // work in docs/BLOCKED.md T58, which is the only thing that has ever wanted it. Said plainly
+        // because the honest reading of an undeclared flag is "nobody has needed this yet", and a
+        // reader who assumes otherwise will go looking for a holder that does not exist.
+        InputMonitoring = 1 << 13,
+
+        // Starts a child process the MODULE chose -- an engine, a converter, a downloaded tool.
+        //
+        // Unlike InputMonitoring above, this one has holders RIGHT NOW, and that is why it is here
+        // rather than waiting for T58. Three shipped modules spawn executables and no flag has ever
+        // said so:
+        //   AiBrain       -- the ollama runtime (engine\OllamaClient.cs:291, engine\AiBrain.cs:1427
+        //                    and the :1603 kill path)
+        //   Remembrance   -- whisper.cpp (Transcriber.cs:73) and its installer's verify probe
+        //                    (WhisperInstaller.cs:714)
+        //   PetStudio     -- ffmpeg and ffprobe through the conversion engine
+        //                    (tools\ShimejiConvert.Engine\Engine.cs:266 and :310,
+        //                    Shimeji\WebPLoader.cs:113)
+        // This is the same finding that produced InputSynthesis: a shipped module doing something
+        // the consent screen never mentioned, where the pane's "wants: Speech, Storage" reads as an
+        // affirmative claim that those are the two things it does.
+        //
+        // DELIBERATELY EXCLUDED: shell-opening something the user can already see. Fortunes reveals
+        // its packs folder (FortunesModule.cs:677) and Reminder opens an event URL
+        // (ReminderModule.cs:892), both UseShellExecute on a path or URL the user asked for, in
+        // their own default handler. Those are the user's own action taking effect, not the module
+        // choosing an executable, and folding them in here would make the flag mean so little that
+        // seven of eight modules would carry it.
+        //
+        // Disclosure, not a gate, for the reason the whole enum gives above: a module is an
+        // in-process assembly with the user's privileges and there is no host API to intercept.
+        LaunchProcess = 1 << 14,
     }
 
     /// <summary>An on-screen pet, as seen by a module (opaque handle over the host's FormCompanion).</summary>
@@ -327,6 +369,30 @@ namespace DesktopAICompanion.Modules
         // treated as an ordinary message -- so an action can still report a failure the normal way
         // instead of being forced to produce a path it does not have.
         public bool RevealsPath { get; set; }
+
+        // As InvokeAsync, but handed the values currently ON SCREEN -- including edits the user has
+        // not applied yet. Null => the host calls InvokeAsync exactly as before, so this is inert
+        // for every module that does not set it. Added 1.2.5.
+        //
+        // InvokeAsync takes no arguments, so a module action could only ever see SAVED settings.
+        // Every "preview what I just chose" affordance in every module hit that: the AiBrain
+        // Disposition audition ("show me 5 examples") had to work around it, and BACKLOG.md carried
+        // the item from 2026-09-11 naming this exact signature as the fix.
+        //
+        // The dictionary is the one Save receives, from the same PaneView.Collect(), with the same
+        // two shapes worth knowing: a BLANK Secret field is ABSENT rather than empty (so "the user
+        // did not retype it" is distinguishable from "the user cleared it"), and an id with no
+        // editable control behind it -- Info and Header rows -- is absent too.
+        //
+        // OptionsPane.LoadPending is the sibling of this on the pane-build side, and the two answer
+        // different questions: LoadPending varies what the pane SHOWS when the host rebuilds it,
+        // this varies what an action DOES when the user presses it. A module wanting a preview
+        // button had to fake the second with the first -- stash the pending dictionary during a
+        // ReloadOnChange rebuild and read it back later -- which only works if some field happens to
+        // carry ReloadOnChange.
+        //
+        // Setting this ALONE is enough: the host renders the button when either delegate is set.
+        public Func<IReadOnlyDictionary<string, string>, System.Threading.Tasks.Task<string>> InvokeWithPendingAsync { get; set; }
     }
 
     /// <summary>One checkable row in a <see cref="ListCard"/>: a stable <see cref="Id"/> (passed back to the

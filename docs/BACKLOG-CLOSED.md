@@ -512,3 +512,100 @@ been stuck for nine minutes is the part a dashboard cannot do.
 *(The closed entries from this section — and there are many, including four separate cases of an
 absence check defeated by a comment describing the very thing it forbids — are in
 [`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md).)*
+
+---
+
+## Closed 2026-09-24 in host 1.2.5 — the three ABI-gated items
+
+All three were blocked on "this needs a contract change and therefore a host release". Two of them
+really did. **The first one did not, and that is the part worth reading.**
+
+### `RevealsPath` was narrowed WITHOUT touching the contract
+
+The entry below concluded: *"Narrowing it needs a module id on `OptionsPane`, which is a contract
+change and therefore a host release."* That was true of the PANE and false of the HOST. `IHost.AddOptionsPane`
+is documented to be called from `Init` ("---- contributions (register in Init) ----", `PluginApi.cs`),
+and `ModuleHost` knows exactly which module it is initialising at that moment — `module.Info.Id` sits
+on the line after `module.Init(host)`. So `CompanionHost` now records `pane -> moduleId` on its own
+side of the wire, in the shape it already used for `Responder.ModuleId`, and `OptionsPane` is untouched.
+
+The reason this matters beyond one item: the blocker had been restated in a doc comment in
+`OptionsWindow.cs` as settled fact, and it is the kind of claim nothing ever re-tests. It sat for a
+release cycle. Verified by measurement, not by re-reading the comment:
+`--wpf-options-selftest` now asserts that a module may NOT reveal a file inside another module's
+storage, with a WITNESS asserting the old data-root-wide rule DID allow exactly that.
+
+One real caveat, recorded rather than hidden: an out-of-tree module could stash the `IHost` and call
+`AddOptionsPane` after `Init` returns. Nothing enforces the documented timing. Such a pane gets no
+owner and falls back to the data-root-wide rule, which is the rule it would have had anyway.
+
+Mutation-tested: 7 mutations, 7 fired. The one that initially SURVIVED was
+`PermittedRevealRoot` discarding the owner it had just looked up — three lines of wiring between two
+well-covered ends, needing a live `Program.Mainthread` that a headless self-test does not have. That
+gap is now closed by a source invariant asserting the ARGUMENT (`RevealRootFor(owner)`, never
+`RevealRootFor(null)`), because a check for the call's mere presence would have passed the survivor.
+
+- 📌 **`RevealsPath` containment is data-root wide, not module-storage narrow.** `PaneView` receives
+  CLOSES-WHEN: grep-present src/dotNet/Plugins/CompanionHost.cs "ModuleOwningPane"
+  an `OptionsPane` with no module identity, so the host can only enforce "inside the app data root".
+  `CompanionHost.ModuleDataDir` builds every module's storage as `<dataRoot>\modules\<id>`, so today
+  that is arithmetically the same rule — but it means module A can reveal a file sitting in module
+  B's folder, or in the app's own settings folder. Narrowing it needs a module id on `OptionsPane`,
+  which is a contract change and therefore a host release.
+
+### `PaneAction.InvokeWithPendingAsync`
+
+Added as specified, and inert for every module that does not set it. The host already had the
+dictionary to hand: `PaneView.Collect()` was being called twenty-four lines below the invocation, in
+the same closure, to stash on-screen values for a rebuild.
+
+Two guards had to widen with it — both read "no `InvokeAsync` means there is no button", so an action
+carrying only the new delegate would have rendered nothing at all.
+
+### Still open: the pane cannot preview an UNAPPLIED dropdown value
+
+`PaneAction.InvokeAsync` takes no arguments, so a module action sees only saved settings. Every
+"preview what I just chose" affordance in any module hits this, and it is the one part of this item that
+was worked around rather than solved. The additive fix is a member carrying the pane's pending values,
+e.g. `Func<IReadOnlyDictionary<string,string>, Task<string>> InvokeWithPendingAsync`, which the host
+already has to hand (it passes the same dictionary to `Save` on Apply).
+
+Per THE HOST CONTRACT that means: additive only, `AssemblyVersion` stays `1.0.0.0`, and the product
+version bumps in the SAME commit. Sequencing cost is the real reason this was not done today — the host
+release has to ship before aibrain can declare `MinHostVersion` for it, so it is a host release plus a
+module publish, not a module publish.
+
+### `ModulePermissions.InputMonitoring` and `.LaunchProcess`
+
+Both added; they are not equally live, and the enum says so rather than leaving a reader to find out.
+
+`LaunchProcess` has three holders RIGHT NOW and no flag had ever said so — AiBrain spawns the ollama
+runtime, Remembrance spawns whisper.cpp and its installer probe, PetStudio spawns ffmpeg/ffprobe
+through the conversion engine. That is the same finding that produced `InputSynthesis`: a shipped
+module doing something the consent screen never mentioned, beside a pane that prints "wants: Speech,
+Storage" as an affirmative claim. Shell-opening a path or URL the user asked for (Fortunes revealing
+its packs folder, Reminder opening an event URL) is deliberately EXCLUDED — that is the user's own
+action taking effect, and folding it in would put the flag on seven of eight modules and make it
+mean nothing.
+
+`InputMonitoring` has no holder. Searched across `modules\` and `src\` for `GetAsyncKeyState`,
+`GetKeyState`, `SetWindowsHookEx`, `GetLastInputInfo` and the raw-input registrations: zero hits. It
+exists for `docs/BLOCKED.md` T58.
+
+- 📌 **`ModulePermissions` cannot disclose input MONITORING or process launch.**
+  CLOSES-WHEN: grep-present src/DesktopAICompanion.Contracts/PluginApi.cs "InputMonitoring"
+  The `InputSynthesis` half of this entry is DONE and the under-disclosure it described is gone:
+  the flag is declared at `src/DesktopAICompanion.Contracts/PluginApi.cs:104`, BlinkingLed declares it
+  at `modules/BlinkingLed/BlinkingLedModule.cs:73` and AgentFlow at
+  `modules/AgentFlow/AgentFlowModule.cs:339` (commits 601e944, 21aaebf). The old criterion grepped for
+  "ProcessList", a string that has never appeared in `PluginApi.cs`, so this item could not have closed
+  itself however much of it was fixed. Corrected 2026-09-24. What is left is
+  `InputMonitoring` / `LaunchProcess` if IdleLauncherTray is ever unblocked
+  ([`docs/BLOCKED.md`](docs/BLOCKED.md) T58). Additive to the enum, so safe; per the enum's own
+  comment these are DISCLOSURE flags rather than gates, and `docs/module-ecosystem-roadmap.md`
+  settles why containment would be security theatre. **Decide the flag per channel, not once for a
+  module** — the AgentFlow section at the top of this file reaches the same conclusion from the
+  other direction, having found four actuation channels of which none needs synthetic input.
+  The audio half of this finding is closed: `Microphone`, `SystemAudio` and `AgentTranscripts` were
+  added for Remembrance and AgentFlow. The port assessment it came out of is
+  [`docs/IDEAS.md`](docs/IDEAS.md) idea 18.

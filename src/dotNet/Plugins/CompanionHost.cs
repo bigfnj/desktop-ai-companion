@@ -790,11 +790,57 @@ namespace DesktopAICompanion.Plugins
         }
 
         public void AddTrayItems(IEnumerable<TrayItem> items) { if (items != null) TrayItems.AddRange(items); }
-        public void AddOptionsPane(OptionsPane pane) { if (pane != null) OptionsPanes.Add(pane); }
+
+        // Which module contributed which pane.
+        //
+        // BACKLOG.md carried this as "needs a module id on OptionsPane, which is a contract change and
+        // therefore a host release". It is not: AddOptionsPane is documented to be called from Init
+        // ("---- contributions (register in Init) ----", PluginApi.cs), ModuleHost knows exactly which
+        // module it is initialising at that moment, and so the host can record the pair on its own side
+        // of the wire. OptionsPane is untouched and no module changes.
+        //
+        // The shape is the one this class already uses for module-supplied delegates -- see Responder and
+        // SpeechResponder above, both of which pair a ModuleId with a callback.
+        //
+        // Reference equality on purpose: OptionsPane overrides neither Equals nor GetHashCode, and two
+        // panes that happen to carry the same Title are still two panes.
+        private readonly Dictionary<OptionsPane, string> _paneOwners =
+            new Dictionary<OptionsPane, string>((IEqualityComparer<OptionsPane>)ReferenceEqualityComparer.Instance);
+        private string _initialisingModuleId;
+
+        /// <summary>Set by ModuleHost around a module's Init so contributions made inside it can be
+        /// attributed. Null outside that window, which is the honest answer for a pane registered late.</summary>
+        internal void BeginModuleInit(string moduleId) { _initialisingModuleId = moduleId; }
+        internal void EndModuleInit() { _initialisingModuleId = null; }
+
+        /// <summary>The id of the module that contributed <paramref name="pane"/>, or null for a pane the
+        /// HOST built (Preferences) or one registered outside Init. Callers must treat null as "no
+        /// narrowing available" rather than as an error.</summary>
+        internal string ModuleOwningPane(OptionsPane pane)
+        {
+            string id;
+            if (pane != null && _paneOwners.TryGetValue(pane, out id)) return id;
+            return null;
+        }
+
+        public void AddOptionsPane(OptionsPane pane)
+        {
+            if (pane == null) return;
+            OptionsPanes.Add(pane);
+            if (!string.IsNullOrEmpty(_initialisingModuleId)) _paneOwners[pane] = _initialisingModuleId;
+        }
 
         /// <summary>The module's own data directory (settings/storage) — separate from its install folder
         /// under <c>modules/&lt;id&gt;/</c>. Exposed so an uninstall action can remove both and not orphan data.</summary>
         public static string ModuleDataDirectory(string moduleId) { return ModuleDataDir(moduleId); }
+
+        /// <summary>Where a module's data directory WOULD be, without creating it. ModuleDataDir has a
+        /// mkdir side effect, which is wrong for a containment test: asking "is this path inside module
+        /// X's folder?" must not bring that folder into existence, least of all while refusing.</summary>
+        internal static string ModuleDataDirectoryPath(string moduleId)
+        {
+            return Path.Combine(AppPaths.DataRoot, "modules", SafeId(moduleId));
+        }
 
         private static string ModuleDataDir(string moduleId)
         {

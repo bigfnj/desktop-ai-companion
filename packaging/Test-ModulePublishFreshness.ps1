@@ -252,14 +252,74 @@ if ($null -eq $catalogAppVersion) {
            "so without it the app can never tell a user an update exists. Regenerate it: " +
            "packaging\New-ContentCatalog.ps1")
 }
-if ($catalogAppVersion -ne $productVersion) {
-    throw ("catalog.json app.version is '$catalogAppVersion' but ProductVersion.props says " +
-           "'$productVersion'. The launch update check compares the catalog against the running build, so " +
-           "while these disagree every user at or above '$catalogAppVersion' is told they are up to date. " +
-           "Regenerate the catalog (packaging\New-ContentCatalog.ps1) and commit it -- merging to master " +
-           "is what publishes it.")
+#
+# The rule is NOT "catalog.json equals ProductVersion.props", which is what it used to be. Those two
+# answer different questions: props is the newest version that has been BUILT, catalog.json is the
+# newest version a user can actually DOWNLOAD, and between an ABI bump and the release that ships it
+# they are legitimately different. The old rule forced them together, which left only two ways to
+# land an ABI change -- cut a release immediately, or publish a catalog advertising a version that
+# does not exist on the releases page. The second is the worse one and the old rule made it the path
+# of least resistance.
+#
+# So it is now two checks, and neither is weaker than what it replaced:
+#
+#   1. The catalog must not EXCEED props. A catalog ahead of the build offers every user an update
+#      that cannot be downloaded.
+#   2. The catalog must MATCH THE NEWEST RELEASED TAG. This is the original protection, stated
+#      against the thing that actually determines it. The incident described above -- the catalog
+#      stuck at 1.1.0 while v1.1.1, v1.1.2 and v1.1.3 shipped, so nobody on 1.1.0 was offered the
+#      tray-icon fix -- fails check 2 exactly as it failed the old one. What no longer fails is an
+#      unreleased build sitting in the tree, which was never the defect.
+$catalogVersionParsed = $null
+$productVersionParsed = $null
+if (-not [version]::TryParse($catalogAppVersion, [ref]$catalogVersionParsed)) {
+    throw "catalog.json app.version '$catalogAppVersion' is not a version number."
 }
-Write-Host "OK   app -- catalog.json app.version $catalogAppVersion agrees with ProductVersion.props"
+if (-not [version]::TryParse($productVersion, [ref]$productVersionParsed)) {
+    throw "ProductVersion.props <DesktopAICompanionVersion> '$productVersion' is not a version number."
+}
+if ($catalogVersionParsed -gt $productVersionParsed) {
+    throw ("catalog.json app.version is '$catalogAppVersion' but ProductVersion.props only says " +
+           "'$productVersion'. The catalog is what every installed app reads to decide an update " +
+           "exists, so this offers every user a version that has not been built and cannot be " +
+           "downloaded. Regenerate the catalog (packaging\New-ContentCatalog.ps1) and commit it.")
+}
+
+# Check 2 needs tags. It FAILS rather than degrading, for the reason spelled out in the sibling
+# Test-ModuleTemplate.ps1: a control that can run degraded has to say so in a way that stops the run,
+# or it is a check that quietly stopped checking.
+$releaseTags = @(& git -C $RepoRoot tag --list 'v*' 2>$null)
+if ($LASTEXITCODE -ne 0 -or $releaseTags.Count -eq 0) {
+    Write-Warning ("DEGRADED  no v* tags are reachable, so catalog.json app.version could not be " +
+                   "checked against the newest release (shallow clone?)")
+    throw ("Coverage narrowed silently: the catalog-versus-newest-release check could not run because " +
+           "no v* tags are reachable. Fetch tags (CI uses fetch-depth: 0) and re-run. This refuses " +
+           "rather than passing, because a catalog that trails the newest release means no user is " +
+           "ever offered it, which is the failure this check exists for.")
+}
+$taggedVersions = @()
+foreach ($releaseTag in $releaseTags) {
+    $parsedTag = $null
+    if ([version]::TryParse($releaseTag.TrimStart('v'), [ref]$parsedTag)) { $taggedVersions += $parsedTag }
+}
+if ($taggedVersions.Count -eq 0) {
+    throw "No v* tag parsed as a version number, so the newest release could not be determined."
+}
+$newestRelease = @($taggedVersions | Sort-Object -Descending | Select-Object -First 1)[0]
+if ($catalogVersionParsed -ne $newestRelease) {
+    throw ("catalog.json app.version is '$catalogAppVersion' but the newest release is " +
+           "'v$newestRelease'. The launch update check reads the catalog, so while it trails the " +
+           "newest release every user at or above '$catalogAppVersion' is told they are up to date. " +
+           "Regenerate the catalog (packaging\New-ContentCatalog.ps1) and commit it -- merging to " +
+           "master is what publishes it.")
+}
+if ($catalogVersionParsed -lt $productVersionParsed) {
+    Write-Host ("OK   app -- catalog.json app.version $catalogAppVersion matches the newest release " +
+                "v$newestRelease; ProductVersion.props is ahead at $productVersion (built, not released yet)")
+}
+else {
+    Write-Host "OK   app -- catalog.json app.version $catalogAppVersion matches the newest release and the built version"
+}
 
 $stale = @()
 $degraded = @()

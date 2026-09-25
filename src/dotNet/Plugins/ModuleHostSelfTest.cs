@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -47,6 +47,7 @@ namespace DesktopAICompanion.Plugins
                     ok &= Check(sb, "module unsubscribed on Shutdown", host.LastSayAll == null);
                 }
 
+                ok &= PaneAttribution(sb, modulesRoot);
                 ok &= MinHostVersionGate(sb, modulesRoot);
                 ok &= PetManagerPermissionGate(sb);
                 ok &= PendingUpdateSwap(sb);
@@ -57,6 +58,61 @@ namespace DesktopAICompanion.Plugins
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
             return Finish(sb, ok);
+        }
+
+        /// <summary>
+        /// Which module contributed which options pane, through the REAL loader and a REAL CompanionHost.
+        ///
+        /// The RecordingHost used by every other wiring test above is not a CompanionHost, so it cannot
+        /// exercise this at all: attribution happens inside CompanionHost.AddOptionsPane, and ModuleHost
+        /// reaches it through an `as CompanionHost` cast that yields null for any other IHost. A test built
+        /// on the stub would pass against a ModuleHost that never calls BeginModuleInit, which is the whole
+        /// thing worth proving here.
+        ///
+        /// This is what lets PaneView narrow a RevealsPath containment test from the app-wide data root to
+        /// the calling module's own storage directory.
+        /// </summary>
+        private static bool PaneAttribution(StringBuilder sb, string modulesRoot)
+        {
+            bool ok = true;
+            if (!Directory.Exists(Path.Combine(modulesRoot, "testmodule")))
+            {
+                sb.AppendLine("SKIP: no bundled test module for pane attribution");
+                return ok;
+            }
+
+            var real = new CompanionHost(null);
+            using (var loader = new ModuleHost())
+            {
+                loader.LoadFrom(modulesRoot, real, delegate { });
+                ok &= Check(sb, "a real host received at least one module pane", real.OptionsPanes.Count >= 1);
+                var owners = new List<string>();
+                foreach (OptionsPane p in real.OptionsPanes) owners.Add(real.ModuleOwningPane(p));
+                ok &= Check(sb, "every pane registered during Init is attributed to some module",
+                    real.OptionsPanes.Count >= 1 && !owners.Contains(null) && !owners.Contains(""));
+                // The RIGHT module, not merely SOME module. A marker left set from a previous Init would
+                // still be non-empty and would credit every later pane to whoever loaded first, so the
+                // distinct-owner count is the assertion that catches it. Panes are NOT indexed by load
+                // order here on purpose: the loader walks directories alphabetically, so testmodule is
+                // not OptionsPanes[0] and asserting that it was is how the first draft of this failed.
+                ok &= Check(sb, "...and each module owns its own pane rather than all of them sharing one",
+                    new List<string>(new HashSet<string>(owners)).Count == owners.Count);
+                ok &= Check(sb, "...including the bundled test module, whose pane is attributed to it",
+                    owners.Contains("testmodule"));
+
+                // WITNESS: outside an Init window there is no owner, and the host must say so rather than
+                // guess. The Preferences pane the host builds itself is exactly this case, and it has to
+                // keep the data-root-wide rule.
+                var orphan = new OptionsPane { Title = "Host built" };
+                real.AddOptionsPane(orphan);
+                ok &= Check(sb, "WITNESS a pane registered outside any Init has no owner",
+                    real.ModuleOwningPane(orphan) == null);
+                ok &= Check(sb, "WITNESS an unknown pane object has no owner",
+                    real.ModuleOwningPane(new OptionsPane { Title = "Never registered" }) == null);
+
+                loader.ShutdownAll(delegate { });
+            }
+            return ok;
         }
 
         /// <summary>

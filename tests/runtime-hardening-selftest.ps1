@@ -453,6 +453,23 @@ function Get-MethodBody {
     return $Source.Substring($start, $next - $start)
 }
 
+# A RevealsPath action is scoped to the OWNING MODULE's storage, and the lookup's answer is what
+# gets used. The decision (RevealRootFor) and the attribution (CompanionHost.ModuleOwningPane) are
+# both covered by real assertions in --wpf-options-selftest and --module-host-selftest; the three
+# lines BETWEEN them are not, because they need a live Program.Mainthread that a headless self-test
+# does not have. Mutation-tested 2026-09-24: rewriting the call as RevealRootFor(null) -- which
+# silently restores the old data-root-wide rule -- was the ONE mutation of seven that survived the
+# runtime suites. This is what catches it.
+#
+# It asserts the ARGUMENT, not that the call is present. A check for "RevealRootFor(" alone would
+# pass against the surviving mutation, which is the failure mode this whole file exists to avoid.
+$revealRootBody = Get-MethodBody $optionsWindowCode 'private string PermittedRevealRoot()'
+Assert-True ($revealRootBody.Length -gt 0) 'PermittedRevealRoot exists and could be sliced out for inspection'
+Assert-True (
+    $revealRootBody -match 'RevealRootFor\(owner\)' -and
+    $revealRootBody -notmatch 'RevealRootFor\(null\)'
+) 'a reveal is scoped by the owner the host resolved, not by a discarded lookup'
+
 $dropBody = Get-MethodBody $aiBrainSource 'private bool OnDrop(ICompanion pet)'
 $pokeBody = Get-MethodBody $aiBrainSource 'private bool OnPokeReaction(ICompanion pet)'
 $guardBody = Get-MethodBody $aiBrainSource 'private bool FullscreenBlocked()'
