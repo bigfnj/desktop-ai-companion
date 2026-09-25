@@ -29,6 +29,11 @@ namespace DesktopAICompanion.FortunesModule
         private FortuneProvider _provider;   // the relocated engine (packs -> filtered pool)
         private SmartFortunes _smart;        // optional ONNX semantic picker (null when disabled/unavailable)
         private string _indexedSignature;    // fingerprint of the pool _smart was warmed on (null = none)
+        // Which rebuild the picker currently being built belongs to. RebuildEngine is reachable from
+        // Init, SavePaneValues, RescanAsync, ImportPacksAsync, DownloadPacksAsync and
+        // RebuildSmartIndexAsync, so two can overlap; without this an earlier, slower build could land
+        // after a later one and quietly replace a current picker with a stale one.
+        private int _smartGeneration;
         private ICompanion _lastPet;               // most-recently-seen pet, for screen-context capture on the drop path
         private IDisposable _dropResponder;
         private IDisposable _pokeResponder;
@@ -43,7 +48,9 @@ namespace DesktopAICompanion.FortunesModule
         {
             Id = "fortunes",
             Name = "Fortunes",
-            Version = "1.0.5",   // 1.0.5: the smart picker rotated 64 lines out of 7780, so the same
+            Version = "1.0.6",   // 1.0.6: the smart picker is now BUILT off the UI thread, not just warmed
+                                 //        there, and says in the log when it is actually ready.
+                                 // 1.0.5: the smart picker rotated 64 lines out of 7780, so the same
                                  //        fortune came round every third pick in a stable context. The
                                  //        candidate set is now a relevance band, not a fixed count.
                                  // 1.0.4: a failed save no longer discards the staged pack selection, and the
@@ -158,13 +165,50 @@ namespace DesktopAICompanion.FortunesModule
                 if (old != null) { try { old.Dispose(); } catch { } }
                 if (settings.SmartFortunes)
                 {
-                    var sm = new SmartFortunes();
                     List<FortuneEntry> warming = _provider.PoolEntries();
                     // Recorded before the warm starts: it names the pool being indexed, which is what a
                     // later "is this still current?" question compares against.
                     _indexedSignature = PoolSignature(warming);
-                    sm.Warm(warming);
-                    _smart = sm;
+
+                    // CONSTRUCTION is backgrounded too, not just the warm.
+                    //
+                    // Only Warm was off the UI thread. The SmartFortunes constructor is synchronous and
+                    // its VectorCache ctor ends in Load(), which takes a Global mutex plus a .lock lease
+                    // and then deserialises cache.bin with one ReadSingle per float and a new float[384]
+                    // per entry. With all 161 catalog packs at "Everything" that file reaches ~94 MB:
+                    // roughly 22.6M ReadSingle calls and 59,000 allocations before the pet appears.
+                    //
+                    // _smart is published only once the picker is usable, and the pick path already
+                    // snapshots the field into a local before using it, so a null here simply means the
+                    // next few fortunes come from the whole-pool shuffle bag instead.
+                    int generation = System.Threading.Interlocked.Increment(ref _smartGeneration);
+                    System.Threading.Tasks.Task.Run(delegate
+                    {
+                        SmartFortunes built = null;
+                        try
+                        {
+                            built = new SmartFortunes();
+                            built.Warm(warming);
+                            // Superseded while we were building: drop it rather than overwrite a newer
+                            // picker with an older one.
+                            if (System.Threading.Volatile.Read(ref _smartGeneration) != generation)
+                            {
+                                try { built.Dispose(); } catch { }
+                                return;
+                            }
+                            _smart = built;
+                            // The engine line above says smart=on from the SETTING, which is true even
+                            // when the picker never became usable. This says the picker is actually
+                            // there, and the catch says when it is not -- otherwise a smart feature that
+                            // silently failed to load looks identical to one that is working.
+                            Log("smart picker ready (" + warming.Count + " lines indexed)");
+                        }
+                        catch (Exception ex)
+                        {
+                            if (built != null) { try { built.Dispose(); } catch { } }
+                            Log("smart picker unavailable: " + Categorize(ex) + " (fortunes stay random)");
+                        }
+                    });
                 }
                 fortunes = _provider.Count;
                 pool = _provider.PoolEntries();
@@ -176,6 +220,7 @@ namespace DesktopAICompanion.FortunesModule
             catch (Exception ex)
             {
                 _provider = null; _smart = null; _indexedSignature = null;
+                System.Threading.Interlocked.Increment(ref _smartGeneration);   // orphan any in-flight build
                 // The total failure, which was the one state nothing anywhere reported: a null provider
                 // makes SpeakFortune return false on every land, poke and drop, so the companion simply
                 // never says a fortune again and the pane's own status reads "the fortune engine isn't
@@ -1359,6 +1404,8 @@ namespace DesktopAICompanion.FortunesModule
             }
             if (_dropResponder != null) { try { _dropResponder.Dispose(); } catch { } _dropResponder = null; }
             if (_pokeResponder != null) { try { _pokeResponder.Dispose(); } catch { } _pokeResponder = null; }
+            // Bumped FIRST: a build still running must not publish into a module that is shutting down.
+            System.Threading.Interlocked.Increment(ref _smartGeneration);
             if (_smart != null) { try { _smart.Dispose(); } catch { } _smart = null; }
             // Static, so it outlives the instance unless dropped here. Same contract as
             // AiBrain.LogSink, which is nulled in its own Shutdown for the same reason.

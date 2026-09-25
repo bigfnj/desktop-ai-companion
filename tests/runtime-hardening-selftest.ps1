@@ -547,6 +547,22 @@ Assert-True (
     $companionsPaneCode -match 'Unloaded \+= delegate \{ if \(dragging\)'
 ) 'a drag interrupted by a pane rebuild still flushes the value the user chose'
 
+# A backgrounded smart-picker build publishes only if it is still the CURRENT one.
+#
+# RebuildEngine is reachable from Init, SavePaneValues, RescanAsync, ImportPacksAsync,
+# DownloadPacksAsync and RebuildSmartIndexAsync, so two builds can overlap. Without the generation
+# check an earlier, slower build lands last and replaces a current picker with a stale one -- a race
+# that needs two overlapping rebuilds to show, which is why it is asserted here rather than left to a
+# timing-dependent test. Asserts the ORDER: the guard must come BEFORE the publish.
+$fortunesModuleSource = Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\Fortunes\FortunesModule.cs') -Raw
+$fortunesModuleCode = Remove-LineComments $fortunesModuleSource
+$generationCheck = $fortunesModuleCode.IndexOf('Volatile.Read(ref _smartGeneration) != generation')
+$publish = $fortunesModuleCode.IndexOf('_smart = built;')
+Assert-True (
+    $generationCheck -gt 0 -and $publish -gt $generationCheck
+) 'a superseded smart-picker build is dropped BEFORE it can replace a newer one'
+
 $dropBody = Get-MethodBody $aiBrainSource 'private bool OnDrop(ICompanion pet)'
 $pokeBody = Get-MethodBody $aiBrainSource 'private bool OnPokeReaction(ICompanion pet)'
 $guardBody = Get-MethodBody $aiBrainSource 'private bool FullscreenBlocked()'

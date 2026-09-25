@@ -947,3 +947,25 @@ call fails the first invariant by name.
   roughly 2 s of blocked UI thread and ~35 MB of write-through traffic for one gesture.
   `ReloadPetType` does 5 full writes to reload 4 pets of one type.
 
+
+## Closed 2026-09-25 - the smart picker was CONSTRUCTED on the UI thread
+
+Only Warm was backgrounded. Construction now is too, behind a generation guard so an earlier, slower
+build cannot land after a later one and replace a current picker with a stale one -- RebuildEngine is
+reachable from six places, so overlapping builds are ordinary rather than theoretical.
+
+It also closes an observability gap worth naming on its own: the startup line reports smart=on from
+the SETTING, which stays true when the picker never became usable, so a smart feature that silently
+failed to load looked exactly like one that was working. The build now logs when the picker is ready
+AND when it is not. Verified in the real app: "smart picker ready (3214 lines indexed)" lands 91 ms
+after the engine line, off the UI thread.
+
+- 📌 **Fortunes rebuilds its vector cache synchronously on the UI thread, on start and every Apply.**
+  `modules/Fortunes/FortunesModule.cs:156` backgrounds only `Warm`; the `SmartFortunes` constructor is
+  synchronous and its `VectorCache` ctor ends in `Load(...)`, which takes a Global mutex plus a
+  `.lock` lease and then deserialises `cache.bin` with one `ReadSingle` per float and a
+  `new float[384]` per entry. With all 161 catalog packs at "Everything" that file reaches ~94 MB:
+  ~22.6M `ReadSingle` calls and ~59,000 allocations before the pet appears. `RebuildEngine` is reached
+  from `Init`, `SavePaneValues`, `RescanAsync`, `ImportPacksAsync`, `DownloadPacksAsync` and
+  `RebuildSmartIndexAsync`.
+

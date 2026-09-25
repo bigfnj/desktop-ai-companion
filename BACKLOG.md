@@ -596,15 +596,6 @@ open-item blindness plus the bug-number drift.
 
 ### Blocking IO, pipe deadlocks, and measured cost
 
-- 📌 **Fortunes rebuilds its vector cache synchronously on the UI thread, on start and every Apply.**
-  `modules/Fortunes/FortunesModule.cs:156` backgrounds only `Warm`; the `SmartFortunes` constructor is
-  synchronous and its `VectorCache` ctor ends in `Load(...)`, which takes a Global mutex plus a
-  `.lock` lease and then deserialises `cache.bin` with one `ReadSingle` per float and a
-  `new float[384]` per entry. With all 161 catalog packs at "Everything" that file reaches ~94 MB:
-  ~22.6M `ReadSingle` calls and ~59,000 allocations before the pet appears. `RebuildEngine` is reached
-  from `Init`, `SavePaneValues`, `RescanAsync`, `ImportPacksAsync`, `DownloadPacksAsync` and
-  `RebuildSmartIndexAsync`.
-
 - 📌 **`FallDetect`/`RiseDetect` enumerate every top-level window, per pet, per tick.**
   `src/dotNet/FormCompanion.cs:1571` and `:1661` each allocate a dictionary, a fresh
   `EnumWindowsProc`, and a `StringBuilder(128)` + `GetWindowText` + `GetTitleBarInfo` per visible

@@ -1,7 +1,7 @@
 ﻿# Live smoke test
 
 **What this is.** The checks that require a human to open the app and look at it. Everything else in this
-repo (the gate, 131 source invariants, 19 self-tests, two soaks, the mutation suites) proves the code does
+repo (the gate, 132 source invariants, 19 self-tests, two soaks, the mutation suites) proves the code does
 what it says. Nothing in it proves the code says the right thing.
 
 *(Those two numbers were wrong three times, so they are now GATE-ENFORCED rather than maintained:
@@ -270,7 +270,7 @@ The log is on by default, so L1 needs nothing switched on first. Installed copie
       ```
       > **Do not put `-Directory` back on that line.** It was there originally, and it counted only
       > directories while the actual leak was *files*: the pin-probe self-test left three per run and had
-      > accumulated 354 of them, 131 MB, while this row kept reporting a clean result. Count both, and
+      > accumulated 354 of them, 132 MB, while this row kept reporting a clean result. Count both, and
       > report the size, because the count alone hid it too.
 - [ ] **J2. After an ABI change only.** The installed `DesktopAICompanion.Contracts.dll` FileVersion matches the new
       product version. Windows Installer skips refreshing a file whose version did not change, so an ABI
