@@ -39,12 +39,28 @@ try {
     # rather than a switch.
     $buildParams = @{ Release = $true }
     if (-not $SkipClean) { $buildParams['Clean'] = $true }
-    & (Join-Path $repoRoot 'build.ps1') @buildParams
-    if ($LASTEXITCODE -ne 0) { throw "build.ps1 failed (exit $LASTEXITCODE)." }
+    # try/catch, NOT $LASTEXITCODE -- the same correction already applied to the three checks below,
+    # for the same reason, which this call was left out of. build.ps1 sets $ErrorActionPreference='Stop'
+    # and signals every failure by `throw`, so $LASTEXITCODE reads whatever the last NATIVE command left
+    # behind and the branch below was dead. A build failure escaped as a raw PowerShell exception, the
+    # GATE FAILED summary never printed, and no later check ran -- which is the one moment you most want
+    # the summary, because it names what to look at.
+    try { & (Join-Path $repoRoot 'build.ps1') @buildParams }
+    catch { $failures.Add('build.ps1: ' + $_.Exception.Message) }
 
     $outputRoot = Join-Path $repoRoot 'build\DesktopAICompanionPortable\bin\Release\x64'
     $exe = Join-Path $outputRoot 'DesktopAICompanion.exe'
-    if (-not (Test-Path -LiteralPath $exe)) { throw "The built executable is missing: $exe" }
+    # And this one, which had the identical defect and is reached by exactly the same failure. Fixing
+    # only the call above would still let a failed build escape uncaught one line later.
+    if (-not (Test-Path -LiteralPath $exe)) { $failures.Add("the built executable is missing: $exe") }
+    if ($failures.Count -gt 0) {
+        # Nothing below can mean anything without an executable, and running ten checks against a
+        # missing exe buries the real failure under ten invented ones.
+        Write-Host ''
+        Write-Host 'GATE FAILED:' -ForegroundColor Red
+        foreach ($failure in $failures) { Write-Host ("  - " + $failure) -ForegroundColor Red }
+        exit 1
+    }
     Write-Host '=== core regression tests' -ForegroundColor Cyan
     & dotnet build (Join-Path $repoRoot 'tests\DesktopAICompanion.CoreTests\DesktopAICompanion.CoreTests.csproj') `
         -c Release --nologo -v:minimal

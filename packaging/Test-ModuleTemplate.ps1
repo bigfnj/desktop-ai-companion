@@ -121,12 +121,23 @@ foreach ($symbolName in 'minHostVersion', 'packageVersion') {
 # this repo failing. That is how it got to 1.1.3 with the host at 1.1.5.
 #
 # Tags are the local proxy for releases: every release is cut from one, and a pruned release keeps
-# its tag. Needs full history, which CI has (fetch-depth: 0). Degrades LOUDLY rather than skipping.
+# its tag. Needs full history, which CI has (fetch-depth: 0).
+#
+# IT FAILS rather than degrading, which is what the line below used to claim and did not do: it wrote a
+# yellow DEGRADED and then exited 0, so on a shallow clone (`git clone --depth 1`, no tags) run-gate
+# judged this script by whether it threw and reported the template OK. A control that can run degraded
+# has to SAY so on every run in a way that stops the run, or it is a check that quietly stopped
+# checking. The sibling Test-ModulePublishFreshness.ps1 already had this exact correction applied to it;
+# this file did not get it.
 $keptReleases = 3
 $tagOutput = @(& git -C $repoRoot tag --list 'v*' 2>$null)
 if ($LASTEXITCODE -ne 0 -or $tagOutput.Count -eq 0) {
-    Write-Host ("DEGRADED  no v* tags are reachable, so packageVersion could not be checked against the " +
-                "releases that still have assets (shallow clone?)") -ForegroundColor Yellow
+    Write-Warning ("DEGRADED  no v* tags are reachable, so packageVersion could not be checked against " +
+                   "the releases that still have assets (shallow clone?)")
+    throw ("Coverage narrowed silently: the packageVersion release-window check could not run because no " +
+           "v* tags are reachable. Fetch tags (CI uses fetch-depth: 0) and re-run. This refuses rather " +
+           "than passing, because a template that names a package with no distribution point breaks " +
+           "--standalone restore for every third-party author, silently, from their point of view.")
 }
 else {
     $tagVersions = @()
