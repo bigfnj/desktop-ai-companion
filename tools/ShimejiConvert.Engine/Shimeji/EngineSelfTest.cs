@@ -35,6 +35,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             if (!VocabSelfTest.Run(out d)) ok = false;
             sb.AppendLine(d);
 
+            if (!SoundResolveSelfTest.Run(out d)) ok = false;
+            sb.AppendLine(d);
+
             detail = sb.ToString().TrimEnd();
             return ok;
         }

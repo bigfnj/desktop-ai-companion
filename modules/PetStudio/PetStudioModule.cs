@@ -24,7 +24,10 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.1.1",   // 1.1.1: converter payload refresh. Five engine defects fixed (BEL byte,
+            Version = "1.1.2",   // 1.1.2: converter payload refresh. Sound resolution now scans the skin
+                                 //        root once per clip NAME instead of once per reference, and
+                                 //        remembers the clips ffmpeg refused.
+                                 // 1.1.1: converter payload refresh. Five engine defects fixed (BEL byte,
                                  //        the NextBehaviour alias, drag frames drawn but never referenced,
                                  //        two ffmpeg drains that deadlocked ahead of their own timeouts).
                                  // 1.1.0: the source-linked engine gained the MIGRATION LADDER, declared once

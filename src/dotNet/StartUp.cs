@@ -958,8 +958,9 @@ namespace DesktopAICompanion
         /// <summary>True when the max-pets cap is reached (no more can be added).</summary>
         public bool IsAtMaxPets { get { return iSheeps >= MAX_SHEEPS; } }
 
-        /// <summary>The persisted active/default pet's animations.xml (for the Options seam / ICompanionRuntime).</summary>
-        public string ActivePetXml { get { return Program.MyData != null ? Program.MyData.GetXml() : ""; } }
+        /// <summary>The active pet's ID, normalised by LocalData (absent or unsafe becomes the built-in).
+        /// Replaced ActivePetXml, whose only consumer compared whole documents to answer this.</summary>
+        public string ActivePetId { get { return Program.MyData != null ? (Program.MyData.GetActivePetId() ?? "") : ""; } }
 
         /// <summary>
         /// The current on-screen pet mix: each live root pet counted under its type id ("" = the

@@ -70,6 +70,7 @@
     <Compile Include="Shimeji\BundledConfSelfTest.cs" />
     <Compile Include="Shimeji\BundleSelfTest.cs" />
     <Compile Include="Shimeji\VocabSelfTest.cs" />
+    <Compile Include="Shimeji\SoundResolveSelfTest.cs" />
     <Compile Include="Shimeji\HubWeightSelfTest.cs" />
     <Compile Include="Shimeji\EngineSelfTest.cs" />
   </ItemGroup>

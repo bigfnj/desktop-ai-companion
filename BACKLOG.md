@@ -622,16 +622,21 @@ open-item blindness plus the bug-number drift.
   window. With 16 pets falling at once that is 16 identical, pet-independent enumerations per tick.
   The precedent is in the neighbouring file: `StartUp.BlockedMonitorsForStandDown:791` exists because
   the fullscreen z-order walk used to be per-pet, and its comment carries the measurement ("679
-  top-level windows... 53 walks/s became 3.3"). `DesktopWindows.Snapshot` is the shared enumerator
-  these two never adopted.
+  top-level windows... 53 walks/s became 3.3").
 
-- 📌 **Opening the Companions pane re-reads and full-string-compares every installed pet's XML.**
-  `src/Portable/Options/OptionsController.cs:48-77`. `IsActive` calls
-  `CompanionCatalog.TryReadPetXml` (a full read; 158 KB for esheep64, 406 KB for hornet) then
-  `string.Equals(xml, activeXml, Ordinal)`. Nothing is cached, unlike `GetStats` and
-  `DisplayNameForId` which both are, and `Reload()` runs in the control's constructor, which is
-  rebuilt on every pane selection and after every button press. A user with the full 54-companion
-  catalog pays ~10 MB of synchronous reads per click.
+  ⚠ **`DesktopWindows.Snapshot` is NOT the drop-in this entry used to claim** (checked 2026-09-25,
+  before attempting it). Three semantic differences, each of which would change pet physics rather
+  than just speed it up:
+  it EXCLUDES pet handles, and `FallDetect` deliberately wants them (`"Sheep windows doesn't have a
+  title bar, but we want detect if another pet is present"`); it truncates at `MaximumWindows`,
+  where a missed window means a pet falls through a surface it should land on; and it reports
+  `VisualBounds` (the DWM extended frame) where these two use `GetWindowRect`, so landing lines
+  would shift by the shadow margin.
+  The shape that does work is the one `BlockedMonitorsForStandDown` already uses: keep this
+  enumeration's own semantics exactly, and share ONE pass per tick across pets behind a timestamp,
+  with each pet skipping its own handle at consumption instead of during the walk. Deliberately not
+  attempted at the tail of a long session: it is core fall/rise physics, and verifying it needs
+  several pets falling at once, which is not something a self-test can stage.
 
 - 📌 **`FormSpeech` rebuilds its window region, font and brushes every tick while a bubble follows a
   walking pet.** `src/dotNet/FormSpeech.cs`: the no-op guard at `:222` only fires when the pet has not
@@ -639,17 +644,6 @@ open-item blindness plus the bug-number drift.
   path plus a `Pen`, a `Font` via `CreateFontIndirect`, a `SolidBrush` and a `StringFormat`) run 30-60
   times per 6 s bubble. Everything is disposed, so this is cost rather than a leak; `_style` and
   `_measuredDpi` already say exactly when the font must be rebuilt.
-
-- 📌 **Audio clip resolution runs before the cache lookup and never negative-caches.**
-  `tools/ShimejiConvert.Engine/Engine.cs:206-218`: `Resolve` does a recursive `EnumerateFiles` over
-  the whole skin root BEFORE the cache is consulted at `:209`, and the failure paths at `:213-214`
-  never populate it. 12 sounded actions sharing 2 oversize WAVs spawn 12 ffmpeg processes (each up to
-  the 30 s wait) and 12 full recursive scans instead of 2.
-
-### Converter correctness
-
-
-
 
 - 📌 **`minHostVersion` is parsed, written to modules.json, then dropped from the catalog.**
   `packaging/New-ContentCatalog.ps1:181-190` copies id/name/desc/version/url/sha256/bytes/permissions

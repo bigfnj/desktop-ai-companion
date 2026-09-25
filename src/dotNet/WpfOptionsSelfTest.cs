@@ -893,6 +893,27 @@ namespace DesktopAICompanion
                     try { Directory.Delete(revealSibling, true); } catch { }
                 }
 
+                // 12a) The Companions pane decides "active" by ID, not by comparing whole documents.
+                // It used to read every installed pet's animations.xml and string-compare it against the
+                // active one: about 10 MB of synchronous reads with the full catalog, on every pane
+                // selection and after every button press, because Load runs from the control's
+                // constructor. The ID is also the question the rest of the app already asks.
+                var builtIn = new CompanionCatalog.CompanionInfo { Id = null, IsBuiltIn = true, DisplayName = "eSheep" };
+                var hornet = new CompanionCatalog.CompanionInfo { Id = "shimeji-hornet-9b9d1d", IsBuiltIn = false, DisplayName = "Hornet" };
+                ok &= Check(sb, "the built-in pet is active when the active id is the built-in id",
+                    DesktopAICompanion.Options.CompanionsController.IsActive(builtIn, CompanionCatalog.BuiltInPetId));
+                ok &= Check(sb, "an installed pet is active when its own id is the active one",
+                    DesktopAICompanion.Options.CompanionsController.IsActive(hornet, "shimeji-hornet-9b9d1d"));
+                ok &= Check(sb, "...and case does not decide it, because the id is a folder name on Windows",
+                    DesktopAICompanion.Options.CompanionsController.IsActive(hornet, "SHIMEJI-Hornet-9b9d1d"));
+                ok &= Check(sb, "WITNESS a pet that is NOT the active one is not marked active",
+                    !DesktopAICompanion.Options.CompanionsController.IsActive(hornet, CompanionCatalog.BuiltInPetId));
+                ok &= Check(sb, "WITNESS ...and the built-in is not active when another pet is",
+                    !DesktopAICompanion.Options.CompanionsController.IsActive(builtIn, "shimeji-hornet-9b9d1d"));
+                ok &= Check(sb, "WITNESS no active id marks nothing active, rather than everything",
+                    !DesktopAICompanion.Options.CompanionsController.IsActive(hornet, null) &&
+                    !DesktopAICompanion.Options.CompanionsController.IsActive(builtIn, ""));
+
                 // 12b) RevealsPath is scoped to the OWNING MODULE, not the whole data root.
                 // Both roots are inside AppPaths.DataRoot, so the old rule allowed every one of these and
                 // the interesting assertion is the one that now REFUSES. Nothing is created on disk beyond

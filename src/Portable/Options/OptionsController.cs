@@ -26,7 +26,10 @@ namespace DesktopAICompanion.Options
     // fakeable in tests. StartUp implements this (its methods already exist).
     internal interface ICompanionRuntime
     {
-        string ActivePetXml { get; }
+        /// <summary>The id of the active pet, already normalised (an absent or unsafe value becomes the
+        /// built-in). This replaced ActivePetXml, which forced the Companions pane to read and compare
+        /// every installed pet's whole document to answer a question about identity.</summary>
+        string ActivePetId { get; }
         bool IsAtMaxPets { get; }
         bool LoadNewXMLFromString(string xml);              // replace-all ("Use this companion")
         bool AddPetFromTray(string id);                     // add-alongside
@@ -48,9 +51,18 @@ namespace DesktopAICompanion.Options
         public void Load()
         {
             State = new CompanionsState();
-            string activeXml = _runtime != null ? _runtime.ActivePetXml : null;
+            // The ID, not the whole document. IsActive used to re-read every installed pet's XML and
+            // string-compare it against the active one: with the full catalog that is roughly 10 MB of
+            // synchronous reads (158 KB for esheep64, 406 KB for hornet, 54 pets), and Load runs from the
+            // control's constructor, which is rebuilt on every pane selection and after every button press.
+            //
+            // It is also the more CORRECT question. Every other part of the app already asks it this way
+            // -- ContextMenus, CompanionHost and three places in StartUp all read GetActivePetId -- so a
+            // pet whose file was edited on disk since it was selected used to drop out of "active" in this
+            // one pane while staying active everywhere else.
+            string activeId = _runtime != null ? _runtime.ActivePetId : null;
             foreach (CompanionCatalog.CompanionInfo p in CompanionCatalog.EnumerateLocal())
-                State.Installed.Add(new CompanionRow { Id = p.Id, DisplayName = p.DisplayName, IsBuiltIn = p.IsBuiltIn, IsActive = IsActive(p, activeXml) });
+                State.Installed.Add(new CompanionRow { Id = p.Id, DisplayName = p.DisplayName, IsBuiltIn = p.IsBuiltIn, IsActive = IsActive(p, activeId) });
         }
 
         public OpResult UsePet(string petId)
@@ -68,12 +80,13 @@ namespace DesktopAICompanion.Options
             bool ok = _runtime.AddPetFromTray(string.IsNullOrEmpty(petId) ? CompanionCatalog.BuiltInPetId : petId);
             return ok ? OpResult.Success("Added.") : OpResult.Fail("Max companions reached or load failed.");
         }
-        private static bool IsActive(CompanionCatalog.CompanionInfo p, string activeXml)
+        internal static bool IsActive(CompanionCatalog.CompanionInfo p, string activeId)
         {
-            if (string.IsNullOrEmpty(activeXml)) return false;
-            string xml, err;
-            if (!CompanionCatalog.TryReadPetXml(p.IsBuiltIn ? CompanionCatalog.BuiltInPetId : p.Id, out xml, out err)) return false;
-            return string.Equals(xml, activeXml, StringComparison.Ordinal);
+            if (string.IsNullOrEmpty(activeId)) return false;
+            string id = p.IsBuiltIn ? CompanionCatalog.BuiltInPetId : p.Id;
+            // Ordinal-ignore-case: the id is a folder name on Windows, and the active id is stored
+            // normalised but was typed by whatever wrote it.
+            return string.Equals(id, activeId, StringComparison.OrdinalIgnoreCase);
         }
     }
 }

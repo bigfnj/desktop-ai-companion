@@ -881,3 +881,43 @@ still unmeasured.
   loads them, and `Detect` returns skins with `UsesBundledConf = true`. Worth correcting given this
   repo's licensing sensitivity, because it is an in-source claim about what is and is not
   redistributed.
+
+---
+
+## Closed 2026-09-25 - sound resolution scanned the skin root per reference
+
+Fixed and covered by SoundResolveSelfTest, which asserts through a scan COUNTER rather than through
+Bake: Bake short-circuits when ffmpeg is absent, so a test written against it would have passed on a
+runner with no ffmpeg by never reaching the code under test. Mutation-tested both ways -- removing
+the cache reports "12 repeats cost 13 scans", and dropping just the negative entries reports
+"8 repeats of a miss cost 10 scans".
+
+- 📌 **Audio clip resolution runs before the cache lookup and never negative-caches.**
+  `tools/ShimejiConvert.Engine/Engine.cs:206-218`: `Resolve` does a recursive `EnumerateFiles` over
+  the whole skin root BEFORE the cache is consulted at `:209`, and the failure paths at `:213-214`
+  never populate it. 12 sounded actions sharing 2 oversize WAVs spawn 12 ffmpeg processes (each up to
+  the 30 s wait) and 12 full recursive scans instead of 2.
+
+### Converter correctness
+
+
+
+
+
+## Closed 2026-09-25 - the Companions pane compared whole documents to answer a question about identity
+
+Replaced by an ID comparison, which is both cheaper and MORE correct: ContextMenus, CompanionHost
+and three places in StartUp already decide "active" this way, so a pet whose file was edited on disk
+since it was selected used to drop out of "active" in this one pane while staying active everywhere
+else. ActivePetXml had exactly one consumer and is gone with it. Six assertions added, including
+witnesses that a non-active pet is not marked active and that an absent id marks NOTHING active
+rather than everything.
+
+- 📌 **Opening the Companions pane re-reads and full-string-compares every installed pet's XML.**
+  `src/Portable/Options/OptionsController.cs:48-77`. `IsActive` calls
+  `CompanionCatalog.TryReadPetXml` (a full read; 158 KB for esheep64, 406 KB for hornet) then
+  `string.Equals(xml, activeXml, Ordinal)`. Nothing is cached, unlike `GetStats` and
+  `DisplayNameForId` which both are, and `Reload()` runs in the control's constructor, which is
+  rebuilt on every pane selection and after every button press. A user with the full 54-companion
+  catalog pays ~10 MB of synchronous reads per click.
+

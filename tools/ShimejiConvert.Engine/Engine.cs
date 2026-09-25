@@ -180,8 +180,22 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         private readonly string _ffmpeg;
         private readonly Dictionary<string, byte[]> _cache =
             new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+        // Clip NAME -> resolved path (null when the skin does not contain it). Keyed on the name because
+        // that is what Resolve searches on, so two actions naming the same clip share one scan.
+        private readonly Dictionary<string, string> _resolved =
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        // Files ffmpeg has already refused. Without this a clip that cannot be transcoded respawns ffmpeg,
+        // and waits up to 30 s for it, once per action that names it.
+        private readonly HashSet<string> _unusable =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private int _total;
         private int _count;
+        private int _scans;
+
+        /// <summary>How many recursive scans of the skin root have actually been performed. Exposed so the
+        /// self-test can assert that N references to one clip cost ONE scan; the count is the only
+        /// observable difference between the cached and uncached versions.</summary>
+        internal int Scans { get { return _scans; } }
 
         public SoundBaker(string searchRoot)
             : this(searchRoot, DefaultPerSoundBytes, DefaultTotalBytes, DefaultMaxSounds) { }
@@ -203,14 +217,23 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         {
             if (_ffmpeg == null || string.IsNullOrWhiteSpace(_root) || string.IsNullOrWhiteSpace(clipPath))
                 return null;
-            string file = Resolve(clipPath);
+            string file = ResolveCached(clipPath);
             if (file == null) return null;
             byte[] cached;
             if (_cache.TryGetValue(file, out cached)) return cached;
+            // Already tried and refused. Checked BEFORE the budget so a failing clip cannot consume
+            // attempts, and before Transcode so it cannot respawn ffmpeg.
+            if (_unusable.Contains(file)) return null;
             if (_count >= _maxSounds || _total >= _totalCap) return null;
 
             byte[] mp3 = Transcode(file);
-            if (mp3 == null || mp3.Length == 0 || mp3.Length > _perSoundCap) return null;
+            if (mp3 == null || mp3.Length == 0 || mp3.Length > _perSoundCap)
+            {
+                // The CLIP is the problem, so remember it. Deliberately not done for the budget check
+                // below, which is about the pet's total allowance rather than about this file.
+                _unusable.Add(file);
+                return null;
+            }
             if (_total + mp3.Length > _totalCap) return null;
             _total += mp3.Length;
             _count++;
@@ -221,6 +244,26 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         // Find the clip by its file name, searched case-insensitively under the skin root. A pose Sound is
         // authored relative to the skin ("/yell.wav", "sound/yell.wav"); matching the base name is robust to
         // which subfolder (sound/, img/<char>/) a pack keeps it in.
+        /// <summary>Resolve once per clip name, negative results included.
+        ///
+        /// Resolve does a recursive EnumerateFiles over the whole skin root, and it used to run on EVERY
+        /// Bake call -- BEFORE the byte cache was consulted, so a clip shared by a dozen actions paid a
+        /// dozen full scans to rediscover the same file. Caching the NAME rather than the resolved path
+        /// is the point: the old cache was keyed on the result, which a repeat call could only reach by
+        /// doing the scan first.</summary>
+        internal string ResolveCached(string clipPath)
+        {
+            string name;
+            try { name = Path.GetFileName((clipPath ?? "").Replace('\\', '/').TrimStart('/')); }
+            catch { return null; }
+            if (string.IsNullOrEmpty(name)) return null;
+            string hit;
+            if (_resolved.TryGetValue(name, out hit)) return hit;
+            string found = Resolve(clipPath);
+            _resolved[name] = found;
+            return found;
+        }
+
         private string Resolve(string clipPath)
         {
             string name;
@@ -230,6 +273,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             try
             {
                 if (!Directory.Exists(_root)) return null;
+                _scans++;
                 foreach (string path in Directory.EnumerateFiles(_root, name, SearchOption.AllDirectories))
                     return path;
             }
