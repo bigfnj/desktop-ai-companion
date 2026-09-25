@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -46,11 +46,84 @@ namespace DesktopAICompanion.Ai
         private CancellationTokenSource _warmCancellation;
         private Task _warmTask = Task.CompletedTask;
 
-        private const int TopK = 64;                  // candidate width per context -> a wider rotation before a stable window must recycle
-        private const int RecentMemory = 200;         // don't repeat any of the last N picks; kept well beyond one context's TopK so variety carries across windows too
+        // CANDIDATE WIDTH IS SET BY RELEVANCE, NOT BY A COUNT.
+        //
+        // This was `TopK = 64`: the 64 best-scoring lines for the current window, always, whatever the
+        // corpus size. Measured on 2026-09-25 against a 3214-line pool, a stable context produced
+        // stable_context_distinct=64/200 -- every line coming round roughly every third pick. On the
+        // owner's machine that is 64 eligible lines out of 7780, or 0.8% of the corpus, and it is why
+        // the same joke turned up three times in a day. Nothing about the randomness was wrong; the set
+        // being randomised over was two orders of magnitude smaller than the corpus.
+        //
+        // A fixed count is the wrong shape for the question. "How many fortunes suit what you are doing"
+        // depends on the context: a broad one like coding genuinely matches hundreds, an obscure one
+        // matches a handful. So admit everything within CandidateSpread of the best score and cap the
+        // result, which lets a rich context rotate widely while a narrow one stays apt.
+        // THE BAND IS MEASURED IN STANDARD DEVIATIONS, NOT IN RAW SCORE.
+        //
+        // An absolute margin was tried first and is unsound. Vectors are mean-centred per pool
+        // (CenterNormalize), so the score SCALE depends on the corpus, and the same margin admits
+        // wildly different amounts on different pools. Measured, same context ("writing C# code"),
+        // two downsamples of the same 3214-line corpus:
+        //
+        //   margin        0.10   0.20   0.30   0.50   0.80
+        //   1500 lines       1      -     13    549      -
+        //    515 lines       1      1      1      1    114
+        //
+        // A constant tuned on one of those is wrong on the other, and would be wrong again on a user's
+        // own corpus -- which is the whole population this has to work for. Scoring in units of the
+        // score distribution's own spread removes the scale: a peaked context admits few whatever the
+        // pool, a broad one admits many.
+        private const float DefaultCandidateSpread = 1.0f;    // admit lines within this many stdevs of the best
+        private static float _candidateSpread = DefaultCandidateSpread;
+
+        /// <summary>The relevance band in standard deviations, settable for DIAGNOSTICS so its width can
+        /// be measured against a real corpus rather than guessed. Measuring it through the live Pick
+        /// path matters: a separate copy of the scoring loop would be free to drift from the one that
+        /// actually runs, and the number chosen from it would then describe code nobody ships.</summary>
+        internal static float CandidateSpread
+        {
+            get { return _candidateSpread; }
+            set { _candidateSpread = value; }
+        }
+        private const int MaximumCandidates = 512;    // ...capped, so one very broad context cannot admit the world
+        private const int RotationTarget = 128;       // ...and below this the band is used only in PROPORTION to its width
+        private const int MinimumRotationTarget = 8;  // ...but the target scales down with the pool (see RotationTargetFor)
+
+        /// <summary>
+        /// The rotation target for a pool of <paramref name="poolSize"/> lines.
+        ///
+        /// The target sets how often a NARROW band is allowed to fire, and therefore how often its few
+        /// lines come round. A flat 128 is right for a real corpus and wrong for a small one: measured
+        /// on the 131-line diagnostic pool it drove contextual_picks to 0/3, because every band was tiny
+        /// relative to the target and the gate declined essentially always. A user with a few hundred
+        /// custom fortunes would have watched the smart picker switch itself off and never be told.
+        ///
+        /// Scaling by an eighth of the pool keeps the intent (a band may fire about as often as it has
+        /// breadth to justify) at any corpus size, and the floor keeps it alive for a tiny one.
+        /// </summary>
+        private static int RotationTargetFor(int poolSize)
+        {
+            int scaled = poolSize / 8;
+            if (scaled > RotationTarget) scaled = RotationTarget;
+            if (scaled < MinimumRotationTarget) scaled = MinimumRotationTarget;
+            return scaled;
+        }
+        private const int RecentMemory = 2000;        // don't repeat any of the last N picks; ABOVE MaximumCandidates on purpose, so every eligible line shows before any repeats
         private const float RouteBonus = 0.06f;
         private const float RouteSecondMargin = 0.02f; // also route to a runner-up topic within this cosine gap
         private const float MinConfidence = 0.10f;   // below this the best match is too weak -> random
+        private int _lastCandidateCount;             // how wide the last context's band was, for diagnostics
+        private int _lastBandCount;                  // ...before the floor/cap, i.e. what the margin alone admitted
+
+        /// <summary>How many lines the relevance band admitted on the last pick, BEFORE the minimum and
+        /// maximum were applied. This is the number the margin actually controls.</summary>
+        internal int LastBandCount { get { return _lastBandCount; } }
+
+        /// <summary>How many lines were eligible on the most recent contextual pick. Exposed because the
+        /// narrowness of this number WAS the bug, and a number nobody can read is a number nobody
+        /// checks.</summary>
+        internal int LastCandidateCount { get { return _lastCandidateCount; } }
         private const int DisposeWaitMilliseconds = 3000;
         // bge-small-en-v1.5 is asymmetric: the query gets this instruction, passages stay plain.
         private const string QueryPrefix = "Represent this sentence for searching relevant passages: ";
@@ -353,6 +426,7 @@ namespace DesktopAICompanion.Ai
                 vecs = _vecs;
                 mean = _mean;
             }
+            _lastBandCount = -1;   // per call: a reported width must belong to THIS context
             if (pool == null || vecs == null || mean == null) return null;
             try
             {
@@ -369,28 +443,72 @@ namespace DesktopAICompanion.Ai
 
                 HashSet<string> routed = RouteByContext(qc, mean);
 
-                // keep the top-K scoring fortunes
-                var idx = new int[TopK]; var sc = new float[TopK];
-                for (int t = 0; t < TopK; t++) { idx[t] = -1; sc[t] = float.NegativeInfinity; }
+                // Score everything ONCE and keep the scores. This also drops the old top-K insertion,
+                // which rescanned all K slots for the current minimum on every one of the n candidates:
+                // O(n*K) comparisons on top of the n dot products. One array of n floats is 31 KB at the
+                // owner's pool size and makes the pass O(n), so a wider candidate set is now CHEAPER
+                // than the narrow one it replaces rather than more expensive.
                 int n = Math.Min(pool.Count, vecs.Length);
+                var scores = new float[n];
+                float best = float.NegativeInfinity;
+                double sum = 0.0, sumOfSquares = 0.0;
+                int scored = 0;
                 for (int i = 0; i < n; i++)
                 {
-                    float[] v = vecs[i]; if (v == null) continue;
+                    float[] v = vecs[i];
+                    if (v == null) { scores[i] = float.NegativeInfinity; continue; }
                     float s = Dot(qc, v);
                     if (routed != null && routed.Contains(pool[i].Topic)) s += RouteBonus;
-                    // insert into the small top-K if it beats the current minimum
-                    int min = 0; for (int t = 1; t < TopK; t++) if (sc[t] < sc[min]) min = t;
-                    if (s > sc[min]) { sc[min] = s; idx[min] = i; }
+                    scores[i] = s;
+                    sum += s;
+                    sumOfSquares += (double)s * s;
+                    scored++;
+                    if (s > best) best = s;
                 }
-
-                float best = float.NegativeInfinity;
-                for (int t = 0; t < TopK; t++) if (sc[t] > best) best = sc[t];
+                if (scored == 0) return null;
                 if (best < MinConfidence) return null;               // weak fit -> let the caller go random
 
-                // random among the (valid) top-K for variety
+                // The spread of THIS context's scores, which is what the band is measured against.
+                double average = sum / scored;
+                double variance = (sumOfSquares / scored) - (average * average);
+                if (variance < 0.0) variance = 0.0;                  // floating-point noise near zero
+                float deviation = (float)Math.Sqrt(variance);
+
+                // Everything within a relevance band of the best match.
                 var pick = new List<int>();
-                for (int t = 0; t < TopK; t++) if (idx[t] >= 0) pick.Add(idx[t]);
+                // ABOVE TYPICAL, not NEAR THE BEST. Measured: the top match is often an extreme
+                // outlier -- on the 515-line pool the band stayed at 1 even two standard deviations
+                // below the best -- so anchoring the floor to the maximum can never widen. Anchoring it
+                // to the distribution admits everything meaningfully more relevant than average, which
+                // is both scale-free and the thing "relevant" actually means.
+                float floorScore = (float)average + (_candidateSpread * deviation);
+                if (floorScore > best) floorScore = best;   // the best match is always eligible
+                for (int i = 0; i < n; i++) if (scores[i] >= floorScore) pick.Add(i);
+                _lastBandCount = pick.Count;   // BEFORE the floor and cap, which is what the margin decides
+
+                if (pick.Count > MaximumCandidates)
+                {
+                    pick.Sort(delegate(int a, int b) { return scores[b].CompareTo(scores[a]); });
+                    pick.RemoveRange(MaximumCandidates, pick.Count - MaximumCandidates);
+                }
                 if (pick.Count == 0) return null;
+
+                // A NARROW BAND IS USED ONLY IN PROPORTION TO HOW NARROW IT IS.
+                //
+                // Measured: a coding context has about 13 genuinely relevant lines in 1500. There is no
+                // way to rotate widely through 13 lines, so the choice is to repeat them or to dilute
+                // with weak matches. Padding the band with the next-best few hundred would buy variety
+                // by discarding the relevance the band exists to protect, and would show a spreadsheet
+                // joke to someone writing C#.
+                //
+                // So: keep the band honest, and use it with probability (width / RotationTarget). A
+                // 13-wide band fires about a tenth of the time and the caller's full-corpus shuffle-bag
+                // covers the rest, which means those 13 still appear -- just not three times a day. A
+                // band at or above the target always fires. This is the knob that answers the original
+                // complaint; the margin only decides what counts as relevant.
+                int rotationTarget = RotationTargetFor(n);
+                if (pick.Count < rotationTarget && _rng.Next(rotationTarget) >= pick.Count) return null;
+                _lastCandidateCount = pick.Count;
                 lock (_stateLock)
                 {
                     if (_disposed) return null;
@@ -401,10 +519,11 @@ namespace DesktopAICompanion.Ai
                         if (!_recentSet.Contains(pool[candidate].Text)) fresh.Add(candidate);
                     if (fresh.Count == 0)
                     {
-                        // Every current candidate has already been shown. A stable context draws from a
-                        // fixed top-K that is smaller than the recent window (TopK < RecentMemory), so
-                        // waiting for eviction would never free one -- the picker would silently collapse to
-                        // uniform-random over the same K lines (the reported "repeats the same few" bug).
+                        // Every current candidate has already been shown. RecentMemory is now ABOVE
+                        // MaximumCandidates, so for any single context this should be unreachable: the
+                        // whole candidate set shows before the window could have evicted any of it. It
+                        // stays because several contexts share one recent window, and a user who moves
+                        // between many windows can still exhaust a narrow one's band.
                         // Recycle instead: forget these candidates so the whole set is eligible again, but
                         // keep the immediately-previous line blocked so a recycle can never repeat it back to
                         // back. This mirrors the random path's shuffle-bag: the whole candidate set shows
@@ -414,6 +533,14 @@ namespace DesktopAICompanion.Ai
                             if (!_recentSet.Contains(pool[candidate].Text)) fresh.Add(candidate);
                     }
                     List<int> choices = fresh.Count > 0 ? fresh : pick;
+                    // A narrow band can recycle down to the line just spoken, and handing it straight
+                    // back is the most visible possible repeat. Decline instead: the caller falls
+                    // through to the whole-corpus shuffle-bag, which is a better answer than saying the
+                    // same thing twice running. Measured on the 131-line diagnostic pool, where a band
+                    // of one produced 16 back-to-back repeats in 200 picks.
+                    if (choices.Count == 1 && _lastPicked != null &&
+                        string.Equals(pool[choices[0]].Text, _lastPicked, StringComparison.Ordinal))
+                        return null;
                     string chosen = pool[choices[_rng.Next(choices.Count)]].Text;
                     RememberRecent(chosen);
                     return chosen;
@@ -749,6 +876,23 @@ namespace DesktopAICompanion.Ai
 
                 ok = VectorCache.SelfTest(cacheDir, sb) && ok;
 
+                // THIS SUITE PROVES ROUTING, NOT VARIETY, and the margin is widened so it can.
+                //
+                // DiagnosticPool is 131 lines, chosen to keep the gate fast. At the shipped margin that
+                // pool admits a band of ONE -- measured -- because 131 sparse lines do not contain a
+                // spread of things relevant to "writing C# code". The picker then correctly declines
+                // nearly every pick and the contextual assertions below have nothing to observe, which
+                // is how this suite went red the first time the band replaced the fixed top-K.
+                //
+                // Widening the margin here restores a band to route within. The variety question this
+                // pool CANNOT answer -- "does a person see the same line three times in a day" -- is
+                // answered against a 1500-line pool by simulated_day in ProgressiveSelfTest. Splitting
+                // them is the point: a 131-line corpus repeats whatever the picker does, so a variety
+                // assertion here would be measuring the fixture rather than the code.
+                float selfTestSpread = CandidateSpread;
+                CandidateSpread = 0.50f;
+                try
+                {
                 using (var sm = new SmartFortunes(cacheDir))
                 {
                     var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -788,6 +932,20 @@ namespace DesktopAICompanion.Ai
                     // recent window fills and a naive picker collapses to uniform-random-with-repeats. The
                     // earlier 40-pick loop was < TopK (64) and never reached it, so it passed while the real
                     // bug persisted. The hard new guarantee tested here: never repeat a line back to back.
+                    {
+                        float keep = CandidateSpread;
+                        var w = new System.Text.StringBuilder();
+                        foreach (float m in new[] { 0.50f, 1.00f, 1.50f, 2.00f, 2.50f, 3.00f })
+                        {
+                            CandidateSpread = m;
+                            sm.Pick(contexts[0], apps[0]);
+                            w.Append(" ").Append(m.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture))
+                             .Append("=").Append(sm.LastBandCount);
+                        }
+                        CandidateSpread = keep;
+                        sb.AppendLine("selftest_band_widths of " + pool.Count + ":" + w);
+                    }
+
                     var seen = new HashSet<string>();
                     string previous = null;
                     int immediateRepeats = 0;
@@ -801,9 +959,31 @@ namespace DesktopAICompanion.Ai
                         previous = s;
                         seen.Add(s);
                     }
+                    // The band this context actually had, so the assertion below is relative to what
+                    // was available rather than to a number somebody liked the look of.
+                    int bandWidth = sm.LastBandCount;
                     sb.AppendLine("stable_context_distinct=" + seen.Count + "/" + stablePicks +
-                        " immediate_repeats=" + immediateRepeats);
-                    if (seen.Count < 12 || immediateRepeats > 0) ok = false;
+                        " band=" + bandWidth + " immediate_repeats=" + immediateRepeats);
+                    // THE WHOLE BAND SHOWS BEFORE ANY OF IT REPEATS. The old floor here was
+                    // "at least 12 distinct out of 200", which passed comfortably at 64 while the owner
+                    // was watching one line come round three times in a day -- it could not fail for any
+                    // reason a user would recognise. Asserting against the band makes it fail the moment
+                    // the picker starts favouring a subset of what it judged relevant.
+                    //
+                    // Corpus-size variety is NOT assertable here: this pool is 131 lines, so the honest
+                    // measure of "does a person see repeats" needs a real corpus and lives in
+                    // ProgressiveSelfTest's simulated_day, which fails at worst_repeat > 2.
+                    // Nine tenths of the band, not all of it: the margin sweep above consumes a few
+                    // recents before this loop starts, and a back-to-back decline can drop one more.
+                    // Still strong enough to catch the bug this replaced -- a picker collapsing to 64
+                    // of a 134-wide band fails this by a wide margin.
+                    int expectedDistinct = Math.Min(bandWidth, stablePicks) * 9 / 10;
+                    if (bandWidth > 0 && seen.Count < expectedDistinct) ok = false;
+                    if (seen.Count == 0 || immediateRepeats > 0) ok = false;
+                    // A band of one means the FIXTURE is the limit, not the picker. Without this the
+                    // suite would pass on a pool too small to observe anything, which is the state it
+                    // was actually in when the band first shipped.
+                    if (bandWidth <= 1) ok = false;
 
                     // Routing sanity: unambiguous contexts must route to their obvious topic. This
                     // validates both the prototypes and the embedding-based RouteByContext.
@@ -816,6 +996,9 @@ namespace DesktopAICompanion.Ai
                     if (techRoute == null || !techRoute.Contains("tech")) ok = false;
                     if (foodRoute == null || !foodRoute.Contains("food")) ok = false;
                 }
+                }
+                finally { CandidateSpread = selfTestSpread; }
+
 
                 var disposeRace = new SmartFortunes(
                     Path.Combine(cacheDir, "dispose-during-warm"));
@@ -891,6 +1074,73 @@ namespace DesktopAICompanion.Ai
                         Thread.Sleep(20);
                     }
                     sw.Stop();
+
+                    // ---- how wide is the relevance band, really? ----
+                    // The variety regression in SelfTest() runs against DiagnosticPool's 131 lines, so it
+                    // can say nothing about a real corpus: it reported distinct=64/200 purely because the
+                    // old TopK was 64. This runs against 1500 and prints what each margin admits, so
+                    // CandidateSpread is chosen from a measurement instead of from taste.
+                    float restoreSpread = CandidateSpread;
+                    try
+                    {
+                        var probes = new[]
+                        {
+                            new { Title = "Program.cs - Visual Studio - writing C# code", App = "devenv" },
+                            new { Title = "Inbox - Outlook", App = "outlook" },
+                            new { Title = "budget.xlsx - Excel", App = "excel" },
+                        };
+                        foreach (var probe in probes)
+                        {
+                            var widths = new System.Text.StringBuilder();
+                            foreach (float margin in new[] { 0.50f, 1.00f, 1.50f, 2.00f, 2.50f, 3.00f })
+                            {
+                                CandidateSpread = margin;
+                                sm.Pick(probe.Title, probe.App);
+                                widths.Append(" ").Append(margin.ToString("0.00",
+                                    System.Globalization.CultureInfo.InvariantCulture))
+                                      .Append("=").Append(sm.LastBandCount);
+                            }
+                            sb.AppendLine("band_widths " + probe.App + " of " + pool.Count + ":" + widths);
+                        }
+                    }
+                    finally { CandidateSpread = restoreSpread; }
+
+                    // ---- A SIMULATED DAY, picked the way the module actually picks ----
+                    // This is the number the owner's complaint is about: "the same dad joke three times
+                    // in 24 hours". Everything else here measures a component; this measures what a
+                    // person sees. FortunesModule draws from the whole-pool shuffle-bag roughly one time
+                    // in three and asks the smart picker otherwise, so the simulation does the same and
+                    // reports the WORST repeat count rather than an average, because an average over 200
+                    // picks hides exactly the one line that came round three times.
+                    foreach (var probe in new[]
+                        {
+                            new { Title = "Program.cs - Visual Studio - writing C# code", App = "devenv" },
+                            new { Title = "budget.xlsx - Excel", App = "excel" },
+                        })
+                    {
+                        var dayRng = new Random(20260925);
+                        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+                        const int dayPicks = 200;
+                        int fromSmart = 0;
+                        for (int i = 0; i < dayPicks; i++)
+                        {
+                            string line = null;
+                            if (dayRng.Next(3) != 0) line = sm.Pick(probe.Title, probe.App);
+                            if (!string.IsNullOrEmpty(line)) fromSmart++;
+                            else line = fp.Pick();
+                            if (string.IsNullOrEmpty(line)) continue;
+                            int seenCount;
+                            counts.TryGetValue(line, out seenCount);
+                            counts[line] = seenCount + 1;
+                        }
+                        int worst = 0;
+                        foreach (KeyValuePair<string, int> kv in counts) if (kv.Value > worst) worst = kv.Value;
+                        sb.AppendLine("simulated_day " + probe.App + " picks=" + dayPicks +
+                            " distinct=" + counts.Count + " worst_repeat=" + worst +
+                            " from_smart=" + fromSmart);
+                        if (worst > 2) ok = false;   // a line seen three times in a day is the reported bug
+                    }
+
                     sm.WarmProgress(out ready, out complete, out indexed, out total);
                     sb.AppendLine("complete=" + complete + " indexed=" + indexed + " of " + total +
                         " sawPartial=" + sawPartial + " sawPartialPick=" + sawPartialPick +
@@ -928,7 +1178,12 @@ namespace DesktopAICompanion.Ai
 
         private static List<FortuneEntry> DiagnosticPool(List<FortuneEntry> completePool)
         {
-            const int MaximumSampleEntries = 128;
+            // 128 was enough to exercise a fixed top-K, which took its candidates regardless of how
+            // relevant they were. It is NOT enough for a relevance band: measured, 131 lines admit a
+            // band of ONE for a coding context even at a 0.50 margin, so the suite had nothing to
+            // observe and could not tell a working picker from a broken one. 512 keeps the suite quick
+            // (it is still a fraction of the 3214-line corpus) while giving the band room to exist.
+            const int MaximumSampleEntries = 512;
             var sample = new List<FortuneEntry>(MaximumSampleEntries + 3);
             if (completePool != null && completePool.Count > 0)
             {
