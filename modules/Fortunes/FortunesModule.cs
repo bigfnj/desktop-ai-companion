@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
@@ -43,7 +43,10 @@ namespace DesktopAICompanion.FortunesModule
         {
             Id = "fortunes",
             Name = "Fortunes",
-            Version = "1.0.4",   // 1.0.4: a failed save no longer discards the staged pack selection, and the
+            Version = "1.0.5",   // 1.0.5: the smart picker rotated 64 lines out of 7780, so the same
+                                 //        fortune came round every third pick in a stable context. The
+                                 //        candidate set is now a relevance band, not a fixed count.
+                                 // 1.0.4: a failed save no longer discards the staged pack selection, and the
                                  //        engine probe stopped pinning a culture-formatted number.
                                  // 1.0.3: the smart picker now says why it stood down when the model
                                  //        asset is PRESENT but the native onnxruntime did not load. That
