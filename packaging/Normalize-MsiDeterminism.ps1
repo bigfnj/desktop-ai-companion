@@ -19,6 +19,14 @@ else {
 }
 . (Join-Path $scriptDirectory 'StagingPathSafety.ps1')
 
+# The TRUSTED root is the REPO, not the directory being guarded. Every containment call in this file
+# used to pass $msiParent as BOTH -AllowedRoot and -TrustedRoot, which made the refusal unreachable: a
+# path is always strictly below its own parent, so the guard could never fire whatever it was handed.
+# installer\build-installer.ps1 passes an independent -AllowedRoot and its guard is real; this file and
+# New-DeterministicPortableZip.ps1 did not. Deriving the repo root from this script's own location
+# gives the two roots something to differ by.
+$normalizeTrustedRoot = Split-Path -Parent $scriptDirectory
+
 function Get-DeterministicGuid {
     param([Parameter(Mandatory = $true)][string]$Name)
 
@@ -188,13 +196,13 @@ try {
     $msiParent = Split-Path -Parent $destinationMsiPath
     [void](Assert-DesktopAICompanionPathChainSafe `
         -Path $msiParent `
-        -TrustedRoot $msiParent)
+        -TrustedRoot $normalizeTrustedRoot)
     $stagingDirectory = Join-Path $msiParent (
         '.DesktopAICompanion-msi-normalize-' + [Guid]::NewGuid().ToString('N'))
     $stagingDirectoryLease = Open-DesktopAICompanionNewScratchDirectory `
         -Path $stagingDirectory `
         -AllowedRoot $msiParent `
-        -TrustedRoot $msiParent `
+        -TrustedRoot $normalizeTrustedRoot `
         -ProtectedPaths @($destinationMsiPath)
     $temporaryMsi = Join-Path $stagingDirectory (
         [IO.Path]::GetFileName($destinationMsiPath))
@@ -373,7 +381,7 @@ if ($created.Ticks -ne $fixedTimestamp.Ticks -or
 [void](Publish-DesktopAICompanionAtomicFile `
     -TemporaryPath $temporaryMsi `
     -DestinationPath $destinationMsiPath `
-    -TrustedRoot $msiParent `
+    -TrustedRoot $normalizeTrustedRoot `
     -SealedTemporaryFile $sealedTemporaryMsi `
     -ExpectedTemporarySha256 $temporaryMsiHash `
     -ExpectedDestinationSha256 $originalHash)
@@ -414,7 +422,7 @@ finally {
             Remove-DesktopAICompanionSafeDirectory `
                 -Path $stagingDirectory `
                 -AllowedRoot $msiParent `
-                -TrustedRoot $msiParent
+                -TrustedRoot $normalizeTrustedRoot
         }
         catch {
             if ($null -eq $normalizationPrimaryError) {

@@ -167,6 +167,10 @@ foreach ($contentDirectory in $ContentDirectories) {
 $entryNames = [string[]]$entrySources.Keys
 [Array]::Sort($entryNames, [StringComparer]::Ordinal)
 
+# The TRUSTED root is the REPO, not the directory being guarded. Every containment call below used to
+# pass $destinationParent as BOTH -AllowedRoot and -TrustedRoot, and a path is always strictly below its
+# own parent, so the refusal could never fire. Same defect and same fix as Normalize-MsiDeterminism.ps1.
+$zipTrustedRoot = Split-Path -Parent $scriptDirectory
 $destinationParent = Split-Path -Parent $destinationFull
 if ([string]::IsNullOrWhiteSpace($destinationParent) -or
     -not (Test-Path -LiteralPath $destinationParent -PathType Container)) {
@@ -174,7 +178,7 @@ if ([string]::IsNullOrWhiteSpace($destinationParent) -or
 }
 $destinationFull = Assert-DesktopAICompanionOutputFileSafe `
     -Path $destinationFull `
-    -TrustedRoot $destinationParent `
+    -TrustedRoot $zipTrustedRoot `
     -ProtectedPaths @($manifestFull, $markerFull) `
     -ProtectedDirectories @($runtimeRootFull)
 if ((Test-Path -LiteralPath $destinationFull) -and
@@ -190,7 +194,7 @@ try {
     $temporaryDirectoryLease = Open-DesktopAICompanionNewScratchDirectory `
         -Path $temporaryDirectory `
         -AllowedRoot $destinationParent `
-        -TrustedRoot $destinationParent `
+        -TrustedRoot $zipTrustedRoot `
         -ProtectedPaths @($manifestFull, $markerFull, $destinationFull) `
         -ProtectedDirectories @($runtimeRootFull)
     $temporaryPath = Join-Path $temporaryDirectory (
@@ -250,7 +254,7 @@ try {
     $destinationFull = Publish-DesktopAICompanionAtomicFile `
         -TemporaryPath $temporaryPath `
         -DestinationPath $destinationFull `
-        -TrustedRoot $destinationParent `
+        -TrustedRoot $zipTrustedRoot `
         -ProtectedPaths @($manifestFull, $markerFull) `
         -ProtectedDirectories @($runtimeRootFull)
 }
@@ -268,7 +272,7 @@ finally {
             Remove-DesktopAICompanionSafeDirectory `
                 -Path $temporaryDirectory `
                 -AllowedRoot $destinationParent `
-                -TrustedRoot $destinationParent
+                -TrustedRoot $zipTrustedRoot
         }
         catch {
             if ($null -eq $zipPrimaryError) {

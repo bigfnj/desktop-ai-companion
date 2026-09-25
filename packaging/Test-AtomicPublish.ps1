@@ -118,7 +118,13 @@ try {
         TemporaryPath = $temp5
         DestinationPath = (Join-Path $env:TEMP 'dp-atomic-escape.bin')
         TrustedRoot = $scratch
-    } 'a destination outside the trusted root' ''
+        # NAMED, like cases 1-4. This was '' -- which makes the match in Try-Publish `-like "**"`, so
+        # ANY exception counted as proof. That matters here more than anywhere else in this suite: the
+        # guard this case exercises raises "Trusted staging root is missing or is not a directory"
+        # BEFORE it ever performs the containment test, so if $scratch has gone (a concurrent run under
+        # the same %TEMP%, or the finally block of an earlier run) case 5 reported REFUSED on the wrong
+        # exception and the escape guard was never exercised at all.
+    } 'a destination outside the trusted root' 'escaped the trusted root'
 }
 finally {
     try { Remove-Item -LiteralPath $scratch -Recurse -Force -ErrorAction SilentlyContinue } catch { }

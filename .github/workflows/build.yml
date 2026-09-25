@@ -59,14 +59,29 @@ jobs:
         run: |
           $outputRoot = 'build\DesktopAICompanionPortable\bin\Release\x64'
           $exe = Join-Path $outputRoot 'DesktopAICompanion.exe'
-          $failures = @(& .\tests\Invoke-SelfTests.ps1 -ExecutablePath $exe -OutputRoot $outputRoot |
-            Where-Object { $_ -like 'SELFTEST-FAILURE:*' })
-          if ($failures.Count -gt 0) {
-            foreach ($failure in $failures) { Write-Host "FAIL: $failure" }
-            throw "$($failures.Count) self-test failure(s)."
+          # COLLECT, then throw ONCE at the end -- the shape tests/run-gate.ps1 already uses, whose
+          # comment says "one missing module no longer hides every check after it". CI kept the old
+          # shape, so a single self-test failure threw here and the 120 source invariants below were
+          # never reached: one broken module hid every invariant in the repo, in the one place that
+          # gates every pull request.
+          $output = @(& .\tests\Invoke-SelfTests.ps1 -ExecutablePath $exe -OutputRoot $outputRoot)
+          $output | ForEach-Object { Write-Host $_ }
+          $failures = @($output | Where-Object { $_ -like 'SELFTEST-FAILURE:*' })
+          # A run that reports zero flags did no work. run-gate.ps1 fails on this; CI ignored the count
+          # entirely, so two callers of the same runner disagreed about what an empty run means.
+          $countLine = @($output | Where-Object { $_ -like 'SELFTEST-COUNT:*' }) | Select-Object -First 1
+          $selfTestCount = if ($countLine) { [int](($countLine -split ':')[1].Trim()) } else { 0 }
+          if ($selfTestCount -le 0) {
+            $failures += "SELFTEST-FAILURE: the runner reported $selfTestCount flags, so it did no work"
           }
           # Source-text invariant checks (no assembly load; the reflection half is --hardening-selftest).
-          .\tests\runtime-hardening-selftest.ps1
+          # try/catch because it signals by `throw`, same as the gate's own call.
+          try { .\tests\runtime-hardening-selftest.ps1 }
+          catch { $failures += "SELFTEST-FAILURE: runtime-hardening-selftest.ps1: $($_.Exception.Message)" }
+          if ($failures.Count -gt 0) {
+            foreach ($failure in $failures) { Write-Host "FAIL: $failure" }
+            throw "$($failures.Count) failure(s) across the self-tests and source invariants."
+          }
 
       - name: Convert and verify the shipped companion corpus
         # The local gate runs these and CI did not, so a regression in the shipped Companions
