@@ -168,6 +168,11 @@ try {
     try { & (Join-Path $repoRoot 'tests\Test-BacklogClosingCriteria.ps1') }
     catch { $failures.Add('Test-BacklogClosingCriteria.ps1: ' + $_.Exception.Message) }
 
+    # Content invariants for shipped companions. try/catch like its neighbours: it signals
+    # failure by throw, so $LASTEXITCODE would stay 0 and the gate would pass over it.
+    try { & (Join-Path $repoRoot 'tests\companion-border-invariants.ps1') }
+    catch { $failures.Add('companion-border-invariants.ps1: ' + $_.Exception.Message) }
+
     # The module template is built by nothing else, so it would rot unnoticed: this scaffolds a throwaway
     # module from it, builds it, and removes it again.
     Write-Host '=== module template' -ForegroundColor Cyan
