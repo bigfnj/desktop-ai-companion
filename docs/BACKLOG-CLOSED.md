@@ -13,7 +13,11 @@ Moved out of BACKLOG.md on 2026-09-24, verbatim.
 
 ---
 
-## Open: second full-repo audit, 2026-09-17 (release machinery + plugin ABI)
+## Closed: second full-repo audit, 2026-09-17 (release machinery + plugin ABI)
+
+<!-- Headed "Open:" until 2026-09-25. Every bullet under it is ✅, so it was stale rather than hiding
+     work, but a heading like that in a file of closed records is how an open item slips in
+     unnoticed. -->
 
 Two read-only audits ran over the release machinery and the plugin ABI after the first cycle's work
 landed. Between them they raised 28 findings; 24 are fixed in this cycle and the reasoning is in the
@@ -833,25 +837,30 @@ right file, restore. Where a mutation SURVIVED, that is recorded below rather th
 Four were one-liners that had survived because nothing in the converter's own suite asked the
 question they answer. The fifth was a licensing claim in source that was false in all three of its
 halves, which matters more than its size in a repo whose redistribution posture rests on such
-claims.
+claims. (All five ARE closed. The first bullet below said otherwise until 2026-09-25; see the
+warning on it.)
 
 Two things are deliberately NOT done and are recorded here rather than left implied. The 31 shipped
 pets were not re-converted, so they keep their current sprite sheets and the 36 wasted interior
-tiles until somebody decides to re-convert; that changes 31 companion assets and their catalog
-hashes, and is a download-churn decision rather than a side effect of a compositor fix. And the
+tiles until somebody decides to re-convert; that changes 32 companion assets (the `shimeji-*`
+directories under `Companions/`; the catalog's 54 includes the hand-authored pets, which a
+re-convert does not touch) and their catalog hashes, and is a download-churn decision rather than a side effect of a compositor fix. And the
 `NextBehaviour` item shipped without a real-world British skin to demonstrate prevalence on, exactly
 as its own entry warned: the code shape is unambiguous and now tested, the frequency in the wild is
 still unmeasured.
 
-- 📌 **One child-process drain is still the textbook deadlock.**
-  `tools/ShimejiConvert.Engine/Engine.cs:269-272` does `ReadToEnd()` on stdout then stderr, then
-  `WaitForExit(timeout)`. stdout only reaches EOF at exit, so the timeout is always called on a
-  finished process and can never fire; once the child's stderr crosses the 4 KB pipe default while
-  the parent blocks on stdout, both stop forever. `Engine.ProbeFfmpeg:310` additionally leaves the
-  process running when its wait returns false.
+- ✅ **The converter's child-process drain was the textbook deadlock, and it IS fixed.**
+  `tools/ShimejiConvert.Engine/Engine.cs` used to do `ReadToEnd()` on stdout then stderr, then
+  `WaitForExit(timeout)`. stdout only reaches EOF at exit, so the timeout was always called on a
+  finished process and could never fire; once the child's stderr crossed the 4 KB pipe default while
+  the parent blocked on stdout, both stopped forever. `ProbeFfmpeg` additionally left the process
+  running when its wait returned false.
+  ⚠ **This bullet used to end "and has not been done", which was false when it was written.** The fix
+  landed in `4aac2d3` four minutes earlier — the same commit that added two source invariants for it —
+  and current code at `Engine.cs:318-322` and `:368-371` runs both pipes through `ReadToEndAsync` with
+  a real `WaitForExit(timeout)` and `Kill(true)`. Corrected 2026-09-25, found by the burn-down audit.
   The Remembrance pair (`Transcriber.cs`, `WhisperInstaller.cs:713`) was fixed on 2026-09-24 and is
-  covered by two source invariants in `tests/runtime-hardening-selftest.ps1`; this one belongs with
-  the converter work and has not been done.
+  covered by the same two invariants in `tests/runtime-hardening-selftest.ps1`.
 
 - 📌 **`PosesToComposite` draws every drag frame; `DragSwingFramesOf` references only `Poses[0]`.**
   `tools/ShimejiConvert.Engine/Emit/PetEmitter.cs:1008-1014` vs `:1052-1058`. Measured across the 31

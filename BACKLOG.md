@@ -450,8 +450,6 @@ code. Two decisions that used to sit here are in
   archive structurally rather than by title, which resolved only 7 of 25 pets and is why the census
   exists at all.
 
-### Module SDK follow-ups
-
 ### Feature ideas (queued, not yet scoped)
 
 **Moved to [`docs/IDEAS.md`](docs/IDEAS.md) on 2026-09-17, numbers intact** (16 per-companion
@@ -524,7 +522,7 @@ Parsed from the residue file rather than tallied by hand:
 | window-relative navigation (`activeIE.*`) | 31 (27 degraded + 4 dropped) | needs host-side window geometry the format does not expose |
 | cursor-position branching (`cursorX`/`selfX`) | 6, all degraded | needs condition support the format lacks; one is a near-miss |
 | breeding an autonomous sibling (`Breed`) | 2, both dropped | genuine format limit — `<child>` auto-closes; treat as out of scope |
-| the converter's own unattempted mappings | 4 (`Jumping`, `Falling2`, `Resisting`, `Resisting2`) | **start here** — the residue report itself calls this a converter gap, not a format limit |
+| the converter's own unattempted mappings | 0 — superseded | the 2026-09-25 census measures the not-attempted column at **zero** across all 13 desktop pets; the four names below are what the OLD residue report said, kept only so the earlier figure is traceable |
 
 ⚠ Before writing "needs a host change" for cluster 1, grep `PluginApi.cs` for the verb, per the
 convention above. That exact sentence already cost one planning cycle in this repo.
@@ -577,10 +575,6 @@ edges (45213e0), the drag/fall magic ids (b8c3b04), the Remembrance purge (9ad10
 Studio save targets (43ee2cb), the settings-window `File.Exists` (47d0872), and the backlog gate's own
 open-item blindness plus the bug-number drift.
 
-### Data loss or a crash, on a path that runs
-
-
-
 ### A feature reports success while doing nothing
 
 - 📌 **The composited tile is 2 rows shorter than the tallest source sprite, so its bottom is lost.**
@@ -591,8 +585,10 @@ open-item blindness plus the bug-number drift.
   eyeballing: the tile width (162) is larger than the source (130), so the height is not a naive crop
   but falls out of the anchor-aligned bounding box, and whatever is off by 2 there will be off for
   every pet. CLOSES-WHEN: a converted pet's per-frame alpha-pixel count matches its source within 0.
-  Do NOT re-convert the shipped pets to collect this alone; that rewrites 54 companion assets and
-  their catalog hashes for 0.64%.
+  Do NOT re-convert the shipped pets to collect this alone. Scope, since two entries disagreed on
+  it: `Companions/` holds **32** `shimeji-*` directories, and the catalog lists **54** companions in
+  total; a re-convert touches the converted ones, so it is 32 assets and their catalog hashes for
+  0.64%, not 54 and not 31.
 
 ### Blocking IO, pipe deadlocks, and measured cost
 
@@ -665,15 +661,6 @@ open-item blindness plus the bug-number drift.
 - 📌 `modules/Fortunes/FortunesModule.cs:1272-1280` — when `Embedder.IsReady` is false, `WarmCore`
   returns with all counters zero and `SmartStatusFor` has no way to say "stood down", so the picker
   reads "Indexing N fortunes in the background" forever.
-- 📌 `modules/Fortunes/engine/FortuneProvider.cs:1313` — `totalBytes += chargedBytes` runs before the
-  read and the parse, so rejected files spend the 16 MB budget and starve valid packs later in name
-  order, with no diagnostic.
-- 📌 `modules/PetStudio/AnimCapability.cs:205` — the MOVE description reads only `StartX` while the
-  classification at `:161` accepts `StartX` or `EndX`, so `blue_sheep`'s `fall_wind` renders as
-  "travels 0px per frame". Four shipped skins carry animations of this shape.
-- 📌 `modules/PetStudio/BehaviourChainSelfCheck.cs:309` and `:421` — the label is built from
-  `hostError` before the `TryParse` that fills it, so a validator rejection always prints with its
-  reason discarded.
 - 📌 `modules/PetStudio/PetStudioWindow.cs:809` — the `SpriteKey` cache guards the small decode while
   `PetAnalyzer.Analyze` unconditionally base64-decodes the sheet and builds `tilesX * tilesY` GDI+
   bitmaps plus a fresh `XmlSchemaSet` compile on every 750 ms debounce (~850 KB and 304 bitmaps for
@@ -687,20 +674,271 @@ open-item blindness plus the bug-number drift.
 - 📌 `modules/AiBrain/AiBrainModule.cs:904` and `:928` — the two "Refresh models" actions can be in
   flight together (the host disables only the clicked button) and both mutate `_localModels`,
   `_cloudModels` and `_modelIdByLabel` from pool threads with no synchronisation.
-- 📌 `modules/AiBrain/engine/FallbackBackend.cs:89` — `UnloadAsync` ignores its `model` argument for
-  the local leg and always passes `_localTextModel`, though `ChatAsync` maps correctly via
-  `LocalModelFor`. Under a cloud-primary fallback that loaded local `llava:13b` (~8 GB), the
-  fullscreen release unloads the local TEXT model and the vision model holds its VRAM for the whole
-  game — the outcome the setting's own comment calls "a crash guard, not a courtesy".
-- 📌 `packaging/Normalize-MsiDeterminism.ps1:410` — the safe-delete guard is handed
-  `Split-Path -Parent $stagingDirectory` as BOTH `-AllowedRoot` and `-TrustedRoot`, and a path is
-  always strictly below its own parent, so the refusal before `Remove-Item -Recurse -Force` cannot
-  fire. `installer/build-installer.ps1:223` passes an independent root and is real.
-  `New-DeterministicPortableZip.ps1:268` has the same shape, mitigated by an independent validation.
-- 📌 `tools/ShimejiConvert/Program.cs:1368` — the dedupe migration recomputes `CellHash` for both
-  sheets once per animation FRAME, though every source-cell hash was computed at `:1316`. For 60
-  animations averaging 20 frames that is 2400 full-cell hashes and LockBits pairs where under 400
-  would do.
+### Measured 2026-09-25: the positive-probability warning IS user-visible
+
+- 📌 **A pet walks off the bottom of the screen and respawns about 21 times an hour, and it is
+  not the converter.** The item asked for a live measurement. Two synthetic soaks measured nothing
+  useful and the reasons are worth keeping: 8 minutes with two default eSheep gave 0 occurrences, and
+  a second soak could not add converted pets at all because a fresh `DESKTOP_AI_COMPANION_DATA_ROOT`
+  has no installed companions — the isolation that makes the GUI smoke tests repeatable is exactly
+  what makes this measurement impossible.
+
+  The real measurement is the owner's installed 1.2.4 log,
+  `%LOCALAPPDATA%\DesktopAICompanion\diagnostics.log`: **335 occurrences over ~16 hours**
+  (2026-09-24 21:13 to 2026-09-25 13:21), about 21/hour, and **333 of the log's 934 lines, 36%**.
+  All from ONE pet, `pink_sheep`, all `kind=border`. The two converted pets installed alongside
+  (`shimeji-brq51bkr`, `shimeji-hornet-9b9d1d`) produced **zero**, which is the opposite of what this
+  item assumed.
+
+  | count | state | where |
+  |---|---|---|
+  | 150 | 182 `king_jumpB_top` | TASKBAR |
+  | 119 | 173 `king_jump_top` | TASKBAR |
+  | 37 | 44 | 130 |
+  | 25 | 114 | 130 |
+  | 3 | 81 | 130 |
+  | 1 | 122 | 18 |
+
+  **269 of 335 (80%) are two states at the taskbar.** `Eligible(only, where)` is `(only & where) != 0`
+  with `TASKBAR = 0x01`; both states declare their border edges as `only="horizontal"`,
+  `only="vertical"` and `only="window"` only, so nothing carries the 0x01 bit. It is an authoring gap,
+  not a host-semantics mismatch: `pink_sheep` uses `only="taskbar"` 105 times, and in the same family
+  `king_jump` (136), `king_jumpB` (179), `king_jump_up` (146) and `king_jump_down` (162) ALL declare a
+  taskbar edge. Only the two `_top` variants do not.
+
+  The consequence is at `FormCompanion.cs:1246`: no eligible transition sets `bLeavingScreen = true`,
+  and a sprite fully outside the monitor is respawned. The pet does not land on the taskbar, it
+  carries on off the bottom and reappears.
+
+  **Two candidate fixes, and this needs an owner decision rather than a default.**
+  (1) Content: add a taskbar edge to states 173 and 182 in `Companions/pink_sheep/animations.xml`,
+  mirroring `king_jump` (136). Narrow, fixes 80% of occurrences, and is an art change — launch it and
+  watch the landing.
+  (2) Host: make the taskbar site raise `TASKBAR | HORIZONTAL`. Fixes all six states and every pet at
+  once, and makes every `only="horizontal"` edge in all 54 companions newly eligible at the taskbar,
+  which changes landing behaviour for pets that are not broken. The enum's own `HORIZONTAL_ = 0x06`
+  (WINDOW|HORIZONTAL, deliberately excluding TASKBAR) says the distinction was intended.
+  Recommended: (1).
+  CLOSES-WHEN: `Companions/pink_sheep/animations.xml` contains a taskbar-eligible border edge under
+  animation id 173.
+
+### Filed 2026-09-25 by the four parallel re-audits
+
+Verified before filing. The three code audits raised 39 findings between them; what is here is what
+survived a second check, minus the 14 fixed on the day in `e31c5bb`.
+
+**Host, user-visible**
+
+- 📌 **Reinstalling a module deletes its folder in place, on the one path where the DLL is most
+  likely still locked.** `src/Portable/Wpf/ModulesPaneControl.cs:481` does
+  `Directory.Delete(installDir, true)` before extracting, and the Reinstall button is offered only for
+  a module already on disk that FAILED to load — exactly when the process may still hold its assembly,
+  because `ModuleHost.LoadFrom` loads it before recording the failure and `AssemblyLoadContext.Unload`
+  is a request, not a synchronous unload. The folder is left half-deleted with no rollback. The update
+  path at `:287` already knows this and stages to a swap-in folder instead. Same method, second issue:
+  `catch (OperationCanceledException) { }` at `:492` is silent, so pressing "Check for modules online"
+  mid-extract leaves an empty folder under a "Checking for modules online" status line.
+- 📌 **A failed module update throws away both the marker and the payload, and can strand the
+  module.** `src/dotNet/Plugins/PendingModuleUpdates.cs:114-131`: the catch logs and continues, the
+  finally deletes the staged payload, and the marker is deleted unconditionally. A `Directory.Move`
+  that loses to an indexer or antivirus costs the user the whole ~31 MB download with one debug-window
+  line and no message; the Modules pane then offers the same update again forever. Worse variant: if
+  the second move fails and the rollback also fails, the module's only install folder is stranded as
+  `module-staging/<id>.replaced`, which nothing later reads.
+- 📌 **One throwing module handler starves every later subscriber of every lifecycle event,
+  silently.** `src/dotNet/Plugins/CompanionHost.cs:206-209`, `:407`, `:737` wrap the whole multicast
+  invocation in one `Safe(...)`, which is a bare `catch { }`. The first handler that throws aborts the
+  invocation list. Four shipped modules subscribe to `CompanionSpawned` in load order, and
+  `Fortunes.OnPetSpawned` calls `host.SayAll` with no internal guard, so anything thrown out of a
+  bubble draw permanently costs Reminder its spawn handler. Nothing reaches the diagnostic log. The
+  class doc at `:17` promises a throwing module never breaks the host; that is true of the host and
+  false of the other modules. CLOSES-WHEN: `CompanionHost` iterates `GetInvocationList()` and guards
+  each handler separately.
+- 📌 **Pressing Apply in Preferences wipes the diagnostic-log mute for any module that is
+  installed but not loaded.** `src/Portable/Wpf/OptionsShell.cs:464` calls `CollectMutedModules`
+  unconditionally, and that rebuilds the whole string from `LoadedModules` only. A module whose `Init`
+  throws is on disk, not loaded, and contributes nothing, so its stored mute is dropped. The same
+  method takes explicit care NOT to do this for `defaultSpeakingCompanion` (`:477`) and `triggerSpeech`
+  (`:485`), both commented as leaving the saved choice alone.
+- 📌 **Two Preferences windows can edit one settings.json, and the later Apply wins.**
+  `src/dotNet/ContextMenus.cs:593` writes `isOptionLoaded` and nothing reads it (`:570`, in
+  `About_Click`, is the only read). So About-while-About, About-while-Options and Options-while-About
+  are blocked and Options-while-Options is not. `ShowDialog` does not stop the tray callback or the
+  module-update balloon (`StartUp.cs:1799`), and each window Applies from a `values` dictionary
+  captured when its pane was built.
+- 📌 **A future-schema settings file blocks every write for the session in silence, while the
+  sibling failure state warns.** `src/Portable/AppSettingsStore.cs:938-943`: the read-only-fallback path
+  sets `LastLoadWarning` and `Program.cs:251` surfaces it; the `FutureSchema` path sets
+  `_writesBlockedByFutureSchema` and returns without a warning, yet `SaveMerged` then returns false for
+  every write. Compounding it, several immediate-persist controls discard that false and report success
+  anyway: `OptionsShell.cs:644-646` and `CompanionsPaneControl.cs:370`, `:426`, `:496`. The sibling
+  `ApplyNotificationSoundChoice` (`:854`) reads the value back precisely to avoid this.
+- 📌 **"Reset to default settings" leaves most of the page it claims to reset untouched, and says
+  nothing.** `src/Portable/Wpf/OptionsShell.cs:864-912` against the schema at `:297-354`: never reset are
+  `monthlyModuleUpdateCheck`, `companionUpdateCheck`, `appUpdateCheck`, `diagLog`, `diagLogKb`,
+  `diagLogKeep`, every generated `diagCat_*` and `diagMod_*`, and `defaultSpeakingCompanion`. The prompt
+  says "Reset all preferences on this page to their defaults?" and the status line is left blank.
+- 📌 **"Fetch the catalog when the pane opens" is discarded on every open but the first in any 90
+  second window.** `ModulesPaneControl.cs:104` and `CompanionsPaneControl.cs:128` call
+  `RefreshCatalogOnOpen()` from the CONSTRUCTOR; on a warm shared catalog `FetchSharedAsync` completes
+  synchronously, so the continuation runs inline and immediately hits `if (... || !IsLoaded) return;`,
+  which the constructor guarantees is false. No update button appears for any module that has one until
+  the user presses "Check for modules online".
+- 📌 **The gravity branch respawns the pet mid-tick and then lets the rest of the tick clobber it.**
+  `src/dotNet/FormCompanion.cs:1416` and `:1440` set `bNewAnimation = true` and fall through after
+  `SetNextGravityAnimation` returned -1 and `Play(false)` already picked a fresh spawn position and
+  possibly a different `DisplayIndex`. `monitorBounds`/`workArea` were captured from the OLD monitor at
+  the top of the method, so the clip block computes against the wrong work area. The sequence-end path
+  at `:1398` does `Play(false); return;` for exactly this reason; the gravity path has no return.
+- 📌 **The pet sound decode cache is never evicted.** `src/dotNet/AudioOutput.cs:34` is a
+  `Dictionary<byte[], float[]>` keyed by reference identity, cleared only in `Dispose` (`:383`). Add then
+  Remove a companion type repeatedly and each staging produces fresh arrays whose cache entries can never
+  be hit again and are never freed, holding both the MP3 and the decoded 44.1 kHz stereo float buffer
+  (about 7x the MP3). `PlayOwned`'s own doc at `:119-121` states this retention as the reason module
+  audio is deliberately not cached; the pet path has the same property and no bound.
+
+**Modules**
+
+- 📌 **Closing the app while recording loses the whole recording.**
+  `modules/Remembrance/RemembranceModule.cs:194` and `:263-306`: `StopRecording` flips `_recording`
+  false and then does every piece of real work inside a `Task.Run` it does not wait for. `OnHostShutdown`
+  returns in microseconds, `StartUp.cs:426` disposes the module host and `Alc.Unload()` runs, and the
+  process exits mid-`AudioRecorder.Stop()`. No mixed WAV, no transcript, and the two scratch WAVs keep
+  unfinalised RIFF headers because the `WaveFileWriter.Dispose()` that patches the data-chunk length only
+  runs in the `RecordingStopped` handler. `CaptureStore.Purge` deletes those after 72 hours.
+- 📌 **AgentFlow decodes WebSocket frames one chunk at a time.**
+  `modules/AgentFlow/CdpApprover.cs:806` calls `Encoding.UTF8.GetString(buffer, 0, result.Count)` per
+  `ReceiveAsync` with a 16 KB buffer, so a multi-byte sequence straddling the boundary decodes to U+FFFD
+  on both sides; a `System.Text.Decoder` carried across the loop is the fix. Corruption inside an option
+  label makes `PromptOptions.Classify` see an unrecognised option, and one unknown option refuses the
+  whole prompt (`PromptOptions.cs:479-489`). Same method: `if (builder.Length > Cap) break;` at `:810`
+  abandons the rest of the message in the socket, so every later reply on that session is offset by one.
+  Caveat from the audit: the read expressions themselves return compact JSON, so reachability depends on
+  CDP events rather than on the replies this file asks for; the decoding defect is unconditional.
+- 📌 **AgentFlow's setup cache is never invalidated by the three actions that change what it
+  describes.** `AgentFlowModule.cs:1957-1966` inspects only when the cache is null, and
+  `EnableCdpAsync` (`:1991`), `DisableCdpAsync` (`:2044`) and `BrowseForArgvAsync` (`:2077`) never clear
+  it. Its doc says "the cache is refreshed by the tick", which holds in every mode except Off, where
+  `OnTick` returns at `:521` before the probe. So in Off mode "Check now" keeps reporting the pre-write
+  answer for the rest of the session.
+- 📌 **Remembrance's Remote Desktop warning describes behaviour the code no longer has.**
+  `RemembranceModule.cs:692` ends "(Device dropdowns are read at startup; restart there to populate
+  them.)" — false since `RefreshDynamicOptions` was wired into the pane's `Load` (`:486-495`, `:609-612`),
+  which the host re-runs on every pane build. Reopening the options pane is enough.
+- 📌 **Fortunes clears a settings key nothing has ever read.** `FortunesModule.cs:1211` does
+  `ms.Set("spicyTier", "")` so "a stale value can never be re-migrated", but `MigrateContentLevel`
+  (`:399`) reads only `spicyFortunes` and `spicyOnly`, and `spicyTier` appears exactly once in the repo:
+  at this write.
+
+**Converter and build**
+
+- 📌 **A skin with no `Type="Move"` action always fails the converter's own acceptance bar.**
+  `tools/ShimejiConvert.Engine/Emit/PetEmitter.cs:186` emits the synthesised `turn` unconditionally, and
+  `:1567` is its only inbound edge, guarded by `if (loco)`. `ConversionResult.Accepted` requires
+  `Graph.Unreachable.Count == 0`. Measured by the audit on a three-action fixture: `unreachable=1`
+  (`turn`), `accepted=False`, CLI exit 1, on a pet that is otherwise valid and playable. The emitter
+  already handles the structurally identical ceiling case at `:140` and the wall case via
+  `SynthesiseClimbIfNeeded`; `turn` got no equivalent. Bites hand-trimmed and single-pose skins, not the
+  shipped corpus, which always carries a Walk.
+- 📌 **Two copies of the same `Has(blob, token)` helper disagree on case, so an action merely NAMED
+  with a capital "Cursor" is emitted as a gaze.** `ActionClassifier.cs:18` uses `StringComparison.Ordinal`;
+  `PetEmitter.cs:627` uses `OrdinalIgnoreCase`; both run over the same `SubtreeBlob` (which includes the
+  action's `Name`) with the same `"cursor"` literal. Measured: `classify` reports `LookAtCursor` as
+  Group1 with no cursor state seen, and the emitted XML still carries `<action>faceCursor</action>`, with
+  `0 dropped, 0 degraded` in the residue. Two knock-ons beyond the stray tag: `VariantFor` switches to the
+  last-unconditional-variant rule instead of `Animations[0]`, and `CollapseDirectionPairs` refuses to
+  merge it with an identical non-gaze sibling because `IsGaze` is in the match key. Whether any of the 31
+  shipped conversions hit this is unknown: the source confs are deliberately not in the repo.
+- 📌 **The dwebp 30 second timeout cannot fire for the case it exists to catch.**
+  `tools/ShimejiConvert.Engine/Shimeji/WebPLoader.cs:264-269` does
+  `p.StandardOutput.BaseStream.CopyTo(outBytes)` before `p.WaitForExit(30000)`, and the copy blocks until
+  stdout hits EOF, which for dwebp means process exit. A dwebp that hangs without closing stdout hangs
+  the converter permanently. Same site uses `p.Kill()` rather than `Kill(true)`. The hardening self-test
+  pins drain ORDER for three named files only, and its repo-wide loop checks encoding, never order.
+- 📌 **PetStudio runs the whole conversion on the WPF UI thread.**
+  `modules/PetStudio/PetStudioWindow.cs:667`, `:699`, `:720` call `ZipFile.ExtractToDirectory`,
+  `BundleConverter.ConvertBundle` and `ShimejiEngine.ConvertSkin` inline from the click handler. Named
+  costs: `SpriteSheetBuilder.Build` can run up to 8 full composite + PNG-encode + base64 passes over a
+  sheet as large as 4096x4096 before giving up on the 12 MiB budget, and with ffmpeg on PATH `SoundBaker`
+  spawns one ffmpeg per unique clip (30 s cap each, up to 64) plus one recursive `EnumerateFiles` of the
+  skin root per distinct clip name. `runtime-hardening-selftest.ps1:110-115` asserts the "never extract on
+  the UI thread" rule against `ModulesPaneControl.cs` only, so this site is outside every check.
+- 📌 **`build.ps1` declares `#requires -Version 5` and its `-Zip` path calls a script that
+  declares `-Version 7`.** `packaging/New-DeterministicPortableZip.ps1:12`, reached from `build.ps1:271`.
+  Under 5.1 the full Release build and all eight module builds complete, then packaging dies on a
+  `#requires` error. `Readme.md:511` documents `.\build.ps1 -Release -Zip` with no shell requirement. The
+  parity block checks each script in isolation and by construction cannot see a cross-script requirement.
+  Same transitively for `New-ModulePublish.ps1` and `New-ModuleDistZip.ps1`.
+
+**Checks that cannot fail (the category this repo keeps finding)**
+
+- 📌 **The `-Encoding` parity check does not assert the property its own failure message claims.**
+  `tests/runtime-hardening-selftest.ps1:1336-1338` says it "pins -Encoding on every file write, so both
+  shells emit the same bytes", and only asserts that a parameter matching `Enc*` is present.
+  `-Encoding UTF8` is UTF-8 WITH BOM on 5.1 and WITHOUT on 7, so it passes and still emits different
+  bytes; measured on this box, `powershell.exe ... -Encoding UTF8` produced `239,187,191,97`. Secondary:
+  no tracked `.ps1` currently calls `Set-Content`/`Add-Content`/`Out-File` at all, so today it iterates an
+  empty command set across all 31 scripts. Stronger assertion: require `utf8NoBOM`/`utf8BOM`/`ascii` and
+  reject bare `UTF8`.
+- 📌 **The repo-wide redirect scan is blind to any redirect not written as an object initialiser.**
+  `tests/runtime-hardening-selftest.ps1:87-96` admits a file on a text match, then slices only
+  `new ... ProcessStartInfo(.*?)\}\s*;`. A file assigning `psi.RedirectStandardOutput = true;` outside an
+  initialiser contributes zero sites and zero offenders. Currently latent — all 13 redirect assignments
+  are inside initialisers and the `-ge 6` floor catches total collapse — but it is the same hole one level
+  out from the per-FILE one the file's own comment describes fixing.
+- 📌 **`release.yml`'s prune has a catch that cannot catch and a success line that cannot fail.**
+  `.github/workflows/release.yml:234-237`: `$ErrorActionPreference = 'Continue'` at `:232` means a
+  non-zero `gh release list` is not terminating, so the `catch` never runs; `$releases` is empty, the loop
+  body never executes, and `:243` prints "Kept the 3 most recent releases." over a prune that did nothing.
+  Benign in effect, indistinguishable in the log.
+- 📌 **`ContentCatalogAssets.ps1:190-192` drains stdout to EOF before reading stderr, has no wait
+  timeout, and leaks a `Process` per asset.** Practically unreachable as a deadlock (`git cat-file`'s error
+  output is one short line), so this is shape rather than a live bug — but the gate calls it once per
+  catalog asset, 219 today, and neither the `Process` nor the `MemoryStream` is disposed.
+
+**Dead code, verified across `src/`, `modules/` and `tools/`**
+
+- 📌 **`src/dotNet/WindowTheme.cs` is ~140 dead lines.** Only `IsDark()` (`:46`) has a caller, from
+  `WpfTheme.cs:42`. `Apply`, `ApplyTitleBar`, `ThemeTree`, `ThemeControl`, `DarkenNativeControl`, both
+  P/Invokes and six of the seven colour constants have none — residue of the WinForms dialogs retired in
+  S5b-3. Also dead: `CompanionHost.SpeechSourceModuleIds` (`:430-439`, one repo-wide hit, its own
+  declaration), the two-argument `ProcessIcon.TaskbarWatcher` overload (`:396`), `LocalData.GetScale()`
+  (`:68`), `LocalData.GetPetSizeLevel(string)` (`:195`), `LocalData.GetEffectivePetScaleFactor(string)`
+  (`:215`), the unread `folder` parameter of `LocalData.SetXml` (`:857`, and `StartUp.cs:216-218` computes
+  a value to pass to it), `AppSettingsStore.FilePath`/`BackupPath`/`IsReadOnlyFallback`/`LastRecoveryFile`
+  (`:832-836`, the last assigned at `:1294` and never read, so the corrupt-file preservation path records
+  where it put the file and nothing can report it), the `AppPaths` vector-cache cluster (`:64`, `:113`,
+  `:125`, `:142`), `OptionsWindow._dirty` (`:25`), `NotifyBudget.Forget`
+  (`modules/AgentFlow/NotifyBudget.cs:177-182`, superseded by `Retain`), and
+  `SmartFortunes.LastCandidateCount` (`:116`, `:126`, written on every contextual pick at `:511` and never
+  read — its own doc says it exists "because a number nobody can read is a number nobody checks").
+  ⚠ Not dead, do not remove: `AiBrain.ScreenChanged` (`AiBrain.cs:1106-1121`, ~45 lines with
+  `ComputeSignature` and `_lastFrameSignature`) has no callers but is DECLARED kept —
+  `AiSessionManager.cs:215-220` says the idle timer that used it is gone and the primitive is deliberately
+  retained for a future change-detection option.
+- 📌 **`PetEmitter`'s `roundUp: true` branch is unreachable and its doc describes a caller that does
+  not exist.** `:2588-2597`; all four call sites pass `false` (`:1264`, `:1356` via the 3-arg overload that
+  hard-codes it at `:2581`, `:1489`, and `tools/ShimejiConvert/Program.cs:1084`). The `<param>` doc says
+  "Used for rests, where undershooting is the thing that reads as wrong", and the rest call site passes
+  `false` with a comment that contradicts it. Same family as the three deletions in `1b65d64`.
+- 📌 **`FormCompanion.cs:1983`'s `if (rctO.Top == 0 && rctO.Bottom == 0) return false;` is
+  unreachable** — the guard eight lines above returns false when `rctO.Bottom <= rctO.Top`, which subsumes
+  it.
+
+**Optimisation, costs named rather than timed**
+
+- 📌 **A full XML DOM parse per companion card, per pane rebuild, on the UI thread.**
+  `src/Portable/Wpf/CompanionsPaneControl.cs:910-935` (`LoadPetHeaderIcon`, reached per card at `:269`).
+  `CompanionThumbnails.GetPng` caches the bundled zip, but its MISS path is not cached, and every imported
+  Shimeji skin, converted pet and locally authored pet misses — each costing a `File.ReadAllText` plus a
+  full `XDocument.Parse` of `animations.xml` (hornet is 406 KB, esheep64 158 KB). `Reload()` runs from the
+  constructor and after every Use/Add/Remove/Download/Uninstall, and the control is rebuilt on every pane
+  selection. `GetStats` in the same file keeps `_statsCache` for exactly this reason.
+- 📌 **Remembrance enumerates the WASAPI endpoint list four times per options-pane open where two
+  would do.** `RemembranceModule.cs:488-491` and `:680-681`, both from the same `Load` closure at
+  `:609-632`: `RefreshDynamicOptions` calls `RenderDevices()` and `CaptureDevices()`, then `StatusLine`
+  calls both again purely to count them. Each constructs an `MMDeviceEnumerator`, enumerates active
+  endpoints and reads `FriendlyName` off every device's property store, on the UI thread.
 
 ### Checked and REFUTED — do not re-file
 
