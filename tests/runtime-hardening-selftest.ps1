@@ -985,28 +985,54 @@ $signtoolScript = Get-Content -LiteralPath (Join-Path $repoRoot 'packaging\Invok
 # leaving the block behind. Found by an audit 2026-09-17; nothing is mis-signed today only because no
 # certificate exists, which is the same reason the rot was invisible.
 #
-# What is required now: the signtool invocation must sit INSIDE a block guarded by
-# `-not [string]::IsNullOrWhiteSpace($SigningCertThumbprint)`, proven by position -- the guard opens
-# before the call, and the call comes before the guard's matching close.
+# What is required now: EVERY signtool invocation must sit inside the then-block of a guard on
+# `-not [string]::IsNullOrWhiteSpace($SigningCertThumbprint)` -- proven by the AST, not by comparing
+# two string offsets.
+#
+# Position was not enough, twice over. The old form asserted only `guard.Index -lt callAt`, so
+# nothing located the guard's CLOSING brace: close the block early, move the call below it, and the
+# guard still opened first. All three assertions passed over a script that signed unconditionally.
+# And `$callAt` was an IndexOf, so a SECOND unguarded call added later was invisible behind the
+# first. The AST answers both: a then-block has an extent with an end offset, and every CommandAst
+# can be enumerated rather than just the first.
+#
+# It also lets the comment-stripping go. This file's own note at the old site recorded that prose
+# describing a check had defeated that check five times; the AST cannot see a comment at all, so the
+# class of failure disappears rather than being worked around.
 foreach ($pair in @(
-        @{ Name = 'build.ps1'; Text = $buildScript },
-        @{ Name = 'installer\build-installer.ps1'; Text = $installerScript })) {
-    # COMMENTS STRIPPED FIRST. Both scripts mention Invoke-Signtool.ps1 in a header comment,
-    # ABOVE the guard, and IndexOf finds the first occurrence -- so the first version of this
-    # check compared a comment's position against the guard's and failed a correct file. That is
-    # the fifth time in this file prose describing a check has defeated it; stripping is now the
-    # default for anything positional.
-    $code = [regex]::Replace($pair.Text, '(?m)^\s*#.*$', '')
-    $guard = [regex]::Match(
-        $code, 'if \(-not \[string\]::IsNullOrWhiteSpace\(\$SigningCertThumbprint\)\)')
-    Assert-True ($guard.Success) (
+        @{ Name = 'build.ps1'; Path = (Join-Path $repoRoot 'build.ps1') },
+        @{ Name = 'installer\build-installer.ps1'; Path = (Join-Path $repoRoot 'installer\build-installer.ps1') })) {
+    $parseErrors = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($pair.Path, [ref]$null, [ref]$parseErrors)
+    Assert-True ($parseErrors.Count -eq 0) "$($pair.Name) parses, so its signing guard can be read from the AST"
+
+    $guardBlocks = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.IfStatementAst] -and
+        $node.Clauses[0].Item1.Extent.Text -match 'IsNullOrWhiteSpace\(\$SigningCertThumbprint\)' -and
+        $node.Clauses[0].Item1.Extent.Text -match '-not'
+    }, $true) | ForEach-Object { $_.Clauses[0].Item2.Extent })
+    Assert-True ($guardBlocks.Count -ge 1) (
         "$($pair.Name) guards signing on a NON-EMPTY thumbprint (the -not is the whole check)")
-    # The CALL, in the form it is actually written, not the bare file name.
-    $callAt = $code.IndexOf("& (Join-Path `$repoRoot 'packaging\Invoke-Signtool.ps1')")
-    Assert-True ($callAt -gt 0) "$($pair.Name) still invokes packaging\Invoke-Signtool.ps1"
-    Assert-True ($guard.Index -lt $callAt) (
-        "$($pair.Name) opens the thumbprint guard BEFORE it invokes signtool" +
-        " (guard at $($guard.Index), call at $callAt)")
+
+    $signtoolCalls = @($ast.FindAll({
+        param($node)
+        $node -is [System.Management.Automation.Language.CommandAst] -and
+        $node.Extent.Text -match 'Invoke-Signtool\.ps1'
+    }, $true))
+    Assert-True ($signtoolCalls.Count -ge 1) "$($pair.Name) still invokes packaging\Invoke-Signtool.ps1"
+
+    # EVERY call, not the first one IndexOf happened to find.
+    $unguarded = @($signtoolCalls | Where-Object {
+        $call = $_
+        -not ($guardBlocks | Where-Object {
+            $call.Extent.StartOffset -ge $_.StartOffset -and $call.Extent.EndOffset -le $_.EndOffset
+        })
+    })
+    Assert-True ($unguarded.Count -eq 0) (
+        "$($pair.Name) invokes signtool only from INSIDE the thumbprint guard's block" +
+        " ($($signtoolCalls.Count) call(s), $($unguarded.Count) outside" +
+        $(if ($unguarded.Count) { ", first at line $($unguarded[0].Extent.StartLineNumber)" } else { '' }) + ")")
 }
 
 # The MSI signature has exactly one legal position: after Normalize-MsiDeterminism (which rewrites the whole
