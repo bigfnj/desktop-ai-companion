@@ -1137,29 +1137,39 @@ foreach ($wxs in $wxsFiles) {
 # XML: a regex for `&&` or `??` matches them inside comments and string literals, and this file itself
 # asserts on C# source text containing `??`. Tokens and AST nodes cannot be faked by prose.
 $parityHost = "$($PSVersionTable.PSEdition) $($PSVersionTable.PSVersion)"
-$ciScriptNames = @()
-foreach ($wf in @('build.yml', 'release.yml')) {
-    $wfPath = Join-Path $repoRoot ".github\workflows\$wf"
-    if (-not (Test-Path -LiteralPath $wfPath)) { continue }
-    $wfText = Get-Content -LiteralPath $wfPath -Raw
-    # Derived from the workflows, not hardcoded, so a newly CI-invoked script is covered the day it lands.
-    foreach ($m in [regex]::Matches($wfText, '[A-Za-z0-9_\\/.-]+\.ps1')) {
-        $ciScriptNames += ($m.Value -replace '^\.\\', '' -replace '/', '\')
-    }
-}
-$ciScripts = @($ciScriptNames | Sort-Object -Unique | ForEach-Object {
-    $p = Join-Path $repoRoot $_
+# EVERY tracked .ps1, not the ones a workflow happens to name in its text.
+#
+# The set used to be regexed out of build.yml and release.yml AS TEXT, which had two consequences and
+# both were live. It covered 11 of the 28 tracked scripts, missing installer\New-RuntimeWixFragment.ps1
+# (invoked on every CI MSI build), packaging\StagingPathSafety.ps1 and packaging\WixToolchainPolicy.ps1
+# (dot-sourced by build.ps1 and build-installer.ps1, so a parse error in them breaks the build that
+# sources them), and seven other packaging scripts. And run-gate.ps1 was in the set only because
+# build.yml mentions it inside four COMMENTS -- so tidying a comment would have silently dropped the
+# repo's own gate script from its own parity coverage.
+#
+# `git ls-files` is the house pattern already used for the .csproj count below, and it gives obj/bin
+# exclusion for free.
+$ciScripts = @(& git -C $repoRoot ls-files '*.ps1' 2>$null | ForEach-Object {
+    $p = Join-Path $repoRoot ($_ -replace '/', '\')
     if (Test-Path -LiteralPath $p -PathType Leaf) { $p }
 })
-Assert-True ($ciScripts.Count -ge 5) (
-    "the workflows name at least 5 PowerShell scripts to check for shell parity (found $($ciScripts.Count), " +
+Assert-True ($ciScripts.Count -ge 25) (
+    "every tracked PowerShell script is checked for shell parity (found $($ciScripts.Count), floor 25, " +
     "running under $parityHost)")
 
 # Removed in PowerShell 7: present in 5.1, so they pass a local run and break CI.
 $goneInPwsh = @('Get-WmiObject', 'Invoke-WmiMethod', 'New-WebServiceProxy', 'Add-PSSnapin', 'Get-EventLog')
 # PS7-only operators. Under 5.1 these are parse errors, caught by the parse assertion; under pwsh they
-# tokenize, so they are caught here. Between the two, the gate catches them whichever host it runs on.
-$pwshOnlyTokens = @('AndAnd', 'OrOr', 'QuestionQuestion', 'QuestionDot', 'QuestionLBracket')
+# tokenize, so they are caught here. Between the two, the gate catches them whichever host it runs on --
+# which was NOT true until QuestionMark and QuestionQuestionEquals were added. Measured under the real
+# 7.6.5 parser: a ternary `$c ? 'a' : 'b'` emits QuestionMark, and `$x ??= 1` emits
+# QuestionQuestionEquals, so the two most likely PS7-only spellings in this repo were both invisible.
+# QuestionDot and QuestionLBracket are kept as belt-and-braces but do NOT fire for the usual
+# `$var?.Prop` form: that parser folds the `?` into the Variable token, so `$var?` arrives as one
+# token. And `?` as the Where-Object alias tokenizes as Generic, not QuestionMark, so adding it is
+# false-positive-free -- verified, and there are no uses of that alias in the repo anyway.
+$pwshOnlyTokens = @('AndAnd', 'OrOr', 'QuestionQuestion', 'QuestionQuestionEquals', 'QuestionMark',
+                    'QuestionDot', 'QuestionLBracket')
 # Set-Content defaults to ANSI under 5.1 and UTF-8-no-BOM under pwsh, and Out-File differs too, so the same
 # script emits different BYTES on each. That is not academic: it is the shape of the CRLF SHA256SUMS bug.
 $encodingSensitive = @('Set-Content', 'Add-Content', 'Out-File')
