@@ -24,7 +24,11 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.1.3",   // 1.1.3: converter payload refresh, no behaviour change. Three source-linked
+            Version = "1.1.4",   // 1.1.4: two reporting defects. A MOVE animation that declares its travel on EndX
+                                 //        alone rendered as "travels 0px per frame", and both behaviour-chain
+                                 //        validator rejections printed with the reason discarded, because the label
+                                 //        was built around the error string before the call that fills it.
+                                 // 1.1.3: converter payload refresh, no behaviour change. Three source-linked
                                  //        engine files lost always-true conjuncts and an uncalled overload, and
                                  //        three uncalled members left the pane code.
                                  // 1.1.2: converter payload refresh. Sound resolution now scans the skin

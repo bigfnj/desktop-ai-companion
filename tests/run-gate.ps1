@@ -64,9 +64,20 @@ try {
     Write-Host '=== core regression tests' -ForegroundColor Cyan
     & dotnet build (Join-Path $repoRoot 'tests\DesktopAICompanion.CoreTests\DesktopAICompanion.CoreTests.csproj') `
         -c Release --nologo -v:minimal
-    if ($LASTEXITCODE -ne 0) { throw 'CoreTests build failed.' }
-    & (Join-Path $repoRoot 'tests\DesktopAICompanion.CoreTests\bin\Release\DesktopAICompanion.CoreTests.exe')
-    if ($LASTEXITCODE -ne 0) { $failures.Add('CoreTests') }
+    # COLLECTED, not thrown. This was the one uncaught throw left in the file, inside a try/finally
+    # with no catch, so a compile error in CoreTests escaped the script: the GATE FAILED summary never
+    # printed and the nine checks after this point -- source invariants, module freshness, atomic
+    # publish, staging safety, catalog integrity, backlog criteria, module template, shimeji verify and
+    # shimeji selftest -- never ran at all. A CoreTests RUN failure one line below was already collected;
+    # only the BUILD failure was not.
+    $coreTestsBuilt = ($LASTEXITCODE -eq 0)
+    if (-not $coreTestsBuilt) { $failures.Add('CoreTests build') }
+    $coreTestsExe = Join-Path $repoRoot 'tests\DesktopAICompanion.CoreTests\bin\Release\DesktopAICompanion.CoreTests.exe'
+    if ($coreTestsBuilt -and (Test-Path -LiteralPath $coreTestsExe)) {
+        & $coreTestsExe
+        if ($LASTEXITCODE -ne 0) { $failures.Add('CoreTests') }
+    }
+    elseif ($coreTestsBuilt) { $failures.Add('CoreTests binary missing after a successful build') }
 
     # The flag table, the marker map and the skip detection all live in one place now, called
     # by BOTH this gate and .github\workflows\build.yml. They used to be duplicated, under a

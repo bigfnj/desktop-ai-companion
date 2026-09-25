@@ -93,12 +93,19 @@ namespace DesktopAICompanion
         private const string DefaultFontFamily = "Segoe UI";
         private const float DefaultFontSize = 9f;
 
-        // Built once per bubble, not once per paint.
+        // Built once per BUBBLE, not once per paint -- and cleared at the start of every bubble.
         //
         // A bubble that follows a walking pet repaints 30-60 times over its ~6s life, and each paint
-        // was constructing a Font -- a CreateFontIndirect round trip into GDI -- plus a SolidBrush, for
-        // values that cannot change while the bubble exists: both derive only from _style, which is
-        // assigned once in the constructor and is never mutated anywhere in src/ or modules/.
+        // was constructing a Font -- a CreateFontIndirect round trip into GDI -- plus a SolidBrush.
+        //
+        // The first version of this cache never cleared, on a comment claiming _style was "assigned
+        // once in the constructor and never mutated". That was simply false: _style is reassigned by
+        // every ShowSpeech call, and FormCompanion keeps ONE FormSpeech per pet for the process
+        // lifetime. So the first line a pet ever spoke froze its font and colour for the session, and
+        // a later styled line (Reminder builds a per-slot SpeechStyle) was MEASURED with its own font
+        // and PAINTED with the stale one -- an oversized box in the wrong typeface, or a clipped one.
+        // Both sites now take the same cached objects, so measure and paint cannot diverge by
+        // construction rather than by both remembering to do the same thing.
         //
         // The Pen and StringFormat below are deliberately left per-paint. They are managed allocations
         // rather than GDI handles, so caching them would buy little and add two more objects whose
@@ -108,6 +115,12 @@ namespace DesktopAICompanion
 
         private Font TextFont() { return _textFont ?? (_textFont = CreateTextFont()); }
         private Brush TextBrush() { return _textBrush ?? (_textBrush = CreateTextBrush()); }
+
+        private void ReleaseTextResources()
+        {
+            if (_textFont != null) { try { _textFont.Dispose(); } catch { } _textFont = null; }
+            if (_textBrush != null) { try { _textBrush.Dispose(); } catch { } _textBrush = null; }
+        }
 
         private Font CreateTextFont()
         {
@@ -153,6 +166,7 @@ namespace DesktopAICompanion
         internal void ShowSpeech(string text, int anchorX, int petTopY, int petBottomY, int durationSeconds, bool faceLeft, DesktopAICompanion.Modules.SpeechStyle style)
         {
             _style      = style;
+            ReleaseTextResources();   // the cached font and brush belong to the PREVIOUS style
             _dismissed  = false;
             // Trim stray leading/trailing whitespace so it can never pad the measured box.
             _fullText   = (text ?? "").Trim();
@@ -272,8 +286,10 @@ namespace DesktopAICompanion
             {
                 bmp.SetResolution(dpi, dpi);
                 using (var g = Graphics.FromImage(bmp))
-                using (var f = CreateTextFont())
                 {
+                    // TextFont(), not a fresh CreateTextFont(): this has to be the SAME font OnPaint
+                    // draws with, or the box is sized for one typeface and filled with another.
+                    Font f = TextFont();
                     // Natural single-line width; a few px of slack avoids a last-word wrap from
                     // rounding when the text nearly fits one line.
                     int natural = (int)Math.Ceiling(g.MeasureString(_fullText, f).Width) + Scale(4, dpi);
@@ -437,8 +453,7 @@ namespace DesktopAICompanion
             {
                 _typeTimer.Dispose();
                 _dismissTimer.Dispose();
-                if (_textFont != null) { try { _textFont.Dispose(); } catch { } _textFont = null; }
-                if (_textBrush != null) { try { _textBrush.Dispose(); } catch { } _textBrush = null; }
+                ReleaseTextResources();
             }
             base.Dispose(disposing);
         }

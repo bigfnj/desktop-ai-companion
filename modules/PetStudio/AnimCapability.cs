@@ -203,7 +203,13 @@ namespace DesktopAICompanion.PetStudioModule
                     sb.Append("CLINGS — no gravity, so it grips a wall or hangs from a ceiling without moving");
                     break;
                 case AnimCapability.Move:
-                    sb.Append("MOVES — travels ").Append(Math.Abs(node.StartX)).Append("px per frame along the ground");
+                    // Whichever end declares the travel. The classification above admits StartX OR EndX,
+                    // and reading only StartX made blue_sheep's fall_wind -- which declares its travel on
+                    // EndX alone -- render as "travels 0px per frame", i.e. the badge said MOVES and the
+                    // sentence beside it said it did not.
+                    sb.Append("MOVES — travels ")
+                      .Append(Math.Max(Math.Abs(node.StartX), Math.Abs(node.EndX)))
+                      .Append("px per frame along the ground");
                     break;
                 case AnimCapability.Gaze:
                     sb.Append("GAZES — held in place, aimed at the pointer as it starts");

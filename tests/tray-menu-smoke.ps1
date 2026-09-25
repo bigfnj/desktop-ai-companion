@@ -168,6 +168,14 @@ try {
     $itemsOne = @(Get-MenuItems $proc.Id | ForEach-Object { $_.Current.Name })
     $syncAtOne = [bool]($itemsOne | Where-Object { $_ -match $SYNC })
     Write-Host "with 1 pet  -- $($itemsOne.Count) items, sync present: $syncAtOne"
+    # THE MENU HAS TO HAVE OPENED. Open-TrayMenu posts and sleeps a fixed 1500 ms with no
+    # confirmation, and a dropped post yields an empty item list -- which the "hidden at one pet"
+    # check below would read as a pass, because absent-because-nothing-opened and
+    # absent-because-correctly-hidden look identical from here. Invoke-SubmenuChild retries for
+    # exactly this reason, so the dropped post is a real event, not a hypothetical one.
+    if ($itemsOne.Count -lt 5) {
+        throw "the tray menu did not open (only $($itemsOne.Count) items); nothing below would mean anything"
+    }
 
     $addedName = Invoke-SubmenuChild $proc.Id 'Add a companion' 'nothing|none'
     $arrived = Wait-PetCount $proc.Id 2

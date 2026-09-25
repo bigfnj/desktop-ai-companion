@@ -79,17 +79,24 @@ namespace DesktopAICompanion.Ai
             return primaryReady || localReady;
         }
 
-        /// <summary>Warm both (best-effort): the primary with its model, the local with its text model.</summary>
+        /// <summary>Warm both (best-effort): the primary with its model, the local with the model that
+        /// primary one maps to -- the same mapping ChatAsync uses, so the pair that gets warmed is the
+        /// pair that will actually run.</summary>
         public async Task WarmUpAsync(string model, CancellationToken ct)
         {
             try { await _primary.WarmUpAsync(model, ct).ConfigureAwait(false); } catch { }
-            try { await _local.WarmUpAsync(_localTextModel, ct).ConfigureAwait(false); } catch { }
+            try { await _local.WarmUpAsync(LocalModelFor(model), ct).ConfigureAwait(false); } catch { }
         }
 
+        /// <summary>Release both. The local leg maps through <see cref="LocalModelFor"/> for the same
+        /// reason ChatAsync does: hard-coding the text model here meant that after a cloud-primary
+        /// fallback had loaded local llava:13b (~8 GB), the fullscreen release unloaded a text model
+        /// that may never have been resident while the vision model held its VRAM for the whole game --
+        /// the exact outcome the setting's own comment calls "a crash guard, not a courtesy".</summary>
         public async Task UnloadAsync(string model, CancellationToken ct)
         {
             try { await _primary.UnloadAsync(model, ct).ConfigureAwait(false); } catch { }
-            try { await _local.UnloadAsync(_localTextModel, ct).ConfigureAwait(false); } catch { }
+            try { await _local.UnloadAsync(LocalModelFor(model), ct).ConfigureAwait(false); } catch { }
         }
 
         public void Dispose()

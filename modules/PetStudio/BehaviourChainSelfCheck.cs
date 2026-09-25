@@ -306,8 +306,12 @@ namespace DesktopAICompanion.PetStudioModule
             // host's validator, so agreement is the entire justification for source-linking it.
             XmlData.RootNode parsed;
             string hostError;
-            ok &= Check(sb, "the host's validator accepts the compiled chain (" + (hostError = "") + ")",
-                CompanionXmlValidator.TryParse(built, out parsed, out hostError) && parsed != null);
+            // Parse FIRST, label SECOND. Arguments evaluate left to right, so building the label around
+            // (hostError = "") ran before TryParse could fill it and every rejection printed "()" -- the
+            // reason discarded at exactly the moment it was the only thing worth having.
+            bool hostAccepted = CompanionXmlValidator.TryParse(built, out parsed, out hostError) && parsed != null;
+            ok &= Check(sb, "the host's validator accepts the compiled chain (" + (hostError ?? "") + ")",
+                hostAccepted);
             if (parsed == null) return false;
 
             PetReport after = PetAnalyzer.Analyze(built);
@@ -418,8 +422,8 @@ namespace DesktopAICompanion.PetStudioModule
 
             XmlData.RootNode parsed;
             string parseError;
-            if (!Check(sb, "the magic-name chain validates (" + (parseError = "") + ")",
-                    CompanionXmlValidator.TryParse(built, out parsed, out parseError)))
+            bool validated = CompanionXmlValidator.TryParse(built, out parsed, out parseError);
+            if (!Check(sb, "the magic-name chain validates (" + (parseError ?? "") + ")", validated))
                 return false;
 
             var names = new List<string>();

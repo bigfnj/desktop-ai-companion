@@ -117,8 +117,17 @@ $wins = Get-ProcessWindows $proc.Id
 Write-Host "--- windows owned by pid $($proc.Id):"
 $wins | ForEach-Object { Write-Host ("    {0,-24} {1,-28} {2}x{3} at {4},{5}" -f $_.Class, $_.Title, $_.W, $_.H, $_.X, $_.Y) }
 
+# ASSERTED, not just printed. Without SHIFT, IsDebugActive() is false and a right-click goes to
+# OnPetPoked instead, which draws a speech bubble and creates no drop-down -- so the run would end
+# at "inconclusive" and send the reader to a screenshot to work out which of the two things broke.
 $debugWindowSeen = [bool]($wins | Where-Object { $_.Title -match 'debug' })
 Write-Host "debug window present (proves Shift reached the app): $debugWindowSeen"
+if (-not $debugWindowSeen) {
+    Write-Host 'SMOKE FAIL: SHIFT did not reach the app, so debug mode is off and the menu under test is not the one that would open' -ForegroundColor Red
+    try { $proc.Kill() } catch { }
+    $env:DESKTOP_AI_COMPANION_DATA_ROOT = $previousRoot
+    exit 1
+}
 
 # The pet form is titled "Sheep". Matching on size alone picked up the speech bubble instead, which
 # is untitled, the same order of size, and NOT what the debug menu hangs off.

@@ -64,7 +64,11 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.1.7",   // 1.1.7: dead code out, no behaviour change. DisposeWithin was byte-for-byte
+            Version = "1.1.8",   // 1.1.8: the fullscreen release now unloads the model it actually loaded. The local
+                                 //        leg of the fallback ignored its argument and always passed the TEXT model,
+                                 //        so after a cloud-primary fallback had loaded local llava:13b (~8 GB) the
+                                 //        vision model kept its VRAM for the whole game.
+                                 // 1.1.7: dead code out, no behaviour change. DisposeWithin was byte-for-byte
                                  //        DisposeForDiagnostics with no callers, and CredentialIdentity had none
                                  //        either while decrypting the API key on every call.
                                  // 1.1.6: "Test connection" reports whether it got an ANSWER; a saved vision

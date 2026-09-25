@@ -159,16 +159,28 @@ namespace DesktopAICompanion.BlinkingLed
 
         internal void Stop()
         {
-            if (!_running) return;
+            // NO `if (!_running) return;` HERE. That guard is what made the 1.0.4 fix a half fix.
+            //
+            // "Blink once now" is live whether or not the feature is switched on -- its whole job is
+            // answering "is this doing anything at all?" when the LED has not moved -- so the ordering
+            // already-off-then-blink reached Stop() with _running false, returned before the corrective
+            // toggle, and left Scroll Lock lit with nothing running to clear it. Ticking the feature on
+            // afterwards then made it worse: Start() sets _phaseOn = false against a physically lit key,
+            // so the cadence ran inverted for the rest of the session (on Glacial, lit for four minutes
+            // and dark for four seconds). The 1.0.4 note claimed this was fixed; it fixed only the other
+            // ordering, blink-then-switch-off, where _running was still true.
+            //
+            // Gated on _phaseOn AND the hardware, not on the hardware alone. _phaseOn is this object's
+            // own belief that WE are the ones holding the key on -- BlinkOnce and the cadence both
+            // maintain it -- so a Scroll Lock the USER turned on for their own reasons is left alone,
+            // including at startup, where Init calls ApplyState(false) on a fresh blinker.
             _running = false;
             DisposeTimer();
-            // The FLAG is not the truth. BlinkOnce toggles the key outside the cadence without touching
-            // _phaseOn, so after "Blink once now" the flag said dark while the LED was lit -- and this
-            // guard short-circuits BEFORE IsScrollLockOn, so the key was never even consulted. Unticking
-            // the feature then left Scroll Lock on with nothing left running to clear it, which is the
-            // exact state the comment above says this method exists to prevent. Ask the hardware.
-            try { if (IsScrollLockOn()) Toggle(); }
-            catch { }
+            if (_phaseOn)
+            {
+                try { if (IsScrollLockOn()) Toggle(); }
+                catch { }
+            }
             _phaseOn = false;
         }
 

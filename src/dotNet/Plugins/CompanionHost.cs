@@ -70,12 +70,37 @@ namespace DesktopAICompanion.Plugins
             });
         }
 
+        /// <summary>
+        /// The id to file a responder under: what the caller declared, or failing that, the module whose
+        /// Init we are currently inside.
+        ///
+        /// THE FALLBACK IS LOAD-BEARING, not tidiness. Neither drop-responder overload takes a module id
+        /// (and the ABI cannot grow one without a breaking change), so both registered as "". RaiseDropTick
+        /// routes the chain through the user's "Trigger Speech" choice, and RaiseChain's filter removes
+        /// every candidate whose id is not that choice -- which, against a chain where every id was "",
+        /// removed ALL of them. Picking anything but "Default" therefore silenced every random-drop remark
+        /// in the app, permanently and with no error, while pokes went on working because the poke pair
+        /// does carry Info.Id. That asymmetry is what made it look like a half-broken feature rather than
+        /// a routing bug.
+        ///
+        /// ModuleHost wraps module.Init in BeginModuleInit/EndModuleInit for exactly this kind of
+        /// attribution and OptionsPane ownership already uses it. A responder registered OUTSIDE Init
+        /// still files as "", which is the old behaviour and is correct: the host genuinely does not know
+        /// who is calling then.
+        /// </summary>
+        private string ResponderModuleId(string declared)
+        {
+            string given = (declared ?? "").Trim();
+            if (given.Length > 0) return given;
+            return (_initialisingModuleId ?? "").Trim();
+        }
+
         private IDisposable AddResponder(List<Responder> list, string moduleId, int priority, Func<ICompanion, bool> onFire)
         {
             if (onFire == null) return new Noop();
             var entry = new Responder
             {
-                ModuleId = (moduleId ?? "").Trim(),
+                ModuleId = ResponderModuleId(moduleId),
                 Priority = priority,
                 Seq = _nextResponderSeq++,
                 OnFire = onFire,

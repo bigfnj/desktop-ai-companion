@@ -1324,8 +1324,11 @@ namespace DesktopAICompanion.Ai
                     if (fileLimit < 1 || declaredLength < 1 ||
                         declaredLength > fileLimit)
                         continue;
+                    // CHARGED AFTER THE READ SUCCEEDS, not before it. Charging up front meant a file
+                    // that failed the strict-UTF-8 read or the parse still spent its share of the 16 MB
+                    // budget, so a single bad pack could starve every valid pack that sorted after it --
+                    // silently, because nothing here reports a budget exhaustion.
                     int chargedBytes = (int)declaredLength;
-                    totalBytes += chargedBytes;
                     if (!TryReadStrictUtf8File(
                             path, chargedBytes, out content, out bytesRead) ||
                         bytesRead != chargedBytes)
@@ -1347,9 +1350,12 @@ namespace DesktopAICompanion.Ai
                         continue;
 
                     // Nothing from a file becomes visible until the entire file has passed strict
-                    // decoding, format validation, and all configured resource bounds.
+                    // decoding, format validation, and all configured resource bounds -- and nothing is
+                    // charged against the byte budget until then either, which is the point of doing it
+                    // here rather than beside the FileInfo length above.
                     list.AddRange(staged);
                     totalEntries += staged.Count;
+                    totalBytes += chargedBytes;
                 }
             }
             catch { }

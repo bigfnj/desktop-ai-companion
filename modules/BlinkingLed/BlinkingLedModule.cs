@@ -31,7 +31,14 @@ namespace DesktopAICompanion.BlinkingLed
         {
             Id = "blinkingled",
             Name = "Blinking LED",
-            Version = "1.0.4",   // 1.0.4: "Blink once now" no longer leaves the LED stuck lit when the feature
+            Version = "1.0.5",   // 1.0.5: "Blink once now" no longer strands the LED when the feature was
+                                 //        ALREADY off. 1.0.4 fixed only the other ordering (blink, then
+                                 //        switch off); Stop() returned early on !_running, so a blink made
+                                 //        with the feature off was never reconciled, and ticking the
+                                 //        feature on afterwards ran the whole cadence inverted. The
+                                 //        self-test that was supposed to cover this constructed an
+                                 //        unstarted blinker and asserted only that a flag flipped.
+                                 // 1.0.4: "Blink once now" no longer leaves the LED stuck lit when the feature
                                  //        is switched off afterwards.
                                  // 1.0.3: the LED never blinked on x64, on any machine. The
                                  //        Win32 INPUT union must be sized by its LARGEST member
@@ -883,6 +890,23 @@ namespace DesktopAICompanion.BlinkingLed
                         phaseProbe.PhaseOn != phaseBefore);
                     phaseProbe.BlinkOnce();   // put the developer's own LED back where it was
                     phaseProbe.Dispose();
+
+                    // Stop() has to reconcile the key even when the blinker was NEVER RUNNING. The probe
+                    // above already constructs an unstarted blinker and blinks it, which is exactly the
+                    // state that used to strand the LED -- and it asserted nothing about it, which is how
+                    // the defect shipped under a changelog line saying it was fixed.
+                    //
+                    // Asserted on PhaseOn, not ToggleCount: ToggleCount only advances when Windows
+                    // ACCEPTS the SendInput, so a runner where the input is refused would fail this for
+                    // the wrong reason. PhaseOn is pure state and fails only for the right one.
+                    var stopProbe = new ScrollLockBlinker();
+                    stopProbe.BlinkOnce();                       // _running is false: the broken ordering
+                    bool litBeforeStop = stopProbe.PhaseOn;
+                    stopProbe.Stop();
+                    probe.Check("Stop() clears a blink-once made while the feature was switched off",
+                        litBeforeStop && !stopProbe.PhaseOn);
+                    if (stopProbe.PhaseOn) stopProbe.BlinkOnce();   // only reached if the check failed
+                    stopProbe.Dispose();
                     // Put the key back where the machine had it. Scroll Lock is inert, but leaving a
                     // developer's LED lit because a self-test ran is still litter. The second attempt has
                     // the same outcome as the first, so it adds no line.

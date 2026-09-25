@@ -1221,9 +1221,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 var canonical = new Dictionary<string, int>(StringComparer.Ordinal);
                 var map = new int[total];
                 var survivors = new List<int>();
+                var sourceHash = new string[total];   // kept: the verification pass below needs these again
                 for (int i = 0; i < total; i++)
                 {
                     string hash = CellHash(decoded, i, tilesX, cw, ch);
+                    sourceHash[i] = hash;
                     int owner;
                     if (canonical.TryGetValue(hash, out owner)) { map[i] = owner; continue; }
                     canonical[hash] = survivors.Count;
@@ -1267,14 +1269,20 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
 
                     // Prove the pet still renders the same pictures in the same order, against the packed
                     // sheet actually produced rather than against the map that was supposed to produce it.
+                    // Same comparison, each side hashed once instead of once per FRAME that references
+                    // it. The source hashes were computed in the survivor pass; the packed side has one
+                    // distinct cell per survivor, so a frame that reuses a cell reuses its hash too.
+                    var packedHash = new string[survivors.Count];
                     foreach (XmlData.AnimationNode a in root.Animations.Animation)
                     {
                         if (a == null || a.Sequence == null || a.Sequence.Frame == null) continue;
                         foreach (int f in a.Sequence.Frame)
                         {
                             if (f < 0 || f >= total) { report = "FAIL (frame " + f + " is outside the sheet)"; return DedupeOutcome.Failed; }
-                            if (!CellHash(decoded, f, tilesX, cw, ch)
-                                    .Equals(CellHash(packed, map[f], newTilesX, cw, ch), StringComparison.Ordinal))
+                            int slot = map[f];
+                            if (packedHash[slot] == null)
+                                packedHash[slot] = CellHash(packed, slot, newTilesX, cw, ch);
+                            if (!sourceHash[f].Equals(packedHash[slot], StringComparison.Ordinal))
                             {
                                 report = "FAIL (frame " + f + " would render different art after the re-grid)";
                                 return DedupeOutcome.Failed;

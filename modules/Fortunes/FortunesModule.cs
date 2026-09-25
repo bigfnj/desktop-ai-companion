@@ -48,7 +48,11 @@ namespace DesktopAICompanion.FortunesModule
         {
             Id = "fortunes",
             Name = "Fortunes",
-            Version = "1.0.6",   // 1.0.6: the smart picker is now BUILT off the UI thread, not just warmed
+            Version = "1.0.7",   // 1.0.7: a custom pack that fails to read or parse no longer spends its share of the
+                                 //        16 MB budget. The bytes were charged from the file length before the strict
+                                 //        UTF-8 read, so one bad pack could starve every valid pack that sorted after
+                                 //        it, silently -- nothing reports a budget exhaustion.
+                                 // 1.0.6: the smart picker is now BUILT off the UI thread, not just warmed
                                  //        there, and says in the log when it is actually ready.
                                  // 1.0.5: the smart picker rotated 64 lines out of 7780, so the same
                                  //        fortune came round every third pick in a stable context. The
