@@ -921,3 +921,29 @@ rather than everything.
   rebuilt on every pane selection and after every button press. A user with the full 54-companion
   catalog pays ~10 MB of synchronous reads per click.
 
+
+## Closed 2026-09-25 - the size slider wrote a 1.17 MB document per tick
+
+One write per DRAG now, not per 25% step. Nothing visual depended on the write: the tooltip already
+said the size "applies the next time you Add it", so the readout and status line track the thumb
+live while the store hears about it once.
+
+Fail-safe by construction, which matters because a real drag cannot be staged from a self-test here
+(no UI Automation assemblies are referenced). If DragStarted never fires the code degrades to the
+old immediate write; if DragCompleted never fires the Unloaded flush catches it; the pane is rebuilt
+on every selection, so that path is real rather than theoretical. Covered by three source invariants
+asserting the CONDITION -- checking that persistPending is merely CALLED would pass the revert,
+since the reverted code calls it on every tick. Mutation confirmed: restoring the unconditional
+call fails the first invariant by name.
+
+- 📌 **Dragging the per-companion size slider rewrites a 1.17 MB settings.json per 25% step, on the UI
+  thread.** `src/Portable/Wpf/CompanionsPaneControl.cs:409` → `StartUp.cs:1061` → `LocalData.cs:301` →
+  `AppSettingsStore.SaveCore:1053` → `AtomicFile.TryWriteAllText`. The document embeds the active
+  pet's animations.xml as base64 (`AppSettingsStore.cs:69`); measured on this box, the real
+  settings.json is 1,167,948 bytes. Timing the durable-write half exactly as `AtomicFile` shapes it
+  (WriteThrough + `Flush(true)` + `File.Replace` with backup), 10 iterations on C:, same volume as the
+  real file: median 129.7 ms (min 116.9, max 143.6); the read + deserialize + serialize half is on top
+  and was not measured. The slider snaps every 25 from 25 to 400, so one drag crosses 15 positions:
+  roughly 2 s of blocked UI thread and ~35 MB of write-through traffic for one gesture.
+  `ReloadPetType` does 5 full writes to reload 4 pets of one type.
+

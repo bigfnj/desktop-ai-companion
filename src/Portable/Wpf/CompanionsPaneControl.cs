@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using System.Xml.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;   // Thumb.DragStarted/DragCompleted (size-slider write coalescing)
 using System.Windows.Documents;   // Run, Hyperlink (inline clickable size)
 using System.Windows.Input;       // Cursors
 using System.Windows.Media;
@@ -406,11 +407,45 @@ namespace DesktopAICompanion.Wpf
                 VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0), MinWidth = 34,
             };
 
+            // ONE write per drag, not one per tick.
+            //
+            // settings.json embeds the active pet's animations.xml as base64, so on this box the real
+            // document is 1,167,948 bytes. SetPetScalePercent persists synchronously on the UI thread
+            // through AtomicFile (WriteThrough + Flush(true) + File.Replace), measured at a median
+            // 129.7 ms for the durable-write half alone. The slider snaps every 25 from 25 to 400, so
+            // one drag across the range crossed 15 positions: roughly two seconds of frozen UI and
+            // ~35 MB of write-through traffic for a single gesture.
+            //
+            // Nothing visual depends on the write. The tooltip says it plainly -- the size "applies the
+            // next time you Add it" -- so the readout and the status line can track the thumb live
+            // while the STORE hears about it once, when the drag ends.
+            bool dragging = false;
+            int pendingPercent = startPercent;
+            Action persistPending = delegate
+            {
+                try { if (Program.Mainthread != null) Program.Mainthread.SetPetScalePercent(addId, pendingPercent); }
+                catch { }
+            };
+
+            slider.AddHandler(Thumb.DragStartedEvent, new DragStartedEventHandler(delegate { dragging = true; }));
+            slider.AddHandler(Thumb.DragCompletedEvent, new DragCompletedEventHandler(delegate
+            {
+                dragging = false;
+                persistPending();
+            }));
+            // A pane rebuilt mid-drag would otherwise drop the value the user was choosing: the pane is
+            // reconstructed on every selection and after every button press, and DragCompleted never
+            // arrives for a control that has gone away.
+            slider.Unloaded += delegate { if (dragging) { dragging = false; persistPending(); } };
+
             slider.ValueChanged += delegate
             {
                 int pct = (int)Math.Round(slider.Value);
+                pendingPercent = pct;
                 readout.Text = pct + "%";
-                try { if (Program.Mainthread != null) Program.Mainthread.SetPetScalePercent(addId, pct); } catch { }
+                // Keyboard, a click on the track, or a programmatic set: no drag is in progress, so
+                // there is nothing to coalesce and the old immediate behaviour is exactly right.
+                if (!dragging) persistPending();
                 _status.Text = displayName + " size " + pct + "%. Add " + displayName + " (or restart) to see it.";
             };
 

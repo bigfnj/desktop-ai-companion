@@ -521,6 +521,32 @@ Assert-True (
     [regex]::Matches($engineCode, 'Kill\(true\)').Count -ge 2
 ) 'a converter child that outlives its timeout is killed, not abandoned'
 
+# The per-companion size slider writes ONCE per drag.
+#
+# settings.json embeds the active pet's animations.xml, so it is ~1.17 MB here, and
+# SetPetScalePercent persists it synchronously on the UI thread through AtomicFile. The slider snaps
+# every 25 from 25 to 400, so a drag across the range used to cost 15 durable writes: about two
+# seconds of frozen UI for one gesture.
+#
+# A real drag cannot be staged from a self-test (no UI Automation assemblies are referenced here), so
+# this asserts the CONDITION rather than the behaviour: the persist inside ValueChanged must be gated
+# on the drag flag, and both exits from a drag must flush. Checking merely that persistPending is
+# CALLED would pass the revert, because the reverted code calls it on every tick.
+$companionsPaneSource = Get-Content -LiteralPath (
+    Join-Path $repoRoot 'src\Portable\Wpf\CompanionsPaneControl.cs') -Raw
+$companionsPaneCode = Remove-LineComments $companionsPaneSource
+Assert-True (
+    $companionsPaneCode -match 'if \(!dragging\) persistPending\(\);'
+) 'the size slider persists from ValueChanged only when no drag is in progress'
+Assert-True (
+    ($companionsPaneCode -match 'Thumb\.DragCompletedEvent') -and
+    ($companionsPaneCode -match 'Thumb\.DragStartedEvent')
+) 'the size slider tracks both ends of a drag, so the deferral has a beginning and an end'
+Assert-True (
+    # A pane rebuilt mid-drag never sees DragCompleted, and the pane IS rebuilt on every selection.
+    $companionsPaneCode -match 'Unloaded \+= delegate \{ if \(dragging\)'
+) 'a drag interrupted by a pane rebuild still flushes the value the user chose'
+
 $dropBody = Get-MethodBody $aiBrainSource 'private bool OnDrop(ICompanion pet)'
 $pokeBody = Get-MethodBody $aiBrainSource 'private bool OnPokeReaction(ICompanion pet)'
 $guardBody = Get-MethodBody $aiBrainSource 'private bool FullscreenBlocked()'

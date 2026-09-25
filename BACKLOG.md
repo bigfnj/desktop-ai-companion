@@ -596,17 +596,6 @@ open-item blindness plus the bug-number drift.
 
 ### Blocking IO, pipe deadlocks, and measured cost
 
-- 📌 **Dragging the per-companion size slider rewrites a 1.17 MB settings.json per 25% step, on the UI
-  thread.** `src/Portable/Wpf/CompanionsPaneControl.cs:409` → `StartUp.cs:1061` → `LocalData.cs:301` →
-  `AppSettingsStore.SaveCore:1053` → `AtomicFile.TryWriteAllText`. The document embeds the active
-  pet's animations.xml as base64 (`AppSettingsStore.cs:69`); measured on this box, the real
-  settings.json is 1,167,948 bytes. Timing the durable-write half exactly as `AtomicFile` shapes it
-  (WriteThrough + `Flush(true)` + `File.Replace` with backup), 10 iterations on C:, same volume as the
-  real file: median 129.7 ms (min 116.9, max 143.6); the read + deserialize + serialize half is on top
-  and was not measured. The slider snaps every 25 from 25 to 400, so one drag crosses 15 positions:
-  roughly 2 s of blocked UI thread and ~35 MB of write-through traffic for one gesture.
-  `ReloadPetType` does 5 full writes to reload 4 pets of one type.
-
 - 📌 **Fortunes rebuilds its vector cache synchronously on the UI thread, on start and every Apply.**
   `modules/Fortunes/FortunesModule.cs:156` backgrounds only `Warm`; the `SmartFortunes` constructor is
   synchronous and its `VectorCache` ctor ends in `Load(...)`, which takes a Global mutex plus a
