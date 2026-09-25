@@ -609,3 +609,219 @@ exists for `docs/BLOCKED.md` T58.
   The audio half of this finding is closed: `Microphone`, `SystemAudio` and `AgentTranscripts` were
   added for Remembrance and AgentFlow. The port assessment it came out of is
   [`docs/IDEAS.md`](docs/IDEAS.md) idea 18.
+
+---
+
+## Closed 2026-09-24 — the fourteen guards that could not fail
+
+Filed as one cluster because they share a shape: each reported a property nobody was testing. They
+were taken FIRST, ahead of every other item, on the reasoning that a gate which cannot fail makes
+the rest of a campaign unfalsifiable — and that turned out to be right twice over, because fixing
+them immediately caught two live defects (`watchIntro`/`watchState` leaking prose into settings.json,
+and a catalog advertising a version nobody could download).
+
+Every one was mutation-tested: break the thing it guards, confirm exactly one failure naming the
+right file, restore. Where a mutation SURVIVED, that is recorded below rather than quietly fixed.
+
+- 📌 **Five safety parameters in `packaging/StagingPathSafety.ps1` are mandatory and never read.**
+  `Remove-DesktopAICompanionSafeDirectory` (`:674-698`) declares `[Parameter(Mandatory)]$TrustedRoot`
+  and reads only `$Path` and `$AllowedRoot` before `Remove-Item -Recurse -Force`. Same in
+  `Remove-...SafeFile` (`:648`), `Reset-...StagingDirectory` (`:700`) and `Open-...NewScratchDirectory`
+  (`:618`, which also discards `$ProtectedPaths` and `$ProtectedDirectories`).
+  `Open-...ValidatedInputFile` (`:385`) and `Copy-...ValidatedInputFile` (`:476`) declare
+  `[bool]$RejectHardLinks = $true` and never read it; `Copy-...` also never reads its mandatory
+  `$Root`. So a copy whose `-Path` sits outside the declared `-Root` succeeds, and a junction inside
+  the build output passes `-RejectHardLinks $true` and ships in the MSI. Real callers pass these
+  expecting enforcement. The file's OWN docstring at `:509-522` records this exact defect being found
+  and fixed in `Publish-...AtomicFile` ("took ELEVEN parameters and read TWO of them"); five instances
+  survived in the same file. Supporting: `[uint32]$LinkCount` at `:68` is hardcoded to 1 in the
+  constructor, and `Get-DesktopAICompanionFinalPath` (`:282`), the only link resolver in the tree, has
+  zero callers.
+
+- 📌 **The signing guard is proven by POSITION only, so the mutation it was rewritten to stop passes.**
+  `tests/runtime-hardening-selftest.ps1:991-1010` asserts the guard exists, the call exists, and
+  `guard.Index < callAt`. Nothing locates the guard's CLOSING brace. Close the
+  `if (-not [string]::IsNullOrWhiteSpace($SigningCertThumbprint))` block early and move the signtool
+  call below it: guard.Index 6191, callAt 6285, all three assertions pass over a build.ps1 that signs
+  unconditionally. `$callAt` is also `IndexOf`, so a second unguarded call added later is invisible.
+
+- 📌 **The PowerShell-7-only token list omits ternary and `??=`, the two most likely to be written.**
+  `tests/runtime-hardening-selftest.ps1:1105` lists `AndAnd, OrOr, QuestionQuestion, QuestionDot,
+  QuestionLBracket`. Tokenised under the real 7.6.5 parser, ternary `? :` emits **QuestionMark** and
+  `??=` emits **QuestionQuestionEquals**; neither is listed. `QuestionDot`/`QuestionLBracket` do not
+  fire for the usual `$var?.Prop` spelling either, because the parser folds the `?` into the Variable
+  token. Add `$configuration = $Release ? 'Release' : 'Debug'` to build.ps1: CI runs this gate with
+  `shell: pwsh`, both assertions pass, and build.ps1 is a hard parse error under 5.1. The comment at
+  `:1103` claims "the gate catches them whichever host it runs on", which is false for both.
+
+- 📌 **The shell-parity set is scraped out of workflow YAML as text, so it covers 11 of ~20 scripts.**
+  `tests/runtime-hardening-selftest.ps1:1084-1099`. Excluded: `installer/New-RuntimeWixFragment.ps1`
+  (invoked on every CI MSI build), `packaging/StagingPathSafety.ps1` and
+  `packaging/WixToolchainPolicy.ps1` (dot-sourced by build.ps1 and build-installer.ps1), and seven
+  other packaging scripts. `run-gate.ps1` is in the set only because build.yml mentions it inside four
+  COMMENTS, so a comment cleanup drops the repo's own gate script and the `-ge 5` floor still passes.
+
+- 📌 **The consent-before-download order check reads raw C#, so a comment satisfies it.**
+  `tests/runtime-hardening-selftest.ps1:1202-1216` does `IndexOf` on unmodified source, 30 lines below
+  a structurally identical check (`:1182`) that strips comments precisely because the unstripped
+  version survived a revert, with the note at `:1177` recording it. Move the consent block below the
+  download call and phrase the comment above it as "ModulePermissionConsent.NewlyRequested is
+  consulted here": the ordering assertion holds while consent happens after the bytes are on disk.
+  `Remove-LineComments` is defined at `:345` and is also not applied at `:477-505`, `:527-539` or
+  `:460-467`.
+
+- 📌 **`if: always()` is asserted as a bare presence, unbound to the step it belongs on.**
+  `tests/runtime-hardening-selftest.ps1:1042-1045` matches the scrub step's NAME and matches
+  `if: always()` anywhere, with nothing associating the two. release.yml has exactly one today, so it
+  works by luck. Move it to the artifact-upload step and both assertions still pass while a failed
+  build leaves the imported PFX on the runner.
+
+- 📌 **The redirect-encoding invariant is per-FILE, stdout-only, and has no floor.**
+  `tests/runtime-hardening-selftest.ps1:67-78`. One `StandardOutputEncoding` anywhere clears a file
+  however many redirect sites it has: `tools/ShimejiConvert.Engine/Engine.cs` has two (`:250`/`:254`,
+  `:305`/`:307`), so deleting the second pin leaves the check green with the live CP_ACP mojibake bug.
+  `RedirectStandardError` without `StandardErrorEncoding` is not checked at all, and a moved tree
+  yields zero files and passes on no evidence — which the same file explicitly defends against for the
+  .wxs loop at `:1057`.
+
+- 📌 **The atomic-publish suite's fifth refusal accepts ANY exception as proof.**
+  `packaging/Test-AtomicPublish.ps1:121` passes `''` as the expected message, so the match at `:46`
+  becomes `-like "**"`. Cases 1-4 each name their string. The guard case 5 exercises throws "Trusted
+  staging root is missing or is not a directory" BEFORE the containment test, so if `$scratch` has
+  gone, case 5 reports REFUSED on the wrong exception and the escape guard is never exercised.
+
+- 📌 **The module-template release-window check degrades and then passes.**
+  `packaging/Test-ModuleTemplate.ps1:126-130` writes a yellow "DEGRADED" line when `git tag --list`
+  returns nothing and continues to exit 0, despite the comment at `:124` claiming it "Degrades
+  LOUDLY". On a shallow clone the gate judges this script by whether it throws
+  (`run-gate.ps1:137`) and reports the template OK. The identical pattern was found and hard-failed in
+  the sibling `Test-ModulePublishFreshness.ps1:333-344`; the fix was not carried across.
+
+- 📌 **`run-gate.ps1:43` checks `$LASTEXITCODE` after a .ps1 that signals failure by `throw`.**
+  build.ps1 sets `$ErrorActionPreference='Stop'` and throws on every failure path, so the branch is
+  dead. Lines `:88-101` of the same file spell out why this is wrong and apply try/catch to the three
+  checks below it; the build call above them kept the old form. A build failure escapes as a raw
+  exception instead of the `GATE FAILED:` summary, and no later check runs.
+
+- 📌 **One self-test failure skips all source invariants in CI.**
+  `.github/workflows/build.yml:62-69` throws at `:64-67` and invokes the invariants at `:69`, in the
+  same step, below the throw. `run-gate.ps1:53-132` deliberately COLLECTS instead, with the comment
+  "one missing module no longer hides every check after it". CI kept the old shape. Related: the gate
+  fails on `SELFTEST-COUNT <= 0`; build.yml ignores the count.
+
+- 📌 **A module whose .csproj path moves is silently not built, and the build exits 0.**
+  `build.ps1:231-237` wraps the build in `if (Test-Path $moduleProject)` with no else and no assertion
+  that the eight hardcoded paths at `:208-230` resolve. Rename
+  `modules/BlinkingLed/BlinkingLed.csproj` and build.ps1 prints nothing;
+  `Test-ModulePublishFreshness.ps1` globs `*.csproj` so it is happy; `Invoke-SelfTests.ps1:136` only
+  `Test-Path`s the output DIRECTORY, so under the documented `run-gate.ps1 -SkipClean` the previous
+  build's DLL is still there, loads, and the gate prints GATE PASSED. `Invoke-SelfTests.ps1:76-78`
+  describes this hole without closing it.
+
+- 📌 **Three module self-test assertions cannot fail, two of them mutation-proven.**
+  `modules/BlinkingLed/BlinkingLedModule.cs:668` names "speaks when the user switches it off" but by
+  that line the blinker is already stopped and a RATE quip is what gets recorded — delete the
+  `Announce(...)` at `:207` and every check still passes, so the two strings the class doc calls the
+  only thing this module ever says have no falsifiable coverage. `:647-659` builds `everyRateKnown`
+  from two tautologies under a comment about typo'd names: rename `RateNames[3]` to "Normall" and the
+  suite stays green while the pane offers an option that no longer resolves through the switch.
+  `modules/AgentFlow/AgentFlowModule.cs:2451` asserts on "aboutAnswering", a string that occurs
+  exactly once in the whole repo — inside the assertion — and is not a field id; it also asserts
+  against `LoadPending`, which deliberately DOES contain Info rows, so naming a real id would fail.
+
+- 📌 **`FortuneEngineProbe` asserts an Ordinal match against a culture-formatted number.**
+  `modules/Fortunes/engine/FortuneEngineProbe.cs:186` looks for the literal `"12,345"` in a string
+  `FortunesModule.Count` formats with `"N0"` and `CultureInfo.CurrentCulture`. On a de-DE machine that
+  is "12.345", the assertion fails, and `--fortunes-engine-selftest` fails the whole gate for a reason
+  unrelated to the code under test.
+
+---
+
+## Closed 2026-09-24 — ten module defects
+
+- 📌 **Fortunes clears its staged pack selection before knowing whether the save worked.**
+  `modules/Fortunes/FortunesModule.cs:648` calls `_stagedDisabled.Clear()` ahead of the caller seeing
+  `ms.Save()`'s result, and nothing else holds the batch: `CompanionHost.GetSettings` returns a fresh
+  `ModuleSettings` per call. Click "Select none" (158 ids staged) and Apply while an AV scanner holds
+  settings.json: Save returns false, the dialog says so, and both staging maps are already empty.
+  Apply again — nothing staged, nothing written, Save succeeds, `ok == true`, no warning, and all 158
+  packs are still enabled. The user was told the second Apply worked.
+
+- 📌 **BlinkingLed's "Blink once now" leaves the LED stuck lit with the feature switched off.**
+  `_phaseOn` is the only record of whether the light is on, and `Stop()` relies on it
+  (`modules/BlinkingLed/engine/ScrollLockBlinker.cs:155-174`). `BlinkOnce()` calls `Toggle()` and does
+  not update it, so from the next tick the flag is the inverse of reality. Press it during a dark gap,
+  then untick "Blink the Scroll Lock light" and Save: `Stop()` sees `_phaseOn == false`, skips its
+  corrective toggle, and leaves the LED on — the exact state `Stop()`'s doc comment exists to prevent.
+  At Glacial the dark window is 240s of 244, so it is near-certain rather than a coin flip. `BlinkOnce`
+  is also not gated on `_running`.
+
+- 📌 **Remembrance writes module settings from a thread-pool thread while Apply serialises them.**
+  `modules/Remembrance/RemembranceModule.cs:915-933` fires `DownloadRecommendedModelAsync` and forgets
+  it; its continuation calls `_settings.Set(...)` twice and `_settings.Save()` off the pool. The host's
+  `ModuleSettings` (`src/dotNet/Plugins/CompanionHost.cs:825-845`) is a bare unsynchronised
+  `Dictionary<string,string>`. Start a 14 GB model pull, edit the whisper-cli path, press Apply, and
+  let the pull land during it: the UI thread is inside `Serialize(_d)` while the pull thread does
+  `_d[key] = value`, the serializer throws "Collection was modified", `Save` swallows it and returns
+  false, and Apply reports failure with the user's edits unpersisted. A concurrent write across a
+  dictionary resize is the worse interleaving. `IcsUrlSource.FetchCore:47` has a milder version.
+
+- 📌 **AiBrain's "Test connection" proves only that nothing threw.**
+  `modules/AiBrain/AiBrainModule.cs:504-506` awaits `backend.ChatAsync(...)`, discards the result and
+  prints `"connected · " + model + " OK"`. Both backends return `""` rather than throwing on a
+  well-formed 200 that lacks the expected node — `OpenAiCompatBackend.ChatAsync:152-158` returns `""`
+  when `choices` is null or empty. A moderated or quota-exhausted endpoint answering `{"choices":[]}`
+  gets a green `connected · gpt-4o OK 0.9s` while every real ask returns nothing and the companion is
+  mute. Assert the response is non-empty.
+
+- 📌 **A saved vision model the filter rejects is silently blanked.**
+  `modules/AiBrain/AiBrainModule.cs:813` adds every listed id to `seenIds` BEFORE the vision filter
+  drops it at `:833`, so the union-it-back-in guard at `:839` returns false and does not. The doc
+  comment above the method states the opposite as a "SAFETY INVARIANT". With OpenRouter and
+  `CloudVisionModel = "google/gemini-flash-1.5"`, pressing "Refresh cloud models" renders the box
+  empty; the next Apply for any unrelated field writes `CloudVisionModel = ""` (`:643` has no
+  non-empty guard, unlike its local twin at `:616`), the constructor substitutes `"gemma3:4b"`, and
+  every vision ask now names a model the provider does not have.
+
+- 📌 **AiBrain's drop and poke responders claim the turn even when they decline it.**
+  `modules/AiBrain/AiBrainModule.cs:968` and `:1019` call the fire-and-forget `Ask(...)` then
+  `return true` unconditionally, while `Ask` has four further early returns they cannot see
+  (`:1029-1043`). `PluginApi.cs:660` defines the chain as "highest priority first until one handler
+  returns true", and this module registers at priority 10 to outrank Fortunes. A cold vision model
+  takes ~40s (measured; `AiBrain.cs:189` records 52s); at t+35s the drop tick fires, the 30s cooldown
+  has expired, `Ask` returns on `RequestInProgress`, `OnDrop` returns true, Fortunes is suppressed and
+  the pet says nothing. Both responders carry comments saying declining beats going silent.
+
+- 📌 **Every Remembrance transcription failure is reported as "Whisper is not configured".**
+  `modules/Remembrance/Transcriber.cs:31-36` and `:71-88`: `RunWhisper` returns false for a non-zero
+  exit, a missing output file, a missing WAV or any exception, and the captured stderr at `:77` is
+  read and discarded, destroying the real reason. Adopt a truncated `ggml-base.en.bin` through "Browse
+  for a model" (no size check there, unlike the installer's `MinimumModelBytes` gate); whisper-cli
+  exits non-zero with "failed to load model"; the transcript says to configure Whisper while the same
+  pane's Status line says "Whisper: configured", because `StatusLine` only tests `File.Exists`.
+
+- 📌 **AgentFlow logs "spoke about X" when it did not speak, every 10 seconds, forever.**
+  `modules/AgentFlow/AgentFlowModule.cs:1306-1336`. The line at `:1334` is written unconditionally
+  after three notification channels, none of which must have fired; in Log mode nothing is spoken at
+  all. The comment at `:1332` asserts the opposite, and `AnnounceScreenPrompt:1049` gets it right.
+  Worse: the early returns at `:1306` and `:1312` gate the CHIME and ANIMATION on the SPEECH
+  preconditions, so a user who turns app speech off but ticks "Play the notification sound" never gets
+  one — contradicting `:1322` — and because the budget is deliberately not consumed on that path and
+  `NotifyBudget.ShouldAnnounce` skips its cooldown while `_lastNotifyUtc == DateTime.MinValue`, the
+  "deferred a notice" line repeats every 10s for as long as a prompt sits blocked.
+
+- 📌 **AgentFlow's tray "Watching" row silently switches auto-approve off.**
+  `modules/AgentFlow/AgentFlowModule.cs:2107-2117` renders the tick whenever `Enabled`, which
+  `AgentMode.Scans` makes true for Notify, Log AND AutoApprove. Clicking the already-ticked row runs
+  `SetEnabledFromTray(true)`, which writes `AgentMode.Notify` unconditionally (`:2269-2281`) — no log
+  line and no spoken line, unlike `ToggleAutoApproveFromTray` which does both. From Log mode the same
+  click silently starts the companion talking.
+
+- 📌 **`LocalJsonSource` parses up to 2 MiB on the UI thread, 180 times an hour.**
+  `modules/Reminder/LocalJsonSource.cs:19` implements `ICalendarSource` directly instead of deriving
+  from `CachingCalendarSource`, which exists so a slow fetch never runs on the caller's thread;
+  `IcsUrlSource` and `OutlookComSource` both derive from it. `CALENDAR-FEED.md` describes the path as
+  a work-side exporter's output, i.e. typically a share, so when the VPN drops `File.ReadAllText`
+  blocks on the SMB timeout with the pets frozen, once every 20 seconds. The same doc's claim that "a
+  parse failure is non-fatal, the companion keeps the last good feed" is false here: last-good
+  retention lives only in `CachingCalendarSource.DoRefresh`.
