@@ -66,6 +66,23 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             return config;
         }
 
+        /// <summary>Parse in-memory actions + behaviours text, the behaviour-side twin of
+        /// <see cref="ParseActionsXml"/>. Frequencies and conditions live in behaviors.xml, so a test that
+        /// only has actions text cannot reach them, and going through a temp directory to assert a parse
+        /// rule tests the filesystem as much as the parser.</summary>
+        public static ShimejiConfig ParseConfXml(string actionsXml, string behaviorsXml)
+        {
+            var config = new ShimejiConfig();
+            ParseActions(XDocument.Parse(actionsXml), config);
+            if (!string.IsNullOrEmpty(behaviorsXml))
+            {
+                XDocument behaviors = XDocument.Parse(behaviorsXml);
+                ParseBehaviorConditions(behaviors, config);
+                ParseBehaviorFrequencies(behaviors, config);
+            }
+            return config;
+        }
+
         /// <summary>Parse the bundled Shimeji-EE base behaviour config (embedded in this assembly), used for a
         /// sprites-only skin that ships no conf of its own. See base-conf/NOTICE.txt for licensing.</summary>
         public static ShimejiConfig ParseBundledConf()
@@ -122,6 +139,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             // British spellings
             { "Behaviour", "Behavior" }, { "BehaviourReference", "BehaviorReference" },
             { "BehaviourList", "BehaviorList" }, { "NextBehaviourList", "NextBehaviorList" },
+            // NextBehaviour SINGULAR. The List form was aliased and this one was not, which is exactly
+            // backwards: base-conf/behaviors.xml contains 14 <NextBehavior> and ZERO <NextBehaviorList>.
+            // ParseBehaviorFrequencies excludes a <Behavior> that sits under either, so without this a
+            // British conf's inline transition weights were counted as ROOT selection frequencies and
+            // every hub weight for that skin came out skewed.
+            { "NextBehaviour", "NextBehavior" },
         };
 
         private static string Canon(string name)

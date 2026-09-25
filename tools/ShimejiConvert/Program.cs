@@ -172,7 +172,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
 
             if (pets.Count == 0)
             {
-                Console.Error.WriteLine("Found no <dir>\animations.xml under " + petsDirectory);
+                Console.Error.WriteLine("Found no <dir>\\animations.xml under " + petsDirectory);
                 return 2;
             }
 

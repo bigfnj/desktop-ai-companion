@@ -504,6 +504,23 @@ Assert-True (
     ($installerCode -notmatch 'Standard(Output|Error)\.ReadToEnd\(\)')
 ) 'the whisper verify probe drains both pipes the same way, so its five-minute cap can fire too'
 
+# The converter's two ffmpeg drains, same defect and same fix as the whisper pair above. Kept in the
+# same shape deliberately: four call sites across three files had the identical bug, so the check that
+# catches a regression in one has to catch it in all of them.
+$engineSource = Get-Content -LiteralPath (
+    Join-Path $repoRoot 'tools\ShimejiConvert.Engine\Engine.cs') -Raw
+$engineCode = Remove-LineComments $engineSource
+Assert-True (
+    ([regex]::Matches($engineCode, 'ReadToEndAsync\(\)').Count -ge 4) -and
+    ($engineCode -notmatch 'Standard(Output|Error)\.ReadToEnd\(\)')
+) 'the converter drains ffmpeg''s stdout and stderr CONCURRENTLY, so its timeouts can fire'
+Assert-True (
+    # ProbeFfmpeg used to return WaitForExit(5000) ANDed with the exit code, which leaves ffmpeg
+    # running
+    # for the life of the converter whenever the wait returns false.
+    [regex]::Matches($engineCode, 'Kill\(true\)').Count -ge 2
+) 'a converter child that outlives its timeout is killed, not abandoned'
+
 $dropBody = Get-MethodBody $aiBrainSource 'private bool OnDrop(ICompanion pet)'
 $pokeBody = Get-MethodBody $aiBrainSource 'private bool OnPokeReaction(ICompanion pet)'
 $guardBody = Get-MethodBody $aiBrainSource 'private bool FullscreenBlocked()'

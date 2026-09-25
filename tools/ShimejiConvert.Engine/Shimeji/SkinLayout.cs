@@ -20,9 +20,18 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     /// this is heuristic and tolerant:
     ///   * conf = the nearest folder (root, root/conf, or a shallow search) containing actions.xml;
     ///   * each img folder = a folder containing shimeN-style PNGs (root/img/*, or the root itself).
-    /// A skin with NO actions.xml cannot be converted here -- a sprites-only skin relies on the base
-    /// Shimeji conf, which is copyrighted and this repo does not ship. That case returns no skins with a
-    /// clear reason, rather than guessing.
+    /// A skin with NO actions.xml IS converted here, using the bundled base conf: such a skin is
+    /// returned with <see cref="DetectedSkin.UsesBundledConf"/> set, and ShimejiParser.ParseBundledConf
+    /// supplies the behaviour. Only a skin with no sprite folder at all returns no skins, with a reason.
+    ///
+    /// This paragraph previously said the opposite -- that such a skin "cannot be converted here"
+    /// because the base conf "is copyrighted and this repo does not ship" it. All three halves were
+    /// false, and the licensing one is the reason it is worth correcting rather than deleting: the repo
+    /// DOES ship tools/ShimejiConvert.Engine/base-conf/{actions,behaviors}.xml, deliberately, and they
+    /// are redistributable. They are the Shimeji-EE defaults under a 3-clause BSD licence, included
+    /// unmodified with attribution, precisely so that a sprites-only skin converts without the user
+    /// supplying a conf. See base-conf/NOTICE.txt, which also records the one thing that genuinely is
+    /// never shipped: sprite ART, which stays the skin author's copyright.
     /// </summary>
     public static class SkinLayout
     {

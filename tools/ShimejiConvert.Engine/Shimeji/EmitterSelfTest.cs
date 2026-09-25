@@ -1137,6 +1137,45 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     failures.Add("undirect: a second pass over bare names should change nothing");
             }
 
+
+
+            // ---- the drag swing draws exactly what it references ----
+            // PosesToComposite decides what goes INTO the sheet; DragSwingFramesOf decides what is named
+            // out of it. They disagreed: the first took every pose of every variant, the second took
+            // Poses[0] of each, so the remainder were drawn and never referenced. Asserted here rather
+            // than by counting tiles in a converted pet, because the tile count also moves with grid-tail
+            // padding and would not say WHICH cause moved it.
+            try
+            {
+                var dragConfig = new ShimejiConfig();
+                var dragged = new ShimejiAction { Name = "Dragged", Class = "Dragged", Type = "Stay" };
+                for (int variant = 0; variant < 3; variant++)
+                {
+                    var swing = new ShimejiAnimation();
+                    for (int pose = 0; pose < 4; pose++)
+                        swing.Poses.Add(new ShimejiPose
+                        {
+                            Image = "/drag" + variant + "_" + pose + ".png",
+                            AnchorX = 64,
+                            AnchorY = 128,
+                            Duration = 1,
+                        });
+                    dragged.Animations.Add(swing);
+                }
+                dragConfig.Actions.Add(dragged);
+
+                List<ShimejiPose> composited = PetEmitter.PosesToComposite(dragConfig);
+                if (composited.Count != 3)
+                    failures.Add("drag swing composited " + composited.Count +
+                        " poses for 3 variants of 4 poses; expected 3, one per variant");
+                // The FIRST of each variant, because that is the one the swing arc names.
+                for (int variant = 0; variant < 3 && variant < composited.Count; variant++)
+                    if (composited[variant].Image != "/drag" + variant + "_0.png")
+                        failures.Add("drag variant " + variant + " composited '" +
+                            composited[variant].Image + "', expected its first pose");
+            }
+            catch (Exception ex) { failures.Add("drag swing compositing threw: " + ex.Message); }
+
             var sb = new StringBuilder();
             sb.AppendLine("emitter self-test: synthetic skin -> valid, reachable, round-tripping pet");
             if (failures.Count == 0) { sb.Append("  accepted; magic names emitted; residue captured drop + degrade; direction suffixes stripped safely"); detail = sb.ToString(); return true; }

@@ -1007,9 +1007,22 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 // is why a dragged pet used to hang frozen in a single extreme pose.
                 if (a == drag)
                 {
+                    // ONE pose per variant, matching what DragSwingFramesOf will actually reference.
+                    //
+                    // This used to composite every pose of every variant while the referencing side took
+                    // only Poses[0] of each -- so poses[1..] were drawn into the sheet and never named by
+                    // anything. Measured across the 31 shipped pets: 174 unreferenced tiles, of which 138
+                    // are legitimate grid-tail padding and 36 are interior waste in contiguous runs
+                    // consistent with exactly this. They count against the 1024-tile cap and the 12 MiB
+                    // budget for nothing.
+                    //
+                    // The referencing side is the one that is RIGHT, and its docstring says why: the swing
+                    // is one frame per horizontal offset band, so a variant's extra poses are a
+                    // sub-animation whose frames would break the index-to-offset mapping the host relies
+                    // on. Drawing what will never be referenced is the defect; taking Poses[0] is not.
                     foreach (ShimejiAnimation swingFrame in a.Animations)
-                        foreach (ShimejiPose p in swingFrame.Poses)
-                            poses.Add(p);
+                        if (swingFrame != null && swingFrame.Poses.Count > 0)
+                            poses.Add(swingFrame.Poses[0]);
                     continue;
                 }
 

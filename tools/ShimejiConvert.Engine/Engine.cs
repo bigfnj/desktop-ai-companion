@@ -266,9 +266,18 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 using (var p = System.Diagnostics.Process.Start(psi))
                 {
                     if (p == null) return null;
-                    p.StandardOutput.ReadToEnd();
-                    p.StandardError.ReadToEnd();
-                    if (!p.WaitForExit(30000)) { try { p.Kill(); } catch { } return null; }
+                    // Both pipes drained CONCURRENTLY, then the wait. A blocking ReadToEnd on stdout
+                    // only returns at EOF, which is exit, so the 30-second cap below was always called
+                    // on a finished process and could never fire -- and a converting ffmpeg that filled
+                    // its 4 KB stderr pipe while this thread sat on stdout stopped forever, with no
+                    // timeout left to rescue it. ffmpeg is exactly the tool that writes a lot to stderr.
+                    System.Threading.Tasks.Task<string> outText = p.StandardOutput.ReadToEndAsync();
+                    System.Threading.Tasks.Task<string> errText = p.StandardError.ReadToEndAsync();
+                    if (!p.WaitForExit(30000)) { try { p.Kill(true); } catch { } return null; }
+                    // WaitForExit(int) does not guarantee the redirected readers have drained.
+                    p.WaitForExit();
+                    try { outText.GetAwaiter().GetResult(); } catch { }
+                    try { errText.GetAwaiter().GetResult(); } catch { }
                     if (p.ExitCode != 0) return null;
                 }
                 return File.Exists(temp) ? File.ReadAllBytes(temp) : null;
@@ -310,9 +319,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 using (var p = System.Diagnostics.Process.Start(psi))
                 {
                     if (p == null) return false;
-                    p.StandardOutput.ReadToEnd();
-                    p.StandardError.ReadToEnd();
-                    return p.WaitForExit(5000) && p.ExitCode == 0;
+                    // As above. This one also LEAKED: when the wait returned false the method returned
+                    // without killing, leaving an ffmpeg running for the life of the converter.
+                    System.Threading.Tasks.Task<string> probeOut = p.StandardOutput.ReadToEndAsync();
+                    System.Threading.Tasks.Task<string> probeErr = p.StandardError.ReadToEndAsync();
+                    if (!p.WaitForExit(5000)) { try { p.Kill(true); } catch { } return false; }
+                    p.WaitForExit();
+                    try { probeOut.GetAwaiter().GetResult(); } catch { }
+                    try { probeErr.GetAwaiter().GetResult(); } catch { }
+                    return p.ExitCode == 0;
                 }
             }
             catch { return false; }
