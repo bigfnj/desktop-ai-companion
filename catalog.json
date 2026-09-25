@@ -497,6 +497,16 @@
       "sounds": 0
     },
     {
+      "id": "shimeji-zim",
+      "name": "Zim",
+      "author": "Local import",
+      "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-zim/animations.xml",
+      "sha256": "096b0479c57c5c0c2c8c10c03e87f5df18ab54475e7dbe1a1b9b5bd57b1607a1",
+      "bytes": 473920,
+      "animations": 45,
+      "sounds": 0
+    },
+    {
       "id": "shiny_sylveon",
       "name": "Shiny Sylveon",
       "author": "Michelle!",
