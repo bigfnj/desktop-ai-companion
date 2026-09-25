@@ -326,6 +326,13 @@
       "author": "Local import",
       "source": "Local import",
       "lastupdate": "2026-08-25"
+    },
+    {
+      "folder": "shimeji-zim",
+      "name": "Zim",
+      "author": "Local import",
+      "source": "Local import",
+      "lastupdate": "2026-09-25"
     }
   ]
 }
