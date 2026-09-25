@@ -2292,30 +2292,30 @@
       "id": "fortunes",
       "name": "Fortunes",
       "desc": "Offline smart fortunes and speech bubbles, picked contextually by a bundled bge-small embedding model. Ships a built-in corpus of ~3,200 lines (Classic Fortunes plus Dad Jokes), so it has something to say before you download a single pack.",
-      "version": "1.0.6",
+      "version": "1.0.7",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/fortunes.zip",
-      "sha256": "39e5393fca55e0a406913322111724104931d5b54973ace05bc8ce18929c0114",
-      "bytes": 30451350,
+      "sha256": "522a2e6104055f5456c70867824796f22485bf3f90a95e8b5810bf5b6157a868",
+      "bytes": 30451353,
       "permissions": "Speech, ScreenContext, Storage"
     },
     {
       "id": "aibrain",
       "name": "AI Brain",
       "desc": "An optional, off-by-default screen-commentary AI brain (local Ollama/llama.cpp or an optional cloud provider). Reads the screen with Windows' built-in OCR, so it needs no separate Tesseract install.",
-      "version": "1.1.7",
+      "version": "1.1.8",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/aibrain.zip",
-      "sha256": "f35c43cc1ef5fdd0c73102bc68d9c2443409e95a021293f2a2270a91faa6a37c",
-      "bytes": 6757671,
+      "sha256": "d5c7c16a6a7287b8e7a8b7c13e7ebd66f15dabd1412ac933352ad2660c173fe0",
+      "bytes": 6757684,
       "permissions": "Speech, Animation, ScreenContext, Network, Hotkey, Storage"
     },
     {
       "id": "petstudio",
       "name": "Companion Studio",
       "desc": "Check a companion's animations.xml before you use it: what the host would reject, which animations can never play, and how it actually looks running on your desktop. Edit the XML in place, watch any animation's real sprite frames, preview the companion temporarily on your desktop, then install it.",
-      "version": "1.1.3",
+      "version": "1.1.4",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/petstudio.zip",
-      "sha256": "5e0ab23adda62d3e4e435c5f118b0154f71e6f802ba3b6341506413729c233f3",
-      "bytes": 392177,
+      "sha256": "25b0439a4c2c9c4f1bff3ddf55fdc2032c1253db7ff3f24990423812a4efe992",
+      "bytes": 392199,
       "permissions": "Speech, Companions, Storage"
     },
     {
@@ -2342,10 +2342,10 @@
       "id": "blinkingled",
       "name": "Blinking LED",
       "desc": "Blinks your keyboard's Scroll Lock light so the machine reads as active. Six speeds from Glacial to Hyper, switchable from the tray, and your companion has an opinion about each one. It works by pressing Scroll Lock, a key no application acts on, so nothing is ever typed anywhere; Windows still counts it as activity, which is the whole point. Caps Lock stops it.",
-      "version": "1.0.4",
+      "version": "1.0.5",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/blinkingled.zip",
-      "sha256": "5643bb22f6b0672795fceaca34d5740eedf313facce1197205febce9ee167ef2",
-      "bytes": 50066,
+      "sha256": "883abc3dc3cd0e9a142efa8e5fd3ad14bff5968b08a9ab048dc8d89bd5253b57",
+      "bytes": 50144,
       "permissions": "Speech, Storage, InputSynthesis"
     },
     {
