@@ -64,7 +64,10 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.1.5",   // 1.1.4: the persona audition can run against the REAL screen ("5 about
+            Version = "1.1.6",   // 1.1.6: "Test connection" reports whether it got an ANSWER; a saved vision
+                                 //        model the filter rejects is still offered; and the drop and poke
+                                 //        responders no longer claim a turn they declined.
+                                 // 1.1.4: the persona audition can run against the REAL screen ("5 about
                                  //        my screen"), which is the more honest test. Needed a real
                                  //        anti-repetition mechanism first: the prompt's "do not repeat
                                  //        anything you have said recently" was INERT, because each

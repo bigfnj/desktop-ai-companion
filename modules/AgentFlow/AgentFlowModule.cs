@@ -147,7 +147,10 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.4.4",   // 1.4.4: the tables were six releases stale, and nothing was
+            Version = "1.4.5",   // 1.4.5: the chime and the animation are no longer gated on speech; the tray
+                                 //        "Watching" row no longer demotes auto-approve silently; and Log
+                                 //        mode stopped logging that it spoke.
+                                 // 1.4.4: the tables were six releases stale, and nothing was
                                  //        checking. agentflow_headers.py is the header-table
                                  //        equivalent of the option audit; on its first run it
                                  //        found a shape the hand-derived table had missed.

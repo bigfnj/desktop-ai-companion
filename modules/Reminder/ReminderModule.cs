@@ -60,7 +60,9 @@ namespace DesktopAICompanion.ReminderModule
         {
             Id = Id,
             Name = "Reminder",
-            Version = "1.0.3",   // 1.0.3: a restart no longer re-nags. The fired-event set was pruned
+            Version = "1.0.4",   // 1.0.4: the local JSON feed is read off the UI thread, and a failed refresh
+                                 //        keeps the last good feed instead of blanking it.
+                                 // 1.0.3: a restart no longer re-nags. The fired-event set was pruned
                                  //        against the feed BEFORE any check on snap.Error, and an empty feed
                                  //        is routine: CachingCalendarSource returns no events with
                                  //        "Loading the calendar" on its first call, and Init calls CheckDue

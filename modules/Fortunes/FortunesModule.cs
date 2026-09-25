@@ -43,7 +43,9 @@ namespace DesktopAICompanion.FortunesModule
         {
             Id = "fortunes",
             Name = "Fortunes",
-            Version = "1.0.3",   // 1.0.3: the smart picker now says why it stood down when the model
+            Version = "1.0.4",   // 1.0.4: a failed save no longer discards the staged pack selection, and the
+                                 //        engine probe stopped pinning a culture-formatted number.
+                                 // 1.0.3: the smart picker now says why it stood down when the model
                                  //        asset is PRESENT but the native onnxruntime did not load. That
                                  //        was a bare return, so the status answered "Smart index
                                  //        warming ..." for ever: a state indistinguishable from progress

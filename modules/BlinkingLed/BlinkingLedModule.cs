@@ -31,7 +31,9 @@ namespace DesktopAICompanion.BlinkingLed
         {
             Id = "blinkingled",
             Name = "Blinking LED",
-            Version = "1.0.3",   // 1.0.3: the LED never blinked on x64, on any machine. The
+            Version = "1.0.4",   // 1.0.4: "Blink once now" no longer leaves the LED stuck lit when the feature
+                                 //        is switched off afterwards.
+                                 // 1.0.3: the LED never blinked on x64, on any machine. The
                                  //        Win32 INPUT union must be sized by its LARGEST member
                                  //        and was sized by KEYBDINPUT, so cbSize was 32 where
                                  //        SendInput requires 40 and every call was refused with

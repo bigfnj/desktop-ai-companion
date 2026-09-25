@@ -48,7 +48,10 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "1.0.9",   // 1.0.9: the hourly purge may now only delete files THIS MODULE wrote.
+            Version = "1.0.10",   // 1.0.10: a transcription failure says WHICH failure; whisper's pipes drain
+                                 //         concurrently so its timeout can fire; and the model-pull
+                                 //         continuation no longer writes settings off the UI thread.
+                                 // 1.0.9: the hourly purge may now only delete files THIS MODULE wrote.
                                  //        It used to enumerate AllDirectories under the user-chosen
                                  //        storage folder and File.Delete -- not the recycle bin -- every
                                  //        .wav, .mp3 and .png older than 72 hours, whoever wrote it. That
