@@ -24,7 +24,10 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.1.0",   // 1.1.0: the source-linked engine gained the MIGRATION LADDER, declared once
+            Version = "1.1.1",   // 1.1.1: converter payload refresh. Five engine defects fixed (BEL byte,
+                                 //        the NextBehaviour alias, drag frames drawn but never referenced,
+                                 //        two ffmpeg drains that deadlocked ahead of their own timeouts).
+                                 // 1.1.0: the source-linked engine gained the MIGRATION LADDER, declared once
                                  //        so a migration cannot invent its own rung. Six of the eight used to
                                  //        stamp the LATEST format instead of their own next one, so a pet at
                                  //        0.3 ran `rejump` and every later migration then skipped it while it
