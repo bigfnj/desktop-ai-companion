@@ -64,18 +64,49 @@ Assert-True (
 # codepage 0 as CP_ACP (the system ANSI codepage). That silently mojibake'd every non-ASCII glyph tesseract
 # read off the screen before it ever reached the model. Repo-wide because the next redirect will be written
 # by someone who never met this bug.
+#
+# PER SITE, BOTH STREAMS, AND A FLOOR. All three of those were missing and each hid a real hole:
+#
+#   Per FILE meant one pin anywhere cleared a file however many redirect sites it had.
+#   tools\ShimejiConvert.Engine\Engine.cs has TWO ProcessStartInfo blocks; deleting the pin from the
+#   second left this check green with the live CP_ACP bug it exists to prevent.
+#
+#   Stdout ONLY meant RedirectStandardError with no StandardErrorEncoding was never checked at all,
+#   and stderr is where child processes put the diagnostics you read when something has gone wrong.
+#
+#   No floor meant a moved or renamed tree yields zero files and the check passes on no evidence --
+#   the same defect this file already guards against for the .wxs loop and the CI script set.
+#
+# Asserts that AN encoding is pinned, not that it is UTF-8: WebPLoader.cs pins Latin1 on stdout
+# deliberately, and a UTF-8 assertion would fail correct code.
 $redirectOffenders = @()
+$redirectSiteCount = 0
 foreach ($file in Get-ChildItem -LiteralPath $repoRoot -Recurse -Filter *.cs -File |
         Where-Object { $_.FullName -notmatch '\\(obj|bin)\\' }) {
     $text = Get-Content -LiteralPath $file.FullName -Raw
-    if ($text -notmatch 'RedirectStandardOutput\s*=\s*true') { continue }
-    if ($text -notmatch 'StandardOutputEncoding\s*=') {
-        $redirectOffenders += $file.FullName.Substring($repoRoot.Length + 1)
+    if ($text -notmatch 'RedirectStandard(Output|Error)\s*=\s*true') { continue }
+    $relative = $file.FullName.Substring($repoRoot.Length + 1)
+    # One ProcessStartInfo initialiser at a time. Slicing on the brace that closes each initialiser
+    # is what makes this per-SITE: two sites in one file are judged separately.
+    foreach ($block in [regex]::Matches($text, '(?s)new\s+(?:[\w.]+\.)?ProcessStartInfo(.*?)\}\s*;')) {
+        $body = $block.Groups[1].Value
+        $redirectsOut = $body -match 'RedirectStandardOutput\s*=\s*true'
+        $redirectsErr = $body -match 'RedirectStandardError\s*=\s*true'
+        if (-not ($redirectsOut -or $redirectsErr)) { continue }
+        $redirectSiteCount++
+        if ($redirectsOut -and ($body -notmatch 'StandardOutputEncoding\s*=')) {
+            $redirectOffenders += "$relative (site $redirectSiteCount): stdout redirected, encoding unpinned"
+        }
+        if ($redirectsErr -and ($body -notmatch 'StandardErrorEncoding\s*=')) {
+            $redirectOffenders += "$relative (site $redirectSiteCount): stderr redirected, encoding unpinned"
+        }
     }
 }
+Assert-True ($redirectSiteCount -ge 6) (
+    "there are redirect sites to check at all (found $redirectSiteCount, floor 6)")
 Assert-True ($redirectOffenders.Count -eq 0) (
-    'every RedirectStandardOutput pins StandardOutputEncoding' +
-    $(if ($redirectOffenders.Count -gt 0) { " (offenders: $($redirectOffenders -join ', '))" } else { '' }))
+    'every redirected child stream pins its own encoding, per SITE' +
+    $(if ($redirectOffenders.Count -gt 0) { " (offenders: $($redirectOffenders -join '; '))" } else { '' }))
 
 # Module payloads must be unpacked OFF the UI thread. fortunes.zip is ~31 MB, and unpacking it
 # synchronously froze the settings window for seconds during an install or update. Nothing else catches
