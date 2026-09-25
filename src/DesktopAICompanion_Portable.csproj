@@ -34,9 +34,6 @@
     <!-- Keep the flat bin\<Config>\x64 layout build.ps1 + packaging expect (no TFM/RID subfolder). -->
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
-    <!-- WFDEV006: the dev-only debug right-click menu still uses the legacy ContextMenu/MenuItem
-         (kept for behavior parity during the migration; modernize to ContextMenuStrip later). -->
-    <NoWarn>$(NoWarn);WFDEV006</NoWarn>
   </PropertyGroup>
 
   <!-- Conditioned on Configuration ALONE, deliberately. These groups used to also test $(Platform), which

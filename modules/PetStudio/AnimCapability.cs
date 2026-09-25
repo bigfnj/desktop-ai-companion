@@ -508,9 +508,5 @@ namespace DesktopAICompanion.PetStudioModule
             return node;
         }
 
-        private static AnimEdge Edge(string kind, string only)
-        {
-            return new AnimEdge { To = 2, Probability = 100, Kind = kind, Only = only };
-        }
     }
 }

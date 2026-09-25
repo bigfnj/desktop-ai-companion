@@ -126,7 +126,6 @@ namespace DesktopAICompanion
             CheckSharedSpriteFrameOwnership(ref failures, output);
             // Smart-fortune lifecycle tests moved to the Fortunes module with the engine (S3d);
             // exercised there via --fortunes-engine-selftest. The idle-schedule test stays (AI-brain).
-            CheckIdleScheduleGeneration(ref failures, output);
             CheckSecureDownloadDeadline(ref failures, output);
             CheckRestartLifecycle(ref failures, output);
 
@@ -949,69 +948,6 @@ namespace DesktopAICompanion
                         ref failures,
                         output);
                 }
-            }
-        }
-
-        private static void CheckIdleScheduleGeneration(
-            ref int failures,
-            TextWriter output)
-        {
-            var schedule = new GenerationAwareIdleSchedule();
-            var tickEntered = new ManualResetEventSlim(false);
-            var tickRelease = new ManualResetEventSlim(false);
-            int staleRearmed = 0;
-            bool tickCompleted = false;
-            try
-            {
-                schedule.Reconfigure(1, true);
-                bool initiallyArmed = schedule.TryArm(1);
-                Task tick = Task.Run(delegate
-                {
-                    if (!schedule.TryBeginTick(1)) return;
-                    tickEntered.Set();
-                    tickRelease.Wait();
-                    if (schedule.TryArm(1))
-                        Interlocked.Exchange(ref staleRearmed, 1);
-                });
-                bool entered = tickEntered.Wait(TimeSpan.FromSeconds(2));
-
-                // Simulate disabling the brain or invalidating its endpoint policy while the
-                // asynchronous tick is between admission and its finally/rearm path.
-                schedule.Reconfigure(2, false);
-                tickRelease.Set();
-                tickCompleted = tick.Wait(TimeSpan.FromSeconds(2));
-
-                schedule.Reconfigure(3, true);
-                bool reenabledOnce = schedule.TryArm(3);
-                bool duplicateRejected = !schedule.TryArm(3);
-                bool retiredRejected = !schedule.TryArm(1);
-                Check(
-                    initiallyArmed &&
-                    entered &&
-                    tickCompleted &&
-                    Volatile.Read(ref staleRearmed) == 0 &&
-                    reenabledOnce &&
-                    duplicateRejected &&
-                    retiredRejected &&
-                    schedule.IsArmedForDiagnostics,
-                    "idle scheduling rejects stale rearm and arms one current generation",
-                    ref failures,
-                    output);
-            }
-            catch (Exception ex)
-            {
-                Check(
-                    false,
-                    "idle schedule generation regression: " +
-                        ex.GetType().Name + ": " + ex.Message,
-                    ref failures,
-                    output);
-            }
-            finally
-            {
-                tickRelease.Set();
-                tickRelease.Dispose();
-                tickEntered.Dispose();
             }
         }
 

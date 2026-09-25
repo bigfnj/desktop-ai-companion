@@ -133,7 +133,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             if (Has(cond, "totalCount")) { SetC(c, FidelityGroup.Group2, "needs breed-count state"); return; }
             if (Has(cond, "mascot.anchor.x") || Has(cond, "mascot.anchor.y"))
             { SetC(c, FidelityGroup.Group2, "self-position comparison (mascot.anchor.x/y vs coordinates)"); return; }
-            if (Has(cond, "isOn(mascot.anchor)") && !Has(cond, "activeIE"))
+            // No activeIE conjunct: the activeIE test above returns, so it cannot reach this line.
+            if (Has(cond, "isOn(mascot.anchor)"))
             { SetC(c, FidelityGroup.Group1, "border/floor/ceiling situation -> maps to only="); return; }
             if (Has(cond, "Math.random")) { SetC(c, FidelityGroup.Group1, "random gate -> maps to a probability weight"); return; }
             SetC(c, FidelityGroup.Group2, "other stateful condition");

@@ -18,6 +18,11 @@
                 // The bitmap is borrowed from Xml's shared sprite store.
                 pictureBox1.Image = null;
             }
+            if (disposing && _debugMenu != null)
+            {
+                _debugMenu.Dispose();   // the debug right-click menu, rebuilt on each open
+                _debugMenu = null;
+            }
             if (disposing && (components != null))
             {
                 components.Dispose();

@@ -236,12 +236,6 @@ namespace DesktopAICompanion.PetStudioModule
                 new ChainStep { AnimationId = animationId, Name = node.Name ?? "", Repeat = 1 });
         }
 
-        internal void Add(int animationId)
-        {
-            Insert(animationId, _steps.Count);
-            Refresh();
-        }
-
         internal void Clear()
         {
             _steps.Clear();

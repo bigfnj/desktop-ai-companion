@@ -748,7 +748,27 @@ namespace DesktopAICompanion
         }
 
             /// <summary>
-            /// If user press the CANCEL button in the about box, all pets are synchronized executing the SYNC-animation.
+            /// Timer tick. The entire animation is droved through this timer. The interval is set in the XML animation file.
+            /// </summary>
+            /// <remarks>
+            /// On each tick, the next step is called. If it fails an error message will be show and the animation will stop.
+            /// </remarks>
+        // Owned so the previous one is disposed on the next open: this is rebuilt from scratch on every
+        // right-click, and a ContextMenuStrip is a Component with real handles behind it.
+        private ContextMenuStrip _debugMenu;
+
+        /// <summary>
+        /// True when this pet's type declares a `sync` animation, so a "synchronise" request has
+        /// something to play. Per pet, not global: `sync` is a magic name in the pet XML and every
+        /// type carries its own (the converter synthesises one from the hub for each pet it emits).
+        /// </summary>
+        internal bool CanSync
+        {
+            get { return Animations != null && Animations.AnimationSync > 1; }
+        }
+
+            /// <summary>
+            /// Run this pet's SYNC-animation, if its type declares one.
             /// </summary>
             /// <remarks>
             /// Kill, Sync, Drag and Fall are "Key-names" in the XML file. If you use one of them, this program will automatically run the animation linked to this names.
@@ -759,12 +779,6 @@ namespace DesktopAICompanion
                 SetNewAnimation(Animations.AnimationSync);
         }
 
-            /// <summary>
-            /// Timer tick. The entire animation is droved through this timer. The interval is set in the XML animation file.
-            /// </summary>
-            /// <remarks>
-            /// On each tick, the next step is called. If it fails an error message will be show and the animation will stop.
-            /// </remarks>
         private void Timer1_Tick(object sender, EventArgs e)
         {
             timer1.Enabled = false;
@@ -2101,19 +2115,19 @@ namespace DesktopAICompanion
             }
             else if(e.Button == MouseButtons.Right && StartUp.IsDebugActive())
             {
-                ContextMenu cm = new ContextMenu();
-                cm.MenuItems.Add("ID." + CurrentAnimation.ID + " - " + CurrentAnimation.Name).Enabled = false;
-                cm.MenuItems.Add("-");
-                MenuItem menuNext = cm.MenuItems.Add("Next");
-                MenuItem menuBorder = cm.MenuItems.Add("Border");
-                MenuItem menuGravity = cm.MenuItems.Add("Gravity");
-                cm.MenuItems.Add("-");
-                MenuItem menuSpawn = cm.MenuItems.Add("Spawns");
+                ContextMenuStrip cm = new ContextMenuStrip();
+                cm.Items.Add("ID." + CurrentAnimation.ID + " - " + CurrentAnimation.Name).Enabled = false;
+                cm.Items.Add("-");
+                ToolStripMenuItem menuNext = (ToolStripMenuItem)cm.Items.Add("Next");
+                ToolStripMenuItem menuBorder = (ToolStripMenuItem)cm.Items.Add("Border");
+                ToolStripMenuItem menuGravity = (ToolStripMenuItem)cm.Items.Add("Gravity");
+                cm.Items.Add("-");
+                ToolStripMenuItem menuSpawn = (ToolStripMenuItem)cm.Items.Add("Spawns");
 
                 List<TNextAnimation> list = Animations.GetNextAnimations(CurrentAnimation.ID, true, false, false);
                 foreach (TNextAnimation ani in list)
                 {
-                    MenuItem menu = menuNext.MenuItems.Add("ID." + ani.ID + " - " + Animations.SheepAnimations[ani.ID].Name + "\t (Prob: " + ani.Probability + ") only:" + ani.only.ToString());
+                    ToolStripItem menu = menuNext.DropDownItems.Add("ID." + ani.ID + " - " + Animations.SheepAnimations[ani.ID].Name + "\t (Prob: " + ani.Probability + ") only:" + ani.only.ToString());
                     menu.Click += (ms, me) => { SetNewAnimation(ani.ID); };
                 }
                 if (list.Count == 0) menuNext.Enabled = false;
@@ -2121,7 +2135,7 @@ namespace DesktopAICompanion
                 list = Animations.GetNextAnimations(CurrentAnimation.ID, false, true, false);
                 foreach (TNextAnimation ani in list)
                 {
-                    MenuItem menu = menuBorder.MenuItems.Add("ID." + ani.ID + " - " + Animations.SheepAnimations[ani.ID].Name + "\t (Prob: " + ani.Probability + ") only: " + ani.only.ToString());
+                    ToolStripItem menu = menuBorder.DropDownItems.Add("ID." + ani.ID + " - " + Animations.SheepAnimations[ani.ID].Name + "\t (Prob: " + ani.Probability + ") only: " + ani.only.ToString());
                     menu.Click += (ms, me) => { SetNewAnimation(ani.ID); };
                 }
                 if (list.Count == 0) menuBorder.Enabled = false;
@@ -2129,7 +2143,7 @@ namespace DesktopAICompanion
                 list = Animations.GetNextAnimations(CurrentAnimation.ID, false, false, true);
                 foreach (TNextAnimation ani in list)
                 {
-                    MenuItem menu = menuGravity.MenuItems.Add("ID." + ani.ID + " - " + Animations.SheepAnimations[ani.ID].Name + "\t (Prob: " + ani.Probability + ") only:" + ani.only.ToString());
+                    ToolStripItem menu = menuGravity.DropDownItems.Add("ID." + ani.ID + " - " + Animations.SheepAnimations[ani.ID].Name + "\t (Prob: " + ani.Probability + ") only:" + ani.only.ToString());
                     menu.Click += (ms, me) =>{ SetNewAnimation(ani.ID); };
                 }
                 if (list.Count == 0) menuGravity.Enabled = false;
@@ -2137,7 +2151,7 @@ namespace DesktopAICompanion
                 List<TSpawn> listS = Animations.GetNextSpawns();
                 foreach (TSpawn spa in listS)
                 {
-                    MenuItem menu = menuSpawn.MenuItems.Add("ID." + spa.Next + " - " + Animations.SheepAnimations[spa.Next].Name + "\t (Prob: " + spa.Probability + ")");
+                    ToolStripItem menu = menuSpawn.DropDownItems.Add("ID." + spa.Next + " - " + Animations.SheepAnimations[spa.Next].Name + "\t (Prob: " + spa.Probability + ")");
                     menu.Click += (ms, me) => 
                     {
                         //Top = ScreenBounds.Y + spa.Start.Y.GetValue(DisplayIndex);
@@ -2145,21 +2159,22 @@ namespace DesktopAICompanion
                         //PositionX = Left;
                         //PositionY = Top;
                         //OffsetY = 0.0;
-                        int spawnIndex = menu.Index;
+                        int spawnIndex = menuSpawn.DropDownItems.IndexOf(menu);
                         Play(false, spawnIndex);
                     };
                 }
 
                 timer1.Enabled = false;
 
-                cm.Collapse += (ms, me) =>
+                cm.Closed += (ms, me) =>
                 {
                     timer1.Interval = 1;
                     timer1.Enabled = true;
                 };
 
-                pictureBox1.ContextMenu = cm;
-                pictureBox1.ContextMenu.Show(pictureBox1, new Point(0,this.Top > 500 ? 0 : this.Height));
+                if (_debugMenu != null) { try { _debugMenu.Dispose(); } catch { } }
+                _debugMenu = cm;
+                cm.Show(pictureBox1, new Point(0, this.Top > 500 ? 0 : this.Height));
             }
         }
 

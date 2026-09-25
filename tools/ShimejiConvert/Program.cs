@@ -1568,11 +1568,6 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             return census;
         }
 
-        private static int Reloop(string petsDirectory)
-        {
-            return Reloop(petsDirectory, null);
-        }
-
         private static int Reloop(string petsDirectory, string bundlesDirectory)
         {
             if (!Directory.Exists(petsDirectory)) { Console.Error.WriteLine("No such directory: " + petsDirectory); return 2; }

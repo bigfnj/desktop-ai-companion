@@ -25,6 +25,7 @@ namespace DesktopAICompanion
             /// "Remove a companion" submenu: lists the pet types currently on screen with their counts.
             /// </summary>
         static ToolStripMenuItem removePetMenuItem;
+        static ToolStripMenuItem syncPetsMenuItem;
             /// <summary>
             /// Close Menu Item: removes all pets and closes the app.
             /// </summary>
@@ -252,6 +253,17 @@ namespace DesktopAICompanion
             removePetMenuItem.DropDownItems.Add(new ToolStripMenuItem { Text = "…", Enabled = false });
             menu.Items.Add(removePetMenuItem);
 
+            // Item: Synchronise (optional — hidden unless more than one pet is out AND at least one of
+            // them declares a `sync` animation). Both halves matter: synchronising one pet is a no-op, and
+            // a pet type whose XML has no `sync` node has nothing to play.
+            syncPetsMenuItem = new ToolStripMenuItem { Text = "S&ynchronise companions" };
+            syncPetsMenuItem.Click += (s, ev) =>
+            {
+                if (Program.Mainthread != null) Program.Mainthread.SyncSheeps();
+            };
+            syncPetsMenuItem.Visible = false;   // re-evaluated on every open, below
+            menu.Items.Add(syncPetsMenuItem);
+
             // Item: Test Speech (optional — hidden when speech disabled)
             item = new ToolStripMenuItem { Text = "&Test Speech" };
             item.Image = Resources.speechbubble;
@@ -275,6 +287,12 @@ namespace DesktopAICompanion
             // Module tray contributions (S5a) are merged in here (just after Test Speech, before Options),
             // rebuilt on each open so their Visible/DynamicText re-evaluate and late-loaded modules appear.
             menu.Opening += ModuleTray_Opening;
+            menu.Opening += (s, ev) =>
+            {
+                if (syncPetsMenuItem == null) return;
+                syncPetsMenuItem.Visible =
+                    Program.Mainthread != null && Program.Mainthread.AnyCompanionCanSync;
+            };
 
 			// Item: Options.
 			item = new ToolStripMenuItem

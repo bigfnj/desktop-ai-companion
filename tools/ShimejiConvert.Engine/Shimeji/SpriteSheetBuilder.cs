@@ -413,13 +413,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         /// </summary>
         /// <param name="roomW">Pixels left in the tile to the right of dx.</param>
         /// <param name="roomH">Pixels left in the tile below dy.</param>
-        private static void BlitOpaque(Bitmap sheet, Bitmap src, int dx, int dy, int roomW, int roomH)
-        {
-            BlitOpaque(sheet, src, dx, dy, roomW, roomH, 0, 0);
-        }
-
-        // srcX/srcY skip that much of the SOURCE, which is how a top-anchored (ceiling) frame drops the band
-        // above its anchor instead of drawing it up into the neighbouring tile.
+        /// <param name="srcX">Skip this much of the SOURCE horizontally.</param>
+        /// <param name="srcY">Skip this much of the SOURCE vertically. This is how a top-anchored
+        /// (ceiling) frame drops the band above its anchor instead of drawing it up into the
+        /// neighbouring tile.</param>
         private static void BlitOpaque(Bitmap sheet, Bitmap src, int dx, int dy, int roomW, int roomH, int srcX, int srcY)
         {
             if (srcX < 0) srcX = 0;

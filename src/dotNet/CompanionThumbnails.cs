@@ -20,27 +20,6 @@ namespace DesktopAICompanion
         // A pet icon is tiny; cap what we accept from the zip so a bad asset can't balloon memory.
         private const int MaximumIconBytes = 256 * 1024;
 
-        /// <summary>A fresh image for the pet id, or null when none is bundled. The caller owns and
-        /// must dispose it (the pet gallery disposes card images when it rebuilds).</summary>
-        public static Image Get(string id)
-        {
-            if (string.IsNullOrWhiteSpace(id)) return null;
-            byte[] png;
-            lock (Gate)
-            {
-                if (_icons == null) _icons = LoadArchive();
-                if (!_icons.TryGetValue(id.Trim().ToLowerInvariant(), out png) || png == null)
-                    return null;
-            }
-            try
-            {
-                using (var stream = new MemoryStream(png, false))
-                using (var decoded = Image.FromStream(stream, false, true))
-                    return new Bitmap(decoded);   // detach from the stream so it survives disposal
-            }
-            catch { return null; }
-        }
-
         /// <summary>Raw PNG bytes for the pet id, or null when none is bundled. Lets the WPF pet gallery
         /// build a BitmapImage directly (no System.Drawing round-trip). Returns a copy so callers can't
         /// mutate the cached array.</summary>

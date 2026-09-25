@@ -224,11 +224,6 @@ namespace DesktopAICompanion.Ai
             DisposeCore(TimeSpan.FromSeconds(3));
         }
 
-        internal void DisposeWithin(TimeSpan waitTimeout)
-        {
-            DisposeCore(waitTimeout);
-        }
-
         /// <summary>
         /// Exercises the same disposal path with a bounded diagnostic wait. This keeps the
         /// deferred-cleanup regression deterministic without weakening the production timeout.

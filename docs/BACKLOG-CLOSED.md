@@ -990,3 +990,108 @@ leaves the painted outline showing the OLD tail while the Region already clips t
   times per 6 s bubble. Everything is disposed, so this is cost rather than a leak; `_style` and
   `_measuredDpi` already say exactly when the font must be rebuilt.
 
+---
+
+## Closed: dead code and unreachable branches, 2026-09-25
+
+The four items under BACKLOG.md's "Dead code and unreachable branches" heading. Every "no callers"
+claim was re-checked against `src/`, `modules/` and `tools/` before anything was deleted, which is how
+the refutation below was found. None of the members lived in `DesktopAICompanion.Contracts` or
+`DesktopAICompanion.ModuleKit`, so nothing here is an ABI change.
+
+- ✅ **~15 members with no callers — deleted, with two exceptions and one refutation.**
+  Gone: `StartUp.OnPetPoked()` (the no-arg overload; FormCompanion always passes the pet),
+  `StartUp.SetPetSize(string,int)` and its only callee `LocalData.SetPetSizeLevel` (the two size
+  setters really were destructive of each other; the percent path is now the single writer),
+  `CompanionThumbnails.Get` (the WPF gallery uses `GetPng`), `GenerationAwareIdleSchedule` together
+  with `SecuritySelfTest.CheckIdleScheduleGeneration`, `PetEmitter.RestRepeatCount`, the 6-arg
+  `BlitOpaque`, the 1-arg `Reloop`, `AiSessionManager.DisposeWithin` (byte-for-byte
+  `DisposeForDiagnostics`, which does have callers), `AiSettings.CredentialIdentity` (which also
+  decrypted the API key on every call), `AnimCapability.Edge`, `TimelinePane.Add(int)`,
+  `PetSprite.TileWidth`/`TileHeight`, and `LocalData.LoadXML`.
+
+  ⚠ **"four in `FortuneProvider.cs`" was FALSE.** The item named no members, and there are none: a
+  sweep of every declared member in that file found zero whose only occurrence is its own
+  declaration. `Topics`, `LevelsFor`, `ClassifyGenre`, `UsesCanonicalUnicodeFold`, `SourceCount` and
+  both `TryValidateTaggedPack` overloads each have a real consumer — several of them in-file, which
+  is what a grep for external callers misses. Nothing was deleted from that file.
+
+  ⚠ **`GenerationAwareIdleSchedule` could never have been wired up as written.** Its docstring
+  claimed it was "shared by idle initial-arm, tick admission, and finally-rearm paths"; those paths
+  live in the AiBrain MODULE, and the class was `internal` to the host assembly. A different
+  assembly can never see it. That is why its only consumer was a self-test asserting the behaviour of
+  something nothing ships against.
+
+  ⚠ **`SyncSheeps` / `FormCompanion.Sync` were WIRED UP, not deleted.** They are the host end of a
+  feature that exists everywhere else: the converter synthesises a `sync` node for every pet it emits
+  (`PetEmitter.BuildSync`), `Xml.cs` parses the magic name, and `AnimationReachability` counts it as
+  an entry point. Deleting the two methods would have left 54 shipped pets carrying an animation
+  nothing can play and made the reachability report wrong about all of them. They now hang off a tray
+  entry, "S&ynchronise companions", shown only when more than one pet is out and at least one of them
+  declares a `sync` animation. Verified in the real app by `tests/tray-menu-smoke.ps1`.
+
+- ✅ **Branches that can never be taken — three removed, one kept deliberately.**
+  `ActionClassifier`'s `&& !Has(cond, "activeIE")` is gone: the activeIE test two lines above returns,
+  so the conjunct could only ever be true, and reading it suggested the opposite. Both
+  `&& a.Animations[0].Poses.Count > 0` conjuncts in `PetEmitter` are gone: `IsWallAction` and
+  `IsCeilingAction` each reject an empty pose list before returning true. `BlockedDetector`'s `isCodex`
+  is gone with the whole Codex arm of its ternary and the reason string no session could ever be
+  given — every Codex path returns inside the block above it.
+
+  `PetEmitter`'s `e != fall` is KEPT, with the reason written down beside it. It cannot currently be
+  false (`BuildSpoke` is reached only from `spokes` and `chainSteps`, and `fall` is in neither), but
+  what it guards is not hypothetical: routing `fall` through there would hand it gravity pointing at
+  itself. The whole cost is one reference comparison.
+
+  `ReminderScheduler.DueNow` is deleted rather than kept, because it is the opposite case: no callers
+  AND an incompatible key scheme. It tested the fired set with a bare event id while `DueNowMulti`
+  records `"<id>@<lead>"`, so anyone who wired it back in on the strength of its signature would have
+  got a scheduler that re-fired every event on every tick.
+
+- ✅ **The empty settings/XML file-change callbacks are gone, with their whole unreachable chain.**
+  `LocalData.ListenOnXMLChanged` and `ListenOnOptionsChanged` had empty bodies, PORTABLE is defined in
+  both configurations, and `Portable/LocalData.cs` is the only `LocalData` compiled — so
+  `StartUp.XmlFileChanged`, `OptionFileChanged`, `isRealoadingSettings`, the `MyFunction` delegate and
+  `LocalData.LoadXML` had never run. All removed. The consequence the item described is real and
+  unchanged: `Program.TryAcquireInstanceSlot` allows two concurrent instances, so changing a setting in
+  one leaves the other stale until restart. That is staleness, not loss — `MergeChangedFields` only
+  writes fields the process itself changed — and it is now recorded in `docs/IDEAS.md` as a wanted
+  feature rather than left looking like plumbing that works.
+
+- ✅ **The debug right-click menu no longer throws on .NET 10.** `FormCompanion` used
+  `ContextMenu`/`MenuItem`, which .NET 9+ ships only as binary-compatibility stubs: on
+  `Microsoft.WindowsDesktop.App/10.0.10` the constructor throws `PlatformNotSupportedException`, so a
+  Shift-launched instance threw into the message pump on every right-click. Ported to
+  `ContextMenuStrip`/`ToolStripMenuItem`/`ToolStripSeparator`, with `menu.Index` replaced by
+  `DropDownItems.IndexOf`, `Collapse` by `Closed`, and the menu now owned in a field so each open
+  disposes the last instead of leaking it.
+
+  The `<NoWarn>WFDEV006</NoWarn>` in `DesktopAICompanion_Portable.csproj` is removed with it.
+  **Mutation-tested:** reintroducing `new ContextMenu()` is now a hard `error WFDEV006` naming
+  `FormCompanion.cs`, so the same code cannot come back silently. The runtime half is covered by
+  `tests/debug-menu-smoke.ps1`, also mutation-tested in both directions with the built assembly
+  checked each way.
+
+### Two GUI smoke tests were added, and both were wrong first
+
+`tests/debug-menu-smoke.ps1` and `tests/tray-menu-smoke.ps1`. Neither is wired into
+`tests/run-gate.ps1`: both need an interactive desktop session, and the first presses SHIFT globally
+for the length of a launch. Three things they got wrong are worth not repeating:
+
+- The first menu check matched a window that was **already open** (the speech bubble) and could not
+  fail. The second version required a window that was NEW — and the mutation run then opened a
+  455x175 window of its own, which passed too. Only "a new window AND a new `SysShadow`" distinguishes
+  a drop-down from anything else the app puts on screen.
+- A synthesised mouse click on the pet's geometric centre passed twice and then failed against an
+  identical binary: a pet form is transparency-keyed, so whether the centre is opaque depends on where
+  the pet has wandered and which frame it is on. Posting `WM_RBUTTONDOWN`/`UP` to the child control is
+  deterministic.
+- The tray test assumed it would start with one pet, then left two behind, then three: the pet count
+  lives in `settings.json` and outlives the process. `AppPaths` documents
+  `DESKTOP_AI_COMPANION_DATA_ROOT` for exactly this. Both scripts now run in a fresh temporary data
+  root, which also means neither can touch an installed copy's `%LOCALAPPDATA%`.
+
+A build that "succeeded" also has to be checked: one mutation run reported 0 compile errors while the
+previous binary was still in place, because the app left running by the smoke test held a lock on the
+exe and the failure was an MSB3027, not an `error CS`. Every mutation result here was confirmed by
+searching the built assembly for the probe string before the result was believed.

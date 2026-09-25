@@ -24,9 +24,6 @@ namespace DesktopAICompanion.PetStudioModule
             _sheet = sheet; _tileW = tileW; _tileH = tileH; _cols = cols; _rows = rows;
         }
 
-        internal int TileWidth { get { return _tileW; } }
-        internal int TileHeight { get { return _tileH; } }
-
         internal static PetSprite TryDecode(string base64Png, int tilesX, int tilesY, string transparency)
         {
             try

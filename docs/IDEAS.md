@@ -184,3 +184,30 @@ things to get right, both of which are why this is a feature rather than a bug f
 
 The code that did the serialisation is in git history at the commit that removed it (search for
 `ModuleUpdateScan.Encode`), which is cheaper than keeping a format alive against the possibility.
+
+
+## A second instance should see the first's settings changes
+
+Filed 2026-09-25, when the plumbing that pretended to do it was deleted.
+
+`LocalData.ListenOnXMLChanged` and `ListenOnOptionsChanged` had empty bodies marked "Not implemented
+in the portable build", and PORTABLE is defined in both configurations with `Portable/LocalData.cs`
+the only `LocalData` compiled. So `StartUp.XmlFileChanged`, `OptionFileChanged`, the
+`isRealoadingSettings` re-entrancy flag and `LocalData.LoadXML` had never run once. All of it is gone
+rather than left looking like a working watcher.
+
+The gap it left uncovered is real. `Program.TryAcquireInstanceSlot` deliberately allows two
+concurrent instances, so changing the volume in instance A leaves instance B showing the old value
+until it restarts. Nothing is corrupted -- `MergeChangedFields` only writes back fields the process
+itself changed, so B does not stamp its stale copy over A's edit -- but the two disagree on screen.
+
+What a real implementation has to get right, and why it is a feature rather than a bug fix:
+
+- the reload has to be re-entrant-safe against the instance's OWN writes, which is what the deleted
+  `isRealoadingSettings` flag was reaching for and never got to prove
+- `FileSystemWatcher` fires several times for one logical save, and `AtomicFile` writes through a
+  temp file plus `File.Replace`, so the events do not map one-to-one onto changes
+- reloading the pet XML tears down and rebuilds every pet on screen, so a naive watcher turns a
+  settings edit in one window into pets blinking out and back in the other
+
+The deleted code is in git history at the commit that removed it (search for `ListenOnXMLChanged`).

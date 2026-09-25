@@ -1242,7 +1242,7 @@ namespace DesktopAICompanion.ReminderModule
         ///
         /// The failure that follows: a 10:00 meeting with a 15-minute lead fires at 09:45 and "cal1|uid@15"
         /// is saved. Restart at 09:50. Init, CheckDue, empty feed, the whole set wiped and written to disk.
-        /// Twenty seconds later the feed loads, `now` is still inside DueNow's [start-15, start+1] window,
+        /// Twenty seconds later the feed loads, `now` is still inside DueNowMulti's [start-15, start+1] window,
         /// and the same meeting announces again with chime, animation and bubble.
         ///
         /// Gating on Error alone is the whole fix, and it keeps the case the prune exists for: a feed that

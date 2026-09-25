@@ -89,7 +89,6 @@ namespace DesktopAICompanion
         /// </summary>
         readonly ProcessIcon pi;
 
-        bool isRealoadingSettings = false;
 
         bool disposed;
 
@@ -230,8 +229,6 @@ namespace DesktopAICompanion
             timer1.Interval = 1000;
             timer1.Enabled = true;
 
-            Program.MyData.ListenOnXMLChanged(XmlFileChanged);
-            Program.MyData.ListenOnOptionsChanged(OptionFileChanged);
 
             InitDropTriggers();
 
@@ -380,20 +377,39 @@ namespace DesktopAICompanion
         }
 
 
-        private void XmlFileChanged(object source, FileSystemEventArgs e)
+
+        /// <summary>
+        /// True when a "synchronise" request would visibly do something: more than one pet is out, and
+        /// at least one of them can play a `sync` animation. Asked per pet because `sync` is declared
+        /// per TYPE and several types coexist on screen, so a global answer would be wrong either way.
+        /// </summary>
+        internal bool AnyCompanionCanSync
         {
-            Thread.Sleep(200);
-            LoadNewXMLFromString(Program.MyData.LoadXML());
+            get
+            {
+                if (iSheeps < 2) return false;
+                for (int i = 0; i < iSheeps; i++)
+                    if (sheeps[i] != null && sheeps[i].CanSync) return true;
+                return false;
+            }
         }
 
-        private void OptionFileChanged(object source, FileSystemEventArgs e)
+        /// <summary>
+        /// Every pet plays its type's `sync` animation at once, where its type declares one.
+        ///
+        /// This used to hang off the About box's Cancel button, which went away when that dialog was
+        /// rebuilt with a plain Close (see AboutWindow.cs) -- and it left the whole feature with no way
+        /// in, while the converter kept synthesising a `sync` node for every pet it emits
+        /// (PetEmitter.BuildSync) and AnimationReachability kept counting it as an entry point. It is a
+        /// tray item now, so those two are telling the truth again.
+        /// </summary>
+        public void SyncSheeps()
         {
-            if (isRealoadingSettings) return;
-            isRealoadingSettings = true;
-            Thread.Sleep(1000);
-            Program.MyData.LoadSettings();
-            Thread.Sleep(200);
-            isRealoadingSettings = false;
+            AddDebugInfo(DEBUG_TYPE.info, "synchronize sheeps");
+            for (int i = 0; i < iSheeps; i++)
+            {
+                if (sheeps[i] != null) sheeps[i].Sync();
+            }
         }
 
         /// <summary>
@@ -1039,25 +1055,15 @@ namespace DesktopAICompanion
         }
 
         /// <summary>
-        /// Set a pet type's size override (level 1/2/3, or 0 to follow the global size) and persist it.
-        /// The size is baked in when the type is staged, so it takes effect the next time this pet is
-        /// added (or on the next launch); pets of this type already on screen keep their current size
-        /// until then. A staged-but-unspawned copy is dropped here so a fresh add re-stages at the new
-        /// factor immediately. Returns true if the stored value changed. id "" is the active/default pet.
-        /// </summary>
-        public bool SetPetSize(string id, int level)
-        {
-            bool changed = Program.MyData.SetPetSizeLevel(id ?? "", level);
-            CompanionTypeRegistry.Entry entry;
-            if (!string.IsNullOrEmpty(id) && registry.TryGet(id, out entry))
-                registry.DropIfUnused(entry);   // only drops when no pet is using it (safe)
-            return changed;
-        }
-
-        /// <summary>
         /// Set a pet type's size PERCENT override (25..400, or 0 to follow the global size) and persist it.
-        /// Like <see cref="SetPetSize"/>, the size is baked in at staging, so it takes effect the next time
-        /// this pet is added (or on the next launch). Returns true if the stored value changed.
+        /// The size is baked in when the type is staged, so it takes effect the next time this pet is added
+        /// (or on the next launch); pets of this type already on screen keep their current size until then.
+        /// A staged-but-unspawned copy is dropped here so a fresh add re-stages at the new factor
+        /// immediately. Returns true if the stored value changed. id "" is the active/default pet.
+        ///
+        /// A LEVEL setter (1/2/3) used to sit beside this one and nothing ever called it. The two were
+        /// destructive of each other -- each did RemoveAll over the same list and then added back an entry
+        /// carrying only its own dimension -- so the percent path is now the single writer.
         /// </summary>
         public bool SetPetScalePercent(string id, int percent)
         {
@@ -1841,18 +1847,15 @@ namespace DesktopAICompanion
 
 
         /// <summary>
-        /// The pet was right-clicked ("poked"). Timing-based escalation: a pause resets it; rapid
-        /// pokes climb from a rich reaction -> being ignored -> verbal sass -> a bathtub escape.
-        /// Poke 1 of a session offers the arbitrated poke-responder chain (an AI quip / a fortune /
-        /// nothing, per the user's "Trigger Speech" preference), rate-limited by its own cooldown.
-        /// </summary>
-        public void OnPetPoked() { OnPetPoked(null); }
-
-        /// <summary>
-        /// As <see cref="OnPetPoked()"/>, but told WHICH pet the user clicked. Only FormCompanion knows that, and it
-        /// used to throw it away: the host then recovered "a" pet with <see cref="FirstPersistentPet"/>, so a
-        /// poke on pet #5 was reported to modules as a poke on pet #1. That is invisible while every speaker
-        /// broadcasts through <see cref="SayAll"/>, and silently wrong the moment anything reacts per pet.
+        /// The pet was right-clicked ("poked"), and the caller says WHICH pet. Timing-based escalation: a
+        /// pause resets it; rapid pokes climb from a rich reaction -> being ignored -> verbal sass -> a
+        /// bathtub escape. Poke 1 of a session offers the arbitrated poke-responder chain (an AI quip / a
+        /// fortune / nothing, per the user's "Trigger Speech" preference), rate-limited by its own cooldown.
+        ///
+        /// There used to be a no-arg overload that forwarded null. Only FormCompanion can say which pet was
+        /// clicked, it always does, and nothing else ever called the overload -- so the host's fallback of
+        /// recovering "a" pet with <see cref="FirstPersistentPet"/> (which reported a poke on pet #5 as a
+        /// poke on pet #1) had no remaining way in, and went with it.
         /// </summary>
         /// <param name="poked">The pet the user clicked, or null when the caller cannot say.</param>
         public void OnPetPoked(FormCompanion poked)
@@ -2084,76 +2087,5 @@ namespace DesktopAICompanion
             return false;
         }
 
-        /// <summary>
-        /// Calling this function, all sheeps will execute the same animation (if the sync-word is present in the XML).
-        /// </summary>
-        public void SyncSheeps()
-        {
-            AddDebugInfo(DEBUG_TYPE.info, "synchronize sheeps");
-            for (int i = 0; i < iSheeps; i++)
-            {
-                sheeps[i].Sync();
-            }
-        }
-    }
-
-    /// <summary>
-    /// Small generation gate shared by idle initial-arm, tick admission, and finally-rearm paths.
-    /// Reconfiguration invalidates every pending operation from the prior policy generation.
-    /// </summary>
-    internal sealed class GenerationAwareIdleSchedule
-    {
-        private readonly object _sync = new object();
-        private int _generation;
-        private bool _enabled;
-        private bool _armed;
-
-        internal void Reconfigure(int generation, bool enabled)
-        {
-            lock (_sync)
-            {
-                _generation = generation;
-                _enabled = enabled;
-                _armed = false;
-            }
-        }
-
-        internal bool TryArm(int expectedGeneration)
-        {
-            lock (_sync)
-            {
-                if (!CanRunLocked(expectedGeneration) || _armed)
-                    return false;
-                _armed = true;
-                return true;
-            }
-        }
-
-        internal bool TryBeginTick(int expectedGeneration)
-        {
-            lock (_sync)
-            {
-                if (!CanRunLocked(expectedGeneration) || !_armed)
-                    return false;
-                _armed = false;
-                return true;
-            }
-        }
-
-        internal bool CanRun(int expectedGeneration)
-        {
-            lock (_sync)
-                return CanRunLocked(expectedGeneration);
-        }
-
-        internal bool IsArmedForDiagnostics
-        {
-            get { lock (_sync) return _armed; }
-        }
-
-        private bool CanRunLocked(int expectedGeneration)
-        {
-            return _enabled && expectedGeneration == _generation;
-        }
     }
 }

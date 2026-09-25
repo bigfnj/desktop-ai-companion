@@ -223,30 +223,6 @@ namespace DesktopAICompanion
             }
         }
 
-        // Set (level 1/2/3) or clear (level 0 or out of range -> follow global) a pet's size override.
-        internal bool SetPetSizeLevel(string id, int level)
-        {
-            string key = id ?? "";
-            bool clear = level < ScalePolicy.MinimumLevel || level > ScalePolicy.MaximumLevel;
-            return Update(
-                delegate
-                {
-                    int current = GetPetSizeLevelNoLock(key);
-                    return clear ? current != 0 : current != level;
-                },
-                delegate
-                {
-                    var list = _settings.PetSizes ?? new List<CompanionSizeEntry>();
-                    list.RemoveAll(delegate (CompanionSizeEntry e)
-                    {
-                        return e == null ||
-                            string.Equals(e.Id ?? "", key, StringComparison.OrdinalIgnoreCase);
-                    });
-                    if (!clear) list.Add(new CompanionSizeEntry { Id = key, Level = level });
-                    _settings.PetSizes = list;
-                });
-        }
-
         // --- Fractional size (the size slider; percent 25..400). Precedence: per-pet percent, else the global
         // percent, else the legacy 1x/2x/4x level. A pet override that only carries a legacy Level still works. ---
 
@@ -912,13 +888,6 @@ namespace DesktopAICompanion
             lock (_sync) return _settings.Xml ?? "";
         }
 
-        public string LoadXML()
-        {
-            // Runtime pet replacement is validated and committed by StartUp. Legacy installpet.xml,
-            // arbitrary URL, and direct file side channels are intentionally no longer consumed here.
-            return GetXml();
-        }
-
         public string GetImages()
         {
             lock (_sync) return _settings.Images ?? "";
@@ -935,18 +904,6 @@ namespace DesktopAICompanion
             return Update(
                 delegate { return !string.Equals(_settings.Icon, value, StringComparison.Ordinal); },
                 delegate { _settings.Icon = value; });
-        }
-
-        public delegate void MyFunction(object source, FileSystemEventArgs e);
-
-        public void ListenOnXMLChanged(MyFunction f)
-        {
-            // Not implemented in the portable build.
-        }
-
-        public void ListenOnOptionsChanged(MyFunction f)
-        {
-            // Not implemented in the portable build.
         }
 
         private bool Update(Func<bool> changed, Action apply)

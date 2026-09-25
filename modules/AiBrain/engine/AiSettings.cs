@@ -971,19 +971,6 @@ namespace DesktopAICompanion.Ai
             return !string.Equals(original, value, StringComparison.Ordinal);
         }
 
-        internal string CredentialIdentity()
-        {
-            string key = ApiKey;
-            if (string.IsNullOrEmpty(key)) return "anonymous";
-            using (SHA256 sha = SHA256.Create())
-            {
-                byte[] hash = sha.ComputeHash(
-                    StrictUtf8.GetBytes(
-                        "DesktopAICompanion.CredentialIdentity.v1\n" + key));
-                return ToHex(hash);
-            }
-        }
-
         internal static string BuildCredentialScope(
             string provider,
             string endpoint)

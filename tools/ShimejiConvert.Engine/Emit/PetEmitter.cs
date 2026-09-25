@@ -64,7 +64,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         // fast-cycling blink and it has no long performances; a converted pet has rich idle actions and a
         // sticky hub, so the two are timed apart.
         private const int HubDwellMs = 2000;     // the return-to pose: brief, so the pet does not loiter
-        private const int RestDwellMs = 11000;   // a performance: 9-12s, long enough to actually watch
+        // A performance: 9-12s, long enough to actually watch.
+        //
+        // Shimeji holds a Stay action for as long as the BEHAVIOUR that ran it says to, and the behaviour
+        // layer is exactly what this converter does not reproduce. Emitting repeat="0" therefore turned
+        // every rest into one pass: Hornet's BePet lasted 0.2s and read as a twitch. Only Stay-type
+        // actions get a budget; a one-shot performance (Animate: a trip, a bounce, a needle throw) must
+        // still play once.
+        private const int RestDwellMs = 11000;
         // A rest's per-frame interval is capped so a "hold this frame for 3 seconds" baked into a source
         // interval (Stand's 3000ms) cannot freeze the animation; the dwell is reached by repeating instead. A
         // real performance's pacing (100-300ms/frame) sits well under this and is untouched.
@@ -1518,6 +1525,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             // that already shipped in 8162ab9 had exactly this hole. A leg that walks the pet off screen is
             // only safe when its return leg cannot be skipped. The chain's last step hands to the hub, which
             // has its own gravity, so a run that ends mid-air still recovers.
+            // `e != fall` cannot currently be false: BuildSpoke is reached only from `spokes` and
+            // `chainSteps`, and `fall` is added to neither (only to `all`). Kept anyway, because what it
+            // guards is not hypothetical -- routing `fall` through here would hand it gravity pointing at
+            // itself -- and the whole cost is one reference comparison.
             bool chained = e.ChainNext != null;
             if (fall != null && e != fall && !jump && !chained)
                 node.Gravity = new HitNode { Next = new[] { Next(fall.Id, 100, "none") } };
@@ -2364,8 +2375,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             var riseFlattened = new List<string>();
             foreach (ShimejiAction a in config.Actions)
             {
-                if (IsWallAction(a) && a.Animations[0].Poses.Count > 0) wallConverted.Add(a.Name);
-                if (IsCeilingAction(a) && a.Animations[0].Poses.Count > 0) ceilingConverted.Add(a.Name);
+                // No pose-count conjunct here: IsWallAction and IsCeilingAction each reject an empty
+                // Animations / empty Poses list before they return true.
+                if (IsWallAction(a)) wallConverted.Add(a.Name);
+                if (IsCeilingAction(a)) ceilingConverted.Add(a.Name);
                 if (a == fallAction || a == dragAction || !IsFloorAction(a)) continue;
                 if (QualifiesAsJump(a)) jumpConverted.Add(a.Name);
                 else if (RiseIsFlattened(a)) riseFlattened.Add(a.Name);
@@ -2583,19 +2596,6 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             if (repeat < 0) repeat = 0;
             if (repeat > maxRepeats) repeat = maxRepeats;
             return repeat;
-        }
-
-        /// <summary>
-        /// Repeat count for a RESTING pose, so it stays on screen ~RestDwellMs instead of a single pass.
-        ///
-        /// Shimeji holds a Stay action for as long as the BEHAVIOUR that ran it says to, and the behaviour
-        /// layer is exactly what this converter does not reproduce. Emitting repeat="0" therefore turned every
-        /// rest into one pass: Hornet's BePet lasted 0.2s and read as a twitch. Only Stay-type actions get
-        /// this; a one-shot performance (Animate: a trip, a bounce, a needle throw) must still play once.
-        /// </summary>
-        public static int RestRepeatCount(int passMs)
-        {
-            return RepeatCountForBudget(passMs, RestDwellMs, MaxRestRepeats, true);
         }
 
         /// <summary>Dwell for a PERFORMANCE rest (anything but the hub): long enough to watch, 9-12s.</summary>

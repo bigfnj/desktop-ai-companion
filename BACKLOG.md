@@ -628,56 +628,6 @@ open-item blindness plus the bug-number drift.
   (`:218-224`) never sets the key, and nothing checks parity with source, which has already drifted
   (`AiBrainModule.cs:140` declares "1.1.0"; the aibrain and reminder entries have no key).
 
-### Dead code and unreachable branches
-
-- 📌 **Verified to have no callers anywhere in `src/` or `modules/`.** Grouped because none is urgent
-  and together they are one afternoon. `StartUp.SyncSheeps()` (`src/dotNet/StartUp.cs:2089`) and its
-  only callee `FormCompanion.Sync()` — `AboutWindow.cs:21` confirms the behaviour was intentionally
-  dropped, so the `sync` magic animation is parsed and never used. `StartUp.OnPetPoked()` no-arg
-  overload (`:1848`). `StartUp.SetPetSize(string,int)` (`:1047`) and `LocalData.SetPetSizeLevel`
-  (`LocalData.cs:227`) — worth knowing because the two size setters are destructive of each other,
-  each doing `RemoveAll` then adding an entry carrying only its own dimension.
-  `CompanionThumbnails.Get` (`:26`). `GenerationAwareIdleSchedule` (`StartUp.cs:2103`) has exactly one
-  consumer, `SecuritySelfTest.cs:959`, so that self-test asserts the behaviour of a class nothing
-  ships against. In tools: `PetEmitter.RestRepeatCount` (`:2425`, and it would be wrong if used — it
-  hard-codes `RestDwellMs` so it cannot express the hub/performance split), the 6-arg `BlitOpaque`
-  (`SpriteSheetBuilder.cs:395`), the 1-arg `Reloop` (`Program.cs:1655`). In modules:
-  `AiSessionManager.DisposeWithin` (`:227`), `AiSettings.CredentialIdentity` (`:974`, which also
-  decrypts the API key on every call), four in `FortuneProvider.cs`, `AnimCapability.cs:511`,
-  `TimelinePane.cs:239`, `PetSprite.cs:27`.
-
-- 📌 **Branches that can never be taken.** `ActionClassifier.cs:262`'s `&& !Has(cond, "activeIE")` —
-  `:257` already returned Group2 for any condition containing it. `PetEmitter.cs:2209` and `:2210`'s
-  `&& a.Animations[0].Poses.Count > 0` — `IsWallAction`/`IsCeilingAction` reject an empty pose list at
-  `:409` and `:660`. `PetEmitter.cs:1501`'s `e != fall` — `fall` is added only to `all`, never to
-  `spokes` or `chainSteps`, which are `BuildSpoke`'s only two sources.
-  `modules/AgentFlow/BlockedDetector.cs:232`'s `isCodex` is always false there, because every Codex
-  path returns inside the block at `:176-198`; the Codex arm of the ternary and its reason string are
-  unreachable and the comment at `:229` explains a behaviour that cannot happen.
-  `modules/Reminder/ReminderScheduler.cs:20` `DueNow` has zero callers and is a trap: it tests
-  `firedIds.Contains(e.Id)` while the live set holds composite `"<id>@<lead>"` keys, so wiring it back
-  in yields a scheduler that re-fires every event on every tick.
-
-- 📌 **The settings/XML file-change callbacks are empty, so a second instance never sees the first's
-  writes.** `src/Portable/LocalData.cs:942` and `:947` have empty bodies ("Not implemented in the
-  portable build"), and PORTABLE is defined in both configurations with `Portable/LocalData.cs` the
-  only `LocalData` compiled. That makes `StartUp.XmlFileChanged:383`, `OptionFileChanged:389`, the
-  `isRealoadingSettings` field and `LocalData.LoadXML()` all unreachable.
-  `Program.TryAcquireInstanceSlot` deliberately allows two concurrent instances, so changing the
-  volume in instance A leaves instance B permanently stale. The data is not corrupted —
-  `MergeChangedFields` only writes fields this process changed — so this is staleness, not loss.
-
-- 📌 **The debug right-click menu throws on .NET 10 instead of opening.**
-  `src/dotNet/FormCompanion.cs:2104` constructs `System.Windows.Forms.ContextMenu`, which .NET 9+
-  ships only as a binary-compatibility stub: on the runtime this project targets
-  (`Microsoft.WindowsDesktop.App/10.0.10`) the type carries `[Obsolete(DiagnosticId="WFDEV006")]` and
-  `Activator.CreateInstance` throws `PlatformNotSupportedException`. Launch with Shift held
-  (`StartUp.cs:182`) so `IsDebugActive()` is true, right-click a companion, and line 2104 throws
-  before `timer1.Enabled = false` at `:2153` — the exception escapes into the message pump and the
-  user gets the unhandled-exception dialog while the pet keeps animating.
-  `DesktopAICompanion_Portable.csproj` suppresses WFDEV006 with the comment "kept for behavior parity
-  during the migration"; there is no parity, the code cannot execute.
-
 ### VS Code setup, AgentFlow
 
 - 📌 **`ReadPort` accepts an unquoted JSON number, which VS Code ignores.**

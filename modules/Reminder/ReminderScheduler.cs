@@ -17,27 +17,15 @@ namespace DesktopAICompanion.ReminderModule
         /// <summary>Minutes after an event's start that a reminder may still fire (past this it is missed, not nagged).</summary>
         public const int GraceMinutes = 1;
 
-        public static IReadOnlyList<CalendarEvent> DueNow(
-            IReadOnlyList<CalendarEvent> events, DateTimeOffset now, int leadMinutes, ISet<string> firedIds)
-        {
-            var due = new List<CalendarEvent>();
-            if (events == null) return due;
-            if (leadMinutes < 0) leadMinutes = 0;
-            foreach (CalendarEvent e in events)
-            {
-                if (e == null || string.IsNullOrEmpty(e.Id)) continue;
-                if (firedIds != null && firedIds.Contains(e.Id)) continue;
-                DateTimeOffset fireAt = e.Start.AddMinutes(-leadMinutes);
-                DateTimeOffset expireAt = e.Start.AddMinutes(GraceMinutes);
-                if (now >= fireAt && now < expireAt) due.Add(e);
-            }
-            return due;
-        }
-
         // --- multi-lead ---------------------------------------------------------------------------------
         //
-        // Same window rule as DueNow, but an event can carry SEVERAL leads at once (a 15-minute warning AND a
-        // 5-minute warning, say). Each (event, lead) pair is its own reminder: it opens its own window
+        // A single-lead DueNow used to sit here, with no callers and an incompatible key scheme: it tested
+        // the fired set with a bare event id, while this one records "<id>@<lead>". Wiring it back in would
+        // have produced a scheduler that re-fired every event on every tick, so it went rather than waiting
+        // to be picked up by someone who read its signature and not its body.
+        //
+        // An event can carry SEVERAL leads at once (a 15-minute warning AND a 5-minute warning, say). Each
+        // (event, lead) pair is its own reminder: it opens its own window
         // [start - lead, start + grace] and is de-duplicated on its OWN composite id, so the 15-min warning
         // firing does not suppress the 5-min one. The larger lead's window is a superset of the smaller's, so
         // both can be open at the same instant; when neither has fired yet (e.g. a fresh launch inside both
