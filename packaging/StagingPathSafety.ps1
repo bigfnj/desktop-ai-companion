@@ -65,14 +65,12 @@ class DesktopAICompanionPackagingHashUtil {
 class DesktopAICompanionValidatedInputFile : System.IDisposable {
     [string]$FinalPath
     [long]$Length
-    [uint32]$LinkCount
     hidden [string]$Path
 
     DesktopAICompanionValidatedInputFile([string]$path) {
         $this.Path = $path
         $this.FinalPath = $path
         $this.Length = [long]((Get-Item -LiteralPath $path -Force).Length)
-        $this.LinkCount = 1
     }
 
     [void] CopyTo([System.IO.Stream]$destination) {
@@ -279,14 +277,50 @@ function Test-DesktopAICompanionPathWithin {
         [StringComparison]::OrdinalIgnoreCase)
 }
 
-function Get-DesktopAICompanionFinalPath {
+function Assert-DesktopAICompanionUnlinkedChain {
     [CmdletBinding()]
-    param([Parameter(Mandatory = $true)][string]$Path)
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string]$Description
+    )
 
-    if (-not (Test-Path -LiteralPath $Path)) {
-        throw "Cannot resolve the final path of a missing filesystem entry: $Path"
+    # What -RejectHardLinks buys, now that somebody reads it.
+    #
+    # A reparse point -- a symlink or a directory junction -- is a NAME inside the declared root
+    # whose bytes live anywhere on the volume. Accepting one as a packaging input means shipping a
+    # file the root never contained, which is the escape the flag is named for and which it
+    # permitted for as long as it was ignored.
+    #
+    # The walk goes up the ANCESTORS as well as testing the leaf, because a junction one directory
+    # up leaves every file beneath it looking perfectly ordinary. It stops at the declared root:
+    # above that is the caller's business, and on a runner the repo itself may sit under one.
+    #
+    # Deliberately NOT claimed: a true NTFS hard link, a second directory entry for one file. That
+    # needs NumberOfLinks out of GetFileInformationByHandle, and this file has no P/Invoke. It is
+    # also the harmless half -- a hard link resolves inside its own volume and copying one copies
+    # the bytes -- whereas a junction is the half that escapes. Said here rather than left for a
+    # reader to discover, which is the whole complaint the docstring below makes about ELEVEN
+    # parameters and TWO reads.
+    $resolvedRoot = Get-DesktopAICompanionCanonicalPath -Path $Root
+    $current = Get-DesktopAICompanionCanonicalPath -Path $Path
+    while (-not [string]::IsNullOrWhiteSpace($current)) {
+        if (Test-Path -LiteralPath $current) {
+            $attributes = [System.IO.File]::GetAttributes($current)
+            if (($attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                if ($current.Equals($Path, [StringComparison]::OrdinalIgnoreCase)) {
+                    throw ("$Description is a reparse point (a symlink or a junction), not a real " +
+                           "file: $current")
+                }
+                throw ("$Description reaches its bytes through a linked directory, so its declared " +
+                       "root does not really contain it: '$Path' passes through '$current'")
+            }
+        }
+        if ($current.Equals($resolvedRoot, [StringComparison]::OrdinalIgnoreCase)) { break }
+        $parent = Split-Path -Parent $current
+        if ($parent -eq $current) { break }
+        $current = $parent
     }
-    return Get-DesktopAICompanionCanonicalPath -Path (Resolve-Path -LiteralPath $Path).Path
 }
 
 function Assert-DesktopAICompanionPathChainSafe {
@@ -410,6 +444,12 @@ function Open-DesktopAICompanionValidatedInputFile {
     if (-not (Test-Path -LiteralPath $resolvedPath -PathType Leaf)) {
         throw "Packaging input is missing or is not a file: $resolvedPath"
     }
+    if ($RejectHardLinks) {
+        Assert-DesktopAICompanionUnlinkedChain `
+            -Path $resolvedPath `
+            -Root $resolvedRoot `
+            -Description 'Packaging input'
+    }
     return [DesktopAICompanionValidatedInputFile]::new($resolvedPath)
 }
 
@@ -485,6 +525,26 @@ function Copy-DesktopAICompanionValidatedInputFile {
     $sourceFull = Get-DesktopAICompanionCanonicalPath -Path $Path
     if (-not (Test-Path -LiteralPath $sourceFull -PathType Leaf)) {
         throw "Validated-copy source is missing or is not a file: $sourceFull"
+    }
+    # $Root was MANDATORY and unread, so a copy whose -Path sat anywhere on the volume succeeded
+    # while its signature said otherwise. Same containment rule as the Open- twin above, which is
+    # where a reader would go looking for it.
+    $resolvedRoot = Get-DesktopAICompanionCanonicalPath -Path $Root
+    if (-not (Test-Path -LiteralPath $resolvedRoot -PathType Container)) {
+        throw "Validated-copy source root is missing or is not a directory: $resolvedRoot"
+    }
+    if (-not (Test-DesktopAICompanionPathWithin `
+            -Path $sourceFull `
+            -Root $resolvedRoot)) {
+        throw (
+            "Validated-copy source must be strictly below its declared root " +
+            "'$resolvedRoot': $sourceFull")
+    }
+    if ($RejectHardLinks) {
+        Assert-DesktopAICompanionUnlinkedChain `
+            -Path $sourceFull `
+            -Root $resolvedRoot `
+            -Description 'Validated-copy source'
     }
     $destinationFull = Get-DesktopAICompanionCanonicalPath -Path $DestinationPath
     $destinationParent = Split-Path -Parent $destinationFull
@@ -640,6 +700,35 @@ function Open-DesktopAICompanionNewScratchDirectory {
     if (Test-Path -LiteralPath $resolvedPath) {
         throw "New scratch directory must be absent and caller-owned: $resolvedPath"
     }
+    # Three more parameters that were accepted and discarded. This function's whole job is to hand
+    # back a directory it will later delete RECURSIVELY, so the trusted-root and protected-path
+    # arguments are the only thing standing between a mis-wired -Path and a recursive delete of
+    # something a caller named as precious -- and both were decoration.
+    [void](Assert-DesktopAICompanionPathChainSafe `
+        -Path $resolvedPath `
+        -TrustedRoot $TrustedRoot)
+    foreach ($protected in @($ProtectedPaths)) {
+        if ([string]::IsNullOrWhiteSpace($protected)) { continue }
+        $protectedFull = Get-DesktopAICompanionCanonicalPath -Path $protected
+        if (Test-DesktopAICompanionPathWithin `
+                -Path $protectedFull `
+                -Root $resolvedPath `
+                -AllowRoot) {
+            throw ("New scratch directory would contain a protected build input, and this scratch " +
+                   "is deleted recursively on the way out: $protectedFull")
+        }
+    }
+    foreach ($protectedDirectory in @($ProtectedDirectories)) {
+        if ([string]::IsNullOrWhiteSpace($protectedDirectory)) { continue }
+        $protectedDirectoryFull = Get-DesktopAICompanionCanonicalPath -Path $protectedDirectory
+        if (Test-DesktopAICompanionPathWithin `
+                -Path $protectedDirectoryFull `
+                -Root $resolvedPath `
+                -AllowRoot) {
+            throw ("New scratch directory would contain a protected build directory, and this " +
+                   "scratch is deleted recursively on the way out: $protectedDirectoryFull")
+        }
+    }
 
     New-Item -ItemType Directory -Path $resolvedPath | Out-Null
     return [DesktopAICompanionScratchDirectory]::new($resolvedPath)
@@ -662,6 +751,13 @@ function Remove-DesktopAICompanionSafeFile {
             "Refusing to delete a file outside allowed root " +
             "'$resolvedAllowedRoot': $resolvedPath")
     }
+    # And inside the TRUSTED root, which was mandatory and unread. The two are not the same check:
+    # -AllowedRoot is the directory this delete is scoped to and is usually derived from the very
+    # path being deleted, so it moves with a mis-wire; -TrustedRoot is the build's own boundary and
+    # does not. Ahead of a Remove-Item, that difference is the whole guard.
+    [void](Assert-DesktopAICompanionPathChainSafe `
+        -Path $resolvedPath `
+        -TrustedRoot $TrustedRoot)
     if (-not (Test-Path -LiteralPath $resolvedPath)) {
         return
     }
@@ -688,6 +784,10 @@ function Remove-DesktopAICompanionSafeDirectory {
             "Refusing to delete outside allowed staging root " +
             "'$resolvedAllowedRoot': $resolvedPath")
     }
+    # The most consequential of the five: what follows is Remove-Item -Recurse -Force.
+    [void](Assert-DesktopAICompanionPathChainSafe `
+        -Path $resolvedPath `
+        -TrustedRoot $TrustedRoot)
     if (-not (Test-Path -LiteralPath $resolvedPath)) {
         return
     }
@@ -714,6 +814,9 @@ function Reset-DesktopAICompanionStagingDirectory {
             "Refusing to reset outside allowed staging root " +
             "'$resolvedAllowedRoot': $resolvedPath")
     }
+    [void](Assert-DesktopAICompanionPathChainSafe `
+        -Path $resolvedPath `
+        -TrustedRoot $TrustedRoot)
 
     if (Test-Path -LiteralPath $resolvedPath) {
         Remove-Item -LiteralPath $resolvedPath -Recurse -Force

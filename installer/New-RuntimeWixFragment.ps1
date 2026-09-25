@@ -168,7 +168,7 @@ try {
     $temporaryDirectoryLease = Open-DesktopAICompanionNewScratchDirectory `
         -Path $temporaryDirectory `
         -AllowedRoot $outputParent `
-        -TrustedRoot $outputParent `
+        -TrustedRoot $repoRoot `
         -ProtectedPaths @($manifestFull, $outputFull)
     $temporaryDirectoryCreated = $true
     $temporaryPath = Join-Path $temporaryDirectory (
@@ -252,7 +252,7 @@ finally {
             Remove-DesktopAICompanionSafeDirectory `
                 -Path $temporaryDirectory `
                 -AllowedRoot $outputParent `
-                -TrustedRoot $outputParent
+                -TrustedRoot $repoRoot
         }
         catch {
             if ($null -eq $fragmentPrimaryError) {

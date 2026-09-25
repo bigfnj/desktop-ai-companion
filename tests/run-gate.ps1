@@ -135,6 +135,16 @@ try {
     try { & (Join-Path $repoRoot 'packaging\Test-AtomicPublish.ps1') }
     catch { $failures.Add('Test-AtomicPublish.ps1: ' + $_.Exception.Message) }
 
+    # The same defect, five more times, in the same file. Three functions declared a MANDATORY
+    # -TrustedRoot and never read it -- two of them immediately ahead of Remove-Item -Recurse -Force
+    # -- Copy-...ValidatedInputFile never read its mandatory -Root, and both -RejectHardLinks flags
+    # were decoration. Wired in here in the SAME commit as the fix, because the MSI path this file
+    # serves is not built by the gate: fixing it without a gate step would have reproduced the exact
+    # defect class it closes. ~1s, all under %TEMP%.
+    Write-Host '=== staging path-safety refusals' -ForegroundColor Cyan
+    try { & (Join-Path $repoRoot 'packaging\Test-StagingPathSafety.ps1') }
+    catch { $failures.Add('Test-StagingPathSafety.ps1: ' + $_.Exception.Message) }
+
     Write-Host '=== catalog integrity' -ForegroundColor Cyan
     try { & (Join-Path $repoRoot 'packaging\Test-ContentCatalogIntegrity.ps1') }
     catch { $failures.Add('Test-ContentCatalogIntegrity.ps1: ' + $_.Exception.Message) }

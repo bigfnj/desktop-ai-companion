@@ -74,6 +74,12 @@ jobs:
           if ($selfTestCount -le 0) {
             $failures += "SELFTEST-FAILURE: the runner reported $selfTestCount flags, so it did no work"
           }
+          # Packaging guards that refuse, each fed the input it exists to refuse. Not covered by
+          # the self-test flags above: these are PowerShell, and the MSI they guard is not built here.
+          try { .\packaging\Test-AtomicPublish.ps1 }
+          catch { $failures += "SELFTEST-FAILURE: Test-AtomicPublish.ps1: $($_.Exception.Message)" }
+          try { .\packaging\Test-StagingPathSafety.ps1 }
+          catch { $failures += "SELFTEST-FAILURE: Test-StagingPathSafety.ps1: $($_.Exception.Message)" }
           # Source-text invariant checks (no assembly load; the reflection half is --hardening-selftest).
           # try/catch because it signals by `throw`, same as the gate's own call.
           try { .\tests\runtime-hardening-selftest.ps1 }
