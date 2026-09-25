@@ -825,3 +825,59 @@ right file, restore. Where a mutation SURVIVED, that is recorded below rather th
   blocks on the SMB timeout with the pets frozen, once every 20 seconds. The same doc's claim that "a
   parse failure is non-fatal, the companion keeps the last good feed" is false here: last-good
   retention lives only in `CachingCalendarSource.DoRefresh`.
+
+---
+
+## Closed 2026-09-25 — five converter defects
+
+Four were one-liners that had survived because nothing in the converter's own suite asked the
+question they answer. The fifth was a licensing claim in source that was false in all three of its
+halves, which matters more than its size in a repo whose redistribution posture rests on such
+claims.
+
+Two things are deliberately NOT done and are recorded here rather than left implied. The 31 shipped
+pets were not re-converted, so they keep their current sprite sheets and the 36 wasted interior
+tiles until somebody decides to re-convert; that changes 31 companion assets and their catalog
+hashes, and is a download-churn decision rather than a side effect of a compositor fix. And the
+`NextBehaviour` item shipped without a real-world British skin to demonstrate prevalence on, exactly
+as its own entry warned: the code shape is unambiguous and now tested, the frequency in the wild is
+still unmeasured.
+
+- 📌 **One child-process drain is still the textbook deadlock.**
+  `tools/ShimejiConvert.Engine/Engine.cs:269-272` does `ReadToEnd()` on stdout then stderr, then
+  `WaitForExit(timeout)`. stdout only reaches EOF at exit, so the timeout is always called on a
+  finished process and can never fire; once the child's stderr crosses the 4 KB pipe default while
+  the parent blocks on stdout, both stop forever. `Engine.ProbeFfmpeg:310` additionally leaves the
+  process running when its wait returns false.
+  The Remembrance pair (`Transcriber.cs`, `WhisperInstaller.cs:713`) was fixed on 2026-09-24 and is
+  covered by two source invariants in `tests/runtime-hardening-selftest.ps1`; this one belongs with
+  the converter work and has not been done.
+
+- 📌 **`PosesToComposite` draws every drag frame; `DragSwingFramesOf` references only `Poses[0]`.**
+  `tools/ShimejiConvert.Engine/Emit/PetEmitter.cs:1008-1014` vs `:1052-1058`. Measured across the 31
+  shipped converted pets: 174 unreferenced tiles, 138 of them legitimate grid-tail padding and 36
+  interior waste in contiguous runs consistent with this (worst four pets at 4 each). Small, but it
+  counts against the 1024-tile cap and the 12 MiB budget. Larger in kind for an Android bundle, where
+  `BundleParser` builds one animation per action so a multi-frame drag collapses to a single frozen
+  frame while all its other frames are still drawn into the sheet.
+
+- 📌 **The vocabulary alias table carries four British spellings but not `NextBehaviour`.**
+  `tools/ShimejiConvert.Engine/Shimeji/ShimejiParser.cs:105-125` aliases Behaviour,
+  BehaviourReference, BehaviourList and NextBehaviourList. `NextBehavior` SINGULAR is the element that
+  exists (7 occurrences in base-conf/behaviors.xml, zero `NextBehaviorList`), and the exclusion at
+  `:259` checks for both forms — so the missing alias is the one that matters. A British-spelled conf
+  inlining `<Behaviour Frequency="N">` inside `<NextBehaviour>` would have its transition-only weights
+  counted as root selection frequencies, skewing every hub weight for that skin. Lower confidence than
+  the rest: the code shape is unambiguous, but no such skin was available to demonstrate prevalence.
+
+- 📌 **One diagnostic prints a BEL byte.** `tools/ShimejiConvert/Program.cs:179` writes the "Found no
+  animations.xml under" message with a single backslash before `animations.xml`, and `\a` is the C#
+  alert escape, so it emits BEL followed by "nimations.xml". All eight sibling call sites escape it
+  correctly.
+
+- 📌 **`SkinLayout.cs:93-96`'s docstring says this repo does not ship the base conf. It does.**
+  Both halves of "cannot be converted here... is copyrighted and this repo does not ship it" are
+  false: `base-conf/actions.xml` and `base-conf/behaviors.xml` are in the tree, `ParseBundledConf`
+  loads them, and `Detect` returns skins with `UsesBundledConf = true`. Worth correcting given this
+  repo's licensing sensitivity, because it is an in-source claim about what is and is not
+  redistributed.

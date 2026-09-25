@@ -585,16 +585,6 @@ open-item blindness plus the bug-number drift.
 
 ### Blocking IO, pipe deadlocks, and measured cost
 
-- 📌 **One child-process drain is still the textbook deadlock.**
-  `tools/ShimejiConvert.Engine/Engine.cs:269-272` does `ReadToEnd()` on stdout then stderr, then
-  `WaitForExit(timeout)`. stdout only reaches EOF at exit, so the timeout is always called on a
-  finished process and can never fire; once the child's stderr crosses the 4 KB pipe default while
-  the parent blocks on stdout, both stop forever. `Engine.ProbeFfmpeg:310` additionally leaves the
-  process running when its wait returns false.
-  The Remembrance pair (`Transcriber.cs`, `WhisperInstaller.cs:713`) was fixed on 2026-09-24 and is
-  covered by two source invariants in `tests/runtime-hardening-selftest.ps1`; this one belongs with
-  the converter work and has not been done.
-
 - 📌 **Dragging the per-companion size slider rewrites a 1.17 MB settings.json per 25% step, on the UI
   thread.** `src/Portable/Wpf/CompanionsPaneControl.cs:409` → `StartUp.cs:1061` → `LocalData.cs:301` →
   `AppSettingsStore.SaveCore:1053` → `AtomicFile.TryWriteAllText`. The document embeds the active
@@ -659,35 +649,6 @@ open-item blindness plus the bug-number drift.
   `New-ModulePublish.ps1:128-133` carries the comment naming this outcome. Its first-publish branch
   (`:218-224`) never sets the key, and nothing checks parity with source, which has already drifted
   (`AiBrainModule.cs:140` declares "1.1.0"; the aibrain and reminder entries have no key).
-
-- 📌 **`PosesToComposite` draws every drag frame; `DragSwingFramesOf` references only `Poses[0]`.**
-  `tools/ShimejiConvert.Engine/Emit/PetEmitter.cs:1008-1014` vs `:1052-1058`. Measured across the 31
-  shipped converted pets: 174 unreferenced tiles, 138 of them legitimate grid-tail padding and 36
-  interior waste in contiguous runs consistent with this (worst four pets at 4 each). Small, but it
-  counts against the 1024-tile cap and the 12 MiB budget. Larger in kind for an Android bundle, where
-  `BundleParser` builds one animation per action so a multi-frame drag collapses to a single frozen
-  frame while all its other frames are still drawn into the sheet.
-
-- 📌 **The vocabulary alias table carries four British spellings but not `NextBehaviour`.**
-  `tools/ShimejiConvert.Engine/Shimeji/ShimejiParser.cs:105-125` aliases Behaviour,
-  BehaviourReference, BehaviourList and NextBehaviourList. `NextBehavior` SINGULAR is the element that
-  exists (7 occurrences in base-conf/behaviors.xml, zero `NextBehaviorList`), and the exclusion at
-  `:259` checks for both forms — so the missing alias is the one that matters. A British-spelled conf
-  inlining `<Behaviour Frequency="N">` inside `<NextBehaviour>` would have its transition-only weights
-  counted as root selection frequencies, skewing every hub weight for that skin. Lower confidence than
-  the rest: the code shape is unambiguous, but no such skin was available to demonstrate prevalence.
-
-- 📌 **One diagnostic prints a BEL byte.** `tools/ShimejiConvert/Program.cs:179` writes the "Found no
-  animations.xml under" message with a single backslash before `animations.xml`, and `\a` is the C#
-  alert escape, so it emits BEL followed by "nimations.xml". All eight sibling call sites escape it
-  correctly.
-
-- 📌 **`SkinLayout.cs:93-96`'s docstring says this repo does not ship the base conf. It does.**
-  Both halves of "cannot be converted here... is copyrighted and this repo does not ship it" are
-  false: `base-conf/actions.xml` and `base-conf/behaviors.xml` are in the tree, `ParseBundledConf`
-  loads them, and `Detect` returns skins with `UsesBundledConf = true`. Worth correcting given this
-  repo's licensing sensitivity, because it is an in-source claim about what is and is not
-  redistributed.
 
 ### Dead code and unreachable branches
 
