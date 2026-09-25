@@ -697,9 +697,25 @@ open-item blindness plus the bug-number drift.
   Consequence at `FormCompanion.cs:1246`: no eligible transition sets `bLeavingScreen = true`, and a
   sprite fully outside the monitor is respawned, so the pet walked off the bottom and reappeared.
 
+  **Confirmed in the real app, 2026-09-25, with a positive control.** A 45-minute run of the FIXED
+  pet recorded **3** warnings, and all three were `state 44, where=130` -- one of the states this
+  change does not touch. States 173 and 182 at the taskbar recorded **zero**. The control is the
+  part that makes the zero mean something: the detector demonstrably fired three times during that
+  very run, so a zero for the fixed pair is a real zero rather than a dead harness. At the measured
+  rate of about 17/hour for those two states, 45 minutes expected roughly 13.
+
+  An earlier 12-minute run of the UNFIXED pet recorded zero and was discarded rather than reported:
+  at ~21/hour a 12-minute window expects about three events and observing none is ordinary, so it
+  was evidence of nothing either way. That is why `tests/companion-border-invariants.ps1` asserts
+  the property instead, and why it is the check in the gate rather than a soak.
+
+  (The soak logs the pet as `eSheep` because `localxml=` sets no folder id. It is pink_sheep's XML:
+  state 44 with 7 declared candidates at `where=130` matches the owner's log entry exactly.)
+
   ⚠ **The remaining 66 occurrences are NOT fixed and are a different shape**: states 44, 114, 81
   and 122 at `where=130` and `where=18`, which are window-edge situations rather than the taskbar.
-  Filed below rather than left implied.
+  Filed below rather than left implied. The soak above saw state 44 three times in 45 minutes,
+  about 4/hour, against 2.3/hour in the owner's 16-hour log: the same order, still happening.
 
 - 📌 **Four `pink_sheep` states cannot answer a border at `where=130` or `where=18`.** The
   residue of the 407 measurement above: 37 at state 44, 25 at state 114, 3 at state 81, 1 at state
