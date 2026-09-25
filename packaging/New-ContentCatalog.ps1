@@ -224,16 +224,54 @@ if (Test-Path -LiteralPath $modulesJsonPath) {
 # launch update check reads: it compares this to the running build and, when newer, the Preferences footer
 # offers a link to the releases page. Notify-only -- no asset URL or hash belongs here, because nothing about
 # the app itself is ever downloaded automatically.
-$productVersionProps = Join-Path (Split-Path -Parent $PSScriptRoot) 'ProductVersion.props'
-$appVersion = ''
+#
+# The NEWEST RELEASE, not the newest build.
+#
+# This used to stamp <DesktopAICompanionVersion> from ProductVersion.props, which is the version that
+# has been BUILT. Those are legitimately different between an ABI bump and the release that ships it,
+# and catalog.json is fetched live from master by every installed app -- so publishing the built
+# version told every user an update existed and sent them to a releases page that did not have it.
+# Committing a catalog was enough to do that; no release required.
+#
+# The newest v* tag is what a user can actually download, so that is what goes in. The build version
+# still bounds it: Test-ModulePublishFreshness.ps1 refuses a catalog ahead of ProductVersion.props,
+# and refuses one that trails the newest tag -- the latter being the 1.1.0 incident, where the catalog
+# sat still through v1.1.1, v1.1.2 and v1.1.3 and nobody was offered the tray-icon fix.
+$repoRootForVersion = Split-Path -Parent $PSScriptRoot
+$productVersionProps = Join-Path $repoRootForVersion 'ProductVersion.props'
+$builtVersion = ''
 if (Test-Path $productVersionProps) {
     $m = [regex]::Match(
         [IO.File]::ReadAllText($productVersionProps),
         '<DesktopAICompanionVersion>\s*([^<\s]+)\s*</DesktopAICompanionVersion>')
-    if ($m.Success) { $appVersion = $m.Groups[1].Value }
+    if ($m.Success) { $builtVersion = $m.Groups[1].Value }
 }
-if (-not $appVersion) {
-    throw "Could not read <DesktopAICompanionVersion> from $productVersionProps. The catalog's app.version is what the launch update check compares against, so a blank one would silently disable it."
+if (-not $builtVersion) {
+    throw "Could not read <DesktopAICompanionVersion> from $productVersionProps. It is the ceiling for the catalog's app.version, so a blank one would remove the only check that a published catalog is buildable."
+}
+
+$catalogTags = @(& git -C $repoRootForVersion tag --list 'v*' 2>$null)
+if ($LASTEXITCODE -ne 0 -or $catalogTags.Count -eq 0) {
+    Write-Warning "DEGRADED  no v* tags are reachable, so the newest release could not be determined"
+    throw "Refusing to write a catalog without knowing the newest release: app.version is what every installed app reads to decide an update exists, and guessing it from the build would advertise a download that does not exist. Fetch tags (CI uses fetch-depth: 0) and re-run."
+}
+$appVersionParsed = $null
+foreach ($catalogTag in $catalogTags) {
+    $parsedCatalogTag = $null
+    if ([version]::TryParse($catalogTag.TrimStart('v'), [ref]$parsedCatalogTag)) {
+        if ($null -eq $appVersionParsed -or $parsedCatalogTag -gt $appVersionParsed) { $appVersionParsed = $parsedCatalogTag }
+    }
+}
+if ($null -eq $appVersionParsed) {
+    throw "No v* tag parsed as a version number, so the newest release could not be determined."
+}
+$appVersion = $appVersionParsed.ToString()
+$builtVersionParsed = $null
+if ([version]::TryParse($builtVersion, [ref]$builtVersionParsed) -and $appVersionParsed -gt $builtVersionParsed) {
+    throw "The newest release is 'v$appVersion' but ProductVersion.props only says '$builtVersion'. A catalog cannot advertise a version this tree cannot build."
+}
+if ($appVersion -ne $builtVersion) {
+    Write-Host "  app.version $appVersion (newest release); ProductVersion.props is ahead at $builtVersion, not released yet"
 }
 
 # Force arrays so a single entry still serializes as a JSON array.
