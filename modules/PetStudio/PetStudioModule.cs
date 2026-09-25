@@ -24,7 +24,10 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.1.2",   // 1.1.2: converter payload refresh. Sound resolution now scans the skin
+            Version = "1.1.3",   // 1.1.3: converter payload refresh, no behaviour change. Three source-linked
+                                 //        engine files lost always-true conjuncts and an uncalled overload, and
+                                 //        three uncalled members left the pane code.
+                                 // 1.1.2: converter payload refresh. Sound resolution now scans the skin
                                  //        root once per clip NAME instead of once per reference, and
                                  //        remembers the clips ffmpeg refused.
                                  // 1.1.1: converter payload refresh. Five engine defects fixed (BEL byte,

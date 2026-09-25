@@ -147,7 +147,10 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.4.5",   // 1.4.5: the chime and the animation are no longer gated on speech; the tray
+            Version = "1.4.6",   // 1.4.6: BlockedDetector's unreachable Codex arm removed. Every Codex path
+                                 //        returns in the block above it, so isCodex was always false there and
+                                 //        its reason string could never be shown to anyone.
+                                 // 1.4.5: the chime and the animation are no longer gated on speech; the tray
                                  //        "Watching" row no longer demotes auto-approve silently; and Log
                                  //        mode stopped logging that it spoke.
                                  // 1.4.4: the tables were six releases stale, and nothing was

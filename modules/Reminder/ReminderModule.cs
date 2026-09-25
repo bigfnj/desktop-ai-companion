@@ -60,7 +60,11 @@ namespace DesktopAICompanion.ReminderModule
         {
             Id = Id,
             Name = "Reminder",
-            Version = "1.0.4",   // 1.0.4: the local JSON feed is read off the UI thread, and a failed refresh
+            Version = "1.0.5",   // 1.0.5: ReminderScheduler.DueNow deleted. No callers, and it tested the fired
+                                 //        set with a bare event id while DueNowMulti records "<id>@<lead>" --
+                                 //        so reviving it on the strength of its signature would have produced a
+                                 //        scheduler that re-fired every event on every tick.
+                                 // 1.0.4: the local JSON feed is read off the UI thread, and a failed refresh
                                  //        keeps the last good feed instead of blanking it.
                                  // 1.0.3: a restart no longer re-nags. The fired-event set was pruned
                                  //        against the feed BEFORE any check on snap.Error, and an empty feed

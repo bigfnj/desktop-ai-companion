@@ -64,7 +64,10 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.1.6",   // 1.1.6: "Test connection" reports whether it got an ANSWER; a saved vision
+            Version = "1.1.7",   // 1.1.7: dead code out, no behaviour change. DisposeWithin was byte-for-byte
+                                 //        DisposeForDiagnostics with no callers, and CredentialIdentity had none
+                                 //        either while decrypting the API key on every call.
+                                 // 1.1.6: "Test connection" reports whether it got an ANSWER; a saved vision
                                  //        model the filter rejects is still offered; and the drop and poke
                                  //        responders no longer claim a turn they declined.
                                  // 1.1.4: the persona audition can run against the REAL screen ("5 about
