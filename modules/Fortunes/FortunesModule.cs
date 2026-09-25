@@ -637,7 +637,13 @@ namespace DesktopAICompanion.FortunesModule
             staged[id] = disabled;
         }
 
-        // Fold the staged ids into the stored "disabled" lists. Caller owns the Save + rebuild.
+        // Fold the staged ids into the stored "disabled" lists. The caller owns the Save, the rebuild,
+        // AND the clear -- because this map is the only record the batch ever had. CompanionHost.GetSettings
+        // hands out a FRESH ModuleSettings per call and ModuleSettings.Save swallows its exception and
+        // returns false, so clearing here threw away every untick the moment a write failed, and the next
+        // Apply then wrote nothing, returned true, and told the user it had saved.
+        // MergeDisabled is idempotent against an already-merged stored list, so a retained batch re-applies
+        // cleanly on the retry.
         private void CommitStagedDisabled(IModuleSettings ms)
         {
             foreach (KeyValuePair<string, Dictionary<string, bool>> kv in _stagedDisabled)
@@ -645,7 +651,6 @@ namespace DesktopAICompanion.FortunesModule
                 if (kv.Value.Count == 0) continue;
                 ms.Set(kv.Key, MergeDisabled(ms.Get(kv.Key, ""), kv.Value));
             }
-            _stagedDisabled.Clear();
         }
 
         /// <summary>
@@ -1161,6 +1166,7 @@ namespace DesktopAICompanion.FortunesModule
             // join this same write rather than each paying for their own.
             CommitStagedDisabled(ms);
             bool ok = ms.Save();
+            if (ok) _stagedDisabled.Clear();   // keep the batch for a retry when the write did not land
             RebuildEngine();   // re-read + rebuild so the running pet uses the new settings at once
             return ok;
         }

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -1377,10 +1377,111 @@ namespace DesktopAICompanion.ReminderModule
                 ParseAnimationCandidates("   ").Count == 0);
             check("a null list yields no candidates", ParseAnimationCandidates(null).Count == 0);
 
+            // ---- the feed survives a failure, and a local file is not read on the caller's thread ----
+            // CALENDAR-FEED.md has always claimed "a parse failure is non-fatal, the companion keeps the
+            // last good feed". It was true only of a fetch that THREW; a subclass returning an error
+            // snapshot, which is what FetchCore's own doc comment tells them to do, blanked the feed.
+            var retention = new FeedRetentionProbe();
+            var monday = new DateTimeOffset(2026, 1, 5, 9, 0, 0, TimeSpan.Zero);
+            retention.Next = new CalendarSnapshot
+            {
+                Events = new List<CalendarEvent> { new CalendarEvent { Id = "a", Title = "Standup", Start = monday } },
+            };
+            CalendarSnapshot settled = WaitForFeed(retention, delegate(CalendarSnapshot snap)
+            {
+                return snap != null && snap.Error == null && snap.Events != null && snap.Events.Count == 1;
+            });
+            check("a caching source serves its events once the background fetch lands",
+                settled != null);
+
+            retention.Next = new CalendarSnapshot { Events = Array.Empty<CalendarEvent>(), Error = "the share went away" };
+            CalendarSnapshot failed = WaitForFeed(retention, delegate(CalendarSnapshot snap)
+            {
+                return snap != null && snap.Error != null;
+            });
+            check("a failed refresh keeps the last good feed instead of blanking it",
+                failed != null && failed.Events != null && failed.Events.Count == 1);
+            check("...and still reports the error, so nothing treats the stale feed as fresh",
+                failed != null && failed.Error == "the share went away");
+
+            // WITNESS: an error snapshot that brought events of its OWN keeps them. The restore is a
+            // fallback for a blank, not an override.
+            retention.Next = new CalendarSnapshot
+            {
+                Events = new List<CalendarEvent>
+                {
+                    new CalendarEvent { Id = "b", Title = "Partial", Start = monday },
+                    new CalendarEvent { Id = "c", Title = "Partial two", Start = monday },
+                },
+                Error = "partial",
+            };
+            CalendarSnapshot partial = WaitForFeed(retention, delegate(CalendarSnapshot snap)
+            {
+                return snap != null && snap.Error == "partial";
+            });
+            check("WITNESS an error snapshot carrying its own events keeps them, not the last good one",
+                partial != null && partial.Events != null && partial.Events.Count == 2);
+
+            // And the reason LocalJsonSource was moved onto that base at all: it used to read the file on
+            // the UI thread every 20 seconds, and CALENDAR-FEED.md describes the path as a work-side
+            // exporter's output -- in practice a share, which blocks on the SMB timeout when the VPN drops.
+            // A first Fetch that answers with events is a first Fetch that read the disk synchronously.
+            string probeDirectory = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), "dp-reminder-feed-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                System.IO.Directory.CreateDirectory(probeDirectory);
+                string feedPath = System.IO.Path.Combine(probeDirectory, "feed.json");
+                System.IO.File.WriteAllText(feedPath,
+                    "{\"events\":[{\"id\":\"a\",\"title\":\"Standup\",\"start\":\"2026-01-05T09:00:00+00:00\"}]}");
+                var local = new LocalJsonSource(delegate { return feedPath; });
+                CalendarSnapshot firstTick = local.Fetch();
+                check("a local feed is not read on the caller's thread (the first tick answers 'reading…')",
+                    firstTick != null && firstTick.Error != null &&
+                    firstTick.Events != null && firstTick.Events.Count == 0);
+                CalendarSnapshot arrived = WaitForFeed(local, delegate(CalendarSnapshot snap)
+                {
+                    return snap != null && snap.Error == null && snap.Events != null && snap.Events.Count == 1;
+                });
+                check("...and the events arrive once the background read lands",
+                    arrived != null && arrived.Events[0].Id == "a");
+            }
+            finally
+            {
+                try { System.IO.Directory.Delete(probeDirectory, true); } catch { }
+            }
+
             detail = sb.ToString();
             return ok;
         }
 
         private delegate bool SelfCheckDelegate(out string detail);
+
+        /// <summary>Poll a caching source until its snapshot satisfies <paramref name="until"/>, or give up.
+        /// Polling rather than a handshake because Fetch's contract IS "answer now, refresh behind you" --
+        /// a test that waited on a signal would be testing something the source does not promise. Returns
+        /// null on timeout so the caller's assertion fails rather than hanging the suite.</summary>
+        private static CalendarSnapshot WaitForFeed(ICalendarSource source, Func<CalendarSnapshot, bool> until)
+        {
+            DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+            while (DateTime.UtcNow < deadline)
+            {
+                CalendarSnapshot snap = source.Fetch();
+                if (until(snap)) return snap;
+                System.Threading.Thread.Sleep(15);
+            }
+            return null;
+        }
+
+        /// <summary>A caching source whose next answer the test chooses. Zero refresh interval, so every
+        /// Fetch kicks a fresh background pass and the test never waits out a real one.</summary>
+        private sealed class FeedRetentionProbe : CachingCalendarSource
+        {
+            internal CalendarSnapshot Next;
+            internal FeedRetentionProbe() : base(TimeSpan.Zero) { }
+            public override string Name { get { return "retention probe"; } }
+            protected override string RefreshKey() { return ""; }
+            protected override CalendarSnapshot FetchCore(DateTimeOffset now) { return Next; }
+        }
     }
 }

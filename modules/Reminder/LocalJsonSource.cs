@@ -15,23 +15,41 @@ namespace DesktopAICompanion.ReminderModule
     ///
     /// Format: { "updated": "&lt;ISO8601&gt;", "events": [ { "id", "title", "start" (ISO8601 with offset),
     /// "end"?, "location"? } ] }. Malformed events are skipped, not fatal, so one bad row never blanks the feed.
+    ///
+    /// Derives from CachingCalendarSource like its two siblings. It used to implement ICalendarSource
+    /// directly, on the reasoning that a local file is fast -- but CALENDAR-FEED.md describes this path as a
+    /// work-side exporter's output, which in practice means a share. When the VPN drops, File.ReadAllText
+    /// blocks on the SMB timeout, and it was doing that on the UI thread every 20 seconds with the pets
+    /// frozen behind it. "Local" describes the API being used, not where the bytes are.
+    ///
+    /// The refresh interval matches the module's own tick rather than the minutes its siblings use, so
+    /// freshness is exactly what it was and the ONLY behaviour change is which thread does the reading.
+    /// One other follows from the base: the very first tick answers "reading…" instead of the events,
+    /// because the read has been kicked and has not landed yet.
     /// </summary>
-    public sealed class LocalJsonSource : ICalendarSource
+    public sealed class LocalJsonSource : CachingCalendarSource
     {
         private const long MaximumBytes = 2 * 1024 * 1024;   // a few days of events is tiny; bound a runaway file
         private readonly Func<string> _pathGetter;
 
-        public LocalJsonSource(Func<string> pathGetter)
+        public LocalJsonSource(Func<string> pathGetter) : base(TimeSpan.FromSeconds(20))
         {
             _pathGetter = pathGetter ?? throw new ArgumentNullException(nameof(pathGetter));
         }
 
-        public string Name { get { return "Local file"; } }
+        public override string Name { get { return "Local file"; } }
 
-        public CalendarSnapshot Fetch()
+        protected override string LoadingMessage { get { return "Reading the reminder file…"; } }
+
+        // The path is the config that forces an early refresh, exactly as the URL does for IcsUrlSource:
+        // point the setting at a different file and the next tick re-reads rather than waiting out the
+        // interval.
+        protected override string RefreshKey() { return (_pathGetter() ?? "").Trim(); }
+
+        protected override CalendarSnapshot FetchCore(DateTimeOffset now)
         {
             var empty = new CalendarSnapshot { Events = Array.Empty<CalendarEvent>() };
-            string path = (_pathGetter() ?? "").Trim();
+            string path = RefreshKey();
             if (path.Length == 0) { empty.Error = "No reminder file is configured."; return empty; }
 
             FileInfo info;

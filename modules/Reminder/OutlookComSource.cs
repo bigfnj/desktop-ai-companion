@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -35,7 +35,10 @@ namespace DesktopAICompanion.ReminderModule
         {
             // Attach only to a running Outlook; do not start it.
             if (Process.GetProcessesByName("OUTLOOK").Length == 0)
-                return new CalendarSnapshot { Events = LastGood ?? Array.Empty<CalendarEvent>(), Error = "Outlook isn't running — start Outlook to read the local calendar." };
+                // Array.Empty, not LastGood: CachingCalendarSource.DoRefresh now restores the last good
+                // feed behind ANY error snapshot that brought nothing. This line was the only one of the
+                // eight error returns across the three sources that remembered to do it by hand.
+                return new CalendarSnapshot { Events = Array.Empty<CalendarEvent>(), Error = "Outlook isn't running — start Outlook to read the local calendar." };
 
             Type appType = Type.GetTypeFromProgID("Outlook.Application");
             if (appType == null)

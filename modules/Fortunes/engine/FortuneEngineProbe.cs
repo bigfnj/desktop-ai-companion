@@ -184,8 +184,14 @@ namespace DesktopAICompanion.FortunesModule
                 // its first batch publishes, so a status read from the index's own counters told everyone
                 // "No fortunes yet" every time they pressed Rebuild, however full the pool was.
                 string building = FortunesModule.SmartStatusFor(true, 12345, true, false, false, 0, 0);
+                // Formatted the way the MODULE formats it rather than pinned to "12,345". FortunesModule.Count
+                // uses "N0" with CurrentCulture, so on a de-DE or tr-TR machine the real string is "12.345"
+                // and an Ordinal match on the comma failed the whole gate for a reason that has nothing to do
+                // with the code under test. Still falsifiable: it fails if the status omits the count, prints
+                // the wrong number, or regresses to "No fortunes".
+                string buildingCount = 12345.ToString("N0", System.Globalization.CultureInfo.CurrentCulture);
                 ok &= Check(sb, "a just-started warm reports indexing, not an empty pool",
-                    building.IndexOf("12,345", StringComparison.Ordinal) >= 0 &&
+                    building.IndexOf(buildingCount, StringComparison.Ordinal) >= 0 &&
                     building.IndexOf("No fortunes", StringComparison.Ordinal) < 0);
                 ok &= Check(sb, "a finished index reports what it indexed",
                     FortunesModule.SmartStatusFor(true, 900, true, true, true, 900, 900)

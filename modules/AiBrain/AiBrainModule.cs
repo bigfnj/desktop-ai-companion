@@ -501,9 +501,9 @@ namespace DesktopAICompanion.AiBrainModule
                     string activeModel = local ? s.TextModel : s.CloudTextModel;
                     string model = string.IsNullOrWhiteSpace(activeModel) ? "gemma3:4b" : activeModel.Trim();
                     var msgs = new List<ChatMessage> { ChatMessage.System("Reply with OK."), ChatMessage.User("OK?", null) };
-                    await backend.ChatAsync(model, msgs, false, CancellationToken.None).ConfigureAwait(false);
+                    string reply = await backend.ChatAsync(model, msgs, false, CancellationToken.None).ConfigureAwait(false);
                     sw.Stop();
-                    return "✓ connected · " + model + " OK " + (sw.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + "s";
+                    return TestConnectionVerdict(reply, model, sw.ElapsedMilliseconds);
                 }
             }
             catch (Exception ex) { return "✗ " + ex.Message; }
@@ -802,7 +802,7 @@ namespace DesktopAICompanion.AiBrainModule
         /// ComboBox (see PaneView.Build), so a value missing from Options would show nothing selected and a
         /// save would silently blank the field.
         /// </summary>
-        private string[] BuildModelOptions(IReadOnlyList<ModelListing> models, string currentValue, bool visionOnly)
+        internal string[] BuildModelOptions(IReadOnlyList<ModelListing> models, string currentValue, bool visionOnly)
         {
             var uncensoredLabels = new List<string>();
             var otherLabels = new List<string>();
@@ -810,7 +810,13 @@ namespace DesktopAICompanion.AiBrainModule
             if (models != null)
                 foreach (ModelListing model in models)
                 {
-                    if (model == null || string.IsNullOrEmpty(model.Id) || !seenIds.Add(model.Id)) continue;
+                    // Contains, NOT Add. seenIds is what the union guard at the bottom consults to decide
+                    // whether the saved value still needs inserting, so an id must not count as "already
+                    // offered" until it has survived the vision filter below. Marking it here meant a saved
+                    // vision model the filter rejects was neither listed NOR unioned back in -- and the
+                    // dropdown is a closed ComboBox, so it showed nothing selected and the next save wrote
+                    // the blank. That is exactly what the SAFETY INVARIANT above says cannot happen.
+                    if (model == null || string.IsNullOrEmpty(model.Id) || seenIds.Contains(model.Id)) continue;
                     // UNION, not fallback. `??` only fires when the backend reported nothing, and
                     // Ollama's /api/tags reports a capabilities array that is INCOMPLETE for the Gemma
                     // family. Measured 2026-09-10 on one machine:
@@ -831,6 +837,7 @@ namespace DesktopAICompanion.AiBrainModule
                     // name markers ever go stale enough to matter.
                     bool isVision = AiModelPolicy.IsVisionCapable(model.Id, model.Vision);
                     if (visionOnly && !isVision) continue;
+                    seenIds.Add(model.Id);
                     (AiModelPolicy.LooksUncensored(model.Id) ? uncensoredLabels : otherLabels).Add(FormatModelLabel(model.Id, models));
                 }
             var result = new List<string>(uncensoredLabels.Count + otherLabels.Count + 1);
@@ -839,6 +846,25 @@ namespace DesktopAICompanion.AiBrainModule
             if (!string.IsNullOrEmpty(currentValue) && seenIds.Add(currentValue))
                 result.Insert(0, FormatModelLabel(currentValue, models));
             return result.ToArray();
+        }
+
+        /// <summary>
+        /// The verdict half of "Test connection", separate from the I/O so it can be asserted with no
+        /// server at all.
+        ///
+        /// An empty reply is a FAILURE, and that is the whole point. The caller used to discard the
+        /// reply and report a green tick, so what it proved was that nothing threw -- and neither backend
+        /// throws on a 200 carrying no content: OpenAiCompatBackend.ChatAsync returns "" when the choices
+        /// array is missing or empty, and OllamaClient.ChatAsync has the same shape. A model id the
+        /// provider does not serve, an exhausted quota and a moderation refusal all land there, and all
+        /// three were reported as "connected".
+        /// </summary>
+        internal static string TestConnectionVerdict(string reply, string model, long elapsedMilliseconds)
+        {
+            if (string.IsNullOrWhiteSpace(reply))
+                return "✗ " + model + " answered with nothing — check the model id, the quota, and whether the provider refused.";
+            return "✓ connected · " + model + " OK " +
+                   (elapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + "s";
         }
 
         /// <summary>
@@ -965,8 +991,7 @@ namespace DesktopAICompanion.AiBrainModule
             // says something, it just says something free. And while a game is fullscreen the pet is hidden
             // anyway, so a model answer would be invisible as well as risky.
             if (FullscreenBlocked()) return false;
-            Ask(pet, true);
-            return true;
+            return Ask(pet, true);
         }
 
         /// <summary>
@@ -1015,8 +1040,7 @@ namespace DesktopAICompanion.AiBrainModule
         {
             if (!_session.Enabled) return false;
             if (FullscreenBlocked()) return false;   // same rule as the drop; Fortunes answers instead
-            Ask(pet, false);
-            return true;
+            return Ask(pet, false);
         }
 
         // ---- the ask flow (mirrors the old StartUp.AskAboutScreen) --------------------------------
@@ -1026,21 +1050,34 @@ namespace DesktopAICompanion.AiBrainModule
         /// idle tick). <paramref name="subject"/> is the pet this turn belongs to; the hotkey and the idle
         /// loop have no natural one, so they pass null and fall back to the last pet seen.
         /// </summary>
-        private void Ask(ICompanion subject, bool allowVision)
+        /// <summary>
+        /// Returns TRUE only when a turn was actually STARTED.
+        ///
+        /// The drop and poke responders forward this as their "handled" answer. The chain runs highest
+        /// priority first until one handler returns true and this module registers at 10 to outrank
+        /// Fortunes, so claiming a turn that was declined is what makes the pet go silent instead of
+        /// falling through to a fortune. Both callers used to `Ask(...); return true;`, which reported
+        /// "handled" for all four of the early returns below -- most often RequestInProgress, i.e. exactly
+        /// while a slow vision load is already running and a second poke arrives.
+        ///
+        /// The two hotkey/tray callers use this as a statement and ignore the result, which is correct:
+        /// there is no responder chain behind them to fall through to.
+        /// </summary>
+        private bool Ask(ICompanion subject, bool allowVision)
         {
             IHost host = _host;
             AiSessionManager session = _session;
-            if (host == null || !session.Enabled || !host.SpeechEnabled) return;
+            if (host == null || !session.Enabled || !host.SpeechEnabled) return false;
             // One in-flight ask at a time, so at most one pending subject. Per-pet concurrency (two pets
             // asked at once) is BACKLOG #16(a) and deliberately not attempted here.
-            if (session.RequestInProgress) return;
+            if (session.RequestInProgress) return false;
             ICompanion pet = subject ?? _lastPet;
-            if (pet == null || !host.IsCompanionAlive(pet)) return;
+            if (pet == null || !host.IsCompanionAlive(pet)) return false;
 
             _lastInteractionUtc = DateTime.UtcNow;
             ScreenContext ctx;
             try { ctx = host.CaptureScreenContext(pet); } catch { ctx = null; }
-            if (ctx == null) return;
+            if (ctx == null) return false;
 
             // A "pondering" cue while the model responds (we are on the UI thread here). It belongs to the pet
             // being asked: PlayAnimationAll + SayAll made EVERY pet ponder a question only one of them was
@@ -1048,6 +1085,7 @@ namespace DesktopAICompanion.AiBrainModule
             try { PlayEmotionOn(host, pet, "thinking"); host.Say(pet, "…"); } catch { }
 
             _ = AskCoreAsync(session, ctx, ctx.WindowUnderCompanion, allowVision, pet);
+            return true;
         }
 
         /// <summary>Play the first animation this pet actually defines for an emotion. The module owns the

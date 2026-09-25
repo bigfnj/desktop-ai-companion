@@ -642,21 +642,43 @@ namespace DesktopAICompanion.BlinkingLed
                     SettingField rateField = null;
                     foreach (SettingField f in pane.Schema)
                         if (f.Id == "rate") rateField = f;
-                    probe.Check("the pane offers the rate list", rateField != null && rateField.Options != null);
+                    probe.Check("the pane offers exactly the rates the engine knows",
+                        rateField != null && rateField.Options != null &&
+                        string.Join("|", rateField.Options) == string.Join("|", ScrollLockBlinker.RateNames));
 
-                    bool everyRateKnown = true;
+                    // PINNED per row -- the name AND both phases -- because the two conditions this loop used
+                    // to test were each unconditionally true:
+                    //
+                    //   IsKnownRate(name) is DEFINED as membership in RateNames, and the loop iterates
+                    //   RateNames. It asked whether each element of a list is in that list.
+                    //
+                    //   DurationsFor has a `default:` arm that returns 2500/7500, so `on <= 0 || off <= 0`
+                    //   is false for every string in the universe, not merely for every advertised rate.
+                    //
+                    // Mutation-proven: renaming RateNames[4] "Fast" -> "Fastt" kept the old loop green.
+                    // IsKnownRate found the typo in the mutated array, DurationsFor fell through to the
+                    // default's 2500/7500 (both positive), and the descending guard is `off > previousOff`
+                    // so 7500 > 7500 is false. Meanwhile the pane offers the options straight off that array,
+                    // so a user picking "Fastt" silently got Normal's cadence.
+                    string[] expectName = { "Glacial", "Sluggish", "Slow", "Normal", "Fast", "Hyper" };
+                    int[] expectOn = { 4000, 3500, 3000, 2500, 1000, 500 };
+                    int[] expectOff = { 240000, 120000, 12000, 7500, 2000, 1000 };
+
+                    bool everyRateKnown = ScrollLockBlinker.RateNames.Length == expectName.Length;
                     int previousOff = int.MaxValue;
                     bool descending = true;
-                    foreach (string name in ScrollLockBlinker.RateNames)
+                    for (int i = 0; everyRateKnown && i < expectName.Length; i++)
                     {
+                        string name = ScrollLockBlinker.RateNames[i];
+                        if (!string.Equals(name, expectName[i], StringComparison.Ordinal)) { everyRateKnown = false; break; }
                         if (!ScrollLockBlinker.IsKnownRate(name)) everyRateKnown = false;
                         int on, off;
                         ScrollLockBlinker.DurationsFor(name, out on, out off);
-                        if (on <= 0 || off <= 0) everyRateKnown = false;
+                        if (on != expectOn[i] || off != expectOff[i]) everyRateKnown = false;
                         if (off > previousOff) descending = false;
                         previousOff = off;
                     }
-                    probe.Check("every advertised rate resolves to a real interval", everyRateKnown);
+                    probe.Check("every advertised rate resolves to its OWN interval, not the default", everyRateKnown);
                     probe.Check("rates run slowest to fastest", descending);
                     probe.Check("an unknown rate is rejected rather than silently accepted",
                         !ScrollLockBlinker.IsKnownRate("Blistering"));
@@ -664,7 +686,23 @@ namespace DesktopAICompanion.BlinkingLed
                     // Settings round-trip through the pane's own delegates. Every speech assertion below
                     // measures a DELTA rather than an absolute count, so each one fails on its own merits:
                     // an absolute count makes them all cascade off whatever the first one did.
+                    // The blinker is already OFF here (SetEnabledFromTray(false) above), so an off-save is
+                    // not a transition at all: ApplyState's `was != IsRunning` branch is not taken and the
+                    // one line this used to count was the RATE quip from the else-if. Deleting the
+                    // Announce call left the suite green, and the two strings this module exists to say had
+                    // no coverage anywhere in the repo. Turn it ON first, and pin the LITERAL -- counting
+                    // lines cannot tell an on-line from an off-line from a rate quip.
                     int said = host.SaidLines.Count;
+                    probe.Check("the pane saves", pane.Save(new Dictionary<string, string>
+                    {
+                        { "enabled", "true" }, { "rate", "Fast" },
+                        { "capsStops", "false" }, { "announce", "true" },
+                    }));
+                    probe.Check("WITNESS speaks the ON line when the user switches it on",
+                        host.SaidLines.Count - said == 1 &&
+                        host.SaidLines[host.SaidLines.Count - 1] == "Keeping the lights on for you.");
+
+                    said = host.SaidLines.Count;
                     probe.Check("the pane saves", pane.Save(new Dictionary<string, string>
                     {
                         { "enabled", "false" }, { "rate", "Hyper" },
@@ -675,8 +713,11 @@ namespace DesktopAICompanion.BlinkingLed
                         loaded["enabled"] == "false" && loaded["rate"] == "Hyper" &&
                         loaded["capsStops"] == "false");
 
-                    // Turning it OFF is a user action, so it speaks exactly once.
-                    probe.Check("speaks when the user switches it off", host.SaidLines.Count - said == 1);
+                    // Turning it OFF is a user action, so it speaks exactly once -- and the on/off line wins
+                    // over the rate change in the same save, which is what pinning the literal proves.
+                    probe.Check("WITNESS speaks the OFF line when the user switches it off",
+                        host.SaidLines.Count - said == 1 &&
+                        host.SaidLines[host.SaidLines.Count - 1] == "Blinking off. You are on your own now.");
 
                     // From here the state is: off, Hyper. Each save below changes exactly ONE thing, so a
                     // failure names the behaviour that actually broke instead of a bundle of them.
@@ -828,6 +869,18 @@ namespace DesktopAICompanion.BlinkingLed
                     module._blinker.BlinkOnce();
                     probe.Check("a blink attempt records whether Windows accepted it",
                         CountLogged(host.LoggedLines, "blink delivery") >= 1);
+
+                    // "Blink once now" must keep the phase it records in step with the key it pressed.
+                    // Stop() used to gate its corrective toggle on that flag, so a manual blink left the LED
+                    // lit and unticking the feature could not clear it -- the exact state Stop()'s own doc
+                    // comment exists to prevent. Asserted on the flag because the suite is headless.
+                    var phaseProbe = new ScrollLockBlinker();
+                    bool phaseBefore = phaseProbe.PhaseOn;
+                    phaseProbe.BlinkOnce();
+                    probe.Check("WITNESS blink-once flips the phase it records, not just the key",
+                        phaseProbe.PhaseOn != phaseBefore);
+                    phaseProbe.BlinkOnce();   // put the developer's own LED back where it was
+                    phaseProbe.Dispose();
                     // Put the key back where the machine had it. Scroll Lock is inert, but leaving a
                     // developer's LED lit because a self-test ran is still litter. The second attempt has
                     // the same outcome as the first, so it adds no line.

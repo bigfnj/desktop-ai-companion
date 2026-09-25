@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -90,6 +90,22 @@ namespace DesktopAICompanion.Plugins
                     ok &= Check(sb, "brain OFF by default: spawn/land/poke speak nothing", host.Said.Count == 0);
                     ok &= Check(sb, "brain OFF: drop responder declines so Fortunes handles it",
                         host.HasDropResponder && host.FireDrop(new FakeCompanion(1)) == false);
+
+                    // ---- A TURN THE MODULE DECLINES MUST NOT BE CLAIMED ----
+                    // The check above passes with the brain OFF whatever the responder does downstream,
+                    // because _session.Enabled short-circuits first. The interesting case is the brain ON
+                    // and the turn declined anyway: Ask has four early returns the responder could not see,
+                    // and both responders ended `Ask(pet, true); return true;`. This module registers at
+                    // priority 10 to outrank Fortunes, so a claimed-but-declined turn is a pet that says
+                    // NOTHING rather than a pet that says something free. RequestInProgress is the common
+                    // one in the wild -- a second poke while a slow vision load is running -- and
+                    // IsCompanionAlive is the one a fake host can drive.
+                    ok &= Check(sb, "the Enable tray row is present and can be pressed", host.ClickTray("Enable AI"));
+                    host.PetAlive = false;
+                    ok &= Check(sb, "brain ON: a drop the module declines is not claimed, so Fortunes still answers",
+                        host.FireDrop(new FakeCompanion(1)) == false);
+                    host.PetAlive = true;
+                    host.Said.Clear();
 
                     // ---- STAND DOWN FOR A GAME ----
                     // The module must SUBSCRIBE to the transition, not merely be able to answer the predicate.
@@ -331,7 +347,21 @@ namespace DesktopAICompanion.Plugins
             public string OpenedLink;
             public bool OpenLink(string moduleId, string httpsUrl) { OpenedLink = httpsUrl; return true; }
             public List<string> PickedFiles = new List<string>();
-            public void AddTrayItems(IEnumerable<TrayItem> items) { if (items != null) foreach (var i in items) TrayCount++; }
+            public readonly List<TrayItem> Tray = new List<TrayItem>();
+            public void AddTrayItems(IEnumerable<TrayItem> items) { if (items != null) foreach (var i in items) { TrayCount++; Tray.Add(i); } }
+            /// <summary>Press the tray row whose label contains <paramref name="fragment"/>. The module's
+            /// settings live inside it (GetSettings hands out a fresh MemSettings per call), so the tray is
+            /// the only way a test can switch the brain ON.</summary>
+            public bool ClickTray(string fragment)
+            {
+                foreach (TrayItem item in Tray)
+                    if (item != null && item.Label != null && item.Label.Contains(fragment) && item.Click != null)
+                    {
+                        item.Click();
+                        return true;
+                    }
+                return false;
+            }
             public void AddOptionsPane(OptionsPane pane) { if (pane != null) PaneCount++; }
             public void PublishContext(string moduleId, string key, string valueJson) { }
             public string ReadContext(string key) { return ""; }

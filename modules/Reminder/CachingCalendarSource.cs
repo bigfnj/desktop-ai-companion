@@ -81,6 +81,20 @@ namespace DesktopAICompanion.ReminderModule
             {
                 result = new CalendarSnapshot { Events = LastGood ?? Array.Empty<CalendarEvent>(), Error = "Calendar fetch failed: " + Short(ex.Message) };
             }
+            // "A parse failure is non-fatal, the companion keeps the last good feed" -- CALENDAR-FEED.md.
+            // That was only true of a fetch that THREW. A subclass that returns an error snapshot instead,
+            // which is what every one of them is told to do four lines up in FetchCore's own doc comment,
+            // blanked the feed: six of IcsUrlSource's error returns carry Array.Empty, and OutlookComSource
+            // got it right at exactly ONE of its two (:38) by hand-writing LastGood into the snapshot.
+            // Hand-writing it at each site was never going to hold. Done here instead, once.
+            //
+            // Only when the error snapshot brought nothing of its own: a subclass that returns a partial
+            // list with a warning keeps what it found.
+            if (result.Error != null && (result.Events == null || result.Events.Count == 0))
+            {
+                IReadOnlyList<CalendarEvent> good = LastGood;
+                if (good != null && good.Count > 0) result.Events = good;
+            }
             lock (_lock)
             {
                 _cache = result;

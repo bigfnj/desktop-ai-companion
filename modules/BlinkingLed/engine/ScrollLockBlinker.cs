@@ -152,12 +152,22 @@ namespace DesktopAICompanion.BlinkingLed
         /// this, stopping mid-blink leaves Scroll Lock stuck on and the user is left with a lit LED and no
         /// obvious way to clear it.
         /// </summary>
+        /// <summary>The phase the blinker BELIEVES it is in. Exposed for the self-test: the suite is
+        /// headless, so the LED itself cannot be asserted, and the bug was precisely that this flag and the
+        /// key disagreed.</summary>
+        internal bool PhaseOn { get { return _phaseOn; } }
+
         internal void Stop()
         {
             if (!_running) return;
             _running = false;
             DisposeTimer();
-            try { if (_phaseOn && IsScrollLockOn()) Toggle(); }
+            // The FLAG is not the truth. BlinkOnce toggles the key outside the cadence without touching
+            // _phaseOn, so after "Blink once now" the flag said dark while the LED was lit -- and this
+            // guard short-circuits BEFORE IsScrollLockOn, so the key was never even consulted. Unticking
+            // the feature then left Scroll Lock on with nothing left running to clear it, which is the
+            // exact state the comment above says this method exists to prevent. Ask the hardware.
+            try { if (IsScrollLockOn()) Toggle(); }
             catch { }
             _phaseOn = false;
         }
@@ -169,7 +179,9 @@ namespace DesktopAICompanion.BlinkingLed
         /// </summary>
         internal void BlinkOnce()
         {
-            try { Toggle(); }
+            // The phase moves with the key. Without this the next cadence tick drives the LED from a flag
+            // that is now inverted, so a manual blink flipped on/off for the rest of the session.
+            try { Toggle(); _phaseOn = !_phaseOn; }
             catch { LastWin32Error = -1; NoteDelivery(false, -1); }
         }
 

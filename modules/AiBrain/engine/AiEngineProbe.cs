@@ -39,6 +39,17 @@ namespace DesktopAICompanion.AiBrainModule
                 bool okCloud = AiEndpointPolicy.TryNormalize("https://api.openai.com/v1", out normCloud, out err);
                 ok &= Check(sb, "endpoint policy normalizes a cloud endpoint as non-loopback", okCloud && !AiEndpointPolicy.IsLoopbackEndpoint(normCloud));
 
+                // --- "Test connection" reports whether it got an ANSWER, not whether it got an exception ---
+                // Both backends return "" rather than throwing on a 200 that carries no content, so the
+                // old bare `await ... ;` followed by an unconditional green tick was reporting that nothing
+                // threw. A wrong model id, an exhausted quota and a moderation refusal all land there.
+                ok &= Check(sb, "test connection: an empty reply is reported as a FAILURE, not a green tick",
+                    AiBrainModule.TestConnectionVerdict("", "gemma3:4b", 900).StartsWith("\u2717"));
+                ok &= Check(sb, "test connection: whitespace is not an answer either",
+                    AiBrainModule.TestConnectionVerdict("   ", "gemma3:4b", 900).StartsWith("\u2717"));
+                ok &= Check(sb, "WITNESS test connection: a real reply is still reported as connected",
+                    AiBrainModule.TestConnectionVerdict("OK", "gemma3:4b", 900).StartsWith("\u2713"));
+
                 // --- the ModuleKit tray convention (every entry its own unique icon) ---
                 //
                 // Exercised on SYNTHETIC tray entries, which is the only way to reach both failure branches:
@@ -112,6 +123,37 @@ namespace DesktopAICompanion.AiBrainModule
                     !AiModelPolicy.IsVisionCapable("dolphin3:latest", false));
                 ok &= Check(sb, "vision: an unreported model still matches on name",
                     AiModelPolicy.IsVisionCapable("llava:13b", null));
+
+                // --- a saved model the vision filter rejects is still OFFERED, not silently blanked ---
+                // BuildModelOptions' own docstring calls this a SAFETY INVARIANT: the dropdown is a closed,
+                // non-editable ComboBox, so a saved value missing from Options shows nothing selected and
+                // the next save writes the blank. It was marking every listed id as "seen" BEFORE the
+                // vision filter dropped it, so the union guard at the bottom thought it had already been
+                // offered. The saved value then appeared nowhere at all.
+                var listed = new List<ModelListing>
+                {
+                    new ModelListing("llava:13b", true),
+                    new ModelListing("dolphin3:latest", false),
+                };
+                var optionsProbe = new AiBrainModule();
+                string[] visionOptions = optionsProbe.BuildModelOptions(listed, "dolphin3:latest", true);
+                ok &= Check(sb, "a saved model the vision filter rejects is still offered, so a save cannot blank it",
+                    Array.Exists(visionOptions, delegate(string o) { return o != null && o.Contains("dolphin3:latest"); }));
+                ok &= Check(sb, "...and it is offered FIRST, where a closed ComboBox will select it",
+                    visionOptions.Length > 0 && visionOptions[0].Contains("dolphin3:latest"));
+                // WITNESS: the de-duplication the old `Add` was also doing must survive the split.
+                string[] noDuplicate = optionsProbe.BuildModelOptions(listed, "llava:13b", true);
+                ok &= Check(sb, "WITNESS a saved model that IS offered is not listed twice",
+                    noDuplicate.Length == 1 && noDuplicate[0].Contains("llava:13b"));
+                string[] repeated = optionsProbe.BuildModelOptions(
+                    new List<ModelListing>
+                    {
+                        new ModelListing("llava:13b", true),
+                        new ModelListing("llava:13b", true),
+                    },
+                    "", true);
+                ok &= Check(sb, "WITNESS a duplicate id in the backend's own list is still collapsed",
+                    repeated.Length == 1);
 
                 // --- BUG-002: a saved model id re-validated against what the backend actually has -----
                 // The bug was that this never happened: an id that was valid when chosen kept being sent
