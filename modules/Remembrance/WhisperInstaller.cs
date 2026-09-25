@@ -714,14 +714,24 @@ namespace DesktopAICompanion.RemembranceModule
                 using (Process process = Process.Start(psi))
                 {
                     if (process == null) { detail = "the process did not start."; return false; }
-                    string standardError = process.StandardError.ReadToEnd();
-                    process.StandardOutput.ReadToEnd();
+                    // Both pipes drained CONCURRENTLY, then the wait -- same defect and same fix as
+                    // Transcriber.RunWhisper. Blocking on stderr first meant stdout could fill its 4 KB
+                    // pipe and stop the child forever, and because a blocking read only returns at EOF,
+                    // WaitForExit was always called on a finished process: the five-minute cap below could
+                    // never fire.
+                    System.Threading.Tasks.Task<string> errorText = process.StandardError.ReadToEndAsync();
+                    System.Threading.Tasks.Task<string> outputText = process.StandardOutput.ReadToEndAsync();
                     if (!process.WaitForExit(5 * 60 * 1000))
                     {
-                        try { process.Kill(); } catch { }
+                        try { process.Kill(true); } catch { }
                         detail = "it did not finish within five minutes.";
                         return false;
                     }
+                    // WaitForExit(int) does not guarantee the redirected readers have drained.
+                    process.WaitForExit();
+                    string standardError = "";
+                    try { standardError = errorText.GetAwaiter().GetResult(); } catch { }
+                    try { outputText.GetAwaiter().GetResult(); } catch { }
                     if (process.ExitCode != 0)
                     {
                         string tail = (standardError ?? "").Trim();

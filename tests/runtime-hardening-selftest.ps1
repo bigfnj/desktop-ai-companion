@@ -470,6 +470,40 @@ Assert-True (
     $revealRootBody -notmatch 'RevealRootFor\(null\)'
 ) 'a reveal is scoped by the owner the host resolved, not by a discarded lookup'
 
+# Whisper: the REASON reaches the caller, and both pipes drain before the wait.
+#
+# Two things the runtime suites cannot see. DescribeExit is asserted directly as a pure function in
+# --module-selftest=remembrance, but a mutation that swaps the CALL SITE back to the configuration
+# message compiled clean and every one of those assertions still passed -- the defect stepped around
+# the question they ask. And the pipe-drain order needs a real child process that blocks, which a
+# self-test has no business spawning.
+#
+# So these assert the ARGUMENT and the ORDER in the source, not that some call is present: a check
+# for "DescribeExit(" alone would pass the mutation that deleted its use.
+$transcriberSource = Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\Remembrance\Transcriber.cs') -Raw
+$runWhisperBody = Get-MethodBody (Remove-LineComments $transcriberSource) `
+    'private static string RunWhisper('
+Assert-True ($runWhisperBody.Length -gt 0) 'RunWhisper exists and could be sliced out for inspection'
+Assert-True (
+    $runWhisperBody -match 'DescribeExit\(proc\.ExitCode, err\)'
+) 'a non-zero whisper exit is described from its OWN stderr, not from the setup message'
+Assert-True (
+    # Both readers started before the wait, and neither is the blocking overload. ReadToEnd() on
+    # stdout only returns at EOF, which is exit -- so the 30-minute cap below it could never fire,
+    # and a child whose stderr crossed the 4 KB pipe default stopped forever.
+    ([regex]::Matches($runWhisperBody, 'ReadToEndAsync\(\)').Count -eq 2) -and
+    ($runWhisperBody -notmatch 'Standard(Output|Error)\.ReadToEnd\(\)')
+) 'whisper''s stdout and stderr are drained CONCURRENTLY, so its timeout can actually fire'
+
+$whisperInstallerSource = Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\Remembrance\WhisperInstaller.cs') -Raw
+$installerCode = Remove-LineComments $whisperInstallerSource
+Assert-True (
+    ([regex]::Matches($installerCode, 'ReadToEndAsync\(\)').Count -ge 2) -and
+    ($installerCode -notmatch 'Standard(Output|Error)\.ReadToEnd\(\)')
+) 'the whisper verify probe drains both pipes the same way, so its five-minute cap can fire too'
+
 $dropBody = Get-MethodBody $aiBrainSource 'private bool OnDrop(ICompanion pet)'
 $pokeBody = Get-MethodBody $aiBrainSource 'private bool OnPokeReaction(ICompanion pet)'
 $guardBody = Get-MethodBody $aiBrainSource 'private bool FullscreenBlocked()'

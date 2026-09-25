@@ -335,6 +335,19 @@ namespace DesktopAICompanion.RemembranceModule
             else try { _host.SayAll(text); } catch { }
         }
 
+        /// <summary>Settings writes from a background task go through here, for the same reason host calls
+        /// go through <see cref="Announce"/>. _settings is ONE shared instance cached at Init, and
+        /// CompanionHost.ModuleSettings is a bare unsynchronised Dictionary whose Save serialises it -- which
+        /// the pane's Apply does on the UI thread. An unmarshalled Set from a continuation races that
+        /// Serialize, throws "Collection was modified" inside Save, which swallows it and returns false, and
+        /// the user is told their edits did not save.</summary>
+        private void PersistOnUi(Action write)
+        {
+            if (write == null) return;
+            if (_ui != null) _ui.Post(delegate { try { write(); } catch { } }, null);
+            else try { write(); } catch { }
+        }
+
         private void RunPurge()
         {
             string root = _settings.Get("storageLocation", CaptureStore.DefaultRoot());
@@ -933,13 +946,19 @@ namespace DesktopAICompanion.RemembranceModule
                         return;
                     }
                     // Select what was just fetched, and put it in the dropdown that offers it, or the
-                    // user downloads 7 GB and still has nothing chosen.
-                    _settings.Set("summaryModel", id);
+                    // user downloads 7 GB and still has nothing chosen. Marshalled, for the reason spelled
+                    // out on PersistOnUi: this is a thread-pool continuation and Apply serialises the same
+                    // dictionary on the UI thread. _lastStatus moves inside the write so the status line
+                    // cannot claim "installed and selected" before the write has landed.
                     IReadOnlyList<string> models = await OllamaSummarizer
                         .ListModelsAsync(endpoint, CancellationToken.None).ConfigureAwait(false);
-                    if (models.Count > 0) _settings.Set("summaryModelsCache", string.Join("|", models));
-                    _settings.Save();
-                    _lastStatus = id + " is installed and selected.";
+                    PersistOnUi(delegate
+                    {
+                        _settings.Set("summaryModel", id);
+                        if (models.Count > 0) _settings.Set("summaryModelsCache", string.Join("|", models));
+                        _settings.Save();
+                        _lastStatus = id + " is installed and selected.";
+                    });
                     Announce("The summary model is ready.");
                 }
                 catch (Exception ex) { try { _host.Log(Id, "model pull failed: " + ex.Message); } catch { } }
@@ -1184,6 +1203,23 @@ namespace DesktopAICompanion.RemembranceModule
 
             // ---- WhisperInstaller: selection logic ----
             check("the default model is supported", WhisperInstaller.IsSupportedModel(WhisperInstaller.DefaultModelId));
+
+            // ---- a transcription failure must say WHICH failure ----
+            // Six distinct paths used to return the same empty string, so all six printed "Whisper is not
+            // configured" -- including the ones where it demonstrably IS configured. A truncated
+            // ggml-base.en.bin adopted through "Browse for a model" passes every File.Exists on the way
+            // in; whisper-cli is the only thing that knows it is bad, and it says so on stderr, which was
+            // read and dropped on the floor.
+            check("WITNESS a non-zero exit reports whisper's own reason",
+                Transcriber.DescribeExit(1, "whisper_init: loading model\nerror: failed to load model")
+                    .IndexOf("failed to load model", StringComparison.Ordinal) >= 0);
+            check("...and names the exit code, so a silent tool is still identifiable",
+                Transcriber.DescribeExit(3, "").IndexOf("3", StringComparison.Ordinal) >= 0);
+            check("a run that failed for its own reasons does not borrow the setup message",
+                Transcriber.DescribeExit(1, "  ").IndexOf("not configured", StringComparison.Ordinal) < 0);
+            check("CRLF stderr is handled, so a Windows tool's last line is not blank",
+                Transcriber.DescribeExit(2, "first\r\nerror: bad model\r\n")
+                    .IndexOf("error: bad model", StringComparison.Ordinal) >= 0);
             check("an unknown model falls back to the default",
                 WhisperInstaller.ResolveModelId("ggml-nonsense.bin") == WhisperInstaller.DefaultModelId);
             check("the model URL is the whisper.cpp HF repo",
