@@ -208,16 +208,46 @@ namespace DesktopAICompanion.Wpf
             return string.Join(";", parts.ToArray());
         }
 
+        /// <summary>
+        /// The muted-module list to persist: what this page shows, PLUS whatever it cannot show.
+        ///
+        /// <see cref="DiagnosticModuleFieldIds"/> walks LoadedModules, so a module that is installed
+        /// but whose Init threw contributes no field at all. Rebuilding the whole string from the
+        /// fields alone therefore DROPPED that module's mute, silently, on any Apply the user pressed
+        /// for an unrelated reason -- and once the module was repaired its log lines came back on with
+        /// nothing said. Two settings in the same Save already take this care for the same reason:
+        /// defaultSpeakingCompanion and triggerSpeech both leave a saved choice alone rather than
+        /// rewriting it from whatever happens to be on screen.
+        /// </summary>
         private static string CollectMutedModules(IReadOnlyDictionary<string, string> values)
         {
             var parts = new List<string>();
+            var onThisPage = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var pair in DiagnosticModuleFieldIds())
             {
+                onThisPage.Add(pair.Value);
                 string v;
                 if (!values.TryGetValue(pair.Key, out v)) continue;
                 bool on;
                 if (bool.TryParse(v, out on) && !on) parts.Add(pair.Value);
             }
+            try
+            {
+                LocalData data = Program.MyData;
+                string existing = data != null ? data.GetDiagnosticLogMutedModules() : null;
+                if (!string.IsNullOrEmpty(existing))
+                {
+                    foreach (string raw in existing.Split(';'))
+                    {
+                        string id = (raw ?? "").Trim();
+                        if (id.Length == 0) continue;
+                        if (onThisPage.Contains(id)) continue;   // the page spoke for this one
+                        if (parts.Contains(id)) continue;
+                        parts.Add(id);
+                    }
+                }
+            }
+            catch (Exception) { }
             return string.Join(";", parts.ToArray());
         }
 
@@ -643,6 +673,14 @@ namespace DesktopAICompanion.Wpf
                     return System.Threading.Tasks.Task.FromResult("Already using the built-in sound.");
                 data.SetNotificationSoundPath("");
                 useBuiltIn.ReloadPaneAfter = true;
+                // READ BACK. The setter returns false when the durable write fails and rolls the
+                // in-memory value back with it, and that false was discarded here -- so with the
+                // store in its read-only fallback, or holding a future-schema document, the user got
+                // a tick and then watched the pane rebuild underneath it still naming their old
+                // file. ApplyNotificationSoundChoice below reads back for exactly this reason.
+                if (!string.IsNullOrEmpty(data.GetNotificationSoundPath()))
+                    return System.Threading.Tasks.Task.FromResult(
+                        "✗ that couldn't be saved; the notification sound is unchanged.");
                 return System.Threading.Tasks.Task.FromResult("✓ back to the built-in sound.");
             };
 
@@ -887,6 +925,20 @@ namespace DesktopAICompanion.Wpf
                 data.SetSuppressRepeats(def.SuppressRepeats ?? true);
                 data.SetThemeMode(def.ThemeMode);
                 data.SetAudioDeviceId(def.AudioDeviceId);
+
+                // THE REST OF THE PAGE. These were missing, and their absence was invisible: the
+                // button says "Reset all preferences on this page", the pane rebuilds underneath it,
+                // and a field that did not move looks exactly like a field whose default is what it
+                // already held. The update checks and the whole diagnostic-log group are preferences
+                // shown on this page and carry none of the reasons the exclusions below do.
+                data.SetMonthlyModuleUpdateCheck(def.MonthlyModuleUpdateCheck ?? true);
+                data.SetAppUpdateCheck(def.AppUpdateCheck ?? true);
+                data.SetPetUpdateCheck(def.PetUpdateCheck ?? true);
+                data.SetDiagnosticLog(def.DiagnosticLog ?? true);
+                data.SetDiagnosticLogMaxKilobytes(def.DiagnosticLogMaxKilobytes);
+                data.SetDiagnosticLogKeep(def.DiagnosticLogKeep);
+                data.SetDiagnosticLogMutedCategories(def.DiagnosticLogMutedCategories ?? "");
+                data.SetDiagnosticLogMutedModules(def.DiagnosticLogMutedModules ?? "");
 
                 // Run-at-startup lives in the registry, not the settings doc; default is off.
                 try { StartupRegistration.Set(false); } catch { }

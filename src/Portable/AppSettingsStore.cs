@@ -938,6 +938,20 @@ namespace DesktopAICompanion
             if (primaryResult == ReadResult.FutureSchema)
             {
                 _writesBlockedByFutureSchema = true;
+                    // SAID OUT LOUD, like the read-only fallback above. Both of these paths block
+                    // every write for the whole session; only that one told anyone. A newer build
+                    // writes schemaVersion 3, and going back to this one then left the user changing
+                    // settings, watching several controls report success (they discard SaveMerged's
+                    // false), and finding everything reverted -- with nothing anywhere saying why.
+                    LastLoadWarning =
+                        "These settings were written by a NEWER version of DesktopAICompanion "
+                        + "(schema " + loaded.SchemaVersion.ToString(CultureInfo.InvariantCulture)
+                        + "; this build understands "
+                        + AppSettingsDocument.CurrentSchemaVersion.ToString(CultureInfo.InvariantCulture)
+                        + "). They are being READ but nothing will be SAVED this session, so that "
+                        + "the newer file is not damaged. Install the newer version again, or move "
+                        + "the file aside to start fresh: "
+                        + _filePath;
                 _baseline = Clone(loaded);
                 return loaded;
             }
@@ -957,6 +971,20 @@ namespace DesktopAICompanion
             if (backupResult == ReadResult.FutureSchema)
             {
                 _writesBlockedByFutureSchema = true;
+                    // SAID OUT LOUD, like the read-only fallback above. Both of these paths block
+                    // every write for the whole session; only that one told anyone. A newer build
+                    // writes schemaVersion 3, and going back to this one then left the user changing
+                    // settings, watching several controls report success (they discard SaveMerged's
+                    // false), and finding everything reverted -- with nothing anywhere saying why.
+                    LastLoadWarning =
+                        "These settings were written by a NEWER version of DesktopAICompanion "
+                        + "(schema " + loaded.SchemaVersion.ToString(CultureInfo.InvariantCulture)
+                        + "; this build understands "
+                        + AppSettingsDocument.CurrentSchemaVersion.ToString(CultureInfo.InvariantCulture)
+                        + "). They are being READ but nothing will be SAVED this session, so that "
+                        + "the newer file is not damaged. Install the newer version again, or move "
+                        + "the file aside to start fresh: "
+                        + _filePath;
                 _baseline = Clone(loaded);
                 return loaded;
             }

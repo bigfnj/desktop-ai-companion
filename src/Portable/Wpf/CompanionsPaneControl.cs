@@ -387,7 +387,12 @@ namespace DesktopAICompanion.Wpf
                     enabled = !enabled;
                     soundRun.Text = enabled ? "sound on" : "sound off";
                     try { if (Program.Mainthread != null) Program.Mainthread.SetPetSound(addId, enabled); } catch { }
-                    _status.Text = displayName + (enabled ? " sounds on." : " sounds muted.");
+                    // Read back: IsPetSoundEnabled is the same question the toggle asked above.
+                    bool stored = enabled;
+                    try { if (Program.MyData != null) stored = Program.MyData.IsPetSoundEnabled(addId); } catch { }
+                    _status.Text = stored != enabled
+                        ? "Couldn't save the sound setting for " + displayName + "; it is unchanged."
+                        : displayName + (enabled ? " sounds on." : " sounds muted.");
                 };
                 line.Inlines.Add(soundLink);
             }
@@ -444,6 +449,19 @@ namespace DesktopAICompanion.Wpf
             {
                 try { if (Program.Mainthread != null) Program.Mainthread.SetPetScalePercent(addId, pendingPercent); }
                 catch { }
+                // Announced only if it actually landed. The status line below this row says "size
+                // N%" from the value the user dragged to, which is a claim about the STORE, and the
+                // setter's return was discarded. GetEffectivePetScalePercent answers the same
+                // question the setter was asked.
+                int storedPercent = pendingPercent;
+                try
+                {
+                    if (Program.MyData != null)
+                        storedPercent = Program.MyData.GetEffectivePetScalePercent(addId);
+                }
+                catch { }
+                if (storedPercent != pendingPercent)
+                    _status.Text = "Couldn't save the size for " + displayName + "; it is unchanged.";
             };
 
             slider.AddHandler(Thumb.DragStartedEvent, new DragStartedEventHandler(delegate { dragging = true; }));
@@ -512,11 +530,30 @@ namespace DesktopAICompanion.Wpf
             box.SelectionChanged += delegate
             {
                 int choice = box.SelectedIndex - 1;             // -1 == Any
+                // READ BACK, do not echo the input. The setter returns false for a failed durable
+                // write AND rolls the in-memory value back with it, and that bool was discarded --
+                // so with the store read-only, or holding a future-schema document, this line
+                // announced a pin that had not happened. The setter's false is ambiguous on its own
+                // ("no change" looks the same), which is why the check is a read rather than the bool.
                 try { if (Program.MyData != null) Program.MyData.SetPetMonitor(addId, choice); } catch { }
-                _status.Text = choice < 0
-                    ? displayName + " can use any screen again. Add " + displayName + " (or restart) to apply."
-                    : displayName + " is pinned to screen " + (choice + 1) + ". Add " + displayName +
-                      " (or restart) to apply; it will hide rather than move if a fullscreen app takes that screen.";
+                int storedChoice = choice;
+                try
+                {
+                    if (Program.MyData != null)
+                        storedChoice = Program.MyData.GetPetMonitor(addId, System.Windows.Forms.Screen.AllScreens.Length);
+                }
+                catch { }
+                if (storedChoice != choice)
+                {
+                    _status.Text = "Couldn't save the screen for " + displayName + "; it is unchanged.";
+                }
+                else
+                {
+                    _status.Text = choice < 0
+                        ? displayName + " can use any screen again. Add " + displayName + " (or restart) to apply."
+                        : displayName + " is pinned to screen " + (choice + 1) + ". Add " + displayName +
+                          " (or restart) to apply; it will hide rather than move if a fullscreen app takes that screen.";
+                }
             };
 
             row.Children.Add(box);
