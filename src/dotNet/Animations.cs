@@ -1005,6 +1005,33 @@ namespace DesktopAICompanion
             return SetNextBorderAnimation(animationID, where, out ignored);
         }
 
+        /// <summary>
+        /// As above, but the caller states whether "no eligible transition" is a DESIGNED outcome for
+        /// this situation rather than a fault.
+        ///
+        /// WHY THE CALLER HAS TO SAY. This class cannot tell the difference and the difference is
+        /// total. At the taskbar, a -1 makes FormCompanion set bLeavingScreen, and the pet walks off
+        /// the bottom of the screen and respawns -- measured at about 21 times an hour. At a window
+        /// underside, a -1 means "no pet wants to hang there", the handle is given back and the pet
+        /// carries on rising, which is the ordinary case and is documented as such at the call site.
+        /// The same is true of a window's left and right edges.
+        ///
+        /// Logging both at `warning` made the honest one unfindable: measured over 16 hours of real
+        /// use, this line was 36% of the entire diagnostic log, and the 269 occurrences that DID
+        /// matter sat in the same undifferentiated pile as the 66 that did not.
+        /// </summary>
+        public int SetNextBorderAnimation(int animationID, TNextAnimation.TOnly where,
+                                          out TNextAnimation.TOnly chosenOnly, bool absenceIsNormal)
+        {
+            _absenceIsNormal = absenceIsNormal;
+            try { return SetNextBorderAnimation(animationID, where, out chosenOnly); }
+            finally { _absenceIsNormal = false; }
+        }
+
+        /// <summary>Set for the duration of one lookup by the overload above. Not thread state: every
+        /// caller is the single UI thread's timer tick.</summary>
+        private bool _absenceIsNormal;
+
             /// <summary>
             /// Start the next animation once a border was detected, reporting WHICH condition the chosen edge
             /// declared.
@@ -1091,12 +1118,18 @@ namespace DesktopAICompanion
                     // FIRST, so a state whose every transition is conditioned on a `where` the
                     // pet is not currently in has zero eligible weight and the guarantee does not
                     // reach here.
-                    StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.warning,
+                    // Severity from the CALLER's expectation, because only the caller knows what a
+                    // -1 costs. See the SetNextBorderAnimation overload that takes absenceIsNormal.
+                    StartUp.AddDebugInfo(
+                        _absenceIsNormal ? StartUp.DEBUG_TYPE.info : StartUp.DEBUG_TYPE.warning,
                         "no eligible positive-probability transition: pet '"
                         + (PetTypeId ?? "") + "' " + (kind ?? "?") + " state "
                         + animationID.ToString(System.Globalization.CultureInfo.InvariantCulture)
                         + ", where=" + where + ", " + list.Count
-                        + " candidate(s) declared and none eligible");
+                        + " candidate(s) declared and none eligible"
+                        + (_absenceIsNormal
+                               ? " (expected here: the caller has a defined fallback)"
+                               : ""));
                     return -1;
                 }
                 long selectedWeight = NextWeight(totalWeight);

@@ -689,13 +689,27 @@ open-item blindness plus the bug-number drift.
   Filed below rather than left implied. The soak above saw state 44 three times in 45 minutes,
   about 4/hour, against 2.3/hour in the owner's 16-hour log: the same order, still happening.
 
-- 📌 **Four `pink_sheep` states cannot answer a border at `where=130` or `where=18`.** The
-  residue of the 407 measurement above: 37 at state 44, 25 at state 114, 3 at state 81, 1 at state
-  122, over the same 16 hours. Together they are 66 of the 335, about 4/hour. Not investigated beyond
-  counting, because the taskbar pair was 80% of the volume and is the one with a named, visible
-  consequence. Worth doing the same analysis: name each state, check whether a sibling in its own
-  family already declares the missing situation, and prefer the content fix if one does.
-  CLOSES-WHEN: a soak of `pink_sheep` records zero `no eligible positive-probability` warnings.
+- ✅ **CLOSED 2026-09-26, and the item was WRONG about what it found.** These four
+  (`jump_down` 44, `blastoffb` 114, `chaseb2` 81, `king_walk` 122) do lack an `only="window"` edge,
+  but the host does NOT treat that as a fault and never did. `where=130` is
+  `WINDOW | WINDOW_BOTTOM`, a pet rising into a window's underside, and `FormCompanion.cs:1292`
+  answers a -1 by giving the handle back so the pet carries on rising, with the comment "Nothing
+  wants to hang there." `where=18` is `WINDOW | WINDOW_LEFT`, and `:1126` answers a -1 by releasing
+  the grip or dropping the handle so gravity takes over. Both outcomes are designed, documented and
+  correct. Adding edges would have CHANGED behaviour -- making the pet hang where it currently
+  passes through -- on the strength of a log line that was not reporting a defect.
+
+  The real defect was the WARNING. It logged at `warning` for a designed outcome, which is why this
+  one line was **36% of a 16-hour diagnostic log** and why the 269 occurrences that genuinely
+  mattered (the taskbar pair, since fixed) sat in the same undifferentiated pile as the 66 that did
+  not. `SetNextBorderAnimation` now takes `absenceIsNormal`, because only the caller knows what a -1
+  costs: at the taskbar it means `bLeavingScreen` and the pet walks off the screen; at a window edge
+  it means nobody wanted to grip there. The three window-grip sites pass `true` and log at `info`
+  with the reason attached.
+
+  ⚠ The two `WINDOW_TOP` sites are equally graceful but still log at `warning`. They accounted for
+  **zero** of the measured occurrences, and they use the two-argument overload, so marking them would
+  have meant a third overload written on speculation. Left deliberately.
 ### Filed 2026-09-25 by the four parallel re-audits
 
 Verified before filing. The three code audits raised 39 findings between them; what is here is what
@@ -703,12 +717,6 @@ survived a second check, minus the 14 fixed on the day in `e31c5bb`.
 
 **Host, user-visible**
 
-- 📌 **The gravity branch respawns the pet mid-tick and then lets the rest of the tick clobber it.**
-  `src/dotNet/FormCompanion.cs:1416` and `:1440` set `bNewAnimation = true` and fall through after
-  `SetNextGravityAnimation` returned -1 and `Play(false)` already picked a fresh spawn position and
-  possibly a different `DisplayIndex`. `monitorBounds`/`workArea` were captured from the OLD monitor at
-  the top of the method, so the clip block computes against the wrong work area. The sequence-end path
-  at `:1398` does `Play(false); return;` for exactly this reason; the gravity path has no return.
 - 📌 **The pet sound decode cache is never evicted.** `src/dotNet/AudioOutput.cs:34` is a
   `Dictionary<byte[], float[]>` keyed by reference identity, cleared only in `Dispose` (`:383`). Add then
   Remove a companion type repeatedly and each staging produces fresh arrays whose cache entries can never

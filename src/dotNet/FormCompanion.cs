@@ -1113,7 +1113,7 @@ namespace DesktopAICompanion
                             // WINDOW as well as WINDOW_LEFT: the generic bit is what keeps every pet written
                             // before the edge was distinguishable behaving exactly as it did.
                             TNextAnimation.TOnly chosenOnly;
-                            int iBorderAnimation = Animations.SetNextBorderAnimation(CurrentAnimation.ID, TNextAnimation.TOnly.WINDOW | TNextAnimation.TOnly.WINDOW_LEFT, out chosenOnly);
+                            int iBorderAnimation = Animations.SetNextBorderAnimation(CurrentAnimation.ID, TNextAnimation.TOnly.WINDOW | TNextAnimation.TOnly.WINDOW_LEFT, out chosenOnly, absenceIsNormal: true);
                             if (iBorderAnimation >= 0)
                             {
                                 PositionX = rct.Left - ins.Left;
@@ -1163,7 +1163,7 @@ namespace DesktopAICompanion
                         if (PositionX + x + Width - ins.Right > rct.Right)    // right window border!
                         {
                             TNextAnimation.TOnly chosenOnly;
-                            int iBorderAnimation = Animations.SetNextBorderAnimation(CurrentAnimation.ID, TNextAnimation.TOnly.WINDOW | TNextAnimation.TOnly.WINDOW_RIGHT, out chosenOnly);
+                            int iBorderAnimation = Animations.SetNextBorderAnimation(CurrentAnimation.ID, TNextAnimation.TOnly.WINDOW | TNextAnimation.TOnly.WINDOW_RIGHT, out chosenOnly, absenceIsNormal: true);
                             if (iBorderAnimation >= 0)
                             {
                                 PositionX = rct.Right - Width + ins.Right;
@@ -1276,7 +1276,7 @@ namespace DesktopAICompanion
                 if (underside.Found)
                 {
                     TNextAnimation.TOnly chosenOnly;
-                    int iBorderAnimation = Animations.SetNextBorderAnimation(CurrentAnimation.ID, TNextAnimation.TOnly.WINDOW | TNextAnimation.TOnly.WINDOW_BOTTOM, out chosenOnly);
+                    int iBorderAnimation = Animations.SetNextBorderAnimation(CurrentAnimation.ID, TNextAnimation.TOnly.WINDOW | TNextAnimation.TOnly.WINDOW_BOTTOM, out chosenOnly, absenceIsNormal: true);
                     WindowGrip hang = GripFor(chosenOnly);
                     if (iBorderAnimation >= 0 && hang == WindowGrip.Bottom)
                     {
@@ -1413,7 +1413,28 @@ namespace DesktopAICompanion
                         }
                         else
                         {
-                            SetNewAnimation(Animations.SetNextGravityAnimation(CurrentAnimation.ID, TNextAnimation.TOnly.NONE));
+                            int gravityNext = Animations.SetNextGravityAnimation(
+                                CurrentAnimation.ID, TNextAnimation.TOnly.NONE);
+                            // RESPAWNED? THEN THIS TICK IS OVER, exactly as the sequence-end path
+                            // above already does with its Play(false); return;.
+                            //
+                            // SetNewAnimation turns a negative id into Play(false), which picks a
+                            // fresh position and, under multiscreen, may pick a different
+                            // DisplayIndex. Everything after this point in NextStep is still working
+                            // from monitorBounds and workArea captured at the TOP of the method, off
+                            // the OLD monitor: the freshly spawned position gets the old animation's
+                            // velocity added to it and is then clipped against the wrong work area,
+                            // which for a cross-monitor respawn is a total clip. That renders as a
+                            // one-pixel sliver for a tick, sets IsLeaving, and enters the new
+                            // animation several frames in through
+                            // AnimationStep += Math.Max(1, Frames.Count / 3).
+                            //
+                            // A -1 here is not exotic: it is what the pet XML validator cannot rule
+                            // out, because it sums ALL transitions while the lookup filters by
+                            // eligibility first -- the same gap measured as 335 occurrences in 16
+                            // hours for the border case.
+                            SetNewAnimation(gravityNext);
+                            if (gravityNext < 0) return;
                             bNewAnimation = true;
                         }
                     }
@@ -1437,7 +1458,11 @@ namespace DesktopAICompanion
                         else
                         {
                             hwndWindow = (IntPtr)0;
-                            SetNewAnimation(Animations.SetNextGravityAnimation(CurrentAnimation.ID, TNextAnimation.TOnly.WINDOW));
+                            int gravityNextOnWindow = Animations.SetNextGravityAnimation(
+                                CurrentAnimation.ID, TNextAnimation.TOnly.WINDOW);
+                            // Same reasoning as the floor case above: a respawn ends the tick.
+                            SetNewAnimation(gravityNextOnWindow);
+                            if (gravityNextOnWindow < 0) return;
                             bNewAnimation = true;
                         }
                     }
