@@ -190,6 +190,30 @@ def saw_doc_count_drift(out):
                for line in out.splitlines())
 
 
+
+def line_ending_variant(base, old, new):
+    """Pick the (old, new) pair whose line endings match the FILE being mutated.
+
+    Every pattern in this file is written with LF. Several target files are CRLF in the working tree,
+    and a CRLF file cannot contain an LF pattern, so those cases printed "NO-OP (pattern matched 0
+    times)" and covered nothing at all -- a silent loss of coverage, which the release checklist is
+    explicit is worse than a failure because it looks like a result.
+
+    Measured 2026-09-25: this accounted for ALL SEVEN no-op cases across this harness and its sibling
+    (one here, six in mutate-agentflow.py). Every one of them was read as "the source moved"; none of
+    them had. CompanionsPaneControl.cs, for instance, is 1014 CRLF lines and 0 bare LF.
+
+    Restoring is unaffected either way: the loops below write back the ORIGINAL bytes they read, so a
+    file's line endings are never rewritten by a mutation run.
+    """
+    if base.count(old) == 1:
+        return old, new
+    as_crlf = lambda b: b.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+    crlf_old, crlf_new = as_crlf(old), as_crlf(new)
+    if base.count(crlf_old) == 1:
+        return crlf_old, crlf_new
+    return old, new
+
 def main():
     print("baseline: the hardening self-test must pass before anything is scored")
     code, out = run()
@@ -215,8 +239,9 @@ def main():
         if hasattr(old, "subn"):
             mutant, count = old.subn(new, base)
         else:
-            count = base.count(old)
-            mutant = base.replace(old, new)
+            old_v, new_v = line_ending_variant(base, old, new)
+            count = base.count(old_v)
+            mutant = base.replace(old_v, new_v)
         if count != 1:
             print("  %-46s NO-OP (pattern matched %d times)" % (name, count))
             continue

@@ -248,6 +248,54 @@ def selftest(flag, marker):
         return handle.read()
 
 
+def line_ending_variant(base, old, new):
+    """Pick the (old, new) pair whose line endings match the FILE being mutated.
+
+    The patterns in this file are written with LF. Several targets are CRLF in the working tree --
+    RuntimeHardeningSelfTest.cs is 1317 CRLF lines and 0 bare LF -- and a CRLF file cannot contain an
+    LF pattern, so those cases printed "NO-OP (pattern matched 0 times)" and proved nothing. The
+    release checklist is explicit that a NO-OP is worse than a failure, because it looks like a
+    result; this is the mechanism behind every no-op measured on 2026-09-25 across the three
+    mutation harnesses, and not one of them was the moved call site they were read as.
+
+    Restoring is unaffected: the loop writes back the ORIGINAL bytes it read.
+    """
+    if base.count(old) == 1:
+        return old, new
+    as_crlf = lambda b: b.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+    crlf_old, crlf_new = as_crlf(old), as_crlf(new)
+    if base.count(crlf_old) == 1:
+        return crlf_old, crlf_new
+    return old, new
+
+def failure_lines(report):
+    """The lines a self-test marker uses to report a FAILURE, and only those.
+
+    `"FAIL" in report` is not that test, and the difference is not academic: the aibrain self-test
+    carries a PASSING assertion labelled "an empty reply is reported as a FAILURE, not a green tick",
+    and a bare substring match reads that word inside a green report as a failure. The effect was
+    total -- this harness refused its own baseline with "BASELINE NOT GREEN for --aibrain-selftest"
+    against a self-test that exits 0 with every line PASS, so the whole suite had been inert since
+    the day that label was written.
+
+    A failure line is one whose stripped form STARTS with FAIL, allowing for the "[moduleid] "
+    prefix the module self-tests put in front of it. A label mentioning failure anywhere else on the
+    line is prose, not a verdict.
+    """
+    out = []
+    for line in report.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and "] " in stripped:
+            stripped = stripped.split("] ", 1)[1].strip()
+        if stripped.startswith("FAIL"):
+            out.append(line.strip())
+    return out
+
+
+def has_failure(report):
+    return bool(failure_lines(report))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--only", default=None)
@@ -261,7 +309,7 @@ def main():
         return 2
     for flag, marker in BASELINES:
         report = selftest(flag, marker)
-        if report is None or "FAIL" in report:
+        if report is None or has_failure(report):
             print("BASELINE NOT GREEN for", flag)
             return 2
     print("  baseline clean\n")
@@ -274,11 +322,12 @@ def main():
     fired = 0
     for (name, path, old, new, csproj, artifact, flag, marker, expect) in cases:
         base = read(path)
-        if base.count(old) != 1:
-            print("  %-52s NO-OP (pattern matched %d times)" % (name, base.count(old)))
+        old_v, new_v = line_ending_variant(base, old, new)
+        if base.count(old_v) != 1:
+            print("  %-52s NO-OP (pattern matched %d times)" % (name, base.count(old_v)))
             continue
         before = os.path.getmtime(artifact)
-        write(path, base.replace(old, new))
+        write(path, base.replace(old_v, new_v))
         time.sleep(1.1)
         report = None
         verdict = None
@@ -306,15 +355,14 @@ def main():
         # mutate-agentflow.py already carried this scar; this file had not learned it.
         # Excluding PASS lines is what keeps it honest: an assertion label can contain the word
         # 'failed' and several do.
-        hit = [l.strip() for l in report.splitlines()
-               if "FAIL" in l and expect in l and not l.strip().startswith("PASS")]
+        hit = [l for l in failure_lines(report) if expect in l]
         if hit:
             fired += 1
             print("  %-52s FIRED" % name)
             print("        %s" % hit[0][:140])
-        elif "FAIL" in report:
+        elif has_failure(report):
             print("  %-52s WRONG -- failed elsewhere" % name)
-            for line in [x.strip() for x in report.splitlines() if x.strip().startswith("FAIL")][:2]:
+            for line in failure_lines(report)[:2]:
                 print("        %s" % line[:140])
         else:
             print("  %-52s SURVIVED" % name)

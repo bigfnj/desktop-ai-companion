@@ -196,15 +196,15 @@ CASES = (
     (
         "speaks with no companion on screen (the swallowed-first-notice bug)",
         MODULE,
-        "            if (!AnyCompanionCanSpeak())",
-        "            if (false)",
+        "            bool canSpeak = _host.SpeechEnabled && AnyCompanionCanSpeak();",
+        "            bool canSpeak = _host.SpeechEnabled;",
         "says nothing when no companion is on screen",
     ),
     (
         "speaks while speech is switched off",
         MODULE,
-        "            if (!_host.SpeechEnabled)",
-        "            if (false)",
+        "            bool canSpeak = _host.SpeechEnabled && AnyCompanionCanSpeak();",
+        "            bool canSpeak = AnyCompanionCanSpeak();",
         "says nothing while speech is switched off",
     ),
     # The other half of that fix, and the half that made the bug PERMANENT rather than merely
@@ -212,8 +212,8 @@ CASES = (
     (
         "the budget is spent even when the notice was deferred",
         MODULE,
-        '                Log("deferred a notice about " + (speakThis.ToolName ?? "?")\n                    + ": no companion on screen to say it");\n                return;',
-        '                Log("deferred a notice about " + (speakThis.ToolName ?? "?")\n                    + ": no companion on screen to say it");\n                _budget.Record(speakThis, now);\n                return;',
+        '                                     : ": no companion on screen to say it"));\n                return;',
+        '                                     : ": no companion on screen to say it"));\n                _budget.Record(speakThis, now);\n                return;',
         "held notice is still delivered once a companion appears",
     ),
     # Saving the pane used to REPLACE the budget so a changed cooldown took effect at once, which
@@ -652,8 +652,8 @@ CASES = (
     (
         "speech fires whether or not it was asked for",
         MODULE,
-        "            if (NotifySpeakOn && AgentMode.Speaks(Mode)) _host.SayAll(line);",
-        "            _host.SayAll(line);",
+        "            bool wantsSpeech = NotifySpeakOn && AgentMode.Speaks(Mode);",
+        "            bool wantsSpeech = true;",
         "a chime with no chatter is possible",
     ),
     (
@@ -691,15 +691,15 @@ CASES = (
     (
         "the watching tray row writes the retired boolean again",
         MODULE,
-        '            _settings.Set(SettingMode, enabled ? AgentMode.Notify : AgentMode.Off);',
-        '            _settings.Set(SettingEnabled, enabled ? "true" : "false");',
+        '            string next = enabled ? AgentMode.Notify : AgentMode.Off;',
+        '            string next = AgentMode.Notify;',
         "turning watching off from the tray actually stops it",
     ),
     (
         "Log mode speaks, so it is identical to Notify",
         MODULE,
-        "            if (NotifySpeakOn && AgentMode.Speaks(Mode)) _host.SayAll(line);",
-        "            if (NotifySpeakOn) _host.SayAll(line);",
+        "            bool wantsSpeech = NotifySpeakOn && AgentMode.Speaks(Mode);",
+        "            bool wantsSpeech = NotifySpeakOn;",
         "Log is the quiet one, and says nothing out loud",
     ),
     # "Yes, allow ... for all projects". Misclassifying this made the module refuse EVERY bash
@@ -827,15 +827,52 @@ def run_selftest():
 
 
 def failing_lines(report, ):
+    # STARTS WITH, not contains. A passing assertion whose LABEL mentions failure is prose, not a
+    # verdict: the aibrain self-test has "reported as a FAILURE, not a green tick" on a PASS line,
+    # and a bare substring match turns a green report red. Allows the "[moduleid] " prefix the
+    # module self-tests print in front of the verdict.
     out = []
     for line in report.splitlines():
         stripped = line.strip()
         if stripped.startswith("RESULT="):
             continue
-        if "FAIL" in stripped:
+        verdict = stripped
+        if verdict.startswith("[") and "] " in verdict:
+            verdict = verdict.split("] ", 1)[1].strip()
+        if verdict.startswith("FAIL"):
             out.append(stripped)
     return out
 
+
+
+def line_ending_variant(base, old, new):
+    """Pick the (old, new) pair whose line endings match the FILE being mutated.
+
+    Every pattern in this file is written with LF. Several target files are CRLF in the working tree,
+    and a CRLF file cannot contain an LF pattern, so those cases printed "NO-OP (pattern matched 0
+    times)" and covered nothing at all -- a silent loss of coverage, which the release checklist is
+    explicit is worse than a failure because it looks like a result.
+
+    Measured 2026-09-25: this accounted for ALL SEVEN no-op cases across this harness and its sibling
+    (one here, six in mutate-agentflow.py). Every one of them was read as "the source moved"; none of
+    them had. CompanionsPaneControl.cs, for instance, is 1014 CRLF lines and 0 bare LF.
+
+    Restoring is unaffected either way: the loops below write back the ORIGINAL bytes they read, so a
+    file's line endings are never rewritten by a mutation run.
+    """
+    if base.count(old) == 1:
+        return old, new
+    # TYPE-AGNOSTIC on purpose. This harness carries its patterns as str while its two siblings use
+    # bytes, so a bytes-only implementation raised TypeError here rather than returning a variant.
+    if isinstance(old, bytes):
+        crlf, lf = b"\r\n", b"\n"
+    else:
+        crlf, lf = "\r\n", "\n"
+    as_crlf = lambda x: x.replace(crlf, lf).replace(lf, crlf)
+    crlf_old, crlf_new = as_crlf(old), as_crlf(new)
+    if base.count(crlf_old) == 1:
+        return crlf_old, crlf_new
+    return old, new
 
 def main():
     parser = argparse.ArgumentParser()
@@ -884,13 +921,14 @@ def main():
     try:
         for name, path, find, replace, expected in cases:
             source = baseline[path]
-            count = source.count(find)
+            find_v, replace_v = line_ending_variant(source, find, replace)
+            count = source.count(find_v)
             if count != 1:
                 print("  %-52s NO-OP (pattern matched %d times)" % (name, count))
                 continue
 
             before_stamp = os.path.getmtime(DLL) if os.path.isfile(DLL) else 0.0
-            write(path, source.replace(find, replace))
+            write(path, source.replace(find_v, replace_v))
             # A same-second rebuild can leave the timestamp unchanged on a coarse
             # filesystem clock, which would read as "never rebuilt".
             time.sleep(1.1)

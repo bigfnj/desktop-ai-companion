@@ -910,6 +910,44 @@ survived a second check, minus the 14 fixed on the day in `e31c5bb`.
   calls both again purely to count them. Each constructs an `MMDeviceEnumerator`, enumerates active
   endpoints and reads `FriendlyName` off every device's property store, on the UI thread.
 
+### Filed 2026-09-25 — the leak soak's verdict depends on its duration
+
+- 📌 **`tests/runtime-resource-soak.ps1` compares a per-cycle accumulation against an ABSOLUTE
+  bound, so a long enough run fails any build, including shipped ones.** `MaximumHandleGrowth` is 16
+  and is checked against post-finalization growth between two cycles; handle churn accumulates with
+  cycle count, so the pass/fail line is set by `-DurationSeconds` rather than by the code.
+
+  Measured, because this cost most of an afternoon and nearly cost a good fix:
+
+  | build | 30s (documented default) | 180s |
+  |---|---|---|
+  | HEAD (`d042650`) | PASS +4, +7, +7 | FAIL +84, +90, +81, +84 |
+  | **v1.2.4, the shipped release** | not run | **PASS +(-18), then FAIL +95** |
+  | `208d49c` | not run | PASS -32 |
+  | `e31c5bb` | not run | PASS |
+
+  The v1.2.4 row is the one that settles it. The RELEASED build fails the same extended run, so a
+  180-second failure says nothing about the build under test. Worse, single runs alternate: every
+  n=1 measurement I took passed and every n=2 measurement failed, which is how an afternoon went
+  into bisecting a regression that does not exist. `RaiseEach` was wrongly identified as the cause
+  and briefly reverted before v1.2.4's second run disproved it.
+
+  Nothing in the script's help, its parameter block, or `docs/RELEASE-CHECKLIST.md` says the bound is
+  only meaningful at the default duration. `-DurationSeconds` is offered up to 600 and the checklist's
+  own example passes `-DurationSeconds 60`, which reads as an invitation to run it longer for a
+  better answer. It is the opposite.
+
+  Two candidate fixes, neither attempted:
+  (1) Scale the bound with cycle count, so the check measures a RATE, which is what a leak is.
+  (2) Refuse durations the bound was not calibrated for, or print the calibrated range and require
+  `-Force` past it, so the number cannot be quietly invalidated by a flag.
+  CLOSES-WHEN: `runtime-resource-soak.ps1` either derives its bound from the cycle count or refuses
+  an uncalibrated `-DurationSeconds`.
+
+  ⚠ Read alongside the file's own BUG-004 comment, which explains why RAW growth is a sawtooth and
+  why the settled figure is sampled after a forced collection. That reasoning is sound and is not what
+  this entry disputes. The settled figure is still an absolute count over a variable number of cycles.
+
 ### Checked and REFUTED — do not re-file
 
 Recorded so the next audit does not spend the time again. AgentFlow's shell-header template does NOT
