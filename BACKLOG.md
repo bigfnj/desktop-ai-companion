@@ -703,36 +703,12 @@ survived a second check, minus the 14 fixed on the day in `e31c5bb`.
 
 **Host, user-visible**
 
-- 📌 **Pressing Apply in Preferences wipes the diagnostic-log mute for any module that is
-  installed but not loaded.** `src/Portable/Wpf/OptionsShell.cs:464` calls `CollectMutedModules`
-  unconditionally, and that rebuilds the whole string from `LoadedModules` only. A module whose `Init`
-  throws is on disk, not loaded, and contributes nothing, so its stored mute is dropped. The same
-  method takes explicit care NOT to do this for `defaultSpeakingCompanion` (`:477`) and `triggerSpeech`
-  (`:485`), both commented as leaving the saved choice alone.
 - 📌 **Two Preferences windows can edit one settings.json, and the later Apply wins.**
   `src/dotNet/ContextMenus.cs:593` writes `isOptionLoaded` and nothing reads it (`:570`, in
   `About_Click`, is the only read). So About-while-About, About-while-Options and Options-while-About
   are blocked and Options-while-Options is not. `ShowDialog` does not stop the tray callback or the
   module-update balloon (`StartUp.cs:1799`), and each window Applies from a `values` dictionary
   captured when its pane was built.
-- 📌 **A future-schema settings file blocks every write for the session in silence, while the
-  sibling failure state warns.** `src/Portable/AppSettingsStore.cs:938-943`: the read-only-fallback path
-  sets `LastLoadWarning` and `Program.cs:251` surfaces it; the `FutureSchema` path sets
-  `_writesBlockedByFutureSchema` and returns without a warning, yet `SaveMerged` then returns false for
-  every write. Compounding it, several immediate-persist controls discard that false and report success
-  anyway: `OptionsShell.cs:644-646` and `CompanionsPaneControl.cs:370`, `:426`, `:496`. The sibling
-  `ApplyNotificationSoundChoice` (`:854`) reads the value back precisely to avoid this.
-- 📌 **"Reset to default settings" leaves most of the page it claims to reset untouched, and says
-  nothing.** `src/Portable/Wpf/OptionsShell.cs:864-912` against the schema at `:297-354`: never reset are
-  `monthlyModuleUpdateCheck`, `companionUpdateCheck`, `appUpdateCheck`, `diagLog`, `diagLogKb`,
-  `diagLogKeep`, every generated `diagCat_*` and `diagMod_*`, and `defaultSpeakingCompanion`. The prompt
-  says "Reset all preferences on this page to their defaults?" and the status line is left blank.
-- 📌 **"Fetch the catalog when the pane opens" is discarded on every open but the first in any 90
-  second window.** `ModulesPaneControl.cs:104` and `CompanionsPaneControl.cs:128` call
-  `RefreshCatalogOnOpen()` from the CONSTRUCTOR; on a warm shared catalog `FetchSharedAsync` completes
-  synchronously, so the continuation runs inline and immediately hits `if (... || !IsLoaded) return;`,
-  which the constructor guarantees is false. No update button appears for any module that has one until
-  the user presses "Check for modules online".
 - 📌 **The gravity branch respawns the pet mid-tick and then lets the rest of the tick clobber it.**
   `src/dotNet/FormCompanion.cs:1416` and `:1440` set `bNewAnimation = true` and fall through after
   `SetNextGravityAnimation` returned -1 and `Play(false)` already picked a fresh spawn position and
