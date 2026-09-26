@@ -1,6 +1,6 @@
 ﻿# Desktop AI Companion — Session Handoff
 
-> Working notes for picking this up later. Last updated: **2026-09-22** (thirteenth session).
+> Working notes for picking this up later. Last updated: **2026-09-25** (fourteenth session).
 > Fork of Adrianotiger/desktopPet, though no longer a GitHub fork: the repo was recreated fresh for
 > 1.0.0. Clone it wherever you like -- nothing here depends on the checkout path, and this file is
 > public, so no machine paths go in it.
@@ -9,7 +9,87 @@
 
 ---
 
-## START HERE (2026-09-22, thirteenth session) — one bug class in three places, and a corpus
+## START HERE (2026-09-25, fourteenth session) — backlog campaign, v1.2.5, and three dead test harnesses
+
+A full pass over `BACKLOG.md` (72 open at the start), four parallel read-only re-audits, and a
+release. **v1.2.5 is tagged and published**, and `catalog.json` `app.version` is 1.2.5, so installed
+apps are being offered it. Seven modules were published along the way and are already live.
+
+### The three things worth knowing before you touch anything
+
+**1. `tests/runtime-resource-soak.ps1`'s verdict is set by `-DurationSeconds`, not by the code.**
+Its bound is an absolute 16 handles compared against growth that accumulates per cycle, so a long
+enough run fails ANY build. Measured: **v1.2.4, the shipped release, passes a 180-second run once and
+fails the next at +95**. I did not know that, ran the gate at 6x its documented duration, saw +84,
+bisected across n=1 samples, wrongly identified `RaiseEach` as a regression and briefly reverted a
+good fix before v1.2.4's repeat disproved it. **Run it at the documented default** (HEAD passes at
++4, +7, +7) and treat any extended run as unbounded. Filed in `BACKLOG.md`; the fix shape is in its
+sibling `module-window-soak.ps1`, which compares the last segment against the previous one.
+
+**2. Three of the four mutation harnesses were not proving what they claimed, and one had stopped
+running entirely.** `mutate-selftest-guards` tested `"FAIL" in report` as a bare substring; the
+aibrain self-test has a PASSING assertion labelled "reported as a FAILURE, not a green tick", so a
+green report read as red and the suite exited 2 before running a case. It had been inert since
+`ec92fd4` — **this campaign's own commit** — so guards added and reported as mutation-tested during
+it were not. Two further no-op causes: LF patterns against CRLF files (`RuntimeHardeningSelfTest.cs`
+is 1317 CRLF lines, 0 bare LF), and six AgentFlow cases whose source `231332c` had genuinely moved.
+All repaired: **15/15, 13/13, 88/88, 22/22**, all exit 0.
+
+**3. `docs/RELEASE-CHECKLIST.md` step 2 was wrong and is corrected.** It said to regenerate the
+catalog in the same commit as the version bump. `New-ContentCatalog.ps1` resolves `app.version` from
+the newest reachable `v*` tag, not from `ProductVersion.props`, so running it before the tag is a
+no-op that rewrites the old number. Order is: bump props, push, tag, let `release.yml` publish, THEN
+regenerate and push the catalog.
+
+### The best bug of the session, and how it was found
+
+**Choosing any "Companion Speech" source silenced every random-drop remark, permanently.** Both
+drop-responder overloads registered under module id `""` (neither takes an id), while `RaiseDropTick`
+filtered the chain by the user's choice — so the filter removed every candidate. Pokes kept working,
+because the poke pair does pass `Info.Id`, which is what made it look like a half-finished feature
+rather than a routing bug. Fixed host-side with no ABI change: `AddResponder` attributes an unnamed
+responder to the module whose `Init` it is inside, reusing the `BeginModuleInit` machinery that
+`OptionsPane` ownership already used.
+
+**And the measurement that mattered came from your own diagnostic log, not from a harness.**
+BACKLOG 407 asked whether "no eligible positive-probability transition" was user-visible. Two
+engineered soaks measured nothing useful. `%LOCALAPPDATA%\DesktopAICompanion\diagnostics.log`
+answered it in one grep: **335 occurrences over ~16 hours, 36% of the whole log, all from
+`pink_sheep`**, 269 of them two states at the taskbar, consequence being the pet walks off the bottom
+of the screen and respawns about 21 times an hour. Fixed in content (two `only="taskbar"` edges,
+mirroring what `king_walk_top` in the same family already did) and confirmed by a 45-minute run with
+a positive control: zero for the fixed pair while the untouched `where=130` state still fired three
+times. **The app writes that log unconditionally and nothing reads it back. A command that
+summarised it by category and rate would turn every hour you run the pet into evidence.**
+
+### Where the backlog stands
+
+**45 open**, up from 24 at the campaign's midpoint, because the four re-audits filed 30 verified
+items against 6 closed. That is the honest number: closing them by not looking was the only way to
+reach zero. The burn-down itself was audited — **0 of 83 baseline items were deleted rather than
+closed** — and four record defects were repaired, including a closed entry that said a fix "has not
+been done" four minutes after it was done.
+
+Highest value open items, in the order I would take them:
+1. Four more `pink_sheep` states that cannot answer a border at `where=130`/`where=18` (66 of the
+   335 occurrences; same analysis as the taskbar pair, not yet done).
+2. `PendingModuleUpdates` / module install robustness residue.
+3. The resource-soak bound (item 1 above).
+4. `AgentFlow`'s `CdpApprover` decoding WebSocket frames one chunk at a time, so a multi-byte
+   sequence straddling a 16 KB boundary corrupts an option label.
+
+### Verification rhythm that worked
+
+Gate (`tests/run-gate.ps1 -SkipClean`) after every change; the two new GUI smoke tests
+(`tests/debug-menu-smoke.ps1`, `tests/tray-menu-smoke.ps1`) by hand, both hermetic via
+`DESKTOP_AI_COMPANION_DATA_ROOT`; `tests/companion-border-invariants.ps1` now in the gate. Every new
+guard mutation-tested with the artefact checked — twice a "0 errors" build turned out to be the
+previous binary, once because the app left running held the exe lock and the failure was an MSB3027
+rather than an `error CS`.
+
+---
+
+## Previous START HERE (2026-09-22, thirteenth session) — one bug class in three places, and a corpus
 
 A user-reported "companion gets stuck tripping" turned out to be **one mistake made independently in
 three places: judging an animation's INTENT by its VELOCITY instead of by the Type its source
@@ -77,9 +157,11 @@ costs nothing; re-converting would have taken both losses to fix a repeat count.
   outright, and only the portable ZIP bundles them offline. So a fresh MSI install on a machine
   whose network is filtered gets the embedded eSheep and nothing else, with no way to see what
   exists. Point such a machine at the portable ZIP.
-- **`v1.2.4` predates both pet fixes**, so the published portable ZIP carries the PRE-fix pets. The
-  catalog path delivers the corrected ones immediately; getting them offline needs a new release cut
-  so the ZIP re-stages them. That release would also carry PetStudio 1.0.5 into the bundled modules.
+- ~~**`v1.2.4` predates both pet fixes**~~ — **resolved by v1.2.5 (2026-09-25)**, which re-staged the
+  ZIP with the corrected pets and the current bundled modules. The general rule the note was making
+  still holds and is worth keeping: a companion or module fix reaches EXISTING users through
+  `catalog.json` immediately, but the portable ZIP only re-stages when a release is cut, so an
+  offline machine stays on whatever the last tag bundled.
 
 `petstudio` 1.0.4 -> 1.0.5 is a real behaviour change, not a restale: that module source-links the
 conversion engine, so its importer recompiles the fixed classifier and a skin imported in the Studio

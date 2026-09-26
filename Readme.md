@@ -410,8 +410,13 @@ them against `SHA256SUMS.txt` on the release.
 - **Right-click the sheep** to poke it — first pokes give fortunes, then it starts ignoring you, then
   gets sassy, then escapes to a bathtub. Each companion keeps its **own** poke ladder, so poking one does not
   make another sassy, and only the companion you actually clicked answers.
-- **Right-click the tray icon** for the menu: **Add a companion**, **Test Speech**, **Companion Speech**,
-  **Enable/Disable AI**, **Options**, and quit.
+- **Right-click the tray icon** for the menu: **Add a companion**, **Remove a companion**,
+  **Synchronise companions**, **Test Speech**, **Companion Speech**, **Enable/Disable AI**,
+  **Options**, and quit.
+- **Synchronise companions** makes every companion play its type's `sync` animation at once. It only
+  appears when more than one companion is out AND at least one of their types declares that animation,
+  because synchronising a single companion does nothing and a type without the animation has nothing
+  to play. Every converted companion has one; the converter synthesises it.
 - **Tray → Companion Speech** picks which module speaks for **each companion**: `Companion Speech ▸ Pearl ▸ Fortunes`,
   `Companion Speech ▸ Rick ▸ AI Brain`, and so on, with a tick on whichever is in effect. There is an *All companions*
   row for the shared default and a *Reset all companions to the default* row to clear per-companion choices. With several companions on
