@@ -4,8 +4,22 @@ Desktop AI Companion ships **unsigned** Windows x64 builds. To cut a release:
 
 1. Bump `DesktopAICompanionVersion` (and `DesktopAICompanionAssemblyVersion`) in
    [`ProductVersion.props`](../ProductVersion.props).
-2. **Regenerate the catalog in the same commit as the bump**: `.\packaging\New-ContentCatalog.ps1`. This
-   is the step that tells existing users the release exists.
+2. **Regenerate the catalog AFTER the tag is pushed and the release has published**:
+   `.\packaging\New-ContentCatalog.ps1`. This is the step that tells existing users the release exists.
+
+   ⚠ **This step used to say "in the same commit as the bump", and that is now wrong.** Corrected
+   2026-09-25 after following it produced a no-op. `New-ContentCatalog.ps1` resolves `app.version`
+   from the newest reachable `v*` tag, NOT from `ProductVersion.props` (see its `$appVersionParsed`
+   block), and it refuses outright to write a catalog when no tag is reachable. Run before the tag
+   exists it correctly declines to advertise an unreleased version and rewrites the OLD number,
+   printing `app.version 1.2.4 (newest release); ProductVersion.props is ahead at 1.2.5, not released
+   yet`. So the working order is: bump the props, push, tag, let `release.yml` publish, THEN
+   regenerate and push the catalog.
+
+   The concern the old wording existed to address -- leaving `master` red between the bump and the
+   tag -- does not arise, because the freshness gate compares `app.version` against the newest
+   RELEASE and not against the props. A props version ahead of the newest release is the expected
+   state of an unreleased build and passes.
 
    `catalog.json`'s `app.version` is where the launch update check reads the latest version from, and
    nothing else in a release touches it — `release.yml` does not, and `New-ContentCatalog.ps1` otherwise
