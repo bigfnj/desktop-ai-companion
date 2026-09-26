@@ -20,6 +20,17 @@ namespace DesktopAICompanion.AgentFlow
         Listening = 3,
         /// <summary>Found, but the file is not something this module will edit.</summary>
         Unreadable = 4,
+        /// <summary>
+        /// Found, names a port, and VS Code will IGNORE it: the value is an unquoted JSON number.
+        ///
+        /// Its own handler takes `true`, `"true"` or a non-empty string and calls appendSwitch; a
+        /// number matches no branch. So `"remote-debugging-port": 9321` is valid JSON, parses as a
+        /// port, and does nothing at launch. Before this state existed the module read that number,
+        /// reported "argv.json asks for port 9321", probed, found silence, and blamed a missing
+        /// restart -- forever, because a restart was never going to help. The class doc above called
+        /// this exact shape "the kind of failure that looks like success" and then did not detect it.
+        /// </summary>
+        Inert = 5,
     }
 
     /// <summary>The result of looking, or of editing.</summary>
@@ -111,23 +122,48 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>The port named in the file, or 0. Text scan, because the file is JSONC.</summary>
         public static int ReadPort(string text)
         {
+            bool ignored;
+            return ReadPort(text, out ignored);
+        }
+
+        /// <summary>
+        /// The port named in the file, or 0, AND whether it is written in the form VS Code honours.
+        ///
+        /// <paramref name="quoted"/> is the whole point. VS Code takes `true`, `"true"` or a
+        /// non-empty string; an unquoted number matches none of its branches and is dropped at
+        /// launch. Reading the number and saying nothing about its form is what let the pane insist
+        /// a restart would help when nothing could.
+        /// </summary>
+        public static int ReadPort(string text, out bool quoted)
+        {
+            quoted = false;
             if (string.IsNullOrEmpty(text)) return 0;
-            string body = StripLineComments(text);
+            // BLANKED, not stripped: offsets here also index the original, which the callers below
+            // rely on, and a commented-out key must never be mistaken for the live one.
+            string body = BlankLineComments(text);
             int key = body.IndexOf("\"" + PortKey + "\"", StringComparison.Ordinal);
             if (key < 0) return 0;
             int colon = body.IndexOf(':', key);
             if (colon < 0) return 0;
+
+            int i = colon + 1;
+            while (i < body.Length && (body[i] == ' ' || body[i] == '\t')) i++;
+            bool opensWithQuote = i < body.Length && body[i] == '"';
+            if (opensWithQuote) i++;
+
             var digits = new StringBuilder();
-            for (int i = colon + 1; i < body.Length; i++)
+            for (; i < body.Length; i++)
             {
                 char c = body[i];
                 if (char.IsDigit(c)) digits.Append(c);
-                else if (c == '"' || c == ' ' || c == '\t') { if (digits.Length > 0) break; }
                 else break;
             }
             int value;
-            return int.TryParse(digits.ToString(), NumberStyles.None, CultureInfo.InvariantCulture,
-                                out value) ? value : 0;
+            if (!int.TryParse(digits.ToString(), NumberStyles.None, CultureInfo.InvariantCulture,
+                              out value))
+                return 0;
+            quoted = opensWithQuote;
+            return value;
         }
 
         /// <summary>
@@ -163,6 +199,53 @@ namespace DesktopAICompanion.AgentFlow
         }
 
         /// <summary>
+        /// Comments blanked to SPACES rather than removed, so every index into the result is also a
+        /// valid index into the original text.
+        ///
+        /// <see cref="StripLineComments"/> deletes them, which is right for inspection and wrong for
+        /// anything that then edits by offset. FindKeySpan used to confirm a LIVE key against the
+        /// stripped text and hand back only the needle, and WithPort/WithoutPort located it with
+        /// IndexOf on the ORIGINAL -- so with a commented-out `remote-debugging-port` line above the
+        /// live one, Disable deleted the COMMENT, saw the text change, and reported the port removed
+        /// while it kept opening on every launch. IndexOfTopLevelBrace a few lines down does this
+        /// mapping properly, which is what made the omission an oversight rather than a design.
+        /// </summary>
+        private static string BlankLineComments(string text)
+        {
+            var output = new StringBuilder(text.Length);
+            bool inString = false, escaped = false;
+            for (int i = 0; i < text.Length; i++)
+            {
+                char c = text[i];
+                if (inString)
+                {
+                    output.Append(c);
+                    if (escaped) escaped = false;
+                    else if (c == '\\') escaped = true;
+                    else if (c == '"') inString = false;
+                    continue;
+                }
+                if (c == '"') { inString = true; output.Append(c); continue; }
+                if (c == '/' && i + 1 < text.Length && text[i + 1] == '/')
+                {
+                    while (i < text.Length && text[i] != '\n') { output.Append(' '); i++; }
+                    if (i < text.Length) output.Append('\n');
+                    continue;
+                }
+                output.Append(c);
+            }
+            return output.ToString();
+        }
+
+        /// <summary>Index of the LIVE port key in <paramref name="text"/>, or -1. Never a commented one.</summary>
+        private static int FindKeyIndex(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return -1;
+            return BlankLineComments(text)
+                .IndexOf("\"" + PortKey + "\"", StringComparison.Ordinal);
+        }
+
+        /// <summary>
         /// Insert or update the port key, preserving every comment and the file's line endings.
         ///
         /// Returns the new text, or null when the file is not something to edit. Refusing is a real
@@ -173,11 +256,12 @@ namespace DesktopAICompanion.AgentFlow
         {
             if (port <= 0 || port > 65535) return null;
             string value = "\"" + port.ToString(CultureInfo.InvariantCulture) + "\"";
-            string existing = FindKeySpan(text);
-            if (existing != null)
+            int keyAt = FindKeyIndex(text);
+            if (keyAt >= 0)
             {
                 // Replace just the VALUE, leaving the key, its indentation and any trailing comment.
-                int keyAt = text.IndexOf(existing, StringComparison.Ordinal);
+                // keyAt comes from BlankLineComments, so it indexes the LIVE key: rewriting the first
+                // textual match would edit a commented-out line and leave the real one untouched.
                 int colon = text.IndexOf(':', keyAt);
                 if (colon < 0) return null;
                 int end = colon + 1;
@@ -199,9 +283,11 @@ namespace DesktopAICompanion.AgentFlow
         /// <summary>Remove the key entirely, with its line, leaving the rest byte-for-byte.</summary>
         public static string WithoutPort(string text)
         {
-            string span = FindKeySpan(text);
-            if (span == null) return text;
-            int keyAt = text.IndexOf(span, StringComparison.Ordinal);
+            // The LIVE key's index. This used to be text.IndexOf(needle), which finds a commented-out
+            // key first -- so Disable deleted the comment, saw the text change, reported the port
+            // removed, and left an unauthenticated loopback port opening on every VS Code launch.
+            int keyAt = FindKeyIndex(text);
+            if (keyAt < 0) return text;
             int lineStart = text.LastIndexOf('\n', keyAt) + 1;
             int lineEnd = text.IndexOf('\n', keyAt);
             if (lineEnd < 0) lineEnd = text.Length; else lineEnd++;
@@ -239,14 +325,6 @@ namespace DesktopAICompanion.AgentFlow
             int count = 0;
             for (int i = 0; i < index; i++) if (text[i] == what) count++;
             return count;
-        }
-
-        private static string FindKeySpan(string text)
-        {
-            if (string.IsNullOrEmpty(text)) return null;
-            string stripped = StripLineComments(text);
-            string needle = "\"" + PortKey + "\"";
-            return stripped.IndexOf(needle, StringComparison.Ordinal) >= 0 ? needle : null;
         }
 
         private static int IndexOfTopLevelBrace(string text)
@@ -358,11 +436,24 @@ namespace DesktopAICompanion.AgentFlow
                                 + "argv.json or it is damaged. Not editing it.";
                 return report;
             }
-            report.Port = ReadPort(text);
+            bool quoted;
+            report.Port = ReadPort(text, out quoted);
             if (report.Port <= 0)
             {
                 report.State = SetupState.Off;
                 report.Detail = "found " + path + "; it does not ask for a debugging port.";
+                return report;
+            }
+            if (!quoted)
+            {
+                // Do NOT probe. The port was never requested as far as VS Code is concerned, so
+                // silence on it proves nothing and "needs a restart" would be a lie.
+                report.State = SetupState.Inert;
+                report.Detail = "argv.json names port " + report.Port + " as a NUMBER, and VS Code "
+                                + "only honours a quoted string, so it is ignored at every launch. "
+                                + "Press \u201cEnable approving\u201d to rewrite it as \""
+                                + report.Port.ToString(CultureInfo.InvariantCulture)
+                                + "\", then restart VS Code.";
                 return report;
             }
             bool listening = Probe(report.Port, probeTimeoutMilliseconds);

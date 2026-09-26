@@ -792,20 +792,44 @@ namespace DesktopAICompanion.AgentFlow
                 return false;
             }
 
+            /// <summary>
+            /// One CDP message, reassembled across however many 16 KB frames it arrives in.
+            ///
+            /// ONE DECODER FOR THE WHOLE MESSAGE. This used to call Encoding.UTF8.GetString on each
+            /// chunk in isolation, and a read boundary can land INSIDE a multi-byte sequence: both
+            /// halves then decode to U+FFFD and the character is destroyed. A Decoder holds the
+            /// partial sequence until the next chunk completes it. That is not cosmetic here. A
+            /// mangled option LABEL makes PromptOptions.Classify see an option it does not
+            /// recognise, and ONE unrecognised option refuses the whole prompt by design -- so
+            /// auto-approve silently stops working and the log blames the capture for misreading a
+            /// prompt that was sent correctly.
+            ///
+            /// AND THE OVER-CAP PATH DRAINS. Breaking out of the loop early left the rest of the
+            /// message sitting in the socket, so the NEXT Receive() returned a mid-message tail and
+            /// every later reply on this session was offset by one. The cap still bounds what is
+            /// KEPT; it no longer desynchronises the stream.
+            /// </summary>
             private string Receive()
             {
                 var builder = new StringBuilder();
                 byte[] buffer = new byte[16 * 1024];
+                var chars = new char[16 * 1024 + 1];
+                Decoder decoder = Encoding.UTF8.GetDecoder();
                 const int Cap = 1024 * 1024;
+                bool capped = false;
                 while (true)
                 {
                     WebSocketReceiveResult result = _socket
                         .ReceiveAsync(new ArraySegment<byte>(buffer), _cancel.Token)
                         .GetAwaiter().GetResult();
                     if (result.MessageType == WebSocketMessageType.Close) return null;
-                    builder.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
+                    if (!capped)
+                    {
+                        int produced = decoder.GetChars(buffer, 0, result.Count, chars, 0, false);
+                        builder.Append(chars, 0, produced);
+                        if (builder.Length > Cap) capped = true;
+                    }
                     if (result.EndOfMessage) break;
-                    if (builder.Length > Cap) break;
                 }
                 return builder.ToString();
             }

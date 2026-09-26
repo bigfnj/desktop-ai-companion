@@ -147,7 +147,19 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.4.6",   // 1.4.6: BlockedDetector's unreachable Codex arm removed. Every Codex path
+            Version = "1.4.7",   // 1.4.7: six fixes, and two of them meant approving never worked at all.
+                                 //        ReadPort accepted an unquoted JSON number, which VS Code ignores, so
+                                 //        the pane read a port, probed, found silence and blamed a missing
+                                 //        restart forever. Disable located the key by raw text search and so
+                                 //        deleted a commented-out one, reporting success while the real port
+                                 //        kept opening on every launch. Also: CDP frames are decoded with one
+                                 //        Decoder across chunks (a split multi-byte character corrupted an
+                                 //        option label, and one unknown option refuses the whole prompt); the
+                                 //        over-cap path drains instead of desynchronising the socket; the setup
+                                 //        cache follows Enable/Disable/Browse; approvals carry the CALL time,
+                                 //        not the scan time; and Codex watching defaults ON now that reading
+                                 //        turn_context.approval_policy makes it work.
+                                 // 1.4.6: BlockedDetector's unreachable Codex arm removed. Every Codex path
                                  //        returns in the block above it, so isCodex was always false there and
                                  //        its reason string could never be shown to anyone.
                                  // 1.4.5: the chime and the animation are no longer gated on speech; the tray
@@ -1561,12 +1573,19 @@ namespace DesktopAICompanion.AgentFlow
         /// that genuinely prompt, and exactly the ones worth watching. The 2026-09-17 measurement
         /// that concluded otherwise almost certainly read `session_meta` and stopped there.
         ///
-        /// Closing it means reading `turn_context.approval_policy` and mapping `never` to "cannot
+        /// Closing it meant reading `turn_context.approval_policy` and mapping `never` to "cannot
         /// prompt". NOT `collaboration_mode.mode`, which also says "default" while sitting beside
         /// `approval_policy: never`: same word as Claude's default, opposite meaning, and
         /// matching on it would predict prompts in sessions that cannot produce any.
+        ///
+        /// THAT WORK IS DONE, so the default is now TRUE (changed 2026-09-25).
+        /// `TranscriptReader` dispatches `turn_context` and reads `approval_policy`, and
+        /// `BlockedDetector` carries a dedicated Codex branch keyed on `on-request` that stands
+        /// down for every other policy. The switch shipped OFF for a reason that no longer exists,
+        /// while the pane's own `aboutCodex` text already described the working behaviour -- so the
+        /// module advertised a capability it then declined to use.
         /// </summary>
-        private bool WatchCodex { get { return _settings != null && _settings.GetBool(SettingWatchCodex, false); } }
+        private bool WatchCodex { get { return _settings != null && _settings.GetBool(SettingWatchCodex, true); } }
         private bool Animate { get { return _settings != null && _settings.GetBool(SettingAnimate, false); } }
 
         private double ThresholdSeconds
@@ -1970,6 +1989,10 @@ namespace DesktopAICompanion.AgentFlow
                     return "Waiting for a VS Code restart. " + report.Detail;
                 case SetupState.Off:
                     return "Not set up. Press \u201cEnable approving\u201d, then restart VS Code.";
+                case SetupState.Inert:
+                    // Its own sentence, not folded into On. "Waiting for a VS Code restart" is what
+                    // this said before the state existed, and no restart could ever have fixed it.
+                    return "Set up but INERT. " + report.Detail;
                 case SetupState.Unreadable:
                     return "Cannot use " + (report.Path ?? "argv.json") + ": " + report.Detail;
                 default:
@@ -2032,6 +2055,12 @@ namespace DesktopAICompanion.AgentFlow
                 // outcome: the port appears at the next VS Code launch, so the honest answer here
                 // is "written, not yet live" and the button is the only place that can say it.
                 SetupReport after = VsCodeSetup.Inspect(overridePath, 250);
+                // CACHED, not just returned. SetupStatusLine only inspects when the cache is null,
+                // and its doc says "the cache is refreshed by the tick" -- true in every mode except
+                // Off, where OnTick returns before the probe. So in Off mode this action wrote the
+                // file and "Check now" went on reporting the state from before the write, for the
+                // rest of the session.
+                _setupCache = after;
                 return "\u2713 Wrote port " + port + " into " + report.Path
                        + ". Now START VS CODE, then press \u201cCheck now\u201d. Current state: "
                        + after.Detail
@@ -2049,6 +2078,7 @@ namespace DesktopAICompanion.AgentFlow
                 if (VsCodeSetup.IsVsCodeRunning())
                     return "\u2717 VS Code is running. Close it first, for the same reason as enabling.";
                 SetupReport report = VsCodeSetup.Inspect(overridePath, 250);
+                _setupCache = report;
                 if (report.State == SetupState.NotFound || report.State == SetupState.Unreadable)
                     return "\u2717 " + report.Detail;
                 string original;
@@ -2084,7 +2114,10 @@ namespace DesktopAICompanion.AgentFlow
             if (picked == null || picked.Count == 0)
                 return Task.FromResult("\u2717 No file chosen; nothing changed.");
             string path = picked[0];
+            // The cache describes the PREVIOUS path, so it is not stale, it is about another file.
+            _setupCache = null;
             SetupReport report = VsCodeSetup.Inspect(path, 250);
+            _setupCache = report;
             if (report.State == SetupState.Unreadable)
                 return Task.FromResult("\u2717 That file cannot be used: " + report.Detail);
             _settings.Set(SettingArgvPath, path);
@@ -2493,6 +2526,22 @@ namespace DesktopAICompanion.AgentFlow
                         after[SettingThreshold] == "45" && after[SettingCooldown] == "90"
                         && after[SettingWatchCodex] == "false");
 
+                    // THE DEFAULT IS ON. Pinned because the switch spent a release shipping off on
+                    // a rationale the turn_context work had already made false, while the pane's own
+                    // help text described it working.
+                    //
+                    // Driven through an UNPARSEABLE value rather than an absent one, deliberately:
+                    // GetBool returns its fallback for both, and the pane above has already written
+                    // this key, so "omit it from the next Save" would not have produced an unset key
+                    // at all -- the first version of this check asserted against a stale "false" and
+                    // failed for a reason that had nothing to do with the default.
+                    string savedWatchCodex = Shown(pane)[SettingWatchCodex];
+                    module._settings.Set(SettingWatchCodex, "");
+                    bool defaultedOn = module.WatchCodex;
+                    module._settings.Set(SettingWatchCodex, savedWatchCodex);
+                    probe.Check("WITNESS Codex watching defaults ON when the key carries no value",
+                        defaultedOn);
+
                     // An out-of-range threshold must clamp rather than be honoured: a 1-second
                     // threshold would notify on every ordinary tool call.
                     pane.Save(new Dictionary<string, string>
@@ -2761,6 +2810,26 @@ namespace DesktopAICompanion.AgentFlow
             Dictionary<string, int> again = BlockedDetector.ApprovedSince(session, rules, counted, null);
             probe.Check("WITNESS a second read of the same transcript counts nothing again",
                 again.Count == 0);
+
+            // THE CALL'S TIME, NOT THE SCAN'S. Every call the Completed helper builds carries a
+            // fixed StartedUtc, so an entry stamped with DateTime.Now is trivially distinguishable:
+            // it would be today. This mattered most on the first tick after launch, when the whole
+            // transcript is folded at once -- the "Last ten, newest first" card then showed ten
+            // commands that had run over the previous quarter hour as though they had all just
+            // happened, which makes the card actively misleading rather than merely imprecise.
+            var stamped = new List<ApprovalEntry>();
+            var stampSession = new AgentSession
+            {
+                SessionId = "s-stamp",
+                Agent = TranscriptReader.AgentClaude,
+            };
+            stampSession.NoteCompleted(Completed("t1", "git status"));
+            BlockedDetector.ApprovedSince(
+                stampSession, rules, new HashSet<string>(StringComparer.Ordinal), stamped);
+            DateTime expectedStamp =
+                new DateTime(2026, 9, 18, 11, 0, 0, DateTimeKind.Utc).ToLocalTime();
+            probe.Check("an approval is stamped with the CALL's time, not the scan's",
+                stamped.Count == 1 && stamped[0].WhenLocal == expectedStamp);
 
             // PRIVACY. The command text is what the rules match on and must never reach the log.
             string line = BlockedDetector.DescribeApprovals(tally, 8);
@@ -3087,6 +3156,40 @@ namespace DesktopAICompanion.AgentFlow
                            + NL_ + "}" + NL_;
             probe.Check("WITNESS a // inside a string value is not mistaken for a comment",
                 VsCodeSetup.ReadPort(pathy) == 7777);
+
+            // AN UNQUOTED NUMBER IS NOT A WORKING PORT. VS Code's handler takes true, "true" or a
+            // non-empty string, so a JSON number is parsed by the file and dropped at launch. The
+            // module never writes one, but a hand edit or another tool can, and reading it as a
+            // working port is what made the pane insist a restart would help when none could.
+            string numeric = "{" + NL_ + TAB_ + QT_ + "remote-debugging-port" + QT_ + ": 9321"
+                             + NL_ + "}" + NL_;
+            bool numericQuoted;
+            probe.Check("an unquoted port number is read, and reported as NOT the form VS Code honours",
+                VsCodeSetup.ReadPort(numeric, out numericQuoted) == 9321 && !numericQuoted);
+            bool stringQuoted;
+            probe.Check("WITNESS a quoted port is reported as the form VS Code honours",
+                VsCodeSetup.ReadPort(enabled, out stringQuoted) == 9321 && stringQuoted);
+            probe.Check("...and Enable rewrites the number as a quoted string",
+                VsCodeSetup.ReadPort(VsCodeSetup.WithPort(numeric, 9321), out numericQuoted) == 9321
+                && numericQuoted);
+
+            // A COMMENTED-OUT KEY IS NOT THE LIVE ONE. Disable used to delete whichever came first in
+            // the raw text, so a commented example above the real key meant the comment went, the
+            // text changed, success was reported, and the port kept opening on every launch.
+            string commented = "{" + NL_
+                               + TAB_ + "// " + QT_ + "remote-debugging-port" + QT_ + ": " + QT_ + "9222" + QT_ + "," + NL_
+                               + TAB_ + QT_ + "remote-debugging-port" + QT_ + ": " + QT_ + "9321" + QT_ + NL_
+                               + "}" + NL_;
+            probe.Check("a commented-out key is not mistaken for the live one",
+                VsCodeSetup.ReadPort(commented) == 9321);
+            string commentedOff = VsCodeSetup.WithoutPort(commented);
+            probe.Check("Disable removes the LIVE key, not the commented-out line above it",
+                VsCodeSetup.ReadPort(commentedOff) == 0
+                && commentedOff.IndexOf("// " + QT_ + "remote-debugging-port", StringComparison.Ordinal) >= 0);
+            string commentedMoved = VsCodeSetup.WithPort(commented, 9999);
+            probe.Check("...and Enable rewrites the LIVE value, leaving the comment alone",
+                VsCodeSetup.ReadPort(commentedMoved) == 9999
+                && commentedMoved.IndexOf(QT_ + "9222" + QT_, StringComparison.Ordinal) >= 0);
 
             // REFUSALS. A file that is not an argv.json must not be overwritten with a fresh one.
             probe.Check("WITNESS a file with no top-level object is refused, not replaced",

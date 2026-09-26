@@ -331,7 +331,15 @@ namespace DesktopAICompanion.AgentFlow
                 {
                     recent.Add(new ApprovalEntry
                     {
-                        WhenLocal = DateTime.Now,
+                        // THE CALL'S time, not the scan's. On the first tick after launch the whole
+                        // transcript is folded at once, so DateTime.Now stamped every entry with the
+                        // launch minute -- the "Last ten, newest first" card then showed ten commands
+                        // that ran over the previous quarter hour as though they had all just
+                        // happened. StartedUtc is parsed from the transcript with AdjustToUniversal,
+                        // so it is genuinely UTC; the SpecifyKind is for a future parser that forgets.
+                        WhenLocal = (call.StartedUtc.Kind == DateTimeKind.Unspecified
+                                        ? DateTime.SpecifyKind(call.StartedUtc, DateTimeKind.Utc)
+                                        : call.StartedUtc).ToLocalTime(),
                         Root = root,
                         Command = call.Command ?? "",
                     });
