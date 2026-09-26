@@ -626,34 +626,6 @@ open-item blindness plus the bug-number drift.
 
 ### VS Code setup, AgentFlow
 
-- 📌 **`ReadPort` accepts an unquoted JSON number, which VS Code ignores.**
-  `modules/AgentFlow/VsCodeSetup.cs:113-131`. VS Code's handler takes only `true`/`"true"`/a non-empty
-  string, so `"remote-debugging-port": 9321` is valid JSON, read as a valid port, and silently ignored
-  at launch. The class doc at `:57-61` names exactly this as "the kind of failure that looks like
-  success". Nothing detects it, so the pane says "argv.json asks for port 9321, but nothing is
-  answering there... it needs a restart" forever.
-
-- 📌 **"Disable (undo changes)" can delete a commented-out key and report the live one removed.**
-  `modules/AgentFlow/VsCodeSetup.cs:167-186` and `:189-203`: `FindKeySpan` searches the
-  comment-STRIPPED text but returns only the needle, and `WithPort`/`WithoutPort` then locate it with
-  `IndexOf` on the ORIGINAL. `IndexOfTopLevelBrace` does the careful offset-mapping a few lines away,
-  which is what makes this an oversight. With a commented-out `remote-debugging-port` line above the
-  live key, undo deletes the comment, sees the text change, and reports success while the
-  unauthenticated loopback port keeps opening on every launch.
-
-- 📌 **`WatchCodex` defaults to false on a rationale the 1.3.0 work made false.**
-  `modules/AgentFlow/AgentFlowModule.cs:1505-1527`'s comment says `ReadCodex` "never looks at
-  `turn_context`. So Mode stays null, every Codex session resolves as `unknown`". `FoldCodexRecord`
-  now dispatches `turn_context` and reads `approval_policy`, and `BlockedDetector` has a dedicated
-  Codex branch keyed on `on-request`. The pane's own `aboutCodex` text already describes the fixed
-  behaviour, so the pane advertises a capability that ships switched off for a reason that is gone.
-
-- 📌 **Approval timestamps are stamped with the scan time, not the call's.**
-  `modules/AgentFlow/BlockedDetector.cs:337` sets `WhenLocal = DateTime.Now`. On the first tick after
-  launch the whole transcript is folded at once, so the pane's "Last ten, newest first" card shows ten
-  entries all bearing the launch minute for commands that ran up to 15 minutes earlier.
-  `OutstandingCall.StartedUtc` is already carried and would be accurate.
-
 ### Smaller, verified, grouped
 
 - 📌 `modules/Fortunes/engine/SmartFortunes.cs:382` — `Pick` rescans the 64-slot top-K array per pool
@@ -776,21 +748,6 @@ survived a second check, minus the 14 fixed on the day in `e31c5bb`.
 
 **Modules**
 
-- 📌 **AgentFlow decodes WebSocket frames one chunk at a time.**
-  `modules/AgentFlow/CdpApprover.cs:806` calls `Encoding.UTF8.GetString(buffer, 0, result.Count)` per
-  `ReceiveAsync` with a 16 KB buffer, so a multi-byte sequence straddling the boundary decodes to U+FFFD
-  on both sides; a `System.Text.Decoder` carried across the loop is the fix. Corruption inside an option
-  label makes `PromptOptions.Classify` see an unrecognised option, and one unknown option refuses the
-  whole prompt (`PromptOptions.cs:479-489`). Same method: `if (builder.Length > Cap) break;` at `:810`
-  abandons the rest of the message in the socket, so every later reply on that session is offset by one.
-  Caveat from the audit: the read expressions themselves return compact JSON, so reachability depends on
-  CDP events rather than on the replies this file asks for; the decoding defect is unconditional.
-- 📌 **AgentFlow's setup cache is never invalidated by the three actions that change what it
-  describes.** `AgentFlowModule.cs:1957-1966` inspects only when the cache is null, and
-  `EnableCdpAsync` (`:1991`), `DisableCdpAsync` (`:2044`) and `BrowseForArgvAsync` (`:2077`) never clear
-  it. Its doc says "the cache is refreshed by the tick", which holds in every mode except Off, where
-  `OnTick` returns at `:521` before the probe. So in Off mode "Check now" keeps reporting the pre-write
-  answer for the rest of the session.
 - 📌 **Remembrance's Remote Desktop warning describes behaviour the code no longer has.**
   `RemembranceModule.cs:692` ends "(Device dropdowns are read at startup; restart there to populate
   them.)" — false since `RefreshDynamicOptions` was wired into the pane's `Load` (`:486-495`, `:609-612`),

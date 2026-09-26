@@ -106,7 +106,26 @@ namespace DesktopAICompanion.Wpf
             Unloaded += delegate { try { if (_netCts != null) { _netCts.Cancel(); _netCts.Dispose(); _netCts = null; } } catch { } };
 
             Reload();
-            RefreshCatalogOnOpen();
+            // DEFERRED TO Loaded, NOT CALLED FROM THE CONSTRUCTOR.
+            //
+            // RemoteCatalogClient.FetchSharedAsync returns the cached catalog from inside a lock with
+            // no await executed, so on a WARM cache the task it hands back is already complete and
+            // `await ... ConfigureAwait(true)` resumes SYNCHRONOUSLY on this very stack -- still
+            // inside the constructor. The first line after the await guards on IsLoaded, which a
+            // constructor guarantees is false, so the catalog was dropped and no update offer ever
+            // rendered. Only the FIRST open in any 90-second window did a real round trip, whose
+            // continuation was posted to the dispatcher and landed after Loaded: the method worked
+            // exactly once and then went quiet, which is the hardest shape of bug to notice.
+            //
+            // Guarded, because Loaded fires again if the control is re-parented, and re-fetching on
+            // every re-parent is what the shared 90-second cache exists to avoid.
+            bool catalogRefreshRequested = false;
+            Loaded += delegate
+            {
+                if (catalogRefreshRequested) return;
+                catalogRefreshRequested = true;
+                RefreshCatalogOnOpen();
+            };
         }
 
         /// <summary>

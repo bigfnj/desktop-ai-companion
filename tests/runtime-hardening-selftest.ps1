@@ -1426,6 +1426,34 @@ Assert-True ($consentIndex -lt $downloadIndex) (
 # another file. tests\DesktopAICompanion.CoreTests\Program.cs is the model: it COUNTS its groups.
 # These two assertions move the same discipline to a doc claim, so the drift fails the gate that
 # caused it instead of being found by a later audit.
+# The catalog fetch on pane open must be wired to Loaded, not called from the constructor.
+#
+# RemoteCatalogClient.FetchSharedAsync returns its cached catalog from inside a lock with no await
+# executed, so on a warm cache the task is ALREADY COMPLETE and `await ... ConfigureAwait(true)`
+# resumes synchronously on the calling stack. Called from a constructor, that lands on the
+# `if (!IsLoaded) return;` guard while still inside the constructor, where IsLoaded is false by
+# definition -- so the catalog was dropped and no "Update to vX.Y.Z" button rendered. The first open
+# in any 90-second window did a real round trip whose continuation was posted to the dispatcher and
+# arrived after Loaded, so the feature worked exactly once per window and then went quiet.
+#
+# Asserts the WIRING and the ABSENCE of the old shape, not merely that the call exists: the call
+# existed throughout the bug.
+foreach ($paneFile in @('ModulesPaneControl.cs', 'CompanionsPaneControl.cs')) {
+    $paneText = Get-Content -LiteralPath (
+        Join-Path $repoRoot (Join-Path 'src\Portable\Wpf' $paneFile)) -Raw
+    $paneCode = Remove-LineComments $paneText
+    Assert-True (
+        # -cmatch, and a boundary before Loaded. -match is CASE-INSENSITIVE in PowerShell, so
+        # 'Loaded \+= delegate' was satisfied by the Unloaded += delegate line sitting a few
+        # characters above -- this assertion passed against a mutation that put the call back in the
+        # constructor, which is the exact shape of check this file exists to forbid.
+        $paneCode -cmatch '(?<![A-Za-z])Loaded \+= delegate[\s\S]{0,400}?RefreshCatalogOnOpen\(\)'
+    ) "$paneFile fetches the catalog from Loaded, where IsLoaded is true"
+    Assert-True (
+        $paneCode -notmatch 'Reload\(\);\s*\r?\n\s*RefreshCatalogOnOpen\(\);'
+    ) "$paneFile does not call RefreshCatalogOnOpen straight from the constructor"
+}
+
 $hardeningOwnSource = Get-Content -LiteralPath $MyInvocation.MyCommand.Path -Raw
 # Line-start calls only, which excludes this file's own `function Assert-True` definition and the one
 # comment that names it. The pattern is written mid-line on purpose so it cannot match itself.
