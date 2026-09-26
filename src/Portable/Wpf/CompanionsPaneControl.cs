@@ -150,6 +150,9 @@ namespace DesktopAICompanion.Wpf
                     .ConfigureAwait(true);
                 if (token.IsCancellationRequested || !IsLoaded) return;
                 _lastCatalog = catalog;
+                // Says it landed; see the Modules pane for why an invisible fetch was the problem.
+                StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info,
+                    "[module] companions pane: catalog in hand on open");
                 RenderAvailable(DiffNew());
                 RenderUpdates(stale);
             }

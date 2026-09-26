@@ -122,6 +122,14 @@ namespace DesktopAICompanion.Wpf
                 RemoteCatalog catalog = await RemoteCatalogClient.FetchSharedAsync(token).ConfigureAwait(true);
                 if (token.IsCancellationRequested || !IsLoaded) return;
                 _lastCatalog = catalog;
+                // SAYS IT LANDED. Whether this fetch reached the pane was invisible from outside:
+                // with every modules already current there is no "Update to v..." button either way, so
+                // the pane looked identical when the result was being silently discarded -- which it
+                // was, on every open but the first in each 90-second cache window, for as long as
+                // this ran from the constructor. One line per open, in a category that is off by
+                // default for most users, is a cheap price for a fetch that can be seen to happen.
+                StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info,
+                    "[module] modules pane: catalog in hand on open");
                 Reload();
             }
             catch { }

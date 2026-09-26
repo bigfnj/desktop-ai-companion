@@ -22,6 +22,7 @@ namespace DesktopAICompanion.Wpf
         private readonly ContentControl _content = new ContentControl();
         private readonly Button _apply;
         private ShellPane _current;
+        private System.Windows.Controls.ListBox _nav;
         private bool _dirty;   // schema-pane has unsaved field edits (drives the Apply/Applied button)
 
         public OptionsWindow(IReadOnlyList<ShellPane> panes, string initialPaneTitle = null)
@@ -44,6 +45,7 @@ namespace DesktopAICompanion.Wpf
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
             var nav = new ListBox { Margin = new Thickness(6) };
+            _nav = nav;   // kept so an already-open window can be sent to a named pane
             foreach (ShellPane p in _panes) nav.Items.Add(p != null ? (p.Title ?? "(untitled)") : "(null)");
             nav.SelectionChanged += (s, e) => ShowPane(nav.SelectedIndex);
             Grid.SetColumn(nav, 0);
@@ -119,6 +121,28 @@ namespace DesktopAICompanion.Wpf
                     if (_panes[i] != null && string.Equals(_panes[i].Title, _initialPaneTitle, StringComparison.OrdinalIgnoreCase))
                     { initialIndex = i; break; }
             if (_panes.Count > 0) nav.SelectedIndex = initialIndex;
+        }
+
+        /// <summary>
+        /// Select the pane with this title on a window that is ALREADY open.
+        ///
+        /// The constructor resolves an initial title to an index and lets the ListBox raise
+        /// SelectionChanged; this is the same resolution for the second caller. It exists because
+        /// OptionsShell.Open now activates the open window rather than building a rival, and a
+        /// module-update balloon asking for "Modules" should still land on Modules.
+        /// </summary>
+        internal void ShowPane(string title)
+        {
+            if (_nav == null || string.IsNullOrEmpty(title)) return;
+            for (int i = 0; i < _panes.Count; i++)
+            {
+                if (_panes[i] != null &&
+                    string.Equals(_panes[i].Title, title, StringComparison.OrdinalIgnoreCase))
+                {
+                    _nav.SelectedIndex = i;
+                    return;
+                }
+            }
         }
 
         private void ShowPane(int index)

@@ -19,18 +19,56 @@ namespace DesktopAICompanion.Wpf
         /// <summary>Open the settings window, optionally landing on a specific pane by title (case-insensitive;
         /// unmatched or null falls back to the first pane) — used after a module-install restart to reopen
         /// straight back onto the Modules pane.</summary>
+        /// <summary>
+        /// The one settings window. A second request activates the open one instead of building a
+        /// rival.
+        ///
+        /// GUARDED HERE, NOT IN THE CALLERS, because the callers disagreed. ContextMenus.Options_Click
+        /// set an `isOptionLoaded` flag that only About_Click ever read, so About-while-Options was
+        /// refused and Options-while-Options was not; and the module-update balloon
+        /// (StartUp.ShowBalloon -> OptionsShell.Open("Modules")) had no guard at all. ShowDialog
+        /// disables the thread's other windows but does not stop the tray callback or a notification
+        /// balloon arriving, so two windows really could sit over one LocalData.
+        ///
+        /// Losing an edit needed no race: each window's Apply writes from a `values` dictionary
+        /// captured when ITS pane was built, so whichever was pressed last put the older snapshot
+        /// back over the newer one, silently and in full.
+        /// </summary>
         public static void Open(string initialPaneTitle)
         {
             try
             {
+                if (_openWindow != null)
+                {
+                    // Already up. Show the caller's pane on the window that exists rather than
+                    // refusing outright: a balloon asking for Modules should still get Modules.
+                    try
+                    {
+                        _openWindow.Activate();
+                        if (!string.IsNullOrEmpty(initialPaneTitle)) _openWindow.ShowPane(initialPaneTitle);
+                    }
+                    catch (Exception) { }
+                    return;
+                }
+
                 var window = new OptionsWindow(CollectPanes(), initialPaneTitle);
-                window.ShowDialog();
+                _openWindow = window;
+                try { window.ShowDialog(); }
+                finally { if (ReferenceEquals(_openWindow, window)) _openWindow = null; }
             }
             catch (Exception ex)
             {
                 StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.warning, "WPF settings window failed: " + ex.Message);
             }
         }
+
+        /// <summary>The settings window currently on screen, or null. UI thread only, like everything
+        /// that touches a Window.</summary>
+        private static OptionsWindow _openWindow;
+
+        /// <summary>True while the settings window is up. Read by the About entry, which must not
+        /// open a second modal over it.</summary>
+        public static bool IsOpen { get { return _openWindow != null; } }
 
         /// <summary>Open the themed WPF About window (the modernization blurb, the usage/help section folded in
         /// from the former Help dialog, the Original/Legacy credits, and the active pet's author/title/version/

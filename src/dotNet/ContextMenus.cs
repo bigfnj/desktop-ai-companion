@@ -223,7 +223,6 @@ namespace DesktopAICompanion
         static string info;
 
         bool isAboutLoaded = false;
-        bool isOptionLoaded = false;
 
         /// <summary>
         /// Creates this instance for the tray icon.
@@ -567,7 +566,7 @@ namespace DesktopAICompanion
         /// <param name="e">The <see cref="System.EventArgs"/> instance containing the event data.</param>
         void About_Click(object sender, EventArgs e)
         {
-            if (isOptionLoaded) return;
+            if (DesktopAICompanion.Wpf.OptionsShell.IsOpen) return;
             if (isAboutLoaded) return;
             isAboutLoaded = true;
             try
@@ -590,15 +589,12 @@ namespace DesktopAICompanion
         void Options_Click(object sender, EventArgs e)
         {
             if (isAboutLoaded) return;
-            isOptionLoaded = true;
-            try
-            {
-                DesktopAICompanion.Wpf.OptionsShell.Open();   // WPF settings (the classic FormOptions dialog was retired in S5b-3)
-            }
-            finally
-            {
-                isOptionLoaded = false;
-            }
+            // No isOptionLoaded flag here any more. It was WRITTEN and only ever READ by
+            // About_Click, so this path refused About-while-Options and permitted
+            // Options-while-Options -- and the module-update balloon reached OptionsShell.Open
+            // without passing through here at all. The single-window rule now lives in
+            // OptionsShell.Open, which is the one place every caller goes through.
+            DesktopAICompanion.Wpf.OptionsShell.Open();   // WPF settings (the classic FormOptions dialog was retired in S5b-3)
         }
 
             /// <summary>
