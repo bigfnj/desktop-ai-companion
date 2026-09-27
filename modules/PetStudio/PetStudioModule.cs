@@ -24,7 +24,11 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.1.7",   // 1.1.7: payload refresh, and one real conversion fix. PetEmitter.Has matched
+            Version = "1.1.8",   // 1.1.8: a skin with no Type="Move" action no longer fails conversion. The
+                                 //        synthesised `turn` was emitted unconditionally while its only inbound
+                                 //        edge needed locomotion, so a hand-trimmed or single-pose skin got an
+                                 //        unreachable animation and was rejected despite being playable.
+                                 // 1.1.7: payload refresh, and one real conversion fix. PetEmitter.Has matched
                                  //        case-insensitively where ActionClassifier.Has used Ordinal, so an
                                  //        action merely NAMED with "Cursor" converted as a gaze: a stray
                                  //        faceCursor tag, the wrong variant rule, and a refused direction
