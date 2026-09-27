@@ -1301,9 +1301,29 @@ $goneInPwsh = @('Get-WmiObject', 'Invoke-WmiMethod', 'New-WebServiceProxy', 'Add
 # false-positive-free -- verified, and there are no uses of that alias in the repo anyway.
 $pwshOnlyTokens = @('AndAnd', 'OrOr', 'QuestionQuestion', 'QuestionQuestionEquals', 'QuestionMark',
                     'QuestionDot', 'QuestionLBracket')
-# Set-Content defaults to ANSI under 5.1 and UTF-8-no-BOM under pwsh, and Out-File differs too, so the same
-# script emits different BYTES on each. That is not academic: it is the shape of the CRLF SHA256SUMS bug.
-$encodingSensitive = @('Set-Content', 'Add-Content', 'Out-File')
+# NOT "call these with -Encoding" -- DO NOT CALL THESE AT ALL. Set-Content defaults to ANSI under 5.1 and
+# UTF-8-no-BOM under pwsh, and Out-File differs too, so the same script emits different BYTES on each.
+# That is not academic: it is the shape of the CRLF SHA256SUMS bug.
+#
+# The trap is that -Encoding does NOT fix it, which is why this check used to be wrong in two ways at once.
+# `-Encoding UTF8` writes a BOM under 5.1 and no BOM under pwsh, so it is still not byte parity; and the
+# unambiguous spellings that would be (utf8NoBOM, utf8BOM) are PowerShell 7 NAMES, so a script using one
+# PARSES cleanly under 5.1 and then dies at RUNTIME on the ValidateSet -- the same family as
+# `ConvertFrom-Json -AsHashtable`. No spelling of -Encoding means the same bytes in both shells.
+#
+# So the rule is a ban, and it codifies what this repo already does: every tracked script writes files
+# through [IO.File]::WriteAllText/WriteAllBytes with an explicit encoding object, unambiguous by
+# construction. Measured at the time of writing: 0 calls and 0 file redirections across all 32 scripts.
+#
+# What was here before REQUIRED an -Encoding parameter and could not fail -- nothing in the repo calls any
+# of the three, so the filter never matched and it was 32 guaranteed passes per gate -- while its message
+# claimed to establish that "both shells emit the same bytes", which the presence of a parameter does not
+# establish even when it does match.
+#
+# Aliases are hardcoded rather than resolved with Get-Alias, because that would ask the RUNNING host: `sc`
+# is Set-Content under 5.1 but was dropped in 7 (it collides with sc.exe), so a gate running under pwsh
+# would silently stop catching the 5.1-only spelling -- a check whose coverage depends on where it runs.
+$bannedWriters = @('Set-Content', 'Add-Content', 'Out-File', 'sc', 'ac')
 
 foreach ($script in $ciScripts) {
     $rel = $script.Substring($repoRoot.Length).TrimStart('\')
@@ -1326,17 +1346,22 @@ foreach ($script in $ciScripts) {
         "$rel calls nothing removed in PowerShell 7" +
         $(if ($removed.Count) { " -- $($removed[0].GetCommandName()) at line $($removed[0].Extent.StartLineNumber)" } else { '' }))
 
-    $unencoded = @($commands | Where-Object {
+    # Both spellings of the same divergence: the cmdlets, and the `>` / `>>` operators, which are
+    # Out-File underneath and carry exactly the same 5.1-vs-pwsh byte difference. `2>$null` and friends
+    # are discards rather than file writes, so they are excluded by Location rather than by stream number
+    # -- `2>errors.log` IS a file write and must still be caught.
+    $divergent = @()
+    $divergent += @($commands | Where-Object {
         $name = $_.GetCommandName()
-        if ($encodingSensitive -notcontains $name) { return $false }
-        $hasEncoding = @($_.CommandElements | Where-Object {
-            $_ -is [System.Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -like 'Enc*'
-        }).Count -gt 0
-        -not $hasEncoding
-    })
-    Assert-True ($unencoded.Count -eq 0) (
-        "$rel pins -Encoding on every file write, so both shells emit the same bytes" +
-        $(if ($unencoded.Count) { " -- $($unencoded[0].GetCommandName()) at line $($unencoded[0].Extent.StartLineNumber)" } else { '' }))
+        $null -ne $name -and $bannedWriters -contains $name
+    } | ForEach-Object { "$($_.GetCommandName()) at line $($_.Extent.StartLineNumber)" })
+    $divergent += @($ast.FindAll({
+        $args[0] -is [System.Management.Automation.Language.FileRedirectionAst] }, $true) |
+        Where-Object { $_.Location.Extent.Text -ne '$null' } |
+        ForEach-Object { "redirection $($_.Extent.Text) at line $($_.Extent.StartLineNumber)" })
+    Assert-True ($divergent.Count -eq 0) (
+        "$rel writes no file through a cmdlet or redirection whose bytes differ between 5.1 and pwsh" +
+        $(if ($divergent.Count) { " -- $($divergent[0]); use [IO.File]::WriteAllText with an explicit encoding object" } else { '' }))
 }
 
 # ---- the two animations.xsd copies must stay byte-identical ----
