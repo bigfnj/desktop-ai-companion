@@ -86,6 +86,7 @@ foreach ($file in Get-ChildItem -LiteralPath $repoRoot -Recurse -Filter *.cs -Fi
     $text = Get-Content -LiteralPath $file.FullName -Raw
     if ($text -notmatch 'RedirectStandard(Output|Error)\s*=\s*true') { continue }
     $relative = $file.FullName.Substring($repoRoot.Length + 1)
+    $coveredRedirects = 0
     # One ProcessStartInfo initialiser at a time. Slicing on the brace that closes each initialiser
     # is what makes this per-SITE: two sites in one file are judged separately.
     foreach ($block in [regex]::Matches($text, '(?s)new\s+(?:[\w.]+\.)?ProcessStartInfo(.*?)\}\s*;')) {
@@ -93,6 +94,7 @@ foreach ($file in Get-ChildItem -LiteralPath $repoRoot -Recurse -Filter *.cs -Fi
         $redirectsOut = $body -match 'RedirectStandardOutput\s*=\s*true'
         $redirectsErr = $body -match 'RedirectStandardError\s*=\s*true'
         if (-not ($redirectsOut -or $redirectsErr)) { continue }
+        $coveredRedirects += [regex]::Matches($body, 'RedirectStandard(Output|Error)\s*=\s*true').Count
         $redirectSiteCount++
         if ($redirectsOut -and ($body -notmatch 'StandardOutputEncoding\s*=')) {
             $redirectOffenders += "$relative (site $redirectSiteCount): stdout redirected, encoding unpinned"
@@ -100,6 +102,24 @@ foreach ($file in Get-ChildItem -LiteralPath $repoRoot -Recurse -Filter *.cs -Fi
         if ($redirectsErr -and ($body -notmatch 'StandardErrorEncoding\s*=')) {
             $redirectOffenders += "$relative (site $redirectSiteCount): stderr redirected, encoding unpinned"
         }
+    }
+
+    # COVERAGE, not just correctness -- the same hole as the per-FILE one above, one level further
+    # out. The slice only understands the object-initialiser form `new ProcessStartInfo { ... };`. A
+    # file that instead writes `psi.RedirectStandardOutput = true;` after construction still PASSES
+    # the admission test at the top of this loop, then yields no blocks, so it contributes zero sites
+    # and zero offenders and is silently never judged. Counting what was admitted against what was
+    # actually sliced turns that blind spot into a named failure.
+    #
+    # Latent today and deliberately left that way: all 13 redirect assignments in the repo are
+    # initialisers, so this adds no work now. It stops being latent the first time anyone writes the
+    # other form -- which is the form ContentCatalogAssets.ps1 uses, in PowerShell, where nothing
+    # scans it at all.
+    $declaredRedirects = [regex]::Matches($text, 'RedirectStandard(Output|Error)\s*=\s*true').Count
+    if ($declaredRedirects -gt $coveredRedirects) {
+        $redirectOffenders += ("$relative`: $($declaredRedirects - $coveredRedirects) redirect " +
+            'assignment(s) sit outside a ProcessStartInfo initialiser, so this scan cannot judge ' +
+            'their encoding -- move them into the initialiser, or teach this check that form')
     }
 }
 Assert-True ($redirectSiteCount -ge 6) (
