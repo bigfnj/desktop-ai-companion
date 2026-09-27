@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -634,7 +635,15 @@ namespace DesktopAICompanion.PetStudioModule
         /// straight into the Shimeji import flow.</summary>
         internal void BeginImport() { ImportShimeji(); }
 
-        private void ImportShimeji()
+        /// <summary>
+        /// True while an import is converting. The heavy work runs off the UI thread now, which means the
+        /// window stays responsive -- and a responsive window is one the user can click Import on again.
+        /// Two conversions writing the editor and the import-loss panel at once is not a state this window
+        /// has any answer for, so the second click is refused rather than queued.
+        /// </summary>
+        private bool _importing;
+
+        private async void ImportShimeji()
         {
             string root;
             using (var dlg = new System.Windows.Forms.FolderBrowserDialog())
@@ -645,10 +654,10 @@ namespace DesktopAICompanion.PetStudioModule
                 if (dlg.ShowDialog() != System.Windows.Forms.DialogResult.OK) return;
                 root = dlg.SelectedPath;
             }
-            ImportSkinFromRoot(root);
+            await ImportSkinFromRootAsync(root);
         }
 
-        private void ImportShimejiZip()
+        private async void ImportShimejiZip()
         {
             var dlg = new Microsoft.Win32.OpenFileDialog
             {
@@ -664,8 +673,12 @@ namespace DesktopAICompanion.PetStudioModule
                 CleanupExtracted();
                 _extractedTemp = Path.Combine(Path.GetTempPath(), "petstudio-shimeji-" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(_extractedTemp);
-                ZipFile.ExtractToDirectory(dlg.FileName, _extractedTemp);
-                ImportSkinFromRoot(_extractedTemp);
+                // OFF THE UI THREAD. A Shimeji skin zip is mostly PNGs and can be tens of MB; extracting
+                // it inline froze the window before conversion had even started.
+                string zipPath = dlg.FileName;
+                string destination = _extractedTemp;
+                await Task.Run(delegate { ZipFile.ExtractToDirectory(zipPath, destination); });
+                await ImportSkinFromRootAsync(destination);
             }
             catch (Exception ex)
             {
@@ -682,8 +695,10 @@ namespace DesktopAICompanion.PetStudioModule
 
         /// <summary>Convert the first skin under <paramref name="root"/> into the editor. Shared by the folder
         /// dialog and (later) a catalog hand-off that downloads a raw skin to a temp folder.</summary>
-        internal void ImportSkinFromRoot(string root)
+        internal async Task ImportSkinFromRootAsync(string root)
         {
+            if (_importing) { SetStatus("Still converting the last skin…"); return; }
+            _importing = true;
             try
             {
                 if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) { SetStatus("No such folder."); return; }
@@ -695,15 +710,31 @@ namespace DesktopAICompanion.PetStudioModule
                 if (bundleRoot != null)
                 {
                     string bundleName = ReadBundleName(bundleRoot);
-                    string bundleError;
-                    ConversionResult bundleResult = BundleConverter.ConvertBundle(bundleRoot, bundleName, out bundleError);
+                    // Task.Run, with the `out` captured into a local: BundleConverter walks every sprite,
+                    // composites a sheet and base64-encodes it, which is seconds of work, not milliseconds.
+                    SetStatus("Converting…");
+                    string bundleError = null;
+                    ConversionResult bundleResult = await Task.Run(delegate
+                    {
+                        string e;
+                        ConversionResult r = BundleConverter.ConvertBundle(bundleRoot, bundleName, out e);
+                        bundleError = e;
+                        return r;
+                    });
                     if (bundleResult == null) { HideImportLoss(); SetStatus("Bundle conversion failed: " + bundleError); return; }
                     LoadConvertedIntoEditor(bundleResult, string.IsNullOrWhiteSpace(bundleName) ? "Shimeji" : bundleName.Trim(), "");
                     return;
                 }
 
-                string note;
-                var skins = SkinLayout.Detect(root, out note);
+                // Detection walks the skin tree, so it goes with the rest of the file work.
+                string note = null;
+                var skins = await Task.Run(delegate
+                {
+                    string n;
+                    var found = SkinLayout.Detect(root, out n);
+                    note = n;
+                    return found;
+                });
                 if (skins == null || skins.Count == 0)
                 {
                     HideImportLoss();
@@ -716,8 +747,22 @@ namespace DesktopAICompanion.PetStudioModule
                     ? " (found " + skins.Count + " skins; converted the first, '" + skin.Name + "')"
                     : "";
 
-                string error;
-                ConversionResult result = ShimejiEngine.ConvertSkin(skin.ConfDir, skin.ImgDir, skin.Name, out error);
+                // The big one. SpriteSheetBuilder.Build can run up to 8 full composite + PNG-encode +
+                // base64 passes over a sheet as large as 4096x4096 before giving up on the 12 MiB budget,
+                // and with ffmpeg on PATH SoundBaker spawns one ffmpeg per unique clip (30s cap each, up to
+                // 64) plus a recursive EnumerateFiles of the skin root per distinct clip name. All of that
+                // ran inline from a click handler.
+                SetStatus("Converting…");
+                string error = null;
+                DetectedSkin converting = skin;
+                ConversionResult result = await Task.Run(delegate
+                {
+                    string e;
+                    ConversionResult r = ShimejiEngine.ConvertSkin(
+                        converting.ConfDir, converting.ImgDir, converting.Name, out e);
+                    error = e;
+                    return r;
+                });
                 if (result == null)
                 {
                     HideImportLoss();
@@ -729,6 +774,12 @@ namespace DesktopAICompanion.PetStudioModule
             catch (Exception ex)
             {
                 SetStatus("Import failed: " + ex.Message);
+            }
+            finally
+            {
+                // In a finally, so a conversion that throws does not leave the window refusing every
+                // later import with "Still converting the last skin".
+                _importing = false;
             }
         }
 

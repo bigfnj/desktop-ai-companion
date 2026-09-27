@@ -158,6 +158,25 @@ Assert-True (
     $modulesPaneSource -notmatch '(?<!Async)\bExtractToDirectory\('
 ) 'module payloads are extracted asynchronously, never on the UI thread'
 
+# THE SAME RULE, AT THE OTHER SITE. The check above names ModulesPaneControl.cs only, so Companion
+# Studio's import sat outside every check while doing strictly MORE work on the UI thread: a skin zip
+# extracted inline, then SpriteSheetBuilder.Build (up to 8 full composite + PNG-encode + base64 passes
+# over a sheet as large as 4096x4096) and SoundBaker (one ffmpeg per unique clip, 30s cap, up to 64),
+# all from a click handler.
+#
+# PetStudio WRAPS rather than calling an Async overload, because ShimejiEngine.ConvertSkin and
+# BundleConverter.ConvertBundle have none -- so what is asserted here is the wrapping itself.
+# Asserting merely that Task.Run appears somewhere in the file would pass on a version that wrapped
+# something else and still converted inline.
+$petStudioWindowSource = Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\PetStudio\PetStudioWindow.cs') -Raw
+$petStudioFlat = ($petStudioWindowSource -replace '\s+', ' ')
+Assert-True (
+    $petStudioFlat.Contains('await Task.Run(delegate { ZipFile.ExtractToDirectory(') -and
+    $petStudioFlat.Contains('await Task.Run(delegate { string e; ConversionResult r = ShimejiEngine.ConvertSkin(') -and
+    $petStudioFlat.Contains('await Task.Run(delegate { string e; ConversionResult r = BundleConverter.ConvertBundle(')
+) 'Companion Studio extracts and converts off the UI thread, not inline from the click handler'
+
 # A pet's speech preference must NEVER be keyed by the raw pet-mix id. The mix writes the active/default pet
 # as "", but "" in triggerSpeech already means the ALL-PETS entry -- so keying a real pet as "" silently
 # rewrites the global preference, and it LOOKS correct because the lookup falls back to global. Every pet type
