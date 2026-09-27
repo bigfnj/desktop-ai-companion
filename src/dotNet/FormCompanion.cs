@@ -2004,11 +2004,11 @@ namespace DesktopAICompanion
                     rctO.Bottom <= rctO.Top)
                     return false;
 
-				// window disappeared! Maybe it was closed.
-				if (rctO.Top == 0 && rctO.Bottom == 0)
-                {
-                    return false;
-                }
+                // A `rctO.Top == 0 && rctO.Bottom == 0` guard sat here, commented "window
+                // disappeared! Maybe it was closed." It was unreachable: the check above returns
+                // false whenever `rctO.Bottom <= rctO.Top`, and 0 <= 0 satisfies that, so a
+                // zero-height rect never reached this line. The closed-window case it describes is
+                // already handled by the GetWindowRect failure and the degenerate-rect test above.
 
                 if (currentWindowSize.Top != rctO.Top || currentWindowSize.Left != rctO.Left || currentWindowSize.Right != rctO.Right)
                 {
