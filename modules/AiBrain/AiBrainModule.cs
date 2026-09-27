@@ -72,6 +72,24 @@ namespace DesktopAICompanion.AiBrainModule
         /// pieces.
         /// </summary>
         private readonly object _modelsLock = new object();
+
+        /// <summary>
+        /// The VRAM residency sentence, refreshed OFF the UI thread.
+        ///
+        /// MEASURED 2026-09-27 with the same mechanism OllamaClient uses (HttpClient, 2s deadline,
+        /// literal 127.0.0.1 so no DNS): server running 5-56 ms, server REFUSED 2005-2008 ms, host
+        /// unreachable 2010 ms. A refused localhost connection does not fail fast -- it burns the whole
+        /// deadline and comes back as TaskCanceledException. So the old synchronous call did not cost
+        /// 2 seconds in a rare hung-server case; it cost 2 seconds for every user who does not have
+        /// Ollama running, on every options-pane open, and three pane actions rebuild the pane.
+        ///
+        /// Hence: never block the pane on it. Serve the last answer, refresh behind, and say "checking"
+        /// the first time rather than freezing while we find out.
+        /// </summary>
+        private volatile string _vramResident;
+        private long _vramStampTicks;
+        private int _vramProbing;
+        private const int VramFreshnessSeconds = 5;
         private SettingField _textModelField;
         private SettingField _visionModelField;
         private SettingField _cloudTextModelField;
@@ -1362,7 +1380,7 @@ namespace DesktopAICompanion.AiBrainModule
         ///     other, with no explanation, is a support question waiting to happen.
         ///   * the reload cost is real and is paid per remark. Better said here than discovered as lag.
         /// </summary>
-        private static string VramStatusLine(AiSettings s)
+        private string VramStatusLine(AiSettings s)
         {
             // No "these two settings fight each other" paragraph any more: there is one setting, and it cannot
             // disagree with itself. What is left is the honest cost of the choice actually made.
@@ -1384,6 +1402,38 @@ namespace DesktopAICompanion.AiBrainModule
                 && !string.IsNullOrWhiteSpace(s.LocalBackendKind))
                 return "This setting is Ollama-only; the selected local backend has no equivalent.";
 
+            // Serve what we last learned, and start a refresh if it has gone stale. Never wait.
+            string cached = _vramResident;
+            long stamp = Interlocked.Read(ref _vramStampTicks);
+            bool stale = stamp == 0 ||
+                (DateTime.UtcNow - new DateTime(stamp, DateTimeKind.Utc)).TotalSeconds > VramFreshnessSeconds;
+            if (stale) BeginVramProbe(s);
+            return (cached ?? "Checking what is resident…") + cost;
+        }
+
+        /// <summary>
+        /// Refresh <see cref="_vramResident"/> on a pool thread. At most one in flight: a pane that
+        /// rebuilds three times in a row must not start three probes, each holding a socket for two
+        /// seconds against a server that is not there.
+        /// </summary>
+        private void BeginVramProbe(AiSettings s)
+        {
+            if (Interlocked.CompareExchange(ref _vramProbing, 1, 0) != 0) return;
+            Task.Run(delegate
+            {
+                try { _vramResident = ProbeVramResident(s); }
+                catch { _vramResident = "Could not ask the server what is resident (it may not be running)."; }
+                finally
+                {
+                    Interlocked.Exchange(ref _vramStampTicks, DateTime.UtcNow.Ticks);
+                    Interlocked.Exchange(ref _vramProbing, 0);
+                }
+            });
+        }
+
+        /// <summary>The network half of the VRAM line, with no UI thread anywhere near it.</summary>
+        private static string ProbeVramResident(AiSettings s)
+        {
             try
             {
                 using (var client = new OllamaClient(
@@ -1393,12 +1443,10 @@ namespace DesktopAICompanion.AiBrainModule
                     TimeSpan.FromSeconds(2),
                     s.OllamaPath))
                 {
-                    // Synchronous wait on a 2s-deadline probe: this runs while the options pane is being
-                    // built, and a pane that cannot answer must render anyway.
                     IReadOnlyList<OllamaClient.RunningModel> running =
                         client.RunningModelsAsync(CancellationToken.None).GetAwaiter().GetResult();
                     if (running == null || running.Count == 0)
-                        return "Nothing resident — no model is holding VRAM." + cost;
+                        return "Nothing resident — no model is holding VRAM.";
 
                     var sb = new StringBuilder();
                     foreach (OllamaClient.RunningModel m in running)
@@ -1417,13 +1465,13 @@ namespace DesktopAICompanion.AiBrainModule
                         }
                         sb.Append(')');
                     }
-                    return sb.ToString() + cost;
+                    return sb.ToString();
                 }
             }
             catch
             {
                 // Not reachable is a legitimate answer, not an error to explain: the server may simply be off.
-                return "Could not ask the server what is resident (it may not be running)." + cost;
+                return "Could not ask the server what is resident (it may not be running).";
             }
         }
 
