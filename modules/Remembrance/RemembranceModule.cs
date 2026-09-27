@@ -48,7 +48,12 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "1.0.13",  // 1.0.13: one WASAPI enumeration per options-pane open instead of four, and
+            Version = "1.0.14",  // 1.0.14: snapshots taken with no recording in flight are finally covered by
+                                 //         the 72-hour purge. They are written to the storage ROOT as
+                                 //         "snap <stamp>.png" and the root filter wanted " - snap", so full
+                                 //         screen captures accumulated forever against a promise the module
+                                 //         header makes to the user.
+                                 // 1.0.13: one WASAPI enumeration per options-pane open instead of four, and
                                  //         the device COUNT in the status line now comes from the same snapshot
                                  //         as the dropdowns, so the two can no longer disagree.
                                  // 1.0.12: the Remote Desktop warning no longer tells the user to restart.
