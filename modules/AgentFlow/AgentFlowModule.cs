@@ -3625,6 +3625,145 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("WITNESS it settles reachability BEFORE it looks for a prompt",
                 gaveUp > 0 && queried > 0 && gaveUp < queried && descends < queried);
 
+            // ---- the wire ------------------------------------------------------------
+            // Everything above this point hands a recorded string straight to Interpret or Parse, so
+            // the part BETWEEN the port and those methods -- target discovery, the
+            // attach/evaluate/detach handshake, and what Sweep concludes from a whole pass -- had no
+            // coverage at all. FakeCdpServer is a loopback CDP endpoint just real enough to drive it.
+            //
+            // sawPanel after a successful press is the reason this exists. It is a control-flow
+            // property AFTER a press, so no recorded-string test can reach it, and getting it wrong
+            // turned the tray amber at the exact moment the feature worked.
+            string claudeUrl = "vscode-webview://x/index.html?" + CdpApprover.ClaudeTargetMarker;
+            string codexUrl = "vscode-webview://y/index.html?" + CdpApprover.CodexTargetMarker;
+            const string PromptJson = "{\"tool\":\"Bash\",\"header\":\"ls\",\"ext\":\"\",\"options\":[\"Yes\",\"No\"]}";
+
+            using (var server = new FakeCdpServer(new[]
+            {
+                new FakeCdpServer.Target { Id = "claude-1", Url = claudeUrl, EvaluateResult = PromptJson },
+            }))
+            {
+                var seen = new List<PromptView>();
+                bool sawPanel;
+                string note = CdpApprover.Sweep(server.Port,
+                    delegate(PromptView v) { seen.Add(v); return "pressed Yes"; },
+                    4000, out sawPanel);
+
+                probe.Check("WIRE a prompt on a real socket reaches the press callback",
+                    seen.Count == 1 && seen[0].Options.Count == 2 && seen[0].ToolName == "Bash");
+                probe.Check("WIRE the agent travels with the target, not the markup",
+                    seen.Count == 1 && seen[0].Agent == CdpApprover.AgentClaude);
+                probe.Check("WIRE the press note is returned to the caller",
+                    string.Equals(note, "pressed Yes", StringComparison.Ordinal));
+                // THE ONE THIS FILE WAS BUILT FOR.
+                probe.Check("WIRE sawPanel stays TRUE after a successful press",
+                    sawPanel);
+                probe.Check("WIRE the sweep attached and evaluated exactly once",
+                    server.AttachCount == 1 && server.EvaluateCount == 1);
+            }
+
+            // An idle editor: reachable, nothing waiting. sawPanel must be true -- the panel WAS
+            // read -- while nothing is pressed. Conflating "read it, no prompt" with "could not
+            // read it" is BUG-006's whole subject.
+            using (var idle = new FakeCdpServer(new[]
+            {
+                new FakeCdpServer.Target { Id = "claude-1", Url = claudeUrl, EvaluateResult = "none" },
+            }))
+            {
+                var seen = new List<PromptView>();
+                bool sawPanel;
+                string note = CdpApprover.Sweep(idle.Port,
+                    delegate(PromptView v) { seen.Add(v); return "pressed"; }, 4000, out sawPanel);
+                probe.Check("WIRE an idle panel presses nothing but still counts as seen",
+                    note == null && seen.Count == 0 && sawPanel);
+            }
+
+            // Unreachable is NOT "no prompt", and Sweep does more than stay quiet about it: it returns
+            // a note SAYING it could not see inside the panel, and saying that this differs from
+            // nothing waiting. Reporting it as a clean empty screen is how this shipped unable to see
+            // anything while looking healthy.
+            //
+            // My first version of this asserted `note == null`, i.e. silence. That was wrong about the
+            // code in the direction that matters -- it would have passed on a build that went quiet
+            // again, which is the exact regression BUG-006 is about.
+            using (var blindServer = new FakeCdpServer(new[]
+            {
+                new FakeCdpServer.Target { Id = "claude-1", Url = claudeUrl, EvaluateResult = "unreachable" },
+            }))
+            {
+                bool sawPanel;
+                string note = CdpApprover.Sweep(blindServer.Port,
+                    delegate(PromptView v) { return "pressed"; }, 4000, out sawPanel);
+                probe.Check("WIRE an unreachable target reports that it could not SEE, not that nothing waits",
+                    !sawPanel
+                    && note != null
+                    && note.IndexOf("cannot see inside the agent panel", StringComparison.Ordinal) >= 0
+                    && note.IndexOf("not the same as", StringComparison.Ordinal) >= 0);
+            }
+
+            // Both agents on ONE port, which is how they really run: separate webviews, no shared
+            // markup, read by different expressions. The Codex target holds the prompt, so a sweep
+            // that stopped after the first target would find nothing.
+            using (var both = new FakeCdpServer(new[]
+            {
+                new FakeCdpServer.Target { Id = "claude-1", Url = claudeUrl, EvaluateResult = "none" },
+                new FakeCdpServer.Target { Id = "codex-1", Url = codexUrl, EvaluateResult = PromptJson },
+            }))
+            {
+                var seen = new List<PromptView>();
+                bool sawPanel;
+                CdpApprover.Sweep(both.Port,
+                    delegate(PromptView v) { seen.Add(v); return "pressed"; }, 4000, out sawPanel);
+                probe.Check("WIRE a sweep continues past an idle target to a prompt on the other agent",
+                    seen.Count == 1 && seen[0].Agent == CdpApprover.AgentCodex && sawPanel);
+            }
+
+            // An expression that threw comes back with exceptionDetails. Evaluate must read that as no
+            // answer rather than as a prompt -- a broken reader must never look like a live card --
+            // and the sweep then reports the same "could not see" note as any other blind pass.
+            using (var throwing = new FakeCdpServer(new[]
+            {
+                new FakeCdpServer.Target { Id = "claude-1", Url = claudeUrl, Throws = true },
+            }))
+            {
+                bool sawPanel;
+                string note = CdpApprover.Sweep(throwing.Port,
+                    delegate(PromptView v) { return "pressed"; }, 4000, out sawPanel);
+                probe.Check("WIRE an expression that threw is a blind sweep, never a prompt",
+                    !sawPanel
+                    && note != null
+                    && note.IndexOf("cannot see inside the agent panel", StringComparison.Ordinal) >= 0);
+            }
+
+            // A target that vanishes between the list and the attach -- the user closing that webview
+            // mid-sweep. Sweep skips it (`if (sessionId == null) continue;`) and must carry on to the
+            // next target rather than abandoning the pass, or closing one panel would stop approvals
+            // in the other.
+            using (var vanishing = new FakeCdpServer(new[]
+            {
+                new FakeCdpServer.Target { Id = "claude-1", Url = claudeUrl, RefuseAttach = true },
+                new FakeCdpServer.Target { Id = "codex-1", Url = codexUrl, EvaluateResult = PromptJson },
+            }))
+            {
+                var seen = new List<PromptView>();
+                bool sawPanel;
+                CdpApprover.Sweep(vanishing.Port,
+                    delegate(PromptView v) { seen.Add(v); return "pressed"; }, 4000, out sawPanel);
+                probe.Check("WIRE a target that vanished mid-sweep does not abandon the pass",
+                    seen.Count == 1 && seen[0].Agent == CdpApprover.AgentCodex && sawPanel);
+            }
+
+            // No targets at all: the editor is open but neither extension is loaded. Sweep returns
+            // null WITHOUT connecting, so a closed panel costs no socket.
+            using (var empty = new FakeCdpServer(new FakeCdpServer.Target[0]))
+            {
+                bool sawPanel;
+                string note = CdpApprover.Sweep(empty.Port,
+                    delegate(PromptView v) { return "pressed"; }, 4000, out sawPanel);
+                probe.Check("WIRE no agent targets means no sweep and no panel seen",
+                    note == null && !sawPanel && empty.AttachCount == 0);
+            }
+
             // ---- deciding ------------------------------------------------------------
             // Port 1 is closed, so the press path returns without reaching an editor. Every
             // case below that REFUSES never gets that far in the first place.
