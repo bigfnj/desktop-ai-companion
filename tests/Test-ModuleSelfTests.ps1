@@ -52,7 +52,7 @@ if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
     $RepoRoot = Split-Path -Parent $scriptDirectory
 }
 
-$Covered = @('agentflow', 'blinkingled', 'reminder', 'remembrance')
+$Covered = @('agentflow', 'aibrain', 'blinkingled', 'fortunes', 'reminder', 'remembrance')
 
 # The EXACT set of failures each uncovered module is expected to report -- not merely "it failed",
 # and not just its first failure. The first draft of this file matched the first FAIL line only, and
@@ -60,8 +60,10 @@ $Covered = @('agentflow', 'blinkingled', 'reminder', 'remembrance')
 # it has a SECOND unrelated one (a tray entry with no icon) that the loose match absorbed in silence.
 # A list of expected failures that can swallow an unexpected one is the same defect as a skip list.
 $Uncovered = [ordered]@{
-    'aibrain'     = @('the module exposes static bool SelfTest(out string detail)')
-    'fortunes'    = @('the module exposes static bool SelfTest(out string detail)')
+    # PetStudio's in-module checks are BehaviourChainSelfCheck.RunChecks(fixturePetXml, out detail),
+    # which needs a pet XML the host supplies from its OWN resources. The module does not carry one,
+    # so covering it means embedding a fixture rather than adding a delegation -- unlike aibrain and
+    # fortunes, which already had probes with the exact signature and only lacked the entry point.
     'petstudio'   = @('the module exposes static bool SelfTest(out string detail)')
     # Dev-only, never published, and deliberately minimal: it exists to exercise the ABI, so its
     # unadorned tray entry is the fixture behaving as designed rather than a defect to chase.

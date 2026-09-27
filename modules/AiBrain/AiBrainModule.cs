@@ -1544,6 +1544,25 @@ namespace DesktopAICompanion.AiBrainModule
             else action();
         }
 
+
+        /// <summary>
+        /// The module's own self-test, for <c>--module-selftest=aibrain</c>.
+        ///
+        /// A DELEGATION, not a second set of assertions: AiEngineProbe.Run already holds them, and the host's
+        /// dedicated flag has run it for a long time. What was missing was the entry point ON THE MODULE
+        /// TYPE, which is what the convention looks for -- so this module reported "the module exposes
+        /// static bool SelfTest(out string detail)" and stopped after four generic checks, while its real
+        /// assertions ran only under the other flag.
+        ///
+        /// Safe to name this SelfTest now. It used not to be: the harness once took the FIRST
+        /// <c>bool SelfTest(out string)</c> anywhere in the assembly, so a helper could beat the module's
+        /// own entry point (Reminder had six). That was fixed -- ModuleConventionSelfTest resolves it
+        /// against the module TYPE -- and the comments elsewhere warning about it are stale.
+        /// </summary>
+        public static bool SelfTest(out string detail)
+        {
+            return AiEngineProbe.Run(out detail);
+        }
         public void Shutdown()
         {
             IHost host = _host;
