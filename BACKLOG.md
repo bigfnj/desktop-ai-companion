@@ -64,18 +64,26 @@ nobody was exercising. Ask what input reaches a branch, not whether the branch l
 
 
 
-- 📌 **Two 1.3.1 fixes are defended by structure rather than by an assertion, and both say so in
-  CLOSES-WHEN: file-exists modules/AgentFlow/FakeCdpServer.cs
-  their own comments.** `sawPanel` reporting false after a successful press needs a fake CDP server
-  to test -- worth building, because it would also cover `Interpret`, `Parse` and the Codex click
-  template, which are currently only asserted against recorded strings. And the port probe that made
-  looking imply pressing was a value the *caller* computed, not a predicate anything could call; it
-  now lives in `ShouldProbePort()`, which takes no `autoApprove` argument, so reintroducing the bug
-  means adding a parameter to a documented decision rather than dropping a word into a condition.
+- ✅ **FIXED 2026-09-27 (agentflow 1.4.9).** `modules/AgentFlow/FakeCdpServer.cs` is a loopback CDP
+  endpoint speaking only what `CdpApprover` asks for: `/json/list`, `/json/version`,
+  `Target.attach/detachFromTarget` and `Runtime.evaluate`. Eleven WIRE assertions now drive `Sweep`
+  end to end, covering the part that recorded strings cannot reach — target discovery, the
+  handshake, and what a whole pass concludes.
 
+  **`sawPanel` is proven, not argued.** Reverting the fix (`{ pressed = note; break; }` back to
+  `return note;`) and rebuilding gives *"FAIL: WIRE sawPanel stays TRUE after a successful press"*;
+  with the fix, PASS. That was the item's specific ask, and it is a control-flow property AFTER a
+  press, so no recorded-string test could have reached it.
 
-## 🚢 AgentFlow — PUBLISHED (notify half, 2026-09-17)
+  ⚠ Two of my assertions were wrong on the first run, in the dangerous direction: I asserted that
+  an unreachable target makes `Sweep` return null — silence. It does not. It returns a note saying
+  it cannot see inside the panel AND that this differs from nothing waiting, which is BUG-006's whole
+  subject. My version would have passed on a build that went quiet again. Corrected to assert the
+  note.
 
+  The fake sends an EVENT before every reply on purpose: the real socket carries target lifecycle
+  notifications, and `CdpSession` matches replies by id precisely because a reader taking the next
+  message would sometimes read an event. A fake that only replied would let that back in silently.
 **Status: published as 1.0.0 and live in the catalog.** `modules/AgentFlow/` is built by `build.ps1`,
 `tests/Invoke-SelfTests.ps1` fails if its folder is missing from the build output (`$RequiredModules`,
 read by both the gate and CI), and `modules-dist/agentflow.zip` plus `catalog.json` now offer it to
@@ -513,28 +521,32 @@ open-item blindness plus the bug-number drift.
 
 ### Blocking IO, pipe deadlocks, and measured cost
 
-- 📌 **`FallDetect`/`RiseDetect` enumerate every top-level window, per pet, per tick.**
-  `src/dotNet/FormCompanion.cs:1571` and `:1661` each allocate a dictionary, a fresh
-  `EnumWindowsProc`, and a `StringBuilder(128)` + `GetWindowText` + `GetTitleBarInfo` per visible
-  window. With 16 pets falling at once that is 16 identical, pet-independent enumerations per tick.
-  The precedent is in the neighbouring file: `StartUp.BlockedMonitorsForStandDown:791` exists because
-  the fullscreen z-order walk used to be per-pet, and its comment carries the measurement ("679
-  top-level windows... 53 walks/s became 3.3").
+- ✅ **DECLINED-MEASURED 2026-09-27. The cost is real and small; the proposed fix does not transfer
+  from its precedent.**
 
-  ⚠ **`DesktopWindows.Snapshot` is NOT the drop-in this entry used to claim** (checked 2026-09-25,
-  before attempting it). Three semantic differences, each of which would change pet physics rather
-  than just speed it up:
-  it EXCLUDES pet handles, and `FallDetect` deliberately wants them (`"Sheep windows doesn't have a
-  title bar, but we want detect if another pet is present"`); it truncates at `MaximumWindows`,
-  where a missed window means a pet falls through a surface it should land on; and it reports
-  `VisualBounds` (the DWM extended frame) where these two use `GetWindowRect`, so landing lines
-  would shift by the shadow margin.
-  The shape that does work is the one `BlockedMonitorsForStandDown` already uses: keep this
-  enumeration's own semantics exactly, and share ONE pass per tick across pets behind a timestamp,
-  with each pet skipping its own handle at consumption instead of during the walk. Deliberately not
-  attempted at the tail of a long session: it is core fall/rise physics, and verifying it needs
-  several pets falling at once, which is not something a self-test can stage.
+  **Measured on this box**, replicating what the detectors do per call (EnumWindows +
+  `IsWindowVisible` + `GetWindowText` + `GetWindowRect` on each visible window, 40 reps warm):
+  **664 top-level windows, 44 visible, 0.60 ms per walk.** So the cost is 0.60 ms per falling or
+  rising pet per tick — not per pet per tick generally, since neither detector runs outside a
+  fall or a rise.
 
+  **Why the precedent does not carry over.** `BlockedMonitorsForStandDown` shares one scan behind a
+  **300 ms** window, and that is safe because fullscreen state changes slowly. A window RECT does
+  not: 300 ms of staleness during a window drag puts a pet's landing line where the window used to
+  be. The window short enough to be safe for landing detection is roughly one frame, and pets do not
+  tick together — every `FormCompanion` owns its own `timer1` — so a frame-length window collapses
+  only the pets that happen to tick inside it, not all of them.
+
+  **What would make it worth revisiting**, so the next session has the number rather than deriving it
+  again: a measured frame-time problem with many pets falling at once. At 0.60 ms a walk and a ~40 ms
+  tick, one falling pet costs about 1.5% of a core; sixteen cost about 24%. Below that this is
+  trading landing accuracy for a fraction of a millisecond, and nothing has been reported.
+
+  ⚠ One detail worth keeping if anyone does build it: each detector excludes its OWN window
+  (`if (hWnd == Handle) return true;`) but deliberately KEEPS other pets — *"Sheep windows doesn't
+  have a title bar, but we want detect if another pet is present"*. A shared snapshot must therefore
+  include every pet window and let each consumer skip its own handle. Getting that backwards lets a
+  pet land on itself.
 - ✅ **FIXED 2026-09-27, and half of this item had already gone stale.** `New-ContentCatalog.ps1`
   copies `minHostVersion` now, `RemoteCatalog.cs` has the field and bounds it like `Version` beside
   it, and `BuildAvailableRow` asks the SAME predicate the loader uses —
