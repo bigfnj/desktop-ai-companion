@@ -1202,6 +1202,50 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             }
             catch (Exception ex) { failures.Add("drag swing compositing threw: " + ex.Message); }
 
+            // --- A SKIN WITH NO LOCOMOTION MUST STILL BE ACCEPTED -------------------------------------
+            // The synthesised `turn` used to be emitted unconditionally while its only inbound edge sat
+            // behind `if (loco)`, so a skin with no Type="Move" action produced an animation nothing could
+            // reach: Graph.Unreachable.Count == 1, Accepted == false, CLI exit 1, on a pet that is
+            // otherwise valid and playable. Hand-trimmed and single-pose skins hit it; the shipped corpus
+            // never did, because every pet in it carries a Walk -- which is exactly why the main fixture
+            // above could not catch it, and why this needs a fixture of its own.
+            try
+            {
+                var flat = new Dictionary<string, Bitmap>(StringComparer.Ordinal)
+                {
+                    { "/n1.png", Solid(40, 60, Color.FromArgb(255, 210, 190, 120)) },
+                    { "/n2.png", Solid(40, 60, Color.FromArgb(255, 190, 170, 100)) },
+                };
+                ShimejiConfig still = ShimejiParser.ParseActionsXml(NoLocomotionActionsXml);
+                Func<string, Bitmap> loadFlat = delegate(string name) { return new Bitmap(flat[name]); };
+
+                SpriteSheet flatSheet;
+                string flatError;
+                if (!SpriteSheetBuilder.Build(
+                        Emit.PetEmitter.PosesToComposite(still), loadFlat, false, out flatSheet, out flatError))
+                {
+                    failures.Add("no-locomotion fixture failed to composite: " + flatError);
+                }
+                else
+                {
+                    ConversionResult nr = PetEmitter.Emit(still, flatSheet, loadFlat, "StillSkin");
+                    if (!nr.Valid)
+                        failures.Add("a skin with no Move action emitted invalid XML: " + nr.Error);
+                    if (nr.Graph == null || nr.Graph.Unreachable.Count != 0)
+                        failures.Add("a skin with no Move action left unreachable animations: " +
+                            (nr.Graph == null ? "(no graph)" : string.Join(",", nr.Graph.Unreachable)));
+                    if (!nr.Accepted)
+                        failures.Add("a skin with no Move action was not accepted, so a valid playable pet fails conversion");
+                    // The POINT of the fix: no turn at all, rather than a turn nothing can enter. This
+                    // asserts ABSENCE, which is only the right assertion while `turn`'s sole inbound edge
+                    // needs locomotion -- give it another and this is the line to revisit.
+                    if (nr.EmittedXml != null &&
+                        nr.EmittedXml.IndexOf(">turn<", StringComparison.Ordinal) >= 0)
+                        failures.Add("a skin with no locomotion still emitted a `turn` animation");
+                }
+            }
+            catch (Exception ex) { failures.Add("no-locomotion fixture threw: " + ex.Message); }
+
             var sb = new StringBuilder();
             sb.AppendLine("emitter self-test: synthetic skin -> valid, reachable, round-tripping pet");
             if (failures.Count == 0) { sb.Append("  accepted; magic names emitted; residue captured drop + degrade; direction suffixes stripped safely"); detail = sb.ToString(); return true; }
@@ -1507,6 +1551,27 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             using (var g = Graphics.FromImage(bmp)) { g.CompositingMode = CompositingMode.SourceCopy; g.Clear(c); }
             return bmp;
         }
+
+        /// <summary>Three actions, NONE of them Type="Move": a hand-trimmed skin with no locomotion at
+        /// all. Deliberately minimal, because the point is the ABSENCE of a Move action.</summary>
+        private const string NoLocomotionActionsXml =
+@"<?xml version=""1.0"" encoding=""UTF-8"" ?>
+<Mascot xmlns=""http://www.group-finity.com/Mascot"">
+  <ActionList>
+    <Action Name=""Stand"" Type=""Stay"" BorderType=""Floor"">
+      <Animation><Pose Image=""/n1.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""250"" /></Animation>
+    </Action>
+    <Action Name=""Wave"" Type=""Animate"" BorderType=""Floor"">
+      <Animation>
+        <Pose Image=""/n1.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""8"" />
+        <Pose Image=""/n2.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""8"" />
+      </Animation>
+    </Action>
+    <Action Name=""Falling"" Type=""Embedded"" Class=""com.group_finity.mascot.action.Fall"" Gravity=""2"">
+      <Animation><Pose Image=""/n2.png"" ImageAnchor=""20,60"" Velocity=""0,2"" Duration=""4"" /></Animation>
+    </Action>
+  </ActionList>
+</Mascot>";
 
         private const string SyntheticActionsXml =
 @"<?xml version=""1.0"" encoding=""UTF-8"" ?>

@@ -186,7 +186,19 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             var turn = new Emitted { Name = turnName, Source = null, Frames = hub.Frames };
             all.Add(kill);
             all.Add(sync);
-            all.Add(turn);
+
+            // ONLY IF SOMETHING CAN REACH IT. `turn`'s sole inbound edge is the border turn added under
+            // `if (loco)` further down, so a skin with no Type="Move" action gave it zero inbound edges --
+            // and Graph.Unreachable.Count then made ConversionResult.Accepted false and the CLI exit 1, on
+            // a pet that was otherwise valid and playable. Measured on a three-action fixture:
+            // unreachable=1 (turn), accepted=False.
+            //
+            // Same move the emitter already makes one screenful up for the ceiling, which clears
+            // ceilingSpokes when nothing will climb: do not emit a region nothing can enter. Hand-trimmed
+            // and single-pose skins hit this; the shipped corpus never did, because every one carries a
+            // Walk.
+            bool anyLocomotion = spokes.Any(IsLocomotion);
+            if (anyLocomotion) all.Add(turn);
 
             // Drop the source's `_left` / `_right` suffixes now the WHOLE name set exists -- including
             // fall/drag/kill/sync and the resolved `turn` -- because whether a rename is safe depends on the
@@ -259,7 +271,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             nodes.Add(BuildDrag(drag, fall));
             nodes.Add(BuildKill(kill));
             nodes.Add(BuildSync(sync, hub));
-            nodes.Add(BuildTurn(turn, hub));
+            // Paired with the `all.Add(turn)` guard above: emitting the NODE while leaving it out of the
+            // name set would put an animation in the file that nothing references, which is the same
+            // unreachable-state defect from the other direction.
+            if (anyLocomotion) nodes.Add(BuildTurn(turn, hub));
 
             // --- header (with a generated icon from the hub's first sprite) ---
             var header = BuildHeader(skinName, config, hub, load);
