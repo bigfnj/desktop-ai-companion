@@ -887,23 +887,17 @@ survived a second check, minus the 14 fixed on the day in `e31c5bb`.
   scaled 144), and the documented default still passes. Mutation-tested by inflating the measured
   growth: `9996 > 16 (16 per settled interval x 1 observed)`, exit 1.
 
-- 📌 **The soak's handle figure is far noisier than one run suggests, and nothing says so.**
-  Found while fixing the bound above. Across identical configurations on one unchanged build, the
-  post-finalization handle delta came out **+82, -39, -19, +95, -18, -32 and +1**. That is the
-  settled figure, sampled after a forced `GC` + `WaitForPendingFinalizers` + `GC`, which the file's
-  own BUG-004 comment presents as the answer to exactly this problem for GDI and USER -- and for
-  those two it holds (0, 0, -6, 2 across the same runs). Handles do not settle the same way.
+- ✅ **FIXED 2026-09-27.** The report now ships `SettledPerInterval` beside `SettledGrowth`:
+  the per-interval series, a median, and an explicit confidence string. Below three intervals it says
+  `n=1` outright rather than dressing one observation up as a summary statistic. The BOUND is
+  deliberately unchanged -- changing a pass criterion on a metric this noisy, without data to set the
+  new one, is the shape of the mistake this item came from.
 
-  So a single handle number from this harness is weak evidence in BOTH directions: it is how an
-  afternoon went into bisecting a regression that did not exist, and it means a real slow leak could
-  hide inside the noise for several runs. The rate bound stops the false alarm; it does nothing about
-  the variance.
-
-  What it needs is n>1 built in: take several runs, or several settled windows, and judge the MEDIAN
-  or the trend rather than one delta. Until then, treat a single handle figure here as a hint and
-  confirm anything surprising with a repeat before acting on it.
-  CLOSES-WHEN: `runtime-resource-soak.ps1` reports a handle figure derived from more than one
-  observation, or documents its own variance beside the number.
+  Both paths were exercised rather than assumed, and the long one made the case better than the
+  original write-up did. Default 30 s: 1 interval, "treat as a HINT". A 150 s run: 8 intervals,
+  median handles **2**, containing one interval at **+93** and another at **-9** -- all inside a
+  single PASS. A reader handed only the end-to-end delta would have drawn a conclusion from that
+  spike; the spread is now printed next to it.
 ### Checked and REFUTED — do not re-file
 
 Recorded so the next audit does not spend the time again. AgentFlow's shell-header template does NOT
