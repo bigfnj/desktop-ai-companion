@@ -24,7 +24,12 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.1.5",   // 1.1.5: payload refresh only. Animations.cs is one of this module's 27
+            Version = "1.1.6",   // 1.1.6: payload refresh only. WebPLoader.cs, also source-linked, now bounds
+                                 //        the dwebp stdout READ rather than only the wait -- a synchronous
+                                 //        CopyTo blocks until the child exits, so the 30s timeout sat after
+                                 //        the hang it existed to catch. Affects any .webp sprite decode this
+                                 //        module performs. No other PetStudio behaviour changed.
+                                 // 1.1.5: payload refresh only. Animations.cs is one of this module's 27
                                  //        source-linked paths and gained an absenceIsNormal overload on
                                  //        SetNextBorderAnimation, so the compiled payload was behind its
                                  //        source. No PetStudio behaviour changed.
