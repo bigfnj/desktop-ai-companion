@@ -101,7 +101,12 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.1.10",  // 1.1.10: settings saves from the UI are bounded at 1.5s instead of the 10s
+            Version = "1.1.11",  // 1.1.11: the options pane no longer freezes for 2s when Ollama is not
+                                 //         running. The VRAM line was a synchronous network call on the UI
+                                 //         thread; a REFUSED localhost connection burns the full 2s deadline
+                                 //         rather than failing fast, so that was the common case, not the
+                                 //         worst one. It is served from cache and refreshed behind now.
+                                 // 1.1.10: settings saves from the UI are bounded at 1.5s instead of the 10s
                                  //         cross-session budget, so a hung second instance can no longer freeze
                                  //         the settings window; and the tray AI toggle now says when a save
                                  //         failed instead of silently reverting on the next launch.
