@@ -1327,6 +1327,7 @@ namespace DesktopAICompanion.FortunesModule
             bool ready = false, complete = false; int indexed = 0, total = 0;
             if (sm != null) sm.WarmProgress(out ready, out complete, out indexed, out total);
             return SmartStatusFor(sm != null, provider == null ? 0 : provider.Count, AnyPacksInstalled(),
+                sm != null && sm.StoodDown,
                 ready, complete, indexed, total);
         }
 
@@ -1339,10 +1340,18 @@ namespace DesktopAICompanion.FortunesModule
         /// counters answer only "how far along".
         /// </summary>
         internal static string SmartStatusFor(bool smartEnabled, int poolCount, bool anyPacksInstalled,
-            bool ready, bool complete, int indexed, int total)
+            bool stoodDown, bool ready, bool complete, int indexed, int total)
         {
             if (!smartEnabled) return "Smart picks are off (random selection).";
             if (poolCount == 0) return EmptyPoolReason(anyPacksInstalled);
+            // BEFORE the progress lines, because a stand-down is terminal and they are not. `ready` and
+            // `complete` are both false in this state, so without this branch the last line below was
+            // returned -- "Indexing N fortunes in the background" -- for ever, on a machine where nothing
+            // was being indexed and nothing ever would be. A status that cannot fail to look busy is
+            // worse than no status.
+            if (stoodDown)
+                return "Smart picks are unavailable on this machine — the text engine could not start, " +
+                       "so fortunes are chosen at random. Everything else works normally.";
             if (complete) return "Smart index ready — " + Count(indexed) + " fortunes indexed.";
             if (ready) return "Smart index warming — " + Count(indexed) + " of " + Count(total) + " ready (usable now).";
             return "Indexing " + Count(poolCount) + " fortunes in the background — smart picks switch on as it goes.";

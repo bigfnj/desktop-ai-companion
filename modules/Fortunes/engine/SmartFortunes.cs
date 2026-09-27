@@ -184,6 +184,15 @@ namespace DesktopAICompanion.Ai
         /// <paramref name="indexed"/> is the matchable line count so far and <paramref name="total"/> the
         /// pool size.
         /// </summary>
+        /// <summary>
+        /// True when the warm gave up because the embedder never became ready -- the model asset is
+        /// present but the native onnxruntime did not load. Distinct from "still warming", which is what
+        /// the status said forever before this existed: `_ready` stays false either way, so without a
+        /// separate flag a permanent stand-down is indistinguishable from work in progress.
+        /// </summary>
+        internal bool StoodDown { get { return _stoodDown; } }
+        private volatile bool _stoodDown;
+
         internal void WarmProgress(out bool ready, out bool complete, out int indexed, out int total)
         {
             lock (_stateLock)
@@ -288,6 +297,9 @@ namespace DesktopAICompanion.Ai
             CancellationTokenSource cancellation)
         {
             CancellationToken token = cancellation.Token;
+            // Cleared at the START of every warm, so a rebuild after the runtime is fixed reports
+            // progress again rather than a stale stand-down.
+            _stoodDown = false;
             bool embedderReady;
             lock (_embedLock)
             {
@@ -302,6 +314,10 @@ namespace DesktopAICompanion.Ai
                 // _embed.IsReady is false. The bare `return` here left _ready false for ever,
                 // which made SmartStatusFor answer "Smart index warming ..." indefinitely -- a
                 // status that cannot be distinguished from "still working" and never resolves.
+                // Recorded in the STATE, not only in the log. The Say() below has been here a while and
+                // it goes to the diagnostic log, which the person looking at the Fortunes pane is not
+                // reading -- they saw "Indexing N fortunes in the background" and waited indefinitely.
+                _stoodDown = true;
                 Say("smart index stood down: the embedder is present but not ready, so the "
                     + "smart picker stays off and the plain picker is used");
                 return;

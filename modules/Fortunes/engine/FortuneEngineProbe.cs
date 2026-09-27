@@ -183,7 +183,7 @@ namespace DesktopAICompanion.FortunesModule
                 // Smart-index status. Warm() runs in the background and leaves ready=false / total=0 until
                 // its first batch publishes, so a status read from the index's own counters told everyone
                 // "No fortunes yet" every time they pressed Rebuild, however full the pool was.
-                string building = FortunesModule.SmartStatusFor(true, 12345, true, false, false, 0, 0);
+                string building = FortunesModule.SmartStatusFor(true, 12345, true, false, false, false, 0, 0);
                 // Formatted the way the MODULE formats it rather than pinned to "12,345". FortunesModule.Count
                 // uses "N0" with CurrentCulture, so on a de-DE or tr-TR machine the real string is "12.345"
                 // and an Ordinal match on the comma failed the whole gate for a reason that has nothing to do
@@ -194,14 +194,24 @@ namespace DesktopAICompanion.FortunesModule
                     building.IndexOf(buildingCount, StringComparison.Ordinal) >= 0 &&
                     building.IndexOf("No fortunes", StringComparison.Ordinal) < 0);
                 ok &= Check(sb, "a finished index reports what it indexed",
-                    FortunesModule.SmartStatusFor(true, 900, true, true, true, 900, 900)
+                    FortunesModule.SmartStatusFor(true, 900, true, false, true, true, 900, 900)
                         .IndexOf("ready", StringComparison.Ordinal) >= 0);
                 ok &= Check(sb, "a partly-warm index says it is usable now",
-                    FortunesModule.SmartStatusFor(true, 900, true, true, false, 100, 900)
+                    FortunesModule.SmartStatusFor(true, 900, true, false, true, false, 100, 900)
                         .IndexOf("usable now", StringComparison.Ordinal) >= 0);
                 ok &= Check(sb, "smart picks off is reported as off, not as an empty pool",
-                    FortunesModule.SmartStatusFor(false, 0, false, false, false, 0, 0)
+                    FortunesModule.SmartStatusFor(false, 0, false, false, false, false, 0, 0)
                         .IndexOf("off", StringComparison.Ordinal) >= 0);
+                // A STAND-DOWN IS NOT PROGRESS. When the embedder never becomes ready, ready and complete
+                // are both false, so before this branch existed the status fell through to "Indexing N
+                // fortunes in the background" and stayed there for ever -- on a machine where nothing was
+                // being indexed and nothing ever would be. Asserted against BOTH halves: it must say what
+                // is wrong, and it must not claim work is happening.
+                string down = FortunesModule.SmartStatusFor(true, 900, true, true, false, false, 0, 900);
+                ok &= Check(sb, "a stood-down smart index says so instead of claiming to be indexing",
+                    down.IndexOf("unavailable", StringComparison.Ordinal) >= 0 &&
+                    down.IndexOf("Indexing", StringComparison.Ordinal) < 0);
+
                 // An empty pool with packs installed is a filter problem; "add a pack" would send a user
                 // with 129 of them entirely the wrong way.
                 ok &= Check(sb, "empty pool + packs installed blames the filters",
