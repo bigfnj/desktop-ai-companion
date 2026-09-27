@@ -147,7 +147,9 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.4.7",   // 1.4.7: six fixes, and two of them meant approving never worked at all.
+            Version = "1.4.8",   // 1.4.8: payload refresh only. Deletes NotifyBudget.Forget, which removed one
+                                 //        announced key and had no callers; Retain supersedes it. No behaviour change.
+                                 // 1.4.7: six fixes, and two of them meant approving never worked at all.
                                  //        ReadPort accepted an unquoted JSON number, which VS Code ignores, so
                                  //        the pane read a port, probed, found silence and blamed a missing
                                  //        restart forever. Disable located the key by raw text search and so

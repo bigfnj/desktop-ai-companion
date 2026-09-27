@@ -48,7 +48,10 @@ namespace DesktopAICompanion.FortunesModule
         {
             Id = "fortunes",
             Name = "Fortunes",
-            Version = "1.0.7",   // 1.0.7: a custom pack that fails to read or parse no longer spends its share of the
+            Version = "1.0.8",   // 1.0.8: payload refresh only. Deletes SmartFortunes.LastCandidateCount, written on
+                                 //        every contextual pick and read nowhere. LastBandCount is the number the
+                                 //        margin controls and it keeps its self-test assertion. No behaviour change.
+                                 // 1.0.7: a custom pack that fails to read or parse no longer spends its share of the
                                  //        16 MB budget. The bytes were charged from the file length before the strict
                                  //        UTF-8 read, so one bad pack could starve every valid pack that sorted after
                                  //        it, silently -- nothing reports a budget exhaustion.
