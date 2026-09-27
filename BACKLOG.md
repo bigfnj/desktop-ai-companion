@@ -78,8 +78,16 @@ nobody was exercising. Ask what input reaches a branch, not whether the branch l
 
 **Status: published as 1.0.0 and live in the catalog.** `modules/AgentFlow/` is built by `build.ps1`,
 `tests/Invoke-SelfTests.ps1` fails if its folder is missing from the build output (`$RequiredModules`,
-read by both the gate and CI), `--module-selftest=agentflow` runs in both, and
-`modules-dist/agentflow.zip` plus `catalog.json` now offer it to every user.
+read by both the gate and CI), and `modules-dist/agentflow.zip` plus `catalog.json` now offer it to
+every user.
+
+⚠ **This paragraph used to claim `--module-selftest=agentflow` "runs in both".** It ran in neither:
+no `.ps1` and no `.yml` in the repo contained that string, so AgentFlow's 478 assertions executed
+only when someone typed the flag by hand. Corrected and made true for the GATE on 2026-09-27 by
+`tests/Test-ModuleSelfTests.ps1`, which runs all eight modules (~15s) and is wired into
+`run-gate.ps1`. **CI still does not run it** — CI calls the underlying scripts rather than
+`run-gate.ps1`, so wiring it there is a separate change, and claiming it before making it is how
+this line went wrong the first time. Filed below.
 
 Verified in the real install before publishing, which is a different claim from "the self-test
 passes": host 1.1.5 installed over 1.1.4 by MSI, the module folder copied into the install's
@@ -773,6 +781,26 @@ survived a second check, minus the 14 fixed on the day in `e31c5bb`.
   NOT fixed: both are already `-Version 7` themselves, so `#requires` stops them at their own entry
   point rather than after someone else's long build. That is the behaviour this item wanted.
 **Checks that cannot fail (the category this repo keeps finding)**
+
+- 📌 **CI does not run the module self-tests; the gate now does.** `run-gate.ps1` calls
+  `tests/Test-ModuleSelfTests.ps1` as of 2026-09-27, but `.github/workflows/build.yml` calls the
+  underlying scripts rather than `run-gate.ps1`, so the 684 module assertions still do not run on a
+  push. CI already launches the built exe for `Invoke-SelfTests.ps1`, so the mechanism is proven
+  there; this is wiring, not research. Not done in the same change because claiming a thing runs in
+  CI without having watched it run in CI is the exact error the corrected AgentFlow status paragraph
+  above records.
+  CLOSES-WHEN: grep-present Test-ModuleSelfTests .github/workflows/build.yml
+
+- 📌 **Three shipped modules expose no `SelfTest` on their module class, so the host cannot
+  run their assertions.** `aibrain`, `fortunes` and `petstudio` each have a self-check somewhere in
+  the assembly -- `SmartFortunes.cs`, `BehaviourChainSelfCheck.cs` -- but `--module-selftest=<id>`
+  looks on the MODULE class, so all three report "the module exposes static bool SelfTest(out string
+  detail)" and stop after 4 generic checks. The four that do expose one contribute 684 assertions
+  between them (agentflow 478, remembrance 114, blinkingled 56, reminder 36), so the gap is not
+  cosmetic. `testmodule` is dev-only and deliberately minimal; it is recorded as a known gap rather
+  than fixed. These are tracked as expected failures in `tests/Test-ModuleSelfTests.ps1`, which goes
+  RED if one of them starts passing, so closing this means moving the id into its COVERED list.
+  CLOSES-WHEN: grep-present "bool SelfTest(out string detail)" modules/Fortunes/FortunesModule.cs
 
 - ✅ **FIXED 2026-09-27, and this item's own suggested remedy was REFUTED on the way.** It
   proposed requiring `utf8NoBOM`/`utf8BOM`/`ascii` and rejecting bare `UTF8`. Two of those three are

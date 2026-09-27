@@ -179,6 +179,14 @@ try {
     try { & (Join-Path $repoRoot 'packaging\Test-ModuleTemplate.ps1') -Configuration Release }
     catch { $failures.Add('Test-ModuleTemplate.ps1: ' + $_.Exception.Message) }
 
+    # Each module's OWN self-test, through the real host loader and a real AssemblyLoadContext.
+    # BACKLOG.md claimed "--module-selftest=agentflow runs in both [the gate and CI]"; no .ps1 and no
+    # .yml in this repo contained that string, so 684 assertions across four modules -- 478 of them
+    # AgentFlow's -- ran only when somebody typed the flag by hand. ~15s for all eight modules.
+    Write-Host '=== module self-tests' -ForegroundColor Cyan
+    try { & (Join-Path $repoRoot 'tests\Test-ModuleSelfTests.ps1') }
+    catch { $failures.Add('Test-ModuleSelfTests.ps1: ' + $_.Exception.Message) }
+
     # The Shimeji converter's output half: grade every shipped pet with the app's REAL validator (via the
     # source-linked ShimejiConvert.Engine) and round-trip it through the DTOs. This is the emitter's
     # regression net -- it must stay all-valid and all-round-trip before any Shimeji-side parsing is trusted.
@@ -216,7 +224,8 @@ try {
     # the doc-count invariants now catch -- and a gate that miscounts its own coverage is the
     # least convincing place to have it.
     Write-Host ("GATE PASSED (build 0 warnings, core tests, $selfTestCount self-tests " +
-        'with no skips, invariants, payloads, template, shimeji verify + selftest).') -ForegroundColor Green
+        'with no skips, module self-tests, invariants, payloads, template, shimeji verify + ' +
+        'selftest).') -ForegroundColor Green
 }
 finally {
     Pop-Location
