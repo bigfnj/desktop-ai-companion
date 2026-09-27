@@ -113,3 +113,27 @@ Note the walk-back these two straddle: T52 made profanity mandatory ("a remark w
 it has failed") and T53 deliberately loosened it again to "your default reflex, not a checkbox to
 tick". So a live run has to judge the second phrasing, not the first. Both entries in full, with the
 disposition merge that later absorbed them: [`HISTORY-post-1.0.0.md`](HISTORY-post-1.0.0.md).
+
+
+## 17 animation names remain unclassifiable
+
+**Blocker: source `.conf` files that do not exist on this machine and cannot be committed here.**
+
+Moved from [`../BACKLOG.md`](../BACKLOG.md) on 2026-09-27. It is not waiting on a decision or on
+effort; it is waiting on data. 13 of the 17 names are absent from the 2778-archive harvest, and 4 are
+names the corpus disputes with itself, so settling them needs original Shimeji confs that are
+copyrighted and deliberately not in this repo.
+
+It stayed in the backlog for weeks reading as actionable work. It is not, and its own entry already
+said so: *"NO CLOSES-WHEN, deliberately: nothing in this repo can answer it."* That is the definition
+of this file rather than that one.
+
+Worth keeping the history, because the entry is a small case study in criteria that lie. It carried
+`grep-present tools/ShimejiConvert/Program.cs "SkinLayout census"` from the day it was filed -- a
+string that has never appeared in that file, or anywhere in the repo except the entry itself -- so
+the criterion could not fire whatever happened to the code. Replacing it with a grep that DID match
+only moved the lie: the gate immediately reported the item closeable while all 17 names were still
+unresolved. An item that cannot be machine-checked has to say so.
+
+**It leaves when the blocker does:** a source corpus that names the 17, with a Type for each.
+

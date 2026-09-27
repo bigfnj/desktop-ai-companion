@@ -371,44 +371,6 @@ code. Two decisions that used to sit here are in
 "moves the user's windows" (48 actions) is refused deliberately, and a blank frame is legitimate so
 "no blank tiles" cannot be a corpus-wide gate. What remains open:
 
-- 📌 **17 animation names remain unclassifiable, and no data here can settle them.**
-  NO CLOSES-WHEN, deliberately: nothing in this repo can answer it. 13 of the 17 are absent from the
-  2778-archive harvest and 4 are names the corpus disputes with itself, so closing this needs source
-  confs that do not exist here. It had carried `grep-present tools/ShimejiConvert/Program.cs
-  "SkinLayout census"` since the day it was filed -- a string that has never appeared in that file, or
-  anywhere in the repo except this entry -- so the criterion could not fire whatever happened to the
-  code. Replacing it with a grep that DOES match only moved the lie: the gate immediately reported the
-  item closeable while the 17 names were still unresolved. An item that cannot be machine-checked says
-  so. Corrected 2026-09-24.
-  Filed 2026-09-22, then largely resolved the same day when the owner pointed at the harvested bundle
-  corpus (`D:\.ai-work\shimeji-catalog`, 2778 archives). `reloop` now takes an optional bundles
-  directory and builds an action-name -> Type census across it, which answered 1990 names the bundled
-  conf does not carry and corrected 14 more animations across 7 pets, Hornet's `Grapple1` among them.
-  Only UNANIMOUS names count; the corpus disputes 96 and those stay unresolved.
-  ⚠ **The count went 17 -> 67 the same day, and that is the migration reaching FURTHER, not
-  regressing.** A second defect was reported: `Bouncing` juggling two frames for ~11s with no
-  self-edge at all, stretched by `restsplit`'s velocity-based idea of a "performance". So the entry
-  condition widened from "self-loops" to "self-loops OR carries a repeat count", which surfaces
-  every animation with a dwell whose name cannot be resolved -- mostly `Stay` holds and `Move`
-  travel that are SUPPOSED to have one. The number is a reporting surface, not a defect count.
-  What is left, and why none of it is urgent:
-  - **13 names absent from the corpus** (`climb_ceiling` x18, `descend` x15, `jump_down` x10,
-    `grab_wall`, `grab_ceiling`, `climb_wall`, `climb_wall_descend`, `walk_with_ie`, `walk_stick`,
-    `happy_walk`, `fall_`, `motion_3`, `motion_9`). These come from generator-made skins whose confs are
-    not in the harvest. Read them and they are almost all travel or holds, which are MEANT to loop.
-  - **4 names the corpus disputes with itself** (`Shock` 7/13 Stay, `crawl` 7/13, `idle` 2/4, `ずりずり`
-    634/656 Move). A majority is not evidence and acting on one would be guessing with extra steps.
-  ⚠ **Two of this entry's earlier claims were wrong and are kept here because the corrections are the
-  useful part.** First: `jump` x10 is NOT a jump-detection bug. Measured across all 20 `jump`/`jump_down`
-  animations, not one rises (`jump` is vy0=0 travelling -10px/frame), so `Launches()` had nothing to
-  detect; the likely cause is the documented flattening at `PetEmitter.cs:1266`. Second: the Japanese and
-  English stock confs do NOT disagree about `転ぶ`. The engine's own vocabulary table maps `固定` to
-  **Animate** (`静止` is Stay), so both call Tripping a performance, and Cartman's `転ぶ` was corrected
-  along with every other one.
-  A third route exists if the remaining 17 ever matter: `SkinLayout` could match a pet to its source
-  archive structurally rather than by title, which resolved only 7 of 25 pets and is why the census
-  exists at all.
-
 ### Feature ideas (queued, not yet scoped)
 
 **Moved to [`docs/IDEAS.md`](docs/IDEAS.md) on 2026-09-17, numbers intact** (16 per-companion
@@ -598,8 +560,13 @@ open-item blindness plus the bug-number drift.
 
 ### Smaller, verified, grouped
 
-- 📌 `modules/Fortunes/engine/SmartFortunes.cs:382` — `Pick` rescans the 64-slot top-K array per pool
-  entry without carrying the running minimum, on the UI thread beside a full ONNX inference.
+- ✅ **CLOSED-VERIFIED 2026-09-27: already gone, and not by this item.** The 64-slot top-K
+  insertion no longer exists. It was removed by the relevance-band change (the owner chose "relevance
+  band, not a fixed count" over a fixed `TopK = 64`), and the replacement says so in its own comment:
+  *"This also drops the old top-K insertion, which rescanned all K slots for the current minimum on
+  every one of the n candidates: O(n*K) comparisons on top of the n dot products. One array of n
+  floats is 31 KB at the owner's pool size and makes the pass O(n), so a wider candidate set is now
+  CHEAPER than the narrow one it replaces."* Verified by reading `Pick`, not by trusting that comment.
 - ✅ **FIXED 2026-09-27 (fortunes 1.0.10).** `SmartFortunes.StoodDown` records the stand-down in
   STATE, cleared at the start of every warm so a rebuild after the runtime is fixed reports progress
   again rather than a stale stand-down. `SmartStatusFor` takes it and answers "Smart picks are
@@ -613,10 +580,22 @@ open-item blindness plus the bug-number drift.
   is happening — because a message that merely mentions the problem while reading "Indexing" would
   pass a looser check. Positive control with the branch removed: *"FAIL: a stood-down smart index
   says so instead of claiming to be indexing"*.
-- 📌 `modules/PetStudio/PetStudioWindow.cs:809` — the `SpriteKey` cache guards the small decode while
-  `PetAnalyzer.Analyze` unconditionally base64-decodes the sheet and builds `tilesX * tilesY` GDI+
-  bitmaps plus a fresh `XmlSchemaSet` compile on every 750 ms debounce (~850 KB and 304 bitmaps for
-  `blue_sheep`). `RenderCensus` also re-runs `ClassifyAll` over the list `RenderMap` just cached.
+- ✅ **PARTLY FIXED, MOSTLY REFUTED 2026-09-27 (petstudio 1.1.10).** One real finding in three.
+
+  **FIXED — the double classification.** `RenderMap` classified the whole pet so each chip's badge
+  could read the result, then `RenderCensus` → `Census` classified it again. Twice per analyze, on a
+  ~750 ms debounce while typing. `Census` now takes an optional precomputed map.
+
+  **REFUTED — `PetAnalyzer.Analyze` does not decode the sheet.** It copies the base64 STRING into
+  the report; the decode is in `PetSprite.TryDecode`, which the `SpriteKey` cache already guards. The
+  entry had this backwards, describing the cache as guarding a small decode while a large one ran
+  unguarded beside it. There is no second decode.
+
+  **DECLINED-MEASURED — the `XmlSchemaSet` compile.** Real, but it lives in
+  `CompanionXmlValidator.TryParse` (host code, every caller), not in PetStudio, and it costs
+  **0.95 ms per call** measured warm over 30 reps against `Resources/animations.xsd`. Caching it means
+  sharing an `XmlSchemaSet` — which Microsoft documents as not thread-safe — across every
+  pet-loading path in the app, to save under a millisecond on a 750 ms debounce.
 - ✅ **FIXED 2026-09-27 (aibrain 1.1.11), and this entry UNDERSTATED it.** "Up to ~2 s" reads as a
   worst case. Measured with the mechanism `OllamaClient` actually uses (HttpClient, 2 s deadline,
   literal `127.0.0.1` so no DNS): server running **5–56 ms**, server **REFUSED 2005–2008 ms**, host
