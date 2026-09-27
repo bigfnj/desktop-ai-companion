@@ -48,7 +48,9 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "1.0.11",  // 1.0.11: closing the app while recording no longer loses the recording. Every
+            Version = "1.0.12",  // 1.0.12: the Remote Desktop warning no longer tells the user to restart.
+                                 //         The device lists have refreshed on every pane open since
+                                 //         RefreshDynamicOptions moved into Load; reopening is enough.  // 1.0.11: closing the app while recording no longer loses the recording. Every
                                   //         part of Stop ran inside a Task.Run nothing waited for, so the process
                                   //         exited mid-AudioRecorder.Stop(): no mixed WAV, no transcript, and two
                                   //         scratch files left with unfinalised RIFF headers that Purge deletes
