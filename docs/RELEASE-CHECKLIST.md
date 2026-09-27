@@ -28,12 +28,21 @@ Desktop AI Companion ships **unsigned** Windows x64 builds. To cut a release:
    told they are current. **This happened.** The catalog was generated while the props said 1.1.0, then
    v1.1.1, v1.1.2 and v1.1.3 shipped, and nobody on 1.1.0 was ever offered the tray-icon fix.
 
-   `Test-ModulePublishFreshness.ps1` now fails when the two disagree, so `build.yml` will catch a
-   forgotten regeneration. That is also why this belongs in the *same commit* as the bump rather than
-   after the tag: the alternative leaves `master` red until the release lands. The cost is a window of a
-   few minutes where the catalog names a version whose assets are still building, and the footer is a
-   link to the releases page rather than a download, so the worst case is a user seeing the previous
-   release for a moment.
+   `Test-ModulePublishFreshness.ps1` fails when the two disagree, so `build.yml` will catch a forgotten
+   regeneration.
+
+   ⚠ **A paragraph here used to add "that is also why this belongs in the *same commit* as the bump
+   rather than after the tag", directly contradicting the correction above it.** It was the old
+   instruction, left behind when the ⚠ block was written on 2026-09-25, so this file told you to do
+   the thing it had just finished explaining does not work. Removed 2026-09-27; the order above is the
+   one to follow. Re-verified before removing it: `New-ContentCatalog.ps1:260-271` resolves
+   `app.version` from reachable `v*` tags and THROWS when none is reachable, so running it before the
+   tag exists cannot advertise the new version.
+
+   The worry that paragraph existed to address — `master` left red between the bump and the tag — does
+   not arise, and the ⚠ block above says why: the freshness gate compares `app.version` against the
+   newest RELEASE, not against the props, so a props version ahead of the newest release is the
+   expected state of an unreleased build and passes.
 3. Commit and push to `master`; confirm [`build.yml`](../.github/workflows/build.yml) is green.
 
    **Exception, when this release is the one a module has been waiting for.** If a module's source
