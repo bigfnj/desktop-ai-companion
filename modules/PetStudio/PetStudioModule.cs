@@ -24,7 +24,11 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.1.4",   // 1.1.4: two reporting defects. A MOVE animation that declares its travel on EndX
+            Version = "1.1.5",   // 1.1.5: payload refresh only. Animations.cs is one of this module's 27
+                                 //        source-linked paths and gained an absenceIsNormal overload on
+                                 //        SetNextBorderAnimation, so the compiled payload was behind its
+                                 //        source. No PetStudio behaviour changed.
+                                 // 1.1.4: two reporting defects. A MOVE animation that declares its travel on EndX
                                  //        alone rendered as "travels 0px per frame", and both behaviour-chain
                                  //        validator rejections printed with the reason discarded, because the label
                                  //        was built around the error string before the call that fills it.
