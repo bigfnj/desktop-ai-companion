@@ -600,9 +600,19 @@ open-item blindness plus the bug-number drift.
 
 - 📌 `modules/Fortunes/engine/SmartFortunes.cs:382` — `Pick` rescans the 64-slot top-K array per pool
   entry without carrying the running minimum, on the UI thread beside a full ONNX inference.
-- 📌 `modules/Fortunes/FortunesModule.cs:1272-1280` — when `Embedder.IsReady` is false, `WarmCore`
-  returns with all counters zero and `SmartStatusFor` has no way to say "stood down", so the picker
-  reads "Indexing N fortunes in the background" forever.
+- ✅ **FIXED 2026-09-27 (fortunes 1.0.10).** `SmartFortunes.StoodDown` records the stand-down in
+  STATE, cleared at the start of every warm so a rebuild after the runtime is fixed reports progress
+  again rather than a stale stand-down. `SmartStatusFor` takes it and answers "Smart picks are
+  unavailable on this machine — the text engine could not start, so fortunes are chosen at random.
+  Everything else works normally.", checked BEFORE the progress lines because a stand-down is
+  terminal and they are not.
+
+  Worth naming why the existing `Say()` was not already the fix: it writes to the diagnostic log,
+  which the person looking at the Fortunes pane is not reading. They saw a progress message and
+  waited. Asserted on both halves — the status must say what is wrong AND must not still claim work
+  is happening — because a message that merely mentions the problem while reading "Indexing" would
+  pass a looser check. Positive control with the branch removed: *"FAIL: a stood-down smart index
+  says so instead of claiming to be indexing"*.
 - 📌 `modules/PetStudio/PetStudioWindow.cs:809` — the `SpriteKey` cache guards the small decode while
   `PetAnalyzer.Analyze` unconditionally base64-decodes the sheet and builds `tilesX * tilesY` GDI+
   bitmaps plus a fresh `XmlSchemaSet` compile on every 750 ms debounce (~850 KB and 304 bitmaps for
