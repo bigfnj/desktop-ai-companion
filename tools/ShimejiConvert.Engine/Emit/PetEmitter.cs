@@ -1499,7 +1499,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     iv0 = Math.Min(iv0, MaxRestIntervalMs);
                     ivN = Math.Min(ivN, MaxRestIntervalMs);
                     int cappedPassMs = e.Frames.Count * ((iv0 + ivN) / 2);
-                    repeatCount = RepeatCountForBudget(cappedPassMs, target, MaxRestRepeats, false);
+                    repeatCount = RepeatCountForBudget(cappedPassMs, target, MaxRestRepeats);
                 }
             }
             else
@@ -2589,22 +2589,19 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         /// animation finishes instantly and a slow one runs for the best part of a minute. Budget the TIME and
         /// let the frame rate decide the count.
         /// </summary>
+        /// <remarks>
+        /// There WAS a roundUp overload, never reached: all four call sites passed false, two of them via
+        /// this signature. Its own doc claimed "used for rests, where undershooting is the thing that reads
+        /// as wrong", while the rest call site passed false under a comment saying the opposite -- "nearest
+        /// rather than up, so a long performance lands inside the 9-12s band instead of overshooting". So
+        /// the documentation described a policy the code had decided against, for a caller that did not
+        /// exist. Nearest-rounding, for every caller, is the policy.
+        /// </remarks>
         public static int RepeatCountForBudget(int passMs, int targetMs, int maxRepeats)
-        {
-            return RepeatCountForBudget(passMs, targetMs, maxRepeats, false);
-        }
-
-        /// <param name="roundUp">Never land SHORT of the target. Used for rests, where undershooting is the
-        /// thing that reads as wrong -- a pose that cuts off early looks like a twitch, whereas one that runs
-        /// a little long just looks restful. Walking keeps nearest-rounding, where overshooting means the pet
-        /// glides past where you expected it to stop.</param>
-        public static int RepeatCountForBudget(int passMs, int targetMs, int maxRepeats, bool roundUp)
         {
             if (passMs <= 0) return 0;
             double exact = (double)targetMs / passMs;
-            int passes = roundUp
-                ? (int)Math.Ceiling(exact)
-                : (int)Math.Round(exact, MidpointRounding.AwayFromZero);
+            int passes = (int)Math.Round(exact, MidpointRounding.AwayFromZero);
             int repeat = passes - 1;
             if (repeat < 0) repeat = 0;
             if (repeat > maxRepeats) repeat = maxRepeats;

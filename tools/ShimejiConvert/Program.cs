@@ -1081,7 +1081,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                         a.Start.Interval = i0.ToString(CultureInfo.InvariantCulture);
                         a.End.Interval = iN.ToString(CultureInfo.InvariantCulture);
                         int passMs = frames * ((i0 + iN) / 2);
-                        a.Sequence.RepeatCount = PetEmitter.RepeatCountForBudget(passMs, target, PetEmitter.MaxRestRepeatCount, false)
+                        a.Sequence.RepeatCount = PetEmitter.RepeatCountForBudget(passMs, target, PetEmitter.MaxRestRepeatCount)
                             .ToString(CultureInfo.InvariantCulture);
                     }
                     if (a.Id != hubId) here++;
