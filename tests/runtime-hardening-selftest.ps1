@@ -1484,6 +1484,32 @@ Assert-True ($consentIndex -lt $downloadIndex) (
     'a widened permission set is put to the user BEFORE the update is downloaded' +
     " (consent at $consentIndex, download at $downloadIndex)")
 
+# ---- a module the host cannot run must not be offered for install ----
+# ModuleHostRequirement's rule table is asserted in --module-host-selftest. What a table cannot reach
+# is whether the PANE asks it, and that half is the whole feature: the catalog dropped minHostVersion
+# entirely until 2026-09-27, so the pane offered agentflow (needs host 1.2.0) to every user still on
+# 1.1.x, downloaded the payload, installed it, and the LOADER refused it -- with nothing in the pane
+# to explain why.
+#
+# Asserts the BINDING, not the presence of a call. `install.IsEnabled = runnable` is what makes the
+# answer matter; a file that calls IsSatisfied, ignores the result, and sets IsEnabled = true would
+# satisfy any presence check while behaving exactly as it did before the fix.
+$availableBody = [regex]::Match(
+    $modulesPaneSource,
+    '(?s)private FrameworkElement BuildAvailableRow\(.*?
+        \}')
+Assert-True ($availableBody.Success) 'BuildAvailableRow exists and could be sliced out for inspection'
+$availableCode = Remove-LineComments $availableBody.Value
+$requirementIndex = $availableCode.IndexOf('ModuleHostRequirement.IsSatisfied')
+$enabledIndex = $availableCode.IndexOf('install.IsEnabled = runnable')
+Assert-True ($requirementIndex -ge 0) (
+    'the install row asks ModuleHostRequirement whether this host can run the module')
+Assert-True ($enabledIndex -ge 0) (
+    'the Install button''s enabled state is BOUND to that answer, not merely computed beside it')
+Assert-True ($requirementIndex -lt $enabledIndex) (
+    'the requirement is resolved before the Install button is enabled' +
+    " (requirement at $requirementIndex, binding at $enabledIndex)")
+
 # ---- the numbers the docs quote about this suite are re-measured, not trusted ----
 # A number nobody re-measures goes stale. SMOKETEST.md and Readme.md both quote how many source
 # invariants and how many self-tests exist, and both were wrong again within one session of being

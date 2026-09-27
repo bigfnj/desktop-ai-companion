@@ -54,6 +54,12 @@ namespace DesktopAICompanion
         public string Sha256;
         public int Bytes;
         public ModulePermissions Permissions;
+
+        /// <summary>The host version this module refuses to run below, straight from its own
+        /// <c>ModuleInfo.MinHostVersion</c>. Empty when the catalog predates the field, which is a
+        /// supported state: an empty requirement is satisfied by every host, so an old catalog behaves
+        /// exactly as it did before.</summary>
+        public string MinHostVersion;
     }
 
     internal sealed class RemoteCatalog
@@ -320,12 +326,16 @@ namespace DesktopAICompanion
                         Url = JsonRead.Str(token["url"]).Trim(),
                         Sha256 = JsonRead.Str(token["sha256"]).Trim().ToLowerInvariant(),
                         Bytes = JsonRead.IntOrNull(token["bytes"]) ?? 0,
-                        Permissions = permissions
+                        Permissions = permissions,
+                        MinHostVersion = JsonRead.Str(token["minHostVersion"]).Trim()
                     };
                     if (!SecureDownload.IsSafeId(module.Id) || !moduleIds.Add(module.Id) ||
                         string.IsNullOrWhiteSpace(module.Name) || module.Name.Length > 128 ||
                         module.Description.Length > 1024 ||
                         string.IsNullOrWhiteSpace(module.Version) || module.Version.Length > 32 ||
+                        // Bounded like Version beside it. Absent is fine (every host satisfies ""),
+                        // nonsense is not.
+                        module.MinHostVersion.Length > 32 ||
                         !permissionsValid ||
                         module.Bytes < 1 || module.Bytes > MaximumModuleBytes ||
                         !IsSha256(module.Sha256) ||

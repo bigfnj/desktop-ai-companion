@@ -476,9 +476,35 @@ namespace DesktopAICompanion.Wpf
             nameStack.Children.Add(new TextBlock { Text = permsText, FontSize = 10, FontStyle = FontStyles.Italic, Foreground = Brushes.Gray });
             sp.Children.Add(nameStack);
 
+            // ASK THE SAME QUESTION THE LOADER WILL. ModuleHost refuses a module whose MinHostVersion
+            // this host cannot satisfy, and until 2026-09-27 the catalog dropped that field entirely, so
+            // the pane could not know: it offered agentflow (needs 1.2.0) to every user still on 1.1.x,
+            // downloaded ~1 MB of payload, installed it, and the loader then refused it with nothing here
+            // to say why. Using ModuleHostRequirement rather than comparing versions locally means the
+            // pane and the loader cannot drift into disagreeing about the same module.
+            string requirement;
+            bool runnable = Plugins.ModuleHostRequirement.IsSatisfied(
+                System.Windows.Forms.Application.ProductVersion, module.MinHostVersion, out requirement);
+
             var install = new Button { Content = "Install", Width = 90, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 6, 0, 0) };
+            install.IsEnabled = runnable;
             install.Click += async delegate { await InstallModuleAsync(module, install); };
             sp.Children.Add(install);
+            if (!runnable)
+            {
+                // The reason, not just a greyed button: "needs host 1.2.0 or newer (this host is 1.1.4)"
+                // tells the user the action to take. A disabled control with no explanation reads as a bug.
+                sp.Children.Add(new TextBlock
+                {
+                    Text = string.IsNullOrWhiteSpace(requirement)
+                        ? "This module needs a newer version of the app."
+                        : "Needs a newer app: " + requirement,
+                    FontSize = 11,
+                    TextWrapping = TextWrapping.Wrap,
+                    Foreground = Brushes.Gray,
+                    Margin = new Thickness(0, 4, 0, 0)
+                });
+            }
 
             row.Child = sp;
             return row;

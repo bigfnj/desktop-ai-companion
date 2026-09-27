@@ -216,6 +216,11 @@ if (Test-Path -LiteralPath $modulesJsonPath) {
             sha256      = $asset.Sha256
             bytes       = $asset.Bytes
             permissions = [string]$m.permissions
+            # The host version this module REFUSES to run below. Dropped from the catalog until
+            # 2026-09-27, which meant the Modules pane offered agentflow (1.2.0) to every user still on
+            # 1.1.x: they saw it, downloaded the payload, and ModuleHost refused it at load with nothing
+            # in the pane to explain why. modules.json has always carried it; only the copy was missing.
+            minHostVersion = [string]$m.minHostVersion
         }
     }
 }
