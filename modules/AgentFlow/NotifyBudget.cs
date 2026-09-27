@@ -174,12 +174,9 @@ namespace DesktopAICompanion.AgentFlow
             }
         }
 
-        /// <summary>Forget that a call was announced, once it is no longer outstanding.</summary>
-        public void Forget(string sessionId, string callId)
-        {
-            if (sessionId == null || callId == null) return;
-            _announced.Remove(sessionId + "/" + callId);
-        }
+        // Forget(sessionId, callId) was here, removing ONE announced key. Nothing called it: Retain
+        // below supersedes it by keeping only the keys still live, which is the same job done from the
+        // other end and without the caller having to know which call ended.
 
         /// <summary>Drop one-shot keys for calls that are no longer outstanding anywhere.</summary>
         public void Retain(IEnumerable<string> liveKeys)

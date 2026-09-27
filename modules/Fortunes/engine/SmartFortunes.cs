@@ -113,17 +113,20 @@ namespace DesktopAICompanion.Ai
         private const float RouteBonus = 0.06f;
         private const float RouteSecondMargin = 0.02f; // also route to a runner-up topic within this cosine gap
         private const float MinConfidence = 0.10f;   // below this the best match is too weak -> random
-        private int _lastCandidateCount;             // how wide the last context's band was, for diagnostics
         private int _lastBandCount;                  // ...before the floor/cap, i.e. what the margin alone admitted
 
         /// <summary>How many lines the relevance band admitted on the last pick, BEFORE the minimum and
         /// maximum were applied. This is the number the margin actually controls.</summary>
         internal int LastBandCount { get { return _lastBandCount; } }
 
-        /// <summary>How many lines were eligible on the most recent contextual pick. Exposed because the
-        /// narrowness of this number WAS the bug, and a number nobody can read is a number nobody
-        /// checks.</summary>
-        internal int LastCandidateCount { get { return _lastCandidateCount; } }
+        // LastCandidateCount was here, and its own doc was the joke: "a number nobody can read is a
+        // number nobody checks" -- nothing read it. Its sibling LastBandCount does the job, is the
+        // number the margin actually controls, and drives a real assertion in the self-test.
+        //
+        // Asserting on it instead of deleting it was considered and rejected. The only invariants
+        // available are <= MaximumCandidates (512) and <= LastBandCount, and the self-test pool is 131
+        // lines, so the cap never applies and neither could fail. That is the kind of check this repo
+        // keeps having to remove.
         private const int DisposeWaitMilliseconds = 3000;
         // bge-small-en-v1.5 is asymmetric: the query gets this instruction, passages stay plain.
         private const string QueryPrefix = "Represent this sentence for searching relevant passages: ";
@@ -508,7 +511,6 @@ namespace DesktopAICompanion.Ai
                 // complaint; the margin only decides what counts as relevant.
                 int rotationTarget = RotationTargetFor(n);
                 if (pick.Count < rotationTarget && _rng.Next(rotationTarget) >= pick.Count) return null;
-                _lastCandidateCount = pick.Count;
                 lock (_stateLock)
                 {
                     if (_disposed) return null;
