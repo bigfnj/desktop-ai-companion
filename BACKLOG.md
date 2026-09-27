@@ -774,22 +774,29 @@ survived a second check, minus the 14 fixed on the day in `e31c5bb`.
   failed to match and was skipped in silence: the report said "3 carry a CLOSES-WHEN" while the file
   contained 5, and this one had already been satisfied. `Test-BacklogClosingCriteria.ps1` now reports
   any line beginning `CLOSES-WHEN:` that does not parse, so a criterion cannot go quiet by typo.
-- 📌 **Three shipped modules expose no `SelfTest` on their module class.** `aibrain`, `fortunes`
-  and `petstudio` report "the module exposes static bool SelfTest(out string detail)" and stop after
-  4 generic checks, so `tests/Test-ModuleSelfTests.ps1` records them as known gaps.
+- ✅ **MOSTLY FIXED 2026-09-27 (fortunes 1.0.11, aibrain 1.1.12), and I was wrong about it TWICE.**
 
-  ⚠ **Corrected 2026-09-27, hours after this was filed: this is a CONVENTION gap, not a coverage
-  gap, and the original wording ("so the host cannot run their assertions") overstated it.** All
-  three have dedicated host-side self-tests that the gate already runs — `--aibrain-selftest`,
-  `--fortunes-selftest`, `--fortunes-engine-selftest` and `--petstudio-selftest`, implemented in
-  `src/dotNet/Plugins/*ModuleSelfTest.cs`, which load each module through the real
-  `AssemblyLoadContext` and test it from outside. They are among the 19 self-tests in every gate run.
+  First I filed it saying the host "cannot run their assertions" — false; all three have dedicated
+  host-side self-tests the gate already ran. Then I corrected that to "real work per module rather
+  than a delegation" — also false, for two of the three. `FortuneEngineProbe.Run` and
+  `AiEngineProbe.Run` are both `public static bool (out string)`, the exact signature the convention
+  wants. Only the entry point on the MODULE TYPE was missing, so each is one method.
 
-  So what is missing is the INSIDE view: assertions a module can make about its own internals that an
-  external harness cannot reach, reported through the standard `--module-selftest=<id>` entry point.
-  Worth having, but lower value than it looked when filed, and it is real work per module rather than
-  a delegation — there is no existing module-side entry point to forward to.
-  CLOSES-WHEN: grep-present modules/Fortunes/FortunesModule.cs "bool SelfTest(out string detail)"
+  Coverage went from 4 modules / 684 assertions to **6 modules / 982** (agentflow 489, aibrain 217,
+  remembrance 114, fortunes 70, blinkingled 56, reminder 36).
+
+  The gate demanded the bookkeeping itself, which is the loop working as designed: adding the methods
+  turned `Test-ModuleSelfTests.ps1` RED with *"now PASSES its module self-test. That is good news —
+  move it from UNCOVERED to COVERED"*.
+
+  ⚠ **PetStudio remains a recorded gap**, and the reason is now in the file rather than in my head:
+  `BehaviourChainSelfCheck.RunChecks` takes a `fixturePetXml` that the host supplies from its OWN
+  resources, so covering it means embedding a fixture in the module, not adding a delegation.
+
+  One stale comment found on the way and left for a future pass: `BehaviourChainSelfCheck`'s header
+  still warns that `--module-selftest` takes the FIRST `bool SelfTest(out string)` anywhere in the
+  assembly. That was fixed — `ModuleConventionSelfTest` resolves against the module TYPE — so the
+  warning now describes a hazard that no longer exists.
 **Dead code, verified across `src/`, `modules/` and `tools/`**
 
 - ✅ **FIXED 2026-09-27, 237 lines removed — and FOUR of this item's claims were WRONG.**
