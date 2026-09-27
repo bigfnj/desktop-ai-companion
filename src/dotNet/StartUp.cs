@@ -213,9 +213,7 @@ namespace DesktopAICompanion
             }
             animations.PetTypeId = activeId;
             animations.Activate();
-            if (!Program.MyData.SetXml(
-                    candidate,
-                    externalCandidate ? "external" : ""))
+            if (!Program.MyData.SetXml(candidate))
                 AddDebugInfo(
                     DEBUG_TYPE.warning,
                     "The active pet could not be persisted; the previous pet will return next launch.");

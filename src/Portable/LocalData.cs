@@ -64,12 +64,6 @@ namespace DesktopAICompanion
                 delegate { _settings.ScaleLevel = level; });
         }
 
-        /// <summary>The persisted UI level: 1, 2, or 3.</summary>
-        public int GetScale()
-        {
-            lock (_sync)
-                return ScalePolicy.ClampLevel(_settings.ScaleLevel);
-        }
 
         /// <summary>The effective rendering/movement factor: 1x, 2x, or 4x.</summary>
         public bool GetMultiscreen()
@@ -190,12 +184,8 @@ namespace DesktopAICompanion
                 });
         }
 
-        // A pet type's size override level (1/2/3), or 0 when the pet follows the global size. id "" is
-        // the active/default pet.
-        internal int GetPetSizeLevel(string id)
-        {
-            lock (_sync) return GetPetSizeLevelNoLock(id);
-        }
+        // GetPetSizeLevel(string) was here: the public lock-taking wrapper around the NoLock form below.
+        // It had no callers, while the NoLock form is used by the size-override paths in this file.
 
         private int GetPetSizeLevelNoLock(string id)
         {
@@ -208,20 +198,8 @@ namespace DesktopAICompanion
             return 0;
         }
 
-        /// <summary>
-        /// The effective rendering/movement factor (1x/2x/4x) for a pet: its own size override when set,
-        /// otherwise the global factor. Used when a pet type is staged.
-        /// </summary>
-        public int GetEffectivePetScaleFactor(string id)
-        {
-            lock (_sync)
-            {
-                int level = GetPetSizeLevelNoLock(id);
-                return level >= ScalePolicy.MinimumLevel
-                    ? ScalePolicy.FactorFromLevel(level)
-                    : ScalePolicy.FactorFromLevel(ScalePolicy.ClampLevel(_settings.ScaleLevel));
-            }
-        }
+        // GetEffectivePetScaleFactor(string) was here. Its doc said "used when a pet type is staged";
+        // nothing called it. Staging reads the factor through ScalePolicy directly.
 
         // --- Fractional size (the size slider; percent 25..400). Precedence: per-pet percent, else the global
         // percent, else the legacy 1x/2x/4x level. A pet override that only carries a legacy Level still works. ---
@@ -854,7 +832,9 @@ namespace DesktopAICompanion
             _settings.RandomDropJitterMinutes = jitter;
         }
 
-        public bool SetXml(string xml, string folder)
+        // The second parameter was `string folder`, and this body never read it. Its one caller
+        // computed "external" or "" to pass in, so the branch at the call site was dead too.
+        public bool SetXml(string xml)
         {
             string value = xml ?? "";
             return Update(

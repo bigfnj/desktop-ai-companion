@@ -393,12 +393,9 @@ namespace DesktopAICompanion
                 System.Threading.SynchronizationContext.Current;
             private bool _sessionEndStarted;
 
-            internal TaskbarWatcher(Action onTaskbarCreated, Action onCloseRequested)
-                : this(onTaskbarCreated, onCloseRequested, null,
-                       NativeRegisterWindowMessage("TaskbarCreated"))
-            {
-            }
-
+            // A 2-argument overload sat here, forwarding with onSessionEnd: null. Every call site
+            // passes 3 (ProcessIcon.cs:71 and two self-tests) or 4 (the blind-watcher self-test), so it
+            // was never constructed.
             internal TaskbarWatcher(Action onTaskbarCreated, Action onCloseRequested, Action onSessionEnd)
                 : this(onTaskbarCreated, onCloseRequested, onSessionEnd,
                        NativeRegisterWindowMessage("TaskbarCreated"))

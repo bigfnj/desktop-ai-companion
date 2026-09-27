@@ -61,7 +61,6 @@ namespace DesktopAICompanion
         public static string AiSettingsFile { get { return Path.Combine(DataRoot, "ai-settings.json"); } }
         public static string ChatHistoryFile { get { return Path.Combine(DataRoot, "chat-history.json"); } }
         public static string FortunesDirectory { get { return Path.Combine(DataRoot, "fortunes"); } }
-        public static string VectorCacheDirectory { get { return Path.Combine(DataRoot, "vectors"); } }
         public static string CatalogCacheDirectory { get { return Path.Combine(DataRoot, "catalog-cache"); } }
 
         /// <summary>
@@ -110,13 +109,6 @@ namespace DesktopAICompanion
             get { return Path.Combine(LegacyRoamingDataRoot, "fortunes"); }
         }
 
-        public static string LegacyVectorCacheDirectory
-        {
-            // Pre-rename literal, like every other Legacy* member here: these name where data used to
-            // live, so renaming them with the product makes each one point at its own destination and the
-            // migration silently becomes a no-op that looks like it ran.
-            get { return Path.Combine(LocalAppData, "DesktopPet", "vectors"); }
-        }
 
         /// <summary>
         /// Return the canonical fortunes directory after one bounded, non-destructive migration
@@ -135,22 +127,12 @@ namespace DesktopAICompanion
             return FortunesDirectory;
         }
 
-        /// <summary>
-        /// Return the canonical vector-cache directory after one bounded, non-destructive
-        /// migration attempt from the historical local-app-data location.
-        /// </summary>
-        public static string PrepareVectorCacheDirectory()
-        {
-            TryMigrateFilesOnce(
-                VectorCacheDirectory,
-                LegacyVectorCacheDirectory,
-                "cache.bin",
-                1,
-                256L * 1024L * 1024L,
-                256L * 1024L * 1024L,
-                LegacyMigrationEnabled);
-            return VectorCacheDirectory;
-        }
+        // The vector-cache cluster was here: VectorCacheDirectory, LegacyVectorCacheDirectory and
+        // PrepareVectorCacheDirectory. Nothing called any of them. The Fortunes module owns this storage
+        // now -- FortunePaths.cs calls itself "module-side replacement for the base AppPaths
+        // fortune/vector directories" and points at host.GetStorage("fortunes") -- so the base
+        // migration could never run for anyone, whatever it claimed to do. The fortunes pair above is
+        // deliberately NOT removed with it: that one still has callers.
 
         /// <summary>
         /// Copy a bounded set of top-level legacy files into a new data directory exactly once.

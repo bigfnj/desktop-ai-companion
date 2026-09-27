@@ -496,21 +496,6 @@ namespace DesktopAICompanion.Plugins
             get { return ResponderModuleIds(_pokeResponders); }
         }
 
-        /// <summary>
-        /// Every module that can speak for a pet: the union of the poke and drop chains, highest priority
-        /// first. Union rather than poke-only, because a module registering only a drop responder would
-        /// otherwise be routable-but-invisible -- selectable in settings it never appears in.
-        /// </summary>
-        internal IReadOnlyList<string> SpeechSourceModuleIds
-        {
-            get
-            {
-                var ids = new List<string>(ResponderModuleIds(_pokeResponders));
-                foreach (string id in ResponderModuleIds(_dropResponders))
-                    if (!ContainsIgnoreCase(ids, id)) ids.Add(id);
-                return ids;
-            }
-        }
 
         private static IReadOnlyList<string> ResponderModuleIds(List<Responder> chain)
         {

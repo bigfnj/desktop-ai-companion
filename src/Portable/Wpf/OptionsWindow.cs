@@ -23,7 +23,6 @@ namespace DesktopAICompanion.Wpf
         private readonly Button _apply;
         private ShellPane _current;
         private System.Windows.Controls.ListBox _nav;
-        private bool _dirty;   // schema-pane has unsaved field edits (drives the Apply/Applied button)
 
         public OptionsWindow(IReadOnlyList<ShellPane> panes, string initialPaneTitle = null)
         {
@@ -165,7 +164,8 @@ namespace DesktopAICompanion.Wpf
         // Apply is greyed out until a field changes, and greys out again after a successful Apply.
         private void SetDirty(bool dirty)
         {
-            _dirty = dirty;
+            // No field behind this. There WAS a _dirty field, assigned here and read nowhere, so the
+            // button state has always come from the parameter and the field recorded nothing.
             if (_apply != null) _apply.IsEnabled = dirty;
         }
 
