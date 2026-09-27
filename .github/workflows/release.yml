@@ -231,13 +231,48 @@ jobs:
         run: |
           $ErrorActionPreference = 'Continue'
           $keep = 3
-          try {
-            $releases = gh release list --repo $env:GITHUB_REPOSITORY --limit 100 --json tagName,createdAt |
-                        ConvertFrom-Json
-          } catch { Write-Host "prune: could not list releases: $_"; exit 0 }
-          $old = @($releases | Sort-Object { [datetime]$_.createdAt } -Descending | Select-Object -Skip $keep)
-          foreach ($r in $old) {
-            Write-Host "Deleting old release $($r.tagName) (git tag kept)"
-            gh release delete $r.tagName --repo $env:GITHUB_REPOSITORY --yes
+
+          # `gh` is a NATIVE command, and native commands do not raise terminating errors, so the
+          # try/catch that used to wrap this could not catch a gh FAILURE -- the only thing it ever
+          # caught was ConvertFrom-Json's own parse error, one step further down. A `gh release list`
+          # that exited non-zero fell straight through to an empty $releases, deleted nothing, and
+          # printed the success line. $LASTEXITCODE is the only thing gh reports to PowerShell.
+          $listLines = gh release list --repo $env:GITHUB_REPOSITORY --limit 100 --json tagName,createdAt
+          $listExit = $LASTEXITCODE
+          $listJson = ($listLines -join [Environment]::NewLine)
+          if ($listExit -ne 0 -or [string]::IsNullOrWhiteSpace($listJson)) {
+            Write-Host "prune: SKIPPED, 'gh release list' exited $listExit with $($listJson.Length) chars of output."
+            exit 0
           }
-          Write-Host "Kept the $keep most recent releases."
+
+          $releases = @()
+          try { $releases = @($listJson | ConvertFrom-Json) } catch { }
+          if ($releases.Count -eq 0) {
+            Write-Host "prune: SKIPPED, parsed no release from $($listJson.Length) chars of output."
+            exit 0
+          }
+
+          $old = @($releases | Sort-Object { [datetime]$_.createdAt } -Descending | Select-Object -Skip $keep)
+          $deleted = 0
+          $failed = @()
+          foreach ($r in $old) {
+            gh release delete $r.tagName --repo $env:GITHUB_REPOSITORY --yes
+            if ($LASTEXITCODE -eq 0) {
+              $deleted++
+              Write-Host "prune: deleted $($r.tagName) (git tag kept)"
+            } else {
+              $failed += $r.tagName
+              Write-Host "prune: FAILED to delete $($r.tagName), gh exited $LASTEXITCODE"
+            }
+          }
+
+          # A summary that VARIES with what happened. What was here printed "Kept the 3 most recent
+          # releases." unconditionally -- after a failed list, after zero deletions, and after every
+          # single delete failed. It was incapable of reporting a problem, which is the whole reason
+          # a silent prune failure could sit in a green run indefinitely.
+          $summary = "prune: $($releases.Count) listed, $($old.Count) beyond the $keep kept, $deleted deleted"
+          if ($failed.Count) { $summary += ", $($failed.Count) FAILED ($($failed -join ', '))" }
+          Write-Host $summary
+          # Still best-effort by design: a prune problem must never fail a release that has already
+          # published its assets. It is now VISIBLE in the log rather than dressed as success.
+          exit 0
