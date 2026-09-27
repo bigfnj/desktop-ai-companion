@@ -761,39 +761,78 @@ survived a second check, minus the 14 fixed on the day in `e31c5bb`.
   spawns one ffmpeg per unique clip (30 s cap each, up to 64) plus one recursive `EnumerateFiles` of the
   skin root per distinct clip name. `runtime-hardening-selftest.ps1:110-115` asserts the "never extract on
   the UI thread" rule against `ModulesPaneControl.cs` only, so this site is outside every check.
-- 📌 **`build.ps1` declares `#requires -Version 5` and its `-Zip` path calls a script that
-  declares `-Version 7`.** `packaging/New-DeterministicPortableZip.ps1:12`, reached from `build.ps1:271`.
-  Under 5.1 the full Release build and all eight module builds complete, then packaging dies on a
-  `#requires` error. `Readme.md:511` documents `.\build.ps1 -Release -Zip` with no shell requirement. The
-  parity block checks each script in isolation and by construction cannot see a cross-script requirement.
-  Same transitively for `New-ModulePublish.ps1` and `New-ModuleDistZip.ps1`.
-
+- ✅ **FIXED 2026-09-27.** `build.ps1` keeps `#requires -Version 5`, because the ordinary build
+  genuinely runs under either edition and that had to stay true. The floor now sits on the `-Zip`
+  path alone, and it runs BEFORE the build rather than after it. `New-DeterministicPortableZip.ps1`
+  keeps its `-Version 7`: that is measured, not stylistic, since deflate output differs by edition
+  (63,580 bytes under 5.1 vs 64,271 under pwsh 7.6.5 for one payload, different SHA-256) and those
+  archives are committed and hashed in `catalog.json`. Verified both directions: `-Release -Zip`
+  under 5.1 now fails in 4 s -- shell startup, never reaching the compiler -- naming the host and the
+  reason; a plain 5.1 build still succeeds, exit 0, 0 warnings.
+  ⚠ `New-ModulePublish.ps1` and `New-ModuleDistZip.ps1` were named as "same transitively" and are
+  NOT fixed: both are already `-Version 7` themselves, so `#requires` stops them at their own entry
+  point rather than after someone else's long build. That is the behaviour this item wanted.
 **Checks that cannot fail (the category this repo keeps finding)**
 
-- 📌 **The `-Encoding` parity check does not assert the property its own failure message claims.**
-  `tests/runtime-hardening-selftest.ps1:1336-1338` says it "pins -Encoding on every file write, so both
-  shells emit the same bytes", and only asserts that a parameter matching `Enc*` is present.
-  `-Encoding UTF8` is UTF-8 WITH BOM on 5.1 and WITHOUT on 7, so it passes and still emits different
-  bytes; measured on this box, `powershell.exe ... -Encoding UTF8` produced `239,187,191,97`. Secondary:
-  no tracked `.ps1` currently calls `Set-Content`/`Add-Content`/`Out-File` at all, so today it iterates an
-  empty command set across all 31 scripts. Stronger assertion: require `utf8NoBOM`/`utf8BOM`/`ascii` and
-  reject bare `UTF8`.
-- 📌 **The repo-wide redirect scan is blind to any redirect not written as an object initialiser.**
-  `tests/runtime-hardening-selftest.ps1:87-96` admits a file on a text match, then slices only
-  `new ... ProcessStartInfo(.*?)\}\s*;`. A file assigning `psi.RedirectStandardOutput = true;` outside an
-  initialiser contributes zero sites and zero offenders. Currently latent — all 13 redirect assignments
-  are inside initialisers and the `-ge 6` floor catches total collapse — but it is the same hole one level
-  out from the per-FILE one the file's own comment describes fixing.
-- 📌 **`release.yml`'s prune has a catch that cannot catch and a success line that cannot fail.**
-  `.github/workflows/release.yml:234-237`: `$ErrorActionPreference = 'Continue'` at `:232` means a
-  non-zero `gh release list` is not terminating, so the `catch` never runs; `$releases` is empty, the loop
-  body never executes, and `:243` prints "Kept the 3 most recent releases." over a prune that did nothing.
-  Benign in effect, indistinguishable in the log.
-- 📌 **`ContentCatalogAssets.ps1:190-192` drains stdout to EOF before reading stderr, has no wait
-  timeout, and leaks a `Process` per asset.** Practically unreachable as a deadlock (`git cat-file`'s error
-  output is one short line), so this is shape rather than a live bug — but the gate calls it once per
-  catalog asset, 219 today, and neither the `Process` nor the `MemoryStream` is disposed.
+- ✅ **FIXED 2026-09-27, and this item's own suggested remedy was REFUTED on the way.** It
+  proposed requiring `utf8NoBOM`/`utf8BOM`/`ascii` and rejecting bare `UTF8`. Two of those three are
+  PowerShell 7 NAMES: a script using one parses cleanly under 5.1 and then dies at RUNTIME on the
+  ValidateSet, the same family as `ConvertFrom-Json -AsHashtable`. So that remedy would have traded a
+  silent byte difference for a runtime failure on the older shell. There is in fact NO spelling of
+  `-Encoding` that means the same bytes in both shells.
 
+  So it is a ban: `Set-Content`/`Add-Content`/`Out-File` (plus the `sc`/`ac` aliases) and the `>` /
+  `>>` operators, which are Out-File underneath and carry the same divergence. That codifies what the
+  repo already does -- every tracked script writes through `[IO.File]::WriteAllText/WriteAllBytes`
+  with an explicit encoding object. Measured before changing it: 0 calls and 0 file redirections
+  across all 32 scripts, so it bans nothing anyone is doing. `2>$null` is excluded by redirection
+  TARGET rather than stream number, so `2>errors.log` is still caught. Aliases are hardcoded rather
+  than resolved through `Get-Alias`, which would ask the RUNNING host -- `sc` is Set-Content under
+  5.1 but was dropped in 7, so a pwsh gate would have quietly stopped catching the 5.1-only spelling.
+  Mutation-tested 5 ways: 4 fired naming the construct and line, and `2>$null` stayed correctly
+  silent.
+- ✅ **FIXED 2026-09-27.** The scan now counts the redirect assignments it ADMITTED against the
+  ones it actually sliced, and any shortfall is an offender naming the file and the count. Folded
+  into the existing offender list rather than added as a new assertion, so the file's Assert-True
+  self-count against `SMOKETEST.md` is unchanged. Still latent, as filed -- all 13 assignments are
+  initialisers -- so it adds no work today.
+  Mutation-tested by injecting `mk.RedirectStandardOutput = true;` after an existing initialiser and
+  running HEAD's copy of the check against the same mutated tree: NEW exits 1 naming the file, HEAD
+  exits 0. HEAD staying green is the point -- the blind spot was real rather than hypothetical.
+- ✅ **FIXED 2026-09-27, with one detail of this item corrected.** The catch was not entirely
+  unreachable: `ConvertFrom-Json` is a CMDLET and does throw, so unparseable output did reach it.
+  What it could never catch is a `gh` FAILURE, because `gh` is a native command and native commands
+  raise no terminating error. A non-zero `gh release list` fell straight through to an empty
+  `$releases`, deleted nothing, and printed the success line.
+
+  It now reads `$LASTEXITCODE` after the list, refuses a failed or unparseable one, checks the exit
+  of each delete, and closes with a summary built from what happened. Still `exit 0` on every path --
+  a prune problem must never fail a release whose assets already published -- but visible in the log
+  instead of dressed as success. Tested against a stubbed `gh`, step body extracted from the YAML
+  rather than retyped, old vs new over 5 scenarios: the OLD body printed ONE identical success line
+  for ok / few / listfail / deletefail, three of which are not successes; the new one produces 5
+  distinct lines and all 5 still exit 0.
+- ✅ **FIXED 2026-09-27 -- and the leak half of this item was WRONG.** The claim was ~219 leaked
+  process handles per gate run. Measured by sampling DURING 400 real calls under 5.1, before the
+  change: peak growth +69, end of loop +28, settled -79 (below its own baseline), never more than 5
+  `git.exe` objects live at once. Handle growth was already bounded, because the finalizer keeps up.
+  After: +30 / +7 / -21 / 4 -- better on every reading, but single runs of a metric this file's own
+  soak notes call noisy, so the honest claim is "bounded either way". Disposal was added anyway, as
+  correctness rather than as a leak fix: release no longer DEPENDS on a GC a short-lived script is
+  not obliged to run.
+
+  The read-order half was real and is fixed. Both pipes are read concurrently and both reads are
+  bounded, which closes two distinct hangs rather than one: a child that fills its stderr pipe never
+  closes stdout, so the copy never returns and the stderr read is never reached; and a child that
+  simply stalls writes nothing, so the COPY blocks first and the unbounded `WaitForExit` was never
+  even the statement that hung. A timeout now names the asset instead of stopping dead on one of 219.
+  It throws OUTSIDE the catch on purpose, so a read failure cannot fall through to the worktree
+  fallback, which CR-strips its way to a plausible wrong hash for a binary asset.
+
+  Differential-tested against `catalog.json`, whose every sha256 was produced by the OLD reader and
+  is already published to installed apps: 54 companion XMLs and 7 module zips reproduce byte- and
+  hash-identically; mutating one expected hash produces exactly one failure. `-TimeoutMs` exists so
+  the timeout path is REACHABLE in a test, because an error path nobody has executed is a guess.
 **Dead code, verified across `src/`, `modules/` and `tools/`**
 
 - 📌 **`src/dotNet/WindowTheme.cs` is ~140 dead lines.** Only `IsDark()` (`:46`) has a caller, from
