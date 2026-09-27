@@ -761,6 +761,178 @@ survived a second check, minus the 14 fixed on the day in `e31c5bb`.
   ⚠ `New-ModulePublish.ps1` and `New-ModuleDistZip.ps1` were named as "same transitively" and are
   NOT fixed: both are already `-Version 7` themselves, so `#requires` stops them at their own entry
   point rather than after someone else's long build. That is the behaviour this item wanted.
+
+### Re-audit 2026-09-27 (three parallel read-only passes, after the backlog reached 1)
+
+Seven findings were fixed in the same session and are not listed here: the unfalsifiable assertion
+counter, the PetStudio import-guard ordering, the half-cached companion thumbnail, `UsePet`'s missing
+`activePetId` rollback, the Remembrance standalone-snapshot purge, and its two missing
+`NamesThisModuleWrites` assertions. What follows is what was NOT fixed. Each was verified against the
+source before filing; the auditors' own refuted candidates are recorded at the end so nobody re-files
+them.
+
+- 📌 **The per-companion monitor pin does nothing at spawn unless "Let companions spawn on any
+  screen" is on — and that setting is OFF by default.** `FormCompanion.cs:623` reads `PinnedDisplay`
+  only INSIDE the `if (Program.MyData.GetMultiscreen())` branch opened at `:615`, and
+  `AppSettingsStore.cs:276` defaults `MultiScreen = false`. Two doc blocks assert the opposite in
+  almost the same words — `FormCompanion.cs:1767-1773` and `CompanionsPaneControl.cs:503-506`: *"A pin
+  is deliberately stronger than 'Allow multiple screens': that setting only decides whether an
+  UNPINNED pet spawns on a random screen, whereas naming a monitor is an explicit instruction."* The
+  pin UI is shown whenever there are 2+ screens (`CompanionsPaneControl.cs:509-510`), so on default
+  settings pinning Hornet to screen 2 changes nothing: it spawns on the primary. Only the PUNITIVE
+  half works — `FormCompanion.cs:1951` honours the pin unconditionally when deciding NOT to relocate
+  off a monitor a fullscreen app has taken, so the pet hides instead of moving.
+  Fixing it means making the code match its own documented contract, which is a spawn-behaviour
+  change for anyone who has pinned a pet with multiscreen off, so it wants an owner decision rather
+  than a quiet edit.
+  CLOSES-WHEN: grep-absent src/dotNet/FormCompanion.cs "int pinned = PinnedDisplay;"
+
+- 📌 **CI runs two fewer gate steps than `run-gate.ps1`.** `tests/Test-BacklogClosingCriteria.ps1`
+  (`run-gate.ps1:168`) and `tests/companion-border-invariants.ps1` (`:173`) appear nowhere under
+  `.github/`. So a stale backlog closing criterion, a malformed `CLOSES-WHEN`, or a shipped companion
+  losing its taskbar-eligible border edge all land green on every pull request. This is the exact
+  split `build.yml`'s own comments claim to have closed twice (`:48-56`, `:93-103`), and the
+  closing-criteria check is precisely the one designed to fire "in the same gate run that proves the
+  fix works".
+  CLOSES-WHEN: grep-present .github/workflows/build.yml "Test-BacklogClosingCriteria"
+
+- 📌 **`PetEmitter` keeps three static mutable fields, so two concurrent `Emit` calls corrupt each
+  other.** `HubSpokes` (`:2062`, assigned `:225`, read `:1669`), `CollapsedSources` (`:533`) and
+  `ExpandedSetPieces` (`:2066`) are `private static` on a static class and reset INSIDE `Emit`. The
+  second conversion's `HubSpokes = spokes` replaces the list the first is still walking to build its
+  hub edges, so one pet's hub can emit edges to the other pet's animation ids.
+  ⚠ Its reachable path was closed the same day, from the other end: PetStudio now refuses a second
+  Import while one is converting (petstudio 1.1.11), and that guard came in because the same audit
+  found it deleting the first import's files. So this is currently defended by a caller, not by the
+  type — which is exactly the "defended by structure rather than by an assertion" shape this backlog
+  has had to correct before. `SoundBaker` documents its own single-threaded requirement
+  (`Engine.cs:168`); `PetEmitter` documents nothing.
+
+- 📌 **Remembrance blocks the UI thread for up to 3 s on the first options-pane open, on a premise
+  this repo measured false the same day.** `RemembranceModule.cs:506-509` does
+  `probe.Wait(TimeSpan.FromSeconds(3))` on a loopback `GET /api/tags` from inside the pane's `Load`,
+  justified at `:494-496` by *"a refused connection is immediate"*. Measured 2026-09-27 with the same
+  mechanism: a refused localhost connection burns **2005–2008 ms**. Bounded honestly — it fires at
+  most once per process and only while `summaryModelsCache` is empty, which is the first-run case for
+  every user who has not pressed "Find local summary models", and the summary feature is off by
+  default. Same fix as AiBrain 1.1.11: serve a cached answer and refresh behind it.
+
+- 📌 **Remembrance's stub transcript names a button that does not exist.** `Transcriber.cs:36`
+  tells the user to *use "Re-transcribe" in the Remembrance options*. Repo-wide grep for
+  `Re-transcribe|Retranscribe` returns that one line. The nearest real action is
+  `"Transcribe a WAV file…"` (`RemembranceModule.cs:649`), a file picker. This is the one sentence a
+  user reads on the only path where the feature has failed.
+
+- 📌 **PetStudio still walks the whole extracted tree on the UI thread.** `FindBundleRoot`
+  (`PetStudioWindow.cs:806-816`) does `Directory.EnumerateDirectories(root, "*", AllDirectories)` with
+  two `File.Exists` per hit, and it runs BEFORE the first `await` in `ImportSkinFromRootAsync`, so it
+  executes synchronously on the click. Its siblings were all moved off in 1.1.9 — the zip extraction
+  and `SkinLayout.Detect` both sit in `Task.Run` with comments saying why — and this one was missed.
+  No timing is quoted because none was measured; the defect is structural.
+
+- 📌 **`Test-MsiUpgradeSchedule.ps1`'s negative control accepts any exception as proof.**
+  `:110-119` catches into `$failure` and only checks `$null -eq $failure`, never the message. A COM
+  failure opening the mutated copy, a file-sharing error, or an unrelated throw all score as "the
+  boundary guard fired". `Test-StagingPathSafety.ps1:20-23` already carries the correction for this
+  exact defect — *"Every case names the message it expects … which is exactly how case 5 of
+  Test-AtomicPublish.ps1 was passing on the wrong exception"* — and it was never applied here. It
+  does still catch the core mutation, so it is weakened rather than dead.
+
+- 📌 **`New-ModulePublish.ps1:306,311` guards on `$LASTEXITCODE` after two `.ps1` calls that only
+  `throw`.** `New-ContentCatalog.ps1` has zero `exit` statements and `Test-ModulePublishFreshness.ps1`
+  signals all 17 of its failures by `throw`, so both `if ($LASTEXITCODE -ne 0)` branches are dead and
+  on success read whatever the last `git` call left. Bounded: `$ErrorActionPreference='Stop'` means a
+  callee throw still escapes, so what is lost is the named message. `run-gate.ps1:115-128` documents
+  and fixed this defect class for itself; this script was not swept.
+
+- 📌 **`EmitterSelfTest.cs:712-713` asserts a clamp that no longer exists.** It fails when
+  `launch < -15`, described as "jump launch was NOT clamped". There is no launch clamp:
+  `PetEmitter.BuildSpoke:1454` sets `vy0 = SolveJumpLaunchY(jumpSteps)` and discards the source
+  velocity, and that solver searches `JumpLaunchMinMag`(4)..`JumpLaunchMaxMag`(40), so −40 is a
+  legitimate answer. −15 tracks no constant any caller uses; the check passes only because the
+  fixture's step counts happen to land in range. The height assertion 45 lines below (`rise < 36 ||
+  rise > 60`, via `ArcRisePx`) is the correct form of the same idea.
+
+- 📌 **Two prose copies of the census disagree with the number the gate re-measures every run.**
+  `tools/ShimejiConvert/MAPPING.md:143` and `tests/run-gate.ps1:210-211` both say "91 actions: 53
+  Group1 / 32 Group2 / 6 Group3". `BundledConfSelfTest.cs:34` pins `54/31/6` and its own doc records
+  the move: *"It moved 53/32/6 -> 54/31/6 on 2026-08-28, when ClimbWall stopped being reported as
+  needing selfX/selfY."*
+
+- 📌 **`New-DeterministicPortableZip.ps1` carries a validation hook nothing calls, whose answer
+  would be discarded.** `$AdditionalStagedArchiveValidation` (`:26`) has three occurrences repo-wide,
+  all in that file; no caller supplies it, and `:250-251` invokes it as `$null = & $validator $path`,
+  so a validator returning `$false` is ignored — it would have to `throw` to stop a publish. Dead,
+  and unable to fail if revived naively.
+
+- 📌 **`Test-ContentCatalogIntegrity.ps1` checks membership both ways for companions and packs,
+  but not for modules.** `:116-138` builds `$diskCompanions`/`$missingCompanions` and the pack
+  equivalents; there is no `modules-dist\*.zip` vs `$catalog.modules` comparison, while the file's own
+  `.DESCRIPTION` claims membership is checked "in both directions". A zip present in `modules-dist/`
+  and absent from both manifests is invisible to every check.
+
+**Smaller, verified, grouped — re-audit 2026-09-27**
+
+- 📌 `src/dotNet/Plugins/ModuleHost.cs:114` dereferences `module.Info.Id` unguarded, inside the
+  same `try` that has already guarded `Info` for null twice (`:82-86`, `:108`) and after the module
+  was added to `_loaded` at `:111`. A third-party module with a null `Info` therefore lands in BOTH
+  `Modules` and `Failures`, with `alc.Unload()` requested underneath a module whose `Init` has already
+  registered panes and tray items. Not reachable with any in-repo module; a robustness hole in the
+  third-party path.
+- 📌 `src/dotNet/ContextMenus.cs:32` — `closeSheepMenuItem` is a static field written at `:323-329`
+  and nulled at `:624`, never read. Its four siblings all have readers. Can be a local.
+- 📌 `src/dotNet/Plugins/ModuleHost.cs:30` — `Loaded.Directory` is assigned at `:111` and never read.
+- 📌 `src/dotNet/FormCompanion.cs:630-633` — an empty `if (oldDisplayIndex != DisplayIndex) { }`
+  body, commented "all computed values could be wrong". `oldDisplayIndex` (`:617`) exists only to feed
+  it, so both are dead. `AdoptScreenUnderPet` (`:2243-2256`) is what the comment describes wanting.
+- 📌 `src/dotNet/StartUp.cs:1161` — `KillSheeps(bool exit)`: both call sites pass `true`
+  (`ProcessIcon.cs:339`, `ContextMenus.cs:609`), so the `if (exit)` branch at `:1183-1187` is dead. It
+  hides an asymmetry: with `false` the method would still `pi.Dispose()` and leave the app running
+  with no tray icon and no timer, which is BUG-001's "running but unreachable" state.
+- 📌 `src/Portable/Wpf/OptionsShell.cs:864` — `ManualResetEventSlim` is never disposed; the
+  worker's `catch (ObjectDisposedException)` at `:869` shows one was intended. Delayed handle release
+  rather than an unbounded leak, and only allocated when a custom notification sound is set. Note it
+  can only be disposed safely on the success path: disposing after a timeout races the abandoned
+  worker's `Set`.
+- 📌 `src/dotNet/StartUp.cs:1216-1224` — `TopMostSheeps` is the only `TopMost = true` site that
+  consults neither the fullscreen stand-down state nor a null slot; its four neighbours guard both.
+  Reached by a left-click on the tray icon (`ProcessIcon.cs:226`). The auditor could not demonstrate a
+  visible regression — a hidden companion is not un-hidden by `TopMost`, and `CheckFullScreen`
+  re-clears it each tick — so this is a defensive inconsistency, not a proven defect.
+- 📌 `modules/Remembrance/AudioDevices.cs:74` — `ForgetCachedDevices()` has no callers. It matters
+  only because the backlog entry that closed the device-caching item cites it as the escape hatch
+  ("`ForgetCachedDevices()` drops it explicitly"), and that safety property is not true of the shipped
+  code.
+- 📌 `modules/AgentFlow/AgentFlowModule.cs:2308` — `ResetCapabilityLogForSelfTest()` has no
+  callers, including the self-test it is named for. AgentFlow's five other `…ForSelfTest` seams all
+  have 3–6 references.
+- 📌 `tests/Invoke-SelfTests.ps1:149-154` — a `foreach` over `*.deps.json` that reports nothing
+  when the set is empty. The auditor could NOT confirm an input that produces such a folder, so this
+  is a gap to consider rather than a filed defect; a `$deps.Count -eq 0` failure would cost nothing.
+
+**Checked and REFUTED by the re-audit — do not re-file**
+
+- `SpriteBounds`'s cache keyed on `Image` alone, ignoring `transparencyKey` (`SpriteBounds.cs:28-36`).
+  Unreachable: `TransparencyKey` is only ever `Color.Magenta` or `Color.Empty`, each `Xml` owns its
+  own frame bitmaps, and every form sharing an `Xml` has the same transparency mode.
+- `AudioOutput.TryStart` leaving `MixerInputEnded` subscribed on an abandoned mixer
+  (`AudioOutput.cs:283-297`). The mixer is the PUBLISHER and is unreferenced after the failure, so the
+  handler roots nothing.
+- `FormSpeech` timers not unsubscribed in `Dispose` (`FormSpeech.cs:450-459`). Both are owned fields
+  and are disposed there; the subscriptions die with them.
+- `_netCts.Dispose()` while a download holds the token (`ModulesPaneControl.cs:405`,
+  `CompanionsPaneControl.cs:573`). `Cancel()` precedes `Dispose()` in both, the documented-safe order.
+- ~20 members that look dead and are not, all grepped and found alive, including
+  `SpriteFrameForDiagnostics`, `AddDebugInfoWindowOnly`, `SyncSheeps`, `GetNextSpawns`,
+  `CaptureScreenBounds`, `DeriveOnScreenMix`, `StopAllModuleSound`, `IsAtMaxPets`, `SpawnPreviewPet`,
+  `TryPlayAnimation`, `EscapeToBath` and `ReassertSequence`.
+- `PressBudget.TryPress`'s repeat arithmetic (permits exactly 3 identical presses, refuses the 4th,
+  matching its doc) and `CdpSession.Send`'s `RootElement.Clone()` inside a `using` (documented to
+  outlive its source document). Both chased hard and both correct.
+- `turn` being emitted unreachably after the no-locomotion fix: guarded correctly at
+  `PetEmitter.cs:200-201`, and set-piece steps cannot take that path because `ExpandSetPieces:2199`
+  gives even the last step a non-null `ChainNext`.
+
 **Checks that cannot fail (the category this repo keeps finding)**
 
 - ✅ **FIXED 2026-09-27.** `.github/workflows/build.yml` runs `tests\Test-ModuleSelfTests.ps1`,
