@@ -83,7 +83,11 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.1.9",   // 1.1.9: the local and cloud "Refresh models" actions raced. Both resume on a
+            Version = "1.1.10",  // 1.1.10: settings saves from the UI are bounded at 1.5s instead of the 10s
+                                 //         cross-session budget, so a hung second instance can no longer freeze
+                                 //         the settings window; and the tray AI toggle now says when a save
+                                 //         failed instead of silently reverting on the next launch.
+                                 // 1.1.9: the local and cloud "Refresh models" actions raced. Both resume on a
                                  //        pool thread and rebuilt the shared model lists and label map with no
                                  //        synchronisation, and a pane open read the same three from the UI
                                  //        thread. All three are guarded now.   // 1.1.8: the fullscreen release now unloads the model it actually loaded. The local
