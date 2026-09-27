@@ -387,6 +387,53 @@ try {
         }
     }
 
+    # n>1, PUBLISHED BESIDE THE NUMBER.
+    #
+    # A single settled delta from this harness is weak evidence in BOTH directions. Across identical
+    # configurations on one unchanged build the handle figure came out +82, -39, -19, +95, -18, -32
+    # and +1, while GDI and USER over those same runs sat at 0, 0, -6 and 2. Handles do not settle
+    # the way the other two do, even after the forced GC + WaitForPendingFinalizers + GC that BUG-004
+    # documents as the answer to exactly this. That asymmetry is how an afternoon went into bisecting
+    # a handle regression that did not exist -- and it equally means a slow real leak can hide inside
+    # the noise for several runs.
+    #
+    # The BOUND is deliberately left alone. Changing a pass criterion on a metric this noisy, without
+    # data to set the new one, is the shape of the mistake this text exists to describe. What changes
+    # is that the headline delta is no longer reported alone: the per-interval series ships with it,
+    # so a reader can see the spread the single number came out of.
+    $intervalSeries = @()
+    for ($i = 1; $i -lt $settled.Count; $i++) {
+        $intervalSeries += [pscustomobject][ordered]@{
+            FromCycle   = [int]$settled[$i - 1].cycle
+            ToCycle     = [int]$settled[$i].cycle
+            GdiObjects  = [int]$settled[$i].gdi - [int]$settled[$i - 1].gdi
+            UserObjects = [int]$settled[$i].user - [int]$settled[$i - 1].user
+            Handles     = [int]$settled[$i].handles - [int]$settled[$i - 1].handles
+        }
+    }
+    $medianOf = {
+        param([int[]]$values)
+        if ($values.Count -eq 0) { return $null }
+        $sorted = @($values | Sort-Object)
+        $mid = [int][Math]::Floor($sorted.Count / 2)
+        if ($sorted.Count % 2 -eq 1) { return $sorted[$mid] }
+        return [int][Math]::Round(($sorted[$mid - 1] + $sorted[$mid]) / 2)
+    }
+    $perInterval = [pscustomobject][ordered]@{
+        Intervals = $intervalSeries.Count
+        # A median needs three or more to mean anything. Below that this SAYS n=1 rather than
+        # dressing one observation up as a summary statistic, which is the whole complaint.
+        Confidence = $(if ($intervalSeries.Count -ge 3) {
+                'median of the per-interval deltas'
+            } else {
+                "n=$($intervalSeries.Count) -- treat as a HINT; repeat the run before acting on a surprise"
+            })
+        MedianGdiObjects  = (& $medianOf @($intervalSeries | ForEach-Object { $_.GdiObjects }))
+        MedianUserObjects = (& $medianOf @($intervalSeries | ForEach-Object { $_.UserObjects }))
+        MedianHandles     = (& $medianOf @($intervalSeries | ForEach-Object { $_.Handles }))
+        Series = $intervalSeries
+    }
+
     # Private bytes are NOT finalizer-bound in the same way and stay on the raw samples.
     if ($growth.PrivateBytes -gt $MaximumPrivateByteGrowth) {
         throw "Private-byte growth exceeded the bound: $($growth.PrivateBytes) > $MaximumPrivateByteGrowth."
@@ -405,7 +452,10 @@ try {
         Last = $last
         Growth = $growth
         SettledGrowth = $settledGrowth
-    } | ConvertTo-Json -Depth 5
+        # Ships WITH SettledGrowth, never instead of it: the point is that the headline delta is
+        # read next to the spread it came from.
+        SettledPerInterval = $perInterval
+    } | ConvertTo-Json -Depth 6
 }
 finally {
     $env:DESKTOP_AI_COMPANION_DATA_ROOT = $originalDataRoot
