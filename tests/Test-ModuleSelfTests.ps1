@@ -123,7 +123,20 @@ $problems = @()
 
 foreach ($id in $Covered) {
     $r = Invoke-ModuleSelfTest $id
-    $assertions = @($r.Lines | Where-Object { $_ -match 'PASS' }).Count
+    # ANCHORED ON THE ASSERTION SHAPE, not on the substring 'PASS'.
+    #
+    # This counted `$_ -match 'PASS'`, and the marker's own `RESULT=PASS` line matches that. So
+    # inside the elseif below $assertions was ALWAYS at least 1, the "reported PASS with no
+    # assertion lines" branch was unreachable for every possible input, and every count printed was
+    # inflated by one -- "1 assertion line" was the real zero.
+    #
+    # That guard is the one written specifically against "a check that ran nothing and reported
+    # success", in the file built to catch exactly that. It was that. Found by an audit the same
+    # night it was written.
+    #
+    # An assertion line is `PASS:` with the colon, optionally behind a `[module]` tag;
+    # `RESULT=PASS` has no colon and no longer counts.
+    $assertions = @($r.Lines | Where-Object { $_ -match '^\s*(\[[^\]]*\]\s*)?PASS:' }).Count
     if ($r.Result -ne 'PASS') {
         $problems += "$id : expected PASS, got $($r.Result)$(if ($r.Reasons.Count) { ' -- ' + ($r.Reasons -join '; ') })"
     }
