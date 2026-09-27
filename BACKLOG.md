@@ -873,13 +873,18 @@ survived a second check, minus the 14 fixed on the day in `e31c5bb`.
   covered by the `GetWindowRect` failure and the degenerate-rect test.
 **Optimisation, costs named rather than timed**
 
-- 📌 **A full XML DOM parse per companion card, per pane rebuild, on the UI thread.**
-  `src/Portable/Wpf/CompanionsPaneControl.cs:910-935` (`LoadPetHeaderIcon`, reached per card at `:269`).
-  `CompanionThumbnails.GetPng` caches the bundled zip, but its MISS path is not cached, and every imported
-  Shimeji skin, converted pet and locally authored pet misses — each costing a `File.ReadAllText` plus a
-  full `XDocument.Parse` of `animations.xml` (hornet is 406 KB, esheep64 158 KB). `Reload()` runs from the
-  constructor and after every Use/Add/Remove/Download/Uninstall, and the control is rebuilt on every pane
-  selection. `GetStats` in the same file keeps `_statsCache` for exactly this reason.
+- ✅ **FIXED 2026-09-27.** `_iconCache` mirrors `_statsCache` beside it — same lifetime, same key —
+  and `ForgetStats` clears both, because the icon comes out of the same rewritten `animations.xml` as
+  the counts and goes stale at the same moment. Forgetting one without the other would leave a card
+  showing the new name and counts beside the old picture.
+
+  Measured before fixing (warm, 20 reps, `ReadAllText` + `XDocument.Parse` + the icon lookup, which
+  is exactly what the miss path did): **esheep64 155 KB → 4.2 ms per card**, **pink_sheep 1133 KB
+  → 20.4 ms per card**. Per card, per rebuild, on the UI thread.
+
+  Misses are cached too, as a null value: a pet whose XML carries no icon, or whose folder has gone,
+  would otherwise re-parse its entire `animations.xml` on every rebuild forever — the expensive
+  case, cached for nothing.
 - 📌 **Remembrance enumerates the WASAPI endpoint list four times per options-pane open where two
   would do.** `RemembranceModule.cs:488-491` and `:680-681`, both from the same `Load` closure at
   `:609-632`: `RefreshDynamicOptions` calls `RenderDevices()` and `CaptureDevices()`, then `StatusLine`
