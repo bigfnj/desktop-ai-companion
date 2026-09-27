@@ -741,7 +741,7 @@ namespace DesktopAICompanion.RemembranceModule
                 + "  |  Whisper: " + (whisper ? "configured" : "not set up — use \"Set up Whisper for me…\"")
                 + "  |  summary: " + summary;
             if (System.Windows.Forms.SystemInformation.TerminalServerSession)
-                s += "  |  ⚠ Remote Desktop session: the machine's real mic and speakers are not presented here, so recording won't work. Run on the machine's own console. (Device dropdowns are read at startup; restart there to populate them.)";
+                s += "  |  ⚠ Remote Desktop session: the machine's real mic and speakers are not presented here, so recording won't work. Run on the machine's own console. (The device lists refresh every time this pane opens, so reopening it on the console is enough; no restart needed.)";
             else if (mics == 0)
                 s += "  |  ⚠ no microphone detected.";
             return s;

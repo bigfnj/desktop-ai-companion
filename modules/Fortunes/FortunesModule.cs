@@ -1215,7 +1215,10 @@ namespace DesktopAICompanion.FortunesModule
                 ms.Set("contentLevel", DisplayToLevel(v));
                 // Drop the superseded trio so a stale value can never be re-migrated over the new one.
                 ms.Set("spicyFortunes", "");
-                ms.Set("spicyTier", "");
+                // A `ms.Set("spicyTier", "")` sat here, justified as stopping "a stale value being
+                // re-migrated". Nothing ever wrote or read that key: MigrateContentLevel reads only
+                // spicyFortunes and spicyOnly, and spicyTier appeared exactly once in the whole repo --
+                // at this write. Clearing a key that never existed migrates nothing.
                 ms.Set("spicyOnly", "");
             }
             if (values.TryGetValue("noProfanity", out v) && bool.TryParse(v, out b)) ms.Set("noProfanity", b ? "true" : "false");
