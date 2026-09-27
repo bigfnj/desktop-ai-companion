@@ -83,7 +83,10 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.1.8",   // 1.1.8: the fullscreen release now unloads the model it actually loaded. The local
+            Version = "1.1.9",   // 1.1.9: the local and cloud "Refresh models" actions raced. Both resume on a
+                                 //        pool thread and rebuilt the shared model lists and label map with no
+                                 //        synchronisation, and a pane open read the same three from the UI
+                                 //        thread. All three are guarded now.   // 1.1.8: the fullscreen release now unloads the model it actually loaded. The local
                                  //        leg of the fallback ignored its argument and always passed the TEXT model,
                                  //        so after a cloud-primary fallback had loaded local llava:13b (~8 GB) the
                                  //        vision model kept its VRAM for the whole game.
