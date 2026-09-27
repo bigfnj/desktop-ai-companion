@@ -147,7 +147,12 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.4.8",   // 1.4.8: payload refresh only. Deletes NotifyBudget.Forget, which removed one
+            Version = "1.4.9",   // 1.4.9: test coverage, no behaviour change. A loopback fake CDP server now
+                                 //        drives Sweep end to end -- target discovery, the attach/evaluate/detach
+                                 //        handshake, and what a whole pass concludes -- which was previously
+                                 //        asserted only against recorded strings. Proven to catch the sawPanel
+                                 //        regression that turned the tray amber when the feature worked.
+                                 // 1.4.8: payload refresh only. Deletes NotifyBudget.Forget, which removed one
                                  //        announced key and had no callers; Retain supersedes it. No behaviour change.
                                  // 1.4.7: six fixes, and two of them meant approving never worked at all.
                                  //        ReadPort accepted an unquoted JSON number, which VS Code ignores, so
