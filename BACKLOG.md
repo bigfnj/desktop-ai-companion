@@ -781,14 +781,23 @@ survived a second check, minus the 14 fixed on the day in `e31c5bb`.
   Assert-True self-count is unchanged. `WebPLoader.cs:118` was the only such read in the repo.
   Mutation-tested both forms against HEAD's copy of the check: HEAD stayed green on WebPLoader (the
   hole) and caught Transcriber (already pinned), which is the argument for making it repo-wide.
-- 📌 **PetStudio runs the whole conversion on the WPF UI thread.**
-  `modules/PetStudio/PetStudioWindow.cs:667`, `:699`, `:720` call `ZipFile.ExtractToDirectory`,
-  `BundleConverter.ConvertBundle` and `ShimejiEngine.ConvertSkin` inline from the click handler. Named
-  costs: `SpriteSheetBuilder.Build` can run up to 8 full composite + PNG-encode + base64 passes over a
-  sheet as large as 4096x4096 before giving up on the 12 MiB budget, and with ffmpeg on PATH `SoundBaker`
-  spawns one ffmpeg per unique clip (30 s cap each, up to 64) plus one recursive `EnumerateFiles` of the
-  skin root per distinct clip name. `runtime-hardening-selftest.ps1:110-115` asserts the "never extract on
-  the UI thread" rule against `ModulesPaneControl.cs` only, so this site is outside every check.
+- ✅ **FIXED 2026-09-27 (petstudio 1.1.9).** The zip extraction, `SkinLayout.Detect`,
+  `BundleConverter.ConvertBundle` and `ShimejiEngine.ConvertSkin` all run under `Task.Run` now, with
+  the `out` parameters captured into locals; the editor, analysis and import-loss panel still update
+  on the UI thread after the await.
+
+  A re-entrancy guard comes with it, released in a `finally`. The window is responsive now, which
+  means it is also clickable — two conversions writing the editor and the loss panel at once is not
+  a state this window has an answer for, so a second Import is refused rather than queued. The
+  `finally` is the part that matters: a conversion that throws must not leave the window refusing
+  every later import.
+
+  The invariant that named `ModulesPaneControl.cs` only now covers `PetStudioWindow.cs`, and asserts
+  the WRAPPING rather than the presence of `Task.Run`: `ConvertSkin` and `ConvertBundle` have no
+  Async overload, so a check looking merely for `Task.Run` somewhere in the file would pass on a
+  version that wrapped something else and still converted inline. Mutation-tested both halves —
+  un-wrapping the extraction and un-wrapping the conversion each exit 1. Source-invariant count
+  138 → 139.
 - ✅ **FIXED 2026-09-27.** `build.ps1` keeps `#requires -Version 5`, because the ordinary build
   genuinely runs under either edition and that had to stay true. The floor now sits on the `-Zip`
   path alone, and it runs BEFORE the build rather than after it. `New-DeterministicPortableZip.ps1`
