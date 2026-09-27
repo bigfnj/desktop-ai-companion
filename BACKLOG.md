@@ -623,9 +623,19 @@ open-item blindness plus the bug-number drift.
   call.
 - 📌 `modules/AiBrain/engine/AiSettings.cs:384` — `Save()` uses the 10,000 ms cross-session budget;
   the bounded `SaveWithin` its own doc says "UI callers use" has exactly one caller, a self-test.
-- 📌 `modules/AiBrain/AiBrainModule.cs:904` and `:928` — the two "Refresh models" actions can be in
-  flight together (the host disables only the clicked button) and both mutate `_localModels`,
-  `_cloudModels` and `_modelIdByLabel` from pool threads with no synchronisation.
+- ✅ **FIXED 2026-09-27 (aibrain 1.1.9).** `_localModels`, `_cloudModels` and `_modelIdByLabel` are
+  guarded by `_modelsLock`. Each refresh holds it around "replace the list, then rebuild the options
+  from it", so that update is atomic rather than merely thread-safe in pieces; Monitor is reentrant,
+  so the finer locks in `FormatModelLabel` and `ResolveModelId` nest safely.
+
+  ⚠ `LoadPaneValues` deliberately does NOT hold the lock across its whole span. The first attempt
+  did, which put `VramStatusLine`'s blocking model query (up to ~2 s against a local Ollama) inside
+  the critical section, where a pane open would stall both refresh actions — a worse bug than the
+  race. It snapshots both lists under the lock and formats outside it.
+
+  No automated regression test, deliberately: reproducing the race needs two live endpoints and the
+  methods are private, and a source-text check that the fields "appear near a lock" is the kind that
+  cannot meaningfully fail. Verified by build (0 warnings) and `--aibrain-selftest` RESULT=PASS.
 ### Measured 2026-09-25: the positive-probability warning IS user-visible
 
 - ✅ **FIXED 2026-09-25 in content.** `Companions/pink_sheep/animations.xml` states 173
