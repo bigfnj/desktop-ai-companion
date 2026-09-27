@@ -622,16 +622,27 @@ open-item blindness plus the bug-number drift.
   attempted at the tail of a long session: it is core fall/rise physics, and verifying it needs
   several pets falling at once, which is not something a self-test can stage.
 
-- 📌 **`minHostVersion` is parsed, written to modules.json, then dropped from the catalog.**
-  `packaging/New-ContentCatalog.ps1:181-190` copies id/name/desc/version/url/sha256/bytes/permissions
-  and not `minHostVersion`; `grep -c minHostVersion catalog.json` is 0 against 5 in modules.json, and
-  `src/dotNet/RemoteCatalog.cs:42-53` has no such field, so a catalog carrying it would be ignored
-  anyway. AgentFlow declares `MinHostVersion = "1.2.0"`; every user still on 1.1.x is offered it in
-  the Modules pane, downloads the payload, and `ModuleHost.cs:79-86` refuses it at load.
-  `New-ModulePublish.ps1:128-133` carries the comment naming this outcome. Its first-publish branch
-  (`:218-224`) never sets the key, and nothing checks parity with source, which has already drifted
-  (`AiBrainModule.cs:140` declares "1.1.0"; the aibrain and reminder entries have no key).
+- ✅ **FIXED 2026-09-27, and half of this item had already gone stale.** `New-ContentCatalog.ps1`
+  copies `minHostVersion` now, `RemoteCatalog.cs` has the field and bounds it like `Version` beside
+  it, and `BuildAvailableRow` asks the SAME predicate the loader uses —
+  `ModuleHostRequirement.IsSatisfied` — so the pane and the loader cannot drift into disagreeing
+  about one module. An unrunnable module keeps its card and its permissions line; the Install button
+  is disabled and carries the reason ("Needs a newer app: needs host 1.2.0 or newer (this host is
+  1.1.4)"), because a greyed control with no explanation reads as a bug.
 
+  ⚠ **Stale half, not re-fixed because it is no longer true:** the item said "the aibrain and
+  reminder entries have no key" and that source had drifted. Measured 2026-09-27: all 7 entries in
+  `modules.json` carry the key and all 7 match their source declaration. Only the catalog COPY was
+  missing.
+
+  Absent `minHostVersion` stays supported — an empty requirement is satisfied by every host, so an
+  older catalog behaves exactly as before, and the helper is permissive for an unparseable host
+  version too. Checked that this does not disable Install for everyone: host `ProductVersion` is
+  `"1.2.5"`, parseable, and above agentflow's 1.2.0.
+
+  Three source invariants assert the BINDING rather than the call, because a file that asks
+  `IsSatisfied`, ignores the answer and sets `IsEnabled = true` would satisfy any presence check
+  while behaving exactly as before. Mutation-tested: "ignore the answer" and "never ask" both exit 1.
 ### VS Code setup, AgentFlow
 
 ### Smaller, verified, grouped
@@ -746,21 +757,32 @@ survived a second check, minus the 14 fixed on the day in `e31c5bb`.
   already handles the structurally identical ceiling case at `:140` and the wall case via
   `SynthesiseClimbIfNeeded`; `turn` got no equivalent. Bites hand-trimmed and single-pose skins, not the
   shipped corpus, which always carries a Walk.
-- 📌 **Two copies of the same `Has(blob, token)` helper disagree on case, so an action merely NAMED
-  with a capital "Cursor" is emitted as a gaze.** `ActionClassifier.cs:18` uses `StringComparison.Ordinal`;
-  `PetEmitter.cs:627` uses `OrdinalIgnoreCase`; both run over the same `SubtreeBlob` (which includes the
-  action's `Name`) with the same `"cursor"` literal. Measured: `classify` reports `LookAtCursor` as
-  Group1 with no cursor state seen, and the emitted XML still carries `<action>faceCursor</action>`, with
-  `0 dropped, 0 degraded` in the residue. Two knock-ons beyond the stray tag: `VariantFor` switches to the
-  last-unconditional-variant rule instead of `Animations[0]`, and `CollapseDirectionPairs` refuses to
-  merge it with an identical non-gaze sibling because `IsGaze` is in the match key. Whether any of the 31
-  shipped conversions hit this is unknown: the source confs are deliberately not in the repo.
-- 📌 **The dwebp 30 second timeout cannot fire for the case it exists to catch.**
-  `tools/ShimejiConvert.Engine/Shimeji/WebPLoader.cs:264-269` does
-  `p.StandardOutput.BaseStream.CopyTo(outBytes)` before `p.WaitForExit(30000)`, and the copy blocks until
-  stdout hits EOF, which for dwebp means process exit. A dwebp that hangs without closing stdout hangs
-  the converter permanently. Same site uses `p.Kill()` rather than `Kill(true)`. The hardening self-test
-  pins drain ORDER for three named files only, and its repo-wide loop checks encoding, never order.
+- ✅ **FIXED 2026-09-27 (petstudio 1.1.7).** `PetEmitter.Has` is `Ordinal` now, matching
+  `ActionClassifier.Has`. Ordinal is the correct reading rather than merely the consistent one: every
+  token either helper tests for is a case-sensitive Shimeji identifier (`activeIE`, `totalCount`,
+  `TargetX`, `Math.random`), and `cursor` comes from `mascot.environment.cursor`.
+
+  Covered by a new synthetic action in the emitter self-test, `RestNearCursor` — capital C in the
+  name, no condition, no expression, no reference to `mascot.environment`, and its own art so a
+  direction collapse cannot merge it into a neighbour and hide the answer. The existing gaze cases
+  test the true positive; nothing tested the false one. Positive control run BEFORE the fix: *"FAIL
+  an action was tagged faceCursor for having "Cursor" in its NAME, with no cursor condition
+  anywhere"*, exit 1. After: SELFTEST PASS, and `verify` over all 54 shipped companions unchanged —
+  0 invalid, 0 round-trip failures, the same 7 hand-authored unreachable. The open question this item
+  raised ("whether any of the 31 shipped conversions hit this") is therefore answered for the
+  OUTPUT: nothing shipped changes.
+- ✅ **FIXED 2026-09-27 (petstudio 1.1.7).** The stdout read is `CopyToAsync` with a bounded
+  wait, then a short second bound for teardown once stdout is at EOF, and `Kill(true)` takes the tree
+  to match `Engine.cs`. Exactly the defect fixed the same night in `ContentCatalogAssets.ps1`: a
+  synchronous drain blocks until the child exits, so any `WaitForExit(timeout)` after it is
+  unreachable until the thing it was meant to bound has already resolved itself.
+
+  The check that should have caught it was pinned to three named files and this was the fourth site,
+  so the repo-wide redirect loop now ALSO bans synchronous reads of a redirected stream
+  (`.ReadToEnd()` and `.BaseStream.CopyTo(`), folded into the existing offender list so the
+  Assert-True self-count is unchanged. `WebPLoader.cs:118` was the only such read in the repo.
+  Mutation-tested both forms against HEAD's copy of the check: HEAD stayed green on WebPLoader (the
+  hole) and caught Transcriber (already pinned), which is the argument for making it repo-wide.
 - 📌 **PetStudio runs the whole conversion on the WPF UI thread.**
   `modules/PetStudio/PetStudioWindow.cs:667`, `:699`, `:720` call `ZipFile.ExtractToDirectory`,
   `BundleConverter.ConvertBundle` and `ShimejiEngine.ConvertSkin` inline from the click handler. Named
@@ -893,15 +915,18 @@ survived a second check, minus the 14 fixed on the day in `e31c5bb`.
   invariants available are `<= MaximumCandidates` (512) and `<= LastBandCount`, and the self-test
   pool is 131 lines, so the cap never applies and neither could fail. Closing a dead-code item by
   adding a check that cannot fail trades one defect for a worse one.
-- 📌 **`PetEmitter`'s `roundUp: true` branch is unreachable and its doc describes a caller that does
-  not exist.** `:2588-2597`; all four call sites pass `false` (`:1264`, `:1356` via the 3-arg overload that
-  hard-codes it at `:2581`, `:1489`, and `tools/ShimejiConvert/Program.cs:1084`). The `<param>` doc says
-  "Used for rests, where undershooting is the thing that reads as wrong", and the rest call site passes
-  `false` with a comment that contradicts it. Same family as the three deletions in `1b65d64`.
-- 📌 **`FormCompanion.cs:1983`'s `if (rctO.Top == 0 && rctO.Bottom == 0) return false;` is
-  unreachable** — the guard eight lines above returns false when `rctO.Bottom <= rctO.Top`, which subsumes
-  it.
-
+- ✅ **FIXED 2026-09-27 (petstudio 1.1.7).** Collapsed to one method with nearest-rounding.
+  The doc was worse than the dead branch: its `<param>` claimed `roundUp` was "used for rests, where
+  undershooting is the thing that reads as wrong", while the rest call site passed `false` under a
+  comment saying the opposite — "nearest rather than up, so a long performance lands inside the
+  9-12s band instead of overshooting". Documentation describing a policy the code had decided
+  against, for a caller that did not exist. The decision is now recorded in a `<remarks>` so the
+  parameter is not reintroduced. Build 0 warnings; SELFTEST PASS; all 54 companions verify
+  unchanged.
+- ✅ **FIXED 2026-09-27.** Deleted. Confirmed unreachable before removal: the check eight lines
+  above returns false whenever `rctO.Bottom <= rctO.Top`, and `0 <= 0` satisfies that, so a
+  zero-height rect never reached the line. The closed-window case its comment described is already
+  covered by the `GetWindowRect` failure and the degenerate-rect test.
 **Optimisation, costs named rather than timed**
 
 - 📌 **A full XML DOM parse per companion card, per pane rebuild, on the UI thread.**
