@@ -624,9 +624,22 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             return true;
         }
 
+        /// <summary>
+        /// Ordinal, matching <c>ActionClassifier.Has</c>. These two run over the SAME SubtreeBlob looking
+        /// for the same lowercase tokens, and they disagreed: this one was OrdinalIgnoreCase. The blob
+        /// includes the action's Name, so an action merely CALLED something with "Cursor" in it was
+        /// emitted as a gaze while the classifier reported no cursor state. Beyond the stray
+        /// <c>faceCursor</c> tag, <c>VariantFor</c> then switches to the last-unconditional-variant rule
+        /// instead of Animations[0], and <c>CollapseDirectionPairs</c> refuses to merge it with an
+        /// identical non-gaze sibling because IsGaze is part of the match key.
+        ///
+        /// Ordinal is the correct reading rather than merely the consistent one: every token tested for
+        /// here and in the classifier is a case-sensitive Shimeji identifier (activeIE, totalCount,
+        /// TargetX, Math.random), and "cursor" comes from mascot.environment.cursor.
+        /// </summary>
         private static bool Has(string blob, string needle)
         {
-            return blob != null && blob.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0;
+            return blob != null && blob.IndexOf(needle, StringComparison.Ordinal) >= 0;
         }
 
         /// <summary>

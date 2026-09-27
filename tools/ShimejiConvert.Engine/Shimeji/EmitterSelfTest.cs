@@ -33,6 +33,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 { "/mn.png", Solid(40, 60, Color.FromArgb(255, 170, 235, 170)) },
                 { "/g1.png", Solid(40, 60, Color.FromArgb(255, 140, 210, 150)) },
                 { "/g2.png", Solid(40, 60, Color.FromArgb(255, 120, 190, 130)) },
+                // For the action whose NAME contains "Cursor" but whose behaviour has nothing to do with
+                // one. Its own art, so a direction collapse cannot merge it into a neighbour and hide the
+                // answer.
+                { "/nc.png", Solid(40, 60, Color.FromArgb(255, 90, 160, 110)) },
                 { "/t.png", Solid(40, 60, Color.FromArgb(255, 255, 120, 120)) },
                 { "/c1.png", Solid(40, 60, Color.FromArgb(255, 120, 255, 255)) },
                 { "/c2.png", Solid(40, 60, Color.FromArgb(255, 100, 235, 235)) },
@@ -909,6 +913,28 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                         failures.Add("a plain rest was tagged faceCursor, so faceCursor is being applied by frame rather than by action");
                 }
 
+                // NAME IS NOT EVIDENCE. PetEmitter.Has matched case-insensitively while its opposite number
+                // in ActionClassifier used Ordinal, and both run over the same SubtreeBlob -- which includes
+                // the action's Name -- looking for the same lowercase "cursor". So an action merely CALLED
+                // something with "Cursor" in it was emitted as a gaze while the classifier reported no cursor
+                // state, and the stray tag was the least of it: VariantFor switches to the
+                // last-unconditional-variant rule, and CollapseDirectionPairs refuses to merge it with an
+                // identical non-gaze sibling because IsGaze is part of the match key.
+                //
+                // Ordinal is the right reading, and consistently so: every other token the classifier tests
+                // for is a case-sensitive Shimeji identifier -- activeIE, totalCount, TargetX, Math.random --
+                // and "cursor" comes from mascot.environment.cursor.
+                XmlData.AnimationNode namedNotGaze = FindAnimationNamed(r, "RestNearCursor");
+                if (namedNotGaze == null)
+                {
+                    failures.Add("the cursor-NAMED plain rest emitted nothing, so the case below is untested");
+                }
+                else if (namedNotGaze.Sequence != null
+                         && string.Equals(namedNotGaze.Sequence.Action, "faceCursor", StringComparison.Ordinal))
+                {
+                    failures.Add("an action was tagged faceCursor for having \"Cursor\" in its NAME, with no cursor condition anywhere");
+                }
+
                 // The gaze whose art nothing else uses. Its only route into the sheet is the gaze arm of
                 // PosesToComposite, so this is the assertion that fails when gaze poses stop being composited.
                 XmlData.AnimationNode lonelyGaze = FindAnimationNamed(r, "StandAndWatchMouse");
@@ -1570,6 +1596,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     <Action Name=""StandAndWatchMouse"" Type=""Stay"" BorderType=""Floor"">
       <Animation Condition=""#{mascot.environment.cursor.y &lt; 100}""><Pose Image=""/g1.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""250"" /></Animation>
       <Animation><Pose Image=""/g2.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""250"" /></Animation>
+    </Action>
+    <!-- NAMED for the cursor, but with nothing cursor-shaped about it: no condition, no expression, no
+         reference to mascot.environment. It must convert as an ordinary floor rest. The gaze test is
+         whether an action READS cursor state, and the action's own display name is not evidence of that.
+         Capital C on purpose: that is the character the two Has() helpers disagreed about. -->
+    <Action Name=""RestNearCursor"" Type=""Stay"" BorderType=""Floor"">
+      <Animation><Pose Image=""/nc.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""250"" /></Animation>
     </Action>
     <Action Name=""ThrowIe"" Type=""Embedded"" Class=""com.group_finity.mascot.action.ThrowIE"" InitialVX=""32"">
       <Animation><Pose Image=""/t.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""40"" /></Animation>
