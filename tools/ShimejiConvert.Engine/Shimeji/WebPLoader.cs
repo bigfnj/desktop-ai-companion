@@ -115,11 +115,27 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 // Drain stderr on another thread so a chatty decoder can never deadlock the stdout read.
                 Task<string> err = p.StandardError.ReadToEndAsync();
                 var outBytes = new MemoryStream();
-                p.StandardOutput.BaseStream.CopyTo(outBytes);
-                if (!p.WaitForExit(30000))
+
+                // BOUND THE READ, NOT ONLY THE WAIT. This was a synchronous CopyTo, which blocks until
+                // stdout reaches EOF -- and for dwebp, EOF means the process exited. So the copy had to
+                // finish before WaitForExit(30000) was reached at all, which put the timeout after the
+                // only thing it could usefully bound. A dwebp that hung WITHOUT closing stdout hung the
+                // converter permanently, and the 30 seconds this line exists for never applied to it.
+                const int TimeoutMs = 30000;
+                Task copy = p.StandardOutput.BaseStream.CopyToAsync(outBytes);
+                if (!copy.Wait(TimeoutMs))
                 {
-                    try { p.Kill(); } catch { }
+                    // Kill(true) takes the tree, matching Engine.cs. dwebp spawns nothing today, but a
+                    // killed parent leaving a child holding the pipe is how this fix quietly comes undone.
+                    try { p.Kill(true); } catch { }
                     throw new InvalidOperationException("dwebp timed out decoding " + webpPath);
+                }
+                // stdout is at EOF here, so the process is already finishing: this second bound covers
+                // teardown, not work, which is why it is short rather than another 30 seconds.
+                if (!p.WaitForExit(5000))
+                {
+                    try { p.Kill(true); } catch { }
+                    throw new InvalidOperationException("dwebp timed out exiting after decoding " + webpPath);
                 }
                 if (p.ExitCode != 0)
                 {

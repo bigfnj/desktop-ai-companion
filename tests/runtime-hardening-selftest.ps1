@@ -115,6 +115,25 @@ foreach ($file in Get-ChildItem -LiteralPath $repoRoot -Recurse -Filter *.cs -Fi
     # initialisers, so this adds no work now. It stops being latent the first time anyone writes the
     # other form -- which is the form ContentCatalogAssets.ps1 uses, in PowerShell, where nothing
     # scans it at all.
+    # DRAIN ORDER, REPO-WIDE. Three named files had this pinned individually; nothing asserted it for
+    # the rest, and the fourth site was exactly where the defect was. A SYNCHRONOUS read of a
+    # redirected stream blocks until that stream hits EOF, which for a child process means it exited
+    # -- so any WaitForExit(timeout) after one is unreachable until the thing it was meant to bound
+    # has already resolved itself. WebPLoader.cs did `StandardOutput.BaseStream.CopyTo(...)` before
+    # `WaitForExit(30000)`, so a dwebp that hung without closing stdout hung the converter forever and
+    # the 30 seconds never applied. Async reads (ReadToEndAsync, CopyToAsync) do not have the problem,
+    # and every other site in the repo already used them.
+    #
+    # Two forms, because those are the two the repo actually uses; a sync ReadLine loop would slip
+    # through and is worth adding the day someone writes one.
+    foreach ($syncRead in [regex]::Matches($text,
+            'Standard(?:Output|Error)\s*\.\s*(?:BaseStream\s*\.\s*CopyTo\(|ReadToEnd\(\))')) {
+        $line = ($text.Substring(0, $syncRead.Index) -split "`n").Count
+        $redirectOffenders += ("$relative`:$line reads a redirected stream SYNCHRONOUSLY " +
+            "($($syncRead.Value.Trim())), which blocks until the child exits and makes any " +
+            'WaitForExit timeout after it unreachable -- use ReadToEndAsync/CopyToAsync')
+    }
+
     $declaredRedirects = [regex]::Matches($text, 'RedirectStandard(Output|Error)\s*=\s*true').Count
     if ($declaredRedirects -gt $coveredRedirects) {
         $redirectOffenders += ("$relative`: $($declaredRedirects - $coveredRedirects) redirect " +
