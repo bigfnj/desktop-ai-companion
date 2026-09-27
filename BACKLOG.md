@@ -703,14 +703,19 @@ survived a second check, minus the 14 fixed on the day in `e31c5bb`.
   a hazard that could not occur.
 **Converter and build**
 
-- 📌 **A skin with no `Type="Move"` action always fails the converter's own acceptance bar.**
-  `tools/ShimejiConvert.Engine/Emit/PetEmitter.cs:186` emits the synthesised `turn` unconditionally, and
-  `:1567` is its only inbound edge, guarded by `if (loco)`. `ConversionResult.Accepted` requires
-  `Graph.Unreachable.Count == 0`. Measured by the audit on a three-action fixture: `unreachable=1`
-  (`turn`), `accepted=False`, CLI exit 1, on a pet that is otherwise valid and playable. The emitter
-  already handles the structurally identical ceiling case at `:140` and the wall case via
-  `SynthesiseClimbIfNeeded`; `turn` got no equivalent. Bites hand-trimmed and single-pose skins, not the
-  shipped corpus, which always carries a Walk.
+- ✅ **FIXED 2026-09-27 (petstudio 1.1.8).** `turn` is added to the name set and built as a node
+  only when some spoke is locomotion, and both sites are gated together — emitting the node while
+  leaving it out of the name set would be the same unreachable-state defect from the other direction.
+  Fixed the way the emitter already handles the structurally identical ceiling case at `:140`, which
+  clears `ceilingSpokes` when nothing will climb: do not emit a region nothing can enter.
+
+  Covered by a second fixture, `NoLocomotionActionsXml` — three actions, none of them
+  `Type="Move"`. The main fixture could not catch this (every shipped pet carries a Walk), which is
+  exactly why it needed one of its own. Positive control with the fix reverted and rebuilt: *"a skin
+  with no Move action left unreachable animations: 7"*, *"was not accepted, so a valid playable pet
+  fails conversion"*, *"still emitted a `turn` animation"*, exit 1. With the fix, SELFTEST PASS.
+  Shipped output unchanged: all 54 companions still verify with 0 invalid, 0 round-trip failures and
+  the same 7 hand-authored unreachable.
 - ✅ **FIXED 2026-09-27 (petstudio 1.1.7).** `PetEmitter.Has` is `Ordinal` now, matching
   `ActionClassifier.Has`. Ordinal is the correct reading rather than merely the consistent one: every
   token either helper tests for is a case-sensitive Shimeji identifier (`activeIE`, `totalCount`,
