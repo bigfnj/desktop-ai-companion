@@ -21,8 +21,13 @@
 # text asset on commit (.gitattributes: * text=auto eol=lf).
 # $RelPath must use FORWARD slashes: it is handed to `git cat-file blob HEAD:<path>`, which does not
 # accept backslashes and fails silently into the fallback below if given them.
-function Get-CatalogAsset([string]$RepoRoot, [string]$RelPath, [string]$FullPath) {
+# $TimeoutMs exists so the timeout path below is REACHABLE in a test. A 60-second default cannot be
+# provoked in a gate, and an error path nobody has ever executed is a guess, not a safeguard.
+function Get-CatalogAsset([string]$RepoRoot, [string]$RelPath, [string]$FullPath, [int]$TimeoutMs = 60000) {
     $bytes = $null
+    $timedOut = $false
+    $process = $null
+    $memory = $null
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = 'git'
@@ -32,14 +37,60 @@ function Get-CatalogAsset([string]$RepoRoot, [string]$RelPath, [string]$FullPath
         $psi.RedirectStandardError = $true
         $psi.CreateNoWindow = $true
         $process = [System.Diagnostics.Process]::Start($psi)
+
+        # BOTH PIPES READ CONCURRENTLY, AND BOTH READS BOUNDED.
+        #
+        # This used to copy stdout to EOF, then read stderr, then WaitForExit with no timeout. Two
+        # distinct hangs live in that order. A child that fills its stderr pipe (~4 KiB) blocks
+        # writing, so it never closes stdout, so the copy never returns and the stderr read that
+        # would have unblocked it is never reached -- the classic two-pipe deadlock. Separately, a
+        # child that simply stalls writes nothing at all, so the COPY blocks first and the unbounded
+        # WaitForExit was never even the statement that hung.
+        #
+        # Neither has fired here, and the reason is worth naming because it is not a property this
+        # file controls: git cat-file's diagnostics are one short line, and a local object read does
+        # not stall. A git that hangs on a lock, a stalled filesystem, or a scanner holding the
+        # objects directory would all arrive as a gate that stops dead on one of ~219 assets with
+        # nothing said about which. Async both, bound both, name the asset.
         $memory = New-Object System.IO.MemoryStream
-        $process.StandardOutput.BaseStream.CopyTo($memory)
-        [void]$process.StandardError.ReadToEnd()
-        $process.WaitForExit()
-        if ($process.ExitCode -eq 0) { $bytes = $memory.ToArray() }
+        $stdout = $process.StandardOutput.BaseStream.CopyToAsync($memory)
+        $stderr = $process.StandardError.ReadToEndAsync()
+
+        if ($stdout.Wait($TimeoutMs) -and $process.WaitForExit($TimeoutMs)) {
+            [void]$stderr.Wait(1000)
+            if ($process.ExitCode -eq 0) { $bytes = $memory.ToArray() }
+        }
+        else {
+            try { $process.Kill() } catch { }
+            $timedOut = $true
+        }
     }
     catch {
         $bytes = $null
+    }
+    finally {
+        # Disposed on every path, including the throw below. This is correctness, NOT a leak fix, and
+        # the distinction is measured rather than assumed: the audit that filed this claimed ~219
+        # leaked handles per gate run, and that is wrong. Sampling DURING 400 real calls under 5.1,
+        # before the change: peak growth +69, end of loop +28, settled -79 (below its own baseline),
+        # never more than 5 git.exe objects live at once. Handle growth was already bounded, because
+        # the finalizer comfortably keeps up. After: +30 / +7 / -21 / 4 -- better on every reading,
+        # but these are single runs of a metric this repo has already documented as noisy, so read
+        # them as "bounded either way", not as a 2x win. What deterministic disposal buys is not a
+        # smaller number: it is that the release no longer
+        # DEPENDS on a GC that a short-lived script is not obliged to run.
+        if ($null -ne $memory) { $memory.Dispose() }
+        if ($null -ne $process) { $process.Dispose() }
+    }
+
+    # Thrown OUTSIDE the catch deliberately. A timeout must NOT fall through to the worktree fallback
+    # below: for a binary asset that path CR-strips its way to a plausible, wrong hash -- the exact
+    # failure documented there -- and a catalog silently built from a wrong hash is worse than one
+    # that refused to build. The fallback is for "not committed yet", never for "could not read".
+    if ($timedOut) {
+        throw ("git cat-file did not return within ${TimeoutMs}ms for '$RelPath'. " +
+               'Refusing to fall back to the working-tree bytes, which would hash a different ' +
+               'thing from what raw.githubusercontent.com serves.')
     }
 
     # Which source answered, so a CALLER can refuse the fallback. The generator needs it -- a
