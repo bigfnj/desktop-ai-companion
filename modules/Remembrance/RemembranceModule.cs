@@ -48,7 +48,10 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "1.0.12",  // 1.0.12: the Remote Desktop warning no longer tells the user to restart.
+            Version = "1.0.13",  // 1.0.13: one WASAPI enumeration per options-pane open instead of four, and
+                                 //         the device COUNT in the status line now comes from the same snapshot
+                                 //         as the dropdowns, so the two can no longer disagree.
+                                 // 1.0.12: the Remote Desktop warning no longer tells the user to restart.
                                  //         The device lists have refreshed on every pane open since
                                  //         RefreshDynamicOptions moved into Load; reopening is enough.  // 1.0.11: closing the app while recording no longer loses the recording. Every
                                   //         part of Stop ran inside a Task.Run nothing waited for, so the process
