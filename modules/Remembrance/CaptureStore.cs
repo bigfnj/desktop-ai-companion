@@ -113,7 +113,41 @@ namespace DesktopAICompanion.RemembranceModule
             string lower = fileName.ToLowerInvariant();
             if (insideCaptureFolder)
                 return lower == "recording.wav" || (lower.StartsWith("snap") && lower.EndsWith(".png"));
-            return lower.EndsWith(".wav") || (lower.Contains(" - snap") && lower.EndsWith(".png"));
+            return lower.EndsWith(".wav")
+                || (lower.Contains(" - snap") && lower.EndsWith(".png"))
+                || IsRootSnapshotName(lower);
+        }
+
+        /// <summary>
+        /// The standalone snapshot: "snap &lt;yyyy-MM-dd HH-mm-ss&gt;.png", written to the ROOT by the
+        /// hotkey when no recording is in flight (RemembranceModule.TakeSnapshot's else branch).
+        ///
+        /// It was purged by nothing. The root gate wanted " - snap", which is the prefix used only when a
+        /// recording IS in flight and folder-per-capture is off, so a snapshot taken on its own -- the
+        /// ordinary way to use that hotkey -- sat on disk forever, against a 72-hour retention the module
+        /// header and the transcript stub both promise the user. A privacy defect rather than a disk one:
+        /// these are captures of every monitor.
+        ///
+        /// MATCHED BY SHAPE, and that is the whole point of doing it here rather than loosening the
+        /// prefix test. This method decides what gets DELETED out of a folder the user chose --
+        /// storageLocation is free text with a folder picker, and PurgeOneDirectory's header warns it may
+        /// reasonably be Documents or Pictures -- so "snapshot of my cat.png" must not qualify. Only the
+        /// exact stamp this module writes does.
+        /// </summary>
+        internal static bool IsRootSnapshotName(string lowerFileName)
+        {
+            const string Prefix = "snap ";
+            const string Suffix = ".png";
+            if (string.IsNullOrEmpty(lowerFileName)) return false;
+            if (!lowerFileName.StartsWith(Prefix, StringComparison.Ordinal)) return false;
+            if (!lowerFileName.EndsWith(Suffix, StringComparison.Ordinal)) return false;
+            string stamp = lowerFileName.Substring(
+                Prefix.Length, lowerFileName.Length - Prefix.Length - Suffix.Length);
+            // Exactly the format TakeSnapshot writes, parsed rather than pattern-matched.
+            DateTime ignored;
+            return DateTime.TryParseExact(
+                stamp, "yyyy-MM-dd HH-mm-ss",
+                CultureInfo.InvariantCulture, DateTimeStyles.None, out ignored);
         }
 
         // Only the recorded MEDIA is ephemeral. The written record is permanent: it is the thing worth

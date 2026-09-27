@@ -647,6 +647,9 @@ namespace DesktopAICompanion.PetStudioModule
 
         private async void ImportShimeji()
         {
+            // BEFORE the dialog. Refusing after it would open a file picker only to throw the
+            // answer away, which reads as the app ignoring the click.
+            if (_importing) { SetStatus("Still converting the last skin…"); return; }
             string root;
             using (var dlg = new System.Windows.Forms.FolderBrowserDialog())
             {
@@ -669,6 +672,15 @@ namespace DesktopAICompanion.PetStudioModule
                 InitialDirectory = InitialSkinDir(),
             };
             if (dlg.ShowDialog(this) != true) return;
+            // BEFORE CleanupExtracted, and that ordering is the whole point. The guard used to
+            // live one call further in, at the top of ImportSkinFromRootAsync -- so a second
+            // Import ran CleanupExtracted FIRST, recursively deleting the temp tree the in-flight
+            // conversion was still reading from, and only then refused to start. The user lost the
+            // first import to an opaque IO error and kept an orphaned temp directory.
+            //
+            // It only became reachable when the conversion moved off the UI thread: a responsive
+            // window is one you can click again.
+            if (_importing) { SetStatus("Still converting the last skin…"); return; }
             try
             {
                 RememberSkinDir(Path.GetDirectoryName(dlg.FileName));
@@ -699,6 +711,8 @@ namespace DesktopAICompanion.PetStudioModule
         /// dialog and (later) a catalog hand-off that downloads a raw skin to a temp folder.</summary>
         internal async Task ImportSkinFromRootAsync(string root)
         {
+            // A BACKSTOP, not the only guard. Both entry points refuse earlier, before touching
+            // the filesystem; this one covers any future caller that reaches here directly.
             if (_importing) { SetStatus("Still converting the last skin…"); return; }
             _importing = true;
             try

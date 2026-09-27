@@ -1228,6 +1228,30 @@ namespace DesktopAICompanion.RemembranceModule
             check("summaries are NEVER purged", !CaptureStore.IsEphemeral(@"c:\x\recording.summary.txt"));
             check("an unknown file is left alone", !CaptureStore.IsEphemeral(@"c:\x\notes.docx"));
 
+            // BOTH GATES, not just IsEphemeral. PurgeOneDirectory requires IsEphemeral AND
+            // NamesThisModuleWrites, and until 2026-09-27 the second had no assertion anywhere in the
+            // repo. That is exactly how the standalone snapshot went unpurged for so long: IsEphemeral
+            // says yes to it -- the fixture above even uses "snap 1.png" -- while the root gate said no,
+            // so the promise of a 72-hour retention quietly did not cover the ordinary way to use the
+            // snapshot hotkey.
+            check("a root snapshot from the hotkey IS ours to purge",
+                CaptureStore.NamesThisModuleWrites("snap 2026-09-27 12-00-00.png", false));
+            check("a snapshot inside a capture folder IS ours to purge",
+                CaptureStore.NamesThisModuleWrites("snap 1.png", true));
+            check("a flat-mode snapshot IS ours to purge",
+                CaptureStore.NamesThisModuleWrites("sprint review - snap 1.png", false));
+            check("a recording IS ours to purge",
+                CaptureStore.NamesThisModuleWrites("sprint review.wav", false));
+            // THE OTHER DIRECTION, and it is the one that matters most: storageLocation is free text
+            // with a folder picker, so this list decides what gets deleted out of a folder the user
+            // chose. A near-miss must NOT qualify.
+            check("a user's own png that merely starts with 'snap' is NOT ours",
+                !CaptureStore.NamesThisModuleWrites("snapshot of my cat.png", false));
+            check("'snap ' followed by something that is not a timestamp is NOT ours",
+                !CaptureStore.NamesThisModuleWrites("snap holiday photo.png", false));
+            check("a transcript is never ours to purge",
+                !CaptureStore.NamesThisModuleWrites("sprint review.transcript.txt", false));
+
             string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
                 "dp-remembrance-selftest-" + Guid.NewGuid().ToString("N").Substring(0, 8));
             try
