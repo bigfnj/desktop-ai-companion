@@ -885,12 +885,19 @@ survived a second check, minus the 14 fixed on the day in `e31c5bb`.
   Misses are cached too, as a null value: a pet whose XML carries no icon, or whose folder has gone,
   would otherwise re-parse its entire `animations.xml` on every rebuild forever — the expensive
   case, cached for nothing.
-- 📌 **Remembrance enumerates the WASAPI endpoint list four times per options-pane open where two
-  would do.** `RemembranceModule.cs:488-491` and `:680-681`, both from the same `Load` closure at
-  `:609-632`: `RefreshDynamicOptions` calls `RenderDevices()` and `CaptureDevices()`, then `StatusLine`
-  calls both again purely to count them. Each constructs an `MMDeviceEnumerator`, enumerates active
-  endpoints and reads `FriendlyName` off every device's property store, on the UI thread.
+- ✅ **FIXED 2026-09-27 (remembrance 1.0.13) — one enumeration, not the two this entry asked for.**
+  A short snapshot behind both accessors means the four call sites inside one `Load` closure share a
+  single enumeration per flow.
 
+  No speed figure is quoted, because none was measured: the claim here is a COUNT (four calls become
+  one per 1500 ms window), which is structural and checkable by reading the code, not a timing
+  saving.
+
+  It also closes a consistency bug the entry did not mention: the dropdown options and the
+  "devices: N output, M mic" count came from SEPARATE enumerations, so a device appearing or
+  disappearing between them produced a status line that disagreed with the list directly above it.
+  The window is short on purpose — a reopened pane must not show a stale list after a headset is
+  plugged in — and `ForgetCachedDevices()` drops it explicitly.
 ### Filed 2026-09-25 — the leak soak's verdict depends on its duration
 
 - ✅ **FIXED 2026-09-27: the bound is a RATE now.** `MaximumHandleGrowth` and its two siblings are
