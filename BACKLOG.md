@@ -863,24 +863,36 @@ survived a second check, minus the 14 fixed on the day in `e31c5bb`.
   the timeout path is REACHABLE in a test, because an error path nobody has executed is a guess.
 **Dead code, verified across `src/`, `modules/` and `tools/`**
 
-- 📌 **`src/dotNet/WindowTheme.cs` is ~140 dead lines.** Only `IsDark()` (`:46`) has a caller, from
-  `WpfTheme.cs:42`. `Apply`, `ApplyTitleBar`, `ThemeTree`, `ThemeControl`, `DarkenNativeControl`, both
-  P/Invokes and six of the seven colour constants have none — residue of the WinForms dialogs retired in
-  S5b-3. Also dead: `CompanionHost.SpeechSourceModuleIds` (`:430-439`, one repo-wide hit, its own
-  declaration), the two-argument `ProcessIcon.TaskbarWatcher` overload (`:396`), `LocalData.GetScale()`
-  (`:68`), `LocalData.GetPetSizeLevel(string)` (`:195`), `LocalData.GetEffectivePetScaleFactor(string)`
-  (`:215`), the unread `folder` parameter of `LocalData.SetXml` (`:857`, and `StartUp.cs:216-218` computes
-  a value to pass to it), `AppSettingsStore.FilePath`/`BackupPath`/`IsReadOnlyFallback`/`LastRecoveryFile`
-  (`:832-836`, the last assigned at `:1294` and never read, so the corrupt-file preservation path records
-  where it put the file and nothing can report it), the `AppPaths` vector-cache cluster (`:64`, `:113`,
-  `:125`, `:142`), `OptionsWindow._dirty` (`:25`), `NotifyBudget.Forget`
-  (`modules/AgentFlow/NotifyBudget.cs:177-182`, superseded by `Retain`), and
-  `SmartFortunes.LastCandidateCount` (`:116`, `:126`, written on every contextual pick at `:511` and never
-  read — its own doc says it exists "because a number nobody can read is a number nobody checks").
-  ⚠ Not dead, do not remove: `AiBrain.ScreenChanged` (`AiBrain.cs:1106-1121`, ~45 lines with
-  `ComputeSignature` and `_lastFrameSignature`) has no callers but is DECLARED kept —
-  `AiSessionManager.cs:215-220` says the idle timer that used it is gone and the primitive is deliberately
-  retained for a future change-detection option.
+- ✅ **FIXED 2026-09-27, 237 lines removed — and FOUR of this item's claims were WRONG.**
+  Every member was re-checked for callers across all 205 `.cs` files before removal rather than
+  taken from the list, which is how the four were caught.
+
+  **Deleted, verified dead:** `WindowTheme` minus `IsDark()` (~150 lines: two P/Invokes, immersive
+  dark title bars, the recursive control walk, uxtheme DarkMode_CFD / DarkMode_Explorer, seven
+  colours — all serving the WinForms tray dialogs retired in S5b-3);
+  `CompanionHost.SpeechSourceModuleIds`; `LocalData.GetScale()`, `.GetPetSizeLevel(string)` and
+  `.GetEffectivePetScaleFactor(string)` (the `NoLock` form behind the second is kept and still
+  used); `LocalData.SetXml`'s unread `folder` parameter, which also made
+  `externalCandidate ? "external" : ""` dead at its only call site; the 2-argument
+  `ProcessIcon.TaskbarWatcher` overload (every call site passes 3 or 4); `OptionsWindow._dirty`
+  (assigned, never read — the button was always driven by the parameter); and the `AppPaths`
+  vector-cache cluster, superseded because the Fortunes module owns that storage now, so the base
+  migration could never run for anyone. Plus, with a publish each, `NotifyBudget.Forget`
+  (agentflow 1.4.8, superseded by `Retain`) and `SmartFortunes.LastCandidateCount`
+  (fortunes 1.0.8).
+
+  ⚠ **NOT dead, left alone, item refuted:** `AppSettingsStore.FilePath` is read at
+  `LocalData.cs:969`; `.BackupPath` at `CoreTests/Program.cs:419` and `:422`; `.IsReadOnlyFallback`
+  at `:938` and `:948`; `.LastRecoveryFile` at `:444`–`:449` and `:472`. The item specifically
+  claimed the last of these was "never read, so the corrupt-file preservation path records where it
+  put the file and nothing can report it" — the tests read it. Deleting the four would have
+  broken CoreTests, which is what caught the claim.
+
+  One decision recorded rather than made silently: `LastCandidateCount` could have been ASSERTED
+  instead of deleted, since its doc says its narrowness "WAS the bug". Rejected — the only
+  invariants available are `<= MaximumCandidates` (512) and `<= LastBandCount`, and the self-test
+  pool is 131 lines, so the cap never applies and neither could fail. Closing a dead-code item by
+  adding a check that cannot fail trades one defect for a worse one.
 - 📌 **`PetEmitter`'s `roundUp: true` branch is unreachable and its doc describes a caller that does
   not exist.** `:2588-2597`; all four call sites pass `false` (`:1264`, `:1356` via the 3-arg overload that
   hard-codes it at `:2581`, `:1489`, and `tools/ShimejiConvert/Program.cs:1084`). The `<param>` doc says
