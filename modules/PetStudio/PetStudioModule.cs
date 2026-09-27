@@ -24,7 +24,11 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.1.8",   // 1.1.8: a skin with no Type="Move" action no longer fails conversion. The
+            Version = "1.1.9",   // 1.1.9: importing a skin no longer freezes the window. The zip extraction,
+                                 //        skin detection and the whole conversion ran inline from the click
+                                 //        handler; they run off the UI thread now, and a second Import while
+                                 //        one is converting is refused rather than corrupting the editor.
+                                 // 1.1.8: a skin with no Type="Move" action no longer fails conversion. The
                                  //        synthesised `turn` was emitted unconditionally while its only inbound
                                  //        edge needed locomotion, so a hand-trimmed or single-pose skin got an
                                  //        unreachable animation and was rejected despite being playable.
