@@ -89,6 +89,21 @@ jobs:
             throw "$($failures.Count) failure(s) across the self-tests and source invariants."
           }
 
+      - name: Run each module's own self-test
+        # The other half of the split this repo keeps finding: run-gate.ps1 has run these since
+        # 2026-09-27 and CI did not, so 684 module assertions -- agentflow 478, remembrance 114,
+        # blinkingled 56, reminder 36 -- did not run on a push. BACKLOG.md had claimed for months
+        # that "--module-selftest=agentflow runs in both [the gate and CI]" while no .ps1 and no
+        # .yml in the repo contained that string.
+        #
+        # Safe to run here because the step above already launches this same exe from this same
+        # path: the mechanism is proven on the runner, only the flag is new. ~15s for all eight
+        # modules, and it fails on a NEW gap as loudly as on a regression -- the script's uncovered
+        # list records the exact failures aibrain/fortunes/petstudio report today, so one of them
+        # gaining a SelfTest turns this red with an instruction rather than passing silently.
+        shell: pwsh
+        run: .\tests\Test-ModuleSelfTests.ps1
+
       - name: Convert and verify the shipped companion corpus
         # The local gate runs these and CI did not, so a regression in the shipped Companions
         # corpus or in the Shimeji converter was invisible on every pull request.

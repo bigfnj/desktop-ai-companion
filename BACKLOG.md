@@ -811,15 +811,17 @@ survived a second check, minus the 14 fixed on the day in `e31c5bb`.
   point rather than after someone else's long build. That is the behaviour this item wanted.
 **Checks that cannot fail (the category this repo keeps finding)**
 
-- 📌 **CI does not run the module self-tests; the gate now does.** `run-gate.ps1` calls
-  `tests/Test-ModuleSelfTests.ps1` as of 2026-09-27, but `.github/workflows/build.yml` calls the
-  underlying scripts rather than `run-gate.ps1`, so the 684 module assertions still do not run on a
-  push. CI already launches the built exe for `Invoke-SelfTests.ps1`, so the mechanism is proven
-  there; this is wiring, not research. Not done in the same change because claiming a thing runs in
-  CI without having watched it run in CI is the exact error the corrected AgentFlow status paragraph
-  above records.
-  CLOSES-WHEN: grep-present Test-ModuleSelfTests .github/workflows/build.yml
+- ✅ **FIXED 2026-09-27.** `.github/workflows/build.yml` runs `tests\Test-ModuleSelfTests.ps1`,
+  so the 684 module assertions now run on a push as well as in the gate. Safe to add because the step
+  above it already launches the same exe from the same path — only the flag was new — and verified
+  by running the CI command verbatim from the repo root.
 
+  ⚠ **Closing this exposed a check that could not fail, and it was mine.** The `CLOSES-WHEN` I filed
+  with this item had its arguments backwards (`grep-present <needle> <path>` instead of
+  `grep-present <path> "<needle>"`). The verb pattern wants a QUOTED needle second, so the whole line
+  failed to match and was skipped in silence: the report said "3 carry a CLOSES-WHEN" while the file
+  contained 5, and this one had already been satisfied. `Test-BacklogClosingCriteria.ps1` now reports
+  any line beginning `CLOSES-WHEN:` that does not parse, so a criterion cannot go quiet by typo.
 - 📌 **Three shipped modules expose no `SelfTest` on their module class.** `aibrain`, `fortunes`
   and `petstudio` report "the module exposes static bool SelfTest(out string detail)" and stop after
   4 generic checks, so `tests/Test-ModuleSelfTests.ps1` records them as known gaps.
@@ -835,7 +837,7 @@ survived a second check, minus the 14 fixed on the day in `e31c5bb`.
   external harness cannot reach, reported through the standard `--module-selftest=<id>` entry point.
   Worth having, but lower value than it looked when filed, and it is real work per module rather than
   a delegation — there is no existing module-side entry point to forward to.
-  CLOSES-WHEN: grep-present "bool SelfTest(out string detail)" modules/Fortunes/FortunesModule.cs
+  CLOSES-WHEN: grep-present modules/Fortunes/FortunesModule.cs "bool SelfTest(out string detail)"
 **Dead code, verified across `src/`, `modules/` and `tools/`**
 
 - ✅ **FIXED 2026-09-27, 237 lines removed — and FOUR of this item's claims were WRONG.**

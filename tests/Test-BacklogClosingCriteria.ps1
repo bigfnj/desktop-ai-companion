@@ -155,6 +155,19 @@ for ($i = 0; $i -lt $lines.Count; $i++) {
     }
     if ($line -match $closedPattern) { $currentIsOpen = $false; continue }
 
+    # A LINE THAT SAYS CLOSES-WHEN BUT DOES NOT PARSE IS NOT A LINE WITHOUT A CRITERION.
+    # The pattern below wants `<verb> <path> "<quoted needle>"`, and anything else -- arguments the
+    # wrong way round, an unquoted needle, a stray word -- fails the whole match, so the line was
+    # skipped in silence and its item counted as "no CLOSES-WHEN". Two criteria written on
+    # 2026-09-27 went in backwards and vanished exactly that way: the report said "3 carry a
+    # CLOSES-WHEN" while the file contained 5, and one of them had ALREADY been satisfied.
+    if ($line -match '^\s*CLOSES-WHEN:' -and
+        $line -notmatch '^\s*CLOSES-WHEN:\s*(\S+)\s+(\S+)(?:\s+"([^"]*)")?\s*$') {
+        $broken.Add("BACKLOG.md:$($i + 1) : CLOSES-WHEN does not parse. Expected " +
+            '`CLOSES-WHEN: <verb> <path> "<needle>"` with the needle quoted and the path second. ' +
+            'As written it is ignored, so the item looks like it has no criterion at all.')
+    }
+
     if ($line -match '^\s*CLOSES-WHEN:\s*(\S+)\s+(\S+)(?:\s+"([^"]*)")?\s*$') {
         $verb = $Matches[1]
         $target = $Matches[2]
