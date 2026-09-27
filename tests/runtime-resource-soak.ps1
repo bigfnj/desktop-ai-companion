@@ -1,4 +1,4 @@
-#requires -Version 5
+﻿#requires -Version 5
 <#
 .SYNOPSIS
     Bounded leak soak: churn the pet's real windows, speech bubbles, tray icon and menus, and assert that
@@ -35,6 +35,9 @@ param(
     [string]$ExecutablePath,
     [ValidateRange(1, 30)][int]$EnabledStartupDeadlineSeconds = 10,
     [ValidateRange(1, 120)][int]$StabilizationSeconds = 10,
+    # Any value here is valid: the growth bounds below scale with the number of settled intervals a
+    # run produces, so a longer run is a longer OBSERVATION rather than a stricter test. That was not
+    # true before 2026-09-27 and is the reason this comment exists.
     [ValidateRange(10, 600)][int]$DurationSeconds = 30,
     [ValidateRange(10, 300)][int]$CompletionGraceSeconds = 60,
     [ValidateRange(250, 10000)][int]$SampleIntervalMilliseconds = 1000,
@@ -343,17 +346,44 @@ try {
     if ($settledGrowth.ToCycle -le $settledGrowth.FromCycle) {
         throw 'The settled samples are not ordered by cycle; the churn marker is malformed.'
     }
+    # THE BOUND IS A RATE, NOT A TOTAL, AND THAT IS A CORRECTION.
+    #
+    # These bounds used to be compared, as absolute counts, against growth measured from the first
+    # settled sample to the last. Growth accumulates with cycle count, so the pass mark was set by
+    # -DurationSeconds rather than by the code: a long enough run failed ANY build. Measured
+    # 2026-09-25 -- v1.2.4, the SHIPPED release, passes a 180-second run once and fails the next at
+    # +95, while the same build passes the documented 30-second default every time. That cost most of
+    # an afternoon: a phantom regression was bisected across single samples and a good fix was
+    # briefly reverted before the released build disproved it.
+    #
+    # The defaults are calibrated for ONE settled interval, which is what the default duration
+    # produces (cycles 40 and 80). Scaling by the number of intervals actually observed keeps exactly
+    # that tolerance -- the same permitted growth per interval -- while making every duration
+    # comparable instead of quietly stricter. A leak faster than the calibrated rate still fails at
+    # any length, which is the property worth having.
+    #
+    # Its sibling tests\module-window-soak.ps1 avoids this by comparing the LAST segment against the
+    # previous one rather than against a cold start. Same idea, arrived at independently.
+    $settledSpacing = [int]$settled[1].cycle - [int]$settled[0].cycle
+    if ($settledSpacing -le 0) {
+        throw 'The settled samples are not spaced by a positive number of cycles; the marker is malformed.'
+    }
+    $observedIntervals = [Math]::Max(
+        1, [int][Math]::Round(($settledGrowth.ToCycle - $settledGrowth.FromCycle) / $settledSpacing))
+
     foreach ($counter in @('GdiObjects', 'UserObjects', 'Handles')) {
-        $bound = switch ($counter) {
+        $perInterval = switch ($counter) {
             'GdiObjects'  { $MaximumGdiGrowth }
             'UserObjects' { $MaximumUserGrowth }
             'Handles'     { $MaximumHandleGrowth }
         }
+        $bound = $perInterval * $observedIntervals
         $value = $settledGrowth.$counter
         if ($value -gt $bound) {
             throw ("Post-finalization $counter growth exceeded the bound between cycle " +
-                   "$($settledGrowth.FromCycle) and $($settledGrowth.ToCycle): $value > $bound. " +
-                   'Handles survived a forced collection, so this is a real leak and not finalizer lag.')
+                   "$($settledGrowth.FromCycle) and $($settledGrowth.ToCycle): $value > $bound " +
+                   "($perInterval per settled interval x $observedIntervals observed). " +
+                   'It survived a forced collection, so this is a real leak and not finalizer lag.')
         }
     }
 

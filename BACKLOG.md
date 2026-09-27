@@ -840,42 +840,31 @@ survived a second check, minus the 14 fixed on the day in `e31c5bb`.
 
 ### Filed 2026-09-25 — the leak soak's verdict depends on its duration
 
-- 📌 **`tests/runtime-resource-soak.ps1` compares a per-cycle accumulation against an ABSOLUTE
-  bound, so a long enough run fails any build, including shipped ones.** `MaximumHandleGrowth` is 16
-  and is checked against post-finalization growth between two cycles; handle churn accumulates with
-  cycle count, so the pass/fail line is set by `-DurationSeconds` rather than by the code.
+- ✅ **FIXED 2026-09-27: the bound is a RATE now.** `MaximumHandleGrowth` and its two siblings are
+  per SETTLED INTERVAL, scaled by however many intervals a run actually observes. The defaults were
+  always calibrated for one interval, which is what the default duration produces (cycles 40 and 80),
+  so the calibrated tolerance is unchanged and every duration is now comparable instead of quietly
+  stricter. Verified: the 180-second run that used to fail at +84 and +90 now passes (+82 against a
+  scaled 144), and the documented default still passes. Mutation-tested by inflating the measured
+  growth: `9996 > 16 (16 per settled interval x 1 observed)`, exit 1.
 
-  Measured, because this cost most of an afternoon and nearly cost a good fix:
+- 📌 **The soak's handle figure is far noisier than one run suggests, and nothing says so.**
+  Found while fixing the bound above. Across identical configurations on one unchanged build, the
+  post-finalization handle delta came out **+82, -39, -19, +95, -18, -32 and +1**. That is the
+  settled figure, sampled after a forced `GC` + `WaitForPendingFinalizers` + `GC`, which the file's
+  own BUG-004 comment presents as the answer to exactly this problem for GDI and USER -- and for
+  those two it holds (0, 0, -6, 2 across the same runs). Handles do not settle the same way.
 
-  | build | 30s (documented default) | 180s |
-  |---|---|---|
-  | HEAD (`d042650`) | PASS +4, +7, +7 | FAIL +84, +90, +81, +84 |
-  | **v1.2.4, the shipped release** | not run | **PASS +(-18), then FAIL +95** |
-  | `208d49c` | not run | PASS -32 |
-  | `e31c5bb` | not run | PASS |
+  So a single handle number from this harness is weak evidence in BOTH directions: it is how an
+  afternoon went into bisecting a regression that did not exist, and it means a real slow leak could
+  hide inside the noise for several runs. The rate bound stops the false alarm; it does nothing about
+  the variance.
 
-  The v1.2.4 row is the one that settles it. The RELEASED build fails the same extended run, so a
-  180-second failure says nothing about the build under test. Worse, single runs alternate: every
-  n=1 measurement I took passed and every n=2 measurement failed, which is how an afternoon went
-  into bisecting a regression that does not exist. `RaiseEach` was wrongly identified as the cause
-  and briefly reverted before v1.2.4's second run disproved it.
-
-  Nothing in the script's help, its parameter block, or `docs/RELEASE-CHECKLIST.md` says the bound is
-  only meaningful at the default duration. `-DurationSeconds` is offered up to 600 and the checklist's
-  own example passes `-DurationSeconds 60`, which reads as an invitation to run it longer for a
-  better answer. It is the opposite.
-
-  Two candidate fixes, neither attempted:
-  (1) Scale the bound with cycle count, so the check measures a RATE, which is what a leak is.
-  (2) Refuse durations the bound was not calibrated for, or print the calibrated range and require
-  `-Force` past it, so the number cannot be quietly invalidated by a flag.
-  CLOSES-WHEN: `runtime-resource-soak.ps1` either derives its bound from the cycle count or refuses
-  an uncalibrated `-DurationSeconds`.
-
-  ⚠ Read alongside the file's own BUG-004 comment, which explains why RAW growth is a sawtooth and
-  why the settled figure is sampled after a forced collection. That reasoning is sound and is not what
-  this entry disputes. The settled figure is still an absolute count over a variable number of cycles.
-
+  What it needs is n>1 built in: take several runs, or several settled windows, and judge the MEDIAN
+  or the trend rather than one delta. Until then, treat a single handle figure here as a hint and
+  confirm anything surprising with a repeat before acting on it.
+  CLOSES-WHEN: `runtime-resource-soak.ps1` reports a handle figure derived from more than one
+  observation, or documents its own variance beside the number.
 ### Checked and REFUTED — do not re-file
 
 Recorded so the next audit does not spend the time again. AgentFlow's shell-header template does NOT
