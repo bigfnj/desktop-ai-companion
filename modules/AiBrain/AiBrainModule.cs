@@ -101,7 +101,9 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.1.11",  // 1.1.11: the options pane no longer freezes for 2s when Ollama is not
+            Version = "1.1.12",  // 1.1.12: exposes SelfTest on the module class, so --module-selftest runs
+                                 //         AiEngineProbe through the convention the gate and CI use.
+                                 // 1.1.11: the options pane no longer freezes for 2s when Ollama is not
                                  //         running. The VRAM line was a synchronous network call on the UI
                                  //         thread; a REFUSED localhost connection burns the full 2s deadline
                                  //         rather than failing fast, so that was the common case, not the
