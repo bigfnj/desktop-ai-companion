@@ -48,7 +48,11 @@ namespace DesktopAICompanion.FortunesModule
         {
             Id = "fortunes",
             Name = "Fortunes",
-            Version = "1.0.9",   // 1.0.9: drops a write-only settings clear. "spicyTier" was set to "" on
+            Version = "1.0.10",  // 1.0.10: the smart-index status no longer reads "Indexing N fortunes in the
+                                 //         background" for ever when the text engine could not start. That
+                                 //         stand-down was only ever in the diagnostic log; now it is on the
+                                 //         pane, and says fortunes are being chosen at random.
+                                 // 1.0.9: drops a write-only settings clear. "spicyTier" was set to "" on
                                  //        migration to stop "a stale value being re-migrated"; nothing ever
                                  //        wrote or read that key. No behaviour change.
                                  // 1.0.8: payload refresh only. Deletes SmartFortunes.LastCandidateCount, written on
