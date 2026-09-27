@@ -24,7 +24,10 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.1.10",  // 1.1.10: the editor classifies the pet once per re-analyze instead of
+            Version = "1.1.11",  // 1.1.11: a second Import while one is converting no longer deletes the first
+                                 //         import's extracted files. The guard ran AFTER CleanupExtracted;
+                                 //         moving the conversion off the UI thread is what made it reachable.
+                                 // 1.1.10: the editor classifies the pet once per re-analyze instead of
                                  //         twice. RenderMap classified the whole pet, then the census did it
                                  //         again, on every ~750ms debounce while typing.
                                  // 1.1.9: importing a skin no longer freezes the window. The zip extraction,
