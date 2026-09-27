@@ -17,8 +17,68 @@ namespace DesktopAICompanion.RemembranceModule
     /// back to the system default.</summary>
     internal static class AudioDevices
     {
-        public static List<AudioDevice> RenderDevices() { return Enumerate(DataFlow.Render, "System default output"); }
-        public static List<AudioDevice> CaptureDevices() { return Enumerate(DataFlow.Capture, "System default microphone"); }
+        public static List<AudioDevice> RenderDevices() { return Cached(DataFlow.Render, "System default output"); }
+        public static List<AudioDevice> CaptureDevices() { return Cached(DataFlow.Capture, "System default microphone"); }
+
+        /// <summary>
+        /// One enumeration per flow per burst, instead of one per CALL.
+        ///
+        /// Opening the Remembrance options pane called each of these twice -- RefreshDynamicOptions builds
+        /// the two dropdowns, then StatusLine calls both again purely to COUNT them -- so four WASAPI
+        /// enumerations happened within milliseconds of each other, each constructing an
+        /// MMDeviceEnumerator and reading FriendlyName off every endpoint's property store, on the UI
+        /// thread.
+        ///
+        /// It also fixes a consistency bug that had nothing to do with speed: the dropdown options and the
+        /// "devices: N output, M mic" count came from SEPARATE enumerations, so a device appearing or
+        /// disappearing between the two produced a status line that disagreed with the list right above it.
+        ///
+        /// The window is deliberately short. Device lists change when hardware is plugged in, and this must
+        /// not make a reopened pane show a stale list -- a pane rebuild takes milliseconds, so every call in
+        /// one open shares a snapshot while the next open re-enumerates.
+        /// </summary>
+        private const int CacheWindowMilliseconds = 1500;
+        private static readonly object _cacheLock = new object();
+        private static readonly Dictionary<DataFlow, List<AudioDevice>> _cache =
+            new Dictionary<DataFlow, List<AudioDevice>>();
+        private static readonly Dictionary<DataFlow, DateTime> _cacheStamp =
+            new Dictionary<DataFlow, DateTime>();
+
+        private static List<AudioDevice> Cached(DataFlow flow, string defaultLabel)
+        {
+            lock (_cacheLock)
+            {
+                DateTime stamp;
+                List<AudioDevice> hit;
+                if (_cacheStamp.TryGetValue(flow, out stamp) &&
+                    (DateTime.UtcNow - stamp).TotalMilliseconds < CacheWindowMilliseconds &&
+                    _cache.TryGetValue(flow, out hit))
+                {
+                    // A COPY. Callers hand these lists to DeviceOptions and to UI state; returning the
+                    // cached instance would let one caller's mutation reach the next.
+                    return new List<AudioDevice>(hit);
+                }
+            }
+
+            List<AudioDevice> fresh = Enumerate(flow, defaultLabel);
+            lock (_cacheLock)
+            {
+                _cache[flow] = fresh;
+                _cacheStamp[flow] = DateTime.UtcNow;
+            }
+            return new List<AudioDevice>(fresh);
+        }
+
+        /// <summary>Drop the snapshot, so the next read re-enumerates. For a caller that has just changed
+        /// the device set, or a test that must not see another test's devices.</summary>
+        internal static void ForgetCachedDevices()
+        {
+            lock (_cacheLock)
+            {
+                _cache.Clear();
+                _cacheStamp.Clear();
+            }
+        }
 
         private static List<AudioDevice> Enumerate(DataFlow flow, string defaultLabel)
         {
