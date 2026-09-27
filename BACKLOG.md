@@ -621,8 +621,18 @@ open-item blindness plus the bug-number drift.
   `RunningModelsAsync(...).GetAwaiter().GetResult()`, blocking the WPF UI thread up to ~2 s per pane
   open, and three pane actions carry `ReloadPaneAfter = true`. Also builds a fresh `HttpClient` per
   call.
-- 📌 `modules/AiBrain/engine/AiSettings.cs:384` — `Save()` uses the 10,000 ms cross-session budget;
-  the bounded `SaveWithin` its own doc says "UI callers use" has exactly one caller, a self-test.
+- ✅ **FIXED 2026-09-27 (aibrain 1.1.10).** The three UI call sites pass
+  `AiSettings.UiSaveBudgetMilliseconds` (1500 ms) — far beyond an uncontended save, which is
+  immediate, and beyond two instances overlapping, while staying inside what reads as a responsive
+  click. `ToggleEnabled` also stops swallowing the outcome: it was
+  `try { s.Save(); } catch { }`, so a toggle that did not persist looked exactly like one that did
+  and reverted on the next launch. It logs the failure now, which matters more with a bounded budget
+  where a contended save can legitimately return false.
+
+  The existing "rejects a held lock promptly" check could not have caught this: it passes a literal
+  125 ms, so it passed for months while every caller used 10,000. The new assertion is tied to the
+  CONSTANT the callers pass. Positive control with it set back to 10000: *"FAIL: the UI save budget
+  gives up fast enough to keep the settings window responsive"*.
 - ✅ **FIXED 2026-09-27 (aibrain 1.1.9).** `_localModels`, `_cloudModels` and `_modelIdByLabel` are
   guarded by `_modelsLock`. Each refresh holds it around "replace the list, then rebuild the options
   from it", so that update is atomic rather than merely thread-safe in pieces; Monitor is reentrant,
