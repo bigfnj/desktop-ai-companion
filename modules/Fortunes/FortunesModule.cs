@@ -48,7 +48,9 @@ namespace DesktopAICompanion.FortunesModule
         {
             Id = "fortunes",
             Name = "Fortunes",
-            Version = "1.0.10",  // 1.0.10: the smart-index status no longer reads "Indexing N fortunes in the
+            Version = "1.0.11",  // 1.0.11: exposes SelfTest on the module class, so --module-selftest runs
+                                 //         FortuneEngineProbe through the convention the gate and CI use.
+                                 // 1.0.10: the smart-index status no longer reads "Indexing N fortunes in the
                                  //         background" for ever when the text engine could not start. That
                                  //         stand-down was only ever in the diagnostic log; now it is on the
                                  //         pane, and says fortunes are being chosen at random.
