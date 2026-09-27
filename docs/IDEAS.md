@@ -211,3 +211,34 @@ What a real implementation has to get right, and why it is a feature rather than
   settings edit in one window into pets blinking out and back in the other
 
 The deleted code is in git history at the commit that removed it (search for `ListenOnXMLChanged`).
+
+
+## A companion should be able to WALK between monitors
+
+Moved here from `BACKLOG.md` on 2026-09-27, when the other three parts of that entry turned out to
+be done or decided. This is the part that remains, and it is a feature rather than debt: nothing is
+broken today, the behaviour simply does not exist.
+
+The owner asked for it directly -- *"if not bound then a companion should absolutely be able to
+traverse monitors"*. What exists instead is RELOCATION, four ways (respawn re-roll, drag-and-drop,
+fullscreen stand-down, window-follow), all of which teleport or re-home rather than walk.
+
+**The shape that fits this code**, from the 2026-09-22 scoping that corrected two earlier wrong
+blockers: an adjacency function in `DesktopGeometry` beside `ChooseRelocationTarget` -- pure
+rectangle geometry, trivially testable -- then hand off at `FormCompanion.cs:1077` / `:1128` instead
+of turning at the border: set `DisplayIndex`, call `UpdateValues`, translate the position.
+
+Two things NOT in the way, both previously named as blockers and both refuted:
+
+- The per-tick clamp is not a containment invariant. It allows 8192px of slack on every side and its
+  own comment calls it an integer-overflow guard. The real containment is those two `if` statements.
+- The pet-XML contract is not a blocker. `screenW`/`screenH`/`areaW`/`areaH` are already resolved PER
+  MONITOR from `Screen.AllScreens[screenIndex]`, and `UpdateValues(DisplayIndex)` re-parses them
+  whenever a pet is re-homed -- which `EndDrag` and `RelocateToDisplay` already do. A
+  handoff-at-the-boundary design needs no ABI change and no second coordinate system.
+
+The genuine hazards are the geometry ones: on this box 3440x1440 sits beside 2560x1080, so the
+shorter screen's floor is 360px above its neighbour's and the union is not a rectangle -- a companion
+crossing at floor level walks into empty space. That resolves by falling, and `AnimationFall` already
+exists. Handing off mid-animation across a DPI change is the second.
+

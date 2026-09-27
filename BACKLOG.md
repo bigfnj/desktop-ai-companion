@@ -325,73 +325,24 @@ there.
   `DESKTOP_AI_COMPANION_DATA_ROOT` kept falling back to eSheep. The chain COMPILER is covered
   (`BehaviourChainSelfCheck`); pressing the button is not.
 
-- 📌 **A companion cannot WALK between monitors, and the setting that sounds like it can does not do it.** "Allow
-  multiple screens" only widens the pool a companion is randomly ASSIGNED from at spawn and respawn; once placed, a
-  companion lives inside one `Screen.Bounds` for its whole life. The user asked for traversal directly ("if not
-  bound then a companion should absolutely be able to traverse monitors") and it does not exist — v1.9.12 relabelled
-  the setting to stop it implying otherwise, which is honest but not the feature.
-  **Why it is not a small change:** every border, gravity and respawn decision resolves against a single
-  screen rectangle. Real traversal needs the walk to resolve against the continuous VIRTUAL desktop, with a
-  per-monitor floor and taskbar map, and an edge-crossing rule for the case this box actually has —
-  3440×1440 beside 2560×1080, where the shorter screen's floor is 360px above its neighbour's and the union
-  is not a rectangle. A companion crossing at floor level would walk into empty space. Handing off mid-animation
-  across a DPI change is the second hazard.
-  Pinning (v1.9.12) is the escape hatch meanwhile: a pinned companion stays put by construction.
+- ✅ **CLOSED 2026-09-27. Three of its four parts were already done or decided; the fourth is a
+  feature and has moved to `docs/IDEAS.md`.**
 
-  ⚠ **The 2026-09-21 scoping that called this a project was WRONG, in two specific ways, and both
-  claims were load-bearing. Corrected 2026-09-22 after the owner said "I have seen Hornet jump
-  monitors a few times".** The owner was right. Keep the corrections; do not restore the originals.
-
-  **Wrong claim 1: the per-tick clamp is not a containment invariant.** The scoping said
-  `FormCompanion.cs:1438-1449` "clamps the position into `workArea` every tick, so traversal means
-  deleting the invariant the other 15 decisions are written against." That clamp allows **8192px of
-  slack on every side** (`Animations.cs:14`, `:103-119`) and its own doc comment calls it an
-  integer-overflow guard, not containment. It is also skipped entirely on drag and window-follow
-  ticks, which `return` before reaching it. The real containment invariant is two `if` statements:
-  `FormCompanion.cs:1077` and `:1128`, the border turns.
-
-  **Wrong claim 2: the pet-XML contract is not a blocker, and it was named as THE blocker.**
-  `screenW`/`screenH`/`areaW`/`areaH` are already resolved PER MONITOR, from
-  `Screen.AllScreens[screenIndex]` (`Xml.cs:424-429`), and `CurrentAnimation.UpdateValues(DisplayIndex)`
-  re-parses them whenever a pet is re-homed -- which `EndDrag` and `RelocateToDisplay` already do
-  today. A handoff-at-the-boundary design keeps the contract exactly as it is: no ABI change, no
-  third-party pack breakage, no second coordinate system. The concern was true of a
-  virtual-desktop design and irrelevant to the one that fits this code.
-
-  **What actually exists.** Walking between monitors does not. RELOCATION does, four ways, and two
-  of them ignore the "Allow multiple screens" setting entirely (whose default is off) -- which is
-  why the owner saw it with the setting off:
-
-  | Path | Kind | Honours the setting? | Re-homes `DisplayIndex`? |
-  |---|---|---|---|
-  | Respawn re-rolls the screen (`Play`, `:615-629`) | teleport | yes | yes, randomly |
-  | Drag and drop (`EndDrag`, `:2179-2200`) | move + re-home | **no**, gate commented out at `:2184` | yes, by pet centre |
-  | Fullscreen stand-down (`RelocateToDisplay`, `:1938-1946`) | teleport | **no check at all** | yes, nearest free |
-  | Window-follow (`FollowWindow`, `:1973-1974`) | **continuous** | **no** | **no** |
-
-  Note the respawn trigger is live, not theoretical: `SetNewAnimationCore` calls `Play(false)` when
-  the transition graph dead-ends (`:819-821`), which is the `no eligible positive-probability
-  transition` burst recorded further down this file.
-
-  **Owner decision 2026-09-22: the behaviour stays, the label gets fixed.** A drag is an explicit
-  user action and fullscreen stand-down is a get-out-of-the-way safety behaviour; neither should be
-  gated. `OptionsShell.cs:302` currently promises companions "stay on the one they appear on",
-  which is false, and becomes a statement about where they SPAWN.
-
-  **So this splits into four, none of them XL:**
-  - **23a** Re-home `DisplayIndex` after `FollowWindow`, reusing the loop already in `EndDrag`. This
-    is a LIVE BUG: a pet riding a window to monitor B keeps resolving every physics decision against
-    monitor A's `workArea`, and the 8192px slack is the only reason it is not obviously broken.
-    Note "a companion on the wrong monitor" is one of the four user-found bugs listed under the live
-    smoke-test entry in this file.
-  - **23b** Nothing to do, per the owner decision above.
-  - **23c** Fix the false label at `OptionsShell.cs:302`.
-  - **23d** Real traversal: an adjacency function in `DesktopGeometry` beside
-    `ChooseRelocationTarget` (pure rectangle geometry, trivially testable), then hand off at
-    `:1077`/`:1128` instead of turning -- set `DisplayIndex`, call `UpdateValues`, translate the
-    position. The floor discontinuity on this box (3440x1440 beside 2560x1080, floors 360px apart)
-    resolves by falling, and `AnimationFall` already exists.
-
+  - **23a — DONE, and it was the live bug in this entry.** `FormCompanion.cs:1455` calls
+    `AdoptScreenUnderPet()` after a successful `FollowWindow()`, so a pet riding a window to another
+    monitor no longer keeps resolving its physics against the old screen's `workArea`. Fixed
+    2026-09-22 in `27ab8e8` ("Four backlog fixes: the monitor desync, a false label, two silent
+    give-ups"); the entry was never updated. Verified by reading the code, not the commit message.
+  - **23b — nothing to do**, per the owner decision of 2026-09-22: a drag is an explicit user
+    action and fullscreen stand-down is a get-out-of-the-way safety behaviour, so neither should be
+    gated by the setting.
+  - **23c — DONE**, same commit. `OptionsShell.cs:377` now reads "Let companions spawn on any
+    screen", and the false parenthetical "(they stay on the one they appear on)" is gone, with the
+    reason recorded beside it.
+  - **23d — MOVED to `docs/IDEAS.md`** ("A companion should be able to WALK between monitors").
+    Real traversal is wanted and scoped, but nothing is broken without it, which is the line this
+    repo draws between the backlog and IDEAS. The two refuted blockers moved with it so they are not
+    re-raised.
 - ⬜ **The pet XML validator's positive-probability guarantee does not survive the runtime
   eligibility filter, and live pets hit it.** `CompanionXmlValidator.cs:672` refuses any pet whose
   transition set sums to zero probability, which reads as a guarantee that a companion can always
