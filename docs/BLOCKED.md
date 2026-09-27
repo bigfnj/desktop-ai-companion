@@ -137,3 +137,26 @@ unresolved. An item that cannot be machine-checked has to say so.
 
 **It leaves when the blocker does:** a source corpus that names the 17, with a Type for each.
 
+
+## AgentFlow: default-mode precision is unmeasured
+
+**Blocker: transcripts that do not exist yet, and only the owner working normally can create them.**
+
+Moved from [`../BACKLOG.md`](../BACKLOG.md) on 2026-09-27. Recall is settled at **93% (28/30** against
+calls a permission rule actually blocked). Precision in `default` mode cannot be computed here: the
+120 transcripts on this machine contain **zero** rule-caused denials in that mode, because this
+machine runs `auto`.
+
+No amount of engineering closes it. The measurement needs real prompts, in `default`, blocked past
+the threshold, and the only way to produce those is to work in that mode for a while. The tooling is
+already waiting: `agentflow_join.py` reports the precision/recall split itself once the data is
+there.
+
+Worth being clear about what this is NOT. It is not a gap in the approver's test coverage -- as of
+agentflow 1.4.9 a loopback fake CDP server drives `Sweep` end to end, including the handshake and the
+whole-pass outcome. This is a question about how often the thing is RIGHT in the field, which no
+fixture can answer, because a fixture only ever returns what it was told to.
+
+**It leaves when the blocker does:** an hour or so of ordinary work in `default` mode, then a rerun
+of `agentflow_join.py`.
+

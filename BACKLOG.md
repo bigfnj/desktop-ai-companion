@@ -118,56 +118,6 @@ runnable harnesses live beside it.
 
 **What remains open, in order:**
 
-- 📌 **Default-mode precision is unmeasured, and it is the only number still missing.** Recall is
-  settled at 93% (28/30 against calls a permission rule actually blocked). Precision in `default`
-  cannot be measured on this box: 120 transcripts contain **zero** rule-caused denials in that mode,
-  because this machine runs `auto`. Generate it the only way it can be generated — work normally in
-  default mode for an hour — then rerun `agentflow_join.py`, which now reports the split itself.
-
-- **No VS Code extension needed, and no per-IDE work for the notify half.** Both agents write
-  append-only JSONL transcripts pairing a tool call with its result by id, so "blocked" is readable
-  from a file. It is agent-keyed, not IDE-keyed: the same transcript appears whether the agent runs
-  in VS Code, a JetBrains terminal, Antigravity or a bare shell. That killed the two-artifact design
-  and with it the Antigravity marketplace and JetBrains plugin questions.
-- **A stall threshold alone is NOT a detector.** Measured over 27,967 paired calls: prompts median
-  86.2s vs 1.6s for ordinary completions, but a 20s threshold still yields ~450 false alarms per
-  real prompt, and half the prompts are answered in under 20s anyway.
-- **The permission-rule join works in default mode and is useless in auto mode.** ~19% precision in
-  `default` (≈4 false per real, usable alongside a threshold) against 0.09% in `auto`, where a
-  model-side classifier sits in front of the rules and approves nearly everything. **AgentFlow is
-  therefore a default-mode feature**, and in auto mode it should say so and stand down rather than
-  fire constantly — the MAX-card idiom of refusing and explaining.
-- **Answering a prompt needs a classifier, and it is the safety mechanism, not a nicety.** The agent
-  bundle ships ten distinct `Yes*` strings; only three mean "approve this one call". The rest grant
-  a session, write a permanent rule, or change the permission mode — one sets auto mode as the
-  user's persistent default. A prefix match would eventually press that. Built, 25/25 self-test,
-  audit clean against the installed bundle, 5/5 mutations fired.
-- **Four public tools already do the answering half. All four press a wider grant.** Reviewed at
-  source 2026-09-16 because every README understates what the code does; the comparison table and
-  per-tool detail are in the doc. `Munkhin/auto-accept-agent` clicks on substring match including
-  `always allow`. `sudoghut/llm-auto-confirm` targets Claude Code, advertises `response: "1"`, then
-  discards it and sends a **bare Enter** on whichever row the TUI cursor rests on.
-  `nextcortex/antigravity-auto-accept` fires eight accept commands every 800 ms with no detection
-  at all. `nockasdd/domyh-auto-accept` is genuinely well built (layered, tested, five IDE adapters,
-  anchored regex matching) and uses that precision to rank `AcceptAll` as priority 1. Four authors,
-  four architectures, same destination: it is where the category goes, not a gap better
-  engineering closes. Strongest external support the allowlist design has.
-- **Nobody else needs a detector, and that says what the notify half is worth.** Three of the four
-  simply poll and fire, because an accept command that no-ops when nothing is pending is safe to
-  attempt against nothing. The 450:1 false-alarm rate that kills a stall threshold is a cost of
-  **notifying a human**, which none of them do. The detector is a requirement of the notify
-  feature, not the answering feature, so notify is the hard half, the differentiated half, and it
-  should not wait on answering.
-- **Actuation splits four ways, not two.** Terminal Shell Integration, a host-published VS Code
-  command, CDP into the renderer, and Windows UI Automation. `domyh`'s `VSCodeCopilotAdapter`
-  confirms CDP reaches **stock VS Code** webview targets, so fork kinship transfers the transport.
-  It does not transfer the vocabulary: that adapter's commands are all `github.copilot.*`, and its
-  selectors still carry an Antigravity Tailwind class. Every pattern is ours to write.
-- **Take the death-loop guard.** `domyh`'s is a sliding window of retry timestamps with a pause and
-  cooldown. Anything that presses Retry eventually presses it against a recurring error. Take the
-  idea, not the code: its cooldown clears all state and auto-resumes, so a persistent loop cycles
-  rather than stopping.
-
 **ABI consequence if the input half is ever built, revised 2026-09-16.** The prior-art review found
 four actuation channels and **not one of them needs synthetic input**: Terminal Shell Integration
 (`terminal.sendText()`), a host-published VS Code command (`executeCommand`), CDP into the renderer
@@ -328,11 +278,22 @@ there.
 ### Open, found 2026-09-01 while chasing companion behaviour
 
 
-- 📌 **Companion Studio's behaviour-timeline Run button has no automated coverage.** There is no way to drive the
-  tray from a test, previews auto-hide under a fullscreen foreground window, and an isolated
-  `DESKTOP_AI_COMPANION_DATA_ROOT` kept falling back to eSheep. The chain COMPILER is covered
-  (`BehaviourChainSelfCheck`); pressing the button is not.
+- ✅ **PARTLY COVERED 2026-09-27, and the rest DECLINED with the reason.** Two source invariants
+  now assert the properties that actually regress, by ORDER: the Run button is wired to `Run()`, and
+  a chain that will not build RETURNS before `_runDebugPet` is reached. Mutation-tested —
+  disconnecting the button and moving the spawn above the guard each exit 1 naming the assertion;
+  the unmutated file exits 0.
 
+  ⚠ **This is not the click-through test the entry asked for, and does not pretend to be.** It
+  catches the button being disconnected and the failure path spawning anyway. It cannot catch
+  anything that only shows up on screen.
+
+  Driving the real button was declined rather than attempted a fourth time. The three obstacles this
+  entry recorded are still true — no way to drive the tray from a test, previews auto-hide under a
+  fullscreen foreground window, and an isolated `DESKTOP_AI_COMPANION_DATA_ROOT` falling back to
+  eSheep — and a WPF pane needs an STA thread and a Dispatcher inside the module self-test, which is
+  the flakiness those three attempts already hit. A deterministic check of the two real failure modes
+  is worth more than a fourth flaky one.
 - ✅ **CLOSED 2026-09-27. Three of its four parts were already done or decided; the fourth is a
   feature and has moved to `docs/IDEAS.md`.**
 

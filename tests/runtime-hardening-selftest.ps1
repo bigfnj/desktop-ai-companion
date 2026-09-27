@@ -1529,6 +1529,31 @@ Assert-True ($requirementIndex -lt $enabledIndex) (
     'the requirement is resolved before the Install button is enabled' +
     " (requirement at $requirementIndex, binding at $enabledIndex)")
 
+# ---- the behaviour-timeline Run button is wired, and a chain that will not build never spawns ----
+# The chain COMPILER is covered by BehaviourChainSelfCheck. What was not covered is the button:
+# whether pressing it reaches the compiler at all, and whether a build FAILURE stops before a pet is
+# spawned. Driving the real button was tried three times and abandoned for reasons recorded in the
+# backlog -- no way to drive the tray from a test, previews auto-hide under a fullscreen foreground
+# window, and an isolated data root kept falling back to eSheep -- so this asserts the two
+# properties that actually regress, by ORDER, which is deterministic where UI automation was not.
+#
+# This is NOT the click-through test the entry asked for and does not pretend to be. It catches the
+# button being disconnected and the failure path spawning anyway; it cannot catch anything that only
+# shows up on screen.
+$timelineSource = Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\PetStudio\TimelinePane.cs') -Raw
+$runBody = [regex]::Match($timelineSource, '(?s)private void Run\(\).*?\n        \}')
+Assert-True ($runBody.Success) 'TimelinePane.Run exists and could be sliced out for inspection'
+$runCode = Remove-LineComments $runBody.Value
+$buildIndex = $runCode.IndexOf('BehaviourChain.BuildDebugXml')
+$guardIndex = $runCode.IndexOf('if (xml == null)')
+$spawnIndex = $runCode.IndexOf('_runDebugPet(')
+Assert-True (
+    $timelineSource -cmatch '_runButton\.Click \+= delegate \{ Run\(\); \}' -and
+    $buildIndex -ge 0 -and $guardIndex -gt $buildIndex -and $spawnIndex -gt $guardIndex
+) ('the Run button reaches the chain compiler, and a chain that will not build returns before a ' +
+   "pet is spawned (build at $buildIndex, guard at $guardIndex, spawn at $spawnIndex)")
+
 # ---- the numbers the docs quote about this suite are re-measured, not trusted ----
 # A number nobody re-measures goes stale. SMOKETEST.md and Readme.md both quote how many source
 # invariants and how many self-tests exist, and both were wrong again within one session of being
