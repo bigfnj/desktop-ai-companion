@@ -816,76 +816,22 @@ survived a second check, minus the 14 fixed on the day in `e31c5bb`.
   above records.
   CLOSES-WHEN: grep-present Test-ModuleSelfTests .github/workflows/build.yml
 
-- 📌 **Three shipped modules expose no `SelfTest` on their module class, so the host cannot
-  run their assertions.** `aibrain`, `fortunes` and `petstudio` each have a self-check somewhere in
-  the assembly -- `SmartFortunes.cs`, `BehaviourChainSelfCheck.cs` -- but `--module-selftest=<id>`
-  looks on the MODULE class, so all three report "the module exposes static bool SelfTest(out string
-  detail)" and stop after 4 generic checks. The four that do expose one contribute 684 assertions
-  between them (agentflow 478, remembrance 114, blinkingled 56, reminder 36), so the gap is not
-  cosmetic. `testmodule` is dev-only and deliberately minimal; it is recorded as a known gap rather
-  than fixed. These are tracked as expected failures in `tests/Test-ModuleSelfTests.ps1`, which goes
-  RED if one of them starts passing, so closing this means moving the id into its COVERED list.
+- 📌 **Three shipped modules expose no `SelfTest` on their module class.** `aibrain`, `fortunes`
+  and `petstudio` report "the module exposes static bool SelfTest(out string detail)" and stop after
+  4 generic checks, so `tests/Test-ModuleSelfTests.ps1` records them as known gaps.
+
+  ⚠ **Corrected 2026-09-27, hours after this was filed: this is a CONVENTION gap, not a coverage
+  gap, and the original wording ("so the host cannot run their assertions") overstated it.** All
+  three have dedicated host-side self-tests that the gate already runs — `--aibrain-selftest`,
+  `--fortunes-selftest`, `--fortunes-engine-selftest` and `--petstudio-selftest`, implemented in
+  `src/dotNet/Plugins/*ModuleSelfTest.cs`, which load each module through the real
+  `AssemblyLoadContext` and test it from outside. They are among the 19 self-tests in every gate run.
+
+  So what is missing is the INSIDE view: assertions a module can make about its own internals that an
+  external harness cannot reach, reported through the standard `--module-selftest=<id>` entry point.
+  Worth having, but lower value than it looked when filed, and it is real work per module rather than
+  a delegation — there is no existing module-side entry point to forward to.
   CLOSES-WHEN: grep-present "bool SelfTest(out string detail)" modules/Fortunes/FortunesModule.cs
-
-- ✅ **FIXED 2026-09-27, and this item's own suggested remedy was REFUTED on the way.** It
-  proposed requiring `utf8NoBOM`/`utf8BOM`/`ascii` and rejecting bare `UTF8`. Two of those three are
-  PowerShell 7 NAMES: a script using one parses cleanly under 5.1 and then dies at RUNTIME on the
-  ValidateSet, the same family as `ConvertFrom-Json -AsHashtable`. So that remedy would have traded a
-  silent byte difference for a runtime failure on the older shell. There is in fact NO spelling of
-  `-Encoding` that means the same bytes in both shells.
-
-  So it is a ban: `Set-Content`/`Add-Content`/`Out-File` (plus the `sc`/`ac` aliases) and the `>` /
-  `>>` operators, which are Out-File underneath and carry the same divergence. That codifies what the
-  repo already does -- every tracked script writes through `[IO.File]::WriteAllText/WriteAllBytes`
-  with an explicit encoding object. Measured before changing it: 0 calls and 0 file redirections
-  across all 32 scripts, so it bans nothing anyone is doing. `2>$null` is excluded by redirection
-  TARGET rather than stream number, so `2>errors.log` is still caught. Aliases are hardcoded rather
-  than resolved through `Get-Alias`, which would ask the RUNNING host -- `sc` is Set-Content under
-  5.1 but was dropped in 7, so a pwsh gate would have quietly stopped catching the 5.1-only spelling.
-  Mutation-tested 5 ways: 4 fired naming the construct and line, and `2>$null` stayed correctly
-  silent.
-- ✅ **FIXED 2026-09-27.** The scan now counts the redirect assignments it ADMITTED against the
-  ones it actually sliced, and any shortfall is an offender naming the file and the count. Folded
-  into the existing offender list rather than added as a new assertion, so the file's Assert-True
-  self-count against `SMOKETEST.md` is unchanged. Still latent, as filed -- all 13 assignments are
-  initialisers -- so it adds no work today.
-  Mutation-tested by injecting `mk.RedirectStandardOutput = true;` after an existing initialiser and
-  running HEAD's copy of the check against the same mutated tree: NEW exits 1 naming the file, HEAD
-  exits 0. HEAD staying green is the point -- the blind spot was real rather than hypothetical.
-- ✅ **FIXED 2026-09-27, with one detail of this item corrected.** The catch was not entirely
-  unreachable: `ConvertFrom-Json` is a CMDLET and does throw, so unparseable output did reach it.
-  What it could never catch is a `gh` FAILURE, because `gh` is a native command and native commands
-  raise no terminating error. A non-zero `gh release list` fell straight through to an empty
-  `$releases`, deleted nothing, and printed the success line.
-
-  It now reads `$LASTEXITCODE` after the list, refuses a failed or unparseable one, checks the exit
-  of each delete, and closes with a summary built from what happened. Still `exit 0` on every path --
-  a prune problem must never fail a release whose assets already published -- but visible in the log
-  instead of dressed as success. Tested against a stubbed `gh`, step body extracted from the YAML
-  rather than retyped, old vs new over 5 scenarios: the OLD body printed ONE identical success line
-  for ok / few / listfail / deletefail, three of which are not successes; the new one produces 5
-  distinct lines and all 5 still exit 0.
-- ✅ **FIXED 2026-09-27 -- and the leak half of this item was WRONG.** The claim was ~219 leaked
-  process handles per gate run. Measured by sampling DURING 400 real calls under 5.1, before the
-  change: peak growth +69, end of loop +28, settled -79 (below its own baseline), never more than 5
-  `git.exe` objects live at once. Handle growth was already bounded, because the finalizer keeps up.
-  After: +30 / +7 / -21 / 4 -- better on every reading, but single runs of a metric this file's own
-  soak notes call noisy, so the honest claim is "bounded either way". Disposal was added anyway, as
-  correctness rather than as a leak fix: release no longer DEPENDS on a GC a short-lived script is
-  not obliged to run.
-
-  The read-order half was real and is fixed. Both pipes are read concurrently and both reads are
-  bounded, which closes two distinct hangs rather than one: a child that fills its stderr pipe never
-  closes stdout, so the copy never returns and the stderr read is never reached; and a child that
-  simply stalls writes nothing, so the COPY blocks first and the unbounded `WaitForExit` was never
-  even the statement that hung. A timeout now names the asset instead of stopping dead on one of 219.
-  It throws OUTSIDE the catch on purpose, so a read failure cannot fall through to the worktree
-  fallback, which CR-strips its way to a plausible wrong hash for a binary asset.
-
-  Differential-tested against `catalog.json`, whose every sha256 was produced by the OLD reader and
-  is already published to installed apps: 54 companion XMLs and 7 module zips reproduce byte- and
-  hash-identically; mutating one expected hash produces exactly one failure. `-TimeoutMs` exists so
-  the timeout path is REACHABLE in a test, because an error path nobody has executed is a guess.
 **Dead code, verified across `src/`, `modules/` and `tools/`**
 
 - ✅ **FIXED 2026-09-27, 237 lines removed — and FOUR of this item's claims were WRONG.**
