@@ -717,13 +717,6 @@ survived a second check, minus the 14 fixed on the day in `e31c5bb`.
 
 **Host, user-visible**
 
-- 📌 **The pet sound decode cache is never evicted.** `src/dotNet/AudioOutput.cs:34` is a
-  `Dictionary<byte[], float[]>` keyed by reference identity, cleared only in `Dispose` (`:383`). Add then
-  Remove a companion type repeatedly and each staging produces fresh arrays whose cache entries can never
-  be hit again and are never freed, holding both the MP3 and the decoded 44.1 kHz stereo float buffer
-  (about 7x the MP3). `PlayOwned`'s own doc at `:119-121` states this retention as the reason module
-  audio is deliberately not cached; the pet path has the same property and no bound.
-
 **Modules**
 
 - 📌 **Remembrance's Remote Desktop warning describes behaviour the code no longer has.**

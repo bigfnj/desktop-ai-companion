@@ -168,9 +168,10 @@ Assert-True (
     $petHostSource -match '(?s)public void Say\(ICompanion pet, string text\)[\s\S]{0,300}?IsDisposed'
 ) 'IHost.Say guards a disposed pet'
 
-# Module audio must NEVER enter AudioOutput._cache. That dictionary is keyed by byte[] REFERENCE identity and
-# is cleared only in Dispose, so caching synthesized speech would retain every line the pet ever spoke -- plus
-# a mixer-format buffer roughly 7x larger than the input. The engine path caches on purpose (a pet has a fixed
+# Module audio must NEVER enter AudioOutput._cache. That table is keyed by byte[] REFERENCE identity and
+# holds each decode for as long as its SOURCE array lives, so caching synthesized speech would pin every line
+# the pet is still holding -- plus a mixer-format buffer roughly 7x larger than the input -- for no reuse at
+# all, because no two spoken lines share bytes. The engine path caches on purpose (a pet has a fixed
 # set of animation sounds); the module path must not. Nothing else can catch this: it leaks slowly, only with
 # a voice module installed, and never fails a test.
 $audioSource = Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\AudioOutput.cs') -Raw

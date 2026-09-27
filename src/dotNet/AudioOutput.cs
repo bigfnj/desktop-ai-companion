@@ -31,8 +31,28 @@ namespace DesktopAICompanion
         private static readonly WaveFormat MixFormat = WaveFormat.CreateIeeeFloatWaveFormat(44100, 2);
 
         private readonly object _sync = new object();
-        private readonly Dictionary<byte[], float[]> _cache =
-            new Dictionary<byte[], float[]>(ReferenceComparer.Instance);
+        /// <summary>
+        /// Decoded audio, held only for as long as the SOURCE array is.
+        ///
+        /// This was a Dictionary keyed by byte[] reference identity and cleared only in Dispose, which
+        /// made it unbounded in the one direction that matters. Removing the last pet of a type
+        /// disposes its Animations and drops its TSound.Data arrays; adding the type again re-stages
+        /// and produces FRESH arrays. So every add/remove cycle left behind entries that could never
+        /// be hit again -- each pinning the encoded MP3 AND a mixer-format buffer roughly 7x its size
+        /// (44.1 kHz stereo float, 8 bytes per frame) for the life of the process. The tray's Add and
+        /// Remove rows make that a two-click loop, and Companion Studio's preview does the same thing.
+        ///
+        /// A ConditionalWeakTable says exactly what was meant all along: this is a decode cache for
+        /// bytes somebody else owns, and it has no business outliving them. Key comparison is
+        /// reference identity, which is what ReferenceComparer was hand-rolling.
+        /// </summary>
+        private readonly System.Runtime.CompilerServices.ConditionalWeakTable<byte[], float[]> _cache =
+            new System.Runtime.CompilerServices.ConditionalWeakTable<byte[], float[]>();
+
+        /// <summary>Stored for a buffer that would not decode, so a broken sound is not retried on every
+        /// trigger. A zero-length array rather than null: the play paths already treat "no samples" as
+        /// nothing to play, and ConditionalWeakTable is a poor place to reason about null values.</summary>
+        private static readonly float[] Undecodable = new float[0];
         /// <summary>Owner tag for the pet engine's own sounds (animation SFX + the test tone), so a module's
         /// StopSound can never silence them.</summary>
         internal const string EngineOwner = "";
@@ -103,7 +123,8 @@ namespace DesktopAICompanion
                 {
                     try { samples = Decode(mp3); }
                     catch { samples = null; }
-                    _cache[mp3] = samples;   // cache even null so an undecodable sound isn't retried each trigger
+                    // Undecodable is recorded too, so a broken sound is not re-decoded on every trigger.
+                    _cache.Add(mp3, samples ?? Undecodable);
                 }
                 if (samples == null || samples.Length == 0) return;
                 AddInput(samples, Math.Max(0, Math.Min(20, loop)), (float)Math.Max(0.0, Math.Min(1.0, volume)), EngineOwner);
@@ -116,9 +137,11 @@ namespace DesktopAICompanion
         /// never has to name a sample format. False means nothing will be heard -- no device, muted,
         /// undecodable, over the caps -- which is what lets a caller fall back to a bubble.
         ///
-        /// Deliberately NOT cached. <see cref="_cache"/> is keyed by byte[] REFERENCE identity and cleared only
-        /// in Dispose, so caching TTS would retain every line the pet ever spoke, plus a mixer-format buffer
-        /// roughly 7x larger than the input. Pinned by a source-text invariant.
+        /// Deliberately NOT cached, and still so now that <see cref="_cache"/> is weak-keyed. A TTS line
+        /// arrives as a fresh array that nothing else holds, so a cache entry would be collected almost
+        /// at once and buy nothing -- while the array is alive, an entry would pin a mixer-format buffer
+        /// roughly 7x larger than the input for no reuse at all, because no two lines share bytes.
+        /// Pinned by a source-text invariant.
         /// </summary>
         public bool PlayOwned(string owner, byte[] audio, double volume)
         {
@@ -181,9 +204,9 @@ namespace DesktopAICompanion
         /// quiet with no way to find out why.
         ///
         /// The built-in is cached and the chosen file is not, for the reason <see cref="PlayOwned"/>
-        /// spells out: <see cref="_cache"/> is keyed by byte[] reference identity and cleared only in
-        /// Dispose, so holding an 8 MiB pick there would pin it plus a mixer-format buffer several times
-        /// its size for the life of the process. The chime is one small array that never varies.
+        /// spells out: the chime is one small array that never varies and is worth decoding once, while a
+        /// chosen file is re-read per play, so an entry would pin an 8 MiB pick plus a mixer-format buffer
+        /// several times its size for as long as that array happened to live, and never be reused.
         /// </summary>
         public bool PlayNotification(string owner, byte[] chosen, double volume)
         {
@@ -380,7 +403,7 @@ namespace DesktopAICompanion
                 if (_disposed) return;
                 _disposed = true;
                 DisposeOutput();
-                _cache.Clear();
+                _cache.Clear();   // the table would empty itself as the arrays die; this is just prompt
             }
         }
 
@@ -456,12 +479,6 @@ namespace DesktopAICompanion
             }
         }
 
-        private sealed class ReferenceComparer : IEqualityComparer<byte[]>
-        {
-            public static readonly ReferenceComparer Instance = new ReferenceComparer();
-            public bool Equals(byte[] x, byte[] y) { return ReferenceEquals(x, y); }
-            public int GetHashCode(byte[] obj) { return RuntimeHelpers.GetHashCode(obj); }
-        }
     }
 
     /// <summary>Why a notification was or was not heard. The caller that can act on it is the Preferences
