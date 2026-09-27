@@ -24,7 +24,14 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.1.6",   // 1.1.6: payload refresh only. WebPLoader.cs, also source-linked, now bounds
+            Version = "1.1.7",   // 1.1.7: payload refresh, and one real conversion fix. PetEmitter.Has matched
+                                 //        case-insensitively where ActionClassifier.Has used Ordinal, so an
+                                 //        action merely NAMED with "Cursor" converted as a gaze: a stray
+                                 //        faceCursor tag, the wrong variant rule, and a refused direction
+                                 //        merge. A skin converted in this module was subject to it. Also
+                                 //        deletes an unreachable roundUp branch whose doc contradicted its
+                                 //        only caller.
+                                 // 1.1.6: payload refresh only. WebPLoader.cs, also source-linked, now bounds
                                  //        the dwebp stdout READ rather than only the wait -- a synchronous
                                  //        CopyTo blocks until the child exits, so the 30s timeout sat after
                                  //        the hang it existed to catch. Affects any .webp sprite decode this
