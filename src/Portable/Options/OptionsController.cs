@@ -69,9 +69,22 @@ namespace DesktopAICompanion.Options
         {
             string xml, err;
             if (!CompanionCatalog.TryReadPetXml(petId, out xml, out err)) return OpResult.Fail(err);
+
             // Record which pet is now active so per-pet size/sound key by its real id (normalize handles ""/built-in).
+            //
+            // WRITTEN BEFORE THE APPLY, AND PUT BACK IF THE APPLY FAILS. LoadNewXMLFromString returns
+            // false on three real paths -- disposed, TryStageRuntime rejecting the XML, and its own
+            // catch -- and that catch already restores the previous XML, images and icon. The id was
+            // the one thing it did not restore, so a failed Use left settings.json naming a companion
+            // that is not running: the pane said "Couldn't apply that companion" while moving the
+            // ACTIVE marker onto it, and the next launch staged the old pet's XML under the new pet's
+            // id, so per-pet size, sound mute, monitor pin and speech source all resolved against the
+            // wrong companion from then on.
+            string previousId = Program.MyData != null ? Program.MyData.GetActivePetId() : null;
             if (Program.MyData != null) Program.MyData.SetActivePetId(petId);
+
             bool ok = _runtime.LoadNewXMLFromString(xml);
+            if (!ok && Program.MyData != null) Program.MyData.SetActivePetId(previousId);
             if (ok) Load();
             return ok ? OpResult.Success("Companion applied.") : OpResult.Fail("Couldn't apply companion.");
         }

@@ -972,6 +972,30 @@ namespace DesktopAICompanion.Wpf
 
         private static ImageSource LoadThumb(string id)
         {
+            if (string.IsNullOrWhiteSpace(id)) return null;
+            // CACHED HERE, not one level down. The first version of this cache sat on
+            // LoadPetHeaderIcon, which is only the MISS path -- so the common case, a bundled
+            // thumbnail out of the zip, still cloned up to 256 KB of PNG bytes and ran a full
+            // BitmapImage decode per card, per rebuild, on the UI thread. That is once per installed
+            // companion (56 of them ship) every time the pane is selected and after every Use, Add,
+            // Remove, Download and Uninstall.
+            //
+            // Both sources produce a FROZEN ImageSource, so one instance is safe to hand to every
+            // card, and ForgetStats already drops this entry when a pet's files are rewritten.
+            lock (_iconCache)
+            {
+                ImageSource hit;
+                if (_iconCache.TryGetValue(id, out hit)) return hit;
+            }
+            ImageSource thumb = ReadThumb(id);
+            lock (_iconCache) { _iconCache[id] = thumb; }
+            return thumb;
+        }
+
+        /// <summary>The uncached read, bundled thumbnail first. Separated so the caching above has
+        /// exactly one thing to cache.</summary>
+        private static ImageSource ReadThumb(string id)
+        {
             try
             {
                 byte[] png = CompanionThumbnails.GetPng(id);
