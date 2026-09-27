@@ -242,8 +242,23 @@ namespace DesktopAICompanion.PetStudioModule
         /// </summary>
         internal static List<KeyValuePair<AnimCapability, int>> Census(IList<AnimNode> nodes)
         {
+            return Census(nodes, null);
+        }
+
+        /// <summary>
+        /// The census, over a classification the caller has ALREADY computed.
+        ///
+        /// RenderMap classifies the whole pet so each chip's badge can read from the result, then calls
+        /// RenderCensus, which called this -- which classified the whole pet again. Twice per analyze,
+        /// and analyze runs on a ~750 ms debounce while the author is typing. Passing the map through
+        /// costs nothing and removes the second pass; `null` still means "classify it yourself", which
+        /// is what the one-argument overload above is for.
+        /// </summary>
+        internal static List<KeyValuePair<AnimCapability, int>> Census(
+            IList<AnimNode> nodes, Dictionary<int, AnimCapability> alreadyClassified)
+        {
             var counts = new Dictionary<AnimCapability, int>();
-            Dictionary<int, AnimCapability> classified = ClassifyAll(nodes);
+            Dictionary<int, AnimCapability> classified = alreadyClassified ?? ClassifyAll(nodes);
             if (nodes != null)
                 foreach (AnimNode n in nodes)
                 {

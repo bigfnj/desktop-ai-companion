@@ -394,7 +394,9 @@ namespace DesktopAICompanion.PetStudioModule
             if (report == null || report.Nodes.Count == 0) return;
             _census.Inlines.Add(new System.Windows.Documents.Run("what they do:  ") { Foreground = _theme.Muted });
             bool first = true;
-            foreach (KeyValuePair<AnimCapability, int> kv in AnimCapabilities.Census(report.Nodes))
+            // _capabilities was computed by RenderMap immediately before this call, so the census reuses
+            // it rather than classifying the whole pet a second time on every 750 ms debounce.
+            foreach (KeyValuePair<AnimCapability, int> kv in AnimCapabilities.Census(report.Nodes, _capabilities))
             {
                 string badge = AnimCapabilities.Badge(kv.Key);
                 string text = (badge.Length > 0 ? badge : "in place") + " " + kv.Value;
