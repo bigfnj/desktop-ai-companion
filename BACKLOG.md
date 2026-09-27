@@ -738,15 +738,18 @@ survived a second check, minus the 14 fixed on the day in `e31c5bb`.
 
 **Modules**
 
-- 📌 **Remembrance's Remote Desktop warning describes behaviour the code no longer has.**
-  `RemembranceModule.cs:692` ends "(Device dropdowns are read at startup; restart there to populate
-  them.)" — false since `RefreshDynamicOptions` was wired into the pane's `Load` (`:486-495`, `:609-612`),
-  which the host re-runs on every pane build. Reopening the options pane is enough.
-- 📌 **Fortunes clears a settings key nothing has ever read.** `FortunesModule.cs:1211` does
-  `ms.Set("spicyTier", "")` so "a stale value can never be re-migrated", but `MigrateContentLevel`
-  (`:399`) reads only `spicyFortunes` and `spicyOnly`, and `spicyTier` appears exactly once in the repo:
-  at this write.
-
+- ✅ **FIXED 2026-09-27 (remembrance 1.0.12).** The warning now says the device lists refresh
+  every time the pane opens and that reopening on the console is enough, with no restart. Re-verified
+  against the code before changing the text rather than trusting the item: `Load` at
+  `RemembranceModule.cs:661-664` runs `AutoDetectWhisperOnce`, `AutoDiscoverModelsOnce` and
+  `RefreshDynamicOptions` before returning values, and the host calls `Load` on every pane build.
+  Telling a user to restart an app that does not need restarting is a worse defect than saying
+  nothing.
+- ✅ **FIXED 2026-09-27 (fortunes 1.0.9).** The `ms.Set("spicyTier", "")` is gone. Re-measured
+  first: `spicyTier` appeared exactly once in the entire repo, at that write, and
+  `MigrateContentLevel` reads only `spicyFortunes` and `spicyOnly`. Clearing a key that never existed
+  migrates nothing, so the comment justifying it ("a stale value can never be re-migrated") described
+  a hazard that could not occur.
 **Converter and build**
 
 - 📌 **A skin with no `Type="Move"` action always fails the converter's own acceptance bar.**
