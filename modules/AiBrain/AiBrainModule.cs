@@ -558,7 +558,8 @@ namespace DesktopAICompanion.AiBrainModule
                 if (picked == null || picked.Count == 0) return "";   // cancelled
 
                 s.TesseractPath = picked[0];
-                if (!s.Save()) return "✗ Couldn't save the OCR engine path.";
+                if (!s.SaveWithin(AiSettings.UiSaveBudgetMilliseconds))
+                    return "✗ Couldn't save the OCR engine path.";
                 return await TestOcrAsync().ConfigureAwait(false);
             }
             catch (Exception ex) { return "✗ Couldn't set the OCR engine: " + ex.Message; }
@@ -691,7 +692,7 @@ namespace DesktopAICompanion.AiBrainModule
             // ---- Fallback + triggers ----
             if (values.TryGetValue("useLocalFallback", out v) && bool.TryParse(v, out b)) s.UseLocalFallback = b;
             if (values.TryGetValue("hotkey", out v) && !string.IsNullOrWhiteSpace(v)) s.Hotkey = v.Trim();
-            bool ok = s.Save();
+            bool ok = s.SaveWithin(AiSettings.UiSaveBudgetMilliseconds);
             ApplyState();   // re-apply triggers/backend to reflect the new config
             return ok;
         }
@@ -1020,7 +1021,19 @@ namespace DesktopAICompanion.AiBrainModule
             AiSettings s = _settings;
             if (s == null) return;
             s.AiBrainEnabled = !s.AiBrainEnabled;
-            try { s.Save(); } catch { }
+            // SAYS SO WHEN IT FAILS. This was `try { s.Save(); } catch { }`, which discarded both the
+            // return value and the exception -- so a toggle that did not persist looked exactly like one
+            // that did, and came back on the next launch with no explanation. That matters more now the
+            // budget is bounded: a contended save can legitimately return false.
+            bool persisted;
+            try { persisted = s.SaveWithin(AiSettings.UiSaveBudgetMilliseconds); }
+            catch (Exception ex)
+            {
+                persisted = false;
+                if (_host != null) _host.Log(Info.Id, "AI toggle not saved: " + ex.GetType().Name);
+            }
+            if (!persisted && _host != null)
+                _host.Log(Info.Id, "AI toggle applied for this session but NOT saved; it will revert on restart");
             ApplyState();
         }
 

@@ -380,7 +380,22 @@ namespace DesktopAICompanion.Ai
             }
         }
 
-        /// <summary>Persist settings. Returns false when durable storage is unavailable or blocked.</summary>
+        /// <summary>
+        /// The budget a UI-thread save gets. Short on purpose: the 10 s cross-session timeout is sized for
+        /// a background writer waiting out a peer process, and spending it on the message thread is a
+        /// ten-second freeze of the settings window.
+        ///
+        /// That distinction was DOCUMENTED and not implemented. SaveWithin's own summary said "UI callers
+        /// use a short budget so a hung peer cannot freeze the message thread for the full cross-session
+        /// timeout", and every UI caller went through Save() at 10,000 ms; SaveWithin's only caller was a
+        /// self-test. 1500 ms is far beyond an uncontended save (immediate) and beyond two instances
+        /// overlapping, while staying inside what reads as a responsive click.
+        /// </summary>
+        internal const int UiSaveBudgetMilliseconds = 1500;
+
+        /// <summary>Persist settings. Returns false when durable storage is unavailable or blocked.
+        /// Uses the full cross-session budget: NOT for the UI thread -- see
+        /// <see cref="UiSaveBudgetMilliseconds"/>.</summary>
         public bool Save()
         {
             return SaveWithin(ProcessLockTimeoutMilliseconds);

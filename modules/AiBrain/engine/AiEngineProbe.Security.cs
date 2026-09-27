@@ -934,6 +934,29 @@ namespace DesktopAICompanion.AiBrainModule
                     boundedSaveRejected &&
                     lockWait.Elapsed < TimeSpan.FromSeconds(2));
 
+                // THE BUDGET THE MODULE ACTUALLY USES, not a literal chosen here. The check above proves
+                // SaveWithin honours *a* bound; it passed for months while every UI caller went through
+                // Save() at 10,000 ms, because nothing tied it to the constant the callers pass. Asserting
+                // against AiSettings.UiSaveBudgetMilliseconds means raising that constant back to the
+                // cross-session timeout fails HERE rather than silently restoring a ten-second freeze of
+                // the settings window.
+                Stopwatch uiWait = Stopwatch.StartNew();
+                bool uiBudgetRejected;
+                using (var uiContention = new FileStream(
+                    path + ".lock",
+                    FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite,
+                    FileShare.None))
+                {
+                    customReloaded.Disposition = "ui budget contention";
+                    uiBudgetRejected = !customReloaded.SaveWithin(AiSettings.UiSaveBudgetMilliseconds);
+                }
+                uiWait.Stop();
+                ok &= Check(
+                    sb,
+                    "the UI save budget gives up fast enough to keep the settings window responsive",
+                    uiBudgetRejected && uiWait.Elapsed < TimeSpan.FromSeconds(5));
+
                 string undecryptable =
                     Convert.ToBase64String(new byte[] { 1, 3, 3, 7, 9, 11, 13, 17 });
                 string openAiScope = AiSettings.BuildCredentialScope(
