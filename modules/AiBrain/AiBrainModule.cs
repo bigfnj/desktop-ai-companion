@@ -53,6 +53,25 @@ namespace DesktopAICompanion.AiBrainModule
         // always runs before Save can be called, so a lookup here always succeeds for anything the user
         // could have actually picked from a dropdown.
         private readonly Dictionary<string, string> _modelIdByLabel = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Guards <see cref="_localModels"/>, <see cref="_cloudModels"/> and <see cref="_modelIdByLabel"/>.
+        ///
+        /// The two "Refresh ... models" pane actions can be in flight together -- the host disables only
+        /// the button that was clicked -- and both resume on a POOL thread after their
+        /// ConfigureAwait(false), then Clear/AddRange one list and call RefreshModelFieldOptions, which
+        /// reads BOTH lists and writes the label dictionary through FormatModelLabel. Concurrently that is
+        /// a List being rebuilt while another thread enumerates it and two threads writing one
+        /// Dictionary: torn dropdowns at best, a corrupted dictionary or InvalidOperationException at
+        /// worst. LoadPaneValues reads the same three from the UI thread, so the race does not even need
+        /// two refreshes -- one refresh plus a pane open is enough.
+        ///
+        /// Monitor is reentrant, so the coarse lock in each refresh action and the fine ones in
+        /// FormatModelLabel / ResolveModelId nest safely on the same thread. The coarse one is what makes
+        /// "replace the list, then rebuild the options from it" atomic rather than merely thread-safe in
+        /// pieces.
+        /// </summary>
+        private readonly object _modelsLock = new object();
         private SettingField _textModelField;
         private SettingField _visionModelField;
         private SettingField _cloudTextModelField;
@@ -587,8 +606,19 @@ namespace DesktopAICompanion.AiBrainModule
                 // OpenAI-compatible /v1 server such as llama.cpp/LM Studio).
                 d["localBackendKind"] = LocalBackendKindLabelForId(s.LocalBackendKind);
                 d["endpoint"] = s.Endpoint ?? "";
-                d["textModel"] = FormatModelLabel(s.TextModel, _localModels);
-                d["visionModel"] = FormatModelLabel(s.VisionModel, _localModels);
+                // SNAPSHOT under the lock, FORMAT outside it. Wrapping the whole span instead would
+                // put VramStatusLine's blocking model query -- up to a couple of seconds against a local
+                // Ollama -- inside the critical section, so a pane open would stall both refresh actions.
+                // Copying two short lists costs nothing and gives the four label reads below a consistent
+                // view even if a refresh replaces a list midway.
+                ModelListing[] localSnapshot, cloudSnapshot;
+                lock (_modelsLock)
+                {
+                    localSnapshot = _localModels.ToArray();
+                    cloudSnapshot = _cloudModels.ToArray();
+                }
+                d["textModel"] = FormatModelLabel(s.TextModel, localSnapshot);
+                d["visionModel"] = FormatModelLabel(s.VisionModel, localSnapshot);
                 d["useVision"] = s.UseVision ? "true" : "false";
                 d["tesseractPath"] = s.TesseractPath ?? "";
                 d["autoStart"] = s.AutoStartServer ? "true" : "false";
@@ -598,8 +628,8 @@ namespace DesktopAICompanion.AiBrainModule
                 // Cloud provider slot.
                 d["cloudProvider"] = CloudProviderLabelForId(s.Provider);
                 d["cloudEndpoint"] = s.OpenAiBaseUrl ?? "";
-                d["cloudTextModel"] = FormatModelLabel(s.CloudTextModel, _cloudModels);
-                d["cloudVisionModel"] = FormatModelLabel(s.CloudVisionModel, _cloudModels);
+                d["cloudTextModel"] = FormatModelLabel(s.CloudTextModel, cloudSnapshot);
+                d["cloudVisionModel"] = FormatModelLabel(s.CloudVisionModel, cloudSnapshot);
                 d["cloudConsent"] = s.CloudDataConsent ? "true" : "false";
                 d["apiKey"] = string.IsNullOrEmpty(s.ApiKey) ? "" : "set";   // cloud-key presence hint; never the plaintext
                 d["useLocalFallback"] = s.UseLocalFallback ? "true" : "false";
@@ -773,7 +803,7 @@ namespace DesktopAICompanion.AiBrainModule
             parts.Add(id);
             if (AiModelPolicy.LooksUncensored(id)) parts.Add("uncensored");
             string label = string.Join(" · ", parts);
-            _modelIdByLabel[label] = id;
+            lock (_modelsLock) _modelIdByLabel[label] = id;
             return label;
         }
 
@@ -783,7 +813,8 @@ namespace DesktopAICompanion.AiBrainModule
         private string ResolveModelId(string label)
         {
             string id;
-            if (!string.IsNullOrEmpty(label) && _modelIdByLabel.TryGetValue(label, out id)) return id;
+            lock (_modelsLock)
+                if (!string.IsNullOrEmpty(label) && _modelIdByLabel.TryGetValue(label, out id)) return id;
             return label ?? "";
         }
 
@@ -887,10 +918,13 @@ namespace DesktopAICompanion.AiBrainModule
         private void RefreshModelFieldOptions()
         {
             AiSettings s = _settings;
-            _textModelField.Options = BuildModelOptions(_localModels, s != null ? s.TextModel : "", false);
-            _visionModelField.Options = BuildModelOptions(_localModels, s != null ? s.VisionModel : "", true);
-            _cloudTextModelField.Options = BuildModelOptions(_cloudModels, s != null ? s.CloudTextModel : "", false);
-            _cloudVisionModelField.Options = BuildModelOptions(_cloudModels, s != null ? s.CloudVisionModel : "", true);
+            lock (_modelsLock)
+            {
+                _textModelField.Options = BuildModelOptions(_localModels, s != null ? s.TextModel : "", false);
+                _visionModelField.Options = BuildModelOptions(_localModels, s != null ? s.VisionModel : "", true);
+                _cloudTextModelField.Options = BuildModelOptions(_cloudModels, s != null ? s.CloudTextModel : "", false);
+                _cloudVisionModelField.Options = BuildModelOptions(_cloudModels, s != null ? s.CloudVisionModel : "", true);
+            }
         }
 
         private static int CountUncensored(IReadOnlyList<ModelListing> models)
@@ -937,9 +971,14 @@ namespace DesktopAICompanion.AiBrainModule
                     else
                         models = new List<ModelListing>();
                 }
-                _localModels.Clear();
-                _localModels.AddRange(models);
-                RefreshModelFieldOptions();
+                // One critical section: swapping the list and rebuilding the dropdowns from it is a
+                // single logical update, so a concurrent cloud refresh cannot read a half-replaced list.
+                lock (_modelsLock)
+                {
+                    _localModels.Clear();
+                    _localModels.AddRange(models);
+                    RefreshModelFieldOptions();
+                }
                 return ModelListStatus(models, normalized);
             }
             catch (Exception ex) { return "✗ " + ex.Message; }
@@ -961,9 +1000,12 @@ namespace DesktopAICompanion.AiBrainModule
                 IReadOnlyList<ModelListing> models;
                 using (var backend = new OpenAiCompatBackend(normalized, s.ApiKey, timeout))
                     models = await backend.ListModelsAsync(CancellationToken.None).ConfigureAwait(false);
-                _cloudModels.Clear();
-                _cloudModels.AddRange(models);
-                RefreshModelFieldOptions();
+                lock (_modelsLock)
+                {
+                    _cloudModels.Clear();
+                    _cloudModels.AddRange(models);
+                    RefreshModelFieldOptions();
+                }
                 return ModelListStatus(models, normalized);
             }
             catch (Exception ex) { return "✗ " + ex.Message; }
