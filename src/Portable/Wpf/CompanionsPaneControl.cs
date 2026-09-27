@@ -923,6 +923,22 @@ namespace DesktopAICompanion.Wpf
         private static readonly Dictionary<string, CompanionStats> _statsCache = new Dictionary<string, CompanionStats>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
+        /// Header icons, cached for the same reason and with the same lifetime as <see cref="_statsCache"/>
+        /// beside it.
+        ///
+        /// CompanionThumbnails.GetPng caches the bundled zip, but its MISS path did not, and every imported
+        /// Shimeji skin, converted pet and locally authored pet misses. Each miss cost a File.ReadAllText
+        /// plus a full XDocument.Parse of animations.xml -- 406 KB for hornet, 158 KB for esheep64 -- on the
+        /// UI thread, once per CARD, and Reload() runs from the constructor and after every
+        /// Use/Add/Remove/Download/Uninstall, with the control rebuilt on every pane selection.
+        ///
+        /// MISSES ARE CACHED TOO (a null value is a real entry). A pet whose XML carries no icon, or whose
+        /// folder is gone, would otherwise re-parse its whole animations.xml on every rebuild forever --
+        /// the expensive case, cached for nothing.
+        /// </summary>
+        private static readonly Dictionary<string, ImageSource> _iconCache = new Dictionary<string, ImageSource>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
         /// Forget one pet's cached counts, because its animations.xml has just been rewritten. Paired with
         /// <see cref="CompanionCatalog.Forget"/>: both caches are process-lifetime and keyed by id, so an in-process
         /// update leaves the card showing the OLD pet's name and the OLD animation count without them.
@@ -931,6 +947,10 @@ namespace DesktopAICompanion.Wpf
         {
             if (string.IsNullOrEmpty(id)) return;
             lock (_statsCache) { _statsCache.Remove(id); }
+            // The icon comes out of the same rewritten animations.xml, so it goes stale at exactly the same
+            // moment. Forgetting one without the other would leave the card showing the new name and counts
+            // beside the old picture.
+            lock (_iconCache) { _iconCache.Remove(id); }
         }
         private static CompanionStats GetStats(string id)
         {
@@ -969,6 +989,20 @@ namespace DesktopAICompanion.Wpf
         private static ImageSource LoadPetHeaderIcon(string id)
         {
             if (string.IsNullOrWhiteSpace(id)) return null;
+            lock (_iconCache)
+            {
+                ImageSource hit;
+                if (_iconCache.TryGetValue(id, out hit)) return hit;
+            }
+            ImageSource icon = ReadPetHeaderIcon(id);
+            // The frame is frozen by ReadPetHeaderIcon, so one instance is safe to hand to every card.
+            lock (_iconCache) { _iconCache[id] = icon; }
+            return icon;
+        }
+
+        /// <summary>The uncached read. Separated so the caching above has exactly one thing to cache.</summary>
+        private static ImageSource ReadPetHeaderIcon(string id)
+        {
             string xmlPath = FindPetXml(id);
             if (xmlPath == null) return null;
             try
