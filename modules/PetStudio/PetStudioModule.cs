@@ -24,7 +24,10 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.1.9",   // 1.1.9: importing a skin no longer freezes the window. The zip extraction,
+            Version = "1.1.10",  // 1.1.10: the editor classifies the pet once per re-analyze instead of
+                                 //         twice. RenderMap classified the whole pet, then the census did it
+                                 //         again, on every ~750ms debounce while typing.
+                                 // 1.1.9: importing a skin no longer freezes the window. The zip extraction,
                                  //        skin detection and the whole conversion ran inline from the click
                                  //        handler; they run off the UI thread now, and a second Import while
                                  //        one is converting is refused rather than corrupting the editor.
