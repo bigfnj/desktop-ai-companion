@@ -617,10 +617,19 @@ open-item blindness plus the bug-number drift.
   `PetAnalyzer.Analyze` unconditionally base64-decodes the sheet and builds `tilesX * tilesY` GDI+
   bitmaps plus a fresh `XmlSchemaSet` compile on every 750 ms debounce (~850 KB and 304 bitmaps for
   `blue_sheep`). `RenderCensus` also re-runs `ClassifyAll` over the list `RenderMap` just cached.
-- 📌 `modules/AiBrain/AiBrainModule.cs:587` — `LoadPaneValues` fills the display-only `vramStatus` via
-  `RunningModelsAsync(...).GetAwaiter().GetResult()`, blocking the WPF UI thread up to ~2 s per pane
-  open, and three pane actions carry `ReloadPaneAfter = true`. Also builds a fresh `HttpClient` per
-  call.
+- ✅ **FIXED 2026-09-27 (aibrain 1.1.11), and this entry UNDERSTATED it.** "Up to ~2 s" reads as a
+  worst case. Measured with the mechanism `OllamaClient` actually uses (HttpClient, 2 s deadline,
+  literal `127.0.0.1` so no DNS): server running **5–56 ms**, server **REFUSED 2005–2008 ms**, host
+  unreachable **2010 ms**. A refused localhost connection does not fail fast — it burns the entire
+  deadline and returns `TaskCanceledException`. So the 2 seconds was not the rare hung-server case;
+  it was what every user WITHOUT Ollama running paid, on every pane open, with three pane actions
+  that rebuild the pane.
+
+  The pane serves the last known answer and refreshes behind it, showing "Checking what is
+  resident…" on the first open rather than freezing while it finds out. At most one probe in flight,
+  so three rebuilds cannot open three sockets that each sit for two seconds against a server that is
+  not there. The fresh-`HttpClient`-per-call half of this entry falls out of the same change: one
+  client per 5 s instead of one per pane open.
 - ✅ **FIXED 2026-09-27 (aibrain 1.1.10).** The three UI call sites pass
   `AiSettings.UiSaveBudgetMilliseconds` (1500 ms) — far beyond an uncontended save, which is
   immediate, and beyond two instances overlapping, while staying inside what reads as a responsive
