@@ -57,6 +57,14 @@ namespace DesktopAICompanion
             /// Handle to the full screen window. If this value is 0, there is no full screen window.
             /// </summary>
         IntPtr hwndFullscreenWindow = (IntPtr)0;
+
+        /// <summary>
+        /// True while this pet's monitor is claimed by a fullscreen window, i.e. while the pet has
+        /// been stood down. Exposed so StartUp.TopMostSheeps can ask the same question every
+        /// `TopMost = true` site inside this class already asks -- it was the only one that did not,
+        /// and it is reached by a left-click on the tray icon.
+        /// </summary>
+        internal bool IsFullscreenBlocked { get { return hwndFullscreenWindow != IntPtr.Zero; } }
         NativeMethods.RECT currentWindowSize;
 
             /// <summary>Which side of <see cref="hwndWindow"/> the pet is gripping, if any.</summary>

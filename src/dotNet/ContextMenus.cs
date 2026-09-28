@@ -29,7 +29,6 @@ namespace DesktopAICompanion
             /// <summary>
             /// Close Menu Item: removes all pets and closes the app.
             /// </summary>
-        static ToolStripMenuItem closeSheepMenuItem;
             /// <summary>Display name of the active/default pet, for the Remove submenu's "" entry.</summary>
         static string activePetName = "Sheep";
             /// <summary>
@@ -319,14 +318,14 @@ namespace DesktopAICompanion
             sep = new ToolStripSeparator();
             menu.Items.Add(sep);
 
-			// Item: Close application.
-			closeSheepMenuItem = new ToolStripMenuItem
-			{
-				Text = "&Remove all companions and Close"
-			};
-			closeSheepMenuItem.Click += new EventHandler(Exit_Click);
-            closeSheepMenuItem.Image = Resources.exit;
-            menu.Items.Add(closeSheepMenuItem);
+            // Item: Close application. A LOCAL, not a field: every use is right here, and the
+            // field version was written in this block and nulled in Dispose without ever being
+            // read -- unlike its four siblings (addPet, removePet, syncPets, petSpeech), which are
+            // all re-read later to toggle enablement or rebuild submenus.
+            var closeItem = new ToolStripMenuItem { Text = "&Remove all companions and Close" };
+            closeItem.Click += new EventHandler(Exit_Click);
+            closeItem.Image = Resources.exit;
+            menu.Items.Add(closeItem);
 
             return menu;
         }
@@ -606,7 +605,7 @@ namespace DesktopAICompanion
         {
             // Quit without further ado.
             //Application.Exit();
-            Program.Mainthread.KillSheeps(true);
+            Program.Mainthread.KillSheeps();
         }
 
 
@@ -621,7 +620,6 @@ namespace DesktopAICompanion
             moduleTrayItems.Clear();
             addPetMenuItem = null;
             removePetMenuItem = null;
-            closeSheepMenuItem = null;
             testSpeechMenuItem = null;
             petSpeechMenuItem = null;
         }

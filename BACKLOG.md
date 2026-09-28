@@ -889,29 +889,41 @@ them.
   tree exits 0; the stray was removed afterwards.
 **Smaller, verified, grouped — re-audit 2026-09-27**
 
-- 📌 `src/dotNet/Plugins/ModuleHost.cs:114` dereferences `module.Info.Id` unguarded, inside the
-  same `try` that has already guarded `Info` for null twice (`:82-86`, `:108`) and after the module
-  was added to `_loaded` at `:111`. A third-party module with a null `Info` therefore lands in BOTH
-  `Modules` and `Failures`, with `alc.Unload()` requested underneath a module whose `Init` has already
-  registered panes and tray items. Not reachable with any in-repo module; a robustness hole in the
-  third-party path.
-- 📌 `src/dotNet/ContextMenus.cs:32` — `closeSheepMenuItem` is a static field written at `:323-329`
-  and nulled at `:624`, never read. Its four siblings all have readers. Can be a local.
-- 📌 `src/dotNet/Plugins/ModuleHost.cs:30` — `Loaded.Directory` is assigned at `:111` and never read.
-- 📌 `src/dotNet/StartUp.cs:1161` — `KillSheeps(bool exit)`: both call sites pass `true`
-  (`ProcessIcon.cs:339`, `ContextMenus.cs:609`), so the `if (exit)` branch at `:1183-1187` is dead. It
-  hides an asymmetry: with `false` the method would still `pi.Dispose()` and leave the app running
-  with no tray icon and no timer, which is BUG-001's "running but unreachable" state.
-- 📌 `src/Portable/Wpf/OptionsShell.cs:864` — `ManualResetEventSlim` is never disposed; the
-  worker's `catch (ObjectDisposedException)` at `:869` shows one was intended. Delayed handle release
-  rather than an unbounded leak, and only allocated when a custom notification sound is set. Note it
-  can only be disposed safely on the success path: disposing after a timeout races the abandoned
-  worker's `Set`.
-- 📌 `src/dotNet/StartUp.cs:1216-1224` — `TopMostSheeps` is the only `TopMost = true` site that
-  consults neither the fullscreen stand-down state nor a null slot; its four neighbours guard both.
-  Reached by a left-click on the tray icon (`ProcessIcon.cs:226`). The auditor could not demonstrate a
-  visible regression — a hidden companion is not un-hidden by `TopMost`, and `CheckFullScreen`
-  re-clears it each tick — so this is a defensive inconsistency, not a proven defect.
+- ✅ **FIXED 2026-09-28, and there were TWO of them.** The filed site is guarded; so is the one
+  the entry did not name, at `:142`, which is worse. That one sits INSIDE a catch handler, so a
+  module with a null `Info` that also threw from `Shutdown` raised an NRE from the handler itself
+  — escaping `ShutdownAll` and skipping `Alc.Unload()` for that module AND every module
+  after it in the list. A handler that can throw is not a handler.
+
+  Both now read `Info` into a local and fall back to `"(no ModuleInfo)"`. Still not reachable with
+  any in-repo module — all eight declare `Info` — so this is the
+  third-party path, which is exactly the path the class's isolation promise exists for.
+- ✅ **FIXED 2026-09-28.** A local now. Its four siblings (`addPet`, `removePet`, `syncPets`,
+  `petSpeech`) are all re-read later to toggle enablement or rebuild submenus; this one's every use
+  was the construction block. The build caught the leftovers for me: removing the writes left the
+  field declaration and its `Dispose` null, and warnings-as-errors turned "assigned but never used"
+  into a build failure rather than a slow rot.
+- ✅ **FIXED 2026-09-28.** Field and assignment both gone. `Loaded` is private to `ModuleHost`
+  and its only consumers are `ShutdownAll` (`Module`, `Alc`) and the `Modules` projection
+  (`Module`), so nothing could have read it.
+- ✅ **FIXED 2026-09-28.** Parameter dropped and the always-taken branch inlined; both call
+  sites updated (`ProcessIcon.cs:339`, `ContextMenus.cs:609`). The reason for removing rather than
+  leaving it is recorded in a `<remarks>`: with `false` the method still ran `pi.Dispose()` above,
+  leaving the app alive with no tray icon and no timer armed — BUG-001's "running but
+  unreachable" state, reachable only by passing an argument nobody had reason to pass.
+- ✅ **FIXED 2026-09-28, on the success path only.** The timeout path deliberately does NOT
+  dispose: the worker is abandoned rather than cancelled and still holds the handle, so disposing
+  there races its `Set()` — which is why that `finally` swallows
+  `ObjectDisposedException`. On the success path the worker has signalled and cannot touch it again,
+  and that is where the `Dispose` was missing entirely.
+- ✅ **FIXED 2026-09-28.** Both guards added, so it matches its four neighbours. Needed a new
+  `FormCompanion.IsFullscreenBlocked` accessor, because `hwndFullscreenWindow` is private and
+  `TopMostSheeps` lives in `StartUp` — reaching into private state would have been the
+  wrong fix.
+
+  The null guard is parity rather than a known crash, as the entry said: the slots are compacted on
+  kill and zeroed on mass-kill, so no null inside `[0, iSheeps)` could be constructed. Both guards
+  are cheap, and an asymmetry like this outlives the reason for it.
 - 📌 `modules/Remembrance/AudioDevices.cs:74` — `ForgetCachedDevices()` has no callers. It matters
   only because the backlog entry that closed the device-caching item cites it as the escape hatch
   ("`ForgetCachedDevices()` drops it explicitly"), and that safety property is not true of the shipped

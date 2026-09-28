@@ -27,7 +27,9 @@ namespace DesktopAICompanion.Plugins
     /// </summary>
     internal sealed class ModuleHost : IDisposable
     {
-        private sealed class Loaded { public IModule Module; public ModuleLoadContext Alc; public string Directory; }
+        // Directory was here, assigned once and read by nothing: Loaded is private to this type, and
+        // its only consumers are ShutdownAll (Module, Alc) and the Modules projection (Module).
+        private sealed class Loaded { public IModule Module; public ModuleLoadContext Alc; }
         private readonly List<Loaded> _loaded = new List<Loaded>();
         private readonly List<ModuleLoadFailure> _failures = new List<ModuleLoadFailure>();
 
@@ -108,10 +110,24 @@ namespace DesktopAICompanion.Plugins
                     if (attributing != null) attributing.BeginModuleInit(module.Info != null ? module.Info.Id : null);
                     try { module.Init(host); }
                     finally { if (attributing != null) attributing.EndModuleInit(); }
-                    _loaded.Add(new Loaded { Module = module, Alc = alc, Directory = dir });
+                    _loaded.Add(new Loaded { Module = module, Alc = alc });
                     count++;
+                    // GUARDED, like the two reads of Info above it. This line dereferenced it bare,
+                    // inside the same try that had already written `module.Info != null ? ... : null`
+                    // twenty lines earlier -- and it runs AFTER _loaded.Add, so a null Info threw into
+                    // the catch below and the module ended up in BOTH Modules and Failures, with
+                    // alc.Unload() requested underneath a module whose Init had already registered
+                    // panes and tray items. The class promises the opposite at the top of this file:
+                    // "a module that fails to load or init is isolated ... so one bad module can never
+                    // take the host down."
+                    //
+                    // Not reachable with any in-repo module -- all eight declare Info -- so this is the
+                    // third-party path. Which is exactly the path the isolation promise is FOR.
+                    ModuleInfo loadedInfo = module.Info;
                     if (log != null)
-                        log("module loaded: " + module.Info.Id + " " + module.Info.Version +
+                        log("module loaded: " +
+                            (loadedInfo != null ? loadedInfo.Id : "(no ModuleInfo)") + " " +
+                            (loadedInfo != null ? loadedInfo.Version : "?") +
                             (requirement.Length > 0 ? " (" + requirement + ")" : ""));
                 }
                 catch (Exception ex)
@@ -139,7 +155,21 @@ namespace DesktopAICompanion.Plugins
             foreach (Loaded l in _loaded)
             {
                 try { l.Module.Shutdown(); }
-                catch (Exception ex) { if (log != null) log("module shutdown error (" + l.Module.Info.Id + "): " + ex.Message); }
+                catch (Exception ex)
+                {
+                    // INSIDE A CATCH, which is why this one is worse than the load-time twin. It read
+                    // `l.Module.Info.Id` bare, so a module with a null Info that ALSO threw from
+                    // Shutdown raised an NRE from the handler itself -- escaping ShutdownAll entirely
+                    // and skipping Alc.Unload() for this module AND every module after it in the list.
+                    // A handler that can throw is not a handler.
+                    if (log != null)
+                    {
+                        ModuleInfo info = null;
+                        try { info = l.Module.Info; } catch { }
+                        log("module shutdown error (" +
+                            (info != null ? info.Id : "(no ModuleInfo)") + "): " + ex.Message);
+                    }
+                }
                 try { l.Alc.Unload(); } catch { }
             }
             _loaded.Clear();

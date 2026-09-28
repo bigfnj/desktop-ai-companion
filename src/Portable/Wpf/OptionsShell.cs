@@ -868,7 +868,18 @@ namespace DesktopAICompanion.Wpf
                     catch (Exception) { result = false; }
                     finally { try { done.Set(); } catch (ObjectDisposedException) { } }
                 });
-                if (!done.Wait(timeoutMs)) return null;
+                if (!done.Wait(timeoutMs))
+                {
+                    // NOT DISPOSED HERE, deliberately. The worker is abandoned, not cancelled, and it
+                    // still holds this handle: disposing now races its Set() in the finally above, which
+                    // is why that finally swallows ObjectDisposedException. Letting the finalizer
+                    // reclaim it is the correct trade on the path that already went wrong.
+                    return null;
+                }
+                // The worker has signalled and cannot touch it again, so this is the one path where
+                // disposing is safe. It was missing entirely, which left a kernel handle to the
+                // finalizer on every Sound-pane load for a user with a custom notification sound.
+                done.Dispose();
                 return result;
             }
             catch (Exception) { return false; }

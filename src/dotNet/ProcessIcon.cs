@@ -336,7 +336,7 @@ namespace DesktopAICompanion
             }
             // The same call ContextMenus.Exit_Click makes. KillSheeps disposes the tray icon as its
             // FIRST action, which is the point: that is the NIM_DELETE the force-kill never sent.
-            main.KillSheeps(true);
+            main.KillSheeps();
         }
 
         /// <summary>

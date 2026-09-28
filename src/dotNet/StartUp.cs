@@ -1157,8 +1157,14 @@ namespace DesktopAICompanion
             /// <summary>
             /// Close all sheeps on the desktop and eventually closes the application.
             /// </summary>
-            /// <param name="exit">If true, the application will close after 1 second (leaving time to the sheeps to die).</param>
-        public void KillSheeps(bool exit)
+            /// <remarks>
+            /// There was a `bool exit` parameter. Both call sites passed true -- ProcessIcon.cs:339 and
+            /// ContextMenus.cs:609 -- so the false path was unreachable, and it was worth removing rather
+            /// than leaving: with false this method still ran pi.Dispose() above, leaving the app alive
+            /// with no tray icon and no timer armed. That is the "running but unreachable" state BUG-001
+            /// is about, reachable only by adding an argument nobody had reason to add.
+            /// </remarks>
+        public void KillSheeps()
         {
             AddDebugInfo(DEBUG_TYPE.info, "Killing all sheeps");
             timer1.Tag = "0";
@@ -1180,11 +1186,8 @@ namespace DesktopAICompanion
                 }
                 iSheeps = 0;
 
-                if (exit)
-                {
-                    timer1.Interval = 1100;
-                    timer1.Enabled = true;
-                }
+                timer1.Interval = 1100;
+                timer1.Enabled = true;
             }
             else
             {
@@ -1217,9 +1220,22 @@ namespace DesktopAICompanion
         {
             AddDebugInfo(DEBUG_TYPE.info, "Top most all sheeps");
 
+            // GUARDED LIKE ITS NEIGHBOURS. This was the only `TopMost = true` in the companion code
+            // that consulted neither the fullscreen stand-down state nor a null slot; every other one
+            // does (FormCompanion.cs:680, :871, :1933, :2133). Reached by a left-click on the tray
+            // icon, so a click while a fullscreen app owns a pet's monitor re-asserted top-most on a
+            // pet CheckFullScreen had just stood down -- a flicker over a game until the next tick
+            // re-cleared it.
+            //
+            // The null test is parity rather than a known crash: the slots are compacted on kill and
+            // zeroed on mass-kill, so no null inside [0, iSheeps) could be constructed. Both guards
+            // are cheap and the asymmetry was the kind that outlives the reason for it.
             for (int i = 0; i < iSheeps; i++)
             {
-                sheeps[i].TopMost = true;
+                FormCompanion pet = sheeps[i];
+                if (pet == null || pet.IsDisposed) continue;
+                if (pet.IsFullscreenBlocked) continue;
+                pet.TopMost = true;
             }
         }
 
