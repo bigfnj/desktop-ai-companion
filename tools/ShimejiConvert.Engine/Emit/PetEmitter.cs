@@ -78,7 +78,45 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         private const int MaxRestIntervalMs = 700;
         private const int MaxRestRepeats = 200;  // enough for a short cycle to reach 11s; bounded against runaway
 
+        /// <summary>
+        /// Guards the three static fields this class carries across one conversion (`HubSpokes`,
+        /// `CollapsedSources`, `ExpandedSetPieces`). Zero when no conversion is running.
+        ///
+        /// The single-threaded assumption was DOCUMENTED and not enforced: the comment on HubSpokes
+        /// says "Single-threaded emit, so a static is safe and keeps the signatures clean", and
+        /// nothing checked it. Two overlapping conversions would have one replacing the hub-spoke list
+        /// the other is still walking, so one pet's hub could emit edges to the other pet's animation
+        /// ids, with the residue accounting crossed the same way.
+        ///
+        /// Not reachable in the product today, and that is exactly why it is worth asserting: it is
+        /// defended by a CALLER -- PetStudio refuses a second import while one is converting, and its
+        /// window is a singleton -- rather than by this type. The CLI and the self-tests are strictly
+        /// sequential. "Defended by structure rather than by an assertion" is a shape this repo has
+        /// had to correct before, so the assertion goes where the assumption lives.
+        /// </summary>
+        private static int _emitInFlight;
+
+        /// <summary>
+        /// The guarded entry point. Throws rather than serialising: a second concurrent conversion is
+        /// a caller bug, and quietly queueing it would hide the bug while making the caller slow for
+        /// a reason it cannot see.
+        ///
+        /// A thin wrapper rather than a try/finally around the whole body, which has many exit paths.
+        /// </summary>
         public static ConversionResult Emit(ShimejiConfig config, SpriteSheet sheet, Func<string, Bitmap> load, string skinName, Func<string, byte[]> loadSound = null)
+        {
+            if (System.Threading.Interlocked.CompareExchange(ref _emitInFlight, 1, 0) != 0)
+            {
+                throw new InvalidOperationException(
+                    "PetEmitter.Emit is not re-entrant: it carries per-conversion state in static " +
+                    "fields (HubSpokes, CollapsedSources, ExpandedSetPieces), so a second concurrent " +
+                    "conversion would corrupt both. Serialise the callers.");
+            }
+            try { return EmitCore(config, sheet, load, skinName, loadSound); }
+            finally { System.Threading.Interlocked.Exchange(ref _emitInFlight, 0); }
+        }
+
+        private static ConversionResult EmitCore(ShimejiConfig config, SpriteSheet sheet, Func<string, Bitmap> load, string skinName, Func<string, byte[]> loadSound = null)
         {
             var result = new ConversionResult { Residue = new ResidueReport() };
             CollapsedSources = new HashSet<string>(StringComparer.Ordinal);   // per-conversion, not per-process

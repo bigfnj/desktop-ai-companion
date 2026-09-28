@@ -722,10 +722,21 @@ namespace DesktopAICompanion.PetStudioModule
 
                 // Android JSON+WebP bundle (manifest.json + animation.json + sprites/*.webp)? Convert that path.
                 // The bundle can sit one level down inside a zip, so search for it before the classic layout.
-                string bundleRoot = FindBundleRoot(root);
+                // OFF THE UI THREAD, like its three siblings. FindBundleRoot is a recursive
+                // EnumerateDirectories over the whole extracted tree with two File.Exists per hit, and
+                // it sat BEFORE the first await in this method -- so it ran synchronously on the click
+                // while the zip extraction, SkinLayout.Detect and both converters had all been moved
+                // off in 1.1.9, each with a comment saying why. This one was missed.
+                //
+                // ReadBundleName rides along: same class of work, and it sits between this call and
+                // the next await, so leaving it behind would only move the stall a line down. Both are
+                // private static and touch no UI, so this is a straight lift. No ConfigureAwait(false)
+                // anywhere in this method: everything after the awaits is UI-affine and depends on
+                // resuming on the captured context.
+                string bundleRoot = await Task.Run(() => FindBundleRoot(root));
                 if (bundleRoot != null)
                 {
-                    string bundleName = ReadBundleName(bundleRoot);
+                    string bundleName = await Task.Run(() => ReadBundleName(bundleRoot));
                     // Task.Run, with the `out` captured into a local: BundleConverter walks every sprite,
                     // composites a sheet and base64-encodes it, which is seconds of work, not milliseconds.
                     SetStatus("Converting…");
