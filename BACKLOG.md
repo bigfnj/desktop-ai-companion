@@ -1409,18 +1409,39 @@ re-checked -- treat the first step of acting on one as confirming it still repro
   two were mine.
 ### Correctness and dead code
 
-- 📌 **Closing Companion Studio mid-import deletes the temp tree the background conversion is
-  still reading.** `modules/PetStudio/PetStudioWindow.cs`: `Closed += delegate { ...;
-  CleanupExtracted(); }` with no `_importing` check, where `CleanupExtracted` is
-  `Directory.Delete(_extractedTemp, true)`. Since 1.1.9 the window stays responsive during
-  conversion, which is exactly why the second-Import guard was added with the note *"a second Import
-  ran CleanupExtracted FIRST, recursively deleting the temp tree the in-flight conversion was still
-  reading from."* The `Closed` path is the same deletion with none of that guard, and
-  `PetStudioModule.Shutdown` closes the window too, so app exit during an import takes it as well.
-  `_extractedTemp` is then nulled, orphaning whatever the delete could not remove. **Not
-  reproduced** -- read from the code; the failure mode depends on which handles the converter holds
-  at that instant. Needs a `petstudio` republish.
+- ✅ **FIXED 2026-09-28 (petstudio 1.1.13).** The `Closed` handler now calls
+  `CleanupExtracted()` only when no import is in flight; during one it drops the reference WITHOUT
+  deleting. Deliberately the safe side of an uncertainty I did not reproduce: not deleting costs a
+  temp directory, deleting costs an opaque IO failure in the conversion the user is waiting on. The
+  second-Import guard's own comment already recorded why this path exists -- *"It only became
+  reachable when the conversion moved off the UI thread: a responsive window is one you can click
+  again"* -- and a responsive window is also one you can CLOSE, which `PetStudioModule.Shutdown`
+  does too, so app exit during an import arrived here as well.
 
+  ⚠ **I wrote a comment claiming an orphan sweep that did not exist, then had to build it.** The
+  first version said the leftover directory is *"exactly what the orphan sweep on the next Import
+  looks for"* and named `ForgetOrphanedExtractions`. Neither existed. Left alone that would have been
+  a leak introduced while fixing one: every close-during-import abandoning a
+  `petstudio-shimeji-*` tree for ever. `SweepOrphanedExtractions` is real now, runs at the start of
+  an Import, and carries three narrowings because it deletes directories: `%TEMP%` plus this module's
+  exact prefix with a suffix that must parse as the 32-char GUID it generates; only trees older than
+  6 hours, so a second instance mid-conversion is never robbed; best-effort per directory.
+
+  VERIFIED against the REAL compiled method by reflection, not by reading it, and not by
+  re-implementing the predicate -- which would only have tested my copy. Seven decoys, all correct:
+
+  | decoy | expected | result |
+  |---|---|---|
+  | ours, stale | delete | deleted |
+  | ours, fresh | keep | kept |
+  | right prefix, suffix not a GUID | keep | kept |
+  | right prefix, wrong length | keep | kept |
+  | prefix with no suffix | keep | kept |
+  | prefix not at the start | keep | kept |
+  | unrelated folder | keep | kept |
+
+  This verification is a one-off probe, not a gate step: PetStudio has no module-class `SelfTest`
+  (its checks need a pet-XML fixture the host supplies), which is the recorded gap below.
 - 📌 **AgentFlow reads the host's unsynchronised settings dictionary from a pool thread, at
   two remaining sites.** `modules/AgentFlow/AgentFlowModule.cs`, both reaching `ArgvPath` =
   `_settings.Get(...)`. `CompanionHost.ModuleSettings` is a bare `Dictionary<string,string>` with no

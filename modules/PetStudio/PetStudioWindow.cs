@@ -169,7 +169,25 @@ namespace DesktopAICompanion.PetStudioModule
             else
                 SetStatus("Open a pet's animations.xml to begin.");
 
-            Closed += delegate { _playTimer.Stop(); _reanalyzeTimer.Stop(); RemovePreview(); CleanupExtracted(); };
+            // CleanupExtracted is CONDITIONAL here, and that is the same hazard the second-Import
+            // guard above ImportSkinFromRootAsync exists for: it is a recursive Directory.Delete of
+            // the tree a background conversion may still be reading. Since 1.1.9 the window stays
+            // responsive during a conversion, and a responsive window is one you can close as well
+            // as click again -- and PetStudioModule.Shutdown closes it too, so app exit during an
+            // import arrives here as well.
+            //
+            // Deliberately LEAVES the directory rather than deleting it under the converter. That is
+            // the safe side of an uncertainty I did not reproduce: the cost of not deleting is a
+            // temp directory that SweepOrphanedExtractions picks up on the next Import, while the
+            // cost of deleting is an opaque IO failure in the conversion the user is waiting on.
+            Closed += delegate
+            {
+                _playTimer.Stop();
+                _reanalyzeTimer.Stop();
+                RemovePreview();
+                if (_importing) ForgetExtractedWithoutDeleting();
+                else CleanupExtracted();
+            };
         }
 
         // ---- layout ----
@@ -685,6 +703,7 @@ namespace DesktopAICompanion.PetStudioModule
             {
                 RememberSkinDir(Path.GetDirectoryName(dlg.FileName));
                 CleanupExtracted();
+                SweepOrphanedExtractions();
                 _extractedTemp = Path.Combine(Path.GetTempPath(), "petstudio-shimeji-" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(_extractedTemp);
                 // OFF THE UI THREAD. A Shimeji skin zip is mostly PNGs and can be tens of MB; extracting
@@ -704,6 +723,58 @@ namespace DesktopAICompanion.PetStudioModule
         {
             if (string.IsNullOrEmpty(_extractedTemp)) return;
             try { if (Directory.Exists(_extractedTemp)) Directory.Delete(_extractedTemp, true); } catch { }
+            _extractedTemp = null;
+        }
+
+        /// <summary>
+        /// Drop the reference WITHOUT deleting, for the one case where deleting is the bug: the window
+        /// is closing while a conversion is still reading that tree on a pool thread.
+        ///
+        /// The directory is left in %TEMP% under the petstudio-shimeji-* prefix, which is what
+        /// SweepOrphanedExtractions looks for on the next Import, so this DEFERS the cleanup rather
+        /// than abandoning it. Nulling the field matters as much as not deleting: it stops a later
+        /// CleanupExtracted on the same instance from finding the path again.
+        /// </summary>
+        /// <summary>
+        /// Delete extraction trees this module left behind, which happens when the window is closed
+        /// while a conversion is still reading one (see ForgetExtractedWithoutDeleting).
+        ///
+        /// Three narrowings, because this deletes directories:
+        ///   * ONLY %TEMP% plus this module's own "petstudio-shimeji-" prefix, and the name after it
+        ///     must parse as the GUID this module generates -- so a folder somebody else happened to
+        ///     name that way is not ours to remove;
+        ///   * only trees older than SweepAgeHours, so a SECOND instance mid-conversion never has its
+        ///     live tree taken away. A conversion takes seconds; six hours is not a race;
+        ///   * best-effort per directory, because one another process still holds open must not
+        ///     abort the import this is running in front of.
+        /// </summary>
+        private const int SweepAgeHours = 6;
+
+        private static void SweepOrphanedExtractions()
+        {
+            try
+            {
+                string temp = Path.GetTempPath();
+                DateTime cutoff = DateTime.UtcNow.AddHours(-SweepAgeHours);
+                foreach (string dir in Directory.EnumerateDirectories(temp, "petstudio-shimeji-*"))
+                {
+                    try
+                    {
+                        string suffix = Path.GetFileName(dir);
+                        if (suffix == null || suffix.Length != "petstudio-shimeji-".Length + 32) continue;
+                        Guid ignored;
+                        if (!Guid.TryParseExact(suffix.Substring("petstudio-shimeji-".Length), "N", out ignored)) continue;
+                        if (Directory.GetLastWriteTimeUtc(dir) > cutoff) continue;
+                        Directory.Delete(dir, true);
+                    }
+                    catch (Exception) { }
+                }
+            }
+            catch (Exception) { }
+        }
+
+        private void ForgetExtractedWithoutDeleting()
+        {
             _extractedTemp = null;
         }
 

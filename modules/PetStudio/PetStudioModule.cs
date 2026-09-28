@@ -24,7 +24,13 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.1.12",  // 1.1.12: the last synchronous file work leaves the click handler --
+            Version = "1.1.13",  // 1.1.13: closing the window mid-import no longer deletes the temp
+                                 //         tree the background conversion is still reading. Same
+                                 //         recursive delete the second-Import guard exists for, with
+                                 //         none of the guard; app exit took the same path. Adds the
+                                 //         orphan sweep the comment claimed, so the deferred cleanup
+                                 //         is real. Also picks up the Animations.cs magic-animation
+                                 //         sentinel fix, which this module link-compiles.  // 1.1.12: the last synchronous file work leaves the click handler --
                                  //         FindBundleRoot walked the whole extracted tree on the UI thread
                                  //         while its three siblings had been moved off in 1.1.9. Also
                                  //         enforces PetEmitter's single-threaded rule, which was documented
