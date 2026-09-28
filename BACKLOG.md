@@ -795,16 +795,32 @@ entirely by the interval:
 So `shimeji-brq51bkr` is genuinely slower than its peers at *every* scale, because 320ms is the
 longest walk interval in the corpus, and the floor then removes the only other lever.
 
-⚠ **Two separable questions, and neither should be answered by guessing.**
+⚠ **Two separable questions. Both have now been answered by the owner, and they went different
+ways, so what remains open here is only the second.**
 
-- **This pet:** shortening its walk interval to ~200ms gives 10 px/s at 100% and 5 px/s at 25%,
-  above the corpus median at both. It also speeds the 10-frame leg cycle from 3.2s to 2.0s, which is
-  an art-pacing judgement on someone else's sprite work, not a correctness fix. One number,
-  reversible. **Owner's call.**
-- **The model:** preserving absolute speed across the scale slider means scaling the interval with
-  the factor too, which makes the animation itself play 4x faster at 25% — trading a crawl for a
-  scurry. Scaling velocity by `sqrt(factor)` instead halves rather than quarters the loss. Both are
-  behaviour changes affecting every pet and every animation, so neither belongs in a drive-by.
+- **This pet: DONE 2026-09-28.** No done-glyph on this bullet on purpose: the checker tracks
+  open/closed as it walks the file, so a closed glyph inside an open entry flips the entry and the
+  CLOSES-WHEN below it is then attributed to a closed item and silently ignored. Measured: it
+  dropped this entry's criterion count from 1 to 0. Walk interval 320ms → 200ms, giving 10 px/s at 100% and 5 px/s
+  at 25%, above the corpus median at both. It also speeds the 10-frame leg cycle from 3.2s to 2.0s,
+  which is an art-pacing judgement rather than a correctness fix, which is why it was the owner's
+  call and not taken unilaterally. The emitter's locomotion budget is untouched by it:
+  `LocoRepeatCount` targets 2500ms and picks `repeat=0` for a 2000ms pass exactly as it did for a
+  3200ms one, so the declared repeat stays correct.
+- ⚠ **The model: DEFERRED by the owner 2026-09-28, not accepted.** This is what the open glyph on
+  the section heading refers to, so this bullet deliberately carries no second one: an open glyph
+  here would be counted as a separate item with no closing criterion of its own. (Nor is the
+  character named in prose anywhere in this entry, because `^\s*` before the glyph means a WRAPPED
+  line that happens to begin with it is counted too. That is how this very sentence created a
+  phantom third open item.) Preserving absolute speed across
+  the scale slider means scaling the interval with the factor too, which makes the animation itself
+  play 4x faster at 25%, trading a crawl for a scurry. Scaling velocity by `sqrt(factor)` instead
+  halves rather than quarters the loss. Both change every pet and every animation.
+
+⚠ **This stays OPEN rather than moving to the register, because "leave for now" is a deferral and
+the register is for closed knowledge.** The measurement above is the reason it is written down here:
+re-deriving the 32-of-35 figure costs a corpus pass, and the ±1px floor is not obvious from reading
+`ScalePolicy` alone.
 
 CLOSES-WHEN: grep-present docs/DESIGN-REGISTER.md "pet speed at minimum scale"
 
