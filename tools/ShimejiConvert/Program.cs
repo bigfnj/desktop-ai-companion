@@ -494,6 +494,41 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         /// already-damped weight as a raw frequency. Hence the format-version gate rather than a "looks
         /// about right" heuristic.
         /// </summary>
+
+        /// <summary>
+        /// Write a migrated animations.xml back, PRESERVING the byte-level encoding of the file it
+        /// replaces: the UTF-8 BOM if it had one, and LF line endings if it used them.
+        ///
+        /// ONE WRITER FOR ALL EIGHT MIGRATION VERBS, because seven of them used to strip the BOM.
+        /// Measured 2026-09-28: 19 of the 54 shipped Companions/*/animations.xml begin EF BB BF and
+        /// 18 of those are converter output. reweight, rebalance, rejump, reclimb, restsplit, dedupe
+        /// and undirect all wrote `new UTF8Encoding(false)` unconditionally; only reloop, the most
+        /// recently written, detected and restored it.
+        ///
+        /// WHY IT MATTERS, and it is not tidiness. catalog.json records a sha256 of each companion's
+        /// animations.xml as SERVED from raw.githubusercontent, which is the committed blob.
+        /// .gitattributes (`* text=auto eol=lf`) normalises the CRLF the serializer emits, but git
+        /// does NOT normalise a BOM. So a verb that strips it rewrites 18 blobs for no functional
+        /// change and invalidates their recorded hashes: a content change on line 1 of 18 files,
+        /// buried under whatever the verb was actually there to fix, and caught only afterwards by
+        /// Test-ContentCatalogIntegrity.ps1 once the churn is already committed.
+        ///
+        /// Detected from the file on disk, which at this point is still the unmodified original, so
+        /// no verb's read path has to change to use this.
+        /// </summary>
+        private static void WritePetXmlPreservingEncoding(string path, string outXml)
+        {
+            byte[] existing = File.ReadAllBytes(path);
+            bool hadBom = existing.Length >= 3 &&
+                          existing[0] == 0xEF && existing[1] == 0xBB && existing[2] == 0xBF;
+            bool hadCrLf = false;
+            for (int i = 1; i < existing.Length; i++)
+                if (existing[i] == 0x0A) { hadCrLf = existing[i - 1] == 0x0D; break; }
+
+            if (!hadCrLf) outXml = outXml.Replace("\r\n", "\n");
+            File.WriteAllText(path, outXml, new UTF8Encoding(hadBom));
+        }
+
         private static int Reweight(string petsDirectory)
         {
             if (!Directory.Exists(petsDirectory)) { Console.Error.WriteLine("No such directory: " + petsDirectory); return 2; }
@@ -585,7 +620,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     failures++;
                     continue;
                 }
-                File.WriteAllText(path, outXml, new UTF8Encoding(false));
+                WritePetXmlPreservingEncoding(path, outXml);
                 petsChanged++;
 
                 // Report the rarest REAL animation, excluding the hub's own re-selection edge. That edge is
@@ -677,7 +712,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     failures++;
                     continue;
                 }
-                File.WriteAllText(path, outXml, new UTF8Encoding(false));
+                WritePetXmlPreservingEncoding(path, outXml);
                 petsChanged++; animsChanged += changedHere;
                 Console.WriteLine(name.PadRight(28) + " rebalanced " + changedHere + " loco animation(s)");
             }
@@ -856,7 +891,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     continue;
                 }
 
-                File.WriteAllText(path, outXml, new UTF8Encoding(false));
+                WritePetXmlPreservingEncoding(path, outXml);
                 petsChanged++; arced += arcedHere; flattened += flattenedHere;
                 Console.WriteLine(name.PadRight(36) + " " + arcedHere + " jump(s) re-arced, " +
                     flattenedHere + " weak rise(s) flattened" +
@@ -994,7 +1029,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                     continue;
                 }
 
-                File.WriteAllText(path, outXml, new UTF8Encoding(false));
+                WritePetXmlPreservingEncoding(path, outXml);
                 petsChanged++; retimed += retimedHere; held += heldHere;
                 Console.WriteLine(name.PadRight(36) + " " + retimedHere + " crossing pose(s) retimed, " +
                     heldHere + " hold(s) left alone");
@@ -1095,7 +1130,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 GraphReport graph = ShimejiEngine.Analyze(reparsed);
                 if (graph != null && graph.Unreachable.Count > 0)
                 { Console.Error.WriteLine(name.PadRight(36) + " FAIL (unreachable: " + string.Join(",", graph.Unreachable) + ")"); failures++; continue; }
-                File.WriteAllText(path, outXml, new UTF8Encoding(false));
+                WritePetXmlPreservingEncoding(path, outXml);
                 petsChanged++; longer += here;
                 Console.WriteLine(name.PadRight(36) + " hub brief, " + here + " performance(s) lengthened");
             }
@@ -1167,7 +1202,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 { Console.Error.WriteLine(name.PadRight(36) + " FAIL (unreachable: " + string.Join(",", graph.Unreachable) + ")"); failures++; continue; }
 
                 long before = new FileInfo(path).Length;
-                File.WriteAllText(path, outXml, new UTF8Encoding(false));
+                WritePetXmlPreservingEncoding(path, outXml);
                 long after = new FileInfo(path).Length;
                 if (outcome == DedupeOutcome.Changed)
                 {
@@ -1434,11 +1469,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 // rung this migration exists to reach. Bailing here left it one rung short, and the next
                 // migration -- which gates on that rung -- then skipped it for ever. Falling through stamps
                 // the rung and re-validates, which is the same safety the renaming path gets.
-                bool nothingToRename = map.Count == 0;
-                if (nothingToRename &&
-                    string.Equals(root.Header.Version,
-                                  PetEmitter.NextFormatVersionAfter(root.Header.Version), StringComparison.Ordinal))
-                { Console.WriteLine(name.PadRight(36) + " skip (no directional names, already at that format)"); skipped++; continue; }
+                // AND THERE IS NO "already at that format" BAIL HERE, deliberately. One used to sit at
+                // this line, copied from `reloop`, and no input could reach it: the gate above admits
+                // only ConvertedFormatVersionDirectionalNames ("0.8") and NextFormatVersionAfter("0.8")
+                // is "1.0", so the equality it tested was false for every pet this verb accepts and its
+                // skip message could never print. reloop's copy IS reachable, because reloop's gate also
+                // admits ConvertedFormatVersion -- which is what made this a copy-paste divergence.
+                // Always falling through is what the paragraph above asks for.
 
                 foreach (XmlData.AnimationNode a in root.Animations.Animation)
                 {
@@ -1456,7 +1493,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 if (graph != null && graph.Unreachable.Count > 0)
                 { Console.Error.WriteLine(name.PadRight(36) + " FAIL (unreachable: " + string.Join(",", graph.Unreachable) + ")"); failures++; continue; }
 
-                File.WriteAllText(path, outXml, new UTF8Encoding(false));
+                WritePetXmlPreservingEncoding(path, outXml);
                 petsChanged++; renamed += map.Count;
                 Console.WriteLine(name.PadRight(36) + " renamed " + map.Count + " of " + names.Count);
             }
@@ -1632,17 +1669,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 // to do with a trip looping, buried under the change that does. git normalises the CRLF this
                 // writer also introduces (.gitattributes: `* text=auto eol=lf`), but it does not normalise a
                 // BOM, so that one has to be preserved here.
-                byte[] rawBytes = File.ReadAllBytes(path);
-                bool hadBom = rawBytes.Length >= 3 && rawBytes[0] == 0xEF && rawBytes[1] == 0xBB && rawBytes[2] == 0xBF;
+                // (the detection itself now lives in WritePetXmlPreservingEncoding, shared by all eight verbs)
                 // And the line endings, for a sharper reason than tidiness. `catalog.json` records a sha256
                 // of each companion's animations.xml as SERVED from raw.githubusercontent, which is the
                 // committed blob, and .gitattributes normalises that to LF. The serializer emits CRLF. Write
                 // CRLF into an LF working tree and every byte of the file differs from the bytes the
                 // catalog will be asked to describe, so the catalog is regenerated against a file nobody
                 // will ever download. Match what was there and the two agree by construction.
-                bool hadCrLf = false;
-                for (int i = 1; i < rawBytes.Length; i++)
-                    if (rawBytes[i] == 0x0A) { hadCrLf = rawBytes[i - 1] == 0x0D; break; }
 
                 XmlData.RootNode root; string error;
                 if (!ShimejiEngine.TryValidate(File.ReadAllText(path, Encoding.UTF8), out root, out error))
@@ -1738,8 +1771,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 if (graph != null && graph.Unreachable.Count > 0)
                 { Console.Error.WriteLine(name.PadRight(36) + " FAIL (unreachable: " + string.Join(",", graph.Unreachable) + ")"); failures++; continue; }
 
-                if (!hadCrLf) outXml = outXml.Replace("\r\n", "\n");
-                File.WriteAllText(path, outXml, new UTF8Encoding(hadBom));
+                WritePetXmlPreservingEncoding(path, outXml);
                 petsChanged++; fixedLoops += fixedHere; unloopedTotal += unloopedHere; deflatedTotal += deflatedHere;
                 Console.WriteLine(name.PadRight(36) + " fixed " + fixedHere + " performance(s): " +
                     unloopedHere + " unlooped, " + deflatedHere + " deflated");

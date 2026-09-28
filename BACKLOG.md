@@ -1431,23 +1431,46 @@ re-checked -- treat the first step of acting on one as confirming it still repro
   gives a wrong path for one probe), so this is hygiene rather than a crash. Nothing pins it.
   Needs an `agentflow` republish.
 
-- 📌 **Unreachable branch and an unprintable message in `undirect`.**
-  `tools/ShimejiConvert/Program.cs`: the admission gate admits a pet only at
-  `ConvertedFormatVersionDirectionalNames` ("0.8"), and `PetEmitter.NextFormatVersionAfter("0.8")`
-  returns "1.0", so the equality in the `nothingToRename` branch is false for EVERY admitted pet --
-  the branch is dead and `skip (no directional names, already at that format)` can never print. The
-  identical guard in `reloop` IS reachable, because its gate also admits `ConvertedFormatVersion`,
-  which is what makes this a copy-paste divergence rather than a style choice.
+- ✅ **FIXED 2026-09-28.** Deleted, and the behaviour was already correct: **the comment directly
+  above the branch asks for exactly what the unreachable branch would have prevented.** It says
+  *"NOTHING TO RENAME IS NOT NOTHING TO DO. The version records the standard a pet MEETS, not whether
+  this run edited it ... Falling through stamps the rung and re-validates."* Always falling through is
+  the documented intent, so the leftover bail contradicted its own paragraph and happened to be
+  unreachable.
 
-- 📌 **Seven of the eight migration verbs strip a BOM that 18 shipped pets carry.**
-  `tools/ShimejiConvert/Program.cs`: `reweight`, `rebalance`, `rejump`, `reclimb`, `restsplit`,
-  `dedupe` and `undirect` all write `new UTF8Encoding(false)`. Only `reloop` detects and restores
-  the source's BOM and line endings. Measured by the auditor: 19 of 54 `Companions/*/animations.xml`
-  begin `EF BB BF`, 18 of them converted shimeji at format 1.1. Any migration rung added in the
-  majority style rewrites those 18 blobs for no functional change and invalidates their `catalog.json`
-  sha256 -- caught by `Test-ContentCatalogIntegrity.ps1`, but only after the churn and a forced
-  catalog regeneration. The verb written most recently is the only one that got it right.
+  Confirmed against the ladder rather than inferred: `NextFormatVersionAfter` short-circuits only for
+  `ConvertedFormatVersion`, otherwise walks `FormatLadder`, whose `0.8` rung returns `1.0`. The gate 20
+  lines above admits only `0.8`, so the equality was `"0.8" == "1.0"` for every pet the verb accepts.
+  `reloop`'s identical guard stays, because its gate also admits `ConvertedFormatVersion` -- which is
+  what made this a copy-paste divergence rather than a style choice.
+- ✅ **FIXED 2026-09-28. One writer for all eight verbs.** `reloop` had it right; the other seven
+  wrote `new UTF8Encoding(false)` unconditionally. Its logic is now
+  `WritePetXmlPreservingEncoding`, which reads the file it is about to replace -- still the
+  unmodified original at that point -- so no verb's read path had to change.
 
+  **PROVEN, and it took three attempts because the first two were degenerate.** Worth recording, because
+  both failures looked like results:
+
+  | attempt | what it reported | what was actually true |
+  |---|---|---|
+  | 1 | *"33 files changed, 0 BOMs lost"* | **zero** files were written; the 33 was my regex matching skip-report TEXT |
+  | 2 | `filesRewritten=0` for all seven verbs | correct, and it kills the approach: the corpus is fully migrated, so every verb is a no-op today |
+  | 3 | BOM preserved / BOM STRIPPED | the property, on an input a verb admits |
+
+  Attempt 3 constructs the input: take a BOM-bearing converted pet (`shimeji-06n2wuu6`), roll its
+  `<version>` back to `0.8` -- the format `undirect` admits -- writing it back WITH its BOM, then run
+  the verb. MUTATION, with the axis checked in both legs rather than assumed:
+
+  | leg | verb wrote the file | BOM kept |
+  |---|---|---|
+  | helper in place | yes | **yes** |
+  | `UTF8Encoding(hadBom)` -> `UTF8Encoding(false)` | yes | **no** |
+
+  ⚠ **So the defect is LATENT, exactly as the audit said, and that is the reason to fix it now.**
+  No current verb rewrites anything, so nothing is broken today; the hazard is the next migration rung
+  somebody adds in the majority style, which would rewrite 18 blobs for no functional change and
+  invalidate their `catalog.json` sha256 -- git normalises CRLF via `.gitattributes` but does not
+  normalise a BOM.
 - 📌 **`AnimationSync` still carries the "hopeful 1" default that `AnimationDrag` and
   `AnimationFall` were fixed for.** `src/dotNet/Animations.cs`, with `> 1` guards in
   `FormCompanion.CanSync` and `Sync`, plus the same shape for `AnimationKill`. A pet whose `sync` is
