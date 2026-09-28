@@ -361,7 +361,7 @@
       "name": "Jesus Our Lord",
       "author": "shimeji.org",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/Companions/shimeji-brq51bkr/animations.xml",
-      "sha256": "f03305000cb7a90f99a5c43907d17fa10731b802bb2930d1046550eef5742569",
+      "sha256": "a916d3de37cfb9b69ee9c3dc61eabbd6810b88de8704058c4bec2bc0da967b02",
       "bytes": 4524911,
       "animations": 13,
       "sounds": 0
@@ -2314,11 +2314,11 @@
       "id": "petstudio",
       "name": "Companion Studio",
       "desc": "Check a companion's animations.xml before you use it: what the host would reject, which animations can never play, and how it actually looks running on your desktop. Edit the XML in place, watch any animation's real sprite frames, preview the companion temporarily on your desktop, then install it.",
-      "version": "1.1.15",
+      "version": "1.1.16",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/petstudio.zip",
-      "sha256": "3cdc3f67545b32da91f4d403febd93b6c38bdc1eb2286ab5deb36d37c3e3d5c2",
-      "bytes": 395153,
-      "permissions": "Speech, Companions, Storage",
+      "sha256": "48852c623692e39f00c59ffe978aa70aa2dbf2063453ff03506dc1f66ef4ecec",
+      "bytes": 395855,
+      "permissions": "Speech, Animation, Companions, Storage",
       "minHostVersion": "1.0.0"
     },
     {
