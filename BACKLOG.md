@@ -1214,27 +1214,56 @@ re-checked -- treat the first step of acting on one as confirming it still repro
 - ✅ **FIXED 2026-09-28.** The reset calls `DiagnosticLog.Configure` with the values read back
   from the store, exactly as Save does and for the reason Save states. Read back from `data` rather
   than from `def` so the clamps in the setters are the single source of what the logger is told.
-- 📌 **VERIFIED. Remembrance's purge matches far more loosely than its own design says, and
-  it deletes rather than recycles.** `modules/Remembrance/CaptureStore.cs` `NamesThisModuleWrites`.
-  The root branch parses the exact stamp so a near-miss is spared -- *"'snapshot of my cat.png' must
-  not qualify"* -- but the sub-folder branch is `lower.StartsWith("snap") && lower.EndsWith(".png")`,
-  which matches anything. `Purge` runs that branch over every immediate subdirectory of `Root`, and
-  `Root` is the free-text `storageLocation` whose own header warns a user *"may perfectly reasonably
-  point it at Documents ... or at Pictures"*. Deletion is `File.Delete`, on Init and hourly.
+- ✅ **FIXED 2026-09-28 (remembrance 1.0.16). THREE of the four branches were loose, not one.**
 
-  ⚠ **The audit understated it, and I am recording the broader half.** The ROOT branch also
-  accepts `lower.EndsWith(".wav")` unconditionally -- any `.wav`, not the `recording.wav` shape this
-  module writes. The method's own design comment claims three narrowings, the first being *"ONLY
-  THIS MODULE'S OWN FILE SHAPES"*; an extension is not a shape. Same threat model, wider blast
-  radius: a user who points `storageLocation` at a folder holding their own audio loses every `.wav`
-  older than the retention window. Fix both branches in one change.
+  `NamesThisModuleWrites` decides what `File.Delete` -- not the recycle bin -- removes from a folder
+  the user chose, on Init and then hourly. Its own doc already stated the rule: *"'snapshot of my
+  cat.png' must not qualify. Only the exact stamp this module writes does."* Only one branch held
+  that line.
 
-  ⚠ **The obvious one-line fix reddens the gate.** `RemembranceModule.cs` asserts
-  `NamesThisModuleWrites("snap 1.png", true)` is TRUE, and `"snap 1.png"` is not a name this module
-  ever produces. The two "must NOT qualify" assertions only ever pass `insideCaptureFolder: false`,
-  so the loose branch has no negative coverage at all. Replace that fixture in the same commit, and
-  give the branch the negative case it never had.
+  | branch | shipped | matched |
+  |---|---|---|
+  | in a capture folder | `StartsWith("snap") && EndsWith(".png")` | any `snap*.png` |
+  | root | `EndsWith(".wav")` | **any** `.wav` |
+  | root | `Contains(" - snap") && EndsWith(".png")` | `my holiday - snapshot.png` |
+  | root | `IsRootSnapshotName` | the exact stamp -- correct |
 
+  The `.wav` one is the widest thing this purge ever matched and was not in the audit: a user who
+  pointed `storageLocation` at a folder holding their own audio lost every file in it past the
+  retention window, permanently, with no prompt. An extension is not a shape.
+
+  Every branch is now a PARSED shape built from the same strings `NewCapture` and `TakeSnapshot`
+  write, with the timestamp format in one place:
+
+  | | audio | snapshots |
+  |---|---|---|
+  | in a capture folder | `recording.wav` | `snap <stamp>.png` |
+  | in the root | `<stamp>.wav`, `<meeting> - <stamp>.wav` | `snap <stamp>.png`, `<baseName> - snap <stamp>.png` |
+
+  **Three of the old fixtures asserted TRUE for names nothing produces** -- `"snap 1.png"`,
+  `"sprint review - snap 1.png"` and `"sprint review.wav"` -- because `"1"` is not a timestamp and a
+  flat recording is always `<meeting> - <stamp>.wav`. That is what made three loose branches look
+  tested. Positives are real names now, and the `insideCaptureFolder` branch has negatives for the
+  first time: 6 positives and 9 negatives, up from 4 and 3.
+
+  MUTATION, and each mutation is literally the code that shipped rather than a hypothetical, so this
+  also answers per branch "would the new tests have caught it":
+
+  | restored loose branch | failures | which |
+  |---|---|---|
+  | in-folder `snap*.png` | 2 | both new subfolder negatives |
+  | root bare `.wav` | 3 | a user's own wav, a bad-stamp wav, a root `recording.wav` |
+  | root `Contains(" - snap")` | 1 | `holiday - snapshot.png` |
+
+  No cross-talk, baseline and restored both `RESULT=PASS`, and every leg asserted the rebuilt DLL's
+  timestamp advanced and the marker postdated it.
+
+  ⚠ **I hit the stale-marker defect filed in this same audit while doing this**, which is worth
+  recording as a live sighting rather than a code reading: the first read of
+  `dp-module-remembrance-selftest.txt` showed the OLD assertion labels against a freshly built DLL,
+  and it took a timestamp comparison to notice. Every module self-test run in this closure therefore
+  deletes the marker first, asserts it is gone, and asserts the new one postdates the DLL. The
+  underlying fix to `tests/Test-ModuleSelfTests.ps1` is still open below.
 - 📌 **AI Brain's emotion-to-animation reaction is a silent no-op on most shipped
   companions.** `modules/AiBrain/AiBrainModule.cs`. Measured by the auditor across all 54
   `Companions/*/animations.xml`, matching the way `FormCompanion.TryPlayAnimation` compares: happy

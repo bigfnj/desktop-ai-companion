@@ -111,43 +111,108 @@ namespace DesktopAICompanion.RemembranceModule
         {
             if (string.IsNullOrEmpty(fileName)) return false;
             string lower = fileName.ToLowerInvariant();
+            // EVERY branch is a parsed shape, not an extension or a prefix. Three of the four used to be
+            // looser than this method's own doc allows, and each was a way to delete somebody else's
+            // file out of a folder they chose:
+            //   * in a capture folder, `snap*.png` matched ANY name starting "snap" -- and this branch had
+            //     no negative coverage at all, so nothing said otherwise;
+            //   * in the root, `.wav` matched ANY wav, so a user who pointed storageLocation at a folder
+            //     holding their own audio lost every file in it older than the retention window;
+            //   * in the root, `Contains(" - snap")` matched "my holiday - snapshot.png".
+            // The narrowing loses nothing: these are the shapes NewCapture and TakeSnapshot build.
             if (insideCaptureFolder)
-                return lower == "recording.wav" || (lower.StartsWith("snap") && lower.EndsWith(".png"));
-            return lower.EndsWith(".wav")
-                || (lower.Contains(" - snap") && lower.EndsWith(".png"))
-                || IsRootSnapshotName(lower);
+                return lower == "recording.wav" || IsStampedSnapshotName(lower);
+            return IsCaptureAudioName(lower)
+                || IsFlatSnapshotName(lower)
+                || IsStampedSnapshotName(lower);
+        }
+
+        // The one timestamp this module writes, in one place. NewCapture and TakeSnapshot both format
+        // with it, so the purge parses the same thing they produce.
+        private const string StampFormat = "yyyy-MM-dd HH-mm-ss";
+        private const int StampLength = 19;
+
+        /// <summary>
+        /// True when the name ends with exactly the timestamp this module writes, handing back everything
+        /// in front of it. PARSED rather than pattern-matched, so "2026-13-45 99-99-99" does not qualify
+        /// and neither does a name that merely contains digits and dashes.
+        /// </summary>
+        private static bool TryStripTrailingStamp(string name, out string head)
+        {
+            head = null;
+            if (string.IsNullOrEmpty(name) || name.Length < StampLength) return false;
+            DateTime ignored;
+            if (!DateTime.TryParseExact(
+                    name.Substring(name.Length - StampLength), StampFormat,
+                    CultureInfo.InvariantCulture, DateTimeStyles.None, out ignored)) return false;
+            head = name.Substring(0, name.Length - StampLength);
+            return true;
+        }
+
+        private static bool TryStripSuffix(string name, string suffix, out string stem)
+        {
+            stem = null;
+            if (string.IsNullOrEmpty(name) || !name.EndsWith(suffix, StringComparison.Ordinal)) return false;
+            stem = name.Substring(0, name.Length - suffix.Length);
+            return true;
         }
 
         /// <summary>
-        /// The standalone snapshot: "snap &lt;yyyy-MM-dd HH-mm-ss&gt;.png", written to the ROOT by the
-        /// hotkey when no recording is in flight (RemembranceModule.TakeSnapshot's else branch).
+        /// "snap &lt;stamp&gt;.png" -- the standalone hotkey snapshot in the ROOT (TakeSnapshot's else
+        /// branch), and the snapshot inside a capture folder, which are the same shape because
+        /// CapturePaths.SnapshotPrefix is the bare "snap" in folder-per-capture mode.
         ///
-        /// It was purged by nothing. The root gate wanted " - snap", which is the prefix used only when a
-        /// recording IS in flight and folder-per-capture is off, so a snapshot taken on its own -- the
-        /// ordinary way to use that hotkey -- sat on disk forever, against a 72-hour retention the module
-        /// header and the transcript stub both promise the user. A privacy defect rather than a disk one:
-        /// these are captures of every monitor.
+        /// The standalone one was purged by nothing until 2026-09-27: the root gate wanted " - snap",
+        /// which is the prefix used only when a recording IS in flight and folder-per-capture is off, so
+        /// a snapshot taken on its own -- the ordinary way to use that hotkey -- sat on disk forever
+        /// against a 72-hour retention the module header and the transcript stub both promise. A privacy
+        /// defect rather than a disk one: these are captures of every monitor.
         ///
-        /// MATCHED BY SHAPE, and that is the whole point of doing it here rather than loosening the
-        /// prefix test. This method decides what gets DELETED out of a folder the user chose --
-        /// storageLocation is free text with a folder picker, and PurgeOneDirectory's header warns it may
-        /// reasonably be Documents or Pictures -- so "snapshot of my cat.png" must not qualify. Only the
-        /// exact stamp this module writes does.
+        /// MATCHED BY SHAPE, and that is the whole point of doing it here rather than loosening a prefix
+        /// test. This method decides what gets DELETED out of a folder the user chose -- storageLocation
+        /// is free text with a folder picker, and PurgeOneDirectory's header warns it may reasonably be
+        /// Documents or Pictures -- so "snapshot of my cat.png" must not qualify. Only the exact stamp
+        /// this module writes does.
         /// </summary>
-        internal static bool IsRootSnapshotName(string lowerFileName)
+        internal static bool IsStampedSnapshotName(string lowerFileName)
         {
-            const string Prefix = "snap ";
-            const string Suffix = ".png";
-            if (string.IsNullOrEmpty(lowerFileName)) return false;
-            if (!lowerFileName.StartsWith(Prefix, StringComparison.Ordinal)) return false;
-            if (!lowerFileName.EndsWith(Suffix, StringComparison.Ordinal)) return false;
-            string stamp = lowerFileName.Substring(
-                Prefix.Length, lowerFileName.Length - Prefix.Length - Suffix.Length);
-            // Exactly the format TakeSnapshot writes, parsed rather than pattern-matched.
-            DateTime ignored;
-            return DateTime.TryParseExact(
-                stamp, "yyyy-MM-dd HH-mm-ss",
-                CultureInfo.InvariantCulture, DateTimeStyles.None, out ignored);
+            string stem, head;
+            if (!TryStripSuffix(lowerFileName, ".png", out stem)) return false;
+            if (!TryStripTrailingStamp(stem, out head)) return false;
+            return string.Equals(head, "snap ", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// "&lt;baseName&gt; - snap &lt;stamp&gt;.png" -- a snapshot taken while a recording is in flight
+        /// with folder-per-capture OFF, so it lands in the root carrying the capture's own base name.
+        /// The separator is part of the shape: the old `Contains(" - snap")` test also matched a user's
+        /// "my holiday - snapshot.png".
+        /// </summary>
+        internal static bool IsFlatSnapshotName(string lowerFileName)
+        {
+            const string Middle = " - snap ";
+            string stem, head;
+            if (!TryStripSuffix(lowerFileName, ".png", out stem)) return false;
+            if (!TryStripTrailingStamp(stem, out head)) return false;
+            return head.Length > Middle.Length && head.EndsWith(Middle, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The recording, in the root: "&lt;stamp&gt;.wav" when there is no meeting name, otherwise
+        /// "&lt;meeting&gt; - &lt;stamp&gt;.wav". Both come straight from NewCapture's baseName.
+        ///
+        /// This replaced a bare `.wav` test, which is the single widest thing the purge ever matched: a
+        /// user who pointed storageLocation at a folder holding their own audio lost every file in it
+        /// older than the retention window, permanently and without a prompt. An extension is not a shape.
+        /// </summary>
+        internal static bool IsCaptureAudioName(string lowerFileName)
+        {
+            const string Separator = " - ";
+            string stem, head;
+            if (!TryStripSuffix(lowerFileName, ".wav", out stem)) return false;
+            if (!TryStripTrailingStamp(stem, out head)) return false;
+            if (head.Length == 0) return true;
+            return head.Length > Separator.Length && head.EndsWith(Separator, StringComparison.Ordinal);
         }
 
         // Only the recorded MEDIA is ephemeral. The written record is permanent: it is the thing worth

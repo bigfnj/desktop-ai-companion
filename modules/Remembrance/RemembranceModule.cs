@@ -1281,21 +1281,49 @@ namespace DesktopAICompanion.RemembranceModule
             // says yes to it -- the fixture above even uses "snap 1.png" -- while the root gate said no,
             // so the promise of a 72-hour retention quietly did not cover the ordinary way to use the
             // snapshot hotkey.
+            // EVERY POSITIVE HERE IS A NAME THE MODULE ACTUALLY WRITES. Three of these used to be names
+            // nothing produces -- "snap 1.png", "sprint review - snap 1.png" and "sprint review.wav" --
+            // because "1" is not a timestamp and a flat recording is always "<meeting> - <stamp>.wav".
+            // Asserting that the gate says yes to a shape nothing produces is what made three loose
+            // branches look tested while they matched any snap*.png, any .wav, and "holiday - snapshot.png".
             check("a root snapshot from the hotkey IS ours to purge",
                 CaptureStore.NamesThisModuleWrites("snap 2026-09-27 12-00-00.png", false));
             check("a snapshot inside a capture folder IS ours to purge",
-                CaptureStore.NamesThisModuleWrites("snap 1.png", true));
+                CaptureStore.NamesThisModuleWrites("snap 2026-09-27 12-00-00.png", true));
+            check("a recording inside a capture folder IS ours to purge",
+                CaptureStore.NamesThisModuleWrites("recording.wav", true));
             check("a flat-mode snapshot IS ours to purge",
-                CaptureStore.NamesThisModuleWrites("sprint review - snap 1.png", false));
-            check("a recording IS ours to purge",
-                CaptureStore.NamesThisModuleWrites("sprint review.wav", false));
+                CaptureStore.NamesThisModuleWrites(
+                    "sprint review - 2026-09-27 12-00-00 - snap 2026-09-27 12-05-00.png", false));
+            check("a flat-mode recording IS ours to purge",
+                CaptureStore.NamesThisModuleWrites("sprint review - 2026-09-27 12-00-00.wav", false));
+            check("a flat-mode recording with no meeting name IS ours to purge",
+                CaptureStore.NamesThisModuleWrites("2026-09-27 12-00-00.wav", false));
             // THE OTHER DIRECTION, and it is the one that matters most: storageLocation is free text
             // with a folder picker, so this list decides what gets deleted out of a folder the user
-            // chose. A near-miss must NOT qualify.
+            // chose. A near-miss must NOT qualify. Deletion is File.Delete, not the recycle bin, and it
+            // runs on Init and then hourly.
             check("a user's own png that merely starts with 'snap' is NOT ours",
                 !CaptureStore.NamesThisModuleWrites("snapshot of my cat.png", false));
             check("'snap ' followed by something that is not a timestamp is NOT ours",
                 !CaptureStore.NamesThisModuleWrites("snap holiday photo.png", false));
+            // ...and the same two INSIDE a capture folder, which had no negative coverage at all. That
+            // branch was `StartsWith("snap") && EndsWith(".png")`, so both of these were deleted from
+            // every immediate subdirectory of the root.
+            check("a user's own 'snapshot...' png in a subfolder is NOT ours",
+                !CaptureStore.NamesThisModuleWrites("snapshot of my cat.png", true));
+            check("an unstamped 'snap ...' png in a subfolder is NOT ours",
+                !CaptureStore.NamesThisModuleWrites("snap holiday photo.png", true));
+            // The widest thing the purge ever matched: a bare .wav test in the root. A user who pointed
+            // storageLocation at a folder holding their own audio lost all of it past the window.
+            check("a user's own wav is NOT ours, extension alone is not a shape",
+                !CaptureStore.NamesThisModuleWrites("interview notes.wav", false));
+            check("a wav whose trailing digits are not a timestamp is NOT ours",
+                !CaptureStore.NamesThisModuleWrites("track 2026-13-45 99-99-99.wav", false));
+            check("'<name> - snapshot.png' is NOT ours; the separator is part of the shape",
+                !CaptureStore.NamesThisModuleWrites("my holiday - snapshot.png", false));
+            check("a bare recording.wav in the ROOT is not a shape this module writes there",
+                !CaptureStore.NamesThisModuleWrites("recording.wav", false));
             check("a transcript is never ours to purge",
                 !CaptureStore.NamesThisModuleWrites("sprint review.transcript.txt", false));
 
