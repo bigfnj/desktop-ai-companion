@@ -771,22 +771,19 @@ counter, the PetStudio import-guard ordering, the half-cached companion thumbnai
 source before filing; the auditors' own refuted candidates are recorded at the end so nobody re-files
 them.
 
-- 📌 **The per-companion monitor pin does nothing at spawn unless "Let companions spawn on any
-  screen" is on — and that setting is OFF by default.** `FormCompanion.cs:623` reads `PinnedDisplay`
-  only INSIDE the `if (Program.MyData.GetMultiscreen())` branch opened at `:615`, and
-  `AppSettingsStore.cs:276` defaults `MultiScreen = false`. Two doc blocks assert the opposite in
-  almost the same words — `FormCompanion.cs:1767-1773` and `CompanionsPaneControl.cs:503-506`: *"A pin
-  is deliberately stronger than 'Allow multiple screens': that setting only decides whether an
-  UNPINNED pet spawns on a random screen, whereas naming a monitor is an explicit instruction."* The
-  pin UI is shown whenever there are 2+ screens (`CompanionsPaneControl.cs:509-510`), so on default
-  settings pinning Hornet to screen 2 changes nothing: it spawns on the primary. Only the PUNITIVE
-  half works — `FormCompanion.cs:1951` honours the pin unconditionally when deciding NOT to relocate
-  off a monitor a fullscreen app has taken, so the pet hides instead of moving.
-  Fixing it means making the code match its own documented contract, which is a spawn-behaviour
-  change for anyone who has pinned a pet with multiscreen off, so it wants an owner decision rather
-  than a quiet edit.
-  CLOSES-WHEN: grep-absent src/dotNet/FormCompanion.cs "int pinned = PinnedDisplay;"
+- ✅ **FIXED 2026-09-27 in `d0dff9a`.** Only the RANDOM arm is gated now, so a pin is honoured at
+  spawn whatever "Let companions spawn on any screen" says — which is what both doc blocks always
+  promised. Verified in the real app rather than the suite: the fullscreen stand-down probe passes
+  all 6 steps across 3 monitors. Pinned by a source invariant asserting the STRUCTURE (a check that
+  merely found `PinnedDisplay` in `Play` would pass on the broken version, which read it one line
+  inside the gate); mutation-tested by putting the pin back inside the gate, which exits 1.
 
+  ⚠ **Filed open for one push after it was already fixed, and its CLOSES-WHEN could not have caught
+  that.** The criterion was `grep-absent src/dotNet/FormCompanion.cs "int pinned = PinnedDisplay;"`
+  — but the fix KEEPS that exact line and moves it out of the gate, so the string never goes absent
+  and the check would have reported the item open forever. A criterion has to track the PROPERTY, not
+  a string that happens to be near it. Caught by re-reading the open list against the diff, which is
+  the burn-down audit this repo's own gate asks for.
 - ✅ **FIXED 2026-09-27.** `build.yml` now runs `tests\Test-BacklogClosingCriteria.ps1` and
   `tests\companion-border-invariants.ps1`, closing the last of the gate/CI split its own comments
   claimed twice to have closed. Both signal failure by `throw`, so each is a bare call under
