@@ -24,7 +24,13 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.1.14",  // 1.1.14: carries the PetEmitter fix for a non-locomotion jump that had
+            Version = "1.1.15",  // 1.1.15: carries the ninth format-ladder rung. The emitter now stamps
+                                 //         1.2, and `reground` upgrades a 1.1 pet in place by giving a
+                                 //         non-locomotion jump an eligible border edge at a screen
+                                 //         side, the screen top and a window top. A conversion done
+                                 //         HERE gets 1.2 directly; the 32 shipped converted pets were
+                                 //         migrated with the verb, taking the measured dead ends from
+                                 //         87 to 0 on the host's own Eligible.  // 1.1.14: carries the PetEmitter fix for a non-locomotion jump that had
                                  //         NO eligible border edge at a screen side, the screen top or a
                                  //         window top -- the host returned -1 and the pet walked off the
                                  //         screen and respawned. Measured: 87 such (state, situation)
