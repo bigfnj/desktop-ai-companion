@@ -832,6 +832,42 @@ velocity, interval and factor — which would additionally need an assertion in
 
 ---
 
+## 📌 Open: the Animation permission is displayed as a control and gates nothing (filed 2026-09-28)
+
+Found while wiring Companion Studio's "Preview highlighted action", which calls
+`IHost.TryPlayAnimation`. The module did not declare `ModulePermissions.Animation` and the call
+worked anyway.
+
+`CompanionHost` gates the verbs that can: `PlaySound`, `PlayNotificationSound`, `OpenLink` and
+`GetCompanionManager` all call `ModuleDeclares(moduleId, ...)`. The two animation verbs do not,
+and the reason is structural rather than an oversight — they carry no caller identity to check:
+
+| verb | line | gated |
+|---|---|---|
+| `TryPlayAnimation(ICompanion pet, string name)` | `CompanionHost.cs:308` | no — no `moduleId` parameter |
+| `PlayAnimationAll(IReadOnlyList<string>)` | `CompanionHost.cs:359` | no — same, and it reaches EVERY pet |
+
+⚠ **The gap is that it reads as enforcement from three directions at once.** The flag exists and is
+commented "plays animations"; `AiBrain` declares it and its self-test asserts it, which looks like a
+grant being checked; and `catalog.json` now prints the set to users as
+`"permissions": "Speech, Animation, Companions, Storage"`. A user reading that reasonably concludes a
+module without it cannot animate their pet. Nothing enforces that, and the same is true of any other
+flag whose verb takes no `moduleId`.
+
+⚠ **Adding the parameter is an ABI break and the contract is frozen**, which is the whole reason this
+is filed rather than fixed. `PluginApi.cs` is explicit that members were removed *at* the freeze
+rather than left declared-and-unraised, precisely so nothing ships that only looks like it works;
+this is the same shape and it survived.
+
+Two dispositions are honest and one is not. Recording it in the register as declarative, and saying
+so where the permission is displayed, is honest. Gating it behind a new overload that does take a
+`moduleId`, leaving the old one for compatibility, is honest. Leaving a set printed to users as
+though every entry were a control is the one that is not.
+
+CLOSES-WHEN: grep-present docs/DESIGN-REGISTER.md "Animation permission is declarative"
+
+---
+
 ## Open: four read-only audits of the whole tree (filed 2026-09-24)
 
 Four agents read `src/` (~38k lines), `modules/` (~43k), `tools/` (~9k) and the 27 PowerShell
