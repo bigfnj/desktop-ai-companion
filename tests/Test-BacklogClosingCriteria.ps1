@@ -175,6 +175,18 @@ for ($i = 0; $i -lt $lines.Count; $i++) {
         if ($Matches.Count -ge 4) { $needle = $Matches[3] }
         $where = "BACKLOG.md:" + ($i + 1)
 
+        # The needle is optional in the regex because file-exists and file-absent do not take one.
+        # For the grep verbs it is mandatory, and omitting it used to PARSE: $needle stayed empty and
+        # Select-String -Pattern '' then threw "Cannot bind argument to parameter 'Pattern' because
+        # it is an empty string". Loud, so nothing went quiet -- but a PowerShell binding error
+        # instead of the BROKEN line above, which is the whole point of having a reporter. The
+        # reporter could not see it because it shares this regex.
+        if ($needle -eq '' -and @('grep-present', 'grep-absent') -contains $verb) {
+            $broken.Add("$where : CLOSES-WHEN uses '$verb' with no quoted needle. " +
+                'The grep verbs need one; use file-exists or file-absent to ask only about the path.')
+            continue
+        }
+
         if (-not $currentIsOpen) { continue }   # criteria on closed items are not this check's job
         $withCriteria++
 

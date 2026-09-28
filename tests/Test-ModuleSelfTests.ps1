@@ -16,13 +16,18 @@
       COVERED   must report RESULT=PASS. These are the modules whose module class exposes
                 `static bool SelfTest(out string detail)`, so the host runs their own assertions.
 
-      UNCOVERED must fail, and fail for the ONE known reason. aibrain, fortunes and petstudio each
-                have a self-check somewhere in the assembly but not on the module class, so the host
-                reports "the module exposes static bool SelfTest(out string detail)" and stops.
-                Listing them as expected failures rather than skipping them means the day somebody
-                adds a SelfTest, this gate goes RED and says to move the id into COVERED. A skip
-                list would have quietly kept them uncovered forever, which is the failure mode this
-                whole file is a response to.
+      UNCOVERED must fail, and fail for the EXACT known reasons. petstudio has a self-check in the
+                assembly but not on the module class -- BehaviourChainSelfCheck.RunChecks needs a pet
+                XML fixture the host supplies from its own resources -- and testmodule is a
+                deliberately minimal ABI fixture. For both the host reports "the module exposes
+                static bool SelfTest(out string detail)" and stops. Listing them as expected failures
+                rather than skipping them means the day somebody adds a SelfTest, this gate goes RED
+                and says to move the id into COVERED. A skip list would have quietly kept them
+                uncovered forever, which is the failure mode this whole file is a response to.
+
+                The lists are the authority, not this paragraph: it named aibrain and fortunes as
+                uncovered for a day after both gained a module-class SelfTest and moved to COVERED,
+                which is exactly the drift the counts elsewhere in the repo are asserted against.
 
     The union is also checked against the modules actually built, so a NEW module cannot arrive
     uncatalogued by either list.
@@ -97,7 +102,18 @@ if ($missing.Count -gt 0) {
 
 function Invoke-ModuleSelfTest([string]$Id) {
     $marker = Join-Path $env:TEMP "dp-module-$Id-selftest.txt"
-    Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
+
+    # [IO.File]::Delete, not Remove-Item, and the result is CHECKED. Remove-Item performs ~
+    # home-directory expansion even under -LiteralPath, so it fails outright when the temp path
+    # contains a tilde -- the norm on Windows whenever the account name exceeds 8 characters and TEMP
+    # holds the 8.3 short form -- and this call carried -ErrorAction SilentlyContinue, which swallowed
+    # that plus any lock or ACL failure. Invoke-SelfTests.ps1 already removed exactly this call for
+    # exactly this reason. Delete is a no-op on a missing file, so no Test-Path guard.
+    try { [System.IO.File]::Delete($marker) } catch { }
+    if (Test-Path -LiteralPath $marker -PathType Leaf) {
+        return [pscustomobject]@{ Id = $Id; Result = 'STALEMARKER'; Lines = @()
+                                  Reasons = @("the previous marker could not be deleted, so any verdict would be the previous run's: $marker") }
+    }
 
     $process = Start-Process -FilePath $exe -ArgumentList "--module-selftest=$Id" -PassThru
     $exited = $process.WaitForExit($TimeoutSeconds * 1000)
@@ -110,12 +126,27 @@ function Invoke-ModuleSelfTest([string]$Id) {
         # of 0 with no marker means the run did not happen, which must never read as a pass.
         return [pscustomobject]@{ Id = $Id; Result = 'NOMARKER'; Lines = @(); Reasons = @('no marker file was written') }
     }
+
+    # NO TIMESTAMP CHECK HERE, deliberately, and this is the reasoning so nobody re-derives it.
+    # A marker-age comparison reads like the obvious second line of defence, and it cannot fire once
+    # the delete above is asserted: the only ways a run leaves no fresh marker are Finish's write
+    # throwing (no file at all -> NOMARKER), the create-then-rename failing (temp file only ->
+    # NOMARKER), or two runners racing on the same %TEMP% path, where BOTH files are recent so an age
+    # test is blind to it anyway. A check no input can fail is the defect this repo keeps finding, so
+    # it is not shipped. Asserting the delete is what closes the real hole -- Remove-Item failing
+    # silently on a tilde-bearing TEMP, a lock, or an ACL, and a previous RESULT=PASS then being
+    # graded as this run.
     $lines = @(Get-Content -LiteralPath $marker -Encoding UTF8)
     $verdict = @($lines | Where-Object { $_ -match '^RESULT=' } | Select-Object -Last 1)
     $result = if ($verdict.Count) { ($verdict[0] -replace '^RESULT=', '').Trim() } else { 'NOVERDICT' }
     # EVERY failure, not the first. See the note on $Uncovered.
-    $reasons = @($lines | Where-Object { $_ -match '^\s*FAIL: ' } |
-                 ForEach-Object { ($_ -replace '^\s*FAIL: ', '').Trim() })
+    #
+    # BOTH SHAPES. The host writes "FAIL: <check>" for its own convention checks, and a module's own
+    # assertions arrive as "  [<id>] FAIL: <assertion>". Matching only the first meant a module
+    # failure was reported as the generic "the module's own self-test passed" while the assertion
+    # that actually failed -- the only line that tells anyone what to fix -- was dropped.
+    $reasons = @($lines | Where-Object { $_ -match '^\s*(\[[^\]]*\]\s*)?FAIL: ' } |
+                 ForEach-Object { ($_ -replace '^\s*(\[[^\]]*\]\s*)?FAIL: ', '').Trim() })
     return [pscustomobject]@{ Id = $Id; Result = $result; Lines = $lines; Reasons = $reasons }
 }
 

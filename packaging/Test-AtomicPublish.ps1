@@ -70,8 +70,12 @@ try {
         -TemporaryPath $temp -DestinationPath $destination -TrustedRoot $scratch `
         -ExpectedTemporarySha256 $hash -DestinationMustBeAbsent
     if (-not (Test-Path -LiteralPath $published -PathType Leaf)) {
-        Write-Host 'BASELINE FAILED: a correct publish did not land' -ForegroundColor Red
-        exit 2
+        # THROW, not `exit 2`. Both callers -- tests\run-gate.ps1 and .github/workflows/build.yml --
+        # judge this script by try/catch alone, and `exit` from a child .ps1 raises no terminating
+        # error, so the gate went green over a failed baseline. Every refusal below proves nothing if
+        # the baseline did not land, which makes this the one failure that must not be silent. The
+        # file's own other failure already used throw.
+        throw 'BASELINE FAILED: a correct publish did not land, so no refusal below proves anything.'
     }
     Write-Host '  baseline: a correct publish lands' -ForegroundColor DarkGray
 

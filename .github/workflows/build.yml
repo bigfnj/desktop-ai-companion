@@ -99,8 +99,10 @@ jobs:
         # Safe to run here because the step above already launches this same exe from this same
         # path: the mechanism is proven on the runner, only the flag is new. ~15s for all eight
         # modules, and it fails on a NEW gap as loudly as on a regression -- the script's uncovered
-        # list records the exact failures aibrain/fortunes/petstudio report today, so one of them
+        # list records the exact failures petstudio and testmodule report today, so either of them
         # gaining a SelfTest turns this red with an instruction rather than passing silently.
+        # (aibrain and fortunes were on that list until 2026-09-27 and are COVERED now; this comment
+        # said otherwise for a day, which is why the script's own lists are the authority.)
         shell: pwsh
         run: .\tests\Test-ModuleSelfTests.ps1
 

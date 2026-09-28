@@ -1296,20 +1296,33 @@ re-checked -- treat the first step of acting on one as confirming it still repro
   `copiesLeftElsewhere=1` on both legs. Source restored byte-identically. SMOKETEST.md 142 -> 145.
 ### Checks that cannot fail, or fail for the wrong reason
 
-- 📌 **A stale marker file is graded as this run's result.**
-  `tests/Test-ModuleSelfTests.ps1` deletes the marker with `Remove-Item ... -ErrorAction
-  SilentlyContinue`, then treats its existence as proof the module was loaded and exercised. The
-  sibling runner already removed exactly this call for exactly this reason:
-  `tests/Invoke-SelfTests.ps1` uses `[System.IO.File]::Delete` and documents that *"Remove-Item
-  still performs ~ home-directory expansion even under -LiteralPath, so it fails outright when the
-  temp path contains a tilde -- the norm on Windows whenever the account name exceeds 8 characters"*,
-  and that it is *"latent until the SECOND run on such a box"*. `-ErrorAction SilentlyContinue`
-  swallows that and any lock or ACL failure. Combined with `ModuleConventionSelfTest.Finish`
-  wrapping its marker write in `try { } catch { }`, the second run reads the previous `RESULT=PASS`
-  and reports OK. This is the "a check that ran nothing reported success" shape, in the file written
-  to kill it, over the 684 assertions just wired into both gates.
-  CLOSES-WHEN: grep-absent tests/Test-ModuleSelfTests.ps1 "Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue"
+- ✅ **FIXED 2026-09-28, and I hit it live rather than reading it.** The delete is
+  `[System.IO.File]::Delete` and its RESULT IS CHECKED: a marker that survives now returns
+  `STALEMARKER`, naming the path. `Remove-Item` performs `~` home-directory expansion even under
+  `-LiteralPath`, and `-ErrorAction SilentlyContinue` swallowed that plus any lock or ACL failure --
+  the sibling runner had already removed exactly this call for exactly this reason.
 
+  MUTATION, reproducing the hazard directly instead of simulating a tilde path: hold an exclusive
+  write lock on the marker with a stale `RESULT=PASS` inside it. The run is now reported as
+  `STALEMARKER` and, the column that matters, **it is no longer graded** -- the harness confirmed the
+  module did not appear as `OK`. Before the fix that stale PASS was the verdict.
+
+  **The reasons now name the assertion.** The pattern was `'^\s*FAIL: '`, which matches only the
+  host-level line *"FAIL: the module's own self-test passed"*; a module's own failures arrive as
+  `  [<id>] FAIL: <assertion>` and were dropped, so the gate named the module and never the thing to
+  fix. MUTATION: breaking a real Remembrance assertion now reports *"'<name> - snapshot.png' is NOT
+  ours; the separator is part of the shape"* alongside the generic line. Safe for the expected-failure
+  lists, which hold host-level reasons for two modules that have no `SelfTest` to emit module-level
+  ones.
+
+  ⚠ **I added a marker-age guard and then removed it, because nothing can reach it.** Once the
+  delete is asserted the file is gone, and the only ways a run leaves no fresh marker are Finish's
+  write throwing (no file at all, so `NOMARKER`), the create-then-rename failing (temp file only, so
+  `NOMARKER`), or two runners racing on the same `%TEMP%` path -- where both files are RECENT, so an
+  age test is blind to it anyway. Shipping it would have added a check no input can fail, which is
+  the defect this section exists for. The diagnosis is kept as a comment at the site so the next
+  person does not re-derive it.
+  CLOSES-WHEN: grep-present tests/Test-ModuleSelfTests.ps1 "STALEMARKER"
 - 📌 **The module template's loader check is judged by exit code alone.**
   `packaging/Test-ModuleTemplate.ps1`. The only assertion is `$loader.ExitCode -ne 0`; it never
   deletes, reads, or SKIP-scans the marker. `ModuleConventionSelfTest.Run` returns **true** on
@@ -1329,32 +1342,33 @@ re-checked -- treat the first step of acting on one as confirming it still repro
   what the original incident happened to be. The block's own comment says the search "cannot
   false-negative"; that is true of ids and false of mappings.
 
-- 📌 **Two named MSI assertions die with an index error instead of failing.**
-  `packaging/Test-MsiSurface.ps1` dereferences `$launchPublish[0][0]` outside any `Count` guard,
-  unlike every other block in the file. If the `ExitDialog`/`LaunchDesktopAICompanion` ControlEvent
-  row is absent -- the exact condition the block exists to detect -- the array is empty and
-  `Set-StrictMode -Version Latest` throws "Index was outside the bounds of the array" (the auditor
-  confirmed this in a shell). The step runs inside the release MSI path, so it dies noisily rather
-  than reporting the two assertions it was written to report: that the launch is not gated on NOT
-  Installed, and that it is suppressed on uninstall.
+- ✅ **FIXED 2026-09-28.** Wrapped in `if ($launchPublish.Count -eq 1)`, matching every other
+  block in the file. Nothing is hidden by skipping them: the `Count` assertion above has already
+  failed and recorded itself.
 
-- 📌 **`Test-AtomicPublish`'s baseline failure is invisible to both of its callers.**
-  It writes `BASELINE FAILED: a correct publish did not land` and `exit 2`, while `tests/run-gate.ps1`
-  and `.github/workflows/build.yml` both judge it by `try { } catch { }` only. `exit` from a child
-  `.ps1` raises no terminating error, so neither catch fires and the gate continues green -- the
-  same `$LASTEXITCODE`-vs-`throw` mismatch `run-gate.ps1` documents correcting three times
-  elsewhere, inverted. **Reachability caveat, stated by the auditor:** it could not construct an
-  input that reaches the branch, so the defect is the failure CHANNEL, not a live escape.
+  MUTATION: pointing the `ControlEvent` query at a dialog that does not exist -- which is the
+  condition the block exists to detect -- now reports the assertion as a FAIL instead of dying with
+  *"Index was outside the bounds of the array"*. The harness also had to be corrected twice before it
+  measured anything: a backtick inside a double-quoted PowerShell string is the ESCAPE character, so
+  the MSI query anchor silently lost its quoting, and `-MsiPath` is `Mandatory`, so omitting it made
+  the leg fail before reaching the guarded block -- which reads exactly like "the check said
+  nothing".
+- ✅ **FIXED 2026-09-28.** `throw`, matching the file's own other failure. `exit` from a child
+  `.ps1` raises no terminating error, so the `try`/`catch` in both callers never fired and the gate
+  continued green over a failed baseline -- and every refusal in that file proves nothing if the
+  baseline did not land, which makes it the one failure that must not be silent.
 
-- 📌 **A `CLOSES-WHEN` with the needle omitted parses, then dies on a binding error.**
-  `tests/Test-BacklogClosingCriteria.ps1`: the needle group is optional, so
-  `CLOSES-WHEN: grep-present <path>` leaves `$needle` empty and `Select-String -Pattern ''` throws
-  "Cannot bind argument to parameter 'Pattern' because it is an empty string". It fails the gate
-  loudly, so nothing goes quiet -- but with a binding error rather than the intended `BROKEN ... does
-  not parse` line that the non-parse reporter exists to produce, and that reporter cannot see it
-  because it shares the same optional-needle regex. This is the third variant of the malformed-
-  criterion family; the first two were mine.
+  MUTATION: forcing the baseline branch to be taken now reaches the caller. The reachability caveat
+  the audit stated still holds -- `Publish-DesktopAICompanionAtomicFile` either throws or lands the
+  file -- so this was the failure CHANNEL rather than a live escape, and it cost one line.
+- ✅ **FIXED 2026-09-28.** The grep verbs require a needle and say so through the same reporter
+  as every other malformed criterion. The needle stays optional in the regex because `file-exists` and
+  `file-absent` legitimately take none.
 
+  MUTATION: appending `CLOSES-WHEN: grep-present <path>` with no needle to a copy of `BACKLOG.md` now
+  reports *"uses 'grep-present' with no quoted needle"* instead of *"Cannot bind argument to
+  parameter 'Pattern' because it is an empty string"*. Third variant of this family closed; the first
+  two were mine.
 ### Correctness and dead code
 
 - 📌 **Closing Companion Studio mid-import deletes the temp tree the background conversion is
@@ -1461,13 +1475,11 @@ re-checked -- treat the first step of acting on one as confirming it still repro
   have never been executed, and the parameter documents an intention that was not carried out. Mine,
   from that day -- the throw is exactly the "guess" its own comment warns about.
 
-- 📌 **Two doc blocks state the opposite of the module coverage that runs.**
-  `tests/Test-ModuleSelfTests.ps1`'s `.DESCRIPTION` says aibrain, fortunes and petstudio are
-  UNCOVERED; the code has aibrain and fortunes in `$Covered` and only petstudio and testmodule in
-  `$Uncovered`. `.github/workflows/build.yml` repeats the stale claim. The code is correct; both
-  prose copies are a rung behind, and they are what the next person reads when deciding whether a
-  gap is expected. Mine, from that day.
-
+- ✅ **FIXED 2026-09-28.** Both now describe petstudio and testmodule, and both say the
+  script's own lists are the authority rather than the prose. `Test-ModuleSelfTests.ps1` also records
+  WHY each is uncovered -- petstudio's `BehaviourChainSelfCheck.RunChecks` needs a pet XML fixture the
+  host supplies from its own resources, testmodule is a deliberately minimal ABI fixture -- so the
+  next reader does not have to guess whether a gap is expected.
 ### Doc rot the repo does not assert
 
 - 📌 **Stale counts and a future date in comments nothing checks.**
