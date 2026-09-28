@@ -147,7 +147,9 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.4.9",   // 1.4.9: test coverage, no behaviour change. A loopback fake CDP server now
+            Version = "1.4.10",  // 1.4.10: removes a ...ForSelfTest seam with zero references, including
+                                 //         from the self-test it was named for. No behaviour change.
+                                 // 1.4.9: test coverage, no behaviour change. A loopback fake CDP server now
                                  //        drives Sweep end to end -- target discovery, the attach/evaluate/detach
                                  //        handshake, and what a whole pass concludes -- which was previously
                                  //        asserted only against recorded strings. Proven to catch the sawPanel
