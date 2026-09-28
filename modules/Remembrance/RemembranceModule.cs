@@ -495,10 +495,22 @@ namespace DesktopAICompanion.RemembranceModule
         /// box next to a ticked-looking feature. The same argument as the Whisper paths: the probe is
         /// free, so there is no reason to make anyone click for it.
         ///
-        /// Bounded and off the UI thread. This runs inside Load, during a pane build, so a hung port
-        /// has to cost a moment rather than the settings window; Task.Run keeps it off the captured
-        /// context and the Wait caps it. A loopback answer is milliseconds and a refused connection
-        /// is immediate, so the cap only ever bites on something genuinely wrong.
+        /// OFF THE UI THREAD, AND NOT WAITED ON. This used to say "Bounded and off the UI thread",
+        /// which was half true and the dangerous half: Task.Run moved the HTTP call, and then
+        /// `probe.Wait(3s)` blocked the UI thread anyway, inside Load, during a pane build.
+        ///
+        /// The old justification was "a loopback answer is milliseconds and a refused connection is
+        /// immediate, so the cap only ever bites on something genuinely wrong." Measured 2026-09-27
+        /// with the same mechanism (HttpClient, literal 127.0.0.1, so no DNS): server running 5-56 ms,
+        /// server REFUSED 2005-2008 ms, host unreachable 2010 ms. A refused localhost connection does
+        /// NOT fail fast -- it burns the whole deadline. So the 3 seconds were not the rare
+        /// hung-server case; they were what every user without Ollama paid on first opening this pane.
+        /// And the gate below is on the models cache only, not on summaryOn, so users who never turned
+        /// the summary feature on paid it too.
+        ///
+        /// Fire and forget now, same shape as AiBrainModule.BeginVramProbe: the answer lands in
+        /// settings and the NEXT pane build shows it, which is exactly what happened before whenever
+        /// the 3s cap expired -- minus the freeze.
         /// </summary>
         private void AutoDiscoverModelsOnce()
         {
@@ -508,13 +520,27 @@ namespace DesktopAICompanion.RemembranceModule
             string endpoint = _settings.Get("ollamaEndpoint", OllamaSummarizer.DefaultEndpoint);
             try
             {
-                Task<IReadOnlyList<string>> probe = Task.Run(
-                    () => OllamaSummarizer.ListModelsAsync(endpoint, CancellationToken.None));
-                if (!probe.Wait(TimeSpan.FromSeconds(3))) return;
-                IReadOnlyList<string> models = probe.Result;
-                if (models == null || models.Count == 0) return;
-                _settings.Set("summaryModelsCache", string.Join("|", models));
-                _settings.Save();
+                Task.Run(async delegate
+                {
+                    try
+                    {
+                        IReadOnlyList<string> models =
+                            await OllamaSummarizer.ListModelsAsync(endpoint, CancellationToken.None)
+                                .ConfigureAwait(false);
+                        if (models == null || models.Count == 0) return;
+                        // PersistOnUi, not a bare Set: _settings is touched from the UI thread by the
+                        // pane, and this continuation is on a pool thread. The module already routes
+                        // background settings writes this way for the "Collection was modified"
+                        // reason recorded on that helper.
+                        string joined = string.Join("|", models);
+                        PersistOnUi(delegate
+                        {
+                            _settings.Set("summaryModelsCache", joined);
+                            _settings.Save();
+                        });
+                    }
+                    catch (Exception) { }
+                });
             }
             catch (Exception) { }
         }
@@ -547,6 +573,17 @@ namespace DesktopAICompanion.RemembranceModule
 
         private void RefreshDynamicOptions()
         {
+            // DROP THE DEVICE SNAPSHOT FIRST. AudioDevices caches for 1500 ms so that the four reads
+            // in one pane build share a single WASAPI enumeration; this makes each pane OPEN start
+            // from a fresh one, which is what a user who just plugged a headset in expects.
+            //
+            // It also gives ForgetCachedDevices a caller. It had none, while the backlog entry that
+            // closed the device-caching work cited it as the escape hatch -- "the window is short on
+            // purpose and ForgetCachedDevices() drops it explicitly" -- so a safety property the
+            // record claimed was not true of the shipped code. Wiring it here costs nothing: the
+            // collapse from four enumerations to one happens within the build, after this line.
+            AudioDevices.ForgetCachedDevices();
+
             if (_sysDeviceField != null)
                 _sysDeviceField.Options = DeviceOptions(AudioDevices.RenderDevices(), _settings.Get("sysDevice", ""));
             if (_micDeviceField != null)

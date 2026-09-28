@@ -33,7 +33,12 @@ namespace DesktopAICompanion.RemembranceModule
             if (!didTranscribe)
             {
                 sb.AppendLine("[Transcription pending] " + why);
-                sb.AppendLine("Fix that, then use \"Re-transcribe\" in the Remembrance options.");
+                // NAMES A CONTROL THAT EXISTS. This said 'use "Re-transcribe" in the Remembrance
+                // options' -- one grep hit in the whole repo, this line, because no such action was
+                // ever built. It is the only sentence a user reads on the one path where
+                // transcription has already failed, so it sent them hunting through twelve buttons
+                // for a thirteenth.
+                sb.AppendLine("Fix that, then use \"Transcribe a WAV file...\" in the Remembrance options and pick the .wav beside this file.");
                 sb.AppendLine("The audio is kept until the 72-hour purge; move it out of the folder to keep it longer.");
             }
             else
