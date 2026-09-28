@@ -1471,44 +1471,71 @@ re-checked -- treat the first step of acting on one as confirming it still repro
   somebody adds in the majority style, which would rewrite 18 blobs for no functional change and
   invalidate their `catalog.json` sha256 -- git normalises CRLF via `.gitattributes` but does not
   normalise a BOM.
-- 📌 **`AnimationSync` still carries the "hopeful 1" default that `AnimationDrag` and
-  `AnimationFall` were fixed for.** `src/dotNet/Animations.cs`, with `> 1` guards in
-  `FormCompanion.CanSync` and `Sync`, plus the same shape for `AnimationKill`. A pet whose `sync` is
-  `id="1"` ends with `AnimationSync == 1`, both tests are false, the tray "Synchronise companions"
-  row stays hidden and `Sync()` no-ops -- for a pet that DID declare the magic name.
-  `ResolveMagicAnimations` repairs only `AnimationDrag` and `AnimationFall`. **Latent, and measured
-  rather than assumed:** across all 54 shipped companions none declares `sync` or `kill` at id 0 or
-  1 (the 44 that declare `sync` use ids 12, 13, 22, 23, 26, 32, 55, 71, 77, 78). Reachable by a
-  hand-authored or drag-and-dropped `animations.xml`, which is a shipped feature gated only by the
-  validator's "unique positive ids". Related doc rot in the same block: the comment still describes
-  a cancel button on the about box that `StartUp.SyncSheeps` records as removed.
+- ✅ **FIXED 2026-09-28.** `AnimationSync = -1`, and the three `> 1` guards in `FormCompanion`
+  became `> 0`. Ids are positive by validator rule and -1 is the "not declared" sentinel, so `> 1`
+  excluded exactly one legal value in each case: a `sync` at id 1 (tray row hidden, `Sync()` a no-op)
+  and a `kill` at id 1 (death animation skipped silently).
 
+  `AnimationKill` already defaulted to -1, so its guard was wrong on its own terms -- with a -1
+  sentinel, `> 1` rejects nothing except id 1, which is the only value it could ever wrongly exclude.
+  That is what made `AnimationSync` the odd one out rather than the pattern.
+
+  **Still latent, and measured rather than assumed:** across all 54 shipped companions none declares
+  `sync` or `kill` at id 0 or 1, and the 44 that declare `sync` use ids 12, 13, 22, 23, 26, 32, 55,
+  71, 77 and 78. Reachable only by a hand-authored or drag-and-dropped `animations.xml`, which is a
+  shipped feature gated only by "unique positive ids". No repair in `ResolveMagicAnimations` is needed
+  once the sentinel and the guards agree.
 - ✅ **FIXED 2026-09-28 (aibrain 1.1.13).** Deleted, both the field and `int gen =
   ++_generation;`. Generation serialisation is owned by `AiSessionManager`, which is what the comment
   three lines below already pointed at. No CS0414 fires because the initialiser is not a constant --
   the exact compiler behaviour `docs/DESIGN-REGISTER.md` measured and warned about, which is why this
   was found by grep rather than by a clean warning build.
-- 📌 **`ContextMenus.Dispose()` nulls four of its five static menu-item fields.**
-  `src/dotNet/ContextMenus.cs` leaves `syncPetsMenuItem` rooting a disposed `ToolStripMenuItem` for
-  the process lifetime. **Not a use-after-dispose**: its only reader hangs off the
-  `ContextMenuStrip` disposed one line earlier, and `RefreshSpeechMenuItem` touches only the nulled
-  pair. An asymmetry and a static reference to a dead Component.
-
+- ✅ **FIXED 2026-09-28.** All five. Not a use-after-dispose, as the entry said -- the only
+  reader of `syncPetsMenuItem` hangs off the `ContextMenuStrip` disposed three lines earlier, and
+  `RefreshSpeechMenuItem` touches only the speech pair -- but an asymmetry with no reason behind it,
+  in a `Dispose` whose whole job is to leave nothing held.
 ### Optimisation, with the cost named
 
-- 📌 **`CompanionCatalog.EnumerateLocal()` re-reads 54 companion XML headers per call,
-  bypassing the cache that exists for exactly that.** Per folder: `File.Exists`, a `StreamReader`
-  and a `ReadBlock` into a 32768-char buffer that always fills, because an `animations.xml` is
-  hundreds of KB. 54 files, so roughly 54 opens and 1.7 MB of decoded reads per call, synchronously
-  on the UI thread. Five call sites: the Companions pane reload (pane constructor plus after every
-  Use / Add / Remove / Download / Uninstall), `LocalPetIds` via `DiffNew` (**which discards
-  `DisplayName` entirely and still pays for all 54**), every tray "Add a companion" submenu open, and
-  `IHost.InstalledTypes()`, which a module can drive at any cadence. Opening the pane pays it twice.
-  ⚠ **The naive fix changes behaviour:** `DisplayNameForId` resolves library-then-bundled while
-  `AddFrom` walks bundled-then-library with a `seen` set, so for an id present in both roots the two
-  currently disagree about which file wins. Reconcile that before sharing the cache. Two comparable
-  fixes already landed (`b5c2fae`, `4c6744b`).
+- ✅ **FIXED 2026-09-28 for the call sites that threw the work away.** `LocalPetIds` discards
+  every `DisplayName` and still paid a `File.Exists`, a `StreamReader` and a 32768-char `ReadBlock`
+  per installed companion -- roughly 54 opens and 1.7 MB of decoded reads over the shipped corpus, on
+  the UI thread, on pane open, on every Check, after every download and after every uninstall.
+  `EnumerateLocalIds()` skips the header read; four call sites use it.
 
+  **No duration is claimed.** The saving is avoided I/O, which is a count; this repo's rule is that a
+  timing measured in a warm loop has been wrong every time, twice with the conclusion inverted.
+
+  Both entry points delegate to one `EnumerateFrom(bundledRoot, libraryRoot, readDisplayNames)`, so
+  the id set is identical by construction rather than by my reading of it. Writing a second traversal
+  would have been the easy way to make the two answers drift.
+
+  ⚠ **The first version of the test for that could not fail, and I only found out by mutating
+  it.** It compared the two enumerations on the INSTALLED corpus -- and there is no `companions/`
+  directory beside the exe on a dev build or in CI, because the packaging step creates it, so both
+  returned zero ids and agreed vacuously. Pointing the fast path at a deliberately divergent
+  traversal still reported PASS. It now runs on a synthetic corpus, which is also the only way to
+  cover an id present in BOTH roots -- the precedence case this entry flagged, which never occurs in
+  the shipped corpus.
+
+  Three mutations, each caught by at least one check:
+
+  | mutation | caught by |
+  |---|---|
+  | the ids path skips the bundled root | the source invariant (the synthetic test passes its own roots, so it is blind to this) |
+  | traversal order flipped | `--catalog-selftest`: 3 pets -> 2 |
+  | `seen`-dedup dropped | `--catalog-selftest`: 3 pets -> 4 |
+
+  A fourth mutation was invalid and is recorded as such: `if (false) continue;` is rejected by the
+  compiler (CS0162, warnings as errors), so it never tested anything.
+
+  **The precedence inconsistency itself is REAL and is now pinned rather than fixed.**
+  `AddFrom` walks bundled-then-library with a `seen` set, so the BUNDLED copy wins a duplicated id,
+  while `DisplayNameForId` resolves library-then-bundled. The self-test asserts the bundled winner so
+  the behaviour cannot drift silently, and the disagreement is documented on `EnumerateFrom` as the
+  reason the header-name cache is NOT shared between the two. Sharing it without reconciling them
+  would change `EnumerateLocal`'s answer, which is what this entry warned about.
+
+  SMOKETEST.md 147 -> 149.
 - 📌 **AgentFlow's cold setup-status path still inspects on the UI thread, and in Off mode
   the tick never warms the cache.** `modules/AgentFlow/AgentFlowModule.cs`. `SetupStatusLine`'s doc
   claims *"Cold only in the window between Init and the first tick completing"*, but `OnTick`
@@ -1520,13 +1547,11 @@ re-checked -- treat the first step of acting on one as confirming it still repro
 
 ### Residue of the 1.2.6 campaign itself
 
-- 📌 **`LoadPetHeaderIcon`'s own `_iconCache` lookup and store became dead when the cache
-  moved up to `LoadThumb`.** `src/Portable/Wpf/CompanionsPaneControl.cs`. `LoadThumb` has already
-  taken the cache and MISSED on the same key before it gets here, and both run on the WPF UI thread
-  only, so the inner `TryGetValue` can never hit and the inner store is immediately overwritten with
-  the same reference. Harmless, but it contradicts the doc written for the move (*"CACHED HERE, not
-  one level down"*). This is residue of that fix, not a new regression.
-
+- ✅ **FIXED 2026-09-28.** Removed, with the reasoning left at the site: `LoadThumb` owns the
+  cache, has already taken it and MISSED on this key before calling down, and both run on the WPF UI
+  thread only -- so the inner lookup could never hit and the inner store was immediately overwritten
+  with the same reference. Residue of that day's fix, and it contradicted the doc written for it
+  (*"CACHED HERE, not one level down"*).
 - 📌 **An error path added "so it is REACHABLE in a test", with no test.**
   `packaging/ContentCatalogAssets.ps1`. The comment reads *"`$TimeoutMs` exists so the timeout path
   below is REACHABLE in a test. A 60-second default cannot be provoked in a gate, and an error path

@@ -569,6 +569,100 @@ namespace DesktopAICompanion
                 report.AppendLine("CATALOG FAIL an unknown permission name broke the whole catalog: " + ex.Message);
             }
 
+            // THE LOCAL ENUMERATION, whose two entry points must agree.
+            //
+            // CompanionCatalog.EnumerateLocalIds skips the per-pet header read that EnumerateLocal
+            // does -- a file open and a 32768-char decoded read each -- for the four callers that
+            // discard every DisplayName. The safety argument is that the ID SET is unchanged, so it is
+            // asserted rather than taken on trust.
+            //
+            // ON A SYNTHETIC CORPUS, because the installed one is EMPTY here: the `companions/`
+            // directory beside the exe is created by the packaging step, so a dev build and CI both
+            // have none. The first version of this check compared the two against that empty corpus,
+            // agreed vacuously, and still reported PASS when the fast path was given a deliberately
+            // divergent traversal. It is also the only way to cover an id present in BOTH roots,
+            // which never occurs in the shipped corpus and is exactly where the two resolution orders
+            // are known to disagree.
+            string enumRoot = null;
+            try
+            {
+                enumRoot = Path.Combine(Path.GetTempPath(),
+                    "dp-enum-selftest-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+                string bundled = Path.Combine(enumRoot, "bundled");
+                string library = Path.Combine(enumRoot, "library");
+                foreach (string pair in new string[] { "bundled|alpha", "bundled|shared",
+                                                       "library|zulu", "library|shared" })
+                {
+                    string[] parts = pair.Split('|');
+                    string dir = Path.Combine(parts[0] == "bundled" ? bundled : library, parts[1]);
+                    Directory.CreateDirectory(dir);
+                    // A header whose petname differs per root, so a precedence change is visible in
+                    // the FULL enumeration as well as in the id list.
+                    File.WriteAllText(Path.Combine(dir, "animations.xml"),
+                        "<?xml version=\"1.0\"?><animations><header><petname>" +
+                        parts[0] + "-" + parts[1] + "</petname></header></animations>");
+                }
+                // A directory with no animations.xml must be ignored by BOTH paths.
+                Directory.CreateDirectory(Path.Combine(library, "empty"));
+
+                var full = new List<string>();
+                string sharedName = null;
+                foreach (CompanionCatalog.CompanionInfo info in
+                         CompanionCatalog.EnumerateFrom(bundled, library, true))
+                {
+                    if (info.IsBuiltIn || string.IsNullOrEmpty(info.Id)) continue;
+                    full.Add(info.Id);
+                    if (string.Equals(info.Id, "shared", StringComparison.Ordinal)) sharedName = info.DisplayName;
+                }
+                List<string> idsOnly = CompanionCatalog.EnumerateIdsFrom(bundled, library);
+
+                bool same = full.Count == idsOnly.Count;
+                if (same)
+                    for (int i = 0; i < full.Count; i++)
+                        if (!string.Equals(full[i], idsOnly[i], StringComparison.Ordinal)) { same = false; break; }
+                if (!same)
+                {
+                    ok = false;
+                    report.AppendLine("CATALOG FAIL the two local enumerations disagree: [" +
+                                      string.Join(",", full.ToArray()) + "] vs [" +
+                                      string.Join(",", idsOnly.ToArray()) + "]");
+                }
+                if (full.Count != 3)
+                {
+                    // STATES THE DISCREPANCY, not a cause. This used to assert one explanation ("a
+                    // directory with no animations.xml must be ignored") and two of the three ways to
+                    // reach it have nothing to do with that: a flipped traversal order yields 2 and a
+                    // dropped seen-dedup yields 4. Listing what was found sends the reader to the
+                    // right place without guessing.
+                    ok = false;
+                    report.AppendLine("CATALOG FAIL the synthetic corpus should yield exactly alpha, shared, zulu; got " +
+                                      full.Count + ": [" + string.Join(",", full.ToArray()) + "]." +
+                                      " Candidates: the bundled/library walk order, the seen-dedup," +
+                                      " the animations.xml existence test, or the 256-pet cap.");
+                }
+                // WHICH ROOT WINS for a duplicated id, pinned rather than left to drift. Bundled
+                // first, because AddFrom walks bundled-then-library with a `seen` set.
+                if (sharedName != null && sharedName.IndexOf("bundled", StringComparison.Ordinal) < 0)
+                {
+                    ok = false;
+                    report.AppendLine("CATALOG FAIL for an id in both roots the BUNDLED copy must win, got '" +
+                                      sharedName + "'");
+                }
+                if (ok)
+                    report.AppendLine("catalog_local_enumerations_agree=PASS (" + full.Count +
+                                      " synthetic pet(s), bundled wins a duplicate id)");
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                report.AppendLine("CATALOG FAIL local enumeration comparison threw: " + ex.Message);
+            }
+            finally
+            {
+                try { if (enumRoot != null && Directory.Exists(enumRoot)) Directory.Delete(enumRoot, true); }
+                catch { }
+            }
+
             try
             {
                 string path = Path.Combine(Path.GetTempPath(), "dp-catalog-selftest.txt");

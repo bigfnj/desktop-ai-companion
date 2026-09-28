@@ -1714,6 +1714,27 @@ Assert-True ($configureBody.Contains('TrimArchivesIn(')) (
     ' -- Start() rotates with the field default before Configure runs, so without this "keep 1"' +
     ' never holds across a launch')
 
+# The two local-enumeration entry points must read the SAME pair of roots. EnumerateLocalIds skips
+# the per-pet header read for callers that discard display names, and --catalog-selftest compares the
+# two on a synthetic corpus -- but that test passes the roots in, so it cannot see what the public
+# entry points pass. Mutation-tested 2026-09-28: pointing EnumerateLocalIds at `null` instead of the
+# bundled directory, which would make the tray and the Companions pane disagree about which pets
+# exist, still reported PASS.
+#
+# It asserts the ARGUMENTS, not that a call is present. A check for 'EnumerateIdsFrom(' alone passes
+# against that mutation, which is the failure mode this whole file exists to avoid.
+$catalogSource = Get-Content -LiteralPath (
+    Join-Path $repoRoot 'src\dotNet\CompanionCatalog.cs') -Raw
+$catalogFlat = (Remove-LineComments $catalogSource) -replace '\s+', ' '
+Assert-True ($catalogFlat.Contains(
+    'return EnumerateFrom(AppPaths.BundledPetsDirectory, AppPaths.LibraryPetsDirectory, true);')) (
+    'EnumerateLocal reads both pet roots, bundled first')
+Assert-True ($catalogFlat.Contains(
+    'return EnumerateIdsFrom(AppPaths.BundledPetsDirectory, AppPaths.LibraryPetsDirectory);')) (
+    'EnumerateLocalIds reads the SAME two roots as EnumerateLocal -- otherwise the tray and the' +
+    ' Companions pane disagree about which pets are installed, and the synthetic-corpus check in' +
+    ' --catalog-selftest cannot see it because that test passes its own roots in')
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

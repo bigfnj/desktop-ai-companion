@@ -618,10 +618,16 @@ namespace DesktopAICompanion
             ownedMenu = null;
             if (menu != null) { menu.Opening -= ModuleTray_Opening; menu.Dispose(); }
             moduleTrayItems.Clear();
+            // ALL FIVE. syncPetsMenuItem was the one left set, rooting a disposed
+            // ToolStripMenuItem for the process lifetime. Not a use-after-dispose -- its only reader
+            // is the menu.Opening lambda, which hangs off the ContextMenuStrip disposed three lines
+            // up, and RefreshSpeechMenuItem touches only the speech pair -- but an asymmetry with no
+            // reason behind it, in a Dispose whose job is to leave nothing held.
             addPetMenuItem = null;
             removePetMenuItem = null;
             testSpeechMenuItem = null;
             petSpeechMenuItem = null;
+            syncPetsMenuItem = null;
         }
     }
 }

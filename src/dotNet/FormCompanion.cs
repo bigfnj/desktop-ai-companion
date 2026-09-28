@@ -747,7 +747,10 @@ namespace DesktopAICompanion
         public void Kill()
         {
             CloseChildren();
-            if (Animations.AnimationKill > 1)
+            // > 0, not > 1. Ids are positive by validator rule and -1 is the "not declared"
+            // sentinel, so `> 1` excluded exactly one legal value: a `kill` animation at id 1, whose
+            // death animation was then skipped without a word.
+            if (Animations.AnimationKill > 0)
             {
                 SetNewAnimation(Animations.AnimationKill);
             }
@@ -775,7 +778,9 @@ namespace DesktopAICompanion
         /// </summary>
         internal bool CanSync
         {
-            get { return Animations != null && Animations.AnimationSync > 1; }
+            // > 0, matching the -1 sentinel. `> 1` hid the tray's "Synchronise companions" row
+            // from any pet that declared `sync` at id 1.
+            get { return Animations != null && Animations.AnimationSync > 0; }
         }
 
             /// <summary>
@@ -786,7 +791,7 @@ namespace DesktopAICompanion
             /// </remarks>
         public void Sync()
         {
-            if (Animations.AnimationSync > 1)
+            if (Animations.AnimationSync > 0)
                 SetNewAnimation(Animations.AnimationSync);
         }
 

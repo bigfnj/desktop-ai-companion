@@ -675,7 +675,21 @@ namespace DesktopAICompanion
             /// <summary>
             /// Animation ID once the cancel button on the about box was pressed (default: 1)
             /// </summary>
-        public int AnimationSync = 1;
+        // -1, NOT 1, and that is the same correction AnimationDrag and AnimationFall already got.
+        //
+        // Xml.cs assigns this from the matching node's own id, so a pet whose `sync` animation is
+        // id="1" ended with AnimationSync == 1 -- indistinguishable from "no sync animation was
+        // declared". Both `> 1` guards in FormCompanion then read false, the tray's "Synchronise
+        // companions" row stayed hidden and Sync() no-opped, for a pet that DID declare the magic
+        // name. AnimationKill has used -1 all along, which is what makes this the odd one out rather
+        // than the pattern.
+        //
+        // LATENT on the shipped corpus, measured rather than assumed: across all 54 companions none
+        // declares `sync` or `kill` at id 0 or 1, and the 44 that declare `sync` use ids 12, 13, 22,
+        // 23, 26, 32, 55, 71, 77 and 78. It is reachable by a hand-authored or drag-and-dropped
+        // animations.xml -- a shipped feature -- whose only id rule is the validator's "unique
+        // positive ids".
+        public int AnimationSync = -1;
 
             /// <summary>
             /// Constructor, initialize member variables

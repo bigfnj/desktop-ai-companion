@@ -891,11 +891,14 @@ namespace DesktopAICompanion.Wpf
             };
         }
 
+        // EnumerateLocalIds, not EnumerateLocal: this method throws every DisplayName away, and
+        // producing them costs a file open and a 32768-char decoded read per installed companion --
+        // ~54 opens and ~1.7 MB over the shipped corpus, on the UI thread. Called from pane open, the
+        // Check button, after every download and after every uninstall.
         private static HashSet<string> LocalPetIds()
         {
             var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (CompanionCatalog.CompanionInfo info in CompanionCatalog.EnumerateLocal())
-                if (!info.IsBuiltIn && !string.IsNullOrEmpty(info.Id)) ids.Add(info.Id);
+            foreach (string id in CompanionCatalog.EnumerateLocalIds()) ids.Add(id);
             return ids;
         }
 
@@ -1012,16 +1015,13 @@ namespace DesktopAICompanion.Wpf
         /// null when there is no such pet folder or no icon.</summary>
         private static ImageSource LoadPetHeaderIcon(string id)
         {
+            // NO CACHE LOOKUP HERE, and that is not an omission. LoadThumb owns the cache: it has
+            // already taken it and MISSED on this key before calling down, on the same WPF UI thread,
+            // so a second lookup could never hit and the store it did was immediately overwritten by
+            // LoadThumb with the same reference. Residue of moving the cache up one level, which the
+            // doc on LoadThumb states ("CACHED HERE, not one level down").
             if (string.IsNullOrWhiteSpace(id)) return null;
-            lock (_iconCache)
-            {
-                ImageSource hit;
-                if (_iconCache.TryGetValue(id, out hit)) return hit;
-            }
-            ImageSource icon = ReadPetHeaderIcon(id);
-            // The frame is frozen by ReadPetHeaderIcon, so one instance is safe to hand to every card.
-            lock (_iconCache) { _iconCache[id] = icon; }
-            return icon;
+            return ReadPetHeaderIcon(id);
         }
 
         /// <summary>The uncached read. Separated so the caching above has exactly one thing to cache.</summary>

@@ -216,17 +216,72 @@ namespace DesktopAICompanion
         /// </summary>
         internal static List<CompanionInfo> EnumerateLocal()
         {
+            return EnumerateFrom(AppPaths.BundledPetsDirectory, AppPaths.LibraryPetsDirectory, true);
+        }
+
+        /// <summary>
+        /// The one traversal both entry points use, with the two roots passed in rather than read
+        /// from AppPaths.
+        ///
+        /// The roots were the only thing EnumerateLocal and EnumerateLocalIds did not already share,
+        /// and passing them is what makes the pair testable: the installed corpus is EMPTY on a dev
+        /// build and in CI, because the `companions/` directory beside the exe is added by the
+        /// packaging step, so a comparison against it agreed vacuously and a deliberately divergent
+        /// fast path still reported PASS.
+        ///
+        /// Order is bundled-then-library with a `seen` set, so for an id present in BOTH roots the
+        /// BUNDLED copy wins. That is worth stating because DisplayNameForId resolves the other way
+        /// round, library-then-bundled: the two disagree about which file wins for a duplicated id,
+        /// which is a real inconsistency and the reason the header-name cache is NOT simply shared
+        /// between them.
+        /// </summary>
+        internal static List<CompanionInfo> EnumerateFrom(
+            string bundledRoot, string libraryRoot, bool readDisplayNames)
+        {
             var list = new List<CompanionInfo>
             {
                 new CompanionInfo { Id = null, DisplayName = "eSheep (default)", IsBuiltIn = true }
             };
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            AddFrom(AppPaths.BundledPetsDirectory, list, seen);   // read-only, beside the exe
-            AddFrom(AppPaths.LibraryPetsDirectory, list, seen);   // writable, downloaded pets
+            AddFrom(bundledRoot, list, seen, readDisplayNames);   // read-only, beside the exe
+            AddFrom(libraryRoot, list, seen, readDisplayNames);   // writable, downloaded pets
             return list;
         }
 
-        private static void AddFrom(string root, List<CompanionInfo> list, HashSet<string> seen)
+        /// <summary>The ids from a given pair of roots, for the self-test's synthetic corpus.</summary>
+        internal static List<string> EnumerateIdsFrom(string bundledRoot, string libraryRoot)
+        {
+            var ids = new List<string>();
+            foreach (CompanionInfo info in EnumerateFrom(bundledRoot, libraryRoot, false))
+                if (!info.IsBuiltIn && !string.IsNullOrEmpty(info.Id)) ids.Add(info.Id);
+            return ids;
+        }
+
+        /// <summary>
+        /// The installed pet ids, WITHOUT reading any display name.
+        ///
+        /// Callers that only want to know which pets exist were paying for names they discarded: per
+        /// pet, a File.Exists, a StreamReader and a ReadBlock into a 32768-char buffer that always
+        /// fills, because an animations.xml is hundreds of KB (158 KB esheep64, 406 KB hornet). Over
+        /// the 54 shipped companions that is ~54 file opens and ~1.7 MB of decoded reads per call,
+        /// synchronously on the UI thread, and CompanionsPaneControl.LocalPetIds ran it on pane open,
+        /// on every Check, after every download and after every uninstall.
+        ///
+        /// SHARES AddFrom, so the id set is identical BY CONSTRUCTION rather than by my reading of
+        /// it: same directory walk, same IsSafeId filter, same seen-dedup, same animations.xml
+        /// existence test, same 256-pet cap, same bundled-then-library order. Only the header read is
+        /// skipped. Writing a second traversal would have been the easy way to make the two answers
+        /// drift.
+        ///
+        /// No duration is claimed for this. The saving is the avoided I/O, which is a count.
+        /// </summary>
+        internal static List<string> EnumerateLocalIds()
+        {
+            return EnumerateIdsFrom(AppPaths.BundledPetsDirectory, AppPaths.LibraryPetsDirectory);
+        }
+
+        private static void AddFrom(string root, List<CompanionInfo> list, HashSet<string> seen,
+                                    bool readDisplayNames)
         {
             if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) return;
             List<string> directories;
@@ -247,7 +302,10 @@ namespace DesktopAICompanion
                     Id = folder,
                     // Prefer the pet's own name from its animations.xml header (so a converted shimeji reads
                     // "Bugcat Capoo", not the prettified folder id "Shimeji <id>"); fall back to the folder.
-                    DisplayName = DisplayName(folder, ReadHeaderName(xmlPath)),
+                    // The header read is the expensive part and the only thing the flag controls.
+                    DisplayName = readDisplayNames
+                        ? DisplayName(folder, ReadHeaderName(xmlPath))
+                        : folder,
                     XmlPath = xmlPath,
                     IsBuiltIn = false,
                 });
