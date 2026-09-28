@@ -86,8 +86,9 @@ Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='MsiInstalle
 For a full trace of a specific run, ask for one explicitly and choose a path you know is writable:
 
 ```powershell
-msiexec /i DesktopAICompanion.msi /l*v "$env:USERPROFILE\Desktop\install.log"
-msiexec /x DesktopAICompanion.msi /l*v "$env:USERPROFILE\Desktop\uninstall.log"
+$installer = Read-Host 'Path to the downloaded DesktopAICompanion MSI'
+msiexec /i "$installer" /l*v "$env:USERPROFILE\Desktop\install.log"
+msiexec /x "$installer" /l*v "$env:USERPROFILE\Desktop\uninstall.log"
 ```
 
 A verbose MSI log records file paths and property values from your machine, so read it before attaching it.

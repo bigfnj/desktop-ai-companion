@@ -58,6 +58,9 @@ jobs:
           }
           "tag=$tag" >> $env:GITHUB_OUTPUT
           "version=$($tag.Substring(1))" >> $env:GITHUB_OUTPUT
+          $assetVersion = $tag.Replace('.', '')
+          "portable=DesktopAICompanion-Portable-$assetVersion.zip" >> $env:GITHUB_OUTPUT
+          "installer=DesktopAICompanion-$assetVersion.msi" >> $env:GITHUB_OUTPUT
 
       - name: Check out the tag
         # ref matters: without it a workflow_dispatch re-run builds the DEFAULT BRANCH and then uploads those
@@ -171,7 +174,10 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           Push-Location dist
-          $files = @('DesktopAICompanion-Portable.zip', 'DesktopAICompanion.msi')
+          $files = @('${{ steps.tag.outputs.portable }}', '${{ steps.tag.outputs.installer }}')
+          # Keep local build filenames stable; version the downloads before hashing and publishing them.
+          Rename-Item -LiteralPath 'DesktopAICompanion-Portable.zip' -NewName $files[0]
+          Rename-Item -LiteralPath 'DesktopAICompanion.msi' -NewName $files[1]
           # The author packages are checksummed too -- they are a build input for anyone writing a module,
           # so they deserve the same verifiability as the app downloads.
           $packages = @(Get-ChildItem -LiteralPath 'nuget' -Filter '*.nupkg' -ErrorAction SilentlyContinue |
@@ -213,8 +219,8 @@ jobs:
               --notes "Unsigned x64 build for $tag. Verify downloads against SHA256SUMS.txt."
           }
           $assets = @(
-            'dist/DesktopAICompanion-Portable.zip',
-            'dist/DesktopAICompanion.msi',
+            'dist/${{ steps.tag.outputs.portable }}',
+            'dist/${{ steps.tag.outputs.installer }}',
             'dist/SHA256SUMS.txt'
           ) + @(Get-ChildItem -LiteralPath 'dist/nuget' -Filter '*.nupkg' |
                 Where-Object { $_.Name -notlike '*.snupkg' } | ForEach-Object { "dist/nuget/$($_.Name)" })

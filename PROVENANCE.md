@@ -4,7 +4,7 @@ Releases are **unsigned** Windows x64 builds. Each GitHub release carries `SHA25
 download against it:
 
 ```powershell
-(Get-FileHash .\DesktopAICompanion-Portable.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+Get-FileHash .\DesktopAICompanion-Portable*.zip -Algorithm SHA256
 # compare to the matching line in SHA256SUMS.txt
 ```
 

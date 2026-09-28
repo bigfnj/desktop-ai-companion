@@ -388,8 +388,11 @@ added. The tray dialogs also follow your **Windows light/dark theme**.
 Each GitHub release provides two Windows x64 application artifacts, plus `SHA256SUMS.txt` and the two
 module-authoring NuGet packages:
 
-- **`DesktopAICompanion.msi`** — a per-user installer (no admin).
-- **`DesktopAICompanion-Portable.zip`** — unzip anywhere and run `DesktopAICompanion.exe`.
+- `DesktopAICompanion-v<version>.msi`: a per-user installer (no admin).
+- `DesktopAICompanion-Portable-v<version>.zip`: unzip anywhere and run `DesktopAICompanion.exe`.
+
+The release workflow removes dots from the version in download filenames, so tag `v1.2.6` produces
+`v126`. Earlier releases may have unversioned filenames.
 
 **Prerequisites.** Windows 10 or later, x64, and the **.NET 10 Desktop Runtime** — the builds are
 framework-dependent, so the runtime is not included. AI Brain and Remembrance additionally need Windows
