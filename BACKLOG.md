@@ -1264,18 +1264,40 @@ re-checked -- treat the first step of acting on one as confirming it still repro
   and it took a timestamp comparison to notice. Every module self-test run in this closure therefore
   deletes the marker first, asserts it is gone, and asserts the new one postdates the DLL. The
   underlying fix to `tests/Test-ModuleSelfTests.ps1` is still open below.
-- 📌 **AI Brain's emotion-to-animation reaction is a silent no-op on most shipped
-  companions.** `modules/AiBrain/AiBrainModule.cs`. Measured by the auditor across all 54
-  `Companions/*/animations.xml`, matching the way `FormCompanion.TryPlayAnimation` compares: happy
-  18/54, excited 35/54, sad 8/54, thinking 8/54, confused 8/54. `boing` is on exactly one companion,
-  `flower` on one. `"thinking"` fires on EVERY ask, immediately before the reply, so on 46 of 54
-  companions the reaction users were told about never happens -- `PlayAnimationOnAll` plays the
-  first candidate a pet defines and silently does nothing otherwise. These are eSheep-family names;
-  the 32 converted shimeji use entirely different ones. **The repo has already solved this once**:
-  `modules/AgentFlow/PetAnimations.cs` records the same measurement and adopted a coverage-chosen
-  list, which the auditor measured at 43/54. AiBrain never got that treatment. Needs an `aibrain`
-  republish.
+- ✅ **FIXED 2026-09-28 (aibrain 1.1.13).** I re-measured rather than taking the numbers, and
+  they reproduced exactly: across all 54 `Companions/*/animations.xml`, case-insensitively, happy
+  18/54, excited 35/54, sad 8/54, thinking 8/54, confused 8/54. `boing` is on exactly one companion
+  and `flower` on one.
 
+  | emotion | shipped | reached | with the fallback |
+  |---|---|---|---|
+  | happy | flower, jump, boing | 18/54 | **42/54** |
+  | excited | run, jump, boing | 35/54 | **42/54** |
+  | sad | sleep1a, sleep2a | 8/54 | **39/54** |
+  | thinking | sleep1a | 8/54 | **40/54** |
+  | confused | rotate1a, boing | 8/54 | **43/54** |
+
+  **The original names stay FIRST in every list.** That is the part worth stating: no companion that
+  already reacted changes what it plays, so this adds a reaction for the 46 of 54 that silently did
+  nothing rather than altering the ones that worked.
+
+  **Nothing reaches all 54, and no list can.** The intersection across this corpus is EMPTY, and the
+  only names present on 50+ pets are the engine's reserved lifecycle animations -- `fall` 53, `drag`
+  52, `kill` 51, `sync` 50 -- so a list built for coverage alone would offer to play the dying
+  animation. That is why the measurement is recorded on the method itself, the way
+  `AgentFlow/PetAnimations.cs` records its own.
+
+  Coverage cannot be asserted inside the module (it has no access to `Companions/`), so the self-test
+  holds the two properties a future edit CAN break, and both are edits somebody would plausibly make
+  while believing they were improving things:
+
+  | mutation | caught by |
+  |---|---|
+  | reorder a list, e.g. sorting by corpus frequency | *"'happy' still leads with flower"* |
+  | append a reserved lifecycle name for coverage | *"'confused' offers no reserved lifecycle animation"* |
+
+  MUTATION: both fire, exactly one failure each, naming the right assertion; baseline and restored
+  both `RESULT=PASS`. aibrain's assertion count 216 -> 233.
 - 📌 **Reminder's "Make the companion react" default reaches 35 of 54 companions.**
   `modules/Reminder/ReminderModule.cs`, `DefaultReactAnimations = "boing,jump,run,flower"`, and
   `reactOn` defaults to true. 19 miss, listed in the audit. Same root cause and same silence as the
@@ -1422,12 +1444,11 @@ re-checked -- treat the first step of acting on one as confirming it still repro
   validator's "unique positive ids". Related doc rot in the same block: the comment still describes
   a cancel button on the about box that `StartUp.SyncSheeps` records as removed.
 
-- 📌 **`AiBrainModule._generation` is write-only and the local it feeds is never read.**
-  Those are the field's only two occurrences in the repo, and generation serialisation is owned by
-  `AiSessionManager`, which is what the adjacent comment points to. No CS0414 fires because the
-  initialiser is not a constant -- the exact compiler behaviour `docs/DESIGN-REGISTER.md` measured
-  and warned about. Needs an `aibrain` republish.
-
+- ✅ **FIXED 2026-09-28 (aibrain 1.1.13).** Deleted, both the field and `int gen =
+  ++_generation;`. Generation serialisation is owned by `AiSessionManager`, which is what the comment
+  three lines below already pointed at. No CS0414 fires because the initialiser is not a constant --
+  the exact compiler behaviour `docs/DESIGN-REGISTER.md` measured and warned about, which is why this
+  was found by grep rather than by a clean warning build.
 - 📌 **`ContextMenus.Dispose()` nulls four of its five static menu-item fields.**
   `src/dotNet/ContextMenus.cs` leaves `syncPetsMenuItem` rooting a disposed `ToolStripMenuItem` for
   the process lifetime. **Not a use-after-dispose**: its only reader hangs off the

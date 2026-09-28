@@ -30,7 +30,6 @@ namespace DesktopAICompanion.AiBrainModule
         private readonly AiSessionManager _session = new AiSessionManager();
         private AiSettings _settings;
         private CancellationTokenSource _lifetime = new CancellationTokenSource();
-        private int _generation;
         private IDisposable _dropResponder;
         private IDisposable _pokeResponder;
         private IDisposable _hotkey;
@@ -101,7 +100,13 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.1.12",  // 1.1.12: exposes SelfTest on the module class, so --module-selftest runs
+            Version = "1.1.13",  // 1.1.13: the emotion reaction reached 18/54, 35/54, 8/54, 8/54 and
+                                 //         8/54 companions. "thinking" fires on EVERY ask, so on 46 of
+                                 //         54 it silently did nothing -- the eSheep-era names it used
+                                 //         are absent from the 32 converted shimeji. Original names
+                                 //         kept FIRST, so nothing that worked changes; the tail is a
+                                 //         fallback. Now 42/42/39/40/43. Also dropped a write-only
+                                 //         _generation field.  // 1.1.12: exposes SelfTest on the module class, so --module-selftest runs
                                  //         AiEngineProbe through the convention the gate and CI use.
                                  // 1.1.11: the options pane no longer freezes for 2s when Ollama is not
                                  //         running. The VRAM line was a synchronous network call on the UI
@@ -1236,7 +1241,6 @@ namespace DesktopAICompanion.AiBrainModule
             catch { }
             string err;
             bool allowed = s.AiBrainEnabled && CanUse(s, out err);
-            int gen = ++_generation;
             bool prepare = allowed && (s.AutoStartServer || s.WarmUpDesired);
             AiSettings snapshot = s;
 
@@ -1498,20 +1502,66 @@ namespace DesktopAICompanion.AiBrainModule
             };
         }
 
-        /// <summary>Prioritized candidate animations per emotion (data lifted from the old StartUp table);
-        /// the host plays the first one each pet's XML defines. Neutral/unknown => no forced animation.</summary>
+        /// <summary>
+        /// Prioritized candidate animations per emotion; the host plays the first one each pet's XML
+        /// defines. Neutral/unknown => no forced animation.
+        ///
+        /// CHOSEN BY COVERAGE, and the original names are kept FIRST so no companion that already
+        /// reacted changes what it plays. The tail is a fallback for the pets that silently did
+        /// nothing, because StartUp.PlayAnimationOnAll tries each candidate and then does nothing at
+        /// all -- so a list that misses is indistinguishable from a feature that is switched off.
+        ///
+        /// MEASURED 2026-09-28 across all 54 Companions/*/animations.xml, case-insensitively, the
+        /// same comparison FormCompanion.TryPlayAnimation uses:
+        ///
+        ///     emotion    shipped candidates      reached   with the fallback
+        ///     happy      flower, jump, boing       18/54          42/54
+        ///     excited    run, jump, boing          35/54          42/54
+        ///     sad        sleep1a, sleep2a           8/54          39/54
+        ///     thinking   sleep1a                    8/54          40/54
+        ///     confused   rotate1a, boing            8/54          43/54
+        ///
+        /// The old table came from the eSheep-era StartUp code, and 32 of this corpus are converted
+        /// shimeji with entirely different names. "thinking" fires on EVERY ask, immediately before
+        /// the reply, so on 46 of 54 companions the reaction users were told about never happened.
+        /// boing exists on exactly ONE companion; flower on one.
+        ///
+        /// NOTHING REACHES ALL 54, and that is not a list that can be improved into existence: the
+        /// intersection across this corpus is EMPTY, and the four names on 50+ pets are the engine's
+        /// reserved lifecycle animations -- fall 53, drag 52, kill 51, sync 50 -- so a "safe" list
+        /// built from them would offer to play the dying animation. AgentFlow's PetAnimations.cs
+        /// records the same measurement for its own dropdown and reached the same conclusion.
+        /// </summary>
         private static string[] EmotionAnimations(string emotion)
         {
             if (string.IsNullOrWhiteSpace(emotion)) return NoAnimation;
             switch (emotion.Trim().ToLowerInvariant())
             {
-                case "happy":    return new string[] { "flower", "jump", "boing" };
-                case "excited":  return new string[] { "run", "jump", "boing" };
-                case "sad":      return new string[] { "sleep1a", "sleep2a" };
-                case "thinking": return new string[] { "sleep1a" };
-                case "confused": return new string[] { "rotate1a", "boing" };
+                case "happy":    return new string[] { "flower", "jump", "boing", "bounce", "run", "walk" };
+                case "excited":  return new string[] { "run", "jump", "boing", "dash", "bounce", "walk" };
+                case "sad":      return new string[] { "sleep1a", "sleep2a", "sit", "sit_down", "sitwithlegsup", "stand" };
+                case "thinking": return new string[] { "sleep1a", "sit", "sit_down", "stand", "turn" };
+                case "confused": return new string[] { "rotate1a", "boing", "turn", "tripping", "stand", "walk" };
                 default:         return NoAnimation;
             }
+        }
+
+        /// <summary>
+        /// The engine's reserved lifecycle animations. They are the ONLY names present on nearly
+        /// every companion, which makes them the tempting answer to "what is safe to play" and the
+        /// wrong one: playing `kill` as a reaction to a cheerful reply is not a coverage win.
+        /// </summary>
+        internal static readonly string[] ReservedLifecycleAnimations =
+            new string[] { "fall", "drag", "kill", "sync", "spawn" };
+
+        /// <summary>The emotions this module maps, for the self-test to iterate rather than restate.</summary>
+        internal static readonly string[] MappedEmotions =
+            new string[] { "happy", "excited", "sad", "thinking", "confused" };
+
+        /// <summary>Test seam: the candidate list for an emotion, without reaching a live host.</summary>
+        internal static string[] EmotionAnimationsForSelfTest(string emotion)
+        {
+            return EmotionAnimations(emotion);
         }
 
         /// <summary>One-time, non-destructive migration: if the module has no settings yet but the base

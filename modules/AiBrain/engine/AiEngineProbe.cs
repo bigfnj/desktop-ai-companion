@@ -50,6 +50,54 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(sb, "WITNESS test connection: a real reply is still reported as connected",
                     AiBrainModule.TestConnectionVerdict("OK", "gemma3:4b", 900).StartsWith("\u2713"));
 
+                // --- the emotion -> animation map ---
+                //
+                // Coverage is measured OUTSIDE this module (it needs Companions/, which the module
+                // cannot see) and recorded on EmotionAnimations itself: shipped lists reached 18, 35,
+                // 8, 8 and 8 of 54 companions, and "thinking" fires on every ask. What is asserted
+                // here is the pair of properties a future edit can actually break.
+                foreach (string emotion in AiBrainModule.MappedEmotions)
+                {
+                    string[] candidates = AiBrainModule.EmotionAnimationsForSelfTest(emotion);
+                    ok &= Check(sb, "'" + emotion + "' still maps to at least one animation",
+                        candidates != null && candidates.Length > 0);
+
+                    // A RESERVED LIFECYCLE NAME MUST NEVER APPEAR. fall/drag/kill/sync are the only
+                    // names present on nearly every companion (53, 52, 51, 50 of 54), which makes
+                    // them the obvious thing to add when someone next tries to raise coverage -- and
+                    // the wrong thing, because the pet would play its dying animation.
+                    bool clean = true;
+                    string offender = "";
+                    if (candidates != null)
+                    {
+                        foreach (string c in candidates)
+                            foreach (string reserved in AiBrainModule.ReservedLifecycleAnimations)
+                                if (string.Equals(c, reserved, StringComparison.OrdinalIgnoreCase))
+                                { clean = false; offender = c; }
+                    }
+                    ok &= Check(sb, "'" + emotion + "' offers no reserved lifecycle animation" +
+                        (clean ? "" : " -- it offers '" + offender + "'"), clean);
+                }
+
+                // THE HISTORICAL NAME STAYS FIRST, per emotion. The fallback tail was added to reach
+                // the 46 of 54 companions that silently did nothing; it must not change what the ones
+                // that already worked play. A reorder is the edit this catches, and it is a plausible
+                // one, because sorting the list by corpus frequency would look like an improvement.
+                ok &= Check(sb, "WITNESS 'happy' still leads with flower",
+                    AiBrainModule.EmotionAnimationsForSelfTest("happy")[0] == "flower");
+                ok &= Check(sb, "WITNESS 'excited' still leads with run",
+                    AiBrainModule.EmotionAnimationsForSelfTest("excited")[0] == "run");
+                ok &= Check(sb, "WITNESS 'sad' still leads with sleep1a",
+                    AiBrainModule.EmotionAnimationsForSelfTest("sad")[0] == "sleep1a");
+                ok &= Check(sb, "WITNESS 'thinking' still leads with sleep1a",
+                    AiBrainModule.EmotionAnimationsForSelfTest("thinking")[0] == "sleep1a");
+                ok &= Check(sb, "WITNESS 'confused' still leads with rotate1a",
+                    AiBrainModule.EmotionAnimationsForSelfTest("confused")[0] == "rotate1a");
+                ok &= Check(sb, "an unmapped emotion forces no animation",
+                    AiBrainModule.EmotionAnimationsForSelfTest("elated").Length == 0);
+                ok &= Check(sb, "a blank emotion forces no animation",
+                    AiBrainModule.EmotionAnimationsForSelfTest("  ").Length == 0);
+
                 // --- the ModuleKit tray convention (every entry its own unique icon) ---
                 //
                 // Exercised on SYNTHETIC tray entries, which is the only way to reach both failure branches:
