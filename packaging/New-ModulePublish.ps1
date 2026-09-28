@@ -302,13 +302,17 @@ try {
     # ---- 5. catalog ----
     Write-Host ''
     Write-Host '=== catalog.json' -ForegroundColor Cyan
+    # NO $LASTEXITCODE GUARD, because it could never fire. $LASTEXITCODE is set by native commands
+    # and by an explicit `exit`; New-ContentCatalog.ps1 contains zero `exit` statements and signals
+    # every failure by throw, so the guard that used to sit here read whatever the last `git` call
+    # INSIDE the callee happened to leave. $ErrorActionPreference = 'Stop' is set above, so a callee
+    # throw escapes on its own -- the house form at tests\run-gate.ps1:160-161.
     & (Join-Path $PSScriptRoot 'New-ContentCatalog.ps1')
-    if ($LASTEXITCODE -ne 0) { throw 'The catalog generator failed.' }
 
     Write-Host ''
     Write-Host '=== verify' -ForegroundColor Cyan
+    # Same: Test-ModulePublishFreshness.ps1 carries 19 throw sites and no `exit`.
     & (Join-Path $PSScriptRoot 'Test-ModulePublishFreshness.ps1')
-    if ($LASTEXITCODE -ne 0) { throw 'The publish-freshness check failed.' }
 
     Write-Host ''
     Write-Host ("PUBLISHED LOCALLY: {0} {1}." -f $moduleId, $version) -ForegroundColor Green

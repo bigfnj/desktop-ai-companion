@@ -705,12 +705,23 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     int launch = ParseIntOrZero(jump.Start != null ? jump.Start.Y : null);
                     int descent = ParseIntOrZero(jump.End != null ? jump.End.Y : null);
 
-                    // The fixture launches at -40. Anything steeper than the clamp means an unbounded launch
-                    // reached the output, and the pet leaves the screen.
+                    // THE DIRECTION ONLY. There is no launch clamp to assert: BuildSpoke sets
+                    // `vy0 = SolveJumpLaunchY(jumpSteps)` and discards the source pose velocity outright,
+                    // and that solver searches JumpLaunchMinMag(4)..JumpLaunchMaxMag(40), so -40 is a
+                    // legitimate answer rather than an escape.
+                    //
+                    // A `launch < -15` check used to sit here, reported as "jump launch was NOT clamped
+                    // ... source asked for -40". It tracked no constant any caller uses and passed only
+                    // because this fixture's 2-pose BigJump gives 14 steps, for which the solver returns
+                    // exactly -15 -- true by ONE UNIT, with zero margin. Any change to JumpPeakPx,
+                    // JumpDescentY, JumpArcSteps or the fixture's frame count would have reddened it with
+                    // a diagnosis naming a clamp that is not in the code.
+                    //
+                    // The real property -- that the arc rises about as far as intended -- is asserted 45
+                    // lines below against PetEmitter.ArcRisePx, which is the same idea measured against
+                    // the thing that actually decides it.
                     if (launch >= 0)
                         failures.Add("jump does not launch upward (start y=" + launch + ")");
-                    if (launch < -15)
-                        failures.Add("jump launch was NOT clamped (start y=" + launch + ", source asked for -40)");
 
                     // The fixture never descends on its own; the arc has to be closed for it.
                     if (descent <= 0)

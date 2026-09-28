@@ -20,10 +20,7 @@ param(
     # (portable zip only). Each entry is a hashtable @{ Prefix = 'companions'; Source =
     # '<dir>' }; every file under Source is added deterministically as
     # '<Prefix>/<relative/path>'.
-    [hashtable[]]$ContentDirectories = @(),
-    # Optional caller policy runs against the completed private archive before
-    # publication.
-    [scriptblock]$AdditionalStagedArchiveValidation
+    [hashtable[]]$ContentDirectories = @()
 )
 
 $ErrorActionPreference = 'Stop'
@@ -247,9 +244,12 @@ try {
         $output.Dispose()
     }
 
-    if ($null -ne $AdditionalStagedArchiveValidation) {
-        $null = & $AdditionalStagedArchiveValidation $temporaryPath
-    }
+    # An $AdditionalStagedArchiveValidation scriptblock parameter was invoked here. No caller ever
+    # supplied one -- its only occurrences in the repo were its declaration, this call, and the
+    # backlog entry about it -- and the call discarded the answer (`$null = & ...`), so a validator
+    # returning $false was ignored and the publish proceeded anyway. Dead, AND unable to fail if
+    # revived naively. A real policy hook here would have to throw, and belongs with a caller and a
+    # test on the day one exists.
 
     $destinationFull = Publish-DesktopAICompanionAtomicFile `
         -TemporaryPath $temporaryPath `

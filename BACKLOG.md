@@ -850,47 +850,43 @@ them.
   and `SkinLayout.Detect` both sit in `Task.Run` with comments saying why — and this one was missed.
   No timing is quoted because none was measured; the defect is structural.
 
-- 📌 **`Test-MsiUpgradeSchedule.ps1`'s negative control accepts any exception as proof.**
-  `:110-119` catches into `$failure` and only checks `$null -eq $failure`, never the message. A COM
-  failure opening the mutated copy, a file-sharing error, or an unrelated throw all score as "the
-  boundary guard fired". `Test-StagingPathSafety.ps1:20-23` already carries the correction for this
-  exact defect — *"Every case names the message it expects … which is exactly how case 5 of
-  Test-AtomicPublish.ps1 was passing on the wrong exception"* — and it was never applied here. It
-  does still catch the core mutation, so it is weakened rather than dead.
+- ✅ **FIXED 2026-09-28.** The control names the message it expects (`'Unsafe major-upgrade
+  schedule'`) and reports a throw that is not it, instead of scoring any exception as proof. That is
+  the correction `Test-StagingPathSafety.ps1:21-23` already carried and this file never got.
+  Positive control against the real `dist/DesktopAICompanion.msi`: with the correct expectation both
+  cases pass, exit 0; with it pointed at a message the guard never emits it exits 1 saying *"threw
+  something OTHER than the schedule guard, so it proves nothing about the boundary"*. File restored
+  byte-identical.
+- ✅ **FIXED 2026-09-28.** Both dead guards removed, premise verified rather than assumed:
+  `New-ContentCatalog.ps1` contains zero `exit` statements and `Test-ModulePublishFreshness.ps1`
+  signals all 19 of its failures by `throw`, so `$LASTEXITCODE` there held whatever the last `git`
+  call inside the callee left. `$ErrorActionPreference = 'Stop'` means a callee throw escapes on its
+  own, which is the house form at `tests/run-gate.ps1:160-161`.
+- ✅ **FIXED 2026-09-28.** The phantom assertion is gone; the direction check (`launch >= 0`)
+  stays. There is no launch clamp to assert — `BuildSpoke` sets
+  `vy0 = SolveJumpLaunchY(jumpSteps)` and discards the source velocity, and that solver searches
+  `JumpLaunchMinMag`(4)..`JumpLaunchMaxMag`(40), so -40 is a legitimate answer.
 
-- 📌 **`New-ModulePublish.ps1:306,311` guards on `$LASTEXITCODE` after two `.ps1` calls that only
-  `throw`.** `New-ContentCatalog.ps1` has zero `exit` statements and `Test-ModulePublishFreshness.ps1`
-  signals all 17 of its failures by `throw`, so both `if ($LASTEXITCODE -ne 0)` branches are dead and
-  on success read whatever the last `git` call left. Bounded: `$ErrorActionPreference='Stop'` means a
-  callee throw still escapes, so what is lost is the named message. `run-gate.ps1:115-128` documents
-  and fixed this defect class for itself; this script was not swept.
-
-- 📌 **`EmitterSelfTest.cs:712-713` asserts a clamp that no longer exists.** It fails when
-  `launch < -15`, described as "jump launch was NOT clamped". There is no launch clamp:
-  `PetEmitter.BuildSpoke:1454` sets `vy0 = SolveJumpLaunchY(jumpSteps)` and discards the source
-  velocity, and that solver searches `JumpLaunchMinMag`(4)..`JumpLaunchMaxMag`(40), so −40 is a
-  legitimate answer. −15 tracks no constant any caller uses; the check passes only because the
-  fixture's step counts happen to land in range. The height assertion 45 lines below (`rise < 36 ||
-  rise > 60`, via `ArcRisePx`) is the correct form of the same idea.
-
-- 📌 **Two prose copies of the census disagree with the number the gate re-measures every run.**
-  `tools/ShimejiConvert/MAPPING.md:143` and `tests/run-gate.ps1:210-211` both say "91 actions: 53
-  Group1 / 32 Group2 / 6 Group3". `BundledConfSelfTest.cs:34` pins `54/31/6` and its own doc records
-  the move: *"It moved 53/32/6 -> 54/31/6 on 2026-08-28, when ClimbWall stopped being reported as
-  needing selfX/selfY."*
-
-- 📌 **`New-DeterministicPortableZip.ps1` carries a validation hook nothing calls, whose answer
-  would be discarded.** `$AdditionalStagedArchiveValidation` (`:26`) has three occurrences repo-wide,
-  all in that file; no caller supplies it, and `:250-251` invokes it as `$null = & $validator $path`,
-  so a validator returning `$false` is ignored — it would have to `throw` to stop a publish. Dead,
-  and unable to fail if revived naively.
-
-- 📌 **`Test-ContentCatalogIntegrity.ps1` checks membership both ways for companions and packs,
-  but not for modules.** `:116-138` builds `$diskCompanions`/`$missingCompanions` and the pack
-  equivalents; there is no `modules-dist\*.zip` vs `$catalog.modules` comparison, while the file's own
-  `.DESCRIPTION` claims membership is checked "in both directions". A zip present in `modules-dist/`
-  and absent from both manifests is invisible to every check.
-
+  Worth recording why it never fired: the fixture's 2-pose BigJump gives 14 steps, for which the
+  solver returns exactly -15, so `launch < -15` was false **by one unit, with zero margin**. Any
+  change to `JumpPeakPx`, `JumpDescentY`, `JumpArcSteps` or the fixture's frame count would have
+  reddened it with a diagnosis naming a clamp that is not in the code. The real property is asserted
+  45 lines below against `PetEmitter.ArcRisePx`. SELFTEST PASS after removal.
+- ✅ **FIXED 2026-09-28.** `MAPPING.md` and the `run-gate.ps1` comment both say 54/31/6 now,
+  matching what `BundledConfSelfTest.cs:34` asserts on every gate run. The gate comment was wrong a
+  second way the entry did not mention: it called the census *"a dev step — that config
+  is copyrighted and must not live in this repo"*, three lines above the `selftest` call that runs it
+  against the bundled conf. Both corrected, with the 2026-08-28 reason (ClimbWall stopped being
+  reported as needing selfX/selfY) recorded beside each.
+- ✅ **FIXED 2026-09-28.** Parameter and invocation both removed. One detail the entry did not
+  flag: the hook was the LAST parameter, so removing it also had to drop the trailing comma on
+  `$ContentDirectories` — the patch script asserted that and refused to write until it
+  was handled. Parse-checked afterwards: 0 errors.
+- ✅ **FIXED 2026-09-28.** The modules direction now mirrors the two blocks above it, so the
+  `.DESCRIPTION`'s claim of membership "in both directions" is true for all three groups.
+  Mutation-tested: dropping a real zip into `modules-dist/` as `strayghost.zip` exits 1 with *"1
+  module zip(s) exist under modules-dist\ but are absent from catalog.json"*; the clean
+  tree exits 0; the stray was removed afterwards.
 **Smaller, verified, grouped — re-audit 2026-09-27**
 
 - 📌 `src/dotNet/Plugins/ModuleHost.cs:114` dereferences `module.Info.Id` unguarded, inside the
@@ -923,16 +919,18 @@ them.
 - 📌 `modules/AgentFlow/AgentFlowModule.cs:2308` — `ResetCapabilityLogForSelfTest()` has no
   callers, including the self-test it is named for. AgentFlow's five other `…ForSelfTest` seams all
   have 3–6 references.
-- 📌 `tests/Invoke-SelfTests.ps1:149-154` — a `foreach` over `*.deps.json` that reports nothing
-  when the set is empty.
-  ⚠ **The open question is ANSWERED as of 2026-09-28, and it changes the fix.** Such a folder exists
-  and is in `$RequiredModules`: `modules/TestModule/TestModule.csproj:16` sets
-  `GenerateDependencyFile=false`, and `build\...\modules\testmodule\` holds `TestModule.dll` and
-  nothing else. So the loop iterates zero times for one of the eight required modules on every run.
-  A blanket `$deps.Count -eq 0` throw would therefore RED THE GATE IMMEDIATELY — the check has to be
-  per-module aware. Two adjacent comments are also false for that folder: `:146-148` claims every
-  module folder carries `DesktopAICompanion.ModuleKit.dll`, and testmodule carries none.
+- ✅ **FIXED 2026-09-28, and the obvious fix would have broken the gate.** The entry suggested
+  "a `$deps.Count -eq 0` failure would cost nothing". It would have reddened the gate immediately:
+  `TestModule.csproj:16` sets `GenerateDependencyFile=false` and `testmodule` IS in
+  `$RequiredModules`, so the loop legitimately no-ops on one of the eight every run.
 
+  So the check is per-module aware. A module with no deps file fails UNLESS it is named in
+  `$depsOptOut`, and a module in `$depsOptOut` that DOES emit one also fails — so the
+  exemption cannot go stale and hide a check that could run. Both directions mutation-tested against
+  the real runner: emptying the opt-out gives *"module 'testmodule' has no *.deps.json in the build
+  output"*; adding `agentflow` to it gives *"is listed in $depsOptOut but DOES emit
+  AgentFlow.deps.json"*. Clean run: 19 flags, no failures. The two adjacent comments that were false
+  for testmodule (it carries no ModuleKit.dll either) are corrected.
 **Checked and REFUTED by the re-audit — do not re-file**
 
 - `SpriteBounds`'s cache keyed on `Image` alone, ignoring `transparencyKey` (`SpriteBounds.cs:28-36`).

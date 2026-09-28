@@ -137,6 +137,25 @@ if ($missingPacks.Count -gt 0) {
         (($missingPacks | Sort-Object) -join ', ') + ". Re-run packaging\New-ContentCatalog.ps1.")
 }
 
+# MODULES, the third direction, which was missing while the .DESCRIPTION above claimed all three.
+# A zip sitting in modules-dist\ and absent from catalog.json is offered to nobody and fails nothing:
+# the loop higher up catches a catalogued module whose zip has gone, but not the reverse. Note the
+# publish path already refuses a modules.json entry with no zip (New-ContentCatalog.ps1:207) and a
+# module source dir absent from modules.json (Test-ModulePublishFreshness.ps1:199) -- this closes the
+# one remaining corner, a zip in neither manifest.
+$diskModuleZips = @(
+    Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'modules-dist') -Filter '*.zip' -File `
+        -ErrorAction SilentlyContinue |
+        ForEach-Object { $_.BaseName.ToLowerInvariant() })
+$catalogModules = @(@($catalog.modules) | ForEach-Object { ([string]$_.id).ToLowerInvariant() })
+$missingModules = @($diskModuleZips | Where-Object { $catalogModules -notcontains $_ })
+if ($missingModules.Count -gt 0) {
+    $problems.Add(
+        "$($missingModules.Count) module zip(s) exist under modules-dist\ but are absent from " +
+        "catalog.json, so no user is offered them: " + (($missingModules | Sort-Object) -join ', ') +
+        ". Re-run packaging\New-ContentCatalog.ps1, or delete the stray zip.")
+}
+
 # The count floor. Without it, a catalog that lost every entry would pass every loop above by
 # iterating nothing -- the failure this file exists to make impossible.
 if ($checked -lt 1) {

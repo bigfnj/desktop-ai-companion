@@ -206,9 +206,14 @@ try {
             # Output half: every shipped pet stays valid + round-trips.
             & $shimejiExe verify (Join-Path $repoRoot 'Companions')
             if ($LASTEXITCODE -ne 0) { $failures.Add("ShimejiConvert verify (exit $LASTEXITCODE)") }
-            # Input half: the parser + Group 1/2/3 classifier on the committed synthetic fixture. (The
-            # 91/53/32/6 census against the real gil/shimeji-ee config is a dev step -- that config is
-            # copyrighted and must not live in this repo.)
+            # Input half: the parser + Group 1/2/3 classifier, AND the bundled-conf census. Both run
+            # under `selftest` below -- BundledConfSelfTest asserts 91 actions as 54 Group1 / 31 Group2 /
+            # 6 Group3 against the BUNDLED conf, which is the gil/shimeji-ee reference set.
+            #
+            # This comment used to say the census "is a dev step -- that config is copyrighted and must
+            # not live in this repo", three lines above the call that runs it, and quoted the superseded
+            # 53/32/6 split. It moved to 54/31/6 on 2026-08-28 when ClimbWall stopped being reported as
+            # needing selfX/selfY. The code is the authority; see BundledConfSelfTest.cs:34.
             & $shimejiExe selftest
             if ($LASTEXITCODE -ne 0) { $failures.Add("ShimejiConvert selftest (exit $LASTEXITCODE)") }
         }

@@ -1,4 +1,4 @@
-﻿#requires -Version 5
+#requires -Version 5
 <#
 .SYNOPSIS
     Run every product self-test flag against a built executable, and report which ones did not
@@ -144,9 +144,33 @@ if ($OutputRoot) {
             continue
         }
         # Anchored on the .deps.json, which names the module's OWN assembly. Counting *.dll is not
-        # enough: every module folder also carries DesktopAICompanion.ModuleKit.dll, so a folder
+        # enough: a module folder normally also carries DesktopAICompanion.ModuleKit.dll, so a folder
         # whose module DLL is gone still holds one and an any-DLL count passes.
-        foreach ($deps in @(Get-ChildItem -LiteralPath $moduleDirectory -Filter '*.deps.json' -File -ErrorAction SilentlyContinue)) {
+        #
+        # AN EMPTY SET IS AN ANSWER, NOT A SKIP. This loop used to contribute nothing at all when a
+        # folder held no *.deps.json -- which is the "a check that ran nothing reported success"
+        # shape this whole file exists to kill, sitting inside it.
+        #
+        # And it fires for real: modules\TestModule\TestModule.csproj sets
+        # GenerateDependencyFile=false and testmodule IS in $RequiredModules, so the loop no-opped on
+        # one of the eight on every run. That is also why a blanket "no deps file = failure" floor is
+        # the WRONG fix -- it would red the gate immediately on a module that is correct. The opt-out
+        # is named here instead, so adding a second one is a deliberate edit rather than a silent
+        # gap. testmodule also carries no ModuleKit.dll (it references only Contracts, with
+        # Private="false"), which is why the comment above says "normally".
+        $depsOptOut = @('testmodule')
+        $depsFiles = @(Get-ChildItem -LiteralPath $moduleDirectory -Filter '*.deps.json' -File -ErrorAction SilentlyContinue)
+        if ($depsFiles.Count -eq 0) {
+            if ($depsOptOut -notcontains $moduleId) {
+                Write-Output ($FailurePrefix + "module '$moduleId' has no *.deps.json in the build output, so nothing here can confirm its own assembly was built; add it to `$depsOptOut only if the project sets GenerateDependencyFile=false on purpose")
+            }
+        }
+        elseif ($depsOptOut -contains $moduleId) {
+            # The opt-out went stale: the project now emits a deps file, so the exemption is hiding a
+            # check that could run.
+            Write-Output ($FailurePrefix + "module '$moduleId' is listed in `$depsOptOut but DOES emit $($depsFiles[0].Name); remove it from the opt-out so its assembly is checked")
+        }
+        foreach ($deps in $depsFiles) {
             $assemblyName = $deps.Name -replace '\.deps\.json$', ''
             if (-not (Test-Path -LiteralPath (Join-Path $moduleDirectory ($assemblyName + '.dll')))) {
                 Write-Output ($FailurePrefix + "module '$moduleId' has $($deps.Name) but no $assemblyName.dll; it was not built into the output and its self-test would load nothing or a stale copy")

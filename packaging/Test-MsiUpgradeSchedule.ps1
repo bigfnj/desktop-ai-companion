@@ -107,15 +107,29 @@ if ($SelfTest) {
                 }
             }
 
+            # NAMES THE MESSAGE IT EXPECTS. This used to record the exception and check only that
+            # one arrived, so a COM failure opening the mutated copy, a file-sharing error, or any
+            # unrelated throw scored as "the boundary guard fired". That is the exact defect
+            # Test-StagingPathSafety.ps1:21-23 already carries the correction for -- "Passing '' would
+            # make the match read -like "**", so any exception counts as proof -- which is exactly how
+            # case 5 of Test-AtomicPublish.ps1 was passing on the wrong exception" -- and it was never
+            # applied here.
+            $expected = 'Unsafe major-upgrade schedule'
             $failure = $null
             try {
                 & $PSCommandPath -MsiPath $testMsi
             }
             catch {
-                $failure = $_
+                $failure = $_.Exception.Message
             }
             if ($null -eq $failure) {
                 throw "MSI schedule self-test '$($testCase.Name)' did not fail closed."
+            }
+            if ($failure -notlike "*$expected*") {
+                throw (
+                    "MSI schedule self-test '$($testCase.Name)' threw something OTHER than the " +
+                    "schedule guard, so it proves nothing about the boundary. Expected a message " +
+                    "containing '$expected'; got: $failure")
             }
         }
     }

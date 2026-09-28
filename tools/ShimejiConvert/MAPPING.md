@@ -140,8 +140,11 @@ less reviewable and no more correct than the table above.
 
 The Group 1/2/3 taxonomy above is now implemented in `tools/ShimejiConvert.Engine/Shimeji/`
 (`ShimejiParser` + `ActionClassifier`) and reproducible with `ShimejiConvert classify <conf-dir>` against an
-external `gil/shimeji-ee` clone. On that reference config it reports **91 actions: 53 Group1 / 32 Group2 / 6
-Group3**, and **24 behaviour conditions: 5 map cleanly (`only=`) / 19 need new state**. The Group2 bucket is
+external `gil/shimeji-ee` clone. On that reference config it reports **91 actions: 54 Group1 / 31 Group2 / 6
+Group3**, and **24 behaviour conditions: 5 map cleanly (`only=`) / 19 need new state**. (This line said
+53/32/6 until 2026-09-28. The split moved on 2026-08-28 when ClimbWall stopped being reported as needing
+selfX/selfY; `BundledConfSelfTest.cs:34` asserts the current numbers on every gate run and is the
+authority.) The Group2 bucket is
 dominated by the dead IE-window subsystem; the genuinely worth-preserving Group2 items are cursor-following
 (ChaseMouse / look-at-mouse). **Half of that has since shipped and the other half is not planned**, so read the
 next paragraph rather than this one for current state. Look-at-mouse ships as the `faceCursor` sequence action,
