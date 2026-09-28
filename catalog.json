@@ -2336,10 +2336,10 @@
       "id": "remembrance",
       "name": "Remembrance",
       "desc": "Records a meeting (your microphone + the system output over WASAPI loopback), transcribes it offline with a local Whisper, names it from your calendar (via the Reminder module) or a timestamp, snapshots the screen on a hotkey, and purges the audio + snapshots after 72 hours while keeping the transcript. Needs a local Whisper (whisper-cli + a model) set up in options, and the machine's own console - a Remote Desktop session presents no real microphone.",
-      "version": "1.0.14",
+      "version": "1.0.15",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/remembrance.zip",
-      "sha256": "ddce7b0142b05f8daf523ff53ffb9b262a2f9d107d4f294611140182fe15b5e4",
-      "bytes": 7070912,
+      "sha256": "c25a4097669b6e567d1e05b0af61cbe8387583fcf7f97933b4ea21ae710af017",
+      "bytes": 7071161,
       "permissions": "Speech, Microphone, SystemAudio, ScreenContext, Hotkey, Storage, Network",
       "minHostVersion": "1.0.0"
     },
