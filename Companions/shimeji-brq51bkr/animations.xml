@@ -112,7 +112,7 @@
         <opacity>1</opacity>
         <interval>700</interval>
       </end>
-      <sequence repeatfrom="0" repeat="2">
+      <sequence repeatfrom="0" repeat="0">
         <frame>11</frame>
         <frame>12</frame>
         <frame>13</frame>
