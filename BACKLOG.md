@@ -616,6 +616,44 @@ Kept for traceability: the entry's original note was that the asset is a third p
 a character its owners hold, sourced from shimeji.org, which records no author for it — so the
 source-specific evidence `Companions/README.md` asks for could not be assembled from that source.
 
+### 📌 Every converted climb replays its mount pose on every cycle (filed 2026-09-28)
+
+The emitter writes `repeatfrom="0"` on every sequence it produces, and
+`PetEmitter.cs:957` records that as an invariant: *"the emitter always writes `repeatfrom="0"`, so
+the span is the whole frame list"*. For a climb whose source frames begin with a turn-onto-the-wall
+prefix, that makes the repeat restart at the prefix, so the pet snaps back to its pre-climb pose
+every time the sequence loops.
+
+Observed on `shimeji-brq51bkr`, whose `climb` is 26 frames: frames 36-39 are a front-facing turn on
+the floor and 40-61 the side-on cling, so the loop ran 61 → 36 and the pet flipped to standing
+front-on **every 2.6s** of climbing. Fixed for that pet in place by hand
+(`repeatfrom="4"`, and `descend` reordered because the reversed frame list put its prefix at the
+tail where `repeatfrom` cannot reach).
+
+**Measured across the shipped corpus: 48 of 48 climb-family sequences in 18 converted pets are
+`repeatfrom="0"`, and none is non-zero.** The hand-authored pets are not affected — they have no
+climb-family sequences with a prefix — and the bundled reference pet uses non-zero values
+(`repeatfrom` 1, 5 and 9 in `src/Resources/animations.xml`), so the idiom is the format's, not an
+invention.
+
+⚠ **Not a one-line change, which is why it is filed rather than done.** Three things are coupled:
+
+- `reclimb` sets `a.Sequence.RepeatFromFrame = 0` for every surface pose
+  (`tools/ShimejiConvert/Program.cs:1003`) while lengthening the repeat for reach, so the rung that
+  fixed reach is also what flattens the prefix. A fix must keep its reach guarantee.
+- `PetEmitter.JumpStepCount` and `SurfaceRepeatForReach` both solve their arc and reach arithmetic
+  against the always-zero assumption. Changing the emitted value without updating them makes a jump
+  reach the wrong height **silently** — the comment at `:958-959` says exactly that.
+- Identifying the prefix needs the SOURCE skin's separate action blocks. `reclimb` is deliberately
+  "numbers only, so no source skins", and nothing in the emitted XML marks where the prefix ends.
+  A migration rung therefore cannot do this the way `reground` and `reclimb` did.
+
+CLOSES-WHEN: grep-present tools/ShimejiConvert.Engine/Shimeji/EmitterSelfTest.cs "mount prefix sets repeatfrom"
+
+That needle is the label the emitter self-test must assert under: a synthetic skin whose climb has a
+distinct mount prefix emits a `repeatfrom` equal to that prefix length, and the arc and reach solvers
+are fed the same value that is emitted.
+
 ---
 
 ## Open: rightsize the "Jesus Our Lord" companion (filed 2026-09-24)
@@ -664,6 +702,45 @@ shrinking. Every rescaled frame is bottom-aligned now; 17-25px of float removed 
 bboxes are inflated by motion lines drawn around a small character -- `bounce` frame 11 would be
 224x303, `fall` 406x508. They are brief ballistic states where a size shift reads as motion.
 
+### ⚠ The measure above was WRONG, and the owner said so on sight (2026-09-28)
+
+**Face area was the wrong proxy, and this entry argued for it at length.** It is scale-correct and
+the owner does not judge by it: they judge by SILHOUETTE. The two disagree most on exactly the frame
+this entry rescaled hardest -- frame 0 (`kill`/`sync`) came out at face 1.00 against `walk` with a
+body 25% SHORTER, so it read as too small, and `stand` read as too large. Both of this entry's
+rescales were in the wrong direction for the thing being judged.
+
+**The measure is now scored, not argued.** Six judgements are on record; matching `walk`'s character
+HEIGHT predicts five of them, ink MASS four, face area fewer. Applied 2026-09-28: grounded poses
+(the hub frame, `stand`, `idle`) match `walk`'s character height of 215px with the BOTTOM anchored,
+and all seven land at 1.00. Airborne poses (`bounce`, `fall`, `fling`) match frame 11's ink mass with
+the CENTRE anchored, because a tucked figure's bbox height is pose noise -- height-matching
+`bounce` 15 wants x1.87 and leaves it visibly larger than its neighbours.
+
+**The cell-overflow residual above is resolved, and the reasoning that produced it was the error.**
+The three "overflowing" frames hold a SMALL character inside a large bbox: `bounce` 15 and `fall` 62
+are a 116x115 figure inside 192x240, with only ~240 opaque pixels in the 125px of surrounding
+height. That surround is decorative motion marks. Clipping a radial speed line at the cell edge is
+visually free, and it is the only thing that makes the real character size reachable: those two went
+up x1.54, `fling` 64 x1.49, `bounce` 16 x1.17. Measuring the bbox instead of the figure is what made
+this look impossible.
+
+⚠ **Two further errors, both caught by rendering the result rather than by a metric.** Centre-
+anchoring pushed the legs of frames 15, 16 and 62 off the bottom of the cell -- 15 achieved 170px
+where 178 was planned, so 8px of body was gone while every size number still looked plausible.
+Placement is clamped to keep the figure inside the cell now (costing a 6-8px upward shift on five
+airborne frames) and achieved size is asserted against planned. Separately, premultiplying alpha in
+8 bits destroys low-alpha colour -- alpha 2, red 200 premultiplies to 1 and returns as 127 -- which
+darkened every soft edge, measured as the alpha 1..40 band's mean luma falling 53 → 38 on frame 19.
+The resample runs on float32 premultiplied channels now and the same measure rises 53 → 60.
+
+⚠ **One measurement trap worth carrying forward.** "Largest connected opaque blob" is not the
+character: anti-aliased outlines leave sub-threshold seams that cut this art into 20+ pieces, and the
+blob measure reported `stand` frame 19 as 171x164 with **16,764 opaque pixels lying outside what it
+measured**. Seams must be bridged before labelling, and the bridging radius must SCALE with any
+resize -- a 6px seam is 9px after a x1.5 upscale, and a fixed radius silently returns a limb. That
+artifact read as a 10px cut and tripped the cut guard on a frame that was never cut.
+
 ⚠ **Three errors of mine that the guards caught**, each of which would have shipped damage:
 scaling about the cell's bottom edge assumed the character sat on it, and the pixel-loss guard
 refused at 15.9% because of that very floor gap; `paste(im, box, im)` blends against a transparent
@@ -692,6 +769,50 @@ this pet never takes the downscale path.
 runtime staging cap or the scale policy, and raising the former costs up to 4x sprite memory per
 companion and would also need `MaximumGeneratedBytes` raised — a change the shimeji work
 deliberately deferred once already. Confirm which way the complaint points before touching either.
+
+---
+
+## 📌 Open: at 25% scale, pet speed is decided by the interval alone (filed 2026-09-28)
+
+Reported as *"when at 25%, it seems to walk VERY slowly"*. It is both a corpus-wide effect and one
+pet being the worst case, and the two have different answers.
+
+`ScalePolicy.ScaleVelocity(v, f)` is `round(v * f)` floored at ±1 so a moving animation still moves.
+The animation INTERVAL is only clamped, never scaled — so there is no compounding, but at 25% the
+floor binds for any sanely-paced pet: a walk needs velocity ≥ 6 px/step for `round(v * 0.25)` to
+clear 1, and 6 px/step is roughly 19 px/s at 100%, far faster than any shipped pet.
+
+**Measured over the 35 pets with a walk or run: 32 are FLOORED at 25%.** Every one of those moves
+exactly 1px per step there, so their native speed differences vanish and absolute speed is set
+entirely by the interval:
+
+| | velocity | interval | px/s at 100% | px/s at 25% |
+|---|---|---|---|---|
+| `shimeji-brq51bkr` | 2 | **320ms** | 6 | **3** — slowest measured |
+| typical converted pet | 2 | 240ms | 8 | 4 |
+| `pingus` | 2 | 100ms | 20 | 10 |
+
+So `shimeji-brq51bkr` is genuinely slower than its peers at *every* scale, because 320ms is the
+longest walk interval in the corpus, and the floor then removes the only other lever.
+
+⚠ **Two separable questions, and neither should be answered by guessing.**
+
+- **This pet:** shortening its walk interval to ~200ms gives 10 px/s at 100% and 5 px/s at 25%,
+  above the corpus median at both. It also speeds the 10-frame leg cycle from 3.2s to 2.0s, which is
+  an art-pacing judgement on someone else's sprite work, not a correctness fix. One number,
+  reversible. **Owner's call.**
+- **The model:** preserving absolute speed across the scale slider means scaling the interval with
+  the factor too, which makes the animation itself play 4x faster at 25% — trading a crawl for a
+  scurry. Scaling velocity by `sqrt(factor)` instead halves rather than quarters the loss. Both are
+  behaviour changes affecting every pet and every animation, so neither belongs in a drive-by.
+
+CLOSES-WHEN: grep-present docs/DESIGN-REGISTER.md "pet speed at minimum scale"
+
+Either disposition warrants that register note, which is why the criterion points there rather than
+at code: accepting the crawl is a decision worth recording with the 32-of-35 measurement, and
+changing `ScalePolicy`'s rule is a decision worth recording beside the new relationship between
+velocity, interval and factor — which would additionally need an assertion in
+`runtime-hardening-selftest.ps1`.
 
 ---
 
