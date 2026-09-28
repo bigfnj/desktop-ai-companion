@@ -2304,8 +2304,11 @@ namespace DesktopAICompanion.AgentFlow
         /// stops being a question about other subsystems' logging habits.
         /// </summary>
 
-        /// <summary>Self-test only: forget what was last logged, so the next call records again.</summary>
-        internal void ResetCapabilityLogForSelfTest() { _lastLoggedCapability = null; }
+        // ResetCapabilityLogForSelfTest() was here, and nothing called it -- including
+        // SelfCheckCapabilityLog, the self-test it was named for, which constructs a fresh
+        // AgentFlowModule and relies on _lastLoggedCapability starting null. AgentFlow's five other
+        // ...ForSelfTest seams all have 3-6 references; this one had zero, so it was a seam for a
+        // test that was never written that way.
 
         private void LogCapabilityChange()
         {
