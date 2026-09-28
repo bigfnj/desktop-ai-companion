@@ -235,6 +235,14 @@ that had to be reverted.
   `shimeji-*` companions to chase it. If a future pet genuinely loses pixels ABOVE its anchor, that
   IS a bug -- and the measurement above is the way to tell, in about a minute.
 
+  ⚠ **"Do not re-convert" is scoped to THIS entry, and it was mis-cited once.** It says do not
+  re-convert to chase a non-defect. It is not a general rule against fixing shipped converted pets:
+  on 2026-09-28 I quoted it as one to justify leaving a real, already-fixed defect in 14 of them, and
+  the correct answer was a FORMAT-LADDER RUNG, which upgrades shipped pets in place and needs no
+  source skins. The skins are not in this repo anyway, so "they will be re-converted eventually" is
+  not a disposition available to anybody. When a converted pet ships with something fixable, the
+  question is which rung fixes it, not whether to re-convert.
+
 - **A blank frame in a converted companion is legitimate, so "no blank tiles" cannot be a
   corpus-wide gate.** A sweep of all 50 companions found intentional transparent frames in
   hand-authored ones: `ssj-goku`'s `Instant_Transmission`, `alipheese`'s

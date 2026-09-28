@@ -412,10 +412,49 @@ there.
   | drop the three edges | all three new assertions fire, and the pre-existing no-`none`-turn assertion stays quiet (no cross-talk) |
   | "fix" it with `only="none"` instead | still fails, because the assertions require a NAMED match — the lazy fix would satisfy "has an edge for that border" while breaking the landing behaviour |
 
-  ⚠ **RESIDUAL, recorded rather than fixed: the 14 shipped converted pets still carry the
-  dead-ends.** An emitter fix does not rewrite emitted XML, and this repo's standing rule is not to
-  re-convert the shipped corpus for one cause. They are corrected the next time they are converted
-  for another reason, which is the same disposition the sprite-tile entry took.
+  ✅ **THE 14 SHIPPED PETS ARE FIXED TOO, and my first disposition of them was wrong twice over.**
+
+  I wrote that they would "correct themselves the next time they are converted for another reason"
+  and cited a standing rule against re-converting the corpus. Both halves were wrong:
+
+  | what I said | what is true |
+  |---|---|
+  | "this repo's rule is not to re-convert for one cause" | `docs/DESIGN-REGISTER.md` forbids re-converting to chase the SPRITE-TILE entry, whose closing condition was unsatisfiable by construction. There was nothing to fix there. I generalised one instruction about a non-defect into a rule, and the only other citation I had was my own sentence from the same day |
+  | "next time they are converted" | has no trigger. The source skins are NOT in this repo -- only `base-conf/actions.xml` and `behaviors.xml` are -- so nothing was ever going to re-convert `shimeji-cyn` |
+
+  And the mechanism for exactly this was already here: the format ladder, whose purpose is upgrading
+  shipped converted pets in place. The precedent is exact -- the emitter's own comment records that
+  the `rejump` migration already attaches border edges to shipped pets, *"so the migration and the
+  emitter disagreed, with the migration right."*
+
+  **A ninth rung, `reground`:** `1.0 -> reloop -> 1.1 -> reground -> 1.2`. `reloop`'s rung was
+  RETARGETED from the current version to the newly named 1.1; left as it was it would have carried a
+  pet from 1.0 straight past the new rung, which is the skip-everything-after-me defect
+  `EmitterSelfTest`'s ladder walk exists to catch.
+
+  The verb selects on the MEASURED SHAPE -- a border whose every edge is `taskbar` or
+  `window-bottom` -- so a state that already has an answer is never touched, and it adds only
+  situations not already covered, so a re-run is idempotent.
+
+  **Real corpus: 54 pets, 32 changed, 29 states grounded, 87 edges added, 0 failures.** 87 is exactly
+  the measured case count. PROVEN with the host's own `TNextAnimation.Eligible` before and after,
+  rather than with the migration's own report, which only says it did something:
+
+  | corpus | total cases | WARNING-level | of which CONVERTED |
+  |---|---|---|---|
+  | original | 2497 | 1800 | **87** |
+  | migrated | 2410 | 1713 | **0** |
+
+  `1800 - 87 = 1713` and `2497 - 87 = 2410`, so nothing else moved: the hand-authored cases are
+  untouched, which is the author gate working. Checked on a copy first: versions `1.1=32 -> 1.2=32`,
+  BOM-bearing files 19 before and 19 after, and the app's validator reports 0 invalid, 0 round-trip
+  failures and 0 converted pets with unreachable animations.
+
+  ⚠ **`build.ps1 -Release` does NOT build the standalone ShimejiConvert CLI.** The first
+  "SELFTEST PASS" I accepted after adding the rung came from a stale binary whose own usage text did
+  not mention the new verb, so the ladder assertions had not run at all. Rebuilt explicitly, confirmed
+  the timestamp advanced and the usage listed `reground`, and re-ran. The artefact-freshness rule
+  caught me with the rule written down.
 
   ⚠ **DECISION NOT TAKEN, and it is the owner's: the 1713 hand-authored cases.** The consequence
   there is the same walk-off-and-respawn, measured elsewhere in this file at about 21 times an hour
