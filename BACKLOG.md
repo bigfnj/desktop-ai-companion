@@ -474,7 +474,19 @@ open-item blindness plus the bug-number drift.
   is actually drawn, which is why it is filed rather than fixed, and why it should not be fixed by
   eyeballing: the tile width (162) is larger than the source (130), so the height is not a naive crop
   but falls out of the anchor-aligned bounding box, and whatever is off by 2 there will be off for
-  every pet. CLOSES-WHEN: a converted pet's per-frame alpha-pixel count matches its source within 0.
+  every pet.
+
+  ⚠ **This entry's closing condition was INVISIBLE, and is in tension with the code it asks to
+  change.** It read "CLOSES-WHEN: a converted pet's per-frame alpha-pixel count matches its source
+  within 0", written as prose mid-sentence with no verb — so
+  `Test-BacklogClosingCriteria.ps1:164-171` skipped it silently, the same failure mode corrected on
+  2026-09-27 for two criteria that went in backwards. NO CLOSES-WHEN now, deliberately, because the
+  condition cannot be machine-checked the way that file requires and, more importantly, may be
+  unsatisfiable by construction: `SpriteSheetBuilder.cs:186` is `cellH = max(AnchorY)` and the anchor
+  is placed on the cell's BOTTOM edge on purpose (`:169-176` — reserving a band below it once left
+  Hornet standing 14px clear of the taskbar). Pixels below a frame's anchor are below the floor line
+  and are dropped deliberately. The real question is whether any lost row sits ABOVE the anchor, and
+  that is a measurement, not a grep.
   Do NOT re-convert the shipped pets to collect this alone. Scope, since two entries disagreed on
   it: `Companions/` holds **32** `shimeji-*` directories, and the catalog lists **54** companions in
   total; a re-convert touches the converted ones, so it is 32 assets and their catalog hashes for
@@ -810,7 +822,11 @@ them.
   found it deleting the first import's files. So this is currently defended by a caller, not by the
   type — which is exactly the "defended by structure rather than by an assertion" shape this backlog
   has had to correct before. `SoundBaker` documents its own single-threaded requirement
-  (`Engine.cs:168`); `PetEmitter` documents nothing.
+  (`Engine.cs:168`).
+  ⚠ **Corrected 2026-09-28: this entry used to end "`PetEmitter` documents nothing", and that is
+  wrong.** It says so at `PetEmitter.cs:2060-2061` — *"Single-threaded emit, so a static is safe and
+  keeps the signatures clean."* What it lacks is ENFORCEMENT, not a comment, which is a different
+  fix: an assertion or a per-`Emit` context, not a doc line.
 
 - 📌 **Remembrance blocks the UI thread for up to 3 s on the first options-pane open, on a premise
   this repo measured false the same day.** `RemembranceModule.cs:506-509` does
@@ -886,9 +902,6 @@ them.
 - 📌 `src/dotNet/ContextMenus.cs:32` — `closeSheepMenuItem` is a static field written at `:323-329`
   and nulled at `:624`, never read. Its four siblings all have readers. Can be a local.
 - 📌 `src/dotNet/Plugins/ModuleHost.cs:30` — `Loaded.Directory` is assigned at `:111` and never read.
-- 📌 `src/dotNet/FormCompanion.cs:630-633` — an empty `if (oldDisplayIndex != DisplayIndex) { }`
-  body, commented "all computed values could be wrong". `oldDisplayIndex` (`:617`) exists only to feed
-  it, so both are dead. `AdoptScreenUnderPet` (`:2243-2256`) is what the comment describes wanting.
 - 📌 `src/dotNet/StartUp.cs:1161` — `KillSheeps(bool exit)`: both call sites pass `true`
   (`ProcessIcon.cs:339`, `ContextMenus.cs:609`), so the `if (exit)` branch at `:1183-1187` is dead. It
   hides an asymmetry: with `false` the method would still `pi.Dispose()` and leave the app running
@@ -911,8 +924,14 @@ them.
   callers, including the self-test it is named for. AgentFlow's five other `…ForSelfTest` seams all
   have 3–6 references.
 - 📌 `tests/Invoke-SelfTests.ps1:149-154` — a `foreach` over `*.deps.json` that reports nothing
-  when the set is empty. The auditor could NOT confirm an input that produces such a folder, so this
-  is a gap to consider rather than a filed defect; a `$deps.Count -eq 0` failure would cost nothing.
+  when the set is empty.
+  ⚠ **The open question is ANSWERED as of 2026-09-28, and it changes the fix.** Such a folder exists
+  and is in `$RequiredModules`: `modules/TestModule/TestModule.csproj:16` sets
+  `GenerateDependencyFile=false`, and `build\...\modules\testmodule\` holds `TestModule.dll` and
+  nothing else. So the loop iterates zero times for one of the eight required modules on every run.
+  A blanket `$deps.Count -eq 0` throw would therefore RED THE GATE IMMEDIATELY — the check has to be
+  per-module aware. Two adjacent comments are also false for that folder: `:146-148` claims every
+  module folder carries `DesktopAICompanion.ModuleKit.dll`, and testmodule carries none.
 
 **Checked and REFUTED by the re-audit — do not re-file**
 
