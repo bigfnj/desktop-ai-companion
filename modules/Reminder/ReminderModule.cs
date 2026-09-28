@@ -60,7 +60,11 @@ namespace DesktopAICompanion.ReminderModule
         {
             Id = Id,
             Name = "Reminder",
-            Version = "1.0.5",   // 1.0.5: ReminderScheduler.DueNow deleted. No callers, and it tested the fired
+            Version = "1.0.6",  // 1.0.6: "Make the companion react" reached 35 of 54 companions, and
+                                //        reactOn defaults to true, so 19 users had a feature switched
+                                //        on that did nothing. The eSheep-era names it used are absent
+                                //        from the converted shimeji. Historical four kept FIRST and in
+                                //        order, so nothing that worked changes; now 43/54.   // 1.0.5: ReminderScheduler.DueNow deleted. No callers, and it tested the fired
                                  //        set with a bare event id while DueNowMulti records "<id>@<lead>" --
                                  //        so reviving it on the strength of its signature would have produced a
                                  //        scheduler that re-fired every event on every tick.
@@ -341,10 +345,43 @@ namespace DesktopAICompanion.ReminderModule
 
         // --- the pet's physical reaction -------------------------------------------------------------
 
-        /// <summary>Default attention animations, tried in order. These are names the SHIPPED pets define;
-        /// a converted shimeji uses entirely different ones, which is exactly why this is an ordered
-        /// candidate list and not a single name.</summary>
-        internal const string DefaultReactAnimations = "boing,jump,run,flower";
+        /// <summary>
+        /// Default attention animations, tried in order; the host plays the first one the companion
+        /// defines and does nothing at all if it defines none -- so a list that misses is
+        /// indistinguishable from the feature being switched off, and reactOn defaults to true.
+        ///
+        /// MEASURED 2026-09-28 across all 54 Companions/*/animations.xml, case-insensitively:
+        /// boing,jump,run,flower reached 35 and missed 19 -- bbunny, blue_ham_ham, fox, mareep,
+        /// mimiko, negima, neko, pikachu, pingus, pink_fox, pink_neko, shiny_sylveon, yellow_neko
+        /// and six converted shimeji. boing exists on exactly ONE companion; flower on one.
+        ///
+        /// The previous comment here was half-right. It said these are names the shipped pets define
+        /// and that a converted shimeji uses different ones -- which is the reason an ordered list
+        /// exists, but the list never actually reached the converted ones.
+        ///
+        /// THE HISTORICAL FOUR STAY FIRST AND IN ORDER, so no companion that already reacted changes
+        /// what it plays; the tail is purely a fallback for the 19 that did nothing. 43/54 now.
+        /// Nothing reaches all 54: the intersection across this corpus is EMPTY, and the only names
+        /// on 50+ pets are the engine's reserved lifecycle animations (fall, drag, kill, sync), so a
+        /// list built for coverage alone would offer to play the dying animation. AiBrain's
+        /// EmotionAnimations and AgentFlow's PetAnimations record the same measurement.
+        /// </summary>
+        internal const string DefaultReactAnimations = "boing,jump,run,flower,bounce,walk,sit,turn,stand";
+
+        /// <summary>
+        /// The historical head of that list, kept in order. Behaviour preservation is a property
+        /// worth asserting; the exact length of the fallback tail is not.
+        /// </summary>
+        internal static readonly string[] HistoricalReactAnimations =
+            new string[] { "boing", "jump", "run", "flower" };
+
+        /// <summary>
+        /// The engine's reserved lifecycle animations, which must never be offered as a reaction.
+        /// They are the only names present on nearly every companion, which makes them exactly what
+        /// a future "improve the coverage" edit would reach for.
+        /// </summary>
+        internal static readonly string[] ReservedLifecycleAnimations =
+            new string[] { "fall", "drag", "kill", "sync", "spawn" };
 
         /// <summary>
         /// Make the pet visibly react, so a reminder is something you SEE rather than only a bubble that may
@@ -1371,10 +1408,32 @@ namespace DesktopAICompanion.ReminderModule
                                                           new CalendarEvent { Id = "cal1|other" } }), firedOf()));
 
             IReadOnlyList<string> defaults = ParseAnimationCandidates(DefaultReactAnimations);
-            check("the default reaction list parses to several candidates", defaults.Count == 4);
-            check("the first default candidate is boing", defaults.Count > 0 && defaults[0] == "boing");
-            check("order is preserved (the host takes the first the companion defines)",
-                defaults.Count == 4 && defaults[3] == "flower");
+            // PROPERTIES, NOT THE LITERAL STRING. These three used to assert Count == 4,
+            // [0] == "boing" and [3] == "flower", which tested the string rather than anything about
+            // behaviour -- so raising the list's coverage from 35/54 to 43/54 reddened the gate for
+            // no reason connected to what the module does.
+            check("the default reaction list parses to several candidates", defaults.Count >= 4);
+            bool headInOrder = defaults.Count >= HistoricalReactAnimations.Length;
+            if (headInOrder)
+            {
+                for (int i = 0; i < HistoricalReactAnimations.Length; i++)
+                    if (defaults[i] != HistoricalReactAnimations[i]) headInOrder = false;
+            }
+            // The behaviour-preservation property: a companion that already reacted must keep playing
+            // the same animation. A reorder is the plausible edit here, because sorting the list by
+            // corpus frequency would look like an improvement.
+            check("WITNESS the historical four still lead, in order, so an already-reacting companion is unchanged",
+                headInOrder);
+            check("there is a fallback beyond the historical four, for the companions that defined none of them",
+                defaults.Count > HistoricalReactAnimations.Length);
+            bool noReserved = true;
+            string reservedOffender = "";
+            foreach (string c in defaults)
+                foreach (string reserved in ReservedLifecycleAnimations)
+                    if (string.Equals(c, reserved, StringComparison.OrdinalIgnoreCase))
+                    { noReserved = false; reservedOffender = c; }
+            check("no reserved lifecycle animation is offered as a reaction" +
+                (noReserved ? "" : " -- it offers '" + reservedOffender + "'"), noReserved);
             check("whitespace and empty entries are dropped",
                 ParseAnimationCandidates(" jump , , run ,").Count == 2);
             check("duplicates are collapsed case-insensitively",

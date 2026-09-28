@@ -1298,14 +1298,30 @@ re-checked -- treat the first step of acting on one as confirming it still repro
 
   MUTATION: both fire, exactly one failure each, naming the right assertion; baseline and restored
   both `RESULT=PASS`. aibrain's assertion count 216 -> 233.
-- 📌 **Reminder's "Make the companion react" default reaches 35 of 54 companions.**
-  `modules/Reminder/ReminderModule.cs`, `DefaultReactAnimations = "boing,jump,run,flower"`, and
-  `reactOn` defaults to true. 19 miss, listed in the audit. Same root cause and same silence as the
-  AiBrain entry. Note `PetAnimations.cs` claims its coverage list is *"the convention AiBrain,
-  Reminder and StartUp all use"* -- for Reminder that describes an intent, not the shipped default.
-  ⚠ Changing it reddens the gate: three assertions pin the literal string (`Count == 4`,
-  `[0] == "boing"`, `[3] == "flower"`) rather than any property. Needs a `reminder` republish.
+- ✅ **FIXED 2026-09-28 (reminder 1.0.6).** Re-measured: `boing,jump,run,flower` reaches **35 of
+  54**, missing 19 -- `bbunny`, `blue_ham_ham`, `fox`, `mareep`, `mimiko`, `negima`, `neko`,
+  `pikachu`, `pingus`, `pink_fox`, `pink_neko`, `shiny_sylveon`, `yellow_neko` and six converted
+  shimeji. With the fallback tail: **43/54**. `reactOn` defaults to true, so those 19 users had a
+  feature switched on that did nothing.
 
+  The historical four stay first and IN ORDER, so no companion that already reacted changes what it
+  plays. The old doc comment was half-right -- it said these are names the shipped pets define and
+  that a converted shimeji uses different ones, which is the reason an ordered list exists, but the
+  list never actually reached the converted ones.
+
+  ⚠ **The three assertions that pinned the literal string are gone, replaced by properties.**
+  `Count == 4`, `[0] == "boing"` and `[3] == "flower"` tested the string rather than anything about
+  behaviour, which is exactly why the audit predicted that improving the default would redden the
+  gate. What stands there now:
+
+  | assertion | the edit it catches |
+  |---|---|
+  | the historical four still lead, in order | a reorder, e.g. sorting by corpus frequency |
+  | there is a fallback beyond the historical four | reverting to the 35/54 list |
+  | no reserved lifecycle animation is offered | appending `fall`/`kill`/`sync` for coverage |
+
+  MUTATION: a reorder and an appended `fall` each fire exactly one failure, naming the right
+  assertion; baseline and restored both `RESULT=PASS`.
 - ✅ **FIXED 2026-09-28.** `data.SetDefaultSpeakingPet(def.DefaultSpeakingPet ?? "")`, next to
   the per-pet `triggerSpeech` exclusion that does have a stated reason.
 
