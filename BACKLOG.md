@@ -1160,30 +1160,60 @@ re-checked -- treat the first step of acting on one as confirming it still repro
 
 ### User-visible
 
-- 📌 **VERIFIED. The diagnostic log's size cap is silently unenforced when "how many to keep"
-  is 1, and the file then grows without bound.** `src/dotNet/DiagnosticLog.cs` `RotateNoLock`. The
-  shift loop is `for (int i = _keep - 1; i >= 1; i--)`; at `_keep == 1` that is `i = 0; 0 >= 1`, so
-  zero iterations and `diagnostics.log` is never moved or deleted. The loop above it only deletes
-  the *archives*. `Write` then appends regardless, so past the cap every line re-runs a rotate that
-  does nothing and appends anyway. keep = 1 is a legal user value, not a corner case: the spinner
-  declares `Min = 1` and `SetDiagnosticLogKeep` clamps to `[1,20]`. The launch rotation is safe (the
-  field default is 2 and `Start()` runs before `Configure`), so this is confined to within a session
-  -- but unbounded inside it. With the Animation category unmuted (a supported choice, labelled
-  "very noisy -- for skin authors") the class's own measured rate is 12.07 lines/s, roughly 60 MB a
-  day into a file the user believes is capped at 512 KB. No test touches rotation at all.
-  CLOSES-WHEN: grep-absent src/dotNet/DiagnosticLog.cs "for (int i = _keep - 1; i >= 1; i--)"
+- ✅ **FIXED 2026-09-28.** `keep = 1` means one file and it is the CURRENT one, so there is no
+  archive slot to shift into and the current file has to be deleted outright; every `keep >= 2` got a
+  fresh file as a side effect of the shift, and `keep == 1` had to be told. One line, plus the reason
+  beside it.
 
-- 📌 **VERIFIED. "Reset to default settings" writes the diagnostic-log defaults but never
-  re-applies them to the running logger.** `src/Portable/Wpf/OptionsShell.cs`. The Save path calls
-  `DiagnosticLog.Configure` deliberately, with a comment saying why: *"the thing most often being
-  diagnosed IS a launch, so 'change the setting, reproduce, read the log' has to work without a
-  restart in between."* The reset writes all five diagnostic settings and live-applies only the
-  audio device, the drop timer and the tray speech item. Confirmed by grep: outside the self-tests
-  the only `Configure` call sites are `Program.cs` (launch) and `OptionsShell.cs` (save). Because
-  the reset rebuilds the pane, the symptom is visible and misleading -- turn the log off, press
-  Reset, the checkbox comes back ticked and nothing is logged until restart. Same for the size cap,
-  the keep count and every category or module mute.
+  **Rotation now has coverage, which it had never had** -- the audit's own note was that grepping
+  `RotateNoLock` across `src/`, `tests/` and `docs/` returned only the source itself. Four assertions
+  in `--wpf-options-selftest`: the keep=1 current file is removed, the keep=2 current file is shifted
+  into the archive slot, an archive past the keep count is dropped, and the surviving archive is the
+  one just rotated out. The last two assert on CONTENT, so a rotation that moved the wrong file still
+  fails.
 
+  To make that testable the rotation became a function of the two values it depends on
+  (`RotateIn(directory, keep)`) rather than of module statics, with `RotateNoLock()` delegating.
+  That is the OPPOSITE of the `$TimeoutMs` shape filed elsewhere in this file: no unused parameter
+  was added for a test, the parameters it already needed stopped being globals. It matters because
+  these self-test flags run against the user's REAL data root -- there is no isolated
+  `DESKTOP_AI_COMPANION_DATA_ROOT` around them -- so a rotation test that wrote 512 KB into the
+  user's own log would be worse than no test. It writes to a scratch directory instead.
+
+  MUTATION: removing the `keep <= 1` line fails exactly one assertion, *"at keep=1 the over-cap
+  current file is removed, not left to grow"*. The baseline run was checked for the new labels
+  first, because a clean pass proves nothing if the assertions never executed, and the built exe's
+  timestamp was asserted to advance between legs.
+
+  ⚠ **The real-app smoke then found a SECOND defect the suite could not, and it is the bigger
+  one.** `Start()` rotates before `Configure` has ever run -- it has to, because the rotation must
+  precede anything worth recording and the settings store is not loaded that early -- so it rotates
+  with the FIELD DEFAULT of 2. Every launch therefore recreated `diagnostics.1.log` whatever the
+  user had chosen, and at `keep = 1` that archive survived until the next cap-driven rotation, which
+  on a quiet app can be hours away. **"Keep 1" never actually held across a launch.** `Configure`
+  now drops the archives a lowered setting no longer allows, which needs no change to the launch
+  order. Measured on the shipping binary with an isolated data root: 1 archive before, 0 after, live
+  file intact.
+
+  The suite could not have caught it: the suite tests the rotation, and this was about WHEN the
+  rotation is asked for. Two more assertions cover the trim, including the property rotation does not
+  have -- that it leaves the LIVE file alone, because lowering a setting is not a rotation. The
+  WIRING is a source invariant scoped to `Configure`'s body, because the smoke is not in the gate;
+  MUTATION: renaming the call site alone fails it while the method DECLARATION, which contains the
+  same text, stays in the file (`declarationStillInFile=1`), so a file-wide grep would have passed.
+  SMOKETEST.md 145 -> 147.
+
+  ⚠ **The first version of that smoke test was worthless and printed a verdict anyway.** It
+  round-tripped `settings.json` through `ConvertTo-Json`; the app silently discarded the result and
+  came back with `keep=2 / cap=512`, the defaults. So it measured the default configuration twice and
+  reported "NOT bounded" for a reason that had nothing to do with the code. It now edits in place by
+  key and **refuses to report a verdict unless the edit survived the next launch** -- a smoke test
+  that cannot tell "the setting did not apply" from "the code is broken" is worse than none. Same
+  family as the `taskkill` masking closed yesterday: the check ran, and its answer was about
+  something else.
+- ✅ **FIXED 2026-09-28.** The reset calls `DiagnosticLog.Configure` with the values read back
+  from the store, exactly as Save does and for the reason Save states. Read back from `data` rather
+  than from `def` so the clamps in the setters are the single source of what the logger is told.
 - 📌 **VERIFIED. Remembrance's purge matches far more loosely than its own design says, and
   it deletes rather than recycles.** `modules/Remembrance/CaptureStore.cs` `NamesThisModuleWrites`.
   The root branch parses the exact stamp so a near-miss is spared -- *"'snapshot of my cat.png' must
@@ -1225,14 +1255,16 @@ re-checked -- treat the first step of acting on one as confirming it still repro
   ⚠ Changing it reddens the gate: three assertions pin the literal string (`Count == 4`,
   `[0] == "boing"`, `[3] == "flower"`) rather than any property. Needs a `reminder` republish.
 
-- 📌 **"Reset to default settings" skips `defaultSpeakingCompanion`.**
-  `src/Portable/Wpf/OptionsShell.cs`. It is a Preferences field on that page, `CreateDefault()` does
-  supply a default for it, and `SetDefaultSpeakingPet` has exactly one caller in the repo -- the
-  save path. The confirmation text promises the reset "restores the startup, window, sound, speech,
-  and fortune-drop settings shown here". This is the same class of gap the block's own comment was
-  written to close: *"a field that did not move looks exactly like a field whose default is what it
-  already held"*. The nearby comment excluding per-pet `triggerSpeech` entries does not cover it.
+- ✅ **FIXED 2026-09-28.** `data.SetDefaultSpeakingPet(def.DefaultSpeakingPet ?? "")`, next to
+  the per-pet `triggerSpeech` exclusion that does have a stated reason.
 
+  ⚠ **Both reset gaps are now guarded, and the guard's SCOPE is the whole point.** A file-wide
+  grep for `DiagnosticLog.Configure(` is satisfied by the save path's call one screen away, so it
+  would have passed against the shipped defect -- which is how this survived in the first place.
+  `runtime-hardening-selftest.ps1` slices `ResetToDefaultSettings` first and asserts inside that
+  body only. MUTATION: renaming each call inside the reset region alone fails the matching assertion
+  while the save path's copy stays in the file, confirmed by the harness reporting
+  `copiesLeftElsewhere=1` on both legs. Source restored byte-identically. SMOKETEST.md 142 -> 145.
 ### Checks that cannot fail, or fail for the wrong reason
 
 - 📌 **A stale marker file is graded as this run's result.**

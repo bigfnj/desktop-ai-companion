@@ -132,6 +132,64 @@ namespace DesktopAICompanion
                 ok &= Check(sb, "the tray outcome line is still Tray",
                     DiagnosticLog.Infer("tray icon set: success=True") == LogCategory.Tray);
 
+                // --- ROTATION, which had NO coverage at all until 2026-09-28 ---
+                // The size cap was silently unenforced at keep = 1, the lowest value the spinner offers:
+                // the shift loop starts at i = keep - 1 and wants i >= 1, so it ran zero times and
+                // diagnostics.log was never moved or deleted while Write appended anyway. A scratch
+                // directory, because these self-test flags run against the user's REAL data root.
+                string rotRoot = Path.Combine(
+                    Path.GetTempPath(),
+                    "dp-diaglog-rotate-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+                try
+                {
+                    Directory.CreateDirectory(rotRoot);
+                    string cur = Path.Combine(rotRoot, "diagnostics.log");
+                    string a1 = Path.Combine(rotRoot, "diagnostics.1.log");
+                    string a2 = Path.Combine(rotRoot, "diagnostics.2.log");
+
+                    // keep = 1 means one file and it is the CURRENT one, so there is no archive slot to
+                    // shift into. The current file has to go, or the cap means nothing.
+                    File.WriteAllText(cur, "overflowing");
+                    DiagnosticLog.RotateIn(rotRoot, 1);
+                    ok &= Check(sb, "at keep=1 the over-cap current file is removed, not left to grow",
+                        !File.Exists(cur));
+
+                    // keep = 2: the current file becomes .1.log, which is what frees the live slot for a
+                    // new one. Asserted on CONTENT, so a rotation that moved the wrong file still fails.
+                    File.WriteAllText(cur, "newest");
+                    DiagnosticLog.RotateIn(rotRoot, 2);
+                    ok &= Check(sb, "at keep=2 the current file is shifted into the archive slot",
+                        !File.Exists(cur) && File.Exists(a1) && File.ReadAllText(a1) == "newest");
+
+                    // ...and an archive past what the user asked to keep is dropped, including one left
+                    // behind by a previously larger setting.
+                    File.WriteAllText(cur, "newer");
+                    File.WriteAllText(a2, "stale, from a larger keep setting");
+                    DiagnosticLog.RotateIn(rotRoot, 2);
+                    ok &= Check(sb, "an archive past the keep count is dropped", !File.Exists(a2));
+                    ok &= Check(sb, "...and the surviving archive is the one just rotated out",
+                        File.Exists(a1) && File.ReadAllText(a1) == "newer");
+
+                    // LOWERING the setting is not a rotation, and the difference is the live file.
+                    // Start() rotates before Configure has ever run -- it must, because the rotation has
+                    // to precede anything worth recording and the settings store is not loaded that early
+                    // -- so it rotates with the field default of 2. Every launch therefore recreated
+                    // diagnostics.1.log whatever the user had chosen, and "keep 1" never held across a
+                    // launch. Configure trims the excess now; the current file must survive that,
+                    // because it has not reached its cap.
+                    File.WriteAllText(cur, "live and under the cap");
+                    File.WriteAllText(a1, "archive the lowered setting no longer allows");
+                    DiagnosticLog.TrimArchivesIn(rotRoot, 1);
+                    ok &= Check(sb, "lowering keep drops the archives it no longer allows",
+                        !File.Exists(a1));
+                    ok &= Check(sb, "...and leaves the live file alone, which a rotation would not",
+                        File.Exists(cur) && File.ReadAllText(cur) == "live and under the cap");
+                }
+                finally
+                {
+                    try { Directory.Delete(rotRoot, true); } catch (Exception) { }
+                }
+
             // SettingField.Min/Max are HONOURED as of 1.1.5. They had no reader anywhere before
             // that: an author declared bounds, the host rendered a plain TextBox, and the value went
             // through untouched, so two ABI members did nothing. The one module that set them

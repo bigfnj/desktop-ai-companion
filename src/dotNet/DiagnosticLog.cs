@@ -150,7 +150,41 @@ namespace DesktopAICompanion
                 if (!WasNamed(mutedCategories, LogCategory.Animation) &&
                     !WasUnmuted(mutedCategories, LogCategory.Animation))
                     _mutedCategories.Add(LogCategory.Animation);
+
+                // APPLY THE KEEP COUNT NOW, not at the next time the cap happens to be hit.
+                //
+                // Start() rotates before this method has ever run -- it has to, because the rotation must
+                // happen before anything worth recording, and the settings store is not loaded that early
+                // -- so it rotates with the FIELD DEFAULT of 2. Every launch therefore recreated
+                // diagnostics.1.log whatever the user had chosen, and at keep = 1 that archive then
+                // survived until the next cap-driven rotation, which on a quiet app can be hours away.
+                // "Keep 1" never actually held across a launch.
+                //
+                // Found on the shipping binary with an isolated data root (keep=1, cap=16 KB): one archive
+                // present after startup. The suite did not catch it because it tests the rotation, and this
+                // is about WHEN the rotation is asked for. Dropping the excess here needs no change to
+                // launch order, and reuses the loop in RotateIn that already exists for "files left by a
+                // larger setting".
+                if (_directory != null) TrimArchivesIn(_directory, _keep);
             }
+        }
+
+        /// <summary>
+        /// Delete archives at or beyond `keep`, leaving the live file alone. This is the first half of
+        /// RotateIn, split out because lowering the setting is not a rotation: the current file has not
+        /// reached its cap and must keep being appended to.
+        /// </summary>
+        internal static void TrimArchivesIn(string directory, int keep)
+        {
+            try
+            {
+                for (int i = Math.Max(1, keep); i <= MaximumKeep; i++)
+                {
+                    string path = Path.Combine(directory, BaseName + "." + i + ".log");
+                    try { if (File.Exists(path)) File.Delete(path); } catch (Exception) { }
+                }
+            }
+            catch (Exception) { }
         }
 
         /// <summary>
@@ -241,13 +275,24 @@ namespace DesktopAICompanion
         private static void RotateNoLock()
         {
             if (_directory == null) return;
+            RotateIn(_directory, _keep);
+        }
+
+        /// <summary>
+        /// The rotation itself, as a function of the two values it actually depends on rather than of
+        /// module statics, so it can be exercised against a scratch directory. `keep` counts the CURRENT
+        /// file, matching LocalData.GetDiagnosticLogKeep ("how many files to keep, current included").
+        /// </summary>
+        internal static void RotateIn(string directory, int keep)
+        {
+            if (string.IsNullOrEmpty(directory)) return;
             try
             {
-                string Current(int i) { return Path.Combine(_directory, i == 0 ? BaseName + ".log" : BaseName + "." + i + ".log"); }
+                string Current(int i) { return Path.Combine(directory, i == 0 ? BaseName + ".log" : BaseName + "." + i + ".log"); }
                 // Drop anything beyond what the user asked to keep, including files left by a larger setting.
-                for (int i = _keep; i <= MaximumKeep; i++)
+                for (int i = keep; i <= MaximumKeep; i++)
                     try { if (File.Exists(Current(i))) File.Delete(Current(i)); } catch (Exception) { }
-                for (int i = _keep - 1; i >= 1; i--)
+                for (int i = keep - 1; i >= 1; i--)
                 {
                     try
                     {
@@ -257,6 +302,17 @@ namespace DesktopAICompanion
                     }
                     catch (Exception) { }
                 }
+                // KEEP = 1 MEANS ONE FILE AND IT IS THE CURRENT ONE, so there is no archive slot to shift
+                // into and the loop above runs zero times: it starts at i = 0 and wants i >= 1. Without
+                // this the size cap is silently unenforced at the LOWEST setting the spinner offers --
+                // diagnostics.log is never moved or deleted, Write appends anyway, and every subsequent
+                // line re-runs a rotate that does nothing plus ~20 File.Exists probes. With the Animation
+                // category opted back in (a supported choice, labelled "very noisy -- for skin authors")
+                // this file's own measured rate is 12.07 lines/s, i.e. roughly 60 MB a day into a log the
+                // user set a 512 KB cap on. Every keep >= 2 gets a fresh file as a side effect of the
+                // shift; keep == 1 has to be told.
+                if (keep <= 1)
+                    try { if (File.Exists(Current(0))) File.Delete(Current(0)); } catch (Exception) { }
             }
             catch (Exception) { }
         }

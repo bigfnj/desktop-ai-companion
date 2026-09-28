@@ -1678,6 +1678,42 @@ foreach ($docPair in @(@{ Name = 'SMOKETEST.md'; Text = $smokeSource },
             " -- it says $($documentedSelfTests.Groups[1].Value), the table has $selfTestFlagCount" } else { '' }))
 }
 
+# "Reset to default settings" must both WRITE the defaults and APPLY the ones that have a live
+# counterpart. Two fields were missing and their absence was invisible, which is the failure mode the
+# reset block's own comment was written about: the pane rebuilds underneath the button, so a field
+# that did not move looks exactly like a field whose default is what it already held.
+#
+# SCOPED TO THE METHOD, and that is what makes it able to fail. A file-wide grep for
+# 'DiagnosticLog.Configure(' is satisfied by the SAVE path's call one screen away, so it would have
+# passed against the shipped defect. Sliced first, then asserted.
+$resetBody = Get-MethodBody $optionsShellSource 'private static string ResetToDefaultSettings()' @(
+    "`n        private ", "`n    }")
+Assert-True ($resetBody.Length -gt 0) 'the reset-to-defaults method body was located'
+Assert-True ($resetBody.Contains('DiagnosticLog.Configure(')) (
+    'the reset re-applies the diagnostic-log settings to the RUNNING logger, not just to the store' +
+    ' -- without it, switching logging off and pressing Reset brings the checkbox back ticked while' +
+    ' nothing is recorded until the next launch')
+Assert-True ($resetBody.Contains('SetDefaultSpeakingPet(')) (
+    'the reset restores the global speaking companion, which the confirmation text promises when it' +
+    ' says it restores the speech settings shown on this page')
+
+# Lowering "how many logs to keep" has to take effect NOW, not at the next time the cap happens to be
+# hit. Start() rotates before Configure has ever run -- it must, because the rotation precedes
+# anything worth recording and the settings store is not loaded that early -- so it rotates with the
+# field default of 2, and every launch recreated diagnostics.1.log whatever the user had chosen.
+#
+# --wpf-options-selftest proves TrimArchivesIn behaves (including that it leaves the LIVE file alone,
+# which a rotation would not). This asserts the CALL, because the only other thing that proves the
+# wiring is a real-app smoke that is not in the gate. Scoped to Configure, so RotateIn's own trim
+# loop cannot satisfy it.
+$configureBody = Get-MethodBody $diagSource 'internal static void Configure(' @(
+    "`n        private ", "`n        internal ", "`n        /// ")
+Assert-True ($configureBody.Length -gt 0) 'the diagnostic-log Configure body was located'
+Assert-True ($configureBody.Contains('TrimArchivesIn(')) (
+    'lowering the diagnostic-log keep count drops the archives it no longer allows immediately' +
+    ' -- Start() rotates with the field default before Configure runs, so without this "keep 1"' +
+    ' never holds across a launch')
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

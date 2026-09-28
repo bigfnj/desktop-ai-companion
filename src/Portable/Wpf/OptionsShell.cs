@@ -988,6 +988,24 @@ namespace DesktopAICompanion.Wpf
                 data.SetDiagnosticLogKeep(def.DiagnosticLogKeep);
                 data.SetDiagnosticLogMutedCategories(def.DiagnosticLogMutedCategories ?? "");
                 data.SetDiagnosticLogMutedModules(def.DiagnosticLogMutedModules ?? "");
+                // RE-APPLIED, exactly as Save does it and for the same reason. Writing the five settings
+                // above without this left the running logger on the old configuration: the pane rebuild
+                // showed the restored values, so switching logging off and pressing Reset brought the
+                // checkbox back ticked while nothing was recorded until the next launch -- and the thing
+                // most often being diagnosed IS a launch. Same for the size cap, the keep count and every
+                // category or module mute. Read back from `data` rather than from `def` so the clamps in
+                // the setters are the single source of what the logger is told.
+                DesktopAICompanion.DiagnosticLog.Configure(
+                    data.GetDiagnosticLog(),
+                    data.GetDiagnosticLogMaxKilobytes(),
+                    data.GetDiagnosticLogKeep(),
+                    data.GetDiagnosticLogMutedCategories(),
+                    data.GetDiagnosticLogMutedModules());
+                // The global "companion that speaks for the app" is a preference on this page, and the
+                // confirmation text promises the reset restores the SPEECH settings shown here. The
+                // per-pet triggerSpeech entries below are excluded for a stated reason; this one carried
+                // none of it and was simply missed.
+                data.SetDefaultSpeakingPet(def.DefaultSpeakingPet ?? "");
 
                 // Run-at-startup lives in the registry, not the settings doc; default is off.
                 try { StartupRegistration.Set(false); } catch { }
