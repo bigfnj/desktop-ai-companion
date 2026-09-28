@@ -208,6 +208,33 @@ preview, are both there.
 Each of these was filed as a bug, or would have been. None is one, and one of them records a fix
 that had to be reverted.
 
+- **A composited tile is shorter than its source sprite ON PURPOSE, and the missing rows are the
+  ones below the ground line.** Filed 2026-09-25 while publishing Zim: 55 source sprites at 130x130,
+  an emitted tile of 162x128, and `shime41.png` losing 43 of 6669 non-transparent pixels (0.64%) off
+  the bottom of the boots. It reads exactly like an off-by-2 crop.
+
+  **Measured 2026-09-28, and it is not one.** A synthetic frame settles it without needing any
+  copyrighted source: one 130x130 sprite, `ImageAnchor` at y=128, with an opaque block spanning rows
+  120-129 so that 8 rows sit ABOVE the anchor and 2 BELOW. Composited result:
+
+      srcAbove=560  srcBelow=140  cellOpaque=560  cellH=128  scale=1
+
+  The cell keeps exactly the above-anchor pixels and drops exactly the below-anchor ones. Nothing
+  above the anchor is lost, and scale is 1.0 so no resampling is involved either.
+
+  That is `SpriteSheetBuilder.cs:186` doing what `:169-176` says it does: `cellH = max(AnchorY)`,
+  with the anchor placed on the cell's BOTTOM edge because the Shimeji `ImageAnchor` is the mascot's
+  ground-contact point and the host stands a pet by putting its window's bottom edge on the floor.
+  Reserving a band below the anchor is what the code used to do, and it lifted every pet off the
+  ground by that much -- Hornet's standing frame sat 14px clear of the taskbar while a hand-authored
+  sheep stood on it correctly. Anything drawn below a frame's own anchor is below the floor line.
+
+  **So the backlog entry's closing condition was unsatisfiable by construction.** It asked for "a
+  converted pet's per-frame alpha-pixel count matches its source within 0", which can only be met by
+  reversing the floor-contact fix. Do not re-file it, and do not re-convert the 32 shipped
+  `shimeji-*` companions to chase it. If a future pet genuinely loses pixels ABOVE its anchor, that
+  IS a bug -- and the measurement above is the way to tell, in about a minute.
+
 - **A blank frame in a converted companion is legitimate, so "no blank tiles" cannot be a
   corpus-wide gate.** A sweep of all 50 companions found intentional transparent frames in
   hand-authored ones: `ssj-goku`'s `Instant_Transmission`, `alipheese`'s

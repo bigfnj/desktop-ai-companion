@@ -467,31 +467,6 @@ open-item blindness plus the bug-number drift.
 
 ### A feature reports success while doing nothing
 
-- 📌 **The composited tile is 2 rows shorter than the tallest source sprite, so its bottom is lost.**
-  Measured while publishing Zim on 2026-09-25: all 55 source sprites are 130x130, the emitted tile is
-  162x128, and the tallest frames lose their bottom 2 rows. On `shime41.png` that is 43 of 6669
-  non-transparent pixels, **0.64%** -- the very bottom of the boots. Sub-perceptual at any size the pet
-  is actually drawn, which is why it is filed rather than fixed, and why it should not be fixed by
-  eyeballing: the tile width (162) is larger than the source (130), so the height is not a naive crop
-  but falls out of the anchor-aligned bounding box, and whatever is off by 2 there will be off for
-  every pet.
-
-  ⚠ **This entry's closing condition was INVISIBLE, and is in tension with the code it asks to
-  change.** It read "CLOSES-WHEN: a converted pet's per-frame alpha-pixel count matches its source
-  within 0", written as prose mid-sentence with no verb — so
-  `Test-BacklogClosingCriteria.ps1:164-171` skipped it silently, the same failure mode corrected on
-  2026-09-27 for two criteria that went in backwards. NO CLOSES-WHEN now, deliberately, because the
-  condition cannot be machine-checked the way that file requires and, more importantly, may be
-  unsatisfiable by construction: `SpriteSheetBuilder.cs:186` is `cellH = max(AnchorY)` and the anchor
-  is placed on the cell's BOTTOM edge on purpose (`:169-176` — reserving a band below it once left
-  Hornet standing 14px clear of the taskbar). Pixels below a frame's anchor are below the floor line
-  and are dropped deliberately. The real question is whether any lost row sits ABOVE the anchor, and
-  that is a measurement, not a grep.
-  Do NOT re-convert the shipped pets to collect this alone. Scope, since two entries disagreed on
-  it: `Companions/` holds **32** `shimeji-*` directories, and the catalog lists **54** companions in
-  total; a re-convert touches the converted ones, so it is 32 assets and their catalog hashes for
-  0.64%, not 54 and not 31.
-
 ### Blocking IO, pipe deadlocks, and measured cost
 
 - ✅ **DECLINED-MEASURED 2026-09-27. The cost is real and small; the proposed fix does not transfer
