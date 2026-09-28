@@ -24,7 +24,12 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.1.11",  // 1.1.11: a second Import while one is converting no longer deletes the first
+            Version = "1.1.12",  // 1.1.12: the last synchronous file work leaves the click handler --
+                                 //         FindBundleRoot walked the whole extracted tree on the UI thread
+                                 //         while its three siblings had been moved off in 1.1.9. Also
+                                 //         enforces PetEmitter's single-threaded rule, which was documented
+                                 //         and unchecked.
+                                 // 1.1.11: a second Import while one is converting no longer deletes the first
                                  //         import's extracted files. The guard ran AFTER CleanupExtracted;
                                  //         moving the conversion off the UI thread is what made it reachable.
                                  // 1.1.10: the editor classifies the pet once per re-analyze instead of
