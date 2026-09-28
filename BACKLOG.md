@@ -312,15 +312,51 @@ there.
     **2026-08-26:** the manual half shipped as the global **companion sounds** toggle in Preferences → Sound; the
     automatic duck-while-a-bubble-is-up idea is the part that remains open.
 
-- ⬜ **Automatic ducking is still not implemented**, and the groundwork for it shipped with the
-  v1.6.0 module-audio ABI: that work added per-owner input tracking, and its own entry records why it
-  stopped there — it "changes how the app sounds, so it wants its own decision and a setting". The
-  full entry is in [`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md).
+- ✅ **DECLINED 2026-09-28 by owner decision, and the reason is that something better already
+  exists.** Not deferred to a future TTS module, which is what I first suggested: declined.
 
-  ⚠ **This is an owner decision, not unstarted work.** The entry above says so and it is the
-  reason this has sat here: ducking changes how the app sounds for everyone, so it wants a setting
-  and a choice about the default rather than an implementation.
-  CLOSES-WHEN: grep-present src/dotNet/AudioOutput.cs "DuckWhileBubbleUp"
+  The groundwork did ship with the v1.6.0 module-audio ABI (per-owner input tracking), and its entry
+  in [`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md) correctly said this "changes how the
+  app sounds, so it wants its own decision and a setting". This is that decision.
+
+  **What would have ducked, measured rather than assumed.** Only two modules make any sound at all:
+
+  | module | path | what it plays |
+  |---|---|---|
+  | AgentFlow | `IHost.PlayNotificationSound` | the shared chime chosen in Preferences |
+  | Reminder | `IHost.PlaySound` | its own embedded MP3, since a module can only hand the host encoded bytes |
+  | Remembrance | — | **nothing.** It records audio and never plays any |
+
+  **What would have BEEN ducked is the pet, and most pets are silent.** Counted across the corpus:
+  the 7 eSheep colour variants carry 35 sound clips each and six others carry 1-5, but **all 32
+  converted shimeji carry zero**, `esheep64` carries zero, and the BUILT-IN DEFAULT pet
+  (`src/Resources/animations.xml`) carries zero. So on a fresh install, and for anyone running a
+  shimeji, the setting would have done nothing at all.
+
+  **And the real complaint already has a better control.** The objection was that pet audio is
+  annoying. Each companion card in the Companions pane already carries a "sound on / sound off"
+  toggle (`src/Portable/Wpf/CompanionsPaneControl.cs`, tooltip *"click to mute / unmute this pet's
+  sounds"*), persisted per pet type and applied at play time with no restart. A permanent mute
+  strictly dominates a 0.75-second duck for that complaint, and it ships today.
+
+  ⚠ **Two things I got wrong on the way, recorded because the reasoning is the useful part.**
+  First I recommended deferring it to IDEAS alongside the dropped TTS module; the owner's reframing
+  -- duck under a NOTIFICATION rather than under speech -- was better, because it needs no new module
+  and it dissolved my objection that ducking would make the Preferences preview disagree with the
+  volume slider (it would not: the thing lowered is the PET, so the chime still plays at exactly the
+  slider level). Second, I had to correct the premise that Remembrance chimes: it makes no sound.
+
+  **The design, recorded so nobody re-derives it if a voice module ever lands.** A flag on the
+  internal `AddInput`, with the caller declaring whether its sound takes priority over the pet --
+  the same shape as `absenceIsNormal` on the border lookup and `deferCustomRead` on the notification.
+  `PlayNotification` and `PlayOwned` duck; engine SFX and `PlayTestTone` do not. The Preferences
+  preview goes through `PlayNotification`, which matters: without that, "Test sound" would not duck
+  and the checkbox would be unverifiable from the UI. Module audio should NOT duck other module
+  audio -- deciding which of two simultaneous chimes wins has no obvious right answer.
+
+  The mixer groundwork stays useful regardless: every live input is already owner-tagged and already
+  wrapped in its own `VolumeSampleProvider`, and there is already a ~10 ms ramp helper, so the
+  implementation remains small the day there is a voice to duck under.
 
 ---
 
