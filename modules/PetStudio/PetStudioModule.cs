@@ -24,7 +24,16 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.1.15",  // 1.1.15: carries the ninth format-ladder rung. The emitter now stamps
+            Version = "1.1.16",  // 1.1.16: "Preview highlighted action" plays the selected animation on the
+                                 //         live desktop preview through IHost.TryPlayAnimation, so an author
+                                 //         can watch a jump or a fall on demand instead of waiting for the
+                                 //         pet's transition weights to pick it (this corpus reaches `jump`
+                                 //         on 4 of 43 hub picks). Adds the Animation permission, which the
+                                 //         module now genuinely uses. NOTE: CompanionHost does NOT gate
+                                 //         TryPlayAnimation on it -- that verb takes no moduleId, so it has
+                                 //         no caller identity to check -- so the declaration is honesty
+                                 //         about what this module does, not what unlocked it.
+                                 // 1.1.15: carries the ninth format-ladder rung. The emitter now stamps
                                  //         1.2, and `reground` upgrades a 1.1 pet in place by giving a
                                  //         non-locomotion jump an eligible border edge at a screen
                                  //         side, the screen top and a window top. A conversion done
@@ -270,7 +279,7 @@ namespace DesktopAICompanion.PetStudioModule
             // (failing to open the window, failing to start an import), which is a smaller blast
             // radius than Remembrance's but the same defect: the companion speaks for a module whose
             // consent line said it does not.
-            Permissions = ModulePermissions.Speech
+            Permissions = ModulePermissions.Speech | ModulePermissions.Animation
                           | ModulePermissions.Companions | ModulePermissions.Storage,
         };
 

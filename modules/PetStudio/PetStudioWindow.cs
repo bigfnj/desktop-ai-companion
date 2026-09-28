@@ -46,6 +46,11 @@ namespace DesktopAICompanion.PetStudioModule
         private readonly TextBox _installId = new TextBox { Width = 150, VerticalContentAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) };
         private readonly Button _installButton = new Button { Content = "Install this companion…", Padding = new Thickness(10, 3, 10, 3), IsEnabled = false, Margin = new Thickness(6, 0, 0, 0) };
         private readonly Button _previewButton = new Button { Content = "Preview on my desktop", Padding = new Thickness(10, 3, 10, 3), IsEnabled = false };
+        // Play the animation currently selected in the map ON the live preview, so an author can watch a
+        // jump or a fall happen on the desktop instead of waiting for the pet's own transitions to choose it.
+        // Needs BOTH a live preview and a selection, which is why it is disabled by default and re-evaluated
+        // from one place (RefreshPlayOnPreview) rather than at each of the four sites that can change either.
+        private readonly Button _playOnPreviewButton = new Button { Content = "Preview highlighted action", Padding = new Thickness(10, 3, 10, 3), IsEnabled = false, Margin = new Thickness(6, 0, 0, 0) };
         private readonly Button _removeButton = new Button { Content = "Remove preview", Padding = new Thickness(10, 3, 10, 3), IsEnabled = false, Margin = new Thickness(6, 0, 0, 0) };
         private readonly TextBlock _status = new TextBlock { TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
 
@@ -108,6 +113,10 @@ namespace DesktopAICompanion.PetStudioModule
         private PetSprite _sprite;
         private string _spriteKey;
         private ICompanionPreview _preview;
+        // The map node the author last clicked, kept so "Preview highlighted action" knows WHAT to play.
+        // The detail pane already renders this node, but it rendered it straight into TextBlocks and kept
+        // no reference, so the selection was visible and not readable.
+        private AnimNode _selectedNode;
         // The behaviour debugger. Built in the constructor because it needs the theme and callbacks into this
         // window, and read by MakeChip (which makes every map chip a drag source for it).
         private TimelinePane _timeline;
@@ -236,8 +245,10 @@ namespace DesktopAICompanion.PetStudioModule
 
             var buttons = new StackPanel { Orientation = Orientation.Horizontal };
             _previewButton.Click += delegate { Preview(); };
+            _playOnPreviewButton.Click += delegate { PlaySelectedOnPreview(); };
             _removeButton.Click += delegate { RemovePreview(); };
             buttons.Children.Add(_previewButton);
+            buttons.Children.Add(_playOnPreviewButton);
             buttons.Children.Add(_removeButton);
             DockPanel.SetDock(buttons, Dock.Left);
             bar.Children.Add(buttons);
@@ -1108,6 +1119,8 @@ namespace DesktopAICompanion.PetStudioModule
             AnimNode node;
             if (!_nodesById.TryGetValue(id, out node)) return;
 
+            _selectedNode = node;
+            RefreshPlayOnPreview();
             HighlightChip(id);
 
             _detailTitle.Text = "#" + node.Id + (string.IsNullOrEmpty(node.Name) ? "" : "  \"" + node.Name + "\"");
@@ -1257,6 +1270,8 @@ namespace DesktopAICompanion.PetStudioModule
         {
             StopPlay();
             _selectedChip = null;
+            _selectedNode = null;
+            RefreshPlayOnPreview();
             _detailTitle.Text = "Nothing selected";
             _detailStatus.Text = "Click a node in the map to inspect it.";
             _capabilityText.Text = "";
@@ -1302,8 +1317,10 @@ namespace DesktopAICompanion.PetStudioModule
                 return;
             }
             _removeButton.IsEnabled = true;
+            RefreshPlayOnPreview();
             SetStatus("Previewing on your desktop. It is temporary: not saved, not in your companion mix, and gone " +
-                "when you close this window.");
+                "when you close this window. Click an animation in the map and use “Preview highlighted " +
+                "action” to make it play that one now.");
         }
 
         private void RemovePreview()
@@ -1311,9 +1328,80 @@ namespace DesktopAICompanion.PetStudioModule
             ICompanionPreview preview = _preview;
             _preview = null;
             _removeButton.IsEnabled = false;
+            RefreshPlayOnPreview();
             if (_timeline != null) _timeline.RunFinished();
             if (preview == null) return;
             try { preview.Remove(); } catch { }
+        }
+
+        /// <summary>
+        /// Enable "Preview highlighted action" only when it can actually do something: a preview alive on the
+        /// desktop, a node selected, and that node NAMED.
+        ///
+        /// The name is the load-bearing condition and it is easy to miss. IHost.TryPlayAnimation resolves by
+        /// name against the running pet's own XML, so an animation the author never named cannot be asked for
+        /// at all however clearly the map shows it. Disabling with a reason beats a button that silently does
+        /// nothing on one node out of thirteen.
+        /// </summary>
+        /// <summary>
+        /// The enablement RULE on its own, so it can be asserted without a window. Static and parameterised
+        /// rather than inlined into RefreshPlayOnPreview, because that method reads four pieces of live WPF
+        /// state and a headless self-test cannot reach any of them; the rule is the part worth testing and
+        /// the part that would silently invert.
+        /// </summary>
+        internal static bool CanPlayOnPreview(bool hostPresent, bool previewAlive, string selectedName)
+        {
+            return hostPresent && previewAlive && !string.IsNullOrWhiteSpace(selectedName);
+        }
+
+        private void RefreshPlayOnPreview()
+        {
+            bool live = _preview != null && _preview.IsAlive && _preview.Pet != null;
+            bool named = _selectedNode != null && !string.IsNullOrWhiteSpace(_selectedNode.Name);
+            _playOnPreviewButton.IsEnabled = CanPlayOnPreview(_host != null, live, named ? _selectedNode.Name : null);
+            _playOnPreviewButton.ToolTip =
+                _host == null ? "No host service available." :
+                !live ? "Put a preview on your desktop first." :
+                _selectedNode == null ? "Click an animation in the map to choose one." :
+                !named ? "This animation has no name, so the engine cannot be asked for it by name." :
+                "Play “" + _selectedNode.Name + "” on the preview companion now.";
+        }
+
+        /// <summary>
+        /// Ask the LIVE preview to play the selected animation now, rather than waiting for the pet's own
+        /// transition weights to choose it. This pet reaches `jump` on 4 of 43 hub picks, so watching one
+        /// happen by chance takes a while, and a fall or a climb needs the pet to be in the right place first.
+        ///
+        /// The engine takes over again immediately afterwards: this sets the CURRENT animation, and what
+        /// follows is whatever that animation's own transitions say. That is the honest behaviour to describe,
+        /// because an author who expects the pet to freeze on the pose will otherwise read the handover as a bug.
+        /// </summary>
+        private void PlaySelectedOnPreview()
+        {
+            if (_host == null || _selectedNode == null) return;
+            if (_preview == null || !_preview.IsAlive || _preview.Pet == null)
+            {
+                // Reachable by the preview dying between the click and here (the host removes every preview at
+                // shutdown), so it refuses rather than dereferencing a stale handle.
+                RefreshPlayOnPreview();
+                SetStatus("The preview is gone. Put one on your desktop first.");
+                return;
+            }
+            string name = (_selectedNode.Name ?? "").Trim();
+            if (name.Length == 0) { SetStatus("That animation has no name, so it cannot be requested by name."); return; }
+
+            bool played;
+            try { played = _host.TryPlayAnimation(_preview.Pet, name); }
+            catch { played = false; }
+
+            if (!played)
+            {
+                SetStatus("The preview would not play “" + name + "”. The running companion is built from the " +
+                    "XML as it was when you pressed Preview, so re-preview if you have edited it since.");
+                return;
+            }
+            SetStatus("Playing “" + name + "” on the preview. The engine takes over again when it ends, so what " +
+                "happens next is whatever that animation's own transitions say.");
         }
 
         /// <summary>
@@ -1339,6 +1427,10 @@ namespace DesktopAICompanion.PetStudioModule
                 return false;
             }
             _removeButton.IsEnabled = true;
+            // The chain pet is a DIFFERENT XML (clones wired nose-to-tail), so the map's node names do not
+            // exist on it. Refresh anyway rather than leaving the button enabled from a previous preview:
+            // the handle it would have used is already gone.
+            RefreshPlayOnPreview();
             SetStatus("Running the chain on a temporary companion. Its animations are clones wired nose-to-tail, so " +
                 "the engine runs the chain with its own timing and physics — nothing here is simulated.");
             return true;

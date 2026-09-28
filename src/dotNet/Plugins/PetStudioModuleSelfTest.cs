@@ -58,6 +58,13 @@ namespace DesktopAICompanion.Plugins
                     ok &= Check(sb, "declares Pets + Storage",
                         studio.Info.Permissions.HasFlag(ModulePermissions.Companions) &&
                         studio.Info.Permissions.HasFlag(ModulePermissions.Storage));
+                    // Animation, because "Preview highlighted action" calls IHost.TryPlayAnimation. Asserted
+                    // even though CompanionHost does NOT gate that verb on it -- TryPlayAnimation takes no
+                    // moduleId, so there is no caller identity to check and the declaration unlocks nothing.
+                    // It is the module's honest statement of what it does, and an undeclared capability that
+                    // happens to work is exactly the thing nobody notices has been dropped.
+                    ok &= Check(sb, "declares Animation (it plays animations on the preview)",
+                        studio.Info.Permissions.HasFlag(ModulePermissions.Animation));
                     // It needs the companion-manager verbs, so it must declare a host floor at all rather
                     // than loading into anything. This used to assert MinHostVersion != "1.0.0", using
                     // "1.0.0" as a stand-in for "the module named no real floor" -- which stopped being
@@ -75,6 +82,7 @@ namespace DesktopAICompanion.Plugins
                     ok &= Check(sb, "opening the studio is offered as a pane action",
                         host.OptionsPanes.Count > 0 && host.OptionsPanes[0].Actions != null);
 
+                    ok &= PlayOnPreviewIsOfferedOnlyWhenUsable(sb, studio.GetType().Assembly);
                     ok &= AnalyzerAgreesWithTheHost(sb, studio.GetType().Assembly);
                     ok &= DirectoryPolicyHolds(sb, studio.GetType().Assembly);
                     ok &= ThemeFollowsTheHost(sb, studio.GetType().Assembly);
@@ -123,6 +131,37 @@ namespace DesktopAICompanion.Plugins
             // direction the host's own resolver fails in too.
             ok &= Check(sb, "no host falls back to light",
                 !(bool)dark.GetValue(current.Invoke(null, new object[] { null })));
+            return ok;
+        }
+
+        /// <summary>
+        /// "Preview highlighted action" must be offered only when it can do something: a host, a LIVE preview,
+        /// and a NAMED selection. The name is the condition that is easy to lose, because IHost.TryPlayAnimation
+        /// resolves by name against the running pet's XML, so an unnamed animation cannot be requested at all
+        /// however clearly the map draws it.
+        ///
+        /// Asserts the RULE, not the button: the four pieces of WPF state that feed it are unreachable headless,
+        /// and a rule that silently inverts is the failure worth catching. All four combinations are driven,
+        /// because "returns false always" passes any single negative case on its own.
+        /// </summary>
+        private static bool PlayOnPreviewIsOfferedOnlyWhenUsable(StringBuilder sb, Assembly moduleAssembly)
+        {
+            Type window = moduleAssembly.GetType("DesktopAICompanion.PetStudioModule.PetStudioWindow");
+            if (!Check(sb, "module exposes PetStudioWindow", window != null)) return false;
+            MethodInfo can = window.GetMethod("CanPlayOnPreview", BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+            if (!Check(sb, "PetStudioWindow exposes CanPlayOnPreview(host, alive, name)", can != null)) return false;
+
+            Func<bool, bool, string, bool> rule = delegate (bool host, bool alive, string name)
+            {
+                return (bool)can.Invoke(null, new object[] { host, alive, name });
+            };
+
+            bool ok = true;
+            ok &= Check(sb, "offered with a host, a live preview and a named selection", rule(true, true, "jump"));
+            ok &= Check(sb, "withheld with no host", !rule(false, true, "jump"));
+            ok &= Check(sb, "withheld with no live preview", !rule(true, false, "jump"));
+            ok &= Check(sb, "withheld with nothing selected", !rule(true, true, null));
+            ok &= Check(sb, "withheld when the selected animation has no name", !rule(true, true, "   "));
             return ok;
         }
 
