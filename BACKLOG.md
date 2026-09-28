@@ -812,44 +812,41 @@ them.
   ⚠ Closing this is itself the loop working: adding the steps made
   `Test-BacklogClosingCriteria.ps1` report this entry CLOSEABLE and fail the run, which is precisely
   what it exists to do — fire in the same run that proves the fix works.
-- 📌 **`PetEmitter` keeps three static mutable fields, so two concurrent `Emit` calls corrupt each
-  other.** `HubSpokes` (`:2062`, assigned `:225`, read `:1669`), `CollapsedSources` (`:533`) and
-  `ExpandedSetPieces` (`:2066`) are `private static` on a static class and reset INSIDE `Emit`. The
-  second conversion's `HubSpokes = spokes` replaces the list the first is still walking to build its
-  hub edges, so one pet's hub can emit edges to the other pet's animation ids.
-  ⚠ Its reachable path was closed the same day, from the other end: PetStudio now refuses a second
-  Import while one is converting (petstudio 1.1.11), and that guard came in because the same audit
-  found it deleting the first import's files. So this is currently defended by a caller, not by the
-  type — which is exactly the "defended by structure rather than by an assertion" shape this backlog
-  has had to correct before. `SoundBaker` documents its own single-threaded requirement
-  (`Engine.cs:168`).
-  ⚠ **Corrected 2026-09-28: this entry used to end "`PetEmitter` documents nothing", and that is
-  wrong.** It says so at `PetEmitter.cs:2060-2061` — *"Single-threaded emit, so a static is safe and
-  keeps the signatures clean."* What it lacks is ENFORCEMENT, not a comment, which is a different
-  fix: an assertion or a per-`Emit` context, not a doc line.
+- ✅ **FIXED 2026-09-28 (petstudio 1.1.12).** `Emit` is now a thin guarded wrapper over
+  `EmitCore`, refusing a re-entrant call with an `InvalidOperationException` that names the three
+  fields. A wrapper rather than a try/finally around the ~150-line body, which has many exit paths.
+  It throws rather than serialising: a second concurrent conversion is a caller bug, and quietly
+  queueing it would hide the bug while making the caller slow for a reason it cannot see.
 
-- 📌 **Remembrance blocks the UI thread for up to 3 s on the first options-pane open, on a premise
-  this repo measured false the same day.** `RemembranceModule.cs:506-509` does
-  `probe.Wait(TimeSpan.FromSeconds(3))` on a loopback `GET /api/tags` from inside the pane's `Load`,
-  justified at `:494-496` by *"a refused connection is immediate"*. Measured 2026-09-27 with the same
-  mechanism: a refused localhost connection burns **2005–2008 ms**. Bounded honestly — it fires at
-  most once per process and only while `summaryModelsCache` is empty, which is the first-run case for
-  every user who has not pressed "Find local summary models", and the summary feature is off by
-  default. Same fix as AiBrain 1.1.11: serve a cached answer and refresh behind it.
+  PROVEN, not assumed. A temporary probe called `Emit` from inside `Emit` via the sprite loader
+  — which `Emit` invokes while the flag is held — and the exception
+  arrived. Probe removed; converter self-test passes without it, and `verify` over all 54 shipped
+  companions is unchanged.
 
-- 📌 **Remembrance's stub transcript names a button that does not exist.** `Transcriber.cs:36`
-  tells the user to *use "Re-transcribe" in the Remembrance options*. Repo-wide grep for
-  `Re-transcribe|Retranscribe` returns that one line. The nearest real action is
-  `"Transcribe a WAV file…"` (`RemembranceModule.cs:649`), a file picker. This is the one sentence a
-  user reads on the only path where the feature has failed.
+  This is the item that was "defended by a caller, not by the type". It is defended by the type
+  now.
+- ✅ **FIXED 2026-09-28 (remembrance 1.0.15).** Fire and forget, no `Wait`, same shape as
+  `AiBrainModule.BeginVramProbe`. The answer lands in settings and the next pane build shows it
+  — which is exactly what happened before whenever the 3 s cap expired, minus the
+  freeze. The continuation writes through `PersistOnUi` rather than touching `_settings` from a pool
+  thread; the module already routes background writes that way for the "Collection was modified"
+  reason recorded on that helper.
 
-- 📌 **PetStudio still walks the whole extracted tree on the UI thread.** `FindBundleRoot`
-  (`PetStudioWindow.cs:806-816`) does `Directory.EnumerateDirectories(root, "*", AllDirectories)` with
-  two `File.Exists` per hit, and it runs BEFORE the first `await` in `ImportSkinFromRootAsync`, so it
-  executes synchronously on the click. Its siblings were all moved off in 1.1.9 — the zip extraction
-  and `SkinLayout.Detect` both sit in `Task.Run` with comments saying why — and this one was missed.
-  No timing is quoted because none was measured; the defect is structural.
-
+  The doc comment said "Bounded and off the UI thread", which was half true and the dangerous half:
+  `Task.Run` moved the HTTP call, and `probe.Wait(3s)` then blocked the UI thread anyway. Its
+  justification — *"a refused connection is immediate"* — is the premise
+  this repo measured false the day before: refused localhost burns 2005-2008 ms. One detail the
+  entry understated: the gate is on the models cache, NOT on `summaryOn`, so users who never enabled
+  the summary feature paid the freeze too.
+- ✅ **FIXED 2026-09-28 (remembrance 1.0.15).** It names `"Transcribe a WAV file..."`, which
+  exists, and says which file to pick. The old sentence had exactly one grep hit in the repo
+  — itself — because no "Re-transcribe" action was ever built, and it is
+  the only sentence a user reads on the one path where transcription has already failed.
+- ✅ **FIXED 2026-09-28 (petstudio 1.1.12).** `FindBundleRoot` and `ReadBundleName` both run
+  under `Task.Run` now. `ReadBundleName` rides along deliberately: it is the same class of work and
+  sits between the two, so leaving it would only move the stall one line down. No
+  `ConfigureAwait(false)` anywhere in that method — everything after the awaits is
+  UI-affine and depends on resuming on the captured context.
 - ✅ **FIXED 2026-09-28.** The control names the message it expects (`'Unsafe major-upgrade
   schedule'`) and reports a throw that is not it, instead of scoring any exception as proof. That is
   the correction `Test-StagingPathSafety.ps1:21-23` already carried and this file never got.
@@ -924,13 +921,19 @@ them.
   The null guard is parity rather than a known crash, as the entry said: the slots are compacted on
   kill and zeroed on mass-kill, so no null inside `[0, iSheeps)` could be constructed. Both guards
   are cheap, and an asymmetry like this outlives the reason for it.
-- 📌 `modules/Remembrance/AudioDevices.cs:74` — `ForgetCachedDevices()` has no callers. It matters
-  only because the backlog entry that closed the device-caching item cites it as the escape hatch
-  ("`ForgetCachedDevices()` drops it explicitly"), and that safety property is not true of the shipped
-  code.
-- 📌 `modules/AgentFlow/AgentFlowModule.cs:2308` — `ResetCapabilityLogForSelfTest()` has no
-  callers, including the self-test it is named for. AgentFlow's five other `…ForSelfTest` seams all
-  have 3–6 references.
+- ✅ **FIXED 2026-09-28 (remembrance 1.0.15), by wiring it rather than deleting it.**
+  `RefreshDynamicOptions` calls it first, so each pane OPEN starts from a fresh WASAPI enumeration
+  — what someone who just plugged in a headset expects — while the
+  collapse from four enumerations to one still happens within the build, after that line.
+
+  Deleting it would have left the record wrong in the other direction: the entry that closed the
+  device-caching work cites this method as the escape hatch ("the window is short on purpose and
+  `ForgetCachedDevices()` drops it explicitly"), and that safety property is now true of the shipped
+  code rather than only of the note.
+- ✅ **FIXED 2026-09-28 (agentflow 1.4.10).** Deleted. `SelfCheckCapabilityLog` constructs a
+  fresh `AgentFlowModule` and relies on `_lastLoggedCapability` starting null, so it never needed the
+  reset. AgentFlow's five other `...ForSelfTest` seams carry 3-6 references each; this was a seam for
+  a test that was never written that way.
 - ✅ **FIXED 2026-09-28, and the obvious fix would have broken the gate.** The entry suggested
   "a `$deps.Count -eq 0` failure would cost nothing". It would have reddened the gate immediately:
   `TestModule.csproj:16` sets `GenerateDependencyFile=false` and `testmodule` IS in
