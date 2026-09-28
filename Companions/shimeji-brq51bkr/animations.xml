@@ -195,7 +195,7 @@
         <opacity>1</opacity>
         <interval>100</interval>
       </end>
-      <sequence repeatfrom="0" repeat="25">
+      <sequence repeatfrom="4" repeat="25">
         <frame>36</frame>
         <frame>37</frame>
         <frame>38</frame>
@@ -248,7 +248,11 @@
         <opacity>1</opacity>
         <interval>100</interval>
       </end>
-      <sequence repeatfrom="0" repeat="25">
+      <sequence repeatfrom="4" repeat="25">
+        <frame>36</frame>
+        <frame>37</frame>
+        <frame>38</frame>
+        <frame>39</frame>
         <frame>61</frame>
         <frame>60</frame>
         <frame>59</frame>
@@ -271,10 +275,6 @@
         <frame>42</frame>
         <frame>41</frame>
         <frame>40</frame>
-        <frame>39</frame>
-        <frame>38</frame>
-        <frame>37</frame>
-        <frame>36</frame>
         <next probability="20" only="none">6</next>
         <next probability="60" only="none">7</next>
         <next probability="25" only="none">9</next>
