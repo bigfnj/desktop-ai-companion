@@ -210,7 +210,30 @@ for ($i = 0; $i -lt $lines.Count; $i++) {
 # The same reasoning as the missing-target case above: a control that can run degraded has to say
 # so on every run rather than skip in silence.
 if ($open -eq 0) {
-    throw "Found NO open items in $Path. Either every item is closed, or the glyph pattern did not match and this check just did nothing. It will not report OK on that ambiguity."
+    # DISTINGUISHED, rather than refused outright. The guard above is right that zero open is
+    # ambiguous, but throwing made a FINISHED backlog impossible to represent -- it would red the
+    # gate for ever. The ambiguity resolves with one more count: if the same pattern family finds
+    # plenty of CLOSED items then the glyphs parse and the file is genuinely done, and only zero of
+    # BOTH means the pattern matched nothing. That is the degraded case, and it still throws.
+    $closedCount = 0
+    for ($k = $firstEntryLine; $k -lt $lines.Count; $k++) {
+        if ($lines[$k] -match $closedPattern) { $closedCount++ }
+    }
+    if ($closedCount -lt 10) {
+        throw ("Found NO open items in $Path and only $closedCount closed ones, so the glyph " +
+               "pattern most likely matched nothing and this check did nothing. It will not report " +
+               "OK on that ambiguity.")
+    }
+    Write-Host ("backlog closing criteria: 0 open item(s) -- the backlog is EMPTY, and the glyph " +
+                "pattern is working ($closedCount closed item(s) found).")
+    if ($broken.Count -gt 0) {
+        Write-Host ''
+        foreach ($b in $broken) { Write-Host "  BROKEN  $b" }
+        throw ("$($broken.Count) malformed CLOSES-WHEN line(s). A criterion that does not parse is " +
+               'ignored, so the item looks like it has none at all.')
+    }
+    Write-Host 'OK   nothing open, nothing malformed'
+    exit 0
 }
 
 $withoutCriteria = $open - $withCriteria

@@ -620,8 +620,63 @@ source-specific evidence `Companions/README.md` asks for could not be assembled 
 
 ## Open: rightsize the "Jesus Our Lord" companion (filed 2026-09-24)
 
-📌 `Companions/shimeji-brq51bkr` (`name` "Jesus Our Lord", author `shimeji.org`, source
-<https://shimeji.org/u/brq51bkr>) needs rightsizing.
+✅ **FIXED 2026-09-28. The intent was "make the frames one consistent size", and it was two
+defects at once.** `Companions/shimeji-brq51bkr` (`name` "Jesus Our Lord", author `shimeji.org`,
+source <https://shimeji.org/u/brq51bkr>).
+
+**The measurement needed a pose-invariant proxy, and the obvious ones are wrong.** bbox HEIGHT says
+nothing here: the frames are already uniform at 256, and a sitting pose is legitimately shorter than
+a standing one anyway. Head width works for upright poses and reads 2px on a sprawled `fall`. Face
+area is the one that holds -- drawn in every frame, scales with the square of the character's scale,
+indifferent to orientation. On that measure the character spanned **2.86x**:
+
+| animation | face-scale | | |
+|---|---|---|---|
+| `stand` `turn` `kill` `sync` | 81.5 | 1.36x | a zoomed close-up, clipped at the top of the hair |
+| `walk` `climb` `descend` | 60 | 1.00x | 72 frame-uses, the dominant style |
+| `idle` | 50.5 | 0.84x | and 47..61 INTERNALLY |
+| `drag` `bounce` `fling` `fall` | 28.7..43.5 | | |
+
+⚠ **Rescaling alone could not fix it, which is worth recording because it looks like it should.**
+Frame 0's head-to-body ratio is far larger than `walk`'s, so matching faces leaves the silhouettes
+mismatched (stand 130x159 against walk 162x213) and matching heights leaves the faces mismatched.
+Different PROPORTIONS, not just different scale. Upscaling everything was impossible regardless: the
+cell is a hard 256, `idle` already filled it, and one `fling` frame capped a uniform target at half
+the pet's current size.
+
+So the odd-proportioned art was taken off the paths the eye tracks, then what remained was rescaled:
+
+| change | |
+|---|---|
+| `stand`, `turn` | frame 0 -> idle frame 19, a neutral arms-down pose already in `walk`'s proportions |
+| `idle` | dropped frames 18 and 23, the two big-head frames inside its own cycle |
+| `idle` 19..25 | rescaled x1.20-1.29 up to `walk`'s scale |
+| `kill`, `sync` | frame 0 rescaled x0.745 down |
+| `drag` | rescaled x1.396 |
+
+⚠ **A SECOND DEFECT surfaced while doing it.** `idle`'s bbox was `(64, 35, 197, 232)` -- a 24px
+gap BELOW the character -- while `walk` reaches y=256. The host stands a pet by putting the cell's
+bottom edge on the floor, so the pet **hovered 24px** whenever it stopped walking, on top of
+shrinking. Every rescaled frame is bottom-aligned now; 17-25px of float removed per frame.
+
+**Result: 10 of 13 animations at 1.00x.** NOT fixed, with the number that says why: `bounce` 0.58x,
+`fling` 0.48x, `fall` 0.47x. All three need upscaling and all three overflow the cell because their
+bboxes are inflated by motion lines drawn around a small character -- `bounce` frame 11 would be
+224x303, `fall` 406x508. They are brief ballistic states where a size shift reads as motion.
+
+⚠ **Three errors of mine that the guards caught**, each of which would have shipped damage:
+scaling about the cell's bottom edge assumed the character sat on it, and the pixel-loss guard
+refused at 15.9% because of that very floor gap; `paste(im, box, im)` blends against a transparent
+canvas and SQUARES the alpha, so anti-aliased outline pixels at alpha 1-2 rounded to 0; and the first
+pass normalised `bounce` frame 17 while refusing 11-16, which would have left `bounce` running small
+x6 then BIG -- a new pulse inside one animation. The rule is whole-animation-or-nothing now, decided
+before any pixel is written.
+
+No pixel data was invented: every change is a resample of existing art or a frame-reference swap. BOM
+and LF endings preserved, validator reports valid / round-trips / 0 unreachable, `catalog.json`
+rehashed.
+
+The geometry note this entry carried is superseded and kept only for traceability:
 
 ⚠ **Recorded as requested, with the intent NOT specified** — ask before acting rather than guessing.
 It could mean on-screen scale, the sprite-sheet cell size, the 4.7 MB file, or the tray icon.
