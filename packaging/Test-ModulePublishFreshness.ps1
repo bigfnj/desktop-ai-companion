@@ -575,3 +575,89 @@ if ((Test-Path -LiteralPath $collectionsPath) -and (Test-Path -LiteralPath $fort
         Remove-Item $scratch -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
+
+# ---------------------------------------------------------------------------------------------------
+# NO SHIPPED DLL MAY CARRY AN ABSOLUTE BUILD PATH.
+#
+# An embedded PDB path names the machine, the account and the directory layout of whoever built the
+# assembly. DebugType=embedded is what keeps it out, set in ModuleKit.csproj and Contracts.csproj with
+# a comment on each warning against re-adding IncludeSymbols (which fails dotnet pack with NU5017).
+# The setting was fixed and the zips rebuilt on 2026-09-17; what did not exist until now is anything
+# that would NOTICE it being reverted, so the fix had no regression net.
+#
+# A path reaches a DLL through the CodeView entry of the debug directory, which stores it as a plain
+# NUL-terminated string in the image -- so a byte scan finds it and no PE parser is needed.
+#
+# EVERY DLL IN EVERY ZIP, deliberately, not the two files that were once wrong. The failure this
+# guards is a NEW assembly arriving without the setting, and a check scoped to where the problem
+# already was is exactly the kind that cannot fail.
+$buildPathZips = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'modules-dist') -Filter '*.zip' -ErrorAction SilentlyContinue)
+if ($buildPathZips.Count -eq 0) { throw 'No modules-dist/*.zip to scan for embedded build paths.' }
+
+$buildPathPattern = [regex] '[A-Za-z]:\\[^\x00<>|]{0,200}?\.pdb'
+$buildPathOffenders = [System.Collections.Generic.List[string]]::new()
+$buildPathDlls = 0
+
+# SCOPED TO ASSEMBLIES THIS REPO BUILDS, and derived from the .csproj files rather than a hardcoded
+# list -- so a NEW project of ours arriving without the setting is caught automatically, which is the
+# whole property the backlog entry wanted.
+#
+# The first run of this check found 7 paths and every one belonged to a prebuilt third-party package:
+# Microsoft.Windows.SDK.NET and WinRT.Runtime from Microsoft's agents (C:\__w\1\s, D:\a\_work\1\s)
+# and onnxruntime from ONNX's (N:\_work\1). We cannot set DebugType on a NuGet binary, those paths
+# leak somebody else's CI layout rather than this user's machine, and a check nobody can make pass is
+# its own defect.
+$ourAssemblies = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+foreach ($proj in Get-ChildItem -LiteralPath $repoRoot -Recurse -Filter '*.csproj' -ErrorAction SilentlyContinue) {
+    if ($proj.FullName -like '*\obj\*' -or $proj.FullName -like '*\bin\*') { continue }
+    # AssemblyName when declared, otherwise the project file name, which is msbuild's own default.
+    $declared = $null
+    try {
+        $m = [regex]::Match((Get-Content -LiteralPath $proj.FullName -Raw), '<AssemblyName>\s*([^<]+?)\s*</AssemblyName>')
+        if ($m.Success) { $declared = $m.Groups[1].Value }
+    }
+    catch { }
+    # if/else, not a ternary: `?:` is PowerShell 7 syntax and a PARSE error under 5.1, which every
+    # tracked script in this repo is checked against.
+    $assemblyName = $declared
+    if ([string]::IsNullOrWhiteSpace($assemblyName)) {
+        $assemblyName = [IO.Path]::GetFileNameWithoutExtension($proj.Name)
+    }
+    $null = $ourAssemblies.Add($assemblyName + '.dll')
+}
+if ($ourAssemblies.Count -eq 0) { throw 'No .csproj found, so the build-path scan would check nothing.' }
+
+foreach ($bpZip in $buildPathZips) {
+    $bpScratch = Join-Path ([IO.Path]::GetTempPath()) ("dp-codeview-" + [Guid]::NewGuid().ToString('N'))
+    try {
+        Expand-Archive -LiteralPath $bpZip.FullName -DestinationPath $bpScratch -Force
+        foreach ($bpDll in Get-ChildItem -LiteralPath $bpScratch -Recurse -Filter '*.dll') {
+            if (-not $ourAssemblies.Contains($bpDll.Name)) { continue }
+            $buildPathDlls++
+            # Latin-1, so every byte maps to exactly one char. A UTF-8 decode can merge or drop bytes
+            # and a path could slip through the gap.
+            $bpText = [Text.Encoding]::GetEncoding(28591).GetString([IO.File]::ReadAllBytes($bpDll.FullName))
+            foreach ($bpMatch in $buildPathPattern.Matches($bpText)) {
+                $buildPathOffenders.Add($bpZip.Name + " -> " + $bpDll.Name + " : " + $bpMatch.Value)
+            }
+        }
+    }
+    finally { Remove-Item $bpScratch -Recurse -Force -ErrorAction SilentlyContinue }
+}
+
+if ($buildPathOffenders.Count -gt 0) {
+    Write-Host ''
+    foreach ($bpO in $buildPathOffenders | Select-Object -Unique | Select-Object -First 12) {
+        Write-Host "  embedded build path: $bpO"
+    }
+    throw ("$($buildPathOffenders.Count) embedded build path(s) found in published DLLs, which names the " +
+           "machine, account and directory of whoever built them. Set <DebugType>embedded</DebugType> in " +
+           "the offending project -- and do NOT add IncludeSymbols, which fails dotnet pack with NU5017 -- " +
+           "then rebuild, re-zip, COMMIT the zip and regenerate the catalog.")
+}
+if ($buildPathDlls -eq 0) {
+    throw ('The build-path scan examined ZERO DLLs, so it proved nothing. Either the zips contain none ' +
+           'of this repo''s own assemblies, or the .csproj-derived name set stopped matching what is ' +
+           'shipped. Fix the scope rather than accepting a silent pass.')
+}
+Write-Host "no embedded build paths in $buildPathDlls of our own published DLL(s) across $($buildPathZips.Count) zip(s)." 

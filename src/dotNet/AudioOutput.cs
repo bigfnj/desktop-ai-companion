@@ -549,6 +549,28 @@ namespace DesktopAICompanion
         /// </summary>
         internal static NotificationOutcome Play(LocalData data, AudioOutput output, string owner)
         {
+            return Play(data, output, owner, false);
+        }
+
+        /// <summary>
+        /// As above, with the caller stating whether the custom-file READ AND DECODE may happen off its
+        /// thread.
+        ///
+        /// WHY THE CALLER HAS TO SAY, in the same shape as SetNextBorderAnimation's absenceIsNormal: this
+        /// method cannot tell who is asking and the right answer differs. A module's notification arrives
+        /// on the UI timer and nobody needs the chime to start on that exact tick, so an 8 MiB read plus a
+        /// decode into mixer format has no business stalling the interface. The Preferences "Test sound"
+        /// button is the opposite: the user clicked it to find out WHICH layer stops their sound, and an
+        /// optimistic answer would be no answer at all.
+        ///
+        /// Deferring costs the bool its precision -- it becomes "the settings allow this and it has been
+        /// handed off" rather than "the device took it" -- which is affordable only because
+        /// IHost.PlayNotificationSound already contracts that the module is never told why a notification
+        /// did not play. It would not be affordable for the preview.
+        /// </summary>
+        internal static NotificationOutcome Play(LocalData data, AudioOutput output, string owner,
+                                                 bool deferCustomRead)
+        {
             try
             {
                 // No settings means no master volume to scale by. CompanionHost.Volume already answers 0.0
@@ -563,9 +585,35 @@ namespace DesktopAICompanion
                 // is scaled down because the module chose that number and must not be able to out-shout the
                 // pet; this sound is the user's own pick played at the user's own volume, and quietly
                 // halving it would make the Preferences preview disagree with the slider beside it.
-                return output.PlayNotification(owner ?? "", ReadChosen(data.GetNotificationSoundPath()), volume)
-                    ? NotificationOutcome.Played
-                    : NotificationOutcome.NoDevice;
+                string chosenPath = data.GetNotificationSoundPath();
+
+                // The BUILT-IN path is not deferred, whatever the caller asked. There is nothing to read
+                // and the chime is cached after its first synthesis, so deferring would add a thread hop
+                // to the cheap case and make the default configuration behave differently from every
+                // assertion written about it.
+                if (!deferCustomRead || string.IsNullOrWhiteSpace(chosenPath))
+                    return output.PlayNotification(owner ?? "", ReadChosen(chosenPath), volume)
+                        ? NotificationOutcome.Played
+                        : NotificationOutcome.NoDevice;
+
+                // SINGLE-FLIGHT, because the alternative is worse than a dropped chime. A module that
+                // notifies in a burst would otherwise stack one 8 MiB read and one mixer-format decode per
+                // notice, and those buffers are large enough to land on the LOH. Skipping a duplicate
+                // chime that would have overlapped the one already starting is not a loss.
+                if (System.Threading.Interlocked.CompareExchange(ref _customReadInFlight, 1, 0) != 0)
+                    return NotificationOutcome.Played;
+
+                AudioOutput target = output;
+                string ownerCopy = owner ?? "";
+                double volumeCopy = volume;
+                System.Threading.Tasks.Task.Run(delegate
+                {
+                    try { target.PlayNotification(ownerCopy, ReadChosen(chosenPath), volumeCopy); }
+                    catch (Exception) { }
+                    finally { System.Threading.Interlocked.Exchange(ref _customReadInFlight, 0); }
+                });
+                // Optimistic, and the doc above says why that is allowed here and not for the preview.
+                return NotificationOutcome.Played;
             }
             catch (Exception ex)
             {
@@ -589,6 +637,9 @@ namespace DesktopAICompanion
         /// it open. None of those is worth failing a notification over, and the fallback is audible, so the
         /// user finds out by hearing the default instead of by hearing nothing.
         /// </summary>
+        /// <summary>Guards the deferred custom read; see the Play overload that takes deferCustomRead.</summary>
+        private static int _customReadInFlight;
+
         internal static byte[] ReadChosen(string path)
         {
             if (string.IsNullOrWhiteSpace(path)) return null;

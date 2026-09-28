@@ -15,6 +15,15 @@ function Assert-True {
     Write-Host "PASS: $Name"
 }
 
+# DEFINED HERE, above every check, because PowerShell only makes a function callable
+# BELOW its definition. This sat further down the file and the first check needing it
+# then died with CommandNotFoundException -- which reads exactly like a broken check.
+function Remove-LineComments {
+    param([string] $Text)
+    return (($Text -split "`n") | ForEach-Object { $_ -replace '//.*$', '' }) -join "`n"
+}
+
+
 $testsRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent $testsRoot
 
@@ -253,8 +262,13 @@ Assert-True (
 # The CALL with both of its real arguments, not merely the name: a body that passed null for either would
 # gate on nothing (null settings answers NoSettings, null output answers NoDevice) and still compile, still
 # return a bool, and still look right in a diff.
+#
+# MATCHED ON COMMENT-STRIPPED SOURCE, because it used to match the raw text with a 120-character
+# window between the signature and the call -- so adding a comment that EXPLAINED the call broke the
+# assertion while satisfying everything it is about. A source check whose verdict depends on how much
+# prose sits beside the code is measuring the wrong thing.
 Assert-True (
-    $startUpSource -match '(?s)internal bool PlayNotificationSound\(string moduleId\)[\s\S]{0,120}?NotificationSound\.Play\(Program\.MyData, audioOutput,[\s\S]{0,80}?== NotificationOutcome\.Played'
+    (Remove-LineComments $startUpSource) -match '(?s)internal bool PlayNotificationSound\(string moduleId\)[\s\S]{0,160}?NotificationSound\.Play\(Program\.MyData, audioOutput,[\s\S]{0,120}?== NotificationOutcome\.Played'
 ) 'the notification-sound seam routes through the gated policy, with the live settings and output'
 
 # The faceCursor DISPATCH. Converted gaze animations carry <action>faceCursor</action>, the validator accepts
@@ -432,11 +446,6 @@ Assert-True (
 # statement, because both statements survive the reordering that breaks this.
 # Strip line comments so an invariant cannot be satisfied -- or an ordering check inverted -- by prose. This
 # repo has been bitten four times by a source check that a comment alone was enough to pass.
-function Remove-LineComments {
-    param([string] $Text)
-    return (($Text -split "`n") | ForEach-Object { $_ -replace '//.*$', '' }) -join "`n"
-}
-
 $optionsWindowSource = Get-Content -LiteralPath (
     Join-Path $repoRoot 'src\Portable\Wpf\OptionsWindow.cs') -Raw
 # Comments stripped FIRST. This check previously read raw source, and a comment saying
@@ -1796,6 +1805,31 @@ Assert-True ($tickBody.Contains('string argvPathNow = ArgvPath;')) (
     ' than letting the pool-thread worker read the unsynchronised settings dictionary')
 Assert-True (-not $tickBody.Contains('Inspect(ArgvPath')) (
     'the tick worker inspects the COPIED path, not the live settings property')
+
+# The notification sound's custom-file read and decode must not run on a module's tick, and the
+# Preferences preview must still run synchronously.
+#
+# ReadChosen is File.ReadAllBytes of up to 8 MiB and PlayNotification decodes it into mixer format
+# inside lock (_sync). A module's notification arrives on the UI timer, so that pair was stalling the
+# interface per notice; the preview's whole job is to report WHICH layer stopped the sound, so an
+# optimistic answer there would be no answer. The two callers therefore have to differ, and this
+# asserts that they do -- one of them being wrong is invisible at runtime.
+#
+# SCOPED to each method. NotificationSound.Play is called from four places, so an unscoped grep for
+# 'NotificationSound.Play(' passes against either mutation.
+$startUpForNotify = Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\StartUp.cs') -Raw
+$notifyBody = Get-MethodBody (Remove-LineComments $startUpForNotify) `
+    'internal bool PlayNotificationSound(' @("`n        internal ", "`n        public ", "`n        private ", "`n        /// ")
+$previewBody = Get-MethodBody (Remove-LineComments $startUpForNotify) `
+    'internal NotificationOutcome PreviewNotificationSound()' @("`n        internal ", "`n        public ", "`n        private ", "`n        /// ")
+Assert-True ($notifyBody.Length -gt 0 -and $previewBody.Length -gt 0) (
+    'both notification-sound entry points were located')
+Assert-True ($notifyBody -match 'NotificationSound\.Play\([^)]*,\s*true\s*\)') (
+    'a MODULE notification defers the custom-file read off the UI thread -- it arrives on the UI' +
+    ' timer and a custom pick is an up-to-8-MiB read plus a decode into mixer format')
+Assert-True (-not ($previewBody -match 'NotificationSound\.Play\([^)]*,\s*true\s*\)')) (
+    'the Preferences preview does NOT defer, because it reports which layer stopped the sound and' +
+    ' the user is waiting for that answer rather than for the chime')
 
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that

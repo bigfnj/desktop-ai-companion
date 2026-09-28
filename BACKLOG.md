@@ -155,10 +155,15 @@ The ABI additions, the shared notification sound and the AgentFlow pane rebuild 
 that was flagged rather than fixed. None of these blocked the work; all of them are things a future
 reader would otherwise have to rediscover.
 
-- ⬜ **`SchemaShellPane.RefreshAfterApply` scans for `Info` fields only, not `Header`.** A `Header`
-  whose paragraph is derived from settings will show stale text after Apply until the pane is
-  reopened. AgentFlow's three explanation headers are static prose, so nothing is wrong today; the
-  first `Header` carrying live state will hit it.
+- ✅ **FIXED 2026-09-28.** `Info` and `Header` are the only two kinds whose text the MODULE
+  computes rather than the user editing a value, so they are the only two whose rendered content can
+  go stale the moment Apply changes what it was derived from. They are on the same side of the test
+  now.
+
+  Nothing was wrong at the time -- the only `Header`s that ship are AgentFlow's three static
+  explanation paragraphs -- and that is exactly why it was worth fixing before it mattered: stale
+  prose looks identical to correct prose, so the first `Header` carrying live state would have been
+  wrong silently and indefinitely.
 - ✅ **DECLINED 2026-09-28, with the measurement rather than a judgement.** A symlink test would
   add no coverage, and that is checkable rather than arguable: `OptionsWindow`'s containment resolves
   a path with ONE call to `GetFinalPathNameByHandle`, which its own comment describes as resolving
@@ -182,10 +187,39 @@ Nine findings were fixed in the same cycle (the Audio permission, the second tra
 re-entrancy guard, `Log` mode, the version policy, the auto-mode greying, `EnabledWhen` trimming,
 four resource-lifetime defects and three dead members). These are the ones left.
 
-- ⬜ **The notification sound decodes on the UI thread, every time.** Up to 8 MiB read plus a decode
-  into two ~21 MB LOH allocations, deliberately uncached (caching a large pick would be worse). A
-  user who picks a 30-second WAV gets a UI stall per notice.
+- ✅ **FIXED 2026-09-28, on the module path only.** `ReadChosen` is a `File.ReadAllBytes` of up
+  to 8 MiB and `PlayNotification` then decodes it into mixer format **inside `lock (_sync)`** -- both
+  on the caller's thread, and the caller is usually a module's tick, which is the UI timer.
 
+  Caching was already ruled out and the reasoning still holds (`PlayOwned` spells it out: an entry
+  would pin an 8 MiB pick plus a mixer-format buffer several times its size and never be reused), so
+  the work moved instead. Three deliberate limits on the move:
+
+  | what | why |
+  |---|---|
+  | every decision layer stays synchronous | the switch, the mute and the device are still read in the order `--audio-selftest` proves |
+  | the BUILT-IN chime stays synchronous | ~33k samples synthesized once per process and cached, so it was never the cost; the default configuration behaves identically |
+  | the PREVIEW button stays synchronous | its whole job is to report WHICH layer stopped the sound, and the user is waiting for that answer. One click, not one per notice |
+
+  The module path therefore returns `Played` optimistically, which is a real change to what the bool
+  means -- "the settings allow it and it has been handed off" rather than "the device took it". That
+  is affordable only because `IHost.PlayNotificationSound` already contracts that the module is never
+  told WHY a notification did not play, and it would not be affordable for the preview. Single-flight
+  via `Interlocked`, because a module notifying in a burst would otherwise stack one 8 MiB read and
+  one LOH-sized decode per notice, and a dropped duplicate chime that would have overlapped the one
+  already starting is not a loss.
+
+  **NO TIMING IS CLAIMED.** The property is structural -- the UI thread no longer does the read or the
+  decode -- and that is what is asserted. All 46 audio assertions still pass.
+
+  MUTATION: two source invariants, each scoped to its own method because `NotificationSound.Play` has
+  four call sites and an unscoped grep passes against either change. ⚠ Adding them broke a
+  PRE-EXISTING invariant for the wrong reason: it matched raw source with a 120-character window
+  between the signature and the call, so a comment EXPLAINING the change pushed the call out of the
+  window. It reads comment-stripped source now, which is the same correction another check in that
+  file already carries. And `Remove-LineComments` had to be hoisted above its first use, because
+  PowerShell only makes a function callable below its definition -- the same ordering trap that bit an
+  invariant earlier in this campaign. SMOKETEST.md 159 -> 162.
 ## Open: findings from the v1.1.0 wrap-up audit (filed 2026-09-10)
 
 Four parallel read-only audits ran over the tree at the v1.1.0 tag (credentials, PII/employer material,
@@ -193,34 +227,35 @@ stale files, readme accuracy). Credentials came back with **zero** findings and 
 clean. One residual remains open; the rest are closed and in
 [`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md).
 
-### 📌 Nothing scans a shipped DLL for an embedded build path, so the fix has no regression net
+### ✅ FIXED 2026-09-28 — the net exists, and building it found the scope was the hard part
+
+  `Test-ModulePublishFreshness.ps1` now scans every DLL in every published zip for a
+  `<drive>:\...\.pdb` string. A path reaches a DLL through the CodeView entry of the debug directory,
+  stored as a plain NUL-terminated string in the image, so a byte scan finds it with no PE parser.
+  Latin-1 decoding, so every byte maps to exactly one char and nothing slips through a multi-byte gap.
+
+  ⚠ **The first run failed, and every offender was somebody else's.** Seven embedded paths, all in
+  prebuilt third-party packages: `Microsoft.Windows.SDK.NET` and `WinRT.Runtime` from Microsoft's
+  agents (`C:\__w\1\s`, `D:\a\_work\1\s`) and `onnxruntime` plus `Microsoft.ML.OnnxRuntime` from
+  ONNX's (`N:\_work\1`). We cannot set `DebugType` on a NuGet binary, those paths leak Microsoft's
+  and ONNX's build layout rather than this user's machine, and a check nobody can ever make pass is
+  its own defect.
+
+  So it is scoped to assemblies THIS REPO builds, derived from the repo's own `.csproj` files rather
+  than a hardcoded list -- which keeps the property the entry wanted: a NEW project of ours arriving
+  without the setting is caught automatically, because its csproj is what puts it in scope. It also
+  **refuses a silent pass**: examining zero DLLs throws rather than reporting success, because a
+  scope that stops matching what is shipped would otherwise look exactly like a clean result.
+
+  MUTATION, four axes, with a real offender rather than a weakened pattern:
+
+  | axis | expected | result |
+  |---|---|---|
+  | a zip with a DLL named like OURS carrying a build path | fail | failed, and named the path |
+  | the same path in a THIRD-PARTY-named DLL | pass | passed, correctly out of scope |
+  | the scope set matched nothing | fail | failed with the "examined ZERO DLLs" refusal |
+  | baseline / restored | pass | passed; 14 of our own DLLs across 7 zips, zero paths |
   CLOSES-WHEN: grep-present packaging/Test-ModulePublishFreshness.ps1 "CodeView"
-
-The defect is fixed. `DebugType=embedded` is set in both
-`src/DesktopAICompanion.ModuleKit/DesktopAICompanion.ModuleKit.csproj:60` and
-`src/DesktopAICompanion.Contracts/DesktopAICompanion.Contracts.csproj:62` (each with a comment warning
-against re-adding `IncludeSymbols`, which is what made `dotnet pack` fail NU5017 on the first
-attempt), and the six zips were rebuilt and republished. **Re-verified 2026-09-17:** scanning every
-DLL inside every `modules-dist/*.zip` for `<drive>:\…\*.pdb` finds **zero** matches in
-`ModuleKit.dll` or `Contracts.dll`.
-
-**What is open is the net, not the fix.** `packaging/Test-ModulePublishFreshness.ps1` measures
-staleness and integrity, never embedded paths, so nothing would notice the setting being reverted or a
-new shipped assembly arriving without it. Two things a scan has to get right, both measured rather
-than assumed:
-
-- **It cannot be a bare drive-letter grep.** The same scan over the same zips returns **7 hits from
-  vendored third-party DLLs** — `N:\_work\1\…` in `Microsoft.ML.OnnxRuntime.dll`,
-  `onnxruntime.dll` and `onnxruntime_providers_shared.dll`, `C:\__w\1\s\…` in
-  `Microsoft.Windows.SDK.NET.dll`, `D:\a\_work\1\s\…` in `WinRT.Runtime.dll`. Those are hosted-runner
-  paths from other vendors' CI and are normal practice; a check that flags them is a check somebody
-  will disable. Scope it to the assemblies this repo builds.
-- **The reason this one mattered is narrow and should be written into the check**, or the next reader
-  will over-scope it: it named a personal machine rather than a hosted runner. It carried no username
-  and no employer string.
-
----
-
 ## Open: follow-ups from the Disposition audition (aibrain 2026-09-11)
 
 The feature shipped — "Show me 5 examples" and "5 about my screen" beside the Disposition dropdown,
@@ -1197,13 +1232,23 @@ every `Remove-Item -Recurse -Force` is GUID-scoped scratch or routed through the
 
 ### One thread left open
 
-- ⬜ **Can a converted pet express a repeat that never terminates?**
-  `modules/PetStudio/BehaviourChain.cs:362` copies the source animation's `Sequence.RepeatCount`
-  verbatim, and `RepeatCount` is an evaluated expression (`src/dotNet/Xml.cs:292`, `GetXMLCompute`)
-  rather than a plain integer. If a pet can express an unbounded or negative result, a chain would
-  stall on that step. Settling it needs a read of the repeat countdown in `Animations.cs` plus
-  `CompanionXmlValidator.ValidateExpression:528` to see what the XSD permits.
+- ✅ **ANSWERED 2026-09-28: NO, and the runtime makes it impossible rather than unlikely.**
+  `BehaviourChain.cs` copying `Sequence.RepeatCount` verbatim is safe, because whatever the expression
+  evaluates to is clamped on both live paths:
 
+  | site | clamp |
+  |---|---|
+  | `Xml.cs:294`, at load | `AnimationRuntimeLimits.ClampRepeat(ani.Sequence.Repeat.Value)` |
+  | `Animations.cs:505`, per-screen evaluation | `ClampRepeat(Sequence.Repeat.GetRawValue(screenIndex))` |
+
+  `ClampRepeat` is `Math.Max(0, Math.Min(1000, value))`, so a negative result becomes 0 and an
+  enormous one becomes 1000. `CalculateTotalSteps` then clamps again -- `Math.Max(1L, Math.Min(1000000, total))`
+  -- so the derived step count can be neither zero nor negative nor unbounded.
+
+  A chain therefore cannot stall on a repeat whatever the source XML says, and no change is needed.
+  The question was worth asking: `RepeatCount` really is an evaluated expression rather than an
+  integer, so the concern was well-founded and the answer is that the defence sits at the consumer
+  rather than at the validator.
 ## Open: three read-only audits after v1.2.6 (filed 2026-09-28)
 
 `src/`, `modules/` and `tools/`+CI, audited in parallel at `1976843`, each briefed to verify before

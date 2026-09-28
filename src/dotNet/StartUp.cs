@@ -1608,7 +1608,11 @@ namespace DesktopAICompanion
         /// </summary>
         internal bool PlayNotificationSound(string moduleId)
         {
-            return NotificationSound.Play(Program.MyData, audioOutput, moduleId ?? "") == NotificationOutcome.Played;
+            // deferCustomRead: true. This arrives on a module's tick, which is the UI timer, and a
+            // custom pick is an up-to-8-MiB read plus a decode into mixer format. The preview
+            // below deliberately does NOT defer, because it reports which layer stopped the sound.
+            return NotificationSound.Play(Program.MyData, audioOutput, moduleId ?? "", true)
+                == NotificationOutcome.Played;
         }
 
         /// <summary>

@@ -263,8 +263,15 @@ namespace DesktopAICompanion.Wpf
             get
             {
                 if (_pane == null || _pane.Schema == null) return false;
+                // Info AND Header. These are the only two kinds whose text the MODULE computes rather
+                // than the user editing a value, so they are the only two whose rendered content can go
+                // stale the moment Apply changes the settings it was derived from. Header was missing,
+                // which meant a Header whose paragraph reads from settings kept showing the old text
+                // until the pane was reopened. Nothing was wrong at the time -- the only Headers that
+                // ship are AgentFlow's three static explanations -- and the first one carrying live
+                // state would have hit it silently, because stale prose looks exactly like correct prose.
                 foreach (SettingField f in _pane.Schema)
-                    if (f != null && f.Kind == SettingKind.Info) return true;
+                    if (f != null && (f.Kind == SettingKind.Info || f.Kind == SettingKind.Header)) return true;
                 return false;
             }
         }
