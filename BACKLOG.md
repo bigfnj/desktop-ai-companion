@@ -946,17 +946,47 @@ them.
 
 **Checks that cannot fail (the category this repo keeps finding)**
 
-- 📌 **The leak soak's default 30-second duration intermittently publishes fewer than 2
-  settled samples, and throws instead of measuring.** Hit on 2026-09-28 while running the release
-  gates: `runtime-resource-soak.ps1` with no arguments failed with *"The churn published N settled
-  sample(s); at least 2 are needed to tell a warming cache from a leak. Increase -DurationSeconds."*
-  A second run at the same default succeeded, and `-DurationSeconds 120` succeeded with 5 intervals.
-  So this is a sampling floor under machine load, not a leak and not a code defect — but it means
-  the documented default can fail for a reason that says nothing about the build, which is the sort
-  of red that teaches people to re-run rather than read. Either raise the default until it reliably
-  produces 2+ settled samples on a loaded box, or have it extend itself rather than throw.
-  `docs/RELEASE-CHECKLIST.md` still names the bare default.
+- ✅ **FIXED 2026-09-28. The run extends itself, and the root cause was not the duration.**
 
+  A settled sample lands every 40 cycles (`Program.cs`, `SettledSampleEveryCycles`), but the churn
+  loop terminated on WALL CLOCK. Nothing tied the two together: the documented default asks for 15
+  target cycles while the FIRST settled sample is at cycle 40, so every sample this soak has ever
+  published came from the minimum-duration overrun rather than from the cycle target. Cycle rate
+  falls on a loaded box, fewer than 2 land, and the driver threw.
+
+  The loop now keeps cycling until the verdict has its two samples, bounded by
+  `DESKTOPPET_RESOURCE_CHURN_MAX_DURATION_MS`, which the driver derives from its own completion
+  deadline so a box too slow to reach a verdict still publishes a marker and earns a specific
+  failure. An idle box pays nothing -- it is past cycle 80 well before the minimum elapses.
+
+  **Mutation-tested across three legs**, with the degraded rate reproduced deterministically (churn
+  interval 600 ms instead of 250, landing ~66 cycles inside the 40 s minimum -- past the sample at
+  cycle 40, short of the one at 80):
+
+  | leg | driver + binary | result |
+  |---|---|---|
+  | A | old + old | the original *"at least 2 are needed ... Increase -DurationSeconds"* -- the degraded scenario is real, not theoretical |
+  | B | new + old | names the stale build; no `PropertyNotFoundStrict` leak |
+  | C | new + new | PASS, extended to 2 settled samples, finishing at 61036 ms |
+
+  ⚠ **Two further defects were found BY the mutation test, and both are fixed here.**
+
+  *The driver leaked a PowerShell rule name instead of a cause.* Pointed at a build older than
+  itself -- which `-ExecutablePath` makes easy to do on purpose -- it died with a bare
+  `PropertyNotFoundStrict` from `Set-StrictMode`. It now checks the marker carries its verdict
+  fields by name and says which one is missing and why.
+
+  *The cleanup replaced the failure it was cleaning up after.* `Stop-TestProcess` runs from the
+  `finally` block, and `taskkill` is the only call in it without a `try`/`catch`. A native command
+  writing to stderr raises a TERMINATING `NativeCommandError` under this script's
+  `$ErrorActionPreference = 'Stop'`, and an exception thrown in a `finally` REPLACES the one already
+  in flight. So a real soak failure surfaced as *"taskkill.exe : ERROR: The process NNNN not
+  found"* -- which taskkill writes whenever the process has already exited, i.e. on exactly the
+  failure paths this cleanup exists to serve. It swallowed two mutation verdicts before I found it.
+  The proof is the before/after on one unchanged run: only taskkill noise before, the real message
+  after.
+
+  CLOSES-WHEN: grep-present tests/runtime-resource-soak.ps1 "older than this driver"
 - ✅ **FIXED 2026-09-27.** `.github/workflows/build.yml` runs `tests\Test-ModuleSelfTests.ps1`,
   so the 684 module assertions now run on a push as well as in the gate. Safe to add because the step
   above it already launches the same exe from the same path — only the flag was new — and verified
@@ -1111,3 +1141,298 @@ every `Remove-Item -Recurse -Force` is GUID-scoped scratch or routed through the
   rather than a plain integer. If a pet can express an unbounded or negative result, a chain would
   stall on that step. Settling it needs a read of the repeat countdown in `Animations.cs` plus
   `CompanionXmlValidator.ValidateExpression:528` to see what the XSD permits.
+
+## Open: three read-only audits after v1.2.6 (filed 2026-09-28)
+
+`src/`, `modules/` and `tools/`+CI, audited in parallel at `1976843`, each briefed to verify before
+filing and to state empty categories as real results. 24 findings. **Nothing here is a regression
+from the 1.2.6 campaign except where it says so** -- two entries are residue of fixes made that day
+and are marked.
+
+Three categories came back genuinely empty and are recorded so nobody re-spends the time: memory and
+handle leaks across both `src/` and `modules/` (beyond the one static field in H6), flags assigned
+and never read, and PowerShell 5.1-vs-7 runtime divergence. Each auditor also listed candidates it
+killed during verification; those are in the transcript, not here.
+
+**Verification status is stated per entry.** Items marked VERIFIED I re-checked against the source
+myself before filing. The rest carry the auditor's cited evidence and have NOT been independently
+re-checked -- treat the first step of acting on one as confirming it still reproduces.
+
+### User-visible
+
+- 📌 **VERIFIED. The diagnostic log's size cap is silently unenforced when "how many to keep"
+  is 1, and the file then grows without bound.** `src/dotNet/DiagnosticLog.cs` `RotateNoLock`. The
+  shift loop is `for (int i = _keep - 1; i >= 1; i--)`; at `_keep == 1` that is `i = 0; 0 >= 1`, so
+  zero iterations and `diagnostics.log` is never moved or deleted. The loop above it only deletes
+  the *archives*. `Write` then appends regardless, so past the cap every line re-runs a rotate that
+  does nothing and appends anyway. keep = 1 is a legal user value, not a corner case: the spinner
+  declares `Min = 1` and `SetDiagnosticLogKeep` clamps to `[1,20]`. The launch rotation is safe (the
+  field default is 2 and `Start()` runs before `Configure`), so this is confined to within a session
+  -- but unbounded inside it. With the Animation category unmuted (a supported choice, labelled
+  "very noisy -- for skin authors") the class's own measured rate is 12.07 lines/s, roughly 60 MB a
+  day into a file the user believes is capped at 512 KB. No test touches rotation at all.
+  CLOSES-WHEN: grep-absent src/dotNet/DiagnosticLog.cs "for (int i = _keep - 1; i >= 1; i--)"
+
+- 📌 **VERIFIED. "Reset to default settings" writes the diagnostic-log defaults but never
+  re-applies them to the running logger.** `src/Portable/Wpf/OptionsShell.cs`. The Save path calls
+  `DiagnosticLog.Configure` deliberately, with a comment saying why: *"the thing most often being
+  diagnosed IS a launch, so 'change the setting, reproduce, read the log' has to work without a
+  restart in between."* The reset writes all five diagnostic settings and live-applies only the
+  audio device, the drop timer and the tray speech item. Confirmed by grep: outside the self-tests
+  the only `Configure` call sites are `Program.cs` (launch) and `OptionsShell.cs` (save). Because
+  the reset rebuilds the pane, the symptom is visible and misleading -- turn the log off, press
+  Reset, the checkbox comes back ticked and nothing is logged until restart. Same for the size cap,
+  the keep count and every category or module mute.
+
+- 📌 **VERIFIED. Remembrance's purge matches far more loosely than its own design says, and
+  it deletes rather than recycles.** `modules/Remembrance/CaptureStore.cs` `NamesThisModuleWrites`.
+  The root branch parses the exact stamp so a near-miss is spared -- *"'snapshot of my cat.png' must
+  not qualify"* -- but the sub-folder branch is `lower.StartsWith("snap") && lower.EndsWith(".png")`,
+  which matches anything. `Purge` runs that branch over every immediate subdirectory of `Root`, and
+  `Root` is the free-text `storageLocation` whose own header warns a user *"may perfectly reasonably
+  point it at Documents ... or at Pictures"*. Deletion is `File.Delete`, on Init and hourly.
+
+  ⚠ **The audit understated it, and I am recording the broader half.** The ROOT branch also
+  accepts `lower.EndsWith(".wav")` unconditionally -- any `.wav`, not the `recording.wav` shape this
+  module writes. The method's own design comment claims three narrowings, the first being *"ONLY
+  THIS MODULE'S OWN FILE SHAPES"*; an extension is not a shape. Same threat model, wider blast
+  radius: a user who points `storageLocation` at a folder holding their own audio loses every `.wav`
+  older than the retention window. Fix both branches in one change.
+
+  ⚠ **The obvious one-line fix reddens the gate.** `RemembranceModule.cs` asserts
+  `NamesThisModuleWrites("snap 1.png", true)` is TRUE, and `"snap 1.png"` is not a name this module
+  ever produces. The two "must NOT qualify" assertions only ever pass `insideCaptureFolder: false`,
+  so the loose branch has no negative coverage at all. Replace that fixture in the same commit, and
+  give the branch the negative case it never had.
+
+- 📌 **AI Brain's emotion-to-animation reaction is a silent no-op on most shipped
+  companions.** `modules/AiBrain/AiBrainModule.cs`. Measured by the auditor across all 54
+  `Companions/*/animations.xml`, matching the way `FormCompanion.TryPlayAnimation` compares: happy
+  18/54, excited 35/54, sad 8/54, thinking 8/54, confused 8/54. `boing` is on exactly one companion,
+  `flower` on one. `"thinking"` fires on EVERY ask, immediately before the reply, so on 46 of 54
+  companions the reaction users were told about never happens -- `PlayAnimationOnAll` plays the
+  first candidate a pet defines and silently does nothing otherwise. These are eSheep-family names;
+  the 32 converted shimeji use entirely different ones. **The repo has already solved this once**:
+  `modules/AgentFlow/PetAnimations.cs` records the same measurement and adopted a coverage-chosen
+  list, which the auditor measured at 43/54. AiBrain never got that treatment. Needs an `aibrain`
+  republish.
+
+- 📌 **Reminder's "Make the companion react" default reaches 35 of 54 companions.**
+  `modules/Reminder/ReminderModule.cs`, `DefaultReactAnimations = "boing,jump,run,flower"`, and
+  `reactOn` defaults to true. 19 miss, listed in the audit. Same root cause and same silence as the
+  AiBrain entry. Note `PetAnimations.cs` claims its coverage list is *"the convention AiBrain,
+  Reminder and StartUp all use"* -- for Reminder that describes an intent, not the shipped default.
+  ⚠ Changing it reddens the gate: three assertions pin the literal string (`Count == 4`,
+  `[0] == "boing"`, `[3] == "flower"`) rather than any property. Needs a `reminder` republish.
+
+- 📌 **"Reset to default settings" skips `defaultSpeakingCompanion`.**
+  `src/Portable/Wpf/OptionsShell.cs`. It is a Preferences field on that page, `CreateDefault()` does
+  supply a default for it, and `SetDefaultSpeakingPet` has exactly one caller in the repo -- the
+  save path. The confirmation text promises the reset "restores the startup, window, sound, speech,
+  and fortune-drop settings shown here". This is the same class of gap the block's own comment was
+  written to close: *"a field that did not move looks exactly like a field whose default is what it
+  already held"*. The nearby comment excluding per-pet `triggerSpeech` entries does not cover it.
+
+### Checks that cannot fail, or fail for the wrong reason
+
+- 📌 **A stale marker file is graded as this run's result.**
+  `tests/Test-ModuleSelfTests.ps1` deletes the marker with `Remove-Item ... -ErrorAction
+  SilentlyContinue`, then treats its existence as proof the module was loaded and exercised. The
+  sibling runner already removed exactly this call for exactly this reason:
+  `tests/Invoke-SelfTests.ps1` uses `[System.IO.File]::Delete` and documents that *"Remove-Item
+  still performs ~ home-directory expansion even under -LiteralPath, so it fails outright when the
+  temp path contains a tilde -- the norm on Windows whenever the account name exceeds 8 characters"*,
+  and that it is *"latent until the SECOND run on such a box"*. `-ErrorAction SilentlyContinue`
+  swallows that and any lock or ACL failure. Combined with `ModuleConventionSelfTest.Finish`
+  wrapping its marker write in `try { } catch { }`, the second run reads the previous `RESULT=PASS`
+  and reports OK. This is the "a check that ran nothing reported success" shape, in the file written
+  to kill it, over the 684 assertions just wired into both gates.
+  CLOSES-WHEN: grep-absent tests/Test-ModuleSelfTests.ps1 "Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue"
+
+- 📌 **The module template's loader check is judged by exit code alone.**
+  `packaging/Test-ModuleTemplate.ps1`. The only assertion is `$loader.ExitCode -ne 0`; it never
+  deletes, reads, or SKIP-scans the marker. `ModuleConventionSelfTest.Run` returns **true** on
+  `SKIP: no bundled module`, and `Finish` swallows a failed write. `tests/Invoke-SelfTests.ps1`
+  records that this precise gap was closed for the four `--module-selftest=` flags on 2026-09-17
+  (*"for exactly the checks which load a module through the real loader, only the exit code was
+  tested"*) and it was never carried across. The template's own doc promises the opposite: *"Never
+  SKIP silently -- the gate fails on a SKIP"*. Latent today, because the scaffolded `SelfTest` uses
+  only `probe.Check` -- the same status the four convention flags had before they were fixed.
+
+- 📌 **The "pack-to-collection mapping" check never checks a mapping.**
+  `packaging/Test-ModulePublishFreshness.ps1`. `$expectedPairs` is built from collection+source and
+  then used ONLY for counts; the assertion loop checks that each *source id* appears somewhere in
+  the UTF-8 decoding of `Fortunes.dll`, never which collection it belongs to. Move a pack between
+  collections without rebuilding and every id is still present, so the check passes while its
+  message still claims all current mappings are embedded. Only *added* ids are caught -- which is
+  what the original incident happened to be. The block's own comment says the search "cannot
+  false-negative"; that is true of ids and false of mappings.
+
+- 📌 **Two named MSI assertions die with an index error instead of failing.**
+  `packaging/Test-MsiSurface.ps1` dereferences `$launchPublish[0][0]` outside any `Count` guard,
+  unlike every other block in the file. If the `ExitDialog`/`LaunchDesktopAICompanion` ControlEvent
+  row is absent -- the exact condition the block exists to detect -- the array is empty and
+  `Set-StrictMode -Version Latest` throws "Index was outside the bounds of the array" (the auditor
+  confirmed this in a shell). The step runs inside the release MSI path, so it dies noisily rather
+  than reporting the two assertions it was written to report: that the launch is not gated on NOT
+  Installed, and that it is suppressed on uninstall.
+
+- 📌 **`Test-AtomicPublish`'s baseline failure is invisible to both of its callers.**
+  It writes `BASELINE FAILED: a correct publish did not land` and `exit 2`, while `tests/run-gate.ps1`
+  and `.github/workflows/build.yml` both judge it by `try { } catch { }` only. `exit` from a child
+  `.ps1` raises no terminating error, so neither catch fires and the gate continues green -- the
+  same `$LASTEXITCODE`-vs-`throw` mismatch `run-gate.ps1` documents correcting three times
+  elsewhere, inverted. **Reachability caveat, stated by the auditor:** it could not construct an
+  input that reaches the branch, so the defect is the failure CHANNEL, not a live escape.
+
+- 📌 **A `CLOSES-WHEN` with the needle omitted parses, then dies on a binding error.**
+  `tests/Test-BacklogClosingCriteria.ps1`: the needle group is optional, so
+  `CLOSES-WHEN: grep-present <path>` leaves `$needle` empty and `Select-String -Pattern ''` throws
+  "Cannot bind argument to parameter 'Pattern' because it is an empty string". It fails the gate
+  loudly, so nothing goes quiet -- but with a binding error rather than the intended `BROKEN ... does
+  not parse` line that the non-parse reporter exists to produce, and that reporter cannot see it
+  because it shares the same optional-needle regex. This is the third variant of the malformed-
+  criterion family; the first two were mine.
+
+### Correctness and dead code
+
+- 📌 **Closing Companion Studio mid-import deletes the temp tree the background conversion is
+  still reading.** `modules/PetStudio/PetStudioWindow.cs`: `Closed += delegate { ...;
+  CleanupExtracted(); }` with no `_importing` check, where `CleanupExtracted` is
+  `Directory.Delete(_extractedTemp, true)`. Since 1.1.9 the window stays responsive during
+  conversion, which is exactly why the second-Import guard was added with the note *"a second Import
+  ran CleanupExtracted FIRST, recursively deleting the temp tree the in-flight conversion was still
+  reading from."* The `Closed` path is the same deletion with none of that guard, and
+  `PetStudioModule.Shutdown` closes the window too, so app exit during an import takes it as well.
+  `_extractedTemp` is then nulled, orphaning whatever the delete could not remove. **Not
+  reproduced** -- read from the code; the failure mode depends on which handles the converter holds
+  at that instant. Needs a `petstudio` republish.
+
+- 📌 **AgentFlow reads the host's unsynchronised settings dictionary from a pool thread, at
+  two remaining sites.** `modules/AgentFlow/AgentFlowModule.cs`, both reaching `ArgvPath` =
+  `_settings.Get(...)`. `CompanionHost.ModuleSettings` is a bare `Dictionary<string,string>` with no
+  lock, written on the UI thread by `SavePaneValues` on every Apply. This is precisely the defect the
+  tick's own comment says was closed -- *"Enabled was the one setting the worker still went and
+  fetched for itself ... Every other value on this beat was already copied across the boundary"* --
+  and `ArgvPath` is the counter-example to "every other value". Blast radius is bounded (a torn read
+  gives a wrong path for one probe), so this is hygiene rather than a crash. Nothing pins it.
+  Needs an `agentflow` republish.
+
+- 📌 **Unreachable branch and an unprintable message in `undirect`.**
+  `tools/ShimejiConvert/Program.cs`: the admission gate admits a pet only at
+  `ConvertedFormatVersionDirectionalNames` ("0.8"), and `PetEmitter.NextFormatVersionAfter("0.8")`
+  returns "1.0", so the equality in the `nothingToRename` branch is false for EVERY admitted pet --
+  the branch is dead and `skip (no directional names, already at that format)` can never print. The
+  identical guard in `reloop` IS reachable, because its gate also admits `ConvertedFormatVersion`,
+  which is what makes this a copy-paste divergence rather than a style choice.
+
+- 📌 **Seven of the eight migration verbs strip a BOM that 18 shipped pets carry.**
+  `tools/ShimejiConvert/Program.cs`: `reweight`, `rebalance`, `rejump`, `reclimb`, `restsplit`,
+  `dedupe` and `undirect` all write `new UTF8Encoding(false)`. Only `reloop` detects and restores
+  the source's BOM and line endings. Measured by the auditor: 19 of 54 `Companions/*/animations.xml`
+  begin `EF BB BF`, 18 of them converted shimeji at format 1.1. Any migration rung added in the
+  majority style rewrites those 18 blobs for no functional change and invalidates their `catalog.json`
+  sha256 -- caught by `Test-ContentCatalogIntegrity.ps1`, but only after the churn and a forced
+  catalog regeneration. The verb written most recently is the only one that got it right.
+
+- 📌 **`AnimationSync` still carries the "hopeful 1" default that `AnimationDrag` and
+  `AnimationFall` were fixed for.** `src/dotNet/Animations.cs`, with `> 1` guards in
+  `FormCompanion.CanSync` and `Sync`, plus the same shape for `AnimationKill`. A pet whose `sync` is
+  `id="1"` ends with `AnimationSync == 1`, both tests are false, the tray "Synchronise companions"
+  row stays hidden and `Sync()` no-ops -- for a pet that DID declare the magic name.
+  `ResolveMagicAnimations` repairs only `AnimationDrag` and `AnimationFall`. **Latent, and measured
+  rather than assumed:** across all 54 shipped companions none declares `sync` or `kill` at id 0 or
+  1 (the 44 that declare `sync` use ids 12, 13, 22, 23, 26, 32, 55, 71, 77, 78). Reachable by a
+  hand-authored or drag-and-dropped `animations.xml`, which is a shipped feature gated only by the
+  validator's "unique positive ids". Related doc rot in the same block: the comment still describes
+  a cancel button on the about box that `StartUp.SyncSheeps` records as removed.
+
+- 📌 **`AiBrainModule._generation` is write-only and the local it feeds is never read.**
+  Those are the field's only two occurrences in the repo, and generation serialisation is owned by
+  `AiSessionManager`, which is what the adjacent comment points to. No CS0414 fires because the
+  initialiser is not a constant -- the exact compiler behaviour `docs/DESIGN-REGISTER.md` measured
+  and warned about. Needs an `aibrain` republish.
+
+- 📌 **`ContextMenus.Dispose()` nulls four of its five static menu-item fields.**
+  `src/dotNet/ContextMenus.cs` leaves `syncPetsMenuItem` rooting a disposed `ToolStripMenuItem` for
+  the process lifetime. **Not a use-after-dispose**: its only reader hangs off the
+  `ContextMenuStrip` disposed one line earlier, and `RefreshSpeechMenuItem` touches only the nulled
+  pair. An asymmetry and a static reference to a dead Component.
+
+### Optimisation, with the cost named
+
+- 📌 **`CompanionCatalog.EnumerateLocal()` re-reads 54 companion XML headers per call,
+  bypassing the cache that exists for exactly that.** Per folder: `File.Exists`, a `StreamReader`
+  and a `ReadBlock` into a 32768-char buffer that always fills, because an `animations.xml` is
+  hundreds of KB. 54 files, so roughly 54 opens and 1.7 MB of decoded reads per call, synchronously
+  on the UI thread. Five call sites: the Companions pane reload (pane constructor plus after every
+  Use / Add / Remove / Download / Uninstall), `LocalPetIds` via `DiffNew` (**which discards
+  `DisplayName` entirely and still pays for all 54**), every tray "Add a companion" submenu open, and
+  `IHost.InstalledTypes()`, which a module can drive at any cadence. Opening the pane pays it twice.
+  ⚠ **The naive fix changes behaviour:** `DisplayNameForId` resolves library-then-bundled while
+  `AddFrom` walks bundled-then-library with a `seen` set, so for an id present in both roots the two
+  currently disagree about which file wins. Reconcile that before sharing the cache. Two comparable
+  fixes already landed (`b5c2fae`, `4c6744b`).
+
+- 📌 **AgentFlow's cold setup-status path still inspects on the UI thread, and in Off mode
+  the tick never warms the cache.** `modules/AgentFlow/AgentFlowModule.cs`. `SetupStatusLine`'s doc
+  claims *"Cold only in the window between Init and the first tick completing"*, but `OnTick`
+  returns early when not `Enabled`, which is false in Off mode -- so for an Off-mode user the first
+  pane open pays it synchronously. The module's own measurement: **30.1-30.7 ms with the port
+  listening, 273.3-284.6 ms with it closed.** Once per process, so this is residue of the
+  quarter-second freeze that comment describes rather than a repeat of it. `BrowseForArgvAsync`
+  calls `Inspect` outside any `Task.Run` too. Needs an `agentflow` republish.
+
+### Residue of the 1.2.6 campaign itself
+
+- 📌 **`LoadPetHeaderIcon`'s own `_iconCache` lookup and store became dead when the cache
+  moved up to `LoadThumb`.** `src/Portable/Wpf/CompanionsPaneControl.cs`. `LoadThumb` has already
+  taken the cache and MISSED on the same key before it gets here, and both run on the WPF UI thread
+  only, so the inner `TryGetValue` can never hit and the inner store is immediately overwritten with
+  the same reference. Harmless, but it contradicts the doc written for the move (*"CACHED HERE, not
+  one level down"*). This is residue of that fix, not a new regression.
+
+- 📌 **An error path added "so it is REACHABLE in a test", with no test.**
+  `packaging/ContentCatalogAssets.ps1`. The comment reads *"`$TimeoutMs` exists so the timeout path
+  below is REACHABLE in a test. A 60-second default cannot be provoked in a gate, and an error path
+  nobody has ever executed is a guess, not a safeguard."* Every caller passes three positional
+  arguments and never the timeout; a repo-wide grep finds no test. So the kill path and the refusal
+  have never been executed, and the parameter documents an intention that was not carried out. Mine,
+  from that day -- the throw is exactly the "guess" its own comment warns about.
+
+- 📌 **Two doc blocks state the opposite of the module coverage that runs.**
+  `tests/Test-ModuleSelfTests.ps1`'s `.DESCRIPTION` says aibrain, fortunes and petstudio are
+  UNCOVERED; the code has aibrain and fortunes in `$Covered` and only petstudio and testmodule in
+  `$Uncovered`. `.github/workflows/build.yml` repeats the stale claim. The code is correct; both
+  prose copies are a rung behind, and they are what the next person reads when deciding whether a
+  gap is expected. Mine, from that day.
+
+### Doc rot the repo does not assert
+
+- 📌 **Stale counts and a future date in comments nothing checks.**
+  `tools/ShimejiConvert/Program.cs` says "all 31 CONVERTED pets" in two places and
+  `tools/ShimejiConvert/MAPPING.md` says "31 shipping skins"; there are 32 pets carrying
+  `<author>Converted from a Shimeji skin</author>` and 54 companion directories. `MAPPING.md` also
+  dates a change to "2026-09-28", which was one day in the future when it was written. Same drift
+  class as the Readme project count and the self-test count, both of which are now asserted -- the
+  cheap fix is to assert these too rather than to correct them once.
+
+### Recorded, deliberately not filed as defects
+
+- ✅ **`release.yml` leaves the signing PFX on disk if the import throws** -- and the scrub step
+  then exits early, because it keys on a thumbprint output that was never written. The step's own
+  rationale is *"A hosted runner is torn down anyway; a self-hosted one is not, and this is the
+  difference between the two"*, and a private key on disk is precisely what a self-hosted runner
+  retains. **Not actionable here and recorded rather than filed:** this repo's release workflow runs
+  on GitHub-hosted runners, where the runner is destroyed after the job, and no signing certificate
+  is configured -- `build.yml` runs the build on every PR with no certificate at all. It becomes
+  real the moment either of those changes. `runtime-hardening-selftest.ps1` asserts only that
+  `if: always()` sits on the step, so the assertion passes while the property it names does not hold
+  on the failure path.
+
+- ✅ **`FormCompanion.Play()` does not set `hwndFullscreenWindow` on the blocked-monitor path**,
+  which is what the new `IsFullscreenBlocked` accessor reads. The auditor could not turn it into a
+  user-visible symptom -- the pet is `Visible = false` there so it cannot paint or be clicked,
+  `Play`'s own scan feeds `NoteFullscreenScan` so the next tick's 300 ms-cached answer agrees, and
+  animation intervals are far below 300 ms. Recorded because it sits directly on top of that day's
+  change, not because it is a bug.

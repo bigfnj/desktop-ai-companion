@@ -66,6 +66,13 @@ $churnCycles = [Math]::Max(
     12,
     [Math]::Min(100, [Math]::Ceiling($DurationSeconds / 2)))
 $churnMinimumDurationMilliseconds = $churnTargetSeconds * 1000
+# The ceiling on the child's self-extension. The churn keeps cycling past its minimum duration until
+# it has published two settled samples (RuntimeResourceChurn.CycleTimer_Tick says why), so this has
+# to sit INSIDE the completion deadline below -- otherwise a slow box would trade a specific failure
+# for the generic "did not publish its completion marker", which is the less useful of the two.
+$churnMaximumDurationMilliseconds = [Math]::Max(
+    $churnMinimumDurationMilliseconds,
+    (($DurationSeconds + $CompletionGraceSeconds) * 1000) - 15000)
 $churnExitDelayMilliseconds = [Math]::Min(
     30000,
     [Math]::Max(5000, ($SampleIntervalMilliseconds * 2) + 1000))
@@ -109,7 +116,14 @@ function Stop-TestProcess {
 
     $taskKill = Join-Path $env:SystemRoot 'System32\taskkill.exe'
     if (Test-Path -LiteralPath $taskKill -PathType Leaf) {
-        & $taskKill /PID $Process.Id /T /F 2>&1 | Out-Null
+        # CAUGHT, because this function runs from the finally block. A native command writing to
+        # stderr raises a terminating NativeCommandError under this script's ErrorActionPreference,
+        # and an exception thrown in a finally REPLACES the one already in flight -- so a real soak
+        # failure would surface as "taskkill.exe : ERROR: The process NNNN not found" instead. That
+        # is not hypothetical: it swallowed two mutation-test verdicts on 2026-09-28, and taskkill
+        # writes exactly that line whenever the process has already exited, which is the normal case
+        # on the failure paths this cleanup exists to serve.
+        try { & $taskKill /PID $Process.Id /T /F 2>&1 | Out-Null } catch { }
         try { [void]$Process.WaitForExit(5000) } catch { }
     }
     else {
@@ -204,6 +218,8 @@ try {
         [string]$churnIntervalMilliseconds
     $startInfo.EnvironmentVariables['DESKTOPPET_RESOURCE_CHURN_MIN_DURATION_MS'] =
         [string]$churnMinimumDurationMilliseconds
+    $startInfo.EnvironmentVariables['DESKTOPPET_RESOURCE_CHURN_MAX_DURATION_MS'] =
+        [string]$churnMaximumDurationMilliseconds
     $startInfo.EnvironmentVariables['DESKTOPPET_RESOURCE_CHURN_EXIT_DELAY_MS'] =
         [string]$churnExitDelayMilliseconds
     $process = New-Object Diagnostics.Process
@@ -246,6 +262,21 @@ try {
     # 'cycles' and 'targetCycles' are the loop's own control values, asserted separately below, and are
     # excluded: the harness may legitimately run MORE cycles than requested, which would make an equality
     # check against targetCycles fail for the wrong reason.
+    # The marker and this driver ship together, and -ExecutablePath makes it easy to point a current
+    # driver at an older build. Without this the first missing field surfaces as a bare
+    # PropertyNotFoundStrict from Set-StrictMode, which names a PowerShell rule rather than the cause
+    # -- observed 2026-09-28 doing exactly that. Checked by NAME rather than by suffix because these
+    # are verdict inputs, not the discovered per-step counters below.
+    $markerFields = @($churn.PSObject.Properties | ForEach-Object { $_.Name })
+    foreach ($field in @('settledSeries', 'minimumSettledSamples',
+                         'maximumDurationMilliseconds', 'extendedForSettledSamples')) {
+        if ($markerFields -notcontains $field) {
+            throw ("The resource churn marker carries no '$field', so it was written by a build older " +
+                   'than this driver and its verdict cannot be read. Rebuild, or point ' +
+                   "-ExecutablePath at a current build: $resolvedExecutable")
+        }
+    }
+
     $controlFields = @('cycles', 'targetCycles')
     $requiredCounters = @(
         $churn.PSObject.Properties |
@@ -330,9 +361,21 @@ try {
     # fails -- which is the same reasoning module-window-soak.ps1 already uses when it compares its
     # LAST segment against the previous one instead of against a cold start.
     $settled = @($churn.settledSeries)
-    if ($settled.Count -lt 2) {
-        throw ("The churn published $($settled.Count) settled sample(s); at least 2 are needed to " +
-               'tell a warming cache from a leak. Increase -DurationSeconds.')
+    # A run that had to extend itself SAYS so, every time. The extension is invisible in the verdict
+    # -- the growth bounds scale with the intervals observed -- so without this line a box that is
+    # quietly too slow to hit the sample floor on schedule would look identical to a fast one.
+    if ($churn.extendedForSettledSamples) {
+        Write-Host ("  note: the churn extended past its $churnMinimumDurationMilliseconds ms minimum " +
+                    "to reach $($settled.Count) settled sample(s), finishing at " +
+                    "$([long]$churn.elapsedMilliseconds) ms.")
+    }
+    if ($settled.Count -lt [int]$churn.minimumSettledSamples) {
+        throw ("The churn published $($settled.Count) settled sample(s) in " +
+               "$([long]$churn.elapsedMilliseconds) ms; at least $([int]$churn.minimumSettledSamples) " +
+               'are needed to tell a warming cache from a leak. The run already extends itself past ' +
+               'its minimum duration to reach that floor, so this means the ceiling of ' +
+               "$([long]$churn.maximumDurationMilliseconds) ms was hit first. Raise " +
+               '-CompletionGraceSeconds, which is what the ceiling is derived from.')
     }
     $settledFirst = $settled[0]
     $settledLast = $settled[$settled.Count - 1]

@@ -544,6 +544,11 @@ namespace DesktopAICompanion
         internal int Cycles;
         internal int IntervalMilliseconds;
         internal int MinimumDurationMilliseconds;
+        // The ceiling on the self-extension described in RuntimeResourceChurn.CycleTimer_Tick. The
+        // driver computes it to sit inside its own completion deadline, so a box too slow to reach a
+        // verdict still publishes a marker and earns a specific failure instead of the generic
+        // "did not publish its completion marker".
+        internal int MaximumDurationMilliseconds;
         internal int ExitDelayMilliseconds;
 
         internal static bool TryCreate(
@@ -597,12 +602,21 @@ namespace DesktopAICompanion
                         10000,
                         1000,
                         900000),
+                    MaximumDurationMilliseconds = ReadBoundedInteger(
+                        "DESKTOPPET_RESOURCE_CHURN_MAX_DURATION_MS",
+                        120000,
+                        1000,
+                        1800000),
                     ExitDelayMilliseconds = ReadBoundedInteger(
                         "DESKTOPPET_RESOURCE_CHURN_EXIT_DELAY_MS",
                         5000,
                         1000,
                         30000)
                 };
+                if (configuration.MaximumDurationMilliseconds <
+                    configuration.MinimumDurationMilliseconds)
+                    throw new InvalidOperationException(
+                        "DESKTOPPET_RESOURCE_CHURN_MAX_DURATION_MS must not be below the minimum duration.");
                 return true;
             }
             catch (Exception ex)
@@ -660,6 +674,12 @@ namespace DesktopAICompanion
         // what left BUG-004 ambiguous after the first measurement.
         private readonly JsonArray settledSeries = new JsonArray();
         private const int SettledSampleEveryCycles = 40;
+
+        // Two settled samples is the floor the verdict needs: one cannot distinguish a warming cache
+        // from a leak, because there is no second point to take a slope from. The driver asserts the
+        // same number, and this is the field that lets the loop meet it rather than report short.
+        private const int MinimumSettledSamples = 2;
+        private bool extendedForSettledSamples;
 
         [DllImport("user32.dll")]
         private static extern int GetGuiResources(IntPtr process, int flags);
@@ -735,8 +755,31 @@ namespace DesktopAICompanion
                     elapsed.ElapsedMilliseconds >=
                         configuration.MinimumDurationMilliseconds)
                 {
-                    Finish(true, null);
-                    return;
+                    // THE RUN EXTENDS ITSELF RATHER THAN ENDING SHORT OF A VERDICT.
+                    //
+                    // A settled sample lands every SettledSampleEveryCycles cycles, but this loop used
+                    // to end on wall clock alone, so how many samples a run produced depended on how
+                    // fast the box happened to be turning cycles. Nothing tied the two together: the
+                    // driver's documented default asks for 15 target cycles while the FIRST settled
+                    // sample is at cycle 40, so every sample the soak has ever published came from the
+                    // minimum-duration overrun rather than from the cycle target.
+                    //
+                    // Measured 2026-09-28 while running the release gates: the documented default
+                    // published 1 settled sample and threw "Increase -DurationSeconds", then passed
+                    // unchanged on the next run. That is a red that says nothing about the build, and
+                    // it teaches people to re-run rather than read.
+                    //
+                    // Cycling on until the verdict has its samples costs an idle box nothing -- it is
+                    // past cycle 80 well before the minimum duration elapses -- and costs a loaded one
+                    // a few seconds. MaximumDurationMilliseconds bounds it.
+                    if (settledSeries.Count >= MinimumSettledSamples ||
+                        elapsed.ElapsedMilliseconds >=
+                            configuration.MaximumDurationMilliseconds)
+                    {
+                        Finish(true, null);
+                        return;
+                    }
+                    extendedForSettledSamples = true;
                 }
                 cycleTimer.Start();
             }
@@ -847,6 +890,11 @@ namespace DesktopAICompanion
                 ["settledGdiGrowth"] = settledGdi - baselineGdi,
                 ["settledUserGrowth"] = settledUser - baselineUser,
                 ["settledSeries"] = settledSeries,
+                ["settledSampleCount"] = settledSeries.Count,
+                ["minimumSettledSamples"] = MinimumSettledSamples,
+                ["maximumDurationMilliseconds"] =
+                    configuration.MaximumDurationMilliseconds,
+                ["extendedForSettledSamples"] = extendedForSettledSamples,
                 ["error"] = failure == null
                     ? null
                     : failure.GetType().Name + ": " + failure.Message
