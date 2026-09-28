@@ -1803,6 +1803,49 @@ simple version.
 
 ---
 
+## 🚢 Released: v1.2.6 (2026-09-28)
+
+Host **1.2.6**, cut at the end of the campaign that took `BACKLOG.md` from 72 open items to **0**.
+Leak soak PASS before the tag: `SettledGrowth` GDI **0**, USER **1**, handles **-5** (cycle 40 ->
+240, bounds 16 each), over **5** settled intervals with medians GDI 0 / USER 0 / handles 4 and 257
+churn cycles. Module-window soak PASS with its last segment flat (handles +0, GDI +0, USER +0,
+private +1.1 MB, every window collected). Fullscreen stand-down probe PASS 6/6 across 3 monitors.
+
+The soak was run at `-DurationSeconds 120` rather than the default 30. At 30 s on a loaded box it
+intermittently publishes fewer than 2 settled samples and throws "Increase -DurationSeconds" -- not
+a leak, a sampling floor. Filed.
+
+**User-facing since v1.2.5:**
+
+| Fix | What you would have seen |
+|---|---|
+| Settings said "saved" over values that had not moved | Five sites, including a future-schema file that blocked every write in silence |
+| A gravity respawn continued the tick it had ended | |
+| The border warning logged at `warning` for a designed outcome | 36% of a 16-hour diagnostic log was that one line |
+| One settings window | A second Options window could open over the first |
+| The catalog fetch on pane open | Dropped on every open but the first |
+| The per-companion monitor pin | Did nothing at spawn unless "Let companions spawn on any screen" was on -- and that is off by default -- while two doc blocks promised the opposite |
+| A module the host cannot run | Was offered for install, downloaded, then refused by the loader with nothing said |
+| The audio decode cache | Outlived the sound data it described |
+
+**Modules published alongside** (live via `catalog.json`, no release needed):
+
+| module | version | why it moved |
+|---|---|---|
+| agentflow | 1.4.10 | a fake CDP server so `Sweep` is tested end to end; `sawPanel` proven; a dead self-test seam removed |
+| aibrain | 1.1.12 | a model-cache race; UI saves bounded at 1.5 s instead of 10; the VRAM query off the UI thread; a module-class `SelfTest` |
+| petstudio | 1.1.12 | conversion off the UI thread; a second Import no longer deletes the first's files; the `Type="Move"` acceptance bug; `PetEmitter` re-entrancy enforced |
+| remembrance | 1.0.15 | the 3 s pane freeze; a stub transcript naming a button that never existed; standalone snapshots finally covered by the 72-hour purge |
+| fortunes | 1.0.11 | an "Indexing N fortunes" status that ran for ever when the text engine could not start; a module-class `SelfTest` |
+
+**Checks that could not fail, found and fixed across the campaign:** the `-Encoding` parity check
+(iterating an empty command set), `release.yml`'s prune (a success line printed over a prune that
+did nothing -- and this release is the first where it reported a real action, "prune: deleted
+v1.2.1"), the redirect scan's initialiser blind spot, a `Test-MsiUpgradeSchedule` negative control
+that accepted any exception as proof, a phantom jump-clamp assertion passing by one unit with zero
+margin, and two guards I wrote myself: a "PASS with no assertions" check whose own `RESULT=PASS`
+line satisfied it, and a `CLOSES-WHEN` written backwards so the checker skipped it in silence.
+
 ## 🚢 Released: v1.1.4 (2026-09-11)
 
 Host **1.1.4** plus six module publishes — one per published module, which is what the table below

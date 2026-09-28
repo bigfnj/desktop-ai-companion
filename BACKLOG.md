@@ -946,6 +946,17 @@ them.
 
 **Checks that cannot fail (the category this repo keeps finding)**
 
+- 📌 **The leak soak's default 30-second duration intermittently publishes fewer than 2
+  settled samples, and throws instead of measuring.** Hit on 2026-09-28 while running the release
+  gates: `runtime-resource-soak.ps1` with no arguments failed with *"The churn published N settled
+  sample(s); at least 2 are needed to tell a warming cache from a leak. Increase -DurationSeconds."*
+  A second run at the same default succeeded, and `-DurationSeconds 120` succeeded with 5 intervals.
+  So this is a sampling floor under machine load, not a leak and not a code defect — but it means
+  the documented default can fail for a reason that says nothing about the build, which is the sort
+  of red that teaches people to re-run rather than read. Either raise the default until it reliably
+  produces 2+ settled samples on a loaded box, or have it extend itself rather than throw.
+  `docs/RELEASE-CHECKLIST.md` still names the bare default.
+
 - ✅ **FIXED 2026-09-27.** `.github/workflows/build.yml` runs `tests\Test-ModuleSelfTests.ps1`,
   so the 684 module assertions now run on a push as well as in the gate. Safe to add because the step
   above it already launches the same exe from the same path — only the flag was new — and verified
