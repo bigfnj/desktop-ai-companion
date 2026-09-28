@@ -126,6 +126,28 @@ jobs:
           & $convert selftest
           if ($LASTEXITCODE -ne 0) { throw 'ShimejiConvert selftest failed.' }
 
+      - name: Check the backlog's machine-checkable closing criteria
+        # run-gate.ps1 has called this since it was written and CI never did, so the two gate
+        # steps below were the last of that split still open. Its whole point is to fire in the
+        # SAME run that proves a fix works, while the author is still looking at it -- which a
+        # local-only check cannot do for a pull request.
+        #
+        # It also reports a CLOSES-WHEN line that does not PARSE, added 2026-09-27 after two of
+        # mine went in with the arguments reversed and were skipped in silence.
+        #
+        # No $LASTEXITCODE guard on purpose: this script signals failure by throw, so under
+        # `shell: pwsh` the step fails on its own. Guarding on $LASTEXITCODE would be the dead
+        # branch this repo has already had to correct twice.
+        shell: pwsh
+        run: .\tests\Test-BacklogClosingCriteria.ps1
+
+      - name: Check the shipped companions' border invariants
+        # Content invariants for the 56 shipped pets. A companion losing its taskbar-eligible
+        # border edge landed green on every pull request until now; that defect class is what
+        # BACKLOG item 407 was, measured at 335 occurrences in 16 hours.
+        shell: pwsh
+        run: .\tests\companion-border-invariants.ps1
+
       - name: Check published module payloads are current
         # modules-dist\<id>.zip is a committed artifact the in-app catalog serves, and nothing rebuilds
         # it automatically -- so it rots silently when module source lands without a republish. That is

@@ -1554,6 +1554,27 @@ Assert-True (
 ) ('the Run button reaches the chain compiler, and a chain that will not build returns before a ' +
    "pet is spawned (build at $buildIndex, guard at $guardIndex, spawn at $spawnIndex)")
 
+# ---- a monitor pin is honoured at spawn whatever the multiscreen setting says ----
+# PinnedDisplay used to be read only INSIDE `if (Program.MyData.GetMultiscreen())`, and that
+# setting defaults to false -- so on default settings, pinning a pet to screen 2 did nothing and it
+# spawned on the primary. Only the PUNITIVE half of the pin worked, because CheckFullScreen honours
+# it unconditionally and refuses to relocate a pinned pet off a monitor a fullscreen app has taken.
+#
+# Two doc blocks promise the opposite in almost the same words -- PinnedDisplay's own summary and
+# CompanionsPaneControl's pin UI: "that setting only decides whether an UNPINNED pet spawns on a
+# random screen, whereas naming a monitor is an explicit instruction."
+#
+# Asserted as STRUCTURE, not presence: what matters is that the RANDOM arm is the gated one. A
+# check that merely found `PinnedDisplay` somewhere in Play would pass on the broken version,
+# which read it one line inside the gate.
+$companionSource = Get-Content -Raw (Join-Path $repoRoot 'src\dotNet\FormCompanion.cs')
+$companionFlat = ($companionSource -replace '\s+', ' ')
+Assert-True (
+    $companionFlat.Contains('int pinned = PinnedDisplay; if (pinned >= 0) DisplayIndex = pinned;') -and
+    $companionFlat.Contains('else if (Program.MyData.GetMultiscreen()) DisplayIndex = new Random()')
+) ('a pinned monitor is honoured at spawn, with only the RANDOM screen pick gated by ' +
+   '"Let companions spawn on any screen"')
+
 # ---- the numbers the docs quote about this suite are re-measured, not trusted ----
 # A number nobody re-measures goes stale. SMOKETEST.md and Readme.md both quote how many source
 # invariants and how many self-tests exist, and both were wrong again within one session of being

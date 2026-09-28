@@ -787,15 +787,22 @@ them.
   than a quiet edit.
   CLOSES-WHEN: grep-absent src/dotNet/FormCompanion.cs "int pinned = PinnedDisplay;"
 
-- 📌 **CI runs two fewer gate steps than `run-gate.ps1`.** `tests/Test-BacklogClosingCriteria.ps1`
-  (`run-gate.ps1:168`) and `tests/companion-border-invariants.ps1` (`:173`) appear nowhere under
-  `.github/`. So a stale backlog closing criterion, a malformed `CLOSES-WHEN`, or a shipped companion
-  losing its taskbar-eligible border edge all land green on every pull request. This is the exact
-  split `build.yml`'s own comments claim to have closed twice (`:48-56`, `:93-103`), and the
-  closing-criteria check is precisely the one designed to fire "in the same gate run that proves the
-  fix works".
-  CLOSES-WHEN: grep-present .github/workflows/build.yml "Test-BacklogClosingCriteria"
+- ✅ **FIXED 2026-09-27.** `build.yml` now runs `tests\Test-BacklogClosingCriteria.ps1` and
+  `tests\companion-border-invariants.ps1`, closing the last of the gate/CI split its own comments
+  claimed twice to have closed. Both signal failure by `throw`, so each is a bare call under
+  `shell: pwsh` with no `$LASTEXITCODE` guard — that guard would be the dead branch this repo has
+  already had to correct twice.
 
+  Added only after the PREVIOUS CI step was proven on the runner rather than assumed: the
+  module-self-test step added earlier the same day shows `OK agentflow PASS (484 assertion line(s))`,
+  `OK aibrain PASS (216)` and `Module self-tests OK: 6 covered module(s) passed` in the log of run
+  `510295d`, which also settles that `HttpListener` binds unelevated there — the risk flagged when
+  `FakeCdpServer` landed. Stacking a second untested CI step on an unverified first is how a CI
+  change becomes two problems.
+
+  ⚠ Closing this is itself the loop working: adding the steps made
+  `Test-BacklogClosingCriteria.ps1` report this entry CLOSEABLE and fail the run, which is precisely
+  what it exists to do — fire in the same run that proves the fix works.
 - 📌 **`PetEmitter` keeps three static mutable fields, so two concurrent `Emit` calls corrupt each
   other.** `HubSpokes` (`:2062`, assigned `:225`, read `:1669`), `CollapsedSources` (`:533`) and
   `ExpandedSetPieces` (`:2066`) are `private static` on a static class and reset INSIDE `Emit`. The

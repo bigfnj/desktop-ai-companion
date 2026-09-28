@@ -611,27 +611,30 @@ namespace DesktopAICompanion
 			AnimationStep = 0;                         // First step
             hwndWindow = (IntPtr)0;                     // It is not over a window
 
-            // Multiscreen
-            if(Program.MyData.GetMultiscreen())
-            {
-                int oldDisplayIndex = DisplayIndex;
-                // A pending relocation (fullscreen game on the pet's monitor) forces the target screen;
-                // otherwise the spawn picks a random screen as before.
-                // A PIN wins over both: it is an explicit instruction, and a pinned pet is never relocated
-                // anyway (see PinnedDisplay's use in CheckFullScreen), so a pending relocation here would
-                // mean something already went wrong.
-                int pinned = PinnedDisplay;
-                if (pinned >= 0)
-                    DisplayIndex = pinned;
-                else if (_forcedDisplayIndex >= 0 && _forcedDisplayIndex < Screen.AllScreens.Length)
-                    DisplayIndex = _forcedDisplayIndex;
-                else
-                    DisplayIndex = new Random().Next(0, Screen.AllScreens.Length);
-                if(oldDisplayIndex != DisplayIndex) // display changed, all computed values could be wrong
-                {
-
-                }
-            }
+            // WHICH MONITOR THIS SPAWN LANDS ON.
+            //
+            // The order is pin, then pending relocation, then random -- and only the RANDOM arm is
+            // gated by "Let companions spawn on any screen". That gate used to wrap all three, and
+            // the setting defaults to false, so on default settings pinning a pet to screen 2 did
+            // nothing at all: it spawned on the primary. The only half of the pin that worked was the
+            // punitive one, because CheckFullScreen honours it unconditionally and refuses to
+            // relocate a pinned pet off a monitor a fullscreen app has taken -- so the pet hid
+            // instead of moving, and the pane's status line said so while the spawn ignored it.
+            //
+            // This is what PinnedDisplay's own doc has always said, and CompanionsPaneControl repeats
+            // it almost word for word: "that setting only decides whether an UNPINNED pet spawns on a
+            // random screen, whereas naming a monitor is an explicit instruction." The code now
+            // matches the contract instead of contradicting it in two places.
+            //
+            // A pin to an unplugged display reads as unpinned (PinnedDisplay resolves against
+            // Screen.AllScreens.Length), so this cannot select a monitor that is not there.
+            int pinned = PinnedDisplay;
+            if (pinned >= 0)
+                DisplayIndex = pinned;
+            else if (_forcedDisplayIndex >= 0 && _forcedDisplayIndex < Screen.AllScreens.Length)
+                DisplayIndex = _forcedDisplayIndex;
+            else if (Program.MyData.GetMultiscreen())
+                DisplayIndex = new Random().Next(0, Screen.AllScreens.Length);
             _forcedDisplayIndex = -1;   // consume the relocation request (also honored above when set)
 
             TSpawn spawn;
