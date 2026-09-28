@@ -48,7 +48,16 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "1.0.15",  // 1.0.15: the options pane no longer freezes ~3s on first open. The model
+            Version = "1.0.16",  // 1.0.16: the 72-hour purge may only delete the file SHAPES this module
+                                 //         writes. Three of the four branches were looser than that: any
+                                 //         snap*.png inside a capture folder, ANY .wav in the root, and
+                                 //         Contains(" - snap") which also matched "holiday - snapshot.png".
+                                 //         The .wav one is the widest: storageLocation is free text with a
+                                 //         folder picker, so a user who pointed it at a folder holding their
+                                 //         own audio lost all of it past the window, with File.Delete and no
+                                 //         prompt. Three old fixtures asserted TRUE for names nothing
+                                 //         produces, which is what made the loose branches look tested.
+                                 // 1.0.15: the options pane no longer freezes ~3s on first open. The model
                                  //         probe was Task.Run + Wait(3s), which moved the HTTP call off the
                                  //         UI thread and then blocked it anyway; a REFUSED localhost
                                  //         connection burns the full deadline. Also: the stub transcript
