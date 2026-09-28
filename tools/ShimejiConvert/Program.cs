@@ -71,6 +71,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 case "undirect":
                     if (args.Length != 2) return Usage();
                     return Undirect(args[1]);
+                case "reground":
+                    if (args.Length != 2) return Usage();
+                    return Reground(args[1]);
                 default:
                     return Usage();
             }
@@ -128,6 +131,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             Console.Error.WriteLine("                     Give it a directory of source .zip skins and it also takes a name->Type");
             Console.Error.WriteLine("                     census across that corpus, which answers names the bundled conf lacks.");
             Console.Error.WriteLine("                     Only UNANIMOUS names count: one the corpus disputes stays unresolved.");
+            Console.Error.WriteLine("  reground <PetsDir>");
+            Console.Error.WriteLine("                     Migration: give a non-locomotion jump somewhere to go at a screen side,");
+            Console.Error.WriteLine("                     the screen top and a window top. Before it, such a state's only border");
+            Console.Error.WriteLine("                     edges were taskbar and window-bottom, so any other border left NOTHING");
+            Console.Error.WriteLine("                     eligible: the host returned -1 and the pet walked off the screen and");
+            Console.Error.WriteLine("                     respawned, re-rolling its monitor under multiscreen. Measured across the");
+            Console.Error.WriteLine("                     54 shipped companions: 87 (state, situation) pairs in 14 converted pets.");
+            Console.Error.WriteLine("                     Selects on the measured SHAPE -- a border whose every edge is taskbar or");
+            Console.Error.WriteLine("                     window-bottom -- so a state with an answer already is never touched.");
+            Console.Error.WriteLine("                     Adds only situations not already covered, so re-running is safe. Routes");
+            Console.Error.WriteLine("                     to fall, matching the emitter. Numbers only, so no source skins.");
             Console.Error.WriteLine("  reclimb <PetsDir>");
             Console.Error.WriteLine("                     Migration: let a wall climb and a ceiling walk CROSS the surface in one");
             Console.Error.WriteLine("                     sequence instead of stopping every ~32px and rolling a 34% chance of");
@@ -1819,6 +1833,127 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         /// region needs sprite frames only a fresh conversion can produce. A pet stranded there stays
         /// stranded however many verbs you run, and the old line never said so.
         /// </summary>
+        /// <summary>
+        /// Give a non-locomotion jump an eligible border edge at a screen side, the screen top and a
+        /// window top. Before this, such a state's ONLY border edges were `taskbar` and
+        /// `window-bottom`, so meeting any other border left nothing eligible: the host's
+        /// SetNextGeneralAnimation returned -1, FormCompanion set bLeavingScreen, and the pet walked
+        /// off the screen and respawned with its monitor re-rolled under multiscreen.
+        ///
+        /// MEASURED over all 54 shipped companions with the host's own TNextAnimation.Eligible: 87
+        /// (state, situation) pairs across 14 converted pets, splitting exactly 29 / 29 / 29 over
+        /// VERTICAL, HORIZONTAL and WINDOW|WINDOW_TOP. The emitter now names these three itself, but an
+        /// emitter fix cannot rewrite emitted XML and the source skins are not in this repo, so the
+        /// shipped pets need a migration -- which is what the ladder is for.
+        ///
+        /// SELECTED BY THE MEASURED SHAPE: a border with at least one edge, every edge of which
+        /// declares taskbar or window-bottom. That is the non-locomotion jump signature, and selecting
+        /// on it rather than on "looks like a jump" means a state that already has an answer at those
+        /// borders is never touched.
+        ///
+        /// Routed to `fall`, matching the emitter, and for its reason: a turn flips facing and returns
+        /// to the hub, which is idle behaviour for a pet still in the air, while `fall` is the
+        /// descend-and-land state and already carries the window-top edge a descent needs.
+        /// </summary>
+        private static int Reground(string petsDirectory)
+        {
+            if (!Directory.Exists(petsDirectory)) { Console.Error.WriteLine("No such directory: " + petsDirectory); return 2; }
+
+            var pets = new List<string>();
+            foreach (string candidate in Directory.GetDirectories(petsDirectory))
+                if (File.Exists(Path.Combine(candidate, "animations.xml"))) pets.Add(candidate);
+            pets.Sort(StringComparer.OrdinalIgnoreCase);
+            if (pets.Count == 0) { Console.Error.WriteLine("Found no <dir>\\animations.xml under " + petsDirectory); return 2; }
+
+            // The three the host raises that an ungrounded jump had no answer for. Not "none": that edge
+            // is eligible at the TASKBAR as well, and adding it here would re-introduce the facing-flip
+            // landing the emitter's taskbar edges were written to replace.
+            string[] situations = new[] { "vertical", "horizontal", "window-top" };
+
+            int petsChanged = 0, skipped = 0, failures = 0, statesFixed = 0, edgesAdded = 0;
+            foreach (string petDir in pets)
+            {
+                string name = Path.GetFileName(petDir);
+                string path = Path.Combine(petDir, "animations.xml");
+
+                XmlData.RootNode root;
+                string error;
+                if (!ShimejiEngine.TryValidate(File.ReadAllText(path, Encoding.UTF8), out root, out error))
+                { Console.WriteLine(name.PadRight(36) + " SKIP (invalid: " + error + ")"); skipped++; continue; }
+
+                // The same two gates every other migration uses. The author gate keeps this off the
+                // hand-authored pets absolutely: they have real jumps and real border sets, and 1713 of
+                // the 1800 measured dead ends are theirs -- whether a hand-authored pet walking off the
+                // screen is WANTED is an open question and not this migration's to answer.
+                if (root.Header == null ||
+                    !string.Equals(root.Header.Author, PetEmitter.ConvertedAuthor, StringComparison.Ordinal))
+                { Console.WriteLine(name.PadRight(36) + " skip (not converter output)"); skipped++; continue; }
+                if (!string.Equals(root.Header.Version, PetEmitter.ConvertedFormatVersionUngroundedJumps, StringComparison.Ordinal))
+                { Console.WriteLine(name.PadRight(36) + SkipOrStranded(root.Header.Version)); skipped++; continue; }
+                if (root.Animations == null || root.Animations.Animation == null)
+                { Console.WriteLine(name.PadRight(36) + " skip (no animations)"); skipped++; continue; }
+
+                XmlData.AnimationNode fall = null;
+                foreach (XmlData.AnimationNode a in root.Animations.Animation)
+                    if (a != null && string.Equals(a.Name, "fall", StringComparison.OrdinalIgnoreCase)) fall = a;
+                if (fall == null)
+                { Console.WriteLine(name.PadRight(36) + " skip (no fall to descend into)"); skipped++; continue; }
+
+                int fixedHere = 0, addedHere = 0;
+                foreach (XmlData.AnimationNode a in root.Animations.Animation)
+                {
+                    if (a == null || a.Border == null || a.Border.Next == null || a.Border.Next.Length == 0) continue;
+
+                    // THE SHAPE. Every edge must be taskbar or window-bottom; one edge declaring anything
+                    // else means the state already has an answer somewhere and is not ours to change.
+                    bool onlyGroundAndCeiling = true;
+                    foreach (XmlData.NextNode n in a.Border.Next)
+                    {
+                        if (n == null) continue;
+                        string flag = n.OnlyFlag ?? "";
+                        if (!string.Equals(flag, "taskbar", StringComparison.OrdinalIgnoreCase) &&
+                            !string.Equals(flag, "window-bottom", StringComparison.OrdinalIgnoreCase))
+                        { onlyGroundAndCeiling = false; break; }
+                    }
+                    if (!onlyGroundAndCeiling) continue;
+
+                    var edges = new List<XmlData.NextNode>(a.Border.Next);
+                    int addedToThis = 0;
+                    foreach (string situation in situations)
+                    {
+                        bool already = false;
+                        foreach (XmlData.NextNode n in edges)
+                            if (n != null && string.Equals(n.OnlyFlag ?? "", situation, StringComparison.OrdinalIgnoreCase))
+                            { already = true; break; }
+                        if (already) continue;   // idempotent, and a pet's own edge is left alone
+                        edges.Add(new XmlData.NextNode { Value = fall.Id, Probability = 100, OnlyFlag = situation });
+                        addedToThis++;
+                    }
+                    if (addedToThis == 0) continue;
+                    a.Border.Next = edges.ToArray();
+                    fixedHere++;
+                    addedHere += addedToThis;
+                }
+
+                root.Header.Version = PetEmitter.NextFormatVersionAfter(root.Header.Version);
+                string outXml = ShimejiEngine.Serialize(root);
+                XmlData.RootNode reparsed; string reError;
+                if (!ShimejiEngine.TryValidate(outXml, out reparsed, out reError))
+                { Console.Error.WriteLine(name.PadRight(36) + " FAIL (re-validate: " + reError + ")"); failures++; continue; }
+                GraphReport graph = ShimejiEngine.Analyze(reparsed);
+                if (graph != null && graph.Unreachable.Count > 0)
+                { Console.Error.WriteLine(name.PadRight(36) + " FAIL (unreachable: " + string.Join(",", graph.Unreachable) + ")"); failures++; continue; }
+
+                WritePetXmlPreservingEncoding(path, outXml);
+                petsChanged++; statesFixed += fixedHere; edgesAdded += addedHere;
+                Console.WriteLine(name.PadRight(36) + " grounded " + fixedHere + " state(s), " + addedHere + " edge(s)");
+            }
+            Console.WriteLine();
+            Console.WriteLine("pets " + pets.Count + "   changed " + petsChanged + "   states " + statesFixed +
+                "   edges " + edgesAdded + "   skipped " + skipped + "   failures " + failures);
+            return failures > 0 ? 1 : 0;
+        }
+
         private static string SkipOrStranded(string version)
         {
             string v = version ?? "?";

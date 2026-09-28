@@ -4,7 +4,7 @@
     <author>Converted from a Shimeji skin</author>
     <title>Zim</title>
     <petname>Zim</petname>
-    <version>1.1</version>
+    <version>1.2</version>
     <info>Converted from a Shimeji skin by ShimejiConvert. Behaviour is approximated; see the import report for what was simplified or dropped.</info>
     <application>1</application>
     <icon>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</icon>
@@ -463,6 +463,9 @@
         <next probability="100" only="window-bottom">23</next>
         <next probability="3" only="taskbar">15</next>
         <next probability="3" only="taskbar">2</next>
+        <next probability="100" only="vertical">25</next>
+        <next probability="100" only="horizontal">25</next>
+        <next probability="100" only="window-top">25</next>
       </border>
     </animation>
     <animation id="16">
@@ -650,6 +653,9 @@
         <next probability="100" only="window-bottom">23</next>
         <next probability="3" only="taskbar">20</next>
         <next probability="3" only="taskbar">2</next>
+        <next probability="100" only="vertical">25</next>
+        <next probability="100" only="horizontal">25</next>
+        <next probability="100" only="window-top">25</next>
       </border>
     </animation>
     <animation id="30">

@@ -4,7 +4,7 @@
     <author>Converted from a Shimeji skin</author>
     <title>Capybara</title>
     <petname>Capybara</petname>
-    <version>1.1</version>
+    <version>1.2</version>
     <info>Converted from a Shimeji skin by ShimejiConvert. Behaviour is approximated; see the import report for what was simplified or dropped.</info>
     <application>1</application>
     <icon>AAABAAEAMDAAAAEAIACMBQAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAwAAAAMAgGAAAAVwL5hwAAAAFzUkdCAK7OHOkAAAAEZ0FNQQAAsY8L/GEFAAAACXBIWXMAAA7DAAAOwwHHb6hkAAAFIUlEQVRoQ+3Ye0xTVxgA8G+TGQgbCzCBZsIW10UIKMx1EBqZMwwlKpnKpEqWTAyaSZRiJg87CnGRmAW3OP2Hgo8QommloRap0PKSoU5NpQVmeIw4WLKU8RqPIdAB33IomvZjSAELZukv+dLk3NPzfbf39Jx7L4CdnZ2dnZ2dnZ2dnd3irfIPCfmGv2nTF/TAy+ptAPCdjriMI0c6DXfv4i2lEj04nF2088tiW3BwsCg5Obnm/Pnzf9XU1CALrVaLODCAWF6O92Uy9Fi9OpZ+cTlx/P39RUKh8GeNRoPDw8M4G2NfHx7at68IABzoIMvBMyws7EpBQUF/X18frRVxYoK2YN/AAK5YuXIHHWipvbWey00rKi7+Y2RkhNZootEg+voiVldbNI+OjmJiYqIUAF6hgy6VvekxMYbf8/IQe3stirOgUCByuYi3b9Mj2N7ejn5+ftvowEuBk75nTz/eu4dYUYGoVLKflNZnlRMnTpTSwc28DgDr161bd5DP58+IDRs2sAXAi37JGhGPc3KwVyrFn7KyEOVyxMZGWptVHj58OLR27drNrFgHB4eNkZGRCWKxuJDFqVOnflMoFOPd3d04NDQ0I7q6ulAul/8tFApvczicNABwo4XOJnxYKsUf9u/H1N27TfOcncTzptJzaLXaCZlM1llXV4eDg4P0sFVaW1sxPT29w93dPYEW+194pWLxaI9cjiPXrpmmkFSKqNPRcZecUqlEAAihBc/wbWxsG9bUIN64gXjzpukKsP/DS0AgEOgA4FVas4Xo0NALU1OnrAwvHz2KHbm5iCUlpl12mbHVjc/nf0ZrtvBJQEBms0SCOYcPY7FYjGNFRaar0NNDx1sWSUlJWloztXprUFCnoaAAp5bTqipEtRrRbENjK4VKpcKTJ0/WnTt3zjA+Pm6RxJaam5sxMDDwEC3awpvOzpt3h4bm/Rgfr5ckJOgl7FMk0kskEn1qauqFsLAwMQDwp7vvbWtro3lsKjk5+TEAOJGyF8xNJBIZaJKFYLctY2NjtHmG8vJytiJ9QAtZMHd397SOjg6aZ96qq6tRr9fT5hl0Oh07gSBax2K8kZKS0kUTzVdlZeVUcXNhJwkAH9IiFoXL5e64fv36PzTZfKjVatOD0RzKysomAOB9WsOi8Xi8KIVCYTRPNjk5ifX19eZNs3rw4AHm5+fTZgsymayez+dvoblfGE9Pz+0qlcriIUImk01tQnNhf+CMjIxZ75tyc3OfAIA3zfnC+fr6ihsaGp4lrqiowNLSUotiZsPmd21tLW1md7cYEBCwdC8K4uLi7j9NbjAYUCwWY1NTExqNRotoaWlBjUZjZKFWq42ZmZn66OhofX9//7Pi2Qrn7e39Hc1hUzExMaefFlB969YYAGz18fEJj4iIOGYeHh4e8QDwjlmsYLFz587L7Mox7JbayckpieawqS+3bPkeHz1CfPIEr+TnsxNwoX3m4ubmdubpLp+dnd0/nwebRfs8NDSLPTdPqlS4ncfTAMBK2scakkuX/mQn0NDYiC4uLjH0uC2w90FrMgSCErxzB4vT0tims5F2soLLu15eH1ddvdqN3d341YEDvzo6Otp2BXJ1dg7YFRLyS8Hx4yPsdctAYSH6+/hcpP3mwuVwhMeionq0Z8+yzQGlQiGbgp/Sfi8cx9X14IHwcCxMSUGdRIJfR0VV0T7W+IjLvZ8hEOCdM2ew8vTpEd6aNULax1ZeA4DA6RstFmxFWYhVZmO8Rw/+7/wLV9hO3GLZXTYAAAAASUVORK5CYII=</icon>
@@ -1038,6 +1038,9 @@
         <next probability="100" only="window-bottom">50</next>
         <next probability="3" only="taskbar">33</next>
         <next probability="3" only="taskbar">12</next>
+        <next probability="100" only="vertical">52</next>
+        <next probability="100" only="horizontal">52</next>
+        <next probability="100" only="window-top">52</next>
       </border>
     </animation>
     <animation id="34">

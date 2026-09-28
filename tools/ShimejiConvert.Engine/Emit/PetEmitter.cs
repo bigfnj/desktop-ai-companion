@@ -1775,7 +1775,26 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         //
         // This alignment is a point in time, not a property: the format moves on its own while the product
         // moves independently. The number is a migration gate, not a release version.
-        public const string ConvertedFormatVersion = "1.1";
+        //
+        // -> 1.2 gives a non-locomotion jump somewhere to go at a screen side, the screen top and a
+        // window top. Before it, such a state's only border edges were `taskbar` and `window-bottom`,
+        // so meeting any other border left NOTHING eligible: the host returned -1, set
+        // bLeavingScreen, and the pet walked off the screen and respawned with its monitor re-rolled
+        // under multiscreen. Measured across the 54 shipped companions: 87 such (state, situation)
+        // pairs in 14 converted pets. What `reground` produces.
+        public const string ConvertedFormatVersion = "1.2";
+
+        /// <summary>
+        /// The version emitted while a non-locomotion jump carried border edges for the floor and a
+        /// window underside and NOTHING ELSE, so a screen side, the screen top or a window top left it
+        /// with no eligible transition at all and the pet left the screen instead of landing.
+        ///
+        /// Not a hypothetical: measured over all 54 shipped companions with the host's own
+        /// TNextAnimation.Eligible, 87 (state, situation) pairs across 14 converted pets, splitting
+        /// exactly 29 / 29 / 29 over VERTICAL, HORIZONTAL and WINDOW|WINDOW_TOP. What the `reground`
+        /// migration looks for.
+        /// </summary>
+        public const string ConvertedFormatVersionUngroundedJumps = "1.1";
 
         /// <summary>The version emitted while <see cref="IsLocomotion"/> judged by velocity alone, so any
         /// performance that moved the pet along the ground -- a trip, a bounce -- was handed the locomotion
@@ -1852,7 +1871,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             new[] { ConvertedFormatVersionFlatRests,        "restsplit", ConvertedFormatVersionDuplicateCells },
             new[] { ConvertedFormatVersionDuplicateCells,   "dedupe",    ConvertedFormatVersionDirectionalNames },
             new[] { ConvertedFormatVersionDirectionalNames, "undirect",  ConvertedFormatVersionSelfLoopingIdles },
-            new[] { ConvertedFormatVersionSelfLoopingIdles, "reloop",    ConvertedFormatVersion },
+            // Targets the NAMED 1.1, not ConvertedFormatVersion. Pointing it at the current version
+            // would carry a pet from 1.0 straight past the `reground` rung below, which is exactly the
+            // skip-everything-after-me defect this file's ladder walk was written to catch.
+            new[] { ConvertedFormatVersionSelfLoopingIdles, "reloop",    ConvertedFormatVersionUngroundedJumps },
+            new[] { ConvertedFormatVersionUngroundedJumps,  "reground",  ConvertedFormatVersion },
         };
 
         /// <summary>
