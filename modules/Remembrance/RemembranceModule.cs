@@ -48,7 +48,12 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "1.0.14",  // 1.0.14: snapshots taken with no recording in flight are finally covered by
+            Version = "1.0.15",  // 1.0.15: the options pane no longer freezes ~3s on first open. The model
+                                 //         probe was Task.Run + Wait(3s), which moved the HTTP call off the
+                                 //         UI thread and then blocked it anyway; a REFUSED localhost
+                                 //         connection burns the full deadline. Also: the stub transcript
+                                 //         named a "Re-transcribe" button that never existed.
+                                 // 1.0.14: snapshots taken with no recording in flight are finally covered by
                                  //         the 72-hour purge. They are written to the storage ROOT as
                                  //         "snap <stamp>.png" and the root filter wanted " - snap", so full
                                  //         screen captures accumulated forever against a promise the module
