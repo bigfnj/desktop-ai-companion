@@ -1761,6 +1761,42 @@ Assert-True ([int] $documentedConverted.Groups[1].Value -eq $convertedPets) (
     $(if ([int] $documentedConverted.Groups[1].Value -ne $convertedPets) {
         " -- it says $($documentedConverted.Groups[1].Value), there are $convertedPets" } else { '' }))
 
+# AgentFlow must not probe VS Code's setup on the UI thread, and must not fetch a setting for itself
+# from a pool thread.
+#
+# SetupStatusLine runs while the options pane is being built. Inspect is a file read, a JSON parse
+# and a bounded TCP connect -- 30.1-30.7 ms with the port listening, 273.3-284.6 ms with it closed,
+# by that module's own measurement -- and its doc used to claim the cold path was "only in the window
+# between Init and the first tick completing", which is false in Off mode because OnTick returns
+# before the probe when not Enabled. Off is the default for a new user.
+#
+# SCOPED TO EACH METHOD. VsCodeSetup.Inspect is called from three places and ArgvPath from several,
+# so a file-wide grep passes against both mutations -- which is the failure mode this file exists for.
+$agentFlowSource = Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\AgentFlow\AgentFlowModule.cs') -Raw
+$setupLineBody = Get-MethodBody (Remove-LineComments $agentFlowSource) `
+    'private string SetupStatusLine()' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($setupLineBody.Length -gt 0) 'the AgentFlow SetupStatusLine body was located'
+Assert-True (-not $setupLineBody.Contains('VsCodeSetup.Inspect(')) (
+    'SetupStatusLine does not probe VS Code synchronously -- it runs on the UI thread while the' +
+    ' options pane is built, and in Off mode the tick never warms the cache, so a cold pane open' +
+    ' paid up to 284 ms for it')
+Assert-True ($setupLineBody.Contains('BeginSetupProbe()')) (
+    'SetupStatusLine asks for the probe in the background instead, so the next pane build has it')
+
+# The tick worker must be handed ArgvPath rather than reading it. CompanionHost.ModuleSettings is a
+# bare Dictionary<string,string> with no lock, written on the UI thread on every Apply. The tick's own
+# comment says every value on that beat is copied across the boundary; ArgvPath was the exception,
+# and it hid behind a property so it did not read as a settings access.
+$tickBody = Get-MethodBody (Remove-LineComments $agentFlowSource) `
+    'private void OnTick(' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($tickBody.Length -gt 0) 'the AgentFlow OnTick body was located'
+Assert-True ($tickBody.Contains('string argvPathNow = ArgvPath;')) (
+    'the tick copies ArgvPath across the thread boundary on the UI thread, beside Enabled, rather' +
+    ' than letting the pool-thread worker read the unsynchronised settings dictionary')
+Assert-True (-not $tickBody.Contains('Inspect(ArgvPath')) (
+    'the tick worker inspects the COPIED path, not the live settings property')
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

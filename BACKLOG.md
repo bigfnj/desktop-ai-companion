@@ -1448,16 +1448,19 @@ re-checked -- treat the first step of acting on one as confirming it still repro
 
   This verification is a one-off probe, not a gate step: PetStudio has no module-class `SelfTest`
   (its checks need a pet-XML fixture the host supplies), which is the recorded gap below.
-- 📌 **AgentFlow reads the host's unsynchronised settings dictionary from a pool thread, at
-  two remaining sites.** `modules/AgentFlow/AgentFlowModule.cs`, both reaching `ArgvPath` =
-  `_settings.Get(...)`. `CompanionHost.ModuleSettings` is a bare `Dictionary<string,string>` with no
-  lock, written on the UI thread by `SavePaneValues` on every Apply. This is precisely the defect the
-  tick's own comment says was closed -- *"Enabled was the one setting the worker still went and
-  fetched for itself ... Every other value on this beat was already copied across the boundary"* --
-  and `ArgvPath` is the counter-example to "every other value". Blast radius is bounded (a torn read
-  gives a wrong path for one probe), so this is hygiene rather than a crash. Nothing pins it.
-  Needs an `agentflow` republish.
+- ✅ **FIXED 2026-09-28 (agentflow 1.4.11).** `ArgvPath` is copied across the thread boundary on
+  the UI thread, beside `Enabled`, which is exactly the fix the tick's own comment describes having
+  already made: *"Enabled was the one setting the worker still went and fetched for itself ... Every
+  other value on this beat was already copied across the boundary; this one was missed because it
+  hides behind two predicates instead of being named inline."* `ArgvPath` was the counter-example to
+  "every other value", and it hid the same way -- behind a property, so the call site did not read as
+  a settings access.
 
+  The second site was `SetupStatusLine`, which is closed by the entry below: it no longer probes at
+  all, and the background probe reads `ArgvPath` on the caller's thread before the `Task.Run`.
+  `BrowseForArgvAsync` was checked and left synchronous on purpose -- it runs on the UI thread right
+  after a modal picker the user just dismissed, its answer IS the return value, and `path` is a local
+  from the picker rather than anything out of the settings dictionary.
 - ✅ **FIXED 2026-09-28.** Deleted, and the behaviour was already correct: **the comment directly
   above the branch asks for exactly what the unreachable branch would have prevented.** It says
   *"NOTHING TO RENAME IS NOT NOTHING TO DO. The version records the standard a pet MEETS, not whether
@@ -1563,15 +1566,23 @@ re-checked -- treat the first step of acting on one as confirming it still repro
   would change `EnumerateLocal`'s answer, which is what this entry warned about.
 
   SMOKETEST.md 147 -> 149.
-- 📌 **AgentFlow's cold setup-status path still inspects on the UI thread, and in Off mode
-  the tick never warms the cache.** `modules/AgentFlow/AgentFlowModule.cs`. `SetupStatusLine`'s doc
-  claims *"Cold only in the window between Init and the first tick completing"*, but `OnTick`
-  returns early when not `Enabled`, which is false in Off mode -- so for an Off-mode user the first
-  pane open pays it synchronously. The module's own measurement: **30.1-30.7 ms with the port
-  listening, 273.3-284.6 ms with it closed.** Once per process, so this is residue of the
-  quarter-second freeze that comment describes rather than a repeat of it. `BrowseForArgvAsync`
-  calls `Inspect` outside any `Task.Run` too. Needs an `agentflow` republish.
+- ✅ **FIXED 2026-09-28 (agentflow 1.4.11).** `SetupStatusLine` reports what it knows and asks
+  for the answer in the background (`BeginSetupProbe`, single-flight via `Interlocked`, no `Wait`);
+  the next pane build shows it, which is what an Off-mode user got anyway once the tick had run.
+  Same shape as `AiBrainModule.BeginVramProbe`, and deliberately NOT the shape Remembrance's model
+  probe had -- a `Task.Run` followed by a `Wait` moves the call and blocks the caller anyway.
 
+  Its doc claimed the cold path was *"only in the window between Init and the first tick
+  completing"*, which is false in Off mode: `OnTick` returns before the probe when not `Enabled`, and
+  Off is the default for a new user. The module's own measurement of what that cost: **30.1-30.7 ms
+  with the port listening, 273.3-284.6 ms with it closed.**
+
+  Both properties are guarded by source invariants SCOPED to their methods, which is the whole point:
+  `VsCodeSetup.Inspect` is called from three places and `ArgvPath` from several, so a file-wide grep
+  passes against either mutation. MUTATION confirmed exactly that -- reverting each one leaves **7**
+  and **10** other occurrences of the same text in the file respectively, and only the scoped check
+  fails. Baseline and restored both pass; agentflow's own 479 module assertions are unaffected.
+  SMOKETEST.md 153 -> 159.
 ### Residue of the 1.2.6 campaign itself
 
 - ✅ **FIXED 2026-09-28.** Removed, with the reasoning left at the site: `LoadThumb` owns the

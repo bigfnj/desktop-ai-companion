@@ -147,7 +147,13 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.4.10",  // 1.4.10: removes a ...ForSelfTest seam with zero references, including
+            Version = "1.4.11",  // 1.4.11: the options pane no longer probes VS Code's setup on the UI
+                                 //         thread. The doc said the cold path was only between Init and
+                                 //         the first tick, but OnTick returns before the probe when the
+                                 //         mode is Off -- the default -- so a cold pane open paid
+                                 //         273-285ms with the port closed. Also: the tick worker is
+                                 //         handed ArgvPath instead of fetching it from the host's
+                                 //         unsynchronised settings dictionary on a pool thread.  // 1.4.10: removes a ...ForSelfTest seam with zero references, including
                                  //         from the self-test it was named for. No behaviour change.
                                  // 1.4.9: test coverage, no behaviour change. A loopback fake CDP server now
                                  //        drives Sweep end to end -- target discovery, the attach/evaluate/detach
@@ -556,6 +562,12 @@ namespace DesktopAICompanion.AgentFlow
             // value on this beat was already copied across the boundary; this one was missed
             // because it hides behind two predicates instead of being named inline.
             bool enabledNow = Enabled;
+            // AND ArgvPath, for exactly the reason the paragraph above gives about Enabled. It is the
+            // counter-example to "every other value on this beat was already copied across the
+            // boundary", and it hides the same way: behind a property, so it does not read as a
+            // settings access at the call site. _settings is the host's bare Dictionary<string,string>
+            // with no lock, written on the UI thread by SavePaneValues on every Apply.
+            string argvPathNow = ArgvPath;
 
             // Reading and parsing transcripts is file IO plus JSON, so it never runs on the tick.
             // Nothing inside this task touches _host.
@@ -612,7 +624,7 @@ namespace DesktopAICompanion.AgentFlow
                 {
                     if (ShouldProbePort(enabledNow))
                     {
-                        SetupReport report = VsCodeSetup.Inspect(ArgvPath, 200);
+                        SetupReport report = VsCodeSetup.Inspect(argvPathNow, 200);
                         // Published as a whole, freshly-built instance. Inspect fills it locally
                         // and returns it, so nothing else can observe a half-written report.
                         _setupCache = report;
@@ -1943,6 +1955,33 @@ namespace DesktopAICompanion.AgentFlow
             get { return _settings == null ? "" : _settings.Get(SettingArgvPath, ""); }
         }
 
+        /// <summary>Guards SetupStatusLine's background probe so a pane rebuilt twice runs one.</summary>
+        private int _setupProbeInFlight;
+
+        /// <summary>
+        /// Fill _setupCache off the UI thread, once at a time.
+        ///
+        /// Fire-and-forget on purpose: there is nothing to await for: the value lands in the cache and
+        /// the next pane build reads it, which is the behaviour an Off-mode user got anyway once the
+        /// tick had run. No Wait, because a Wait is what made Remembrance's model probe freeze the
+        /// pane for 3 s while its doc claimed it was off the UI thread -- a refused localhost
+        /// connection burns the whole deadline rather than failing fast.
+        ///
+        /// ArgvPath is read HERE, on the caller's thread, not inside the task: the host's settings
+        /// dictionary is unsynchronised and written on the UI thread.
+        /// </summary>
+        private void BeginSetupProbe()
+        {
+            if (System.Threading.Interlocked.CompareExchange(ref _setupProbeInFlight, 1, 0) != 0) return;
+            string argvPath = ArgvPath;
+            Task.Run(() =>
+            {
+                try { _setupCache = VsCodeSetup.Inspect(argvPath, 250); }
+                catch (Exception) { }
+                finally { System.Threading.Interlocked.Exchange(ref _setupProbeInFlight, 0); }
+            });
+        }
+
         private int CdpPort
         {
             get
@@ -1987,8 +2026,21 @@ namespace DesktopAICompanion.AgentFlow
             SetupReport report = _setupCache;
             if (report == null)
             {
-                report = VsCodeSetup.Inspect(ArgvPath, 250);
-                _setupCache = report;
+                // NOT INSPECTED HERE. This method runs while the options pane is being built, on the
+                // UI thread, and Inspect is a file read plus a JSON parse plus a bounded TCP connect:
+                // measured in this file at 30.1-30.7 ms with the port listening and 273.3-284.6 ms
+                // with it closed.
+                //
+                // The doc above used to say "Cold only in the window between Init and the first tick
+                // completing", which is false for an Off-mode user: OnTick returns before the probe
+                // when not Enabled, so the tick never fills the cache and the first pane open paid
+                // for it. Off is a supported, and for a new user the DEFAULT, state.
+                //
+                // So: say what is known, and ask for the answer in the background. The next pane
+                // build shows it, which is exactly what happened before whenever the tick had
+                // already run. Same shape as AiBrainModule.BeginVramProbe.
+                BeginSetupProbe();
+                return "Checking whether approving can work\u2026";
             }
             switch (report.State)
             {
@@ -2125,6 +2177,11 @@ namespace DesktopAICompanion.AgentFlow
             string path = picked[0];
             // The cache describes the PREVIOUS path, so it is not stale, it is about another file.
             _setupCache = null;
+            // STILL SYNCHRONOUS, and deliberately. This runs on the UI thread immediately after a
+            // modal file picker the user just dismissed, and its answer is the return value -- the
+            // user chose a file and is owed a verdict about that file, not a "checking..." that
+            // resolves into a pane they have already stopped looking at. `path` is a local from the
+            // picker, so unlike the tick this reads nothing from the settings dictionary.
             SetupReport report = VsCodeSetup.Inspect(path, 250);
             _setupCache = report;
             if (report.State == SetupState.Unreadable)
