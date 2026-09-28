@@ -493,26 +493,83 @@ if ((Test-Path -LiteralPath $collectionsPath) -and (Test-Path -LiteralPath $fort
         if (-not $dll) { throw "fortunes.zip contains no Fortunes.dll to inspect." }
         $shipped = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($dll.FullName))
 
-        $missing = [System.Collections.Generic.List[string]]::new()
-        foreach ($c in $expected.collections) {
-            foreach ($s in $c.sources) {
-                # The emitter writes the sources array verbatim, so each id appears as a quoted literal.
-                if ($shipped.IndexOf('"' + $s + '"', [StringComparison]::Ordinal) -lt 0) {
-                    $missing.Add("$($c.name) / $s")
-                }
+        # THE MAPPING, STRUCTURALLY. This used to search for each source id ON ITS OWN and use
+        # $expectedPairs only for counts, so a pack MOVED between collections left every id present
+        # and passed -- while the success line claimed all the mappings were embedded. Only an ADDED
+        # id was ever caught, which is what the original incident happened to be. The old comment
+        # said the search "cannot false-negative"; true of ids, false of mappings.
+        #
+        # collections.json is embedded verbatim as a resource, so the real thing is available: find
+        # it, parse it, and compare collection -> sources exactly. A move, a rename, a reorder
+        # between collections and a dropped source all fail now.
+        $embedded = $null
+        $atCollections = $shipped.IndexOf('"collections"', [StringComparison]::Ordinal)
+        while ($atCollections -ge 0 -and $null -eq $embedded) {
+            # Walk back to the object that owns the key, then forward to its matching brace, counting
+            # depth and skipping anything inside a string so a brace in a description cannot fool it.
+            $start = $shipped.LastIndexOf('{', $atCollections)
+            if ($start -lt 0) { break }
+            $depth = 0; $inString = $false; $escaped = $false; $end = -1
+            for ($i = $start; $i -lt $shipped.Length; $i++) {
+                $ch = $shipped[$i]
+                if ($escaped) { $escaped = $false; continue }
+                if ($ch -eq '\') { $escaped = $true; continue }
+                if ($ch -eq '"') { $inString = -not $inString; continue }
+                if ($inString) { continue }
+                if ($ch -eq '{') { $depth++ }
+                elseif ($ch -eq '}') { $depth--; if ($depth -eq 0) { $end = $i; break } }
+            }
+            if ($end -gt $start) {
+                try { $embedded = $shipped.Substring($start, $end - $start + 1) | ConvertFrom-Json }
+                catch { $embedded = $null }
+                if ($null -ne $embedded -and -not $embedded.PSObject.Properties['collections']) { $embedded = $null }
+            }
+            $atCollections = $shipped.IndexOf('"collections"', $atCollections + 1, [StringComparison]::Ordinal)
+        }
+        # THROWS rather than falling back to the old id-only search. A check that quietly downgrades
+        # itself to a weaker one is exactly the failure mode this file keeps correcting.
+        if ($null -eq $embedded) {
+            throw ("Could not locate the embedded collections.json inside the shipped Fortunes.dll, so " +
+                   "the pack-to-collection mapping cannot be verified. If the module stopped embedding " +
+                   "it verbatim, this check needs rewriting rather than skipping.")
+        }
+
+        function Get-CollectionMap($doc) {
+            $map = @{}
+            foreach ($c in $doc.collections) {
+                $src = @()
+                if ($c.PSObject.Properties['sources'] -and $null -ne $c.sources) { $src = @($c.sources) }
+                $map[[string]$c.name] = (($src | Sort-Object) -join '|')
+            }
+            return $map
+        }
+
+        $wantMap = Get-CollectionMap $expected
+        $gotMap = Get-CollectionMap $embedded
+        $problems = [System.Collections.Generic.List[string]]::new()
+        foreach ($name in $wantMap.Keys) {
+            if (-not $gotMap.ContainsKey($name)) { $problems.Add("collection '$name' is absent from the shipped DLL"); continue }
+            if ($wantMap[$name] -ne $gotMap[$name]) {
+                $problems.Add("collection '$name' has different sources: expected [" +
+                              ($wantMap[$name] -replace '\|', ', ') + "], shipped [" +
+                              ($gotMap[$name] -replace '\|', ', ') + "]")
             }
         }
-        if ($missing.Count -gt 0) {
+        foreach ($name in $gotMap.Keys) {
+            if (-not $wantMap.ContainsKey($name)) { $problems.Add("collection '$name' is in the shipped DLL but not in packs/collections.json") }
+        }
+        if ($problems.Count -gt 0) {
             Write-Host ''
-            foreach ($m in $missing | Select-Object -First 12) { Write-Host "  missing from the shipped DLL: $m" }
-            if ($missing.Count -gt 12) { Write-Host "  ... and $($missing.Count - 12) more" }
+            foreach ($m in $problems | Select-Object -First 12) { Write-Host "  $m" }
+            if ($problems.Count -gt 12) { Write-Host "  ... and $($problems.Count - 12) more" }
             throw ("modules-dist/fortunes.zip was built before the current packs/collections.json: " +
-                   "$($missing.Count) of $($expectedPairs.Count) pack-to-collection mappings are absent " +
-                   "from the shipped Fortunes.dll. Those packs fall into the fallback 'More packs' group " +
+                   "$($problems.Count) pack-to-collection difference(s) between the shipped Fortunes.dll " +
+                   "and packs/collections.json. Affected packs fall into the fallback 'More packs' group " +
                    "for every user. REBUILD the module (New-ModulePublish.ps1 WITHOUT -SkipBuild) rather " +
                    "than re-zipping, then commit the zip and regenerate the catalog.")
         }
-        Write-Host "fortunes.zip embeds all $($expectedPairs.Count) current pack-to-collection mappings."
+        Write-Host ("fortunes.zip embeds all $($expectedPairs.Count) current pack-to-collection mappings " +
+                    "across $($wantMap.Count) collection(s), compared structurally.")
     }
     finally {
         Remove-Item $scratch -Recurse -Force -ErrorAction SilentlyContinue

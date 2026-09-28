@@ -216,6 +216,19 @@ try {
     Write-Host '=== load the scaffolded module through the real host' -ForegroundColor Cyan
     $loaderLog = Join-Path $env:TEMP 'dp-template-module-selftest.log'
     [System.IO.File]::Delete($loaderLog)
+    # THE MARKER, not just the exit code. ModuleConventionSelfTest.Run returns TRUE on
+    # "SKIP: no bundled module" and Finish swallows a failed marker write, so exit 0 does not mean
+    # the module was loaded and exercised. Invoke-SelfTests.ps1 closed this exact gap for the four
+    # --module-selftest= flags on 2026-09-17 -- "for exactly the checks which load a module through
+    # the real loader, only the exit code was tested" -- and it was never carried across to here,
+    # while the template's own SampleModule.cs promises "Never SKIP silently -- the gate fails on a
+    # SKIP". Deleted with [IO.File]::Delete, which does not do ~ expansion; Remove-Item does.
+    $loaderMarker = Join-Path $env:TEMP "dp-module-$sampleId-selftest.txt"
+    [System.IO.File]::Delete($loaderMarker)
+    if (Test-Path -LiteralPath $loaderMarker) {
+        throw ("A previous marker could not be deleted, so this run's verdict would be the previous " +
+               "run's: $loaderMarker")
+    }
     $loader = Start-Process -FilePath $hostExe -ArgumentList "--module-selftest=$sampleId" `
         -Wait -PassThru -NoNewWindow -RedirectStandardOutput $loaderLog -RedirectStandardError "$loaderLog.err"
     if ($loader.ExitCode -ne 0) {
@@ -228,7 +241,30 @@ try {
                "$($loader.ExitCode)). It compiled, so this is a LOAD-time rejection: check template.json's " +
                "minHostVersion against ProductVersion.props, and the Private=`"false`" contract reference.")
     }
-    Write-Host ("OK   the host loaded and self-tested the scaffolded module")
+    # The marker is the only evidence the module was actually loaded and exercised.
+    if (-not (Test-Path -LiteralPath $loaderMarker -PathType Leaf)) {
+        throw ("The host exited 0 but wrote no self-test marker ($loaderMarker), so the scaffolded " +
+               "module was never loaded and exercised. An exit code alone cannot tell that apart " +
+               "from a pass.")
+    }
+    $loaderLines = @(Get-Content -LiteralPath $loaderMarker -Encoding UTF8)
+    $loaderVerdict = @($loaderLines | Where-Object { $_ -match '^RESULT=' } | Select-Object -Last 1)
+    $loaderResult = if ($loaderVerdict.Count) { ($loaderVerdict[0] -replace '^RESULT=', '').Trim() } else { 'NOVERDICT' }
+    if ($loaderResult -ne 'PASS') {
+        $loaderLines | Select-Object -Last 30 | ForEach-Object { Write-Host "        $_" }
+        throw "The scaffolded module's self-test reported RESULT=$loaderResult."
+    }
+    # A SKIP is a FAILURE here, which is what the template's own doc block promises. Run() returns
+    # true on one, so without this the gate would pass a template whose SelfTest does nothing.
+    $loaderSkips = @($loaderLines | Where-Object { $_ -match '(^|\s)SKIP\b' })
+    if ($loaderSkips.Count -gt 0) {
+        $loaderSkips | ForEach-Object { Write-Host "        $_" }
+        throw ("The scaffolded module's self-test SKIPPED (" + $loaderSkips.Count + " line(s)). The " +
+               "template documents 'Never SKIP silently -- the gate fails on a SKIP', so a skip is a " +
+               "template defect rather than an acceptable outcome.")
+    }
+    Write-Host ("OK   the host loaded and self-tested the scaffolded module (RESULT=PASS, no skips, " +
+                (@($loaderLines | Where-Object { $_ -match 'PASS:' })).Count + " assertion line(s))")
 
     Write-Host ''
     Write-Host 'TEMPLATE OK (scaffolds, substitutes, builds, packages, and LOADS in the real host).' -ForegroundColor Green

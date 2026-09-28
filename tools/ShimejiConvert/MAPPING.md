@@ -153,7 +153,7 @@ which needs only the cursor's SIDE, not its coordinates. A true chase would need
 position is not otherwise reachable (`imageX`/`imageY` return -1 for a top-level, non-child companion -- see
 `src/dotNet/Xml.cs`) -- plus a per-tick movement mode in the engine, which is the expensive part. That work is
 parked on a judgement call recorded in `docs/BLOCKED.md`, not scheduled. `totalCount` is not planned at all: zero
-occurrences across the 31 shipping skins.
+occurrences across the 32 shipping skins.
 
 `ShimejiConvert selftest` gates the parser + classifier on a committed synthetic fixture; the real config is
 copyrighted and deliberately never enters this repo (clone it outside the tree for the `classify` dev check).

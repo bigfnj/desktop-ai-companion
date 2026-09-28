@@ -1361,25 +1361,31 @@ re-checked -- treat the first step of acting on one as confirming it still repro
   the defect this section exists for. The diagnosis is kept as a comment at the site so the next
   person does not re-derive it.
   CLOSES-WHEN: grep-present tests/Test-ModuleSelfTests.ps1 "STALEMARKER"
-- 📌 **The module template's loader check is judged by exit code alone.**
-  `packaging/Test-ModuleTemplate.ps1`. The only assertion is `$loader.ExitCode -ne 0`; it never
-  deletes, reads, or SKIP-scans the marker. `ModuleConventionSelfTest.Run` returns **true** on
-  `SKIP: no bundled module`, and `Finish` swallows a failed write. `tests/Invoke-SelfTests.ps1`
-  records that this precise gap was closed for the four `--module-selftest=` flags on 2026-09-17
-  (*"for exactly the checks which load a module through the real loader, only the exit code was
-  tested"*) and it was never carried across. The template's own doc promises the opposite: *"Never
-  SKIP silently -- the gate fails on a SKIP"*. Latent today, because the scaffolded `SelfTest` uses
-  only `probe.Check` -- the same status the four convention flags had before they were fixed.
+- ✅ **FIXED 2026-09-28.** The step deletes the marker, asserts the delete, requires the marker
+  to exist, requires `RESULT=PASS`, and **fails on a SKIP** -- which is what
+  `templates/.../SampleModule.cs` already promised (*"Never SKIP silently -- the gate fails on a
+  SKIP"*) and what `ModuleConventionSelfTest.Run` returning true on one had made false. It also
+  reports the assertion count, so a template whose self-test shrinks to nothing is visible.
 
-- 📌 **The "pack-to-collection mapping" check never checks a mapping.**
-  `packaging/Test-ModulePublishFreshness.ps1`. `$expectedPairs` is built from collection+source and
-  then used ONLY for counts; the assertion loop checks that each *source id* appears somewhere in
-  the UTF-8 decoding of `Fortunes.dll`, never which collection it belongs to. Move a pack between
-  collections without rebuilding and every id is still present, so the check passes while its
-  message still claims all current mappings are embedded. Only *added* ids are caught -- which is
-  what the original incident happened to be. The block's own comment says the search "cannot
-  false-negative"; that is true of ids and false of mappings.
+  MUTATION, using the exact latent input the audit named rather than a stand-in: replacing a
+  `probe.Check` in the scaffolded `SelfTest` with `probe.Skip(...)` now fails with *"the scaffolded
+  module's self-test SKIPPED"*. Baseline and restored both `TEMPLATE OK`. Deleted with
+  `[IO.File]::Delete`, which does not perform `~` expansion; `Remove-Item` does.
+- ✅ **FIXED 2026-09-28, structurally.** I inspected the DLL instead of guessing at a fix:
+  `collections.json` is embedded VERBATIM as a resource, so the check now extracts that JSON, parses
+  it, and compares collection -> sources against `packs/collections.json` exactly. A failed
+  extraction THROWS rather than falling back to the old id-only search -- a check that quietly
+  downgrades itself to a weaker one is the shape this section is full of.
 
+  MUTATION, and the decisive leg is the one the old check provably could not see:
+
+  | mutation | old check | new check |
+  |---|---|---|
+  | MOVE a pack between collections | passed | caught, names the collection and both source lists |
+  | RENAME a collection | passed | caught, "absent from the shipped DLL" |
+  | DROP a source | caught | caught |
+
+  Baseline and restored both pass, and `packs/collections.json` was restored byte-identically.
 - ✅ **FIXED 2026-09-28.** Wrapped in `if ($launchPublish.Count -eq 1)`, matching every other
   block in the file. Nothing is hidden by skipping them: the `Count` assertion above has already
   failed and recorded itself.
@@ -1573,14 +1579,21 @@ re-checked -- treat the first step of acting on one as confirming it still repro
   thread only -- so the inner lookup could never hit and the inner store was immediately overwritten
   with the same reference. Residue of that day's fix, and it contradicted the doc written for it
   (*"CACHED HERE, not one level down"*).
-- 📌 **An error path added "so it is REACHABLE in a test", with no test.**
-  `packaging/ContentCatalogAssets.ps1`. The comment reads *"`$TimeoutMs` exists so the timeout path
-  below is REACHABLE in a test. A 60-second default cannot be provoked in a gate, and an error path
-  nobody has ever executed is a guess, not a safeguard."* Every caller passes three positional
-  arguments and never the timeout; a repo-wide grep finds no test. So the kill path and the refusal
-  have never been executed, and the parameter documents an intention that was not carried out. Mine,
-  from that day -- the throw is exactly the "guess" its own comment warns about.
+- ✅ **FIXED 2026-09-28 by writing the test, not by deleting the parameter** -- the comment's
+  argument was right, and the path had still never executed. `Test-ContentCatalogIntegrity.ps1` calls
+  `Get-CatalogAsset ... 1`, and one millisecond provokes it because `git cat-file` cannot finish that
+  fast. The kill and the refusal both ran for the first time, and the run prints *"the catalog-asset
+  timeout path refuses rather than falling back"*.
 
+  Asserted on the MESSAGE, with a negative control: a wrong path or an unreadable repo also throws
+  and would have made this look like a pass, so the same asset is also read at the default timeout
+  and must succeed.
+
+  ⚠ **My first detector reported the correctly-firing path as broken.** It matched
+  `timed out|timeout`; the real message is *"git cat-file did not return within 1ms ... Refusing to
+  fall back to the working-tree bytes"*. It matches the REFUSAL now, which is the load-bearing half
+  -- the whole point of the path is that it does not silently hash the worktree instead of what
+  raw.githubusercontent serves.
 - ✅ **FIXED 2026-09-28.** Both now describe petstudio and testmodule, and both say the
   script's own lists are the authority rather than the prose. `Test-ModuleSelfTests.ps1` also records
   WHY each is uncovered -- petstudio's `BehaviourChainSelfCheck.RunChecks` needs a pet XML fixture the
@@ -1588,14 +1601,17 @@ re-checked -- treat the first step of acting on one as confirming it still repro
   next reader does not have to guess whether a gap is expected.
 ### Doc rot the repo does not assert
 
-- 📌 **Stale counts and a future date in comments nothing checks.**
-  `tools/ShimejiConvert/Program.cs` says "all 31 CONVERTED pets" in two places and
-  `tools/ShimejiConvert/MAPPING.md` says "31 shipping skins"; there are 32 pets carrying
-  `<author>Converted from a Shimeji skin</author>` and 54 companion directories. `MAPPING.md` also
-  dates a change to "2026-09-28", which was one day in the future when it was written. Same drift
-  class as the Readme project count and the self-test count, both of which are now asserted -- the
-  cheap fix is to assert these too rather than to correct them once.
+- ✅ **FIXED 2026-09-28, and ASSERTED rather than just corrected.** Both said 31 against a
+  measured 32. Correcting a number nobody re-measures only resets the clock, which is exactly why the
+  Readme project count and the self-test count are assertions -- so `runtime-hardening-selftest.ps1`
+  now counts the companions whose author is `Converted from a Shimeji skin` and requires both
+  `MAPPING.md` and `Program.cs` to agree with the corpus.
 
+  MUTATION: changing `MAPPING.md` to 33 fails with *"it says 33, there are 32"*, naming both numbers.
+  SMOKETEST.md 149 -> 153.
+
+  The "future date" half needed nothing: `MAPPING.md` dated a change to 2026-09-28, which was one day
+  ahead when the audit read it and is today's date now.
 ### Recorded, deliberately not filed as defects
 
 - ✅ **`release.yml` leaves the signing PFX on disk if the import throws** -- and the scrub step

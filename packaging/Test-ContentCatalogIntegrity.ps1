@@ -42,6 +42,42 @@ if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
 }
 . (Join-Path $PSScriptRoot 'ContentCatalogAssets.ps1')
 
+# EXECUTE THE TIMEOUT PATH, once, before anything depends on it.
+#
+# Get-CatalogAsset's $TimeoutMs exists, in its own words, "so the timeout path below is REACHABLE in
+# a test. A 60-second default cannot be provoked in a gate, and an error path nobody has ever
+# executed is a guess, not a safeguard." No caller or test ever passed it, so the kill and the
+# refusal had never run. One millisecond provokes them: git cat-file cannot finish that fast.
+#
+# Asserted on the MESSAGE, not merely that something threw -- a wrong path or an unreadable repo also
+# throws, and would have made this look like a pass. The negative control matters as much: the same
+# call at the real default must SUCCEED, or this would pass on a file that simply cannot be read.
+$timeoutProbeRel = 'packs/collections.json'
+$timeoutProbeFull = Join-Path (Split-Path $PSScriptRoot -Parent) 'packs\collections.json'
+if (Test-Path -LiteralPath $timeoutProbeFull) {
+    $repoRootForProbe = Split-Path $PSScriptRoot -Parent
+    $probeThrew = ''
+    try {
+        $null = Get-CatalogAsset $repoRootForProbe $timeoutProbeRel $timeoutProbeFull 1
+        $probeThrew = '(did not throw)'
+    }
+    catch { $probeThrew = $_.Exception.Message }
+    # Matched on the REFUSAL, which is the load-bearing half, not on the word "timeout" -- the real
+    # message says "did not return within 1ms ... Refusing to fall back to the working-tree bytes",
+    # and a detector looking for "timeout" reported a correctly-firing path as broken.
+    if ($probeThrew -notmatch 'Refusing to fall back') {
+        throw ("Get-CatalogAsset's timeout path did not report a timeout at -TimeoutMs 1; it said: " +
+               $probeThrew + ". That path is the only thing standing between a hung git and a silent " +
+               "fallback to the worktree, so it must not be left unexecuted.")
+    }
+    # Negative control: the same asset at the real default must read fine.
+    $control = Get-CatalogAsset $repoRootForProbe $timeoutProbeRel $timeoutProbeFull
+    if ($null -eq $control) {
+        throw 'Get-CatalogAsset returned nothing for packs/collections.json at the default timeout.'
+    }
+    Write-Host '  ok   the catalog-asset timeout path refuses rather than falling back (and succeeds at the default)'
+}
+
 $catalogPath = Join-Path $RepoRoot 'catalog.json'
 if (-not (Test-Path -LiteralPath $catalogPath -PathType Leaf)) {
     throw "catalog.json is missing: $catalogPath"

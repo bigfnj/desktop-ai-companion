@@ -1735,6 +1735,32 @@ Assert-True ($catalogFlat.Contains(
     ' Companions pane disagree about which pets are installed, and the synthetic-corpus check in' +
     ' --catalog-selftest cannot see it because that test passes its own roots in')
 
+# The CONVERTED-pet count, measured rather than quoted. Two comments said "31" against a real 32 --
+# harmless on their own, and exactly the drift the Readme project count and the self-test count were
+# turned into assertions for, because correcting a number nobody re-measures only resets the clock.
+$convertedPets = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'Companions') -Directory |
+    Where-Object {
+        $x = Join-Path $_.FullName 'animations.xml'
+        (Test-Path -LiteralPath $x) -and
+        (Select-String -LiteralPath $x -Pattern '<author>Converted from a Shimeji skin</author>' -SimpleMatch -Quiet)
+    }).Count
+$mappingSource = Get-Content -LiteralPath (
+    Join-Path $repoRoot 'tools\ShimejiConvert\MAPPING.md') -Raw
+$documentedSkins = [regex]::Match($mappingSource, 'occurrences across the (\d+) shipping skins')
+Assert-True ($documentedSkins.Success) 'MAPPING.md states a shipping-skin count'
+Assert-True ([int] $documentedSkins.Groups[1].Value -eq $convertedPets) (
+    "MAPPING.md's shipping-skin count matches the corpus" +
+    $(if ([int] $documentedSkins.Groups[1].Value -ne $convertedPets) {
+        " -- it says $($documentedSkins.Groups[1].Value), there are $convertedPets" } else { '' }))
+$converterSource = Get-Content -LiteralPath (
+    Join-Path $repoRoot 'tools\ShimejiConvert\Program.cs') -Raw
+$documentedConverted = [regex]::Match($converterSource, 'all (\d+) CONVERTED pets')
+Assert-True ($documentedConverted.Success) 'Program.cs states a converted-pet count'
+Assert-True ([int] $documentedConverted.Groups[1].Value -eq $convertedPets) (
+    "Program.cs's converted-pet count matches the corpus" +
+    $(if ([int] $documentedConverted.Groups[1].Value -ne $convertedPets) {
+        " -- it says $($documentedConverted.Groups[1].Value), there are $convertedPets" } else { '' }))
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

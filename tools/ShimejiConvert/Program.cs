@@ -265,7 +265,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             // harness is wrong -- not the pet.
             //
             // Unreachable animations used to be reported and never failed, because whether hand-authored pets
-            // are fully connected was an open question. It is answered: all 31 CONVERTED pets are fully
+            // are fully connected was an open question. It is answered: all 32 CONVERTED pets are fully
             // connected, and the seven hand-authored sheep each strand two. So a converted pet stranding an
             // animation is now a failure -- it means an emitter change or a migration quietly cut a pose off
             // from the graph, which is invisible in-app (the pose simply never plays) and is exactly what a
