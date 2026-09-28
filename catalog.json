@@ -2303,10 +2303,10 @@
       "id": "aibrain",
       "name": "AI Brain",
       "desc": "An optional, off-by-default screen-commentary AI brain (local Ollama/llama.cpp or an optional cloud provider). Reads the screen with Windows' built-in OCR, so it needs no separate Tesseract install.",
-      "version": "1.1.12",
+      "version": "1.1.13",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/aibrain.zip",
-      "sha256": "f1a8c282a549bd6dc852cc2169f3ca4e2fa8df80f059e9967c6fae91933b4649",
-      "bytes": 6758574,
+      "sha256": "e175fc75ba73bbe08e247463f3f1186b64f72d8c003f9c80ae336620167c7590",
+      "bytes": 6759342,
       "permissions": "Speech, Animation, ScreenContext, Network, Hotkey, Storage",
       "minHostVersion": "1.1.0"
     },
