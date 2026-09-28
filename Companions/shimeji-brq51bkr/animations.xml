@@ -63,14 +63,14 @@
         <y>0</y>
         <offsety>0</offsety>
         <opacity>1</opacity>
-        <interval>320</interval>
+        <interval>200</interval>
       </start>
       <end>
         <x>-2</x>
         <y>0</y>
         <offsety>0</offsety>
         <opacity>1</opacity>
-        <interval>320</interval>
+        <interval>200</interval>
       </end>
       <sequence repeatfrom="0" repeat="0">
         <frame>1</frame>
@@ -156,28 +156,33 @@
       </gravity>
     </animation>
     <animation id="5">
-      <name>fling</name>
+      <name>jump</name>
       <start>
         <x>-4</x>
-        <y>0</y>
+        <y>-15</y>
         <offsety>0</offsety>
         <opacity>1</opacity>
-        <interval>720</interval>
+        <interval>86</interval>
       </start>
       <end>
         <x>-4</x>
-        <y>0</y>
+        <y>20</y>
         <offsety>0</offsety>
         <opacity>1</opacity>
-        <interval>720</interval>
+        <interval>86</interval>
       </end>
-      <sequence repeatfrom="0" repeat="0">
+      <sequence repeatfrom="0" repeat="13">
         <frame>64</frame>
-        <next probability="100" only="none">1</next>
-      </sequence>
-      <gravity>
         <next probability="100" only="none">9</next>
-      </gravity>
+      </sequence>
+      <border>
+        <next probability="100" only="window-bottom">8</next>
+        <next probability="3" only="taskbar">5</next>
+        <next probability="3" only="taskbar">2</next>
+        <next probability="100" only="vertical">9</next>
+        <next probability="100" only="horizontal">9</next>
+        <next probability="100" only="window-top">9</next>
+      </border>
     </animation>
     <animation id="6">
       <name>climb</name>
