@@ -2325,10 +2325,10 @@
       "id": "reminder",
       "name": "Reminder",
       "desc": "Your companion announces upcoming calendar events and reads your agenda. Watches up to five calendars (local file, ICS URL, or running Outlook), each with its own name, style, and chime; one-click Join for Teams/Zoom/Meet links; a daily morning briefing; typed personal reminders; skips declined and all-day events; lead times, quiet hours, and hush-while-presenting.",
-      "version": "1.0.5",
+      "version": "1.0.6",
       "url": "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/modules-dist/reminder.zip",
-      "sha256": "603a7e834adb7210d6d1bbba25c1e55e6536e48ab9f5a684f14975e1bee7a7a5",
-      "bytes": 402691,
+      "sha256": "b66fc63d1e7b720d5e8f82ac28862a2f590f901575adea1b1f458fb49f94a68f",
+      "bytes": 403110,
       "permissions": "Speech, Storage, Network, Companions, Audio, Animation",
       "minHostVersion": "1.0.0"
     },
