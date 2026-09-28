@@ -572,9 +572,20 @@ under a generic `img/Shimeji/` folder and carry no character name to match on.
 ### The Zim conversion specifically
 
 
-📌 A Shimeji skin for Zim converted and was accepted on the first run: 26 animations, valid,
-round-trips, 0 unreachable. Verified in the real app via `localxml=`, not just by the validator.
-The converter reported **6 actions dropped and 33 degraded**, and those 39 are the work.
+✅ **DECLINED 2026-09-28 by owner decision: the fidelity work is not being tackled.**
+
+Zim converted and was accepted on the first run: 26 animations at the time, valid, round-trips, 0
+unreachable, verified in the real app via `localxml=` rather than by the validator alone. The
+converter reported **6 actions dropped and 33 degraded**, and those 39 were the proposed work.
+
+**Why declining is reasonable rather than reluctant:** 31 of the 39 sit in one cluster that needs
+host-side window geometry the pet format does not expose, and 2 more are a genuine format limit
+(`<child>` auto-closes, so a self-breeding sibling cannot be expressed). So roughly 85% of the work
+is blocked on capabilities that do not exist, not on converter effort. The remaining 6 are
+cursor-position branching, which needs condition support the format lacks.
+
+The cluster analysis is kept below because it is the part worth having if this is ever revisited;
+the 39 individual residue lines are not, and they live in the handoff file named further down.
 
 **They are four problems, not thirty-nine**, which is the part worth carrying into the estimate.
 Parsed from the residue file rather than tallied by hand:
@@ -594,12 +605,16 @@ the 39 (the converter's fixed ~48px jump height, and 60 actions using script-com
 `D:\.ai-work\shimeji-catalog\work\zim\HANDOFF.md`, beside the converted XML and its residue
 report. Kept out of this repo on purpose: see below.
 
-⚠ **Nothing about this is in the repo yet, and publishing is undecided.** The asset is a third
-party's sprite art of a character its owners hold, sourced from shimeji.org, which records **no
-author** for it — so the source-specific evidence `Companions/README.md` asks for (exact bytes,
-authorship, licence, attribution, redistribution scope) cannot be assembled for these bytes. That is
-a maintainer decision, not an engineering blocker. Fidelity work can proceed on the local copy
-regardless of how it lands.
+⚠ **The status line above was stale and is corrected here.** It said "Nothing about this is in
+the repo yet". Zim ships: `Companions/shimeji-zim` is present, is in `catalog.json`, and now carries
+**45 animations** against the 26 this entry recorded, so it has been improved since the entry was
+written. The publishing question the entry raised is a maintainer decision that has since been taken
+one way or the other; it is not re-raised here, and nothing in this repo's gates speaks to
+redistribution rights either way.
+
+Kept for traceability: the entry's original note was that the asset is a third party's sprite art of
+a character its owners hold, sourced from shimeji.org, which records no author for it — so the
+source-specific evidence `Companions/README.md` asks for could not be assembled from that source.
 
 ---
 
