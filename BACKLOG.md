@@ -159,10 +159,22 @@ reader would otherwise have to rediscover.
   whose paragraph is derived from settings will show stale text after Apply until the pane is
   reopened. AgentFlow's three explanation headers are static prose, so nothing is wrong today; the
   first `Header` carrying live state will hit it.
-- ⬜ **A junction part way along a path is now resolved, a symlink test still is not.** Containment
-  uses `GetFinalPathNameByHandle`, which handles both — but the symlink assertion reports DEGRADED
-  on an account that cannot create one, and this account cannot. The junction case covers the
-  property; the symlink case is an extra that only runs where Developer Mode is on.
+- ✅ **DECLINED 2026-09-28, with the measurement rather than a judgement.** A symlink test would
+  add no coverage, and that is checkable rather than arguable: `OptionsWindow`'s containment resolves
+  a path with ONE call to `GetFinalPathNameByHandle`, which its own comment describes as resolving
+  *"every reparse point along the path in one call"*. A junction and a symbolic link are both reparse
+  points, and that call has **no branch on which kind it found** — verified by reading the
+  resolver, where the only other reparse references in the tree belong to `CompanionXmlValidator`, a
+  different subsystem. So a symlink traverses byte-identical code to the junction already covered.
+
+  The junction is also the case that HAD to be covered, for the reason the test itself records: a
+  symlink needs Developer Mode or elevation, a junction needs neither, so the junction is the
+  CHEAPER escape. And that test carries its own non-vacuity assertion — *"the junction escape is
+  actually set up (so the next check is not vacuous)"* — so it cannot pass by failing to set up.
+
+  What a symlink test would add instead is a check that reports DEGRADED on any account without
+  Developer Mode. A control that can run degraded must say so on every run, which this one does; a
+  permanently degraded extra covering no new branch is better off the list than carried on it.
 
 ### Left open by the three parallel audits (2026-09-19)
 
@@ -266,10 +278,14 @@ there.
     automatic duck-while-a-bubble-is-up idea is the part that remains open.
 
 - ⬜ **Automatic ducking is still not implemented**, and the groundwork for it shipped with the
-  CLOSES-WHEN: grep-present src/dotNet/AudioOutput.cs "DuckWhileBubbleUp"
   v1.6.0 module-audio ABI: that work added per-owner input tracking, and its own entry records why it
   stopped there — it "changes how the app sounds, so it wants its own decision and a setting". The
   full entry is in [`docs/HISTORY-post-1.0.0.md`](docs/HISTORY-post-1.0.0.md).
+
+  ⚠ **This is an owner decision, not unstarted work.** The entry above says so and it is the
+  reason this has sat here: ducking changes how the app sounds for everyone, so it wants a setting
+  and a choice about the default rather than an implementation.
+  CLOSES-WHEN: grep-present src/dotNet/AudioOutput.cs "DuckWhileBubbleUp"
 
 ---
 

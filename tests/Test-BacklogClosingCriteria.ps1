@@ -139,8 +139,16 @@ for ($h = 0; $h -lt $lines.Count; $h++) {
 for ($i = 0; $i -lt $lines.Count; $i++) {
     $line = $lines[$i]
 
+    # THE LEGEND IS NOT AN ENTRY, and this skip is the only thing that says so to the counters.
+    # $firstEntryLine was computed above and consulted by the ORPHAN check alone, so the legend's own
+    # "not started" line -- the one that explains what the glyph means -- was counted as an open item
+    # and the headline number was inflated by exactly one. It has been since the list marker was made
+    # optional, which the comment above did for a good reason (bare pins at column zero were
+    # invisible) and which also made the legend visible.
+    if ($i -lt $firstEntryLine) { continue }
+
     # Orphan check first, so it sees the line whether or not the item patterns below claim it.
-    if ($i -ge $firstEntryLine -and $line -match $anyGlyph -and
+    if ($line -match $anyGlyph -and
         -not ($line -match $openPattern) -and -not ($line -match $closedPattern)) {
         $broken.Add("BACKLOG.md:$($i + 1) : a status glyph that belongs to no item. Put it at the start of a bullet or heading, or this item is invisible to every count in this report.")
     }
