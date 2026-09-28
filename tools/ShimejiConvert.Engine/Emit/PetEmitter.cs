@@ -1668,6 +1668,33 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     if (landRun != null && landRun != e)
                         borderNext.Add(Next(landRun.Id, LandRunWeight, "taskbar"));
                 }
+                // AND THE THREE SITUATIONS A NON-LOCOMOTION JUMP WAS LEFT WITH NOTHING FOR.
+                //
+                // The `only="none"` turn above is withheld from a non-loco jump on purpose, for the
+                // reason stated there, and that reasoning stands. The consequence was that such a
+                // state's ONLY border edges were `taskbar` and `window-bottom`, so at a screen side,
+                // the screen top, or a window top nothing was eligible: SetNextGeneralAnimation
+                // returned -1, FormCompanion set bLeavingScreen, and the pet walked off the screen
+                // and respawned -- re-rolling its monitor under multiscreen, which is a companion
+                // teleporting.
+                //
+                // MEASURED across the 54 shipped companions with the host's own Eligible: 87 such
+                // (state, situation) pairs in 14 converted pets, split exactly 29 / 29 / 29 over
+                // VERTICAL, HORIZONTAL and WINDOW|WINDOW_TOP. The affected states are the embedded
+                // risers -- Jumping in most pets, plus PullUpShimeji2, Launching, Lay an Egg2 and
+                // Hypnosis!2 -- which are the same 27 the landing edges above were written for.
+                //
+                // Named situations rather than `none`, so no taskbar-eligible edge is added and the
+                // landing behaviour measured on Hornet is untouched. `fall` rather than `turn`: a
+                // turn flips facing and returns to the hub, which is idle behaviour for a pet that
+                // is still in the air, while `fall` is this emitter's descend-and-land state and
+                // already carries the window-top edge a descent needs.
+                if (jump && !loco && fall != null)
+                {
+                    borderNext.Add(Next(fall.Id, 100, "vertical"));
+                    borderNext.Add(Next(fall.Id, 100, "horizontal"));
+                    borderNext.Add(Next(fall.Id, 100, "window-top"));
+                }
                 // A jump with no landRun and no ceiling has only its taskbar re-jump, which is still a
                 // border worth having. An empty set is not: emitting <border></border> would say the pet has
                 // an opinion about edges and then offer nothing.

@@ -328,22 +328,68 @@ there.
     Real traversal is wanted and scoped, but nothing is broken without it, which is the line this
     repo draws between the backlog and IDEAS. The two refuted blockers moved with it so they are not
     re-raised.
-- ⬜ **The pet XML validator's positive-probability guarantee does not survive the runtime
-  eligibility filter, and live pets hit it.** `CompanionXmlValidator.cs:672` refuses any pet whose
-  transition set sums to zero probability, which reads as a guarantee that a companion can always
-  pick a next animation. `Animations.cs:1005-1018` then filters by `TNextAnimation.Eligible(anim.only,
-  where)` BEFORE summing, so a state whose every transition is conditioned on a `where` the
-  companion is not currently in has zero eligible weight, logs `no eligible positive-probability
-  transition`, and returns -1. Found 2026-09-21 in the maintainer's own diagnostics: bursts of 2 to 3
-  at 17:18, 17:54, 17:55 and 18:11 during ordinary use, with two pets on screen.
-  **What is NOT known, and should be measured before fixing:** what the companion does after the -1,
-  whether the bursts correlate with a specific pet or a specific transition (the log line carries
-  neither, which is its own defect), and whether the user can see anything wrong. It may be
-  invisible and harmless. The cheap first step is to put the pet type and the state id in that
-  warning, then look again -- a warning that cannot identify its subject cannot be acted on.
-  The validator could also be strengthened to require positive eligible weight per `where` bucket,
-  which would reject some currently-accepted third-party pets, so that is a decision not a fix.
+- ✅ **MEASURED AND PART-FIXED 2026-09-28. The emitter half is fixed; the corpus and the
+  hand-authored half are recorded decisions, not work.**
 
+  ⚠ **Two of this entry's own questions were already answered and the entry was stale.** The
+  warning has named its subject since 2026-09-22 (pet id, kind, state id, `where`, candidate count),
+  so "the log line carries neither" no longer held, and the consequence was already written at the
+  site: the caller treats -1 as a reason to set `bLeavingScreen`, the pet walks off the screen and
+  respawns, and `Play()` re-rolls the monitor under multiscreen. So the remaining unknown was WHICH
+  pets and states can reach it.
+
+  **Measured statically and exhaustively over all 54 shipped companions**, using the real parser
+  (`Xml.TryReadXml` + `LoadAnimations`) and the real predicate (`TNextAnimation.Eligible`), against
+  the `where` values `FormCompanion` actually raises with each call site's `absenceIsNormal` carried
+  through. Re-implementing either would have measured a copy of the rule; enumerating `where` values
+  the host never raises would have manufactured findings.
+
+  | | cases | distinct pets |
+  |---|---|---|
+  | total (state, situation) pairs with zero eligible weight | 2497 | 24 of 54 |
+  | of those, at WARNING level (caller has no defined fallback) | **1800** | 24 |
+  | hand-authored | 1713 | 10 |
+  | **converter output (ours)** | **87** | **14 of 32** |
+
+  1701 of the 1713 hand-authored cases are the seven eSheep colour variants at 243 each, which is
+  ONE authoring pattern repeated seven times rather than seven problems.
+
+  **FIXED: the 87 that are ours.** All of them share one shape, and the cause was a deliberate and
+  correct trade-off left half-finished. `PetEmitter` withholds the `only="none"` turn from a
+  non-locomotion jump on purpose, because that edge is eligible at the TASKBAR and a turn there is
+  the "every landing was a facing flip into the hub's idle dwell" outcome the taskbar edges were
+  written to replace (30 of 31 landings on Hornet). That left such a state with `taskbar` and
+  `window-bottom` as its ONLY border edges, so at a screen side, the screen top or a window top
+  nothing was eligible. The situations split exactly 29 / 29 / 29 across `VERTICAL`, `HORIZONTAL` and
+  `WINDOW|WINDOW_TOP`, over 29 states named Jumping (39 cases), PullUpShimeji2 (21), Launching (9),
+  Lay an Egg2, Hypnosis!2 and three others.
+
+  Those three situations are now named explicitly and routed to `fall`. Named rather than `none`, so
+  no taskbar-eligible edge is added and the measured landing behaviour is untouched; `fall` rather
+  than `turn`, because a turn flips facing and returns to the hub, which is idle behaviour for a pet
+  still in the air, while `fall` is the emitter's descend-and-land state and already carries the
+  window-top edge a descent needs.
+
+  MUTATION, two legs, and the second is the one that matters:
+
+  | leg | result |
+  |---|---|
+  | drop the three edges | all three new assertions fire, and the pre-existing no-`none`-turn assertion stays quiet (no cross-talk) |
+  | "fix" it with `only="none"` instead | still fails, because the assertions require a NAMED match — the lazy fix would satisfy "has an edge for that border" while breaking the landing behaviour |
+
+  ⚠ **RESIDUAL, recorded rather than fixed: the 14 shipped converted pets still carry the
+  dead-ends.** An emitter fix does not rewrite emitted XML, and this repo's standing rule is not to
+  re-convert the shipped corpus for one cause. They are corrected the next time they are converted
+  for another reason, which is the same disposition the sprite-tile entry took.
+
+  ⚠ **DECISION NOT TAKEN, and it is the owner's: the 1713 hand-authored cases.** The consequence
+  there is the same walk-off-and-respawn, measured elsewhere in this file at about 21 times an hour
+  at the taskbar. Whether that is WANTED is not something I established: a sheep wandering off screen
+  and coming back may well be the app's signature behaviour rather than a defect, and nothing in the
+  code says which. Two options, both with a cost: strengthen `CompanionXmlValidator` to require
+  positive eligible weight per `where` bucket, which would reject currently-accepted third-party
+  pets; or add a runtime fallback that ignores eligibility when nothing matches, which would change
+  behaviour for every pet including the eSheep family. Neither should happen without a decision.
 ### Shimeji conversion: the open remainder
 
 Phases 0 and A to E all shipped in 2026-08, and every original estimate is kept beside its correction

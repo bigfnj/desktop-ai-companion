@@ -24,7 +24,13 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.1.13",  // 1.1.13: closing the window mid-import no longer deletes the temp
+            Version = "1.1.14",  // 1.1.14: carries the PetEmitter fix for a non-locomotion jump that had
+                                 //         NO eligible border edge at a screen side, the screen top or a
+                                 //         window top -- the host returned -1 and the pet walked off the
+                                 //         screen and respawned. Measured: 87 such (state, situation)
+                                 //         pairs across 14 shipped converted pets. This module
+                                 //         source-links the engine, so a conversion done HERE gets the
+                                 //         fix immediately.  // 1.1.13: closing the window mid-import no longer deletes the temp
                                  //         tree the background conversion is still reading. Same
                                  //         recursive delete the second-Import guard exists for, with
                                  //         none of the guard; app exit took the same path. Adds the

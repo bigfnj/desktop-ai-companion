@@ -240,6 +240,38 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                         if (turnsAtAnyEdge)
                             failures.Add("the embedded-class jump took locomotion's only=\"none\" turn, which " +
                                 "is eligible on landing and flips the pet into the hub instead of re-jumping");
+
+                        // AND IT MUST HAVE AN EDGE FOR EVERY BORDER IT CAN MEET, not just the floor.
+                        //
+                        // The two assertions above are both right and between them say nothing about the
+                        // other three borders the host raises. That gap shipped: measured across the 54
+                        // companions with the host's own Eligible, 87 (state, situation) pairs in 14
+                        // CONVERTED pets had zero eligible weight, split exactly 29 / 29 / 29 over
+                        // VERTICAL, HORIZONTAL and WINDOW|WINDOW_TOP -- because a non-locomotion jump's
+                        // only border edges were `taskbar` and `window-bottom`. The host then returns -1,
+                        // FormCompanion sets bLeavingScreen, and the pet walks off the screen and respawns
+                        // with its monitor re-rolled under multiscreen.
+                        //
+                        // Checked as STRINGS, deliberately. The real property is "positive eligible weight
+                        // in every situation", which is the host's Eligible bitmask; re-implementing that
+                        // here would test a copy of the rule that can drift from it in silence. What this
+                        // file can honestly assert is that the emitter NAMED each situation.
+                        foreach (string situation in new string[] { "vertical", "horizontal", "window-top" })
+                        {
+                            bool covered = false;
+                            foreach (XmlData.NextNode n in embeddedHop.Border.Next)
+                            {
+                                if (n == null) continue;
+                                // `none` would cover it, and is excluded on purpose: the assertion above
+                                // forbids it here, so a fix that reintroduced it would satisfy this check
+                                // while breaking that one. Only a NAMED match counts.
+                                if (string.Equals(n.OnlyFlag, situation, StringComparison.Ordinal)) { covered = true; break; }
+                            }
+                            if (!covered)
+                                failures.Add("the embedded-class jump has no only=\"" + situation + "\" border " +
+                                    "edge, so meeting that border leaves nothing eligible: the host returns -1 " +
+                                    "and the pet walks off the screen and respawns instead of landing");
+                        }
                     }
                 }
 
