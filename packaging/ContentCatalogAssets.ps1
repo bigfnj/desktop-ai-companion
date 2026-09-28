@@ -23,15 +23,39 @@
 # accept backslashes and fails silently into the fallback below if given them.
 # $TimeoutMs exists so the timeout path below is REACHABLE in a test. A 60-second default cannot be
 # provoked in a gate, and an error path nobody has ever executed is a guess, not a safeguard.
-function Get-CatalogAsset([string]$RepoRoot, [string]$RelPath, [string]$FullPath, [int]$TimeoutMs = 60000) {
+#
+# $StallChild is the other half of reaching it, and it exists because $TimeoutMs ALONE could not.
+# The test drove the timeout by asking for 1ms on the theory that "git cat-file cannot finish that
+# fast", and that theory is not what the code measures: Process.Start runs BEFORE
+# $stdout.Wait($TimeoutMs), so a child that finishes inside that gap leaves the async copy already
+# complete and Wait returns true however small the budget. On this box git lost that race and the
+# check passed; in CI it won, once, and the gate went red on a docs-only commit. A timing assumption
+# about somebody else's binary is not a test.
+# So: when $StallChild is set the child is that command instead of git, the test points it at
+# something that sleeps well past $TimeoutMs, and the Wait-timeout, the Kill and the refusal below
+# all run for real, on real process machinery, with nothing racing.
+function Get-CatalogAsset(
+    [string]$RepoRoot,
+    [string]$RelPath,
+    [string]$FullPath,
+    [int]$TimeoutMs = 60000,
+    [string[]]$StallChild = $null) {
     $bytes = $null
     $timedOut = $false
     $process = $null
     $memory = $null
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
-        $psi.FileName = 'git'
-        $psi.Arguments = "-C `"$RepoRoot`" cat-file blob `"HEAD:$RelPath`""
+        if ($StallChild -and $StallChild.Count -gt 0) {
+            $psi.FileName = $StallChild[0]
+            if ($StallChild.Count -gt 1) {
+                $psi.Arguments = ($StallChild[1..($StallChild.Count - 1)] -join ' ')
+            }
+        }
+        else {
+            $psi.FileName = 'git'
+            $psi.Arguments = "-C `"$RepoRoot`" cat-file blob `"HEAD:$RelPath`""
+        }
         $psi.UseShellExecute = $false
         $psi.RedirectStandardOutput = $true
         $psi.RedirectStandardError = $true

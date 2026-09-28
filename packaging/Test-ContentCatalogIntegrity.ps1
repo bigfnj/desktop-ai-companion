@@ -47,21 +47,43 @@ if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
 # Get-CatalogAsset's $TimeoutMs exists, in its own words, "so the timeout path below is REACHABLE in
 # a test. A 60-second default cannot be provoked in a gate, and an error path nobody has ever
 # executed is a guess, not a safeguard." No caller or test ever passed it, so the kill and the
-# refusal had never run. One millisecond provokes them: git cat-file cannot finish that fast.
+# refusal had never run.
 #
-# Asserted on the MESSAGE, not merely that something threw -- a wrong path or an unreadable repo also
-# throws, and would have made this look like a pass. The negative control matters as much: the same
-# call at the real default must SUCCEED, or this would pass on a file that simply cannot be read.
+# THIS USED TO PROVOKE IT WITH -TimeoutMs 1 AND THE COMMENT "git cat-file cannot finish that fast".
+# That was a timing assumption about somebody else's binary, and it was not even the right one:
+# Process.Start runs BEFORE $stdout.Wait($TimeoutMs), so a child finishing inside that gap leaves the
+# async copy already complete and Wait returns true however small the budget. git lost that race on
+# the dev box and won it once in CI, turning a docs-only commit red. A flaky gate is worse than no
+# gate: it trains people to re-run.
+#
+# So the child is now SUBSTITUTED rather than out-run. $StallChild points at a sleep that outlasts
+# the budget by 20x, and the Wait-timeout, the Kill and the refusal all run for real with nothing
+# racing. The assertion is on the MESSAGE, not merely that something threw -- a wrong path or an
+# unreadable repo also throws, and would have made this look like a pass. The negative control
+# matters as much: the same call at the real default, against real git, must SUCCEED, or this would
+# pass on a file that simply cannot be read.
 $timeoutProbeRel = 'packs/collections.json'
 $timeoutProbeFull = Join-Path (Split-Path $PSScriptRoot -Parent) 'packs\collections.json'
 if (Test-Path -LiteralPath $timeoutProbeFull) {
     $repoRootForProbe = Split-Path $PSScriptRoot -Parent
     $probeThrew = ''
+    $stallSeconds = 10
+    $stallBudgetMs = 500
+    $stall = @((Get-Process -Id $PID).Path, '-NoProfile', '-Command', "Start-Sleep -Seconds $stallSeconds")
+    $stallWatch = [Diagnostics.Stopwatch]::StartNew()
     try {
-        $null = Get-CatalogAsset $repoRootForProbe $timeoutProbeRel $timeoutProbeFull 1
+        $null = Get-CatalogAsset $repoRootForProbe $timeoutProbeRel $timeoutProbeFull $stallBudgetMs $stall
         $probeThrew = '(did not throw)'
     }
     catch { $probeThrew = $_.Exception.Message }
+    $stallWatch.Stop()
+    # It must have GIVEN UP, not waited the child out. Without this the check would still pass if the
+    # timeout were removed and the call simply blocked for the full sleep.
+    if ($stallWatch.Elapsed.TotalSeconds -ge $stallSeconds) {
+        throw ("Get-CatalogAsset waited {0:N1}s for a child told to sleep {1}s at a {2}ms budget. " -f
+                   $stallWatch.Elapsed.TotalSeconds, $stallSeconds, $stallBudgetMs) +
+              'It rode the child out instead of timing out, so the bound is not doing anything.'
+    }
     # Matched on the REFUSAL, which is the load-bearing half, not on the word "timeout" -- the real
     # message says "did not return within 1ms ... Refusing to fall back to the working-tree bytes",
     # and a detector looking for "timeout" reported a correctly-firing path as broken.
