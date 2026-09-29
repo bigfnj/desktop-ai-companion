@@ -347,6 +347,7 @@
       </sequence>
       <border>
         <next probability="100" only="none">1</next>
+        <next probability="100" only="none">3</next>
       </border>
     </animation>
     <animation id="10">
