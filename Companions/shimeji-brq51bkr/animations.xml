@@ -218,15 +218,6 @@
         <frame>50</frame>
         <frame>51</frame>
         <frame>52</frame>
-        <frame>53</frame>
-        <frame>54</frame>
-        <frame>55</frame>
-        <frame>56</frame>
-        <frame>57</frame>
-        <frame>58</frame>
-        <frame>59</frame>
-        <frame>60</frame>
-        <frame>61</frame>
         <next probability="60" only="none">6</next>
         <next probability="20" only="none">7</next>
         <next probability="25" only="none">9</next>
@@ -258,15 +249,6 @@
         <frame>37</frame>
         <frame>38</frame>
         <frame>39</frame>
-        <frame>61</frame>
-        <frame>60</frame>
-        <frame>59</frame>
-        <frame>58</frame>
-        <frame>57</frame>
-        <frame>56</frame>
-        <frame>55</frame>
-        <frame>54</frame>
-        <frame>53</frame>
         <frame>52</frame>
         <frame>51</frame>
         <frame>50</frame>
