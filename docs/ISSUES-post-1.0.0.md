@@ -21,7 +21,7 @@ Each entry ends with what was actually changed and how it was verified.
 BUG-001 to BUG-004 are cited by number from code comments in `modules/AiBrain/`, `modules/PetStudio/`
 and `src/dotNet/`, from [`RELEASE-CHECKLIST.md`](RELEASE-CHECKLIST.md), from
 [`../handoff.md`](../handoff.md) and from `.github/workflows/build.yml`. The numbers are never reused;
-the next bug filed in `BACKLOG.md` is BUG-009.
+the next bug filed in `BACKLOG.md` is BUG-013 (BUG-009 to BUG-012 were filed on 2026-09-29 by the full audit).
 
 | | |
 |---|---|
@@ -132,6 +132,45 @@ minutes of live polling over four webview targets with no prompt on screen, `bli
 reported. The `blind` branch itself has NOT been seen in the wild, and cannot be until a shipped
 build changes its markup; it rests on the assertions, not on an observation.
 
+### BUG-012 — Companion Studio decodes and tiles the whole sprite sheet on the UI thread on every analyse
+
+| | |
+|---|---|
+| Bugs | BUG-012 the analyser stages the pet through Xml.TryReadXml, which re-parses, base64-decodes and GDI+-decodes the sheet into up to 1,024 tile bitmaps per analyse, on the dispatcher thread, after every typing pause |
+| Found | 2026-09-29, by the full code audit (finding F155); the backlog had recorded the second decode as refuted, and the refutation read the cached WPF path rather than the staging path |
+| Fixed by | pending: lane fix/petstudio of the 2026-09-29 campaign; the post-mortem lands with the fix |
+
+Filed from the audit; the diagnosis, the fix and its verification are written here when the lane closes it.
+
+### BUG-011 — the Scroll Lock blinker's belief about the LED drifts from the LED
+
+| | |
+|---|---|
+| Bugs | BUG-011 a refused SendInput still flips _phaseOn (finding F116), and Start() zeroes it against a key BlinkOnce() lit (F115); after an odd refusal the cadence runs inverted and Stop()'s corrective toggle no longer fires when the LED is lit |
+| Found | 2026-09-29, by the full code audit |
+| Fixed by | pending: lane fix/blinkingled of the 2026-09-29 campaign; the post-mortem lands with the fix |
+
+Filed from the audit; the diagnosis, the fix and its verification are written here when the lane closes it.
+
+### BUG-010 — an unprompted remark is a vision turn although the setting says vision is for explicit asks
+
+| | |
+|---|---|
+| Bugs | BUG-010 OnDrop calls Ask(pet, true), so with "Use vision" on every random drop captures the screen and sends an image, while the label, the settings comment and the brain's own comment say vision is for the hotkey and the poke (finding F066) |
+| Found | 2026-09-29, by the full code audit |
+| Fixed by | pending: lane fix/aibrain of the 2026-09-29 campaign. The owner decided on 2026-09-29 that vision, when enabled, applies to every remark, so the code stays and the label, comments and register change; the post-mortem records that decision |
+
+Filed from the audit; the disposition and its verification are written here when the lane closes it.
+
+### BUG-009 — Remembrance stops recording by waiting on an event that is posted to the thread doing the waiting
+
+| | |
+|---|---|
+| Bugs | BUG-009 AudioRecorder.Stop waits up to 10 s per source for RecordingStopped, which NAudio posts through the WinForms synchronization context captured at construction on the UI thread, the same thread that is blocked in the wait; every stop costs 20 s and a Restart Manager or session-end exit kills the process before the WAV headers are finalised (finding F168) |
+| Found | 2026-09-29, by the full code audit; both verifiers traced it, one by decoding the shipped NAudio.Wasapi.dll |
+| Fixed by | pending: lane fix/remembrance of the 2026-09-29 campaign; the post-mortem lands with the fix |
+
+Filed from the audit; the diagnosis, the fix and its verification are written here when the lane closes it.
 ### BUG-008 — the option table went stale against 2.1.280, and the audit could not see it
 
 | | |

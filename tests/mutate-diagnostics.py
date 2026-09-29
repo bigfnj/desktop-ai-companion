@@ -170,6 +170,15 @@ CASES = [
      "                if (_mutedCategories.Contains(category)) return false;",
      "                if (_mutedCategories.Contains(category)) return false;",
      "wpf", "the master switch turns everything off"),
+    # ---- 2026-09-29 audit campaign: each lane adds its cases directly under its own anchor so parallel
+    # branches do not touch the same lines. Comments inside the literal are fine for Python.
+    # ---- lane fix/gates ----
+
+
+    # ---- lane fix/host ----
+
+
+    # ---- lane fix/settings ----
 ]
 
 

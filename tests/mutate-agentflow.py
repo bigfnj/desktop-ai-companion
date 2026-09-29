@@ -773,6 +773,9 @@ CASES = (
         "                string display = PetDisplay(type);",
         "an installed pet that is NOT on screen can still be chosen",
     ),
+    # ---- 2026-09-29 audit campaign: each lane adds its cases directly under its own anchor so parallel
+    # branches do not touch the same lines. Comments inside the literal are fine for Python.
+    # ---- lane fix/agentflow ----
 )
 
 

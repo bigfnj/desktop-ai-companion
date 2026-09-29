@@ -198,6 +198,36 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--hardening-selftest", "dp-hardening-selftest.txt",
      "the prompt names the module, the version and every added flag"),
+    # ---- 2026-09-29 audit campaign: each lane adds its cases directly under its own anchor so parallel
+    # branches do not touch the same lines. Comments inside the literal are fine for Python.
+    # ---- lane fix/gates ----
+
+
+    # ---- lane fix/host ----
+
+
+    # ---- lane fix/tools ----
+
+
+    # ---- lane fix/remembrance ----
+
+
+    # ---- lane fix/blinkingled ----
+
+
+    # ---- lane fix/aibrain ----
+
+
+    # ---- lane fix/fortunes ----
+
+
+    # ---- lane fix/petstudio ----
+
+
+    # ---- lane fix/reminder ----
+
+
+    # ---- lane fix/deadcode ----
 )
 
 BASELINES = (

@@ -1831,6 +1831,71 @@ Assert-True (-not ($previewBody -match 'NotificationSound\.Play\([^)]*,\s*true\s
     'the Preferences preview does NOT defer, because it reports which layer stopped the sound and' +
     ' the user is waiting for that answer rather than for the chime')
 
+# ---- 2026-09-29 audit campaign: per-lane anchors ----
+# Each lane inserts its source invariants directly under its own anchor, so parallel branches do not touch
+# the same lines. Anchors are comments and do not change the Assert-True count. They stay after the
+# campaign as section markers; an empty one is harmless.
+
+# ---- lane fix/gates ----
+# (invariants added by lane fix/gates go directly below this line)
+
+
+
+# ---- lane fix/host ----
+# (invariants added by lane fix/host go directly below this line)
+
+
+
+# ---- lane fix/tools ----
+# (invariants added by lane fix/tools go directly below this line)
+
+
+
+# ---- lane fix/remembrance ----
+# (invariants added by lane fix/remembrance go directly below this line)
+
+
+
+# ---- lane fix/blinkingled ----
+# (invariants added by lane fix/blinkingled go directly below this line)
+
+
+
+# ---- lane fix/aibrain ----
+# (invariants added by lane fix/aibrain go directly below this line)
+
+
+
+# ---- lane fix/fortunes ----
+# (invariants added by lane fix/fortunes go directly below this line)
+
+
+
+# ---- lane fix/petstudio ----
+# (invariants added by lane fix/petstudio go directly below this line)
+
+
+
+# ---- lane fix/reminder ----
+# (invariants added by lane fix/reminder go directly below this line)
+
+
+
+# ---- lane fix/agentflow ----
+# (invariants added by lane fix/agentflow go directly below this line)
+
+
+
+# ---- lane fix/deadcode ----
+# (invariants added by lane fix/deadcode go directly below this line)
+
+
+
+# ---- lane fix/scripts ----
+# (invariants added by lane fix/scripts go directly below this line)
+
+
+
 # LAST, and deliberately: this is the one assertion a BRANCH is expected to fail. Adding a source
 # invariant changes the count here, while SMOKETEST.md is updated at the merge -- so any branch that
 # adds one carries this failure until then. The self-test aborts at its first failure, so whatever

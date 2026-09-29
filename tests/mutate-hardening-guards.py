@@ -169,6 +169,21 @@ CASES = (
         b"            bool[] blocked;\n            try\n",
         "not re-throttled per companion",
     ),
+    # ---- 2026-09-29 audit campaign: each lane adds its cases directly under its own anchor so parallel
+    # branches do not touch the same lines. Comments inside the literal are fine for Python.
+    # ---- lane fix/gates ----
+
+
+    # ---- lane fix/host ----
+
+
+    # ---- lane fix/settings ----
+
+
+    # ---- lane fix/scripts ----
+
+
+    # ---- lane fix/deadcode ----
 )
 
 

@@ -221,6 +221,74 @@ the one already written down: declare what YOU do, not what you ask the host to 
 Contrast Remembrance, which genuinely declares it, because it reaches GitHub and a loopback Ollama
 with its own client.
 
+### Decisions from the 2026-09-29 audit campaign
+
+The campaign that worked the 447 findings of the 2026-09-29 audit ran as parallel lanes, one per area, so each
+lane records its decisions under its own sub-heading here rather than at the end of the section, where eight
+lanes would collide on the same line. A sub-heading with nothing under it at the end of the campaign is removed.
+The owner decisions taken before the campaign started are recorded first.
+
+**Vision applies to every remark when it is enabled, unprompted drops included (decided by the owner
+2026-09-29).** The audit (F066) found that the drop responder passes llowVision: true while the setting's label,
+the settings comment and the brain's comment said vision was for explicit asks. The owner's decision: "it should
+always use vision, because how else would it know what is on the screen to react to?" So the code stands and the
+words change. The OCR path stays as the fallback for vision off and for text-only models.
+
+**The 1,713 hand-authored (state, situation) pairs with zero eligible transition weight are accepted as they are.**
+They are the original sheep authors' art (1,701 of them are the seven eSheep colour variants at 243 each); the
+owner did not ask for them to be re-weighted when the question was put on 2026-09-29.
+
+**ModulePermissions.Animation stays declarative.** It is displayed on the consent screen and gates nothing, like
+the other disclosure flags; the register entry its CLOSES-WHEN line asked for is this one: the Animation permission
+is declarative.
+
+#### fix/gates
+
+(none yet)
+
+#### fix/host
+
+(none yet)
+
+#### fix/tools
+
+(none yet)
+
+#### fix/remembrance
+
+(none yet)
+
+#### fix/blinkingled
+
+(none yet)
+
+#### fix/aibrain
+
+(none yet)
+
+#### fix/fortunes
+
+(none yet)
+
+#### fix/petstudio
+
+(none yet)
+
+#### fix/reminder
+
+(none yet)
+
+#### fix/agentflow
+
+(none yet)
+
+#### fix/deadcode
+
+(none yet)
+
+#### fix/scripts
+
+(none yet)
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of
@@ -336,12 +404,12 @@ that had to be reverted.
 
 ## Known bugs (post-1.0.0)
 
-**None open.** The full post-mortems —
+**Four open: BUG-009 to BUG-012, filed 2026-09-29 by the full audit, each closing with its lane's fix in the campaign recorded in `../BACKLOG.md`.** The full post-mortems —
 diagnosis, the wrong turns, the fix, and how each was verified — are in
 [`ISSUES-post-1.0.0.md`](ISSUES-post-1.0.0.md). Bugs are numbered `BUG-00N` and the number is never
 reused, so a commit, a test or a code comment can cite one; `modules/AiBrain/`,
 `modules/PetStudio/`, `src/dotNet/`, `docs/RELEASE-CHECKLIST.md` and `handoff.md` all cite them
-today. **The next one filed is BUG-009**, and it is filed in [`../BACKLOG.md`](../BACKLOG.md).
+today. **The next one filed is BUG-013**, and it is filed in [`../BACKLOG.md`](../BACKLOG.md).
 
 | bug | | fixed |
 |---|---|---|
