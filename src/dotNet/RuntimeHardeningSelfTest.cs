@@ -746,30 +746,49 @@ namespace DesktopAICompanion
                     FormCompanion.GripPositionY(500, 0) == 500.0);
 
                 // ---- VELOCITY SCALING ----
-                // A moving animation must still move at every scale. ScaleD rounds to an int, so a walk of 2
-                // at 25% is 0.5 and Math.Round's BANKER'S rounding makes it exactly 0 -- the pet plays its
-                // walk cycle on the spot for ever. Reported on a 25% Luffy; it hits any pet whose walk is
-                // 1 or 2 px/step, which is most of them.
-                Check("scale: a walk of 2 at 25% does not freeze (the reported bug)",
-                    ScalePolicy.ScaleVelocity(2, 0.25) != 0);
-                Check("scale: ...and neither does 1, or the negative of either",
+                // Velocity is never scaled DOWN and is still scaled UP. The screen does not shrink with the
+                // pet, so multiplying velocity by a sub-1 size factor made a small companion lethargic rather
+                // than small: measured at 25% against a 1080px screen, `fall` fell from 250 px/s to 50 (4.3s
+                // to cross -> 21.6s) and `climb` from 60 to 20 (18s -> 54s), while body-lengths per second
+                // stayed put (fall 1.16 -> 0.93), which is what proves the world got bigger rather than the
+                // pet getting slower.
+                Check("scale: below 1:1 a velocity is untouched, so a small pet is small and not slow",
+                    ScalePolicy.ScaleVelocity(10, 0.25) == 10 &&
+                    ScalePolicy.ScaleVelocity(2, 0.25) == 2 &&
+                    ScalePolicy.ScaleVelocity(-6, 0.5) == -6);
+                // ABOVE 1:1 it still scales, or a 400% pet's jump rises the emitter's fixed 48px on an 860px
+                // body -- 6% of its own height, a twitch rather than a leap.
+                Check("scale: above 1:1 a velocity still scales, so a big pet is not mincing",
+                    ScalePolicy.ScaleVelocity(10, 2.0) == ScalePolicy.ScaleD(10, 2.0) &&
+                    ScalePolicy.ScaleVelocity(10, 2.0) == 20 &&
+                    ScalePolicy.ScaleVelocity(-15, 4.0) == -60);
+                Check("scale: 1:1 is the hinge and changes nothing",
+                    ScalePolicy.ScaleVelocity(7, 1.0) == 7 && ScalePolicy.ScaleVelocity(-7, 1.0) == -7);
+                // THE ORIGINAL BUG IS NOW UNREACHABLE RATHER THAN FLOORED. A walk of 2 at 25% used to be 0.5,
+                // which banker's rounding takes to exactly 0, and the pet played its walk cycle on the spot
+                // for ever (reported on a 25% Luffy). ScaleD still does that; ScaleVelocity no longer asks it
+                // to. Asserted as the PAIR, because the first line alone would pass if the floor came back and
+                // the second alone would pass if the whole policy were reverted.
+                Check("scale: the freeze is unreachable, not floored",
+                    ScalePolicy.ScaleD(2, 0.25) == 0 && ScalePolicy.ScaleVelocity(2, 0.25) == 2);
+                Check("scale: no non-zero velocity reaches zero at any scale",
                     ScalePolicy.ScaleVelocity(1, 0.25) != 0 &&
                     ScalePolicy.ScaleVelocity(-1, 0.25) != 0 &&
-                    ScalePolicy.ScaleVelocity(-2, 0.25) != 0);
-                Check("scale: direction is preserved when clamped to one pixel",
-                    ScalePolicy.ScaleVelocity(-2, 0.25) < 0 && ScalePolicy.ScaleVelocity(2, 0.25) > 0);
+                    ScalePolicy.ScaleVelocity(1, 1.0) != 0 &&
+                    ScalePolicy.ScaleVelocity(1, 4.0) != 0);
+                Check("scale: direction is preserved at every scale",
+                    ScalePolicy.ScaleVelocity(-2, 0.25) < 0 && ScalePolicy.ScaleVelocity(2, 0.25) > 0 &&
+                    ScalePolicy.ScaleVelocity(-2, 4.0) < 0 && ScalePolicy.ScaleVelocity(2, 4.0) > 0);
                 // ...but a STILL pose must not be given motion it never had.
                 Check("scale: zero stays zero at every scale",
                     ScalePolicy.ScaleVelocity(0, 0.25) == 0 &&
                     ScalePolicy.ScaleVelocity(0, 4.0) == 0 &&
                     ScalePolicy.ScaleVelocity(0, 1.0) == 0);
-                // A velocity large enough to survive rounding is left exactly as ScaleD computed it.
-                Check("scale: a velocity that survives rounding is untouched",
-                    ScalePolicy.ScaleVelocity(8, 0.25) == ScalePolicy.ScaleD(8, 0.25) &&
-                    ScalePolicy.ScaleVelocity(10, 2.0) == ScalePolicy.ScaleD(10, 2.0));
-                // The banker's-rounding case specifically: .5 exactly, which rounds to EVEN (0), not away.
-                Check("scale: the exact .5 case is what bit us, and is covered",
-                    ScalePolicy.ScaleD(2, 0.25) == 0 && ScalePolicy.ScaleVelocity(2, 0.25) == 1);
+                // A POSITION is not a velocity and must still shrink, or a scaled pet's offsets detach from
+                // its sprite. Animations.UpdateValues uses ScaleD for OffsetY and ScaleVelocity for X/Y, and
+                // this is what stops a future edit "simplifying" them into one call.
+                Check("scale: an OFFSET still scales down, unlike a velocity",
+                    ScalePolicy.ScaleD(40, 0.25) == 10 && ScalePolicy.ScaleVelocity(40, 0.25) == 40);
 
                 // ---- THE GLOBAL SIZE PERCENT MUST SURVIVE A SAVE ----
                 // ScalePercent is the one persisted field absent from BOTH AppSettingsStore.Clone and

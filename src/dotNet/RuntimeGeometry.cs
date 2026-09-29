@@ -115,24 +115,35 @@ namespace DesktopAICompanion
         }
 
         /// <summary>
-        /// Scale a VELOCITY, guaranteeing that a moving animation still moves.
+        /// Scale a VELOCITY. Never DOWNWARD; still upward.
         ///
-        /// ScaleD rounds to an int, so at small scales a slow animation rounds to a dead stop: a walk of -2 at
-        /// 25% is -0.5, and Math.Round's banker's rounding makes that exactly 0. The pet then plays its walk
-        /// cycle on the spot for ever -- reported on a 25% Luffy, but it hits ANY pet whose walk is 1 or 2
-        /// px/step, which is most of them.
+        /// THE SCREEN DOES NOT SHRINK WITH THE PET, and that is the whole reason for the asymmetry. Velocity
+        /// used to be multiplied by the size factor while the animation INTERVAL was only clamped, so absolute
+        /// speed fell with size. Measured on a 25% companion against a 1080px screen: `fall` 250 px/s -> 50
+        /// (4.3s to cross -> 21.6s), `climb` 60 -> 20 (18s -> 54s), `walk` 10 -> 5. Body-lengths per second
+        /// were roughly PRESERVED across the change (fall 1.16 -> 0.93, jump 1.08 -> 1.08), which is the proof
+        /// that the pet was never moving wrong relative to itself: the world was simply four times larger
+        /// relative to it. Somebody shrinks a desktop pet to make it less obtrusive, not lethargic.
         ///
-        /// Zero stays zero: a still pose must not be given motion it never had. Anything non-zero keeps its
-        /// SIGN and gets at least one pixel, so the animation's intent ("this one travels") survives every
-        /// scale. A 25% pet then walks proportionally faster than its art suggests, which is visible but
-        /// correct; frozen is neither.
+        /// ABOVE 1:1 the scaling stays, because removing it there swaps one defect for another. At 400% the
+        /// pet is about 860px tall; an unscaled jump still rises the emitter's fixed 48px, i.e. 6% of its own
+        /// height, which reads as a twitch rather than a leap. Scaled, it rises ~192px and keeps the 0.22
+        /// body-lengths the art was drawn for.
+        ///
+        /// Zero stays zero: a still pose must not be given motion it never had.
+        ///
+        /// The old one-pixel floor is GONE, and deliberately so rather than kept "just in case". It existed
+        /// because ScaleD rounds to an int and a walk of 2 at 25% is 0.5, which banker's rounding takes to
+        /// exactly 0 -- the pet played its walk cycle on the spot for ever (reported on a 25% Luffy). Below 1:1
+        /// nothing is multiplied now, so that rounding cannot happen; at or above 1:1 a non-zero velocity
+        /// cannot round to zero either. Keeping a branch that no input can reach is how a guard turns into
+        /// decoration, so the self-test asserts the freeze is unreachable instead.
         /// </summary>
         public static int ScaleVelocity(int value, double factor)
         {
             if (value == 0) return 0;
-            int scaled = ScaleD(value, factor);
-            if (scaled != 0) return scaled;
-            return value > 0 ? 1 : -1;
+            if (double.IsNaN(factor) || factor <= 1.0) return value;
+            return ScaleD(value, factor);
         }
 
         public static int ScaleD(int value, double factor)

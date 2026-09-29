@@ -132,6 +132,51 @@ neglect.
 ---
 
 
+### Velocity is never scaled DOWN, and pet speed at minimum scale is the reason (2026-09-28)
+
+`ScalePolicy.ScaleVelocity` multiplied velocity by the size factor while the animation INTERVAL was
+only clamped and never scaled, so absolute speed fell with size. The screen does not shrink with the
+pet, which makes that the wrong trade: a 25% companion had four times as far to travel in its own
+body-lengths AND covered a quarter of the pixels per tick.
+
+Measured on `shimeji-brq51bkr` at the 25% it was configured at, against a 1080px screen:
+
+| animation | px/s before | crossing | px/s after | crossing |
+|---|---|---|---|---|
+| `fall` | 50 | 21.6s | 250 | 4.3s |
+| `climb` / `descend` | 20 | 54.0s | 60 | 18.0s |
+| `jump` | 58 | 18.6s | 233 | 4.6s |
+| `walk` | 5 | 216.0s | 10 | 108.0s |
+
+**The number that decided it is body-lengths per second, which was roughly PRESERVED** across the
+old scaling (`fall` 1.16 → 0.93, `jump` 1.08 → 1.08). That is the proof the pet was never moving
+wrong relative to itself; the world was four times larger relative to it. Somebody shrinks a desktop
+pet to make it less obtrusive, not lethargic.
+
+**Do not "fix" this per animation.** It was reached that way once, by shortening this pet's `walk`
+interval from 320ms, and that was legitimate only because 320 was the corpus outlier against a
+typical 240. `fall` is `10px / 40ms` on **all 52 pets that have one**, so there is nothing
+pet-specific to correct, and patching it would have left `climb` at 54 seconds and `walk` at 216.
+
+**ABOVE 1:1 the scaling STAYS, and removing it there is the thing not to re-propose.** It swaps one
+defect for another: at 400% the pet is about 860px tall and an unscaled jump still rises the
+emitter's fixed `JumpPeakPx = 48`, i.e. 6% of its own height, which reads as a twitch. Scaled, it
+rises ~192px and keeps the 0.22 body-lengths the art was drawn for. Measured: every animation at 400%
+is byte-identical before and after this change.
+
+A POSITION still scales in both directions. `Animations.UpdateValues` uses `ScaleD` for `OffsetY`
+and `ScaleVelocity` for the four X/Y velocities, and those must not be collapsed into one call.
+
+The one-pixel floor `ScaleVelocity` used to carry is GONE rather than kept defensively. It existed
+because a walk of 2 at 25% is 0.5 and banker's rounding takes that to exactly 0, freezing the pet in
+place (reported on a 25% Luffy). Nothing is multiplied below 1:1 now, so that rounding is
+unreachable, and a branch no input can reach is decoration rather than a guard. `--hardening-selftest`
+asserts the freeze is unreachable instead, as a PAIR (`ScaleD(2, 0.25) == 0` and
+`ScaleVelocity(2, 0.25) == 2`) so that neither reverting the policy nor restoring the floor passes.
+
+Mutation-tested both directions, because a rule asserted one way accepts the other: scaling down
+again exits 1, never scaling at all exits 1.
+
 ### ModuleKit carries helpers no shipped module uses, and they stay (2026-09-17)
 
 `JsonSettingsStore<T>` (128 lines) has no module consumer at all -- its only reference in the repo
