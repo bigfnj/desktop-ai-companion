@@ -24,7 +24,15 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.1.16",  // 1.1.16: "Preview highlighted action" plays the selected animation on the
+            Version = "1.1.17",  // 1.1.17: no change in this module's OWN code. It source-links
+                                 //         src/dotNet/RuntimeGeometry.cs (PetStudio.csproj:63), and
+                                 //         ScalePolicy.ScaleVelocity there stopped scaling velocity
+                                 //         DOWN, so a small pet is small rather than lethargic. A
+                                 //         payload built before that carries the old rule and would
+                                 //         preview at a different speed from the host running it,
+                                 //         which is the whole reason the freshness gate compares
+                                 //         commit order rather than file contents.
+                                 // 1.1.16: "Preview highlighted action" plays the selected animation on the
                                  //         live desktop preview through IHost.TryPlayAnimation, so an author
                                  //         can watch a jump or a fall on demand instead of waiting for the
                                  //         pet's transition weights to pick it (this corpus reaches `jump`
