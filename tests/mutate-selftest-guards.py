@@ -619,6 +619,36 @@ CASES = (
      "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
      "an unchanged feed error is logged once, not on every tick"),
 
+    # An Apply keeps the slots whose type it did not change (F200). The mutation makes the type comparison
+    # never match, which is the shipped behaviour: every Apply rebuilt every slot.
+    ("every Apply rebuilds every slot again",
+     os.path.join(REPO, "modules", "Reminder", "ReminderModule.cs"),
+     b"                if (!string.Equals(type, _slotTypes[i], StringComparison.Ordinal))\n",
+     b"                if (!string.Equals(type, _slotTypes[i] + \"?\", StringComparison.Ordinal))\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "an Apply that did not change the slot's type keeps its source instance"),
+
+    # The fired-id prune judges per slot (F204). First mutation: the 1.0.3 whole-snapshot gate put back in
+    # front of the per-slot branch. Second: the aggregate reports every slot healthy, so an erroring slot's
+    # ids are pruned as if it had vouched for them.
+    ("the prune is gated on the whole snapshot's Error again",
+     os.path.join(REPO, "modules", "Reminder", "ReminderModule.cs"),
+     b"            Dictionary<string, bool> slots = snap.SlotHealthy;\n",
+     b"            if (!string.IsNullOrEmpty(snap.Error)) return false;\n"
+     b"            Dictionary<string, bool> slots = snap.SlotHealthy;\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "a healthy slot's stale id is dropped even while another slot errors"),
+
+    ("an erroring slot is reported healthy to the prune",
+     os.path.join(REPO, "modules", "Reminder", "AggregateCalendarSource.cs"),
+     b"                bool healthy = string.IsNullOrEmpty(snap.Error);\n",
+     b"                bool healthy = true;\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "the erroring slot's id is kept"),
+
 
     # ---- lane fix/deadcode ----
 )

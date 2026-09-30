@@ -37,5 +37,12 @@ namespace DesktopAICompanion.ReminderModule
         public System.Collections.Generic.IReadOnlyList<CalendarEvent> Events { get; set; }
         public DateTimeOffset? Updated { get; set; }
         public string Error { get; set; }
+        /// <summary>Per-slot health, filled only by <see cref="AggregateCalendarSource"/>: slot id -> true when
+        /// that slot's fetch returned Error == null, so its event list is a trustworthy view of THAT calendar;
+        /// false when it errored, is still loading, or threw. Null on a snapshot that did not come from the
+        /// aggregate, in which case <see cref="Error"/> alone decides. Exists for the fired-id prune (F204): the
+        /// combined Error is set whenever ANY slot fails, and a prune gated on it alone never ran while one slot
+        /// stayed broken, so a healthy slot beside it grew the persisted set without bound.</summary>
+        public System.Collections.Generic.Dictionary<string, bool> SlotHealthy { get; set; }
     }
 }

@@ -10,7 +10,9 @@ namespace DesktopAICompanion.ReminderModule
     /// hand back unchanged across ticks) and tagged with the slot it came from: <see cref="CalendarEvent.SourceId"/>
     /// picks the per-feed speech style and label, and the event id is prefixed with the slot id so two calendars
     /// with a coincidentally equal id can never share one "fired" entry. A slot that errors is reported in the
-    /// combined <see cref="CalendarSnapshot.Error"/> but does not suppress the healthy slots' events.
+    /// combined <see cref="CalendarSnapshot.Error"/> but does not suppress the healthy slots' events, and each
+    /// slot's health travels on the snapshot (<see cref="CalendarSnapshot.SlotHealthy"/>) so the fired-id prune
+    /// can judge per slot rather than on the combined Error, which is set whenever any one slot fails (F204).
     /// </summary>
     public sealed class AggregateCalendarSource : ICalendarSource
     {
@@ -58,6 +60,7 @@ namespace DesktopAICompanion.ReminderModule
         {
             var all = new List<CalendarEvent>();
             var errors = new List<string>();
+            var health = new Dictionary<string, bool>(StringComparer.Ordinal);
             DateTimeOffset? updated = null;
 
             foreach (Slot slot in _slots)
@@ -65,10 +68,12 @@ namespace DesktopAICompanion.ReminderModule
                 string label = string.IsNullOrWhiteSpace(slot.Label) ? slot.Id : slot.Label.Trim();
                 CalendarSnapshot snap;
                 try { snap = slot.Source.Fetch(); }
-                catch (Exception ex) { errors.Add(label + ": " + ex.Message); continue; }
-                if (snap == null) continue;
+                catch (Exception ex) { errors.Add(label + ": " + ex.Message); health[slot.Id] = false; continue; }
+                if (snap == null) { health[slot.Id] = false; continue; }
 
-                if (!string.IsNullOrEmpty(snap.Error)) errors.Add(label + ": " + snap.Error);
+                bool healthy = string.IsNullOrEmpty(snap.Error);
+                health[slot.Id] = healthy;
+                if (!healthy) errors.Add(label + ": " + snap.Error);
 
                 if (snap.Events != null)
                 {
@@ -100,6 +105,7 @@ namespace DesktopAICompanion.ReminderModule
                 Events = all,
                 Updated = updated,
                 Error = errors.Count > 0 ? string.Join("; ", errors) : null,
+                SlotHealthy = health,
             };
         }
 
@@ -129,8 +135,13 @@ namespace DesktopAICompanion.ReminderModule
             if (ev.SourceId != "cal1") { detail = "event not tagged with its slot"; return false; }
             if (ev.Id != "cal1|x") { detail = "event id not prefixed with the slot id: " + ev.Id; return false; }
             if (string.IsNullOrEmpty(snap.Error) || !snap.Error.Contains("Work")) { detail = "the failing slot was not reported"; return false; }
+            bool cal1Healthy, cal2Healthy;
+            if (snap.SlotHealthy == null
+                || !snap.SlotHealthy.TryGetValue("cal1", out cal1Healthy) || !cal1Healthy
+                || !snap.SlotHealthy.TryGetValue("cal2", out cal2Healthy) || cal2Healthy)
+            { detail = "per-slot health did not travel with the snapshot (expected cal1 healthy, cal2 not)"; return false; }
 
-            detail = "aggregate: healthy events tagged + id-prefixed, failing slot reported without suppressing the rest";
+            detail = "aggregate: healthy events tagged + id-prefixed, failing slot reported without suppressing the rest, per-slot health carried";
             return true;
         }
 

@@ -218,14 +218,34 @@ namespace DesktopAICompanion.ReminderModule
             _settings.Save();
         }
 
-        // Build the aggregated source from the saved slots. Sources take live getters, so a URL/file change needs
-        // no rebuild; only a feed-TYPE change does, which is why this is re-run on Save.
+        // One source instance per slot, kept across Apply. An Apply used to call BuildSource unconditionally and
+        // BuildSlotSource constructed a fresh IcsUrlSource / OutlookComSource / LocalJsonSource every time, so
+        // toggling a chime checkbox threw away every slot's cache AND its last-good list: the next tick served
+        // "Fetching the calendar…" with no events (the tray read "nothing upcoming", Join went blank), every URL
+        // slot re-downloaded, every Outlook slot re-enumerated 48 hours with Body and Recipients per item, and an
+        // Apply while a share or the network was down replaced retained events with nothing until it came back
+        // (F200). The comment here said "only a feed-TYPE change does, which is why this is re-run on Save", and
+        // the code did the opposite of the first half. Only a slot's TYPE needs a new instance; a URL or file edit
+        // already reaches the existing one through its live getter, and RefreshKey kicks an early refresh. The
+        // rebuild had one accidental virtue -- it was the only way a slot whose refresh never returned came back
+        // to life -- and CachingCalendarSource's deadline is now that recovery, which is why both land in 1.0.7.
+        private readonly ICalendarSource[] _slotSources = new ICalendarSource[MaxSlots + 1];
+        private readonly string[] _slotTypes = new string[MaxSlots + 1];
+
+        // Build the aggregated source from the saved slots, keeping every slot whose type is unchanged. Labels are
+        // re-read here, so a renamed calendar takes effect on the next tick without touching its source.
         private ICalendarSource BuildSource()
         {
             var slots = new List<AggregateCalendarSource.Slot>();
             for (int i = 1; i <= MaxSlots; i++)
             {
-                ICalendarSource src = BuildSlotSource(i, _settings.Get(SlotKey(i, "type"), SourceOff));
+                string type = _settings.Get(SlotKey(i, "type"), SourceOff);
+                if (!string.Equals(type, _slotTypes[i], StringComparison.Ordinal))
+                {
+                    _slotSources[i] = BuildSlotSource(i, type);
+                    _slotTypes[i] = type;
+                }
+                ICalendarSource src = _slotSources[i];
                 if (src == null) continue;
                 slots.Add(new AggregateCalendarSource.Slot
                 {
@@ -812,7 +832,7 @@ namespace DesktopAICompanion.ReminderModule
                     if (values.TryGetValue("reactOn", out v)) { bool rb; if (bool.TryParse(v, out rb)) _settings.Set("reactOn", rb ? "true" : "false"); }
                     if (values.TryGetValue("reactAnimations", out v)) _settings.Set("reactAnimations", (v ?? "").Trim());
                     bool ok = _settings.Save();
-                    _source = BuildSource();   // a feed-type change takes effect on the next tick
+                    _source = BuildSource();   // a slot whose type changed gets a new source; the rest keep theirs (F200)
                     return ok;
                 },
             };
@@ -1414,39 +1434,72 @@ namespace DesktopAICompanion.ReminderModule
         }
 
         /// <summary>
-        /// Drop fired ids whose EVENT no longer appears in the feed, but ONLY when the feed is a trustworthy
-        /// view of the calendar. Returns true when anything was removed.
+        /// Drop fired ids whose EVENT no longer appears in the feed, but ONLY where the feed is a trustworthy
+        /// view of the calendar, judged PER SLOT. Returns true when anything was removed.
         ///
         /// This used to prune unconditionally, before any look at snap.Error, and that undid the one promise
         /// this module's header makes: "remembers which fired so a restart never re-nags".
         ///
         /// An empty feed is ROUTINE here, not exceptional. CachingCalendarSource.Fetch captures _cache under
         /// its lock BEFORE kicking the background refresh, so the FIRST call always returns no events with
-        /// Error = "Loading the calendar…". Init calls CheckDue directly, so that first call happens on every
-        /// single launch, and Save rebuilds the source so it happens again after every options Apply.
+        /// Error = "Loading the calendar…", and Init calls CheckDue directly, so that first call happens on
+        /// every single launch.
         ///
         /// The failure that follows: a 10:00 meeting with a 15-minute lead fires at 09:45 and "cal1|uid@15"
         /// is saved. Restart at 09:50. Init, CheckDue, empty feed, the whole set wiped and written to disk.
         /// Twenty seconds later the feed loads, `now` is still inside DueNowMulti's [start-15, start+1] window,
         /// and the same meeting announces again with chime, animation and bubble.
         ///
-        /// Gating on Error alone is the whole fix, and it keeps the case the prune exists for: a feed that
-        /// loaded and is genuinely empty has Error empty, so its stale ids are still dropped. Skipping the
-        /// prune cannot leak either, because the set only GROWS when an event fires, and firing needs events.
+        /// 1.0.3 gated the whole prune on the combined Error and argued the skip could not leak "because the
+        /// set only GROWS when an event fires, and firing needs events". True of one source; false of the
+        /// aggregate, which sets Error whenever ANY slot fails and still fires the healthy slots' events -- by
+        /// design. A Local Outlook slot on a box where Outlook is closed, a URL slot left blank, a file slot on
+        /// a share only reachable on VPN: each keeps the combined Error set for good, and the healthy slot
+        /// beside it added an id per reminder per lead that nothing ever removed, persisted and reloaded at
+        /// every launch and rewritten in full on the UI thread at every fire (F204). So the prune judges each
+        /// id by ITS slot's health, which the aggregate carries on the snapshot: an id whose slot fetched
+        /// cleanly is dropped when its event is gone; an id whose slot errored or is still loading is kept,
+        /// which is the 1.0.3 fix applied per slot (a slot serving last-good events behind an error counts as
+        /// unvouched too, so a cancelled meeting is never mistaken for a stale one); an id no configured slot
+        /// claims -- a legacy pre-1.3.0 id, or a slot since turned Off -- is dropped, as it was whenever the
+        /// aggregate was healthy. A snapshot with no per-slot health, one source or a test double, keeps the
+        /// whole-snapshot rule.
         /// </summary>
         internal static bool PruneFiredAgainstFeed(CalendarSnapshot snap, HashSet<string> fired)
         {
             if (snap == null || fired == null || fired.Count == 0) return false;
-            // Any error means this is a partial or not-yet-loaded view. Pruning against it would treat
-            // "I cannot see your calendar" as "your calendar is empty".
-            if (!string.IsNullOrEmpty(snap.Error)) return false;
 
             IReadOnlyList<CalendarEvent> events =
                 snap.Events ?? (IReadOnlyList<CalendarEvent>)Array.Empty<CalendarEvent>();
             // Fired ids are "<eventId>@<lead>", so compare on the event-id part.
             var feedIds = new HashSet<string>(StringComparer.Ordinal);
             foreach (CalendarEvent e in events) if (e != null && e.Id != null) feedIds.Add(e.Id);
-            return fired.RemoveWhere(id => !feedIds.Contains(ReminderScheduler.EventIdOf(id))) > 0;
+
+            Dictionary<string, bool> slots = snap.SlotHealthy;
+            if (slots == null)
+            {
+                // Any error means this is a partial or not-yet-loaded view. Pruning against it would treat
+                // "I cannot see your calendar" as "your calendar is empty".
+                if (!string.IsNullOrEmpty(snap.Error)) return false;
+                return fired.RemoveWhere(id => !feedIds.Contains(ReminderScheduler.EventIdOf(id))) > 0;
+            }
+            return fired.RemoveWhere(id =>
+            {
+                string slot = SlotOf(id);
+                bool healthy;
+                if (slot == null || !slots.TryGetValue(slot, out healthy)) return true;   // no slot claims it; none can re-fire it
+                if (!healthy) return false;                                               // errored or loading: cannot vouch, keep
+                return !feedIds.Contains(ReminderScheduler.EventIdOf(id));
+            }) > 0;
+        }
+
+        /// <summary>The slot an aggregate id belongs to: "cal1" of "cal1|uid@15". Slot ids never contain '|', so
+        /// the first one is the boundary whatever the event id holds. Null when there is none.</summary>
+        internal static string SlotOf(string firedId)
+        {
+            if (string.IsNullOrEmpty(firedId)) return null;
+            int bar = firedId.IndexOf('|');
+            return bar < 0 ? null : firedId.Substring(0, bar);
         }
 
         private void SaveFired()
@@ -2008,6 +2061,105 @@ namespace DesktopAICompanion.ReminderModule
             finally
             {
                 logModule.Shutdown();
+            }
+
+            // ---- the prune judges each id by ITS slot (F204) ----
+            // The whole-snapshot gate above is right for one source and wrong for the aggregate, which sets
+            // Error whenever any slot fails and still fires the healthy slots' events: a Local Outlook slot on a
+            // box where Outlook is closed kept the combined Error set for good, and the healthy slot beside it
+            // added an id per reminder per lead that nothing ever removed. Through the real aggregate.
+            var mixed = new AggregateCalendarSource(new[]
+            {
+                new AggregateCalendarSource.Slot
+                {
+                    Id = "cal1", Label = "Home",
+                    Source = new AggregateCalendarSource.StubSource(new[] { new CalendarEvent { Id = "x", Title = "Live", Start = monday } }, null),
+                },
+                new AggregateCalendarSource.Slot
+                {
+                    Id = "cal2", Label = "Work",
+                    Source = new AggregateCalendarSource.StubSource(Array.Empty<CalendarEvent>(), "Outlook isn't running"),
+                },
+            });
+            CalendarSnapshot mixedSnap = mixed.Fetch();
+            var f7 = new HashSet<string>(new[] { "cal1|x@15", "cal1|gone@15", "cal2|y@5", "legacy@5" }, StringComparer.Ordinal);
+            bool pruned7 = PruneFiredAgainstFeed(mixedSnap, f7);
+            check("a healthy slot's stale id is dropped even while another slot errors, so the set stays bounded",
+                pruned7 && !f7.Contains("cal1|gone@15"));
+            check("WITNESS the erroring slot's id is kept: it cannot vouch for its calendar", f7.Contains("cal2|y@5"));
+            check("WITNESS the healthy slot's live id is kept", f7.Contains("cal1|x@15"));
+            check("an id no configured slot claims is dropped, as it was whenever the aggregate was healthy",
+                !f7.Contains("legacy@5"));
+
+            // The first tick of every launch, per slot: the loading slot keeps its own ids (the 1.0.3 re-nag
+            // fix) while its neighbour that has loaded is pruned.
+            var loadingBeside = new AggregateCalendarSource(new[]
+            {
+                new AggregateCalendarSource.Slot
+                {
+                    Id = "cal1", Label = "Home",
+                    Source = new AggregateCalendarSource.StubSource(Array.Empty<CalendarEvent>(), "Loading the calendar…"),
+                },
+                new AggregateCalendarSource.Slot
+                {
+                    Id = "cal2", Label = "Work",
+                    Source = new AggregateCalendarSource.StubSource(new[] { new CalendarEvent { Id = "z", Title = "Live", Start = monday } }, null),
+                },
+            });
+            var f8 = new HashSet<string>(new[] { "cal1|uid@15", "cal2|old@5" }, StringComparer.Ordinal);
+            PruneFiredAgainstFeed(loadingBeside.Fetch(), f8);
+            check("a slot still loading keeps its ids while its loaded neighbour is pruned (the re-nag fix holds per slot)",
+                f8.Contains("cal1|uid@15") && !f8.Contains("cal2|old@5"));
+
+            // ---- an Apply keeps the slots whose type it did not change (F200) ----
+            // Save called BuildSource unconditionally and BuildSlotSource constructed fresh sources, so toggling
+            // a chime checkbox threw away every slot's cache and last-good list and re-fetched every feed; the
+            // next tick served "Fetching the calendar…" with no events. Through the pane's own Save delegate,
+            // on a real LocalJsonSource slot reading a temp file.
+            string applyDirectory = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), "dp-reminder-apply-" + Guid.NewGuid().ToString("N"));
+            var applyHost = new RecordingHost();
+            var applyModule = new ReminderModule();
+            bool applyInitialised = false;
+            try
+            {
+                System.IO.Directory.CreateDirectory(applyDirectory);
+                string applyFeed = System.IO.Path.Combine(applyDirectory, "feed.json");
+                System.IO.File.WriteAllText(applyFeed,
+                    "{\"events\":[{\"id\":\"a\",\"title\":\"Standup\",\"start\":\"2026-01-05T09:00:00+00:00\"}]}");
+                FakeModuleSettings applySettings = applyHost.SettingsFor(Id);
+                applySettings.Set(SlotKey(1, "type"), SourceLocalFile);
+                applySettings.Set(SlotKey(1, "file"), applyFeed);
+                applySettings.Set("hushPresenting", "false");
+                applyModule.Init(applyHost);
+                applyInitialised = true;
+                ICalendarSource before = applyModule._slotSources[1];
+                CalendarSnapshot loaded = WaitForFeed(applyModule._source, delegate(CalendarSnapshot snap)
+                {
+                    return snap != null && snap.Error == null && snap.Events != null && snap.Events.Count == 1;
+                });
+                check("WITNESS the configured file slot has a source and its feed has landed", before != null && loaded != null);
+                OptionsPane pane = applyHost.OptionsPanes.Count > 0 ? applyHost.OptionsPanes[0] : null;
+                check("WITNESS the module registered its options pane with a Save", pane != null && pane.Save != null);
+                if (pane != null && pane.Save != null)
+                {
+                    pane.Save(new Dictionary<string, string> { { SlotKey(1, "chimeOn"), "false" } });
+                    CalendarSnapshot afterApply = applyModule._source.Fetch();
+                    check("an Apply that did not change the slot's type keeps its source instance",
+                        ReferenceEquals(before, applyModule._slotSources[1]));
+                    check("...so its events are still served rather than a loading message",
+                        afterApply != null && afterApply.Error == null && afterApply.Events != null && afterApply.Events.Count == 1);
+                    pane.Save(new Dictionary<string, string> { { SlotKey(1, "type"), SourceOff } });
+                    check("WITNESS a type change to Off drops the slot's source", applyModule._slotSources[1] == null);
+                    pane.Save(new Dictionary<string, string> { { SlotKey(1, "type"), SourceLocalFile } });
+                    check("WITNESS ...and back on is a fresh instance",
+                        applyModule._slotSources[1] != null && !ReferenceEquals(before, applyModule._slotSources[1]));
+                }
+            }
+            finally
+            {
+                if (applyInitialised) applyModule.Shutdown();
+                try { System.IO.Directory.Delete(applyDirectory, true); } catch { }
             }
 
             detail = sb.ToString();
