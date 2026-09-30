@@ -43,12 +43,15 @@ namespace DesktopAICompanion.Ai
             get { return Volatile.Read(ref _askActive) != 0; }
         }
 
+        /// <param name="releaseModel">False when the caller knows the replacement targets the same backend and
+        /// models: the retiring brain is still disposed, but its model is not evicted (F095). Default true.</param>
         public async Task<bool> ReconfigureAsync(
             Func<AiBrain> factory,
             bool enabled,
             bool prepare,
             CancellationToken externalCancellation,
-            Action afterRetire = null)
+            Action afterRetire = null,
+            bool releaseModel = true)
         {
             int generation;
             CancellationTokenSource previous;
@@ -93,7 +96,7 @@ namespace DesktopAICompanion.Ai
                 {
                     if (!IsCurrent(generation, enabled)) return false;
 
-                    await RetireBrainAsync(_brain).ConfigureAwait(false);
+                    await RetireBrainAsync(_brain, releaseModel).ConfigureAwait(false);
                     _brain = null;
                     RunPendingAfterRetire();
 
@@ -258,7 +261,8 @@ namespace DesktopAICompanion.Ai
                         _brain,
                         Remaining(
                             waitTimeout,
-                            stopwatch.Elapsed)).GetAwaiter().GetResult();
+                            stopwatch.Elapsed),
+                        true).GetAwaiter().GetResult();
                     _brain = null;
                     RunPendingAfterRetire();
                     cancellation.Dispose();
@@ -270,10 +274,27 @@ namespace DesktopAICompanion.Ai
             {
                 if (!entered)
                 {
-                    // Dispose the active backend immediately to break HttpClient/process waits, then
-                    // finish primitive cleanup once the serialized operation eventually unwinds.
+                    // The serialized operation did not unwind in time: a holder that ignores cancellation for the
+                    // whole budget (a hung transport, an OCR child that survived its kill). Release the model FIRST,
+                    // bounded, and dispose the backend only then. The deferred cleanup used to do it the other way
+                    // round, so its unload landed on a disposed HttpClient and was swallowed, and under "keep"
+                    // residency the model stayed resident after the app had gone (F091). HttpClient accepts a
+                    // concurrent request, so the unload does not queue behind the hung one, and a request the budget
+                    // cuts off is aborted by the Dispose that follows.
                     AiBrain active = _brain;
-                    try { if (active != null) active.Dispose(); } catch { }
+                    if (active != null)
+                    {
+                        try
+                        {
+                            using (var unloadBudget = new CancellationTokenSource(NotEnteredUnloadBudget))
+                            {
+                                Task unload = active.UnloadAsync(unloadBudget.Token);
+                                if (!unload.Wait(NotEnteredUnloadBudget)) ObserveFailure(unload);
+                            }
+                        }
+                        catch { }
+                        try { active.Dispose(); } catch { }
+                    }
                     QueueDeferredCleanup(cancellation);
                 }
             }
@@ -289,18 +310,34 @@ namespace DesktopAICompanion.Ai
             }
         }
 
-        private static async Task RetireBrainAsync(AiBrain brain)
+        /// <summary>How long the not-entered dispose path waits for its unload before disposing anyway (F091).</summary>
+        private static readonly TimeSpan NotEnteredUnloadBudget = TimeSpan.FromSeconds(1);
+
+        private static Task RetireBrainAsync(AiBrain brain)
         {
-            await RetireBrainAsync(
-                brain,
-                TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+            return RetireBrainAsync(brain, TimeSpan.FromSeconds(2), true);
+        }
+
+        private static Task RetireBrainAsync(AiBrain brain, bool releaseModel)
+        {
+            return RetireBrainAsync(brain, TimeSpan.FromSeconds(2), releaseModel);
         }
 
         private static async Task RetireBrainAsync(
             AiBrain brain,
-            TimeSpan waitTimeout)
+            TimeSpan waitTimeout,
+            bool releaseModel)
         {
             if (brain == null) return;
+            // Retire WITHOUT evicting when the caller says the replacement targets the same backend and models (a
+            // same-backend Apply under "keep" or "server" residency): the brain still has to go, it owns the
+            // HttpClient and the persona clone, but the model it loaded is the model the next brain will use, and
+            // evicting it here cost a cold reload on every Apply (F095). Disable and shutdown keep the eviction.
+            if (!releaseModel)
+            {
+                try { brain.Dispose(); } catch { }
+                return;
+            }
             try
             {
                 TimeSpan boundedWait = waitTimeout <= TimeSpan.Zero
@@ -361,8 +398,12 @@ namespace DesktopAICompanion.Ai
                 try
                 {
                     await _operation.WaitAsync().ConfigureAwait(false);
-                    await RetireBrainAsync(_brain).ConfigureAwait(false);
+                    // The model was released and the backend disposed by DisposeCore before this was queued; what is
+                    // left is the reference, the after-retire actions and the primitives. Dispose is idempotent, so
+                    // a brain the not-entered branch already handled is not touched twice (F091).
+                    AiBrain brain = _brain;
                     _brain = null;
+                    try { if (brain != null) brain.Dispose(); } catch { }
                     RunPendingAfterRetire();
                 }
                 catch { }

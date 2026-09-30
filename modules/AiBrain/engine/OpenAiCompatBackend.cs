@@ -24,12 +24,15 @@ namespace DesktopAICompanion.Ai
         private readonly string _base;   // ".../v1"
         private readonly string _key;
         private readonly TimeSpan _deadline;
+        /// <summary>The bound on the reachability probe, shorter than the chat deadline it used to borrow (F105).</summary>
+        private readonly TimeSpan _probeDeadline;
 
         public OpenAiCompatBackend(string baseUrl, string apiKey, TimeSpan timeout)
         {
             _base = AiEndpointPolicy.NormalizeOrThrow(baseUrl, "baseUrl");
             _key  = apiKey ?? "";
             _deadline = AiEndpointPolicy.ValidateDeadline(timeout, "timeout");
+            _probeDeadline = AiEndpointPolicy.Shorter(_deadline, AiEndpointPolicy.AvailabilityProbeDeadline);
             _http = new HttpClient(AiEndpointPolicy.CreateNoRedirectHandler())
             {
                 Timeout = Timeout.InfiniteTimeSpan
@@ -41,13 +44,18 @@ namespace DesktopAICompanion.Ai
         }
 
         /// <summary>Test-only: inject a fake transport (e.g. a canned /models response) instead of a real
-        /// HttpClientHandler. Mirrors OllamaClient's diagnostic constructor.</summary>
-        internal OpenAiCompatBackend(string baseUrl, string apiKey, TimeSpan timeout, HttpMessageHandler handler)
+        /// HttpClientHandler, and optionally a probe deadline of its own. Mirrors OllamaClient's diagnostic
+        /// constructor.</summary>
+        internal OpenAiCompatBackend(
+            string baseUrl, string apiKey, TimeSpan timeout, HttpMessageHandler handler, TimeSpan? probeDeadline = null)
         {
             if (handler == null) throw new ArgumentNullException("handler");
             _base = AiEndpointPolicy.NormalizeOrThrow(baseUrl, "baseUrl");
             _key = apiKey ?? "";
             _deadline = AiEndpointPolicy.ValidateDeadline(timeout, "timeout");
+            _probeDeadline = probeDeadline.HasValue
+                ? AiEndpointPolicy.ValidateDeadline(probeDeadline.Value, "probeDeadline")
+                : AiEndpointPolicy.Shorter(_deadline, AiEndpointPolicy.AvailabilityProbeDeadline);
             _http = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
             _http.DefaultRequestHeaders.Add("User-Agent", "DesktopAICompanion");
             _http.DefaultRequestHeaders.Add("HTTP-Referer", "https://github.com/bigfnj/desktop-ai-companion");
@@ -73,7 +81,7 @@ namespace DesktopAICompanion.Ai
                     return await AiEndpointPolicy.SendAndCheckAnsweredAsync(
                         _http,
                         request,
-                        _deadline,
+                        _probeDeadline,
                         ct).ConfigureAwait(false);
                 }
             }

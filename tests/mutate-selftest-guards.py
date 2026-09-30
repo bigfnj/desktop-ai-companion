@@ -716,6 +716,119 @@ CASES = (
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "a substitution is announced before any capture"),
 
+    # F106: the warm-up pins its own ten minutes again.
+    ("aibrain: the warm-up hard-codes keep_alive 10m again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "OllamaClient.cs"),
+     b'                    ["keep_alive"] = KeepAliveSeconds.HasValue ? (JsonNode)KeepAliveSeconds.Value : (JsonNode)"10m"',
+     b'                    ["keep_alive"] = "10m"',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the warm-up carries the residency's keep_alive"),
+
+    # F105, four legs: each probe borrows the chat deadline again, and the composite goes sequential again.
+    ("aibrain: the cloud reachability probe borrows the chat deadline again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "OpenAiCompatBackend.cs"),
+     b"                        _probeDeadline,",
+     b"                        _deadline,",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a cloud reachability probe is bounded by the probe deadline"),
+
+    ("aibrain: the local reachability probe borrows the chat deadline again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "OllamaClient.cs"),
+     b"            return await IsAvailableAsync(_availabilityDeadline, ct).ConfigureAwait(false);",
+     b"            return await IsAvailableAsync(_deadline, ct).ConfigureAwait(false);",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the local reachability probe is bounded the same way"),
+
+    ("aibrain: the composite probes cloud then local again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "FallbackBackend.cs"),
+     b"            return await FirstUpAsync(primary, local).ConfigureAwait(false);",
+     b"            return await primary.ConfigureAwait(false) || await local.ConfigureAwait(false);",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "without waiting out a hung cloud probe"),
+
+    ("aibrain: the composite readies the local leg only after the cloud leg again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "FallbackBackend.cs"),
+     b"            Task<bool> primary = _primary.EnsureServerAsync(ct);\n"
+     b"            Task<bool> local = _local.EnsureServerAsync(ct);",
+     b"            Task<bool> primary = _primary.EnsureServerAsync(ct);\n"
+     b"            await primary.ConfigureAwait(false);\n"
+     b"            Task<bool> local = _local.EnsureServerAsync(ct);",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the local leg is readied while the cloud probe is still pending"),
+
+    # F095: retirement evicts regardless of what the caller said again.
+    ("aibrain: a same-backend retirement evicts the model again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiSessionManager.cs"),
+     b"            if (!releaseModel)\n"
+     b"            {\n"
+     b"                try { brain.Dispose(); } catch { }\n"
+     b"                return;\n"
+     b"            }",
+     b"            if (!releaseModel && brain == null)\n"
+     b"            {\n"
+     b"                try { brain.Dispose(); } catch { }\n"
+     b"                return;\n"
+     b"            }",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a same-backend Apply retires the brain without evicting its model"),
+
+    # F091: the not-entered branch disposes before it unloads again.
+    ("aibrain: the timed-out dispose disposes the backend before releasing the model again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiSessionManager.cs"),
+     b"                                Task unload = active.UnloadAsync(unloadBudget.Token);",
+     b"                                active.Dispose();\n"
+     b"                                Task unload = active.UnloadAsync(unloadBudget.Token);",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the model was released BEFORE the backend was disposed"),
+
+    # F081: the post-consume cancellation check comes back.
+    ("aibrain: a finished reply is discarded when the deadline fired during the read again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiEndpointPolicy.cs"),
+     b"                            boundedToken).ConfigureAwait(false);\n"
+     b"                        // No cancellation check AFTER the consumer.",
+     b"                            boundedToken).ConfigureAwait(false);\n"
+     b"                        boundedToken.ThrowIfCancellationRequested();\n"
+     b"                        // No cancellation check AFTER the consumer.",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a complete reply is returned even when the deadline fired"),
+
+    # F070: the audition brain sends the residency's keep_alive:0 again.
+    ("aibrain: the audition brain evicts after every sample again",
+     os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+     b"                ? (int?)AuditionKeepAliveWindowSeconds\n"
+     b"                : s.KeepAliveForRequests;",
+     b"                ? s.KeepAliveForRequests\n"
+     b"                : s.KeepAliveForRequests;",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the audition brain holds the model between samples"),
+
+    # F063: PrepareAsync warms regardless of the switch again.
+    ("aibrain: the audition's preparation warms the model again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiBrain.cs"),
+     b"                if (up && warmUp && _settings.WarmUpDesired)",
+     b"                if (up && (warmUp || !warmUp) && _settings.WarmUpDesired)",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an audition's preparation warms nothing"),
+
+    # F104: the fallover's local model comes from the id again.
+    ("aibrain: a fallover picks the local model by id again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "FallbackBackend.cs"),
+     b"                string localModel = HasImage(messages) ? _localVisionModel : _localTextModel;",
+     b"                string localModel = LocalModelFor(model);",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a text fallover with one cloud model for both slots lands on the local TEXT model"),
+
 
     # ---- lane fix/fortunes ----
 

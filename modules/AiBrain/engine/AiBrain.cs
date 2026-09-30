@@ -766,7 +766,10 @@ namespace DesktopAICompanion.Ai
         /// preload the active model so the first ask doesn't pay the cold-start cost. Never throws.
         /// Returns true when the backend is reachable (used to drive the "AI ready" hint).
         /// </summary>
-        public async Task<bool> PrepareAsync(CancellationToken ct = default(CancellationToken))
+        /// <param name="warmUp">False for a throwaway brain that will run its own requests straight away (the
+        /// persona audition): its samples run on the text model, so warming the model a live vision ask would
+        /// use under "keep" residency loaded a second model for nothing (F063). The launch routine keeps true.</param>
+        public async Task<bool> PrepareAsync(CancellationToken ct = default(CancellationToken), bool warmUp = true)
         {
             try
             {
@@ -791,7 +794,7 @@ namespace DesktopAICompanion.Ai
                 // a backend that cannot list models leaves the inventory unknown, which is handled.
                 if (up) await RefreshInventoryAsync(ct).ConfigureAwait(false);
 
-                if (up && _settings.WarmUpDesired)
+                if (up && warmUp && _settings.WarmUpDesired)
                     await _backend.WarmUpAsync(_useVision ? _visionModel : _textModel, ct).ConfigureAwait(false);
 
                 return up;

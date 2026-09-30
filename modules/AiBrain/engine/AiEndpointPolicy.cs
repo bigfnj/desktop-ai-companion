@@ -28,6 +28,20 @@ namespace DesktopAICompanion.Ai
         public const int MaximumProviderErrorBytes = 4096;
         /// <summary>The longest provider error text carried to the pane.</summary>
         public const int MaximumProviderMessageCharacters = 200;
+        /// <summary>
+        /// How long a REACHABILITY probe may take. It used to borrow the chat deadline (120 s by default), so a
+        /// cloud endpoint that accepted the connection and then said nothing cost every ask two minutes of probe
+        /// before the local leg was even asked, and the launch auto-start waited behind it (F105). Ten seconds is
+        /// far beyond any answering server (a running Ollama answers /api/tags in 5-56 ms, measured 2026-09-27)
+        /// and short enough that a hung cloud is a delay, not a silence. The chat's own deadline is untouched: that
+        /// is the user's timeout setting.
+        /// </summary>
+        public static readonly TimeSpan AvailabilityProbeDeadline = TimeSpan.FromSeconds(10);
+
+        public static TimeSpan Shorter(TimeSpan a, TimeSpan b)
+        {
+            return a < b ? a : b;
+        }
         private static readonly UTF8Encoding StrictUtf8 =
             new UTF8Encoding(false, true);
         public static bool TryNormalize(string value, out string normalized, out string error)
@@ -367,7 +381,8 @@ namespace DesktopAICompanion.Ai
             }
         }
 
-        private static async Task<TResult> SendWithDeadlineAsync<TResult>(
+        // internal, not private: the self-test drives it with a consumer that finishes after the deadline (F081).
+        internal static async Task<TResult> SendWithDeadlineAsync<TResult>(
             HttpClient client,
             HttpRequestMessage request,
             TimeSpan deadline,
@@ -399,7 +414,10 @@ namespace DesktopAICompanion.Ai
                         TResult result = await consumeResponse(
                             response,
                             boundedToken).ConfigureAwait(false);
-                        boundedToken.ThrowIfCancellationRequested();
+                        // No cancellation check AFTER the consumer. Every consumer observes boundedToken while it
+                        // reads, so a result it hands back is complete; the check that used to sit here could only
+                        // discard a finished answer, when the deadline fired between the last read and the return,
+                        // turning it into a TimeoutException the retry then paid a second full generation for (F081).
                         return result;
                     }
                 }

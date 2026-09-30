@@ -358,6 +358,31 @@ cap in arithmetic only: it needs about 24 keys of 8 KB each, and real provider k
 them serialize to about 20 KB). If a real key ever approaches 8 KB, the useful half is a size reason on the save
 refusal, not smaller caps.
 
+**Every Apply still rebuilds the brain; what a same-backend Apply no longer does is evict its model (F065, F095,
+2026-09-29).** The audit proposed skipping the rebuild behind a fingerprint of the settings the brain reads. The
+brain reads the persona (CompanionName, UserName, Disposition) from its own settings clone on every prompt, so
+that fingerprint would have to name every such field and would silently stop an edit reaching the brain the day
+it missed one; the rebuild is cheap (a new HttpClient, a listing) and is kept as the one path every settings
+change takes. What cost 5-11 s was the eviction on retire, and that is now gated on `BackendFingerprint`, which
+names only what decides which model is resident where. Under "unload" the eviction on retire stays, because the
+model is gone after each remark anyway and the unload is free.
+
+**The repeat-guard retry keeps its possible second cold load under "unload" residency (F070, 2026-09-29).** The
+audition, a burst of five requests the module itself issues, now holds its model for a minute between samples
+and evicts when the run ends. The live retry is left alone: it fires only after a model has repeated itself,
+which is the case the guard exists for; giving its first request a longer keep_alive than its second needs a
+per-request keep_alive on the backend interface that every backend would have to carry; and the repo's one
+recorded audition timing under the same eviction (5498/3803/419/380/385 ms) shows the race against Ollama's
+asynchronous eviction is won more often than lost, so the doubled load is a possibility, not a rule.
+
+**Reachability probes are bounded at ten seconds, and the composite asks both legs at once (F105, 2026-09-29).**
+Ten is a chosen number, not a measured one: far beyond any server that is answering (a running Ollama answers
+/api/tags in 5-56 ms, measured 2026-09-27 for the VRAM line) and short enough that a cloud whose traffic is
+silently dropped costs an ask ten seconds rather than two minutes of probe before the local leg is asked. The
+chat's own deadline is the user's timeout setting and is untouched. The audit's third suggestion, remembering a
+recent primary timeout and trying local first for a while, was not taken: the concurrent probe already answers
+from the local leg as soon as it is up.
+
 #### fix/fortunes
 
 (none yet)

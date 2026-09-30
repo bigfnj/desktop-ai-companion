@@ -534,12 +534,16 @@ namespace DesktopAICompanion.AiBrainModule
                     reply == "local-reply" && primary.ChatCalls == 1 && local.ChatCalls == 1 && local.LastModel == "local-text");
             }
 
+            // A vision-path request CARRIES AN IMAGE; that is what makes it one, and since F104 it is what chooses
+            // the local leg, not the id (which said nothing once one cloud model served both slots). Until
+            // 2026-09-29 this fixture sent the vision id with no image and passed on the id alone.
+            var visionMsgs = new List<ChatMessage> { ChatMessage.User("look", new[] { "QUJD" }) };
             using (var primary = new TransientFailBackend())
             using (var local = new RecordingBackend("local-reply", true))
             using (var fb = new FallbackBackend(primary, local, "cloud-vision", "local-text", "local-vision"))
             {
-                fb.ChatAsync("cloud-vision", msgs, false, CancellationToken.None).GetAwaiter().GetResult();
-                ok &= Check(sb, "fallback: the cloud vision model maps to the local vision model on failover",
+                fb.ChatAsync("cloud-vision", visionMsgs, false, CancellationToken.None).GetAwaiter().GetResult();
+                ok &= Check(sb, "fallback: a cloud vision request (it carries an image) maps to the local vision model on failover",
                     local.LastModel == "local-vision");
             }
 
@@ -561,6 +565,25 @@ namespace DesktopAICompanion.AiBrainModule
             {
                 bool avail = fb.IsAvailableAsync(CancellationToken.None).GetAwaiter().GetResult();
                 ok &= Check(sb, "fallback: available when the local leg is up even if cloud is down", avail);
+            }
+
+            // F104: with ONE cloud model in both slots (a natural multimodal setup), the fallover's local model is
+            // decided by the REQUEST (an image means vision), not by the id, which matched the vision model for
+            // every request and loaded the heavy local vision model to answer OCR text.
+            var image = new List<ChatMessage> { ChatMessage.User("look", new[] { "QUJD" }) };
+            using (var primary = new TransientFailBackend())
+            using (var local = new RecordingBackend("local-reply", true))
+            using (var fb = new FallbackBackend(primary, local, "same-cloud-model", "local-text", "local-vision"))
+            {
+                fb.ChatAsync("same-cloud-model", msgs, false, CancellationToken.None).GetAwaiter().GetResult();
+                ok &= Check(sb, "fallback: a text fallover with one cloud model for both slots lands on the local TEXT model",
+                    local.LastModel == "local-text");
+                fb.UnloadAsync("same-cloud-model", CancellationToken.None).GetAwaiter().GetResult();
+                ok &= Check(sb, "fallback: the release names the local model the fallover actually loaded, not only the id mapping",
+                    local.UnloadedModels.Contains("local-text"));
+                fb.ChatAsync("same-cloud-model", image, false, CancellationToken.None).GetAwaiter().GetResult();
+                ok &= Check(sb, "WITNESS a fallover carrying an image lands on the local VISION model",
+                    local.LastModel == "local-vision");
             }
 
             return ok;
@@ -648,6 +671,30 @@ namespace DesktopAICompanion.AiBrainModule
                     client.ChatAsync("llama3", msgs, false, CancellationToken.None).GetAwaiter().GetResult();
                     ok &= Check(sb, "vram: an unset client sends no keep_alive",
                         !h.LastBody.Contains("keep_alive"));
+                }
+
+                // The WARM-UP carries the same keep_alive as the chat requests (F106). A literal "10m" here meant
+                // the "keep" residency's launch warm-up expired ten idle minutes later and the first remark paid
+                // the cold load the setting exists to avoid, while the pane said the model stays loaded.
+                using (var h = new CapturingJsonHandler("{\"done\":true}"))
+                using (var client = new OllamaClient("http://localhost:11434", TimeSpan.FromSeconds(5), "",
+                        h, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(10),
+                        delegate(CancellationToken ignored) { return true; }))
+                {
+                    client.KeepAliveSeconds = -1;
+                    client.WarmUpAsync("llama3", CancellationToken.None).GetAwaiter().GetResult();
+                    ok &= Check(sb, "vram: the warm-up carries the residency's keep_alive (-1 under 'keep') on /api/generate",
+                        h.LastPath.EndsWith("/api/generate", StringComparison.Ordinal) &&
+                        h.LastBody.Replace(" ", "").Contains("\"keep_alive\":-1"));
+                }
+                using (var h = new CapturingJsonHandler("{\"done\":true}"))
+                using (var client = new OllamaClient("http://localhost:11434", TimeSpan.FromSeconds(5), "",
+                        h, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(10),
+                        delegate(CancellationToken ignored) { return true; }))
+                {
+                    client.WarmUpAsync("llama3", CancellationToken.None).GetAwaiter().GetResult();
+                    ok &= Check(sb, "WITNESS a client with no keep_alive policy warms up with the historical 10m window",
+                        h.LastBody.Contains("\"10m\""));
                 }
 
                 // /api/ps: name, VRAM and eviction time, so the pane can state fact instead of a default.
@@ -2513,19 +2560,18 @@ namespace DesktopAICompanion.AiBrainModule
                             delegate
                             {
                                 Interlocked.Increment(ref callbackCount);
-                                // What the not-entered branch actually does, recorded rather than
-                                // assumed: the manager disposes the backend FIRST and the deferred
-                                // cleanup issues the unload afterwards, so with the shipping
-                                // OllamaClient that unload lands on a disposed HttpClient and is
-                                // dropped. The double used to count the call without knowing it
-                                // came after Dispose, so this check read as proof of an eviction the
-                                // real backend cannot perform (F089). Asserted as it IS; the ordering
-                                // fix (F091, aibrain lane) makes UnloadCallsAfterDispose 0 and must
-                                // update this line to say so.
+                                // The not-entered branch releases the model FIRST and disposes the
+                                // backend afterwards (F091). It used to be the other way round: the
+                                // deferred cleanup issued the unload after the Dispose, so with the
+                                // shipping OllamaClient it landed on a disposed HttpClient and was
+                                // dropped, and the double counted the call without knowing it came
+                                // after Dispose, so this check read as proof of an eviction the real
+                                // backend could not perform (F089). Asserted as the ORDER now: exactly
+                                // one unload, none of them after the Dispose.
                                 observedRetired =
                                     backend.UnloadCalls == 1 &&
                                     backend.DisposeCount == 1 &&
-                                    backend.UnloadCallsAfterDispose == 1;
+                                    backend.UnloadCallsAfterDispose == 0;
                                 observedSerialized =
                                     operation.CurrentCount == 0;
                                 completed.Set();
@@ -2542,8 +2588,8 @@ namespace DesktopAICompanion.AiBrainModule
 
                         ok &= Check(
                             sb,
-                            "deferred dispose drains pending after-retire actions (the unload it issues " +
-                                "arrives AFTER the backend was disposed: recorded, not an eviction -- F091)",
+                            "deferred dispose drains pending after-retire actions, and the model was released " +
+                                "BEFORE the backend was disposed (F091)",
                             canceledWhileHeld &&
                             deferredCompleted &&
                             callbackCount == 1 &&

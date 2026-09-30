@@ -580,6 +580,9 @@ namespace DesktopAICompanion.AiBrainModule
                 // --- the cloud slot, the composite, and how HTTP answers are described (AiEngineProbe.Backends.cs) ---
                 ok &= RunBackends(sb);
 
+                // --- residency: probe bounds, retirement, the audition's own keep_alive (AiEngineProbe.Residency.cs) ---
+                ok &= RunResidency(sb);
+
                 // --- the MODULE's own entry points, through ModuleKit's RecordingHost (AiEngineProbe.Module.cs) ---
                 ok &= RunModule(sb);
             }

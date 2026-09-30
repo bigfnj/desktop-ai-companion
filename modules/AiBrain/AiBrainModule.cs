@@ -115,9 +115,17 @@ namespace DesktopAICompanion.AiBrainModule
                                  //         and described as a rejected key, and the log files answered
                                  //         statuses as http-<n>; model listings read under their own 8 MiB
                                  //         cap; the failure line names the model sent and the host built
-                                 //         against; a substitution is announced before any capture. Every
-                                 //         item is dispositioned in BACKLOG.md; decisions under
-                                 //         `#### fix/aibrain` in docs/DESIGN-REGISTER.md.
+                                 //         against; a substitution is announced before any capture. The
+                                 //         reachability probes are bounded by their own 10 s deadline and
+                                 //         the composite runs both legs at once; the warm-up carries the
+                                 //         residency's keep_alive; an Apply that leaves the backend as it
+                                 //         was keeps the model resident; the timed-out dispose releases the
+                                 //         model before disposing the backend; a reply that completed is
+                                 //         never discarded to a deadline that fired during the read; the
+                                 //         audition holds its model between samples and warms nothing; a
+                                 //         fallover picks the local model by whether the request carries an
+                                 //         image. Every item is dispositioned in BACKLOG.md; decisions
+                                 //         under `#### fix/aibrain` in docs/DESIGN-REGISTER.md.
                                  // 1.1.13: the emotion reaction reached 18/54, 35/54, 8/54, 8/54 and
                                  //         8/54 companions. "thinking" fires on EVERY ask, so on 46 of
                                  //         54 it silently did nothing -- the eSheep-era names it used
@@ -494,21 +502,30 @@ namespace DesktopAICompanion.AiBrainModule
             try
             {
                 AiBrain brain;
-                try { brain = CreateBrain(s); }
+                // A short positive keep_alive for the audition's Ollama client under "unload" residency: five
+                // back-to-back samples with keep_alive:0 raced Ollama's eviction and could pay up to four extra
+                // cold loads (F070). Evicted explicitly when the run ends, below.
+                try { brain = CreateBrain(s, AuditionKeepAliveSeconds(s)); }
                 catch (Exception ex) { return "✗ " + ex.Message; }
 
                 using (brain)
                 using (var run = new CancellationTokenSource(whole))
                 {
                     // Fills the model inventory, so ChooseModel can tell "configured model is missing"
-                    // from "backend is down" instead of producing five identical silences (BUG-002).
-                    if (!await brain.PrepareAsync(run.Token).ConfigureAwait(false))
+                    // from "backend is down" instead of producing five identical silences (BUG-002). No warm-up:
+                    // the canned samples run on the text model and the live ones load whatever they use on their
+                    // first sample; PrepareAsync's warm-up belongs to the launch routine (F063).
+                    if (!await brain.PrepareAsync(run.Token, false).ConfigureAwait(false))
                         return "✗ Not reachable at " + normalized + " — start the provider and try again.";
 
                     DispositionAudition audition =
                         await brain.SampleDispositionAsync(
                             s.Disposition, liveContext, petZone, perSample, run.Token)
                             .ConfigureAwait(false);
+                    // The VRAM back now, under "unload": the samples held the model for a minute between them, and
+                    // the residency's promise is that it is gone after the remark.
+                    if (string.Equals(s.ModelResidency, AiSettings.ResidencyUnload, StringComparison.OrdinalIgnoreCase))
+                        await brain.UnloadAsync(run.Token).ConfigureAwait(false);
                     return FormatAudition(dispositionName, audition, cloud, live);
                 }
             }
@@ -1340,13 +1357,28 @@ namespace DesktopAICompanion.AiBrainModule
                 try { _host.Log(Info.Id, "AI brain not started: " + err); } catch { }
             bool prepare = allowed && (s.AutoStartServer || s.WarmUpDesired);
             AiSettings snapshot = s;
+            // Retire WITHOUT evicting when the replacement targets the same backend and models. Every Apply
+            // rebuilds the brain (the persona is read from its settings clone, so a name or disposition edit must
+            // reach a NEW brain, and a fingerprint that skipped the rebuild would have to know every field the
+            // brain reads), but under "keep" or "server" residency the old brain's retirement also evicted a model
+            // the user asked to keep resident, so a hotkey edit cost a cold reload (F095, F065). The fingerprint
+            // names every field that decides WHICH model is resident WHERE and nothing else; under "unload" the
+            // model is gone after each remark anyway, so the eviction on retire stays (it is free there).
+            string fingerprint = allowed ? BackendFingerprint(s) : null;
+            bool sameBackend = fingerprint != null &&
+                string.Equals(fingerprint, _liveBackendFingerprint, StringComparison.Ordinal);
+            bool releaseModel = !(sameBackend &&
+                !string.Equals(s.ModelResidency, AiSettings.ResidencyUnload, StringComparison.OrdinalIgnoreCase));
+            _liveBackendFingerprint = fingerprint;
 
             // Fire-and-forget: the session serializes generations, so a stale config can never apply.
             _ = _session.ReconfigureAsync(
                 allowed ? (Func<AiBrain>)delegate { return CreateBrain(snapshot); } : null,
                 allowed,
                 prepare,
-                _lifetime.Token);
+                _lifetime.Token,
+                null,
+                releaseModel);
 
             if (_hotkey != null) { try { _hotkey.Dispose(); } catch { } _hotkey = null; }
             if (allowed && s.HotkeyEnabled && _host != null)
@@ -1356,9 +1388,55 @@ namespace DesktopAICompanion.AiBrainModule
 
         // ---- brain construction (mirrors StartUp.CreateBrain / CanUseAiConfiguration) -------------
 
+        /// <summary>The fingerprint of the brain the live session was last built for, or null when it was
+        /// disabled. Compared by ApplyState to decide whether retiring the old brain must evict its model.</summary>
+        private string _liveBackendFingerprint;
+
+        /// <summary>
+        /// Every setting that decides which model is resident where: the local slot's endpoint, protocol and two
+        /// models, the cloud selector with its endpoint and models, the fallback switch, the residency and the
+        /// executable path. Persona fields are deliberately absent: the brain is rebuilt on every Apply regardless,
+        /// and this decides only whether its retirement EVICTS (F095). Internal so the self-test can pin what is
+        /// and is not in it.
+        /// </summary>
+        internal static string BackendFingerprint(AiSettings s)
+        {
+            return string.Join("\n", new[]
+            {
+                s.Endpoint ?? "", s.LocalBackendKind ?? "", s.TextModel ?? "", s.VisionModel ?? "",
+                s.Provider ?? "", s.OpenAiBaseUrl ?? "", s.CloudTextModel ?? "", s.CloudVisionModel ?? "",
+                s.UseLocalFallback ? "fallback" : "no-fallback", s.ModelResidency ?? "", s.OllamaPath ?? "",
+            });
+        }
+
+        /// <summary>
+        /// The keep_alive the AUDITION brain's Ollama client sends. Under the default "unload" residency every chat
+        /// carries keep_alive:0, so five back-to-back samples raced Ollama's eviction and could pay up to four extra
+        /// loads, about 5 s each on gemma3:4b against about 400 ms of inference (F070; the repo's one recorded
+        /// audition timing, 5498/3803/419/380/385 ms, shows the race being won three times out of five). The
+        /// audition is a burst the module itself issues, so it holds the model for a minute between samples and
+        /// PreviewDispositionAsync evicts explicitly when the run ends. The other residencies keep their own value:
+        /// "keep" is resident anyway and "server" defers to Ollama.
+        /// </summary>
+        internal static int? AuditionKeepAliveSeconds(AiSettings s)
+        {
+            return string.Equals(s.ModelResidency, AiSettings.ResidencyUnload, StringComparison.OrdinalIgnoreCase)
+                ? (int?)AuditionKeepAliveWindowSeconds
+                : s.KeepAliveForRequests;
+        }
+
+        private const int AuditionKeepAliveWindowSeconds = 60;
+
         // internal, not private: the self-test builds a cloud-primary brain from settings alone (no network is
         // touched by construction) to assert what the failure line will name as its endpoint (F073).
         internal static AiBrain CreateBrain(AiSettings s)
+        {
+            return CreateBrain(s, s.KeepAliveForRequests);
+        }
+
+        /// <param name="localKeepAliveSeconds">The keep_alive the LOCAL Ollama client puts on each chat request: the
+        /// residency's own value for the live brain, a short positive window for the audition brain (F070).</param>
+        internal static AiBrain CreateBrain(AiSettings s, int? localKeepAliveSeconds)
         {
             string endpoint = SelectedEndpoint(s);
             string normalized, error;
@@ -1381,7 +1459,7 @@ namespace DesktopAICompanion.AiBrainModule
             ICompanionBrainBackend backend;
             if (IsLocalSlot(s))
             {
-                backend = BuildLocalBackend(s, normalized, timeout);
+                backend = BuildLocalBackend(s, normalized, timeout, localKeepAliveSeconds);
             }
             else
             {
@@ -1391,7 +1469,7 @@ namespace DesktopAICompanion.AiBrainModule
                     AiEndpointPolicy.TryNormalize(s.Endpoint, out localNormalized, out localError) &&
                     AiEndpointPolicy.IsLoopbackEndpoint(localNormalized))
                 {
-                    ICompanionBrainBackend local = BuildLocalBackend(s, localNormalized, timeout);
+                    ICompanionBrainBackend local = BuildLocalBackend(s, localNormalized, timeout, localKeepAliveSeconds);
                     backend = new FallbackBackend(cloud, local, s.CloudVisionModel, s.TextModel, s.VisionModel);
                     backendHosts += "->" + AiBrain.DescribeEndpoint(localNormalized);
                 }
@@ -1511,11 +1589,10 @@ namespace DesktopAICompanion.AiBrainModule
         /// <summary>
         /// What is resident in VRAM right now, read from the server rather than asserted.
         ///
-        /// Also states the two things that would otherwise make the eject setting look broken:
-        ///   * "Preload model on launch" pins keep_alive to 10 minutes, so a warmed model OUTLIVES a short
-        ///     eject setting until the next remark re-stamps it. Two settings that appear to contradict each
-        ///     other, with no explanation, is a support question waiting to happen.
-        ///   * the reload cost is real and is paid per remark. Better said here than discovered as lag.
+        /// Also states the reload cost, which is real and is paid per remark under "unload": better said here than
+        /// discovered as lag. This comment used to describe a second thing, "Preload model on launch" pinning
+        /// keep_alive to 10 minutes and outliving a short eject window; that setting was folded into the residency
+        /// choice in 1.3.0 and the last trace of its 10-minute pin, in OllamaClient.WarmUpAsync, went with F106.
         /// </summary>
         private string VramStatusLine(AiSettings s)
         {
@@ -1617,6 +1694,14 @@ namespace DesktopAICompanion.AiBrainModule
         // plumbs through is the exact failure this project's rule about source-text checks warns about.
         internal static ICompanionBrainBackend BuildLocalBackend(AiSettings s, string normalizedLocalEndpoint, TimeSpan timeout)
         {
+            return BuildLocalBackend(s, normalizedLocalEndpoint, timeout, s.KeepAliveForRequests);
+        }
+
+        /// <param name="keepAliveSeconds">What the Ollama client puts on each chat request; the residency's value
+        /// for the live brain (the overload above), a short window for the audition brain (F070).</param>
+        internal static ICompanionBrainBackend BuildLocalBackend(
+            AiSettings s, string normalizedLocalEndpoint, TimeSpan timeout, int? keepAliveSeconds)
+        {
             if (string.Equals(s.LocalBackendKind, "openai-compat", StringComparison.OrdinalIgnoreCase))
                 return new OpenAiCompatBackend(normalizedLocalEndpoint, "", timeout);
             // keep_alive is an Ollama-native field, so the residency setting only reaches the Ollama client.
@@ -1624,7 +1709,7 @@ namespace DesktopAICompanion.AiBrainModule
             // pane says the setting is Ollama-only rather than appearing to work everywhere.
             return new OllamaClient(normalizedLocalEndpoint, timeout, s.OllamaPath)
             {
-                KeepAliveSeconds = s.KeepAliveForRequests,
+                KeepAliveSeconds = keepAliveSeconds,
             };
         }
 

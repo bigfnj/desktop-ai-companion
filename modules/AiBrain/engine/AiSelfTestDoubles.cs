@@ -525,6 +525,9 @@ namespace DesktopAICompanion.AiBrainModule
         public int ChatCalls { get; private set; }
         public string LastModel { get; private set; }
         public int WarmUpCalls { get; private set; }
+        private int _ensureServerCalls;
+        /// <summary>How many times EnsureServerAsync was asked; read from another thread by the F105 check.</summary>
+        public int EnsureServerCalls { get { return Volatile.Read(ref _ensureServerCalls); } }
         /// <summary>Every model an UnloadAsync named, in order.</summary>
         public List<string> UnloadedModels { get; } = new List<string>();
         public Task<string> ChatAsync(string model, IList<ChatMessage> messages, bool jsonFormat, CancellationToken ct)
@@ -534,7 +537,11 @@ namespace DesktopAICompanion.AiBrainModule
             return Task.FromResult(_reply);
         }
         public Task<bool> IsAvailableAsync(CancellationToken ct) { return Task.FromResult(_available); }
-        public Task<bool> EnsureServerAsync(CancellationToken ct) { return Task.FromResult(_available); }
+        public Task<bool> EnsureServerAsync(CancellationToken ct)
+        {
+            Interlocked.Increment(ref _ensureServerCalls);
+            return Task.FromResult(_available);
+        }
         public Task WarmUpAsync(string model, CancellationToken ct) { WarmUpCalls++; return Task.CompletedTask; }
         public Task UnloadAsync(string model, CancellationToken ct) { UnloadedModels.Add(model ?? ""); return Task.CompletedTask; }
         public void Dispose() { }
@@ -565,5 +572,23 @@ namespace DesktopAICompanion.AiBrainModule
         {
             throw new HttpRequestException("connection refused (double)");
         }
+    }
+
+    /// <summary>A leg whose reachability and readiness probes hang until <see cref="Release"/>: the cloud whose
+    /// traffic is silently dropped, which F105 is about. Chats answer at once so nothing else blocks.</summary>
+    internal sealed class HangingBackend : ICompanionBrainBackend
+    {
+        private readonly TaskCompletionSource<bool> _gate =
+            new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _ensureServerCalls;
+        public int EnsureServerCalls { get { return Volatile.Read(ref _ensureServerCalls); } }
+        public Task<string> ChatAsync(string model, IList<ChatMessage> messages, bool jsonFormat, CancellationToken ct) { return Task.FromResult(""); }
+        public Task<bool> IsAvailableAsync(CancellationToken ct) { return _gate.Task; }
+        public Task<bool> EnsureServerAsync(CancellationToken ct) { Interlocked.Increment(ref _ensureServerCalls); return _gate.Task; }
+        public Task WarmUpAsync(string model, CancellationToken ct) { return Task.CompletedTask; }
+        public Task UnloadAsync(string model, CancellationToken ct) { return Task.CompletedTask; }
+        /// <summary>Let every pending probe complete with this answer.</summary>
+        public void Release(bool up) { _gate.TrySetResult(up); }
+        public void Dispose() { }
     }
 }
