@@ -20,6 +20,22 @@ namespace DesktopAICompanion.Ai
             if (!string.IsNullOrWhiteSpace(root)) _root = root;
         }
 
+        /// <summary>
+        /// Replace the root and hand back the one it replaced, null included, so a probe that borrows the root
+        /// can put back EXACTLY what it found. <see cref="SetRoot"/> ignores a blank on purpose (the live module
+        /// must never lose its root to a bad host answer), which made restoring a previously-unset root a silent
+        /// no-op and left the process pointing at a deleted temp directory after every self-test (F086).
+        /// </summary>
+        internal static string SwapRoot(string root)
+        {
+            string previous = _root;
+            _root = string.IsNullOrWhiteSpace(root) ? null : root;
+            return previous;
+        }
+
+        /// <summary>The root as set, or null when nothing has set one. For the self-test's restore assertion.</summary>
+        internal static string CurrentRootForDiagnostics { get { return _root; } }
+
         private static string Root
         {
             get

@@ -99,9 +99,15 @@ namespace DesktopAICompanion.Ai
         public string VisionModel = "gemma3:4b";
 
         /// <summary>
-        /// When true, send a downscaled screenshot to the vision model instead of OCR text.
-        /// Only used for explicit asks (hotkey/tray) — idle commentary always stays on the fast
-        /// text path, since a vision glance can take tens of seconds.
+        /// When true, send a downscaled screenshot to the vision model instead of OCR text, for EVERY remark
+        /// about the screen: the hotkey, the tray row and the unprompted drop alike. Owner decision 2026-09-29
+        /// (BUG-010, docs/ISSUES-post-1.0.0.md): "how else would it know what is on the screen to react to?"
+        /// This comment, the pane label and the brain's routing comment used to say "explicit asks only", a
+        /// rule written for the module's own idle loop (backlog 6.2, when a full-screen glance took about a
+        /// minute) that outlived the loop; the drop responder never honoured it, so the code stood and the
+        /// words changed. The poke reaction is the one path that stays text-only, because a vision glance is
+        /// too slow to feel like a reaction to a click. OCR is the fallback when this is off or the chosen model
+        /// cannot see.
         /// </summary>
         public bool UseVision = false;
 

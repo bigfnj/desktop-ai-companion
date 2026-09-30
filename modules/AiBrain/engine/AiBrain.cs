@@ -981,8 +981,13 @@ namespace DesktopAICompanion.Ai
 
                     string ctx = DescribeScreenContext(captureContext, petZone);
 
-                    // Routing (backlog 6.2): vision only for explicit asks; idle stays on the fast
-                    // text path since a vision glance can take tens of seconds.
+                    // Routing: with UseVision on, every remark about the screen takes the vision path when the
+                    // caller allows it, and the hotkey, the tray row and the unprompted drop all do (owner
+                    // decision 2026-09-29, BUG-010). The backlog 6.2 rule this comment used to cite kept the
+                    // module's OWN idle loop on the text path when a full-screen glance took about a minute;
+                    // the 896 px downscale removed that cost and aibrain 1.2.3 removed the loop. The poke
+                    // passes allowVision=false and stays on the fast text path, being a reaction to a click.
+                    // OCR is the fallback when vision is off or the chosen model cannot see (ChooseModel).
                     string userText;
                     string[] images = null;
                     if (useVisionPath)

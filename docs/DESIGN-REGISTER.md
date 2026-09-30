@@ -285,7 +285,18 @@ print RESULT=PASS with a new "GUI resource counters readable" PASS line per segm
 
 #### fix/aibrain
 
-(none yet)
+**The poke reaction stays on the text path under the vision-for-every-remark decision (2026-09-29).** "The code
+stands" in the owner's BUG-010 ruling includes `OnPokeReaction`'s `allowVision: false`: a poke is a reaction to a
+click, and a vision glance is too slow to read as one (the module's own figure is about 11 s cold against about 5 s
+on the text path, `AiBrainModule.VramStatusLine`). The hotkey, the tray row and the unprompted drop all allow
+vision; the module self-test pins all four routings (`engine/AiEngineProbe.Module.cs`). Changing the poke is a
+separate decision to take on purpose, not a drift to make in passing.
+
+**The explicit ask declines under the fullscreen stand-down and says so in the log only (F067, 2026-09-29).** A
+refused hotkey has no responder chain behind it, so unlike the drop and the poke nothing speaks in its place. A
+log line was chosen over a canned spoken line: on a single monitor the companion is hidden while the game runs and
+a bubble would land behind it, and the log is the file SUPPORT.md asks users to attach. The setting's label now
+names the hotkey so the refusal is not a surprise.
 
 #### fix/fortunes
 

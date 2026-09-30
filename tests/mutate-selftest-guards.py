@@ -490,6 +490,43 @@ CASES = (
 
     # ---- lane fix/aibrain ----
 
+    # BUG-010 (F066) is a DECISION pinned by an assertion: the unprompted drop asks WITH vision allowed. The
+    # mutation is the fix the audit proposed and the owner declined, so a future change to that argument fails
+    # here by name instead of quietly re-litigating the decision. Through --module-selftest=aibrain, which
+    # drives a real AiBrainModule through ModuleKit's RecordingHost (engine/AiEngineProbe.Module.cs).
+    ("aibrain: the unprompted drop stops allowing vision (the fix the owner declined)",
+     os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+     b"            return Ask(pet, true);",
+     b"            return Ask(pet, false);",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the unprompted drop asks WITH vision allowed"),
+
+    # F067: the stand-down guard inside Ask, which the hotkey and the tray row reach with no responder in
+    # front of them. The mutation leaves the call in place and makes it unreachable, the shape a source regex
+    # for the call's presence cannot see.
+    ("aibrain: the explicit ask ignores the fullscreen stand-down again",
+     os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+     b"            if (FullscreenBlocked())\n"
+     b"            {\n"
+     b'                try { host.Log(Info.Id, "ask declined: fullscreen stand-down"); } catch { }',
+     b"            if (FullscreenBlocked() && host == null)\n"
+     b"            {\n"
+     b'                try { host.Log(Info.Id, "ask declined: fullscreen stand-down"); } catch { }',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the tray ask is DECLINED while a fullscreen app runs"),
+
+    # F226: LaunchProcess is a disclosure that gates nothing at runtime, so only an assertion notices it gone.
+    ("aibrain: the LaunchProcess disclosure is dropped",
+     os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+     b"                          ModulePermissions.Hotkey | ModulePermissions.Storage |\n"
+     b"                          ModulePermissions.LaunchProcess,",
+     b"                          ModulePermissions.Hotkey | ModulePermissions.Storage,",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "declares LaunchProcess"),
+
 
     # ---- lane fix/fortunes ----
 
@@ -512,6 +549,7 @@ BASELINES = (
     ("--fortunes-engine-selftest", "dp-fortunes-engine-selftest.txt"),
     ("--petstudio-selftest", "dp-petstudio-selftest.txt"),
     ("--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt"),
+    ("--module-selftest=aibrain", "dp-module-aibrain-selftest.txt"),
     (CORETESTS, None),
 )
 
@@ -533,7 +571,13 @@ def build(csproj):
 
 
 def build_all():
-    for csproj in (HOST_CSPROJ, FORTUNES_CSPROJ, BLINKINGLED_CSPROJ, PETSTUDIO_CSPROJ, CORETESTS_CSPROJ):
+    """The fixed set, plus every csproj a case names. Until 2026-09-29 this built the fixed set only, so
+    a case whose project was not in it (Reminder, AiBrain) left its module DLL compiled from the LAST
+    MUTATION after "restoring and rebuilding the clean tree": the source was byte-identical, the artefact
+    was not, and the next self-test run against that build folder failed on the very assertion the case
+    had just proved. Building the union also makes the baseline trustworthy for those flags."""
+    fixed = [HOST_CSPROJ, FORTUNES_CSPROJ, BLINKINGLED_CSPROJ, PETSTUDIO_CSPROJ, CORETESTS_CSPROJ]
+    for csproj in fixed + sorted(set(c[4] for c in CASES) - set(fixed)):
         ok, out = build(csproj)
         if not ok:
             return False, out

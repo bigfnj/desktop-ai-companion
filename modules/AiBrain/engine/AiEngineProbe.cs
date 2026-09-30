@@ -546,6 +546,9 @@ namespace DesktopAICompanion.AiBrainModule
                 // see AiEngineProbe.Security.cs). They exercise the SHIPPING module engine so no coverage
                 // is lost when the base's dead Ai/* copy is deleted in a later phase. ---
                 ok &= RunSecurity(sb);
+
+                // --- the MODULE's own entry points, through ModuleKit's RecordingHost (AiEngineProbe.Module.cs) ---
+                ok &= RunModule(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
             finally { try { if (root != null) Directory.Delete(root, true); } catch { } }

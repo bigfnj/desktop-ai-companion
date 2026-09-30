@@ -100,10 +100,13 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.1.14",  // 1.1.14: the 2026-09-29 audit campaign, lane fix/aibrain. Every item is
-                                 //         dispositioned in BACKLOG.md and the decisions are recorded under
-                                 //         `#### fix/aibrain` in docs/DESIGN-REGISTER.md; the changelog
-                                 //         here is extended as each batch lands.
+            Version = "1.1.14",  // 1.1.14: the 2026-09-29 audit campaign, lane fix/aibrain. Vision, when on,
+                                 //         applies to every remark including the unprompted drop (owner
+                                 //         decision, BUG-010): the code stood, the label and comments changed,
+                                 //         and the module self-test pins the drop's routing. The hotkey and
+                                 //         the tray row honour the fullscreen stand-down. LaunchProcess is
+                                 //         declared. Every item is dispositioned in BACKLOG.md; decisions
+                                 //         under `#### fix/aibrain` in docs/DESIGN-REGISTER.md.
                                  // 1.1.13: the emotion reaction reached 18/54, 35/54, 8/54, 8/54 and
                                  //         8/54 companions. "thinking" fires on EVERY ask, so on 46 of
                                  //         54 it silently did nothing -- the eSheep-era names it used
@@ -208,9 +211,15 @@ namespace DesktopAICompanion.AiBrainModule
             // also the first to exercise the sequencing rule: do NOT publish this to the catalog until host
             // 1.1.0 has shipped, or the catalog offers users a module their host correctly refuses.
             MinHostVersion = "1.1.0",
+            // LaunchProcess: this module starts `ollama serve` (engine\OllamaClient.TryStartServer) and runs
+            // tesseract.exe as a child for OCR (engine\AiBrain.RunOcrAsync), and no flag had ever said so on
+            // the consent screen (F226: the flag shipped in host 1.2.5 naming this module as a holder, and no
+            // module declared it). A disclosure, not a gate, like every flag in the enum. Declaring an existing
+            // flag needs no MinHostVersion raise.
             Permissions = ModulePermissions.Speech | ModulePermissions.Animation |
                           ModulePermissions.ScreenContext | ModulePermissions.Network |
-                          ModulePermissions.Hotkey | ModulePermissions.Storage,
+                          ModulePermissions.Hotkey | ModulePermissions.Storage |
+                          ModulePermissions.LaunchProcess,
         };
 
         public void Init(IHost host)
@@ -307,8 +316,13 @@ namespace DesktopAICompanion.AiBrainModule
                     new SettingField { Id = "endpoint", Label = "Local endpoint (base URL)", Kind = SettingKind.Text, Group = "Local provider" },
                     _textModelField,
                     _visionModelField,
-                    new SettingField { Id = "useVision", Label = "Use vision on explicit asks", Kind = SettingKind.Bool, Group = "Local provider" },
-                    // Screen reading uses this OCR engine on the fast path (vision is explicit-asks only).
+                    // Vision, when on, applies to EVERY remark about the screen: the hotkey, the tray row and
+                    // the unprompted drop alike, so the companion reacts to what is actually on screen rather
+                    // than to OCR text. Owner decision 2026-09-29 (BUG-010): the label used to say "on explicit
+                    // asks" while OnDrop had always allowed vision; the code stood and the words changed. The
+                    // poke reaction is the one exception and stays on the text path (see OnPokeReaction).
+                    new SettingField { Id = "useVision", Label = "Use vision (send a screenshot, not OCR text, with each remark)", Kind = SettingKind.Bool, Group = "Local provider" },
+                    // Screen reading uses this OCR engine whenever vision is off or the chosen model cannot see.
                     // Empty = search the usual install locations, then PATH.
                     new SettingField { Id = "tesseractPath", Label = "OCR engine (blank = auto-detect)", Kind = SettingKind.Text, Group = "Screen reading" },
                     new SettingField { Id = "autoStart", Label = "Start Ollama automatically", Kind = SettingKind.Bool, Group = "Local server (Ollama only)" },
@@ -317,7 +331,7 @@ namespace DesktopAICompanion.AiBrainModule
                     new SettingField
                     {
                         Id = "standDownFullscreen",
-                        Label = "Stand down while a fullscreen app is running (releases VRAM; fortunes speak instead)",
+                        Label = "Stand down while a fullscreen app is running (releases VRAM, declines the Ask hotkey; fortunes speak instead)",
                         Kind = SettingKind.Bool,
                         Group = "Local server (Ollama only)",
                     },
@@ -1097,6 +1111,12 @@ namespace DesktopAICompanion.AiBrainModule
             // says something, it just says something free. And while a game is fullscreen the pet is hidden
             // anyway, so a model answer would be invisible as well as risky.
             if (FullscreenBlocked()) return false;
+            // allowVision: TRUE, deliberately, and pinned by the module self-test. A drop is unprompted
+            // commentary, and with UseVision on it is a vision turn exactly like the hotkey and the tray row:
+            // the owner's decision of 2026-09-29 (BUG-010, docs/ISSUES-post-1.0.0.md) is that vision, when
+            // enabled, applies to every remark, because the screen is what the remark is about. The audit
+            // proposed `false` here to match a label written for the module's OLD idle loop; the label was
+            // what changed. Only the poke stays text-only, and OnPokeReaction says why.
             return Ask(pet, true);
         }
 
@@ -1177,6 +1197,18 @@ namespace DesktopAICompanion.AiBrainModule
             // One in-flight ask at a time, so at most one pending subject. Per-pet concurrency (two pets
             // asked at once) is BACKLOG #16(a) and deliberately not attempted here.
             if (session.RequestInProgress) return false;
+            // The stand-down applies to EVERY entry point, not only the two responders. A global hotkey is
+            // delivered while a game has focus, and the explicit path allows vision, so a press during a game
+            // used to load the vision model beside the game the setting exists to protect and deliver the
+            // answer to a companion the fullscreen logic had hidden (F067). The responders keep their own call
+            // in front of this one: declining THERE is what lets the chain fall through to Fortunes, and the
+            // source invariant asserts it there. The explicit path has no chain behind it, so a refusal here
+            // would be silent to the user and to the log SUPPORT.md asks for; hence the line.
+            if (FullscreenBlocked())
+            {
+                try { host.Log(Info.Id, "ask declined: fullscreen stand-down"); } catch { }
+                return false;
+            }
             ICompanion pet = subject ?? _lastPet;
             if (pet == null || !host.IsCompanionAlive(pet)) return false;
 
@@ -1190,9 +1222,23 @@ namespace DesktopAICompanion.AiBrainModule
             // asked, which is the same bug the answer below had.
             try { PlayEmotionOn(host, pet, "thinking"); host.Say(pet, "…"); } catch { }
 
-            _ = AskCoreAsync(session, ctx, ctx.WindowUnderCompanion, allowVision, pet);
+            Func<ScreenContext, string, bool, ICompanion, Task> sink = AskSinkForDiagnostics;
+            _ = sink != null
+                ? sink(ctx, ctx.WindowUnderCompanion, allowVision, pet)
+                : AskCoreAsync(session, ctx, ctx.WindowUnderCompanion, allowVision, pet);
             return true;
         }
+
+        /// <summary>
+        /// Test seam: where a STARTED turn goes instead of <see cref="AskCoreAsync"/>. Null in the shipped
+        /// module. The module self-test sets it to record the routing decision each entry point makes, which
+        /// pet and whether vision was allowed, WITHOUT the turn reaching the session and a backend: the decision
+        /// under test is made before this point, by OnDrop, OnPokeReaction, the tray row and the hotkey, and
+        /// everything after it needs a screen, a model and a network. Same shape as
+        /// AiSessionManager.ReconfigureAdmittedForDiagnostics. It exists because BUG-010 was a routing
+        /// argument that four sentences described and nothing asserted.
+        /// </summary>
+        internal Func<ScreenContext, string, bool, ICompanion, Task> AskSinkForDiagnostics;
 
         /// <summary>Play the first animation this pet actually defines for an emotion. The module owns the
         /// emotion -&gt; candidates mapping, so this needs no host verb beyond TryPlayAnimation.</summary>
