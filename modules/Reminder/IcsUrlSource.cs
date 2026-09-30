@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net.Http;
+using System.Threading;
 using Ical.Net;
 using Ical.Net.DataTypes;
 // This module has its own CalendarEvent DTO; alias iCal.Net's so the source-component cast is unambiguous.
@@ -20,8 +22,16 @@ namespace DesktopAICompanion.ReminderModule
     {
         private static readonly TimeSpan WindowBack = TimeSpan.FromMinutes(2);
         private static readonly TimeSpan WindowForward = TimeSpan.FromHours(48);
-        private const int MaximumBytes = 8 * 1024 * 1024;
+        private const long MaximumBytes = 8 * 1024 * 1024;
         private const int MaximumOccurrences = 2000;   // guard a runaway (e.g. every-minute) recurrence
+
+        // ONE budget for the whole download, headers and body together. The old shape was HttpClient.Timeout
+        // = 20 s with ResponseHeadersRead: that timeout ends when the headers arrive, and the body was then
+        // read with no token at all, so a server that sent 200 and stalled mid-body held the fetch, and with
+        // it the slot's refresh latch, for as long as it liked (F189; measured on .NET 10 by the audit, the
+        // stalled read was still WaitingForActivation eight seconds after a 2 s timeout). 30 s rather than
+        // the old 20: the budget now covers the body too, and an 8 MiB feed on a slow link deserves the room.
+        private static readonly TimeSpan DownloadDeadline = TimeSpan.FromSeconds(30);
 
         private static readonly HttpClient Http = CreateClient();
         private readonly Func<string> _urlGetter;
@@ -37,21 +47,35 @@ namespace DesktopAICompanion.ReminderModule
 
         private static HttpClient CreateClient()
         {
-            var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+            // Timeout bounds SendAsync, which under ResponseHeadersRead means the headers; the body read in
+            // Download carries its own token cut from the same deadline. Both are set so neither can be
+            // forgotten when one of them is next edited.
+            var http = new HttpClient { Timeout = DownloadDeadline };
             http.DefaultRequestHeaders.UserAgent.ParseAdd("DesktopAICompanion-Reminder/1.0");
             return http;
         }
 
-        protected override CalendarSnapshot FetchCore(DateTimeOffset now)
+        protected override CalendarSnapshot FetchCore(string key, DateTimeOffset now)
         {
-            string url = RefreshKey();
+            // The URL the caller's thread read from the settings; not re-read here, this is a pool thread (F192).
+            string url = key ?? "";
             if (url.Length == 0)
                 return new CalendarSnapshot { Events = Array.Empty<CalendarEvent>(), Error = "No calendar URL is configured." };
-            string ics = Download(url);
+            string ics = Download(url, DownloadDeadline, MaximumBytes);
             return ParseIcs(ics, now);
         }
 
-        private static string Download(string url)
+        /// <summary>
+        /// GET the feed with both bounds enforced WHILE the body arrives: one deadline over headers and body,
+        /// and a size cap checked on every chunk. The cap used to be checked after ReadAsByteArrayAsync had
+        /// buffered the whole body -- HttpClient's own MaxResponseContentBufferSize is not consulted on the
+        /// unbuffered path -- so a chunked response with no Content-Length could be buffered to 2 GB before the
+        /// 8 MiB check ran. Internal, with the bounds as parameters, so the self-test can drive it against a
+        /// loopback server with a deadline of milliseconds and a cap of kilobytes; the module passes its
+        /// constants. Throws on any refusal; DoRefresh turns that into an error snapshot behind the last good
+        /// feed.
+        /// </summary>
+        internal static string Download(string url, TimeSpan deadline, long maximumBytes)
         {
             // webcal:// is just http(s) by another name; normalize it, and refuse anything that isn't http(s).
             if (url.StartsWith("webcal://", StringComparison.OrdinalIgnoreCase))
@@ -61,16 +85,39 @@ namespace DesktopAICompanion.ReminderModule
                 (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp))
                 throw new InvalidOperationException("The calendar URL must be an http(s) or webcal address.");
 
-            using (HttpResponseMessage response = Http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead)
-                       .GetAwaiter().GetResult())
+            try
             {
-                response.EnsureSuccessStatusCode();
-                if (response.Content.Headers.ContentLength.HasValue &&
-                    response.Content.Headers.ContentLength.Value > MaximumBytes)
-                    throw new InvalidOperationException("The calendar feed is too large.");
-                byte[] bytes = response.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult();
-                if (bytes.Length > MaximumBytes) throw new InvalidOperationException("The calendar feed is too large.");
-                return System.Text.Encoding.UTF8.GetString(bytes);
+                using (var cts = new CancellationTokenSource(deadline))
+                using (HttpResponseMessage response = Http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cts.Token)
+                           .GetAwaiter().GetResult())
+                {
+                    response.EnsureSuccessStatusCode();
+                    // A declared length over the cap is refused before a byte of body is read. A body that
+                    // declares nothing, or lies, is caught by the running total below.
+                    if (response.Content.Headers.ContentLength.HasValue &&
+                        response.Content.Headers.ContentLength.Value > maximumBytes)
+                        throw new InvalidOperationException("The calendar feed is too large.");
+                    using (Stream body = response.Content.ReadAsStreamAsync(cts.Token).GetAwaiter().GetResult())
+                    using (var buffer = new MemoryStream())
+                    {
+                        byte[] chunk = new byte[64 * 1024];
+                        while (true)
+                        {
+                            int read = body.ReadAsync(chunk, 0, chunk.Length, cts.Token).GetAwaiter().GetResult();
+                            if (read <= 0) break;
+                            if (buffer.Length + read > maximumBytes)
+                                throw new InvalidOperationException("The calendar feed is too large.");
+                            buffer.Write(chunk, 0, read);
+                        }
+                        return System.Text.Encoding.UTF8.GetString(buffer.GetBuffer(), 0, (int)buffer.Length);
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // "A task was canceled." is what the user would otherwise read in the status line.
+                throw new TimeoutException("The calendar feed did not finish downloading within "
+                    + deadline.TotalSeconds.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + " seconds.");
             }
         }
 

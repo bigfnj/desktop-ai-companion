@@ -22,8 +22,15 @@ namespace DesktopAICompanion.ReminderModule
     /// blocks on the SMB timeout, and it was doing that on the UI thread every 20 seconds with the pets
     /// frozen behind it. "Local" describes the API being used, not where the bytes are.
     ///
-    /// The refresh interval matches the module's own tick rather than the minutes its siblings use, so
-    /// freshness is exactly what it was and the ONLY behaviour change is which thread does the reading.
+    /// The refresh interval sits clearly BELOW the module's 20 s tick, so every tick kicks a re-read. It used
+    /// to equal the tick, and this comment claimed freshness was "exactly what it was". Neither held: the
+    /// interval is measured from when the previous read LANDED, and the tick arrives 20 s plus timer lateness
+    /// after the previous tick, so whether the next tick counted as stale came down to lateness versus read
+    /// latency -- a coin flip for a local file, false for a share, where the file was re-read every OTHER
+    /// tick (F191). The honest freshness figure is this: a read kicked at tick N is served at tick N+1
+    /// (Fetch captures the cache before it kicks), so the worst-case staleness is two ticks, 40 s, double the
+    /// synchronous read this replaced. That is the price of the read leaving the UI thread, and 10 s makes
+    /// it deterministic rather than 40-or-60 depending on the disk.
     /// One other follows from the base: the very first tick answers "reading…" instead of the events,
     /// because the read has been kicked and has not landed yet.
     /// </summary>
@@ -32,7 +39,7 @@ namespace DesktopAICompanion.ReminderModule
         private const long MaximumBytes = 2 * 1024 * 1024;   // a few days of events is tiny; bound a runaway file
         private readonly Func<string> _pathGetter;
 
-        public LocalJsonSource(Func<string> pathGetter) : base(TimeSpan.FromSeconds(20))
+        public LocalJsonSource(Func<string> pathGetter) : base(TimeSpan.FromSeconds(10))
         {
             _pathGetter = pathGetter ?? throw new ArgumentNullException(nameof(pathGetter));
         }
@@ -46,10 +53,11 @@ namespace DesktopAICompanion.ReminderModule
         // interval.
         protected override string RefreshKey() { return (_pathGetter() ?? "").Trim(); }
 
-        protected override CalendarSnapshot FetchCore(DateTimeOffset now)
+        protected override CalendarSnapshot FetchCore(string key, DateTimeOffset now)
         {
             var empty = new CalendarSnapshot { Events = Array.Empty<CalendarEvent>() };
-            string path = RefreshKey();
+            // The path the caller's thread read from the settings; not re-read here, this is a pool thread (F192).
+            string path = key ?? "";
             if (path.Length == 0) { empty.Error = "No reminder file is configured."; return empty; }
 
             FileInfo info;

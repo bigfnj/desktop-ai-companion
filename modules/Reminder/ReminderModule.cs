@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using DesktopAICompanion.Modules;
 using DesktopAICompanion.ModuleKit;
+using DesktopAICompanion.ModuleKit.Testing;
 
 namespace DesktopAICompanion.ReminderModule
 {
@@ -763,9 +764,38 @@ namespace DesktopAICompanion.ReminderModule
                 Label = "Check now",
                 Group = "Status",
                 ReloadPaneAfter = true,
-                InvokeAsync = () => { CheckDue(); return System.Threading.Tasks.Task.FromResult(StatusLine()); },
+                InvokeAsync = CheckNowAsync,
             });
             return actions.ToArray();
+        }
+
+        // How long "Check now" waits for the re-read it asked for before reporting whatever has landed. A URL
+        // fetch takes a second or two and an Outlook enumeration a few; past this the status says a feed is
+        // still refreshing rather than presenting the cache as the answer.
+        private const int CheckNowWaitSeconds = 8;
+
+        /// <summary>
+        /// "Check now" used to run the tick against the cached snapshot: Fetch answers from its cache and kicks
+        /// a re-read only when a slot's own interval has elapsed, so the button could never show anything the
+        /// last tick had not already seen, and the reloaded status repeated the old count and stamp (F201). It
+        /// now asks every slot to re-read, runs the due check at once (the kick happens inside that Fetch),
+        /// waits -- bounded -- for the refreshes to land, and runs the due check again against what arrived.
+        ///
+        /// The wait is an await, not a sleep. The host awaits InvokeAsync on the UI thread (PaneAction's own
+        /// contract), so each Task.Delay yields the thread to the message loop and its continuation comes back
+        /// to it, which is where CheckDue must run. A Thread.Sleep here would freeze the window for the wait.
+        /// </summary>
+        private async System.Threading.Tasks.Task<string> CheckNowAsync()
+        {
+            ICalendarSource source = _source;
+            if (source == null) return StatusLine();
+            source.Invalidate();
+            CheckDue();
+            DateTime deadline = DateTime.UtcNow.AddSeconds(CheckNowWaitSeconds);
+            while (source.IsRefreshing && DateTime.UtcNow < deadline)
+                await System.Threading.Tasks.Task.Delay(200);
+            CheckDue();
+            return source.IsRefreshing ? "a feed is still refreshing; " + StatusLine() : StatusLine();
         }
 
         // Fire a sample announcement in this slot's name, style, and chime so the user can see and hear it while
@@ -881,7 +911,15 @@ namespace DesktopAICompanion.ReminderModule
                     return "Reminders: next is " + (string.IsNullOrWhiteSpace(next.Title) ? "an event" : next.Title.Trim())
                         + " at " + next.Start.ToLocalTime().ToString("t", CultureInfo.CurrentCulture);
                 },
-                Click = () => CheckDue(),
+                // A click is the user asking, so the feeds are re-read rather than the cache re-checked (F201).
+                // The re-read lands in the background: this click's due check runs against the cache and the
+                // next tick, or the next click, sees what arrived. The pane's "Check now" is the one that waits.
+                Click = () =>
+                {
+                    ICalendarSource source = _source;
+                    if (source != null) source.Invalidate();
+                    CheckDue();
+                },
             };
         }
 
@@ -1330,8 +1368,10 @@ namespace DesktopAICompanion.ReminderModule
         /// unwired, which is indistinguishable from having no tests at all. They are aggregated here so the
         /// gate runs them on every change.
         ///
-        /// Covers pure logic only. The WinForms timer, the Outlook COM path and the ICS fetch are not
-        /// reachable without a real host, a running Outlook and a network respectively.
+        /// Covers pure logic, the caching sources through test doubles, the module's own tick through
+        /// ModuleKit's RecordingHost, and the .ics download's bounds against a loopback server. The WinForms
+        /// timer's firing, the Outlook COM path and a real network are not reachable here: they need a message
+        /// loop, a running Outlook and a feed host respectively.
         /// </summary>
         public static bool SelfTest(out string detail)
         {
@@ -1544,14 +1584,203 @@ namespace DesktopAICompanion.ReminderModule
                 check("WITNESS the background read did start", started);
                 check("the read ran on a different thread from the caller",
                     started && threadProbe.FetchThreadId != 0 && threadProbe.FetchThreadId != callerThread);
+                check("IsRefreshing answers true while the read is in flight", ticked != null && threadProbe.IsRefreshing);
             }
             finally
             {
                 threadProbe.Gate.Set();
             }
+            check("...and false once it has landed",
+                System.Threading.SpinWait.SpinUntil(delegate { return !threadProbe.IsRefreshing; }, TimeSpan.FromSeconds(3)));
+
+            // ---- a refresh that never returns (F186) ----
+            // The latch was one bool cleared only when DoRefresh finished, so a FetchCore that blocked for
+            // good -- Outlook's Object Model Guard prompt, a hung Outlook, a body the server never finishes --
+            // froze the slot: every later Fetch saw "already refreshing", served the old cache with no error,
+            // and never kicked again. This probe blocks each attempt behind its own gate, so the test chooses
+            // which attempt returns first.
+            var stalled = new StallingProbe();
+            try
+            {
+                CalendarSnapshot firstStalled = stalled.Fetch();
+                bool attemptOne = System.Threading.SpinWait.SpinUntil(delegate { return stalled.Starts == 1; }, TimeSpan.FromSeconds(3));
+                check("WITNESS the first refresh attempt started and is in flight",
+                    attemptOne && stalled.IsRefreshing && firstStalled != null && firstStalled.Error != null);
+                System.Threading.Thread.Sleep(350);   // past the probe's 150 ms deadline
+                CalendarSnapshot overdue = stalled.Fetch();
+                check("a refresh that outlives its deadline is reported on the served snapshot",
+                    overdue != null && overdue.Error != null && overdue.Error.Contains("has not completed"));
+                bool attemptTwo = System.Threading.SpinWait.SpinUntil(delegate { return stalled.Starts == 2; }, TimeSpan.FromSeconds(3));
+                check("...and one more attempt is started while the first stays parked",
+                    attemptTwo && stalled.OutstandingRefreshes == 2);
+                System.Threading.Thread.Sleep(350);
+                stalled.Fetch();
+                System.Threading.Thread.Sleep(50);
+                check("parked attempts are capped at " + CachingCalendarSource.MaximumOutstandingRefreshes
+                      + ", so a hung source cannot gain a thread per deadline", stalled.Starts == 2);
+                CalendarSnapshot stillStalled = stalled.Fetch();
+                check("WITNESS the stall stays reported while nothing has landed",
+                    stillStalled != null && stillStalled.Error != null && stillStalled.Error.Contains("has not completed"));
+
+                // The RETRY lands first: it is the newest attempt, so it is served and the report clears.
+                stalled.Gates[2].Set();
+                bool landed = System.Threading.SpinWait.SpinUntil(delegate { return !stalled.IsRefreshing; }, TimeSpan.FromSeconds(3));
+                CalendarSnapshot fresh = stalled.Fetch();
+                check("once the retry lands its result is served and the stall report clears",
+                    landed && fresh != null && fresh.Error == null && fresh.Events != null
+                    && fresh.Events.Count == 1 && fresh.Events[0].Id == "attempt2");
+                // Then the ABANDONED attempt returns, late. Its data predates what is being served.
+                stalled.Gates[1].Set();
+                bool drained = System.Threading.SpinWait.SpinUntil(delegate { return stalled.OutstandingRefreshes == 0; }, TimeSpan.FromSeconds(3));
+                CalendarSnapshot after = stalled.Fetch();
+                check("a result from the abandoned attempt, landing late, does not overwrite the newer one",
+                    drained && after != null && after.Events != null && after.Events.Count == 1 && after.Events[0].Id == "attempt2");
+            }
+            finally
+            {
+                stalled.ReleaseAll();
+            }
+
+            // ---- the refresh key is computed on the caller's thread only (F192) ----
+            // The getters behind RefreshKey read the module's settings store, a bare Dictionary the UI thread
+            // writes on every Apply. LocalJsonSource and IcsUrlSource used to call RefreshKey() AGAIN inside
+            // FetchCore, on the pool thread, although the base had the key in hand: it computed it in Fetch,
+            // threaded it through StartRefresh into DoRefresh, and then called FetchCore without it.
+            var keyProbe = new KeyThreadProbe();
+            int keyCaller = Environment.CurrentManagedThreadId;
+            CalendarSnapshot keyed = WaitForFeed(keyProbe, delegate(CalendarSnapshot snap)
+            {
+                return snap != null && snap.Error == null && snap.Events != null && snap.Events.Count == 1;
+            });
+            check("WITNESS the keyed source landed its fetch", keyed != null);
+            check("the background fetch is handed the key the caller computed", keyProbe.KeyGiven == "the-configured-path");
+            int[] keyThreads = keyProbe.KeyThreads;
+            bool keyOnCallerOnly = keyThreads.Length > 0;
+            foreach (int t in keyThreads) if (t != keyCaller) keyOnCallerOnly = false;
+            check("RefreshKey(), which reads the settings, never ran off the caller's thread", keyOnCallerOnly);
+
+            // ---- the file slot's interval sits below the tick (F191) ----
+            // Equal to the tick, whether a tick counted as stale came down to timer lateness versus read
+            // latency, so the file was re-read every tick on a fast disk and every other tick on a share.
+            check("the local file interval sits below the module tick, so every tick kicks a re-read",
+                new LocalJsonSource(delegate { return "unused"; }).RefreshInterval < TimeSpan.FromMilliseconds(TickMilliseconds));
+
+            // ---- an .ics download is bounded in time and in size WHILE the body arrives (F189) ----
+            // HttpClient.Timeout ends at the headers under ResponseHeadersRead and the body was then read with
+            // no token, so a server that sent 200 and stalled held the fetch, and the slot's latch, for good;
+            // and the 8 MiB cap was checked after the whole body had been buffered. Both against a loopback
+            // server that behaves exactly that way; nothing real is contacted. The TEST is bounded too, so the
+            // old shape fails an assertion here rather than hanging the suite.
+            using (var stallServer = new StallingFeedServer(StallingFeedServer.Mode.Stall, 0))
+            {
+                string outcome = BoundedDownload(stallServer.Url, TimeSpan.FromMilliseconds(500), 1024 * 1024, TimeSpan.FromSeconds(8));
+                check("a feed that sends its headers and then stalls is cut off by the deadline (" + outcome + ")",
+                    outcome.StartsWith("threw", StringComparison.Ordinal) && outcome.Contains("did not finish downloading"));
+                check("WITNESS the server had sent the headers and a first chunk, so it was the body that stalled",
+                    stallServer.HeadersSent);
+            }
+            using (var floodServer = new StallingFeedServer(StallingFeedServer.Mode.Flood, 2 * 1024 * 1024))
+            {
+                string outcome = BoundedDownload(floodServer.Url, TimeSpan.FromSeconds(10), 128 * 1024, TimeSpan.FromSeconds(8));
+                check("a chunked body past the size cap is refused while it is still arriving (" + outcome + ")",
+                    outcome.Contains("too large"));
+            }
+
+            // ---- a user's click re-reads the feeds (F201) ----
+            // Inside its interval a source answers from its cache, and until Invalidate existed nothing in the
+            // module could ask for more: "Check now" and the tray entry re-ran the due check against whatever
+            // the last tick had seen. Through the aggregate, because that is what the module holds.
+            var slowProbe = new FeedRetentionProbe(TimeSpan.FromHours(1));
+            slowProbe.Next = new CalendarSnapshot
+            {
+                Events = new List<CalendarEvent> { new CalendarEvent { Id = "a", Title = "Standup", Start = monday } },
+            };
+            var slowAggregate = new AggregateCalendarSource(new[]
+            {
+                new AggregateCalendarSource.Slot { Id = "cal1", Label = "Home", Source = slowProbe },
+            });
+            CalendarSnapshot slowFirst = WaitForFeed(slowAggregate, delegate(CalendarSnapshot snap)
+            {
+                return snap != null && snap.Events != null && snap.Events.Count == 1;
+            });
+            slowProbe.Next = new CalendarSnapshot
+            {
+                Events = new List<CalendarEvent>
+                {
+                    new CalendarEvent { Id = "a", Title = "Standup", Start = monday },
+                    new CalendarEvent { Id = "b", Title = "Added since", Start = monday },
+                },
+            };
+            slowAggregate.Fetch();
+            System.Threading.Thread.Sleep(30);
+            CalendarSnapshot cachedAgain = slowAggregate.Fetch();
+            check("WITNESS inside its interval a source answers from its cache and does not re-read",
+                slowFirst != null && cachedAgain != null && cachedAgain.Events.Count == 1 && slowProbe.Fetches == 1);
+            slowAggregate.Invalidate();
+            CalendarSnapshot reread = WaitForFeed(slowAggregate, delegate(CalendarSnapshot snap)
+            {
+                return snap != null && snap.Events != null && snap.Events.Count == 2;
+            });
+            check("Invalidate makes the next Fetch re-read, through the aggregate to every slot",
+                reread != null && slowProbe.Fetches == 2);
+            check("...and IsRefreshing is false once it has landed", !slowAggregate.IsRefreshing);
+
+            // And the button itself, on a module wired to a real host double: the due check it runs must be
+            // against what the re-read brought back, not the cache it started from. Driven from a pool thread
+            // so the awaits inside never wait on a message loop this process is not running.
+            var checkHost = new RecordingHost();
+            var checkModule = new ReminderModule();
+            checkHost.SettingsFor(Id).Set("hushPresenting", "false");
+            checkModule.Init(checkHost);
+            try
+            {
+                checkModule._source = slowAggregate;
+                slowProbe.Next = new CalendarSnapshot
+                {
+                    Events = new List<CalendarEvent>
+                    {
+                        new CalendarEvent { Id = "a", Title = "Standup", Start = monday },
+                        new CalendarEvent { Id = "b", Title = "Added since", Start = monday },
+                        new CalendarEvent { Id = "c", Title = "Added later", Start = monday },
+                    },
+                };
+                checkModule.CheckDue();
+                int seenByTick = checkModule._lastSnapshot != null && checkModule._lastSnapshot.Events != null
+                    ? checkModule._lastSnapshot.Events.Count : -1;
+                string clickStatus = System.Threading.Tasks.Task.Run(() => checkModule.CheckNowAsync()).GetAwaiter().GetResult();
+                int seenByClick = checkModule._lastSnapshot != null && checkModule._lastSnapshot.Events != null
+                    ? checkModule._lastSnapshot.Events.Count : -1;
+                check("WITNESS a plain tick inside the interval served the cache (" + seenByTick + " events)", seenByTick == 2);
+                check("\"Check now\" re-reads the feeds and runs the due check against what arrived (" + seenByClick + " events)",
+                    seenByClick == 3 && clickStatus != null && !clickStatus.Contains("still refreshing"));
+            }
+            finally
+            {
+                checkModule.Shutdown();
+            }
 
             detail = sb.ToString();
             return ok;
+        }
+
+        /// <summary>Run IcsUrlSource.Download against a loopback feed with a bound on how long the TEST waits,
+        /// so a download that hangs -- the defect under test -- fails an assertion instead of hanging the
+        /// suite. Returns a one-line outcome the assertion quotes.</summary>
+        private static string BoundedDownload(string url, TimeSpan deadline, long maximumBytes, TimeSpan bound)
+        {
+            System.Threading.Tasks.Task<string> task = System.Threading.Tasks.Task.Run(
+                () => IcsUrlSource.Download(url, deadline, maximumBytes));
+            try
+            {
+                if (!task.Wait(bound))
+                    return "hung past the " + ((int)bound.TotalSeconds).ToString(CultureInfo.InvariantCulture) + " s bound";
+                return "returned " + (task.Result ?? "").Length.ToString(CultureInfo.InvariantCulture) + " chars";
+            }
+            catch (AggregateException ex)
+            {
+                Exception inner = ex.InnerException ?? ex;
+                return "threw " + inner.GetType().Name + ": " + inner.Message;
+            }
         }
 
         private delegate bool SelfCheckDelegate(out string detail);
@@ -1577,10 +1806,87 @@ namespace DesktopAICompanion.ReminderModule
         private sealed class FeedRetentionProbe : CachingCalendarSource
         {
             internal CalendarSnapshot Next;
-            internal FeedRetentionProbe() : base(TimeSpan.Zero) { }
+            private int _fetches;
+            internal FeedRetentionProbe() : this(TimeSpan.Zero) { }
+            /// <summary>A long interval makes it a source that answers from its cache, which is what the
+            /// Invalidate checks need: a re-read that would have happened anyway proves nothing about the click.</summary>
+            internal FeedRetentionProbe(TimeSpan interval) : base(interval) { }
+            internal int Fetches { get { return System.Threading.Volatile.Read(ref _fetches); } }
             public override string Name { get { return "retention probe"; } }
             protected override string RefreshKey() { return ""; }
-            protected override CalendarSnapshot FetchCore(DateTimeOffset now) { return Next; }
+            protected override CalendarSnapshot FetchCore(string key, DateTimeOffset now)
+            {
+                System.Threading.Interlocked.Increment(ref _fetches);
+                return Next;
+            }
+        }
+
+        /// <summary>A caching source whose fetch blocks until the test releases THAT attempt (F186). Per-attempt
+        /// gates, so the test chooses which attempt lands first and can prove the generation rule: a result from
+        /// an abandoned attempt, landing after a newer one, is discarded. The deadline is milliseconds here and
+        /// the interval an hour, so nothing but the stall can kick a second refresh. Every gate has a bounded
+        /// wait behind it, so a failed assertion costs seconds rather than a parked thread for the run.</summary>
+        private sealed class StallingProbe : CachingCalendarSource
+        {
+            internal readonly System.Threading.ManualResetEventSlim[] Gates =
+            {
+                new System.Threading.ManualResetEventSlim(false),   // index 0 unused: attempts count from 1
+                new System.Threading.ManualResetEventSlim(false),
+                new System.Threading.ManualResetEventSlim(false),
+                new System.Threading.ManualResetEventSlim(false),
+            };
+            private int _starts;
+            internal StallingProbe() : base(TimeSpan.FromHours(1)) { }
+            internal int Starts { get { return System.Threading.Volatile.Read(ref _starts); } }
+            public override string Name { get { return "stalling probe"; } }
+            protected override string RefreshKey() { return ""; }
+            protected override TimeSpan RefreshDeadline { get { return TimeSpan.FromMilliseconds(150); } }
+            protected override CalendarSnapshot FetchCore(string key, DateTimeOffset now)
+            {
+                int attempt = System.Threading.Interlocked.Increment(ref _starts);
+                if (attempt < Gates.Length) Gates[attempt].Wait(TimeSpan.FromSeconds(5));
+                return new CalendarSnapshot
+                {
+                    Events = new List<CalendarEvent>
+                    {
+                        new CalendarEvent
+                        {
+                            Id = "attempt" + attempt.ToString(CultureInfo.InvariantCulture),
+                            Title = "Stalled",
+                            Start = new DateTimeOffset(2026, 1, 5, 9, 0, 0, TimeSpan.Zero),
+                        },
+                    },
+                };
+            }
+            internal void ReleaseAll() { foreach (System.Threading.ManualResetEventSlim gate in Gates) gate.Set(); }
+        }
+
+        /// <summary>A caching source that records the thread every RefreshKey() call runs on and the key its
+        /// FetchCore was handed (F192). In the shipped sources the getter behind RefreshKey reads the settings
+        /// store, so the property under test is "only ever on the caller's thread".</summary>
+        private sealed class KeyThreadProbe : CachingCalendarSource
+        {
+            private readonly List<int> _keyThreads = new List<int>();
+            internal volatile string KeyGiven;
+            internal KeyThreadProbe() : base(TimeSpan.Zero) { }
+            public override string Name { get { return "key probe"; } }
+            internal int[] KeyThreads { get { lock (_keyThreads) return _keyThreads.ToArray(); } }
+            protected override string RefreshKey()
+            {
+                lock (_keyThreads) _keyThreads.Add(Environment.CurrentManagedThreadId);
+                return "the-configured-path";
+            }
+            protected override CalendarSnapshot FetchCore(string key, DateTimeOffset now)
+            {
+                KeyGiven = key;
+                return new CalendarSnapshot
+                {
+                    Events = new List<CalendarEvent>
+                    {
+                        new CalendarEvent { Id = "k", Title = "Keyed", Start = new DateTimeOffset(2026, 1, 5, 9, 0, 0, TimeSpan.Zero) },
+                    },
+                };
+            }
         }
 
         /// <summary>A caching source whose read records the thread it ran on and waits on a gate, so the
@@ -1596,7 +1902,7 @@ namespace DesktopAICompanion.ReminderModule
             internal ThreadRecordingProbe() : base(TimeSpan.Zero) { }
             public override string Name { get { return "thread probe"; } }
             protected override string RefreshKey() { return ""; }
-            protected override CalendarSnapshot FetchCore(DateTimeOffset now)
+            protected override CalendarSnapshot FetchCore(string key, DateTimeOffset now)
             {
                 FetchThreadId = Environment.CurrentManagedThreadId;
                 Started = true;

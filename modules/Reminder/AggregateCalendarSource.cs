@@ -34,6 +34,26 @@ namespace DesktopAICompanion.ReminderModule
 
         public string Name { get { return _name; } }
 
+        public void Invalidate()
+        {
+            foreach (Slot slot in _slots)
+            {
+                try { slot.Source.Invalidate(); } catch { }
+            }
+        }
+
+        public bool IsRefreshing
+        {
+            get
+            {
+                foreach (Slot slot in _slots)
+                {
+                    try { if (slot.Source.IsRefreshing) return true; } catch { }
+                }
+                return false;
+            }
+        }
+
         public CalendarSnapshot Fetch()
         {
             var all = new List<CalendarEvent>();
@@ -114,13 +134,17 @@ namespace DesktopAICompanion.ReminderModule
             return true;
         }
 
-        private sealed class StubSource : ICalendarSource
+        /// <summary>A source that answers the same snapshot every time. Internal: ReminderModule.SelfTest uses it
+        /// to stand a slot up without a file, a URL or an Outlook.</summary>
+        internal sealed class StubSource : ICalendarSource
         {
             private readonly IReadOnlyList<CalendarEvent> _events;
             private readonly string _error;
             public StubSource(IReadOnlyList<CalendarEvent> events, string error) { _events = events; _error = error; }
             public string Name { get { return "stub"; } }
             public CalendarSnapshot Fetch() { return new CalendarSnapshot { Events = _events, Error = _error }; }
+            public void Invalidate() { }
+            public bool IsRefreshing { get { return false; } }
         }
     }
 }

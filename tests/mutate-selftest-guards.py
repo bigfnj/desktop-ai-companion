@@ -499,6 +499,98 @@ CASES = (
 
     # ---- lane fix/reminder ----
 
+    # CachingCalendarSource's refresh latch (F186): one bool cleared only when the fetch returned, so a fetch
+    # that never returned froze the slot silently. Four mutations, one per part of the repair: the stall report,
+    # the retry, the cap on parked attempts, and the generation rule that keeps a late result from an
+    # abandoned attempt from overwriting the newer one. The retry and cap mutations also fail the later steps
+    # of the same sequential scenario; the first FAIL line is the one named here.
+    ("the refresh stall is never reported on the served snapshot",
+     CACHING_CALENDAR_SOURCE,
+     b"                    if (_started.Count > 0 && nowUtc - oldest > deadline)\n",
+     b"                    if (_started.Count < 0 && nowUtc - oldest > deadline)\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "a refresh that outlives its deadline is reported on the served snapshot"),
+
+    ("an overdue refresh never triggers a retry",
+     CACHING_CALENDAR_SOURCE,
+     b"                    abandoned = _started.Count > 0 && nowUtc - newest > deadline;\n",
+     b"                    abandoned = _started.Count < 0 && nowUtc - newest > deadline;\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "one more attempt is started while the first stays parked"),
+
+    ("a late result from an abandoned refresh overwrites the newer one",
+     CACHING_CALENDAR_SOURCE,
+     b"                if (generation < _landedGeneration) return;\n",
+     b"",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "a result from the abandoned attempt, landing late, does not overwrite the newer one"),
+
+    ("the cap on parked refresh attempts is one higher than declared",
+     CACHING_CALENDAR_SOURCE,
+     b"                kick = stale && (!inFlight || abandoned) && _started.Count < MaximumOutstandingRefreshes;\n",
+     b"                kick = stale && (!inFlight || abandoned) && _started.Count < MaximumOutstandingRefreshes + 1;\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "parked attempts are capped at"),
+
+    # The refresh key is computed on the caller's thread and handed to FetchCore (F192); the regression is
+    # DoRefresh recomputing it on the pool thread, which is what every subclass used to do for itself.
+    ("the background fetch recomputes the refresh key off-thread",
+     CACHING_CALENDAR_SOURCE,
+     b"            try { result = FetchCore(key, DateTimeOffset.Now) ?? new CalendarSnapshot { Events = Array.Empty<CalendarEvent>() }; }\n",
+     b"            try { result = FetchCore(RefreshKey(), DateTimeOffset.Now) ?? new CalendarSnapshot { Events = Array.Empty<CalendarEvent>() }; }\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "never ran off the caller's thread"),
+
+    # The file slot's interval sat exactly on the module's tick (F191). The mutation is the shipped value.
+    ("the file slot's refresh interval equals the tick again",
+     os.path.join(REPO, "modules", "Reminder", "LocalJsonSource.cs"),
+     b"        public LocalJsonSource(Func<string> pathGetter) : base(TimeSpan.FromSeconds(10))\n",
+     b"        public LocalJsonSource(Func<string> pathGetter) : base(TimeSpan.FromSeconds(20))\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "sits below the module tick"),
+
+    # IcsUrlSource.Download's two bounds (F189), each put back the way it shipped: a body read with no token,
+    # and a size cap that does not run while the body arrives. The self-test's loopback server stalls, so
+    # each mutation is caught by the test's own bound ("hung past the 8 s bound") rather than hanging the run.
+    ("the .ics body read carries no deadline",
+     os.path.join(REPO, "modules", "Reminder", "IcsUrlSource.cs"),
+     b"                            int read = body.ReadAsync(chunk, 0, chunk.Length, cts.Token).GetAwaiter().GetResult();\n",
+     b"                            int read = body.ReadAsync(chunk, 0, chunk.Length, CancellationToken.None).GetAwaiter().GetResult();\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "stalls is cut off by the deadline"),
+
+    ("the .ics size cap is not checked while the body arrives",
+     os.path.join(REPO, "modules", "Reminder", "IcsUrlSource.cs"),
+     b"                            if (buffer.Length + read > maximumBytes)\n",
+     b"                            if (buffer.Length + read > long.MaxValue)\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "past the size cap is refused while it is still arriving"),
+
+    # A user's click re-reads the feeds (F201): Invalidate on the base, forwarded by the aggregate. Both halves.
+    ("Invalidate forgets nothing",
+     CACHING_CALENDAR_SOURCE,
+     b"            lock (_lock) _lastFetchUtc = DateTimeOffset.MinValue;\n",
+     b"            lock (_lock) { }\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "Invalidate makes the next Fetch re-read"),
+
+    ("the aggregate does not forward Invalidate to its slots",
+     os.path.join(REPO, "modules", "Reminder", "AggregateCalendarSource.cs"),
+     b"                try { slot.Source.Invalidate(); } catch { }\n",
+     b"                try { } catch { }\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "Invalidate makes the next Fetch re-read"),
+
 
     # ---- lane fix/deadcode ----
 )
