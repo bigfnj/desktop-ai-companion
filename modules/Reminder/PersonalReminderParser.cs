@@ -42,26 +42,26 @@ namespace DesktopAICompanion.ReminderModule
             else if (headLower == "daily" || headLower == "weekdays")
             {
                 string tok = FirstWord(rest, out string text);
-                if (!TryHhmm(tok, out hhmm)) { error = "After '" + headLower + "', give a time like 09:00. " + Help; return false; }
+                if (!QuietHours.TryParseTimeOfDay(tok, out hhmm)) { error = "After '" + headLower + "', give a time like 09:00. " + Help; return false; }
                 r.Kind = headLower == "daily" ? PersonalReminder.KindDaily : PersonalReminder.KindWeekdays;
                 r.TimeOfDayMinutes = hhmm; r.Text = text;
             }
             else if (headLower == "at")
             {
                 string tok = FirstWord(rest, out string text);
-                if (!TryHhmm(tok, out hhmm)) { error = "After 'at', give a time like 15:00. " + Help; return false; }
+                if (!QuietHours.TryParseTimeOfDay(tok, out hhmm)) { error = "After 'at', give a time like 15:00. " + Help; return false; }
                 r.Kind = PersonalReminder.KindOnce; r.When = TodayOrTomorrowAt(now, hhmm); r.Text = text;
             }
             else if (TryDate(head, out date))
             {
                 string tok = FirstWord(rest, out string text);
-                if (!TryHhmm(tok, out hhmm)) { error = "After a date, give a time like 14:00. " + Help; return false; }
+                if (!QuietHours.TryParseTimeOfDay(tok, out hhmm)) { error = "After a date, give a time like 14:00. " + Help; return false; }
                 DateTime dt = date.AddMinutes(hhmm);
                 r.Kind = PersonalReminder.KindOnce;
                 r.When = new DateTimeOffset(dt, TimeZoneInfo.Local.GetUtcOffset(dt));
                 r.Text = text;
             }
-            else if (TryHhmm(head, out hhmm))
+            else if (QuietHours.TryParseTimeOfDay(head, out hhmm))
             {
                 r.Kind = PersonalReminder.KindOnce; r.When = TodayOrTomorrowAt(now, hhmm); r.Text = rest;
             }
@@ -108,22 +108,9 @@ namespace DesktopAICompanion.ReminderModule
             return true;
         }
 
-        private static bool TryHhmm(string tok, out int minutes)
-        {
-            minutes = 0;
-            if (string.IsNullOrWhiteSpace(tok)) return false;
-            string[] p = tok.Trim().Split(':');
-            int h, m;
-            if (p.Length == 2 &&
-                int.TryParse(p[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out h) &&
-                int.TryParse(p[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out m) &&
-                h >= 0 && h < 24 && m >= 0 && m < 60)
-            {
-                minutes = h * 60 + m;
-                return true;
-            }
-            return false;
-        }
+        // HH:mm goes through QuietHours.TryParseTimeOfDay, the module's one parser (F203). The copy that sat here
+        // used NumberStyles.Integer, so "+9:00" was a valid time for a typed reminder and not for the quiet-hours
+        // window two fields away.
 
         private static bool TryDate(string tok, out DateTime date)
         {
@@ -167,6 +154,8 @@ namespace DesktopAICompanion.ReminderModule
             ok &= !TryParse("every Stand up", now, out r, out err);            // missing interval
             ok &= !TryParse("daily 09:00", now, out r, out err);               // missing text
             ok &= !TryParse("gibberish here", now, out r, out err);            // no schedule
+            ok &= !TryParse("daily 25:00 Late", now, out r, out err);         // hour out of range
+            ok &= !TryParse("at +9:00 Signed", localNow, out r, out err);    // a sign is not a time (F203)
 
             detail = ok ? "personal-reminder parser: every/daily/in/weekdays/date/at parse; malformed rejected"
                         : "personal-reminder parser wrong (last err=" + (err ?? "null") + ")";

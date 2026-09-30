@@ -108,10 +108,13 @@ namespace DesktopAICompanion.ReminderModule
         // this by the user's master volume on top, so a master of 0 is still silence.
         private const double ChimeVolume = 0.6;
 
-        // A custom chime is read straight off disk and handed to the host, which accepts a self-describing WAV
-        // or MP3 up to 16 MiB (AudioOutput.MaximumModuleAudioBytes) and rejects anything else. Read within a
-        // safe cap here; a blank path, a missing/oversize file, or a read error simply falls back to the default.
-        private const long MaximumCustomBytes = 8 * 1024 * 1024;
+        // A custom chime is read straight off disk and handed to the host. The MODULE caps a pick at 8 MiB: half
+        // the host's 16 MiB MaximumModuleAudioBytes and equal to the host's own notification-sound picker cap
+        // (AudioOutput.MaximumCustomFileBytes), because a reminder chime is a few seconds of audio and the read
+        // happens on every fire. Internal, so BrowseChimeInto refuses at the same number this plays by: the two
+        // were separate literals, and a drift would have accepted a pick that then fell back to the default chime
+        // in silence (F202). A blank path, a missing/oversize file, or a read error falls back to the default.
+        internal const long MaximumCustomBytes = 8 * 1024 * 1024;
 
         // Decoded once. The base64 literal used to be re-decoded on every fire; ~6 KB each time, cosmetic but free.
         private static readonly byte[] DefaultChime = Convert.FromBase64String(ChimeMp3Base64);
@@ -119,11 +122,8 @@ namespace DesktopAICompanion.ReminderModule
         // Single-flight latch for the custom read: 1 while a read-and-play is in flight on a pool thread.
         private static int _customReadInFlight;
 
-        /// <summary>
-        /// Play the default chime once. Best-effort and silent on failure: decoding or the host call may throw
-        /// or return false, and in every case the caller simply gets no sound.
-        /// </summary>
-        public static void Play(IHost host) { Play(host, null); }
+        // No path-less Play overload: every caller names its slot's chime setting, and the one-argument form had
+        // no caller since per-slot chimes arrived (F187).
 
         /// <summary>
         /// Play a reminder chime once. When <paramref name="customPath"/> points at a readable WAV/MP3 within the

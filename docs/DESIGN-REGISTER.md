@@ -795,6 +795,17 @@ decides between ids and names. `MeetingContext.Location` is parsed and read only
 modules/Reminder/CALENDAR-FEED.md promises the producer that `.location` is safe to include, and the check keeps the
 consumer side honest until something reads it.
 
+**The Reminder, Fortunes and host migration bridges stay, each with the condition that retires it (2026-09-30,
+F196, ACCEPTED-RECORDED).** `ReminderModule.MigrateLegacy` and the single-lead fallback in `Leads()` go together when the
+module's settings gain a schema version that no pre-slot install can carry (nothing observable today says every install
+has run the `migratedSlots` marker, so by inspection they stay). `FortuneProvider.TryMapLegacyCategory` goes only when
+the tagged parser stops accepting 5-field rows, and the RunParserSelfTest cases that pin the mapping go with it in the
+same commit. `LocalData.MigrateRandomDropIfAbsent` goes when an upgrader's disk can no longer hold a pre-1.0
+`ai-settings.json`, which is a release-support decision, not a code one. `LegacySettingsReader` and its CoreTests are
+one pre-1.0 upgrade-support decision and go together or not at all. The `RegisterDropResponder` /
+`RegisterPokeResponder` pair is frozen ABI surface for out-of-tree modules (see the unexercised-ABI entry), not a
+bridge, and does not belong on this list.
+
 #### fix/scripts
 
 (none yet)

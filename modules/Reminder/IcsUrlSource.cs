@@ -122,7 +122,8 @@ namespace DesktopAICompanion.ReminderModule
         }
 
         /// <summary>Parse ICS text and expand occurrences in the near-term window. Testable without a network:
-        /// give it the raw ICS and "now". Never throws; a parse failure returns an error snapshot.</summary>
+        /// give it the raw ICS and "now", which is what <see cref="SelfCheck"/> does. Never throws; a parse
+        /// failure returns an error snapshot.</summary>
         internal static CalendarSnapshot ParseIcs(string ics, DateTimeOffset now)
         {
             if (string.IsNullOrWhiteSpace(ics))
@@ -221,6 +222,112 @@ namespace DesktopAICompanion.ReminderModule
                 case "TENTATIVE": return "tentative";
                 default: return "";
             }
+        }
+
+        // --- self-test --------------------------------------------------------------------------------
+
+        /// <summary>
+        /// The parse half of this source, over an embedded feed: the near-term window, the uid@startUtc id and
+        /// the dedupe it keys, an EXDATE'd recurrence, the all-day flag, the attendee CN/mailto and PARTSTAT
+        /// mapping, and the never-throws promise on garbage. Only the fetch needs a network; this never did, and
+        /// nothing ran it until F190. A fixed "now" (2026-03-10 22:00Z), so the window is [21:58Z on the 10th,
+        /// 22:00Z on the 12th]; the all-day event's local midnight on the 12th lands inside it from any zone
+        /// between UTC-12 and UTC+14.
+        /// </summary>
+        // SelfCheck, not SelfTest: see the note in AggregateCalendarSource. ReminderModule.SelfTest aggregates.
+        internal static bool SelfCheck(out string detail)
+        {
+            var sb = new System.Text.StringBuilder();
+            bool ok = true;
+            var now = new DateTimeOffset(2026, 3, 10, 22, 0, 0, TimeSpan.Zero);
+            string feed = string.Join("\n", new[]
+            {
+                "BEGIN:VCALENDAR",
+                "VERSION:2.0",
+                "PRODID:-//DesktopAICompanion//Reminder self-check//EN",
+                "BEGIN:VEVENT",
+                "UID:daily@test",
+                "DTSTART:20260309T230000Z",
+                "DTEND:20260309T233000Z",
+                "RRULE:FREQ=DAILY;COUNT=5",
+                "EXDATE:20260311T230000Z",
+                "SUMMARY:Daily sync",
+                "LOCATION:Teams",
+                "ATTENDEE;CN=Ada Lovelace;PARTSTAT=ACCEPTED:mailto:ada@example.invalid",
+                "ATTENDEE;PARTSTAT=TENTATIVE:mailto:bob@example.invalid",
+                "END:VEVENT",
+                "BEGIN:VEVENT",
+                "UID:allday@test",
+                "DTSTART;VALUE=DATE:20260312",
+                "DTEND;VALUE=DATE:20260313",
+                "SUMMARY:Offsite",
+                "END:VEVENT",
+                "BEGIN:VEVENT",
+                "UID:far@test",
+                "DTSTART:20260320T100000Z",
+                "DTEND:20260320T110000Z",
+                "SUMMARY:Far away",
+                "END:VEVENT",
+                "BEGIN:VEVENT",
+                "UID:dup@test",
+                "DTSTART:20260311T090000Z",
+                "DTEND:20260311T093000Z",
+                "SUMMARY:Listed twice",
+                "END:VEVENT",
+                "BEGIN:VEVENT",
+                "UID:dup@test",
+                "DTSTART:20260311T090000Z",
+                "DTEND:20260311T093000Z",
+                "SUMMARY:Listed twice",
+                "END:VEVENT",
+                "END:VCALENDAR",
+            });
+
+            CalendarSnapshot snap = ParseIcs(feed, now);
+            ok &= Check(sb, "a well-formed feed parses without an error", snap.Error == null && snap.Events != null);
+            List<CalendarEvent> daily = WithUid(snap, "daily@test");
+            var dailyStart = new DateTimeOffset(2026, 3, 10, 23, 0, 0, TimeSpan.Zero);
+            ok &= Check(sb, "a daily series keeps the one occurrence its EXDATE and the window leave (" + daily.Count + ")",
+                daily.Count == 1 && daily[0].Start == dailyStart);
+            ok &= Check(sb, "an occurrence id is uid@startUtc, so a series never collapses to one fired id",
+                daily.Count == 1 && daily[0].Id.StartsWith("daily@test@2026-03-10T23:00:00", StringComparison.Ordinal));
+            ok &= Check(sb, "the title and location travel and a timed event is not all-day",
+                daily.Count == 1 && daily[0].Title == "Daily sync" && daily[0].Location == "Teams" && !daily[0].AllDay);
+            ok &= Check(sb, "attendees map CN or the mailto address, and PARTSTAT",
+                daily.Count == 1 && daily[0].Attendees != null && daily[0].Attendees.Count == 2 &&
+                daily[0].Attendees[0].Name == "Ada Lovelace" && daily[0].Attendees[0].Status == "accepted" &&
+                daily[0].Attendees[1].Name == "bob@example.invalid" && daily[0].Attendees[1].Status == "tentative");
+            List<CalendarEvent> allDay = WithUid(snap, "allday@test");
+            ok &= Check(sb, "an all-day event is flagged (" + allDay.Count + ")", allDay.Count == 1 && allDay[0].AllDay);
+            ok &= Check(sb, "an event past the 48-hour window is left out", WithUid(snap, "far@test").Count == 0);
+            ok &= Check(sb, "a duplicate listing is one event", WithUid(snap, "dup@test").Count == 1);
+            ok &= Check(sb, "nothing else arrived (" + (snap.Events == null ? -1 : snap.Events.Count) + ")",
+                snap.Events != null && snap.Events.Count == 3);
+
+            CalendarSnapshot empty = ParseIcs("   ", now);
+            ok &= Check(sb, "an empty feed is an error snapshot, not an exception",
+                empty.Error != null && empty.Events != null && empty.Events.Count == 0);
+            CalendarSnapshot garbage = ParseIcs("this is not a calendar", now);
+            ok &= Check(sb, "garbage never throws and yields no events", garbage.Events != null && garbage.Events.Count == 0);
+
+            sb.AppendLine(ok ? "IcsUrlSource self-test PASSED" : "IcsUrlSource self-test FAILED");
+            detail = sb.ToString();
+            return ok;
+        }
+
+        private static List<CalendarEvent> WithUid(CalendarSnapshot snap, string uid)
+        {
+            var list = new List<CalendarEvent>();
+            if (snap == null || snap.Events == null) return list;
+            foreach (CalendarEvent e in snap.Events)
+                if (e != null && e.Id != null && e.Id.StartsWith(uid + "@", StringComparison.Ordinal)) list.Add(e);
+            return list;
+        }
+
+        private static bool Check(System.Text.StringBuilder sb, string name, bool condition)
+        {
+            sb.AppendLine((condition ? "  ok   " : "  FAIL ") + name);
+            return condition;
         }
     }
 }
