@@ -1951,6 +1951,31 @@ CASES = (
      "MeetingLinkDetector"),
 
 
+    # ---- lane fix/followups ----
+    # The N-* items other lanes filed and could not fix (their file was outside the lane). Every case names
+    # the csproj that compiles the code under test and the artefact that run loads, so a stale DLL cannot
+    # score a mutation as survived. Named "followups: ..." so one --only=followups: run covers the lane.
+
+    # N-gates-01: the MoveFileEx fallback is handed the plain path again, which Win32 refuses past MAX_PATH
+    # in a process that has not opted into long paths (this one has not). One case per twin; the CoreTests
+    # group forces the fallback through the File.Replace seam at a 400-character path and names the twin
+    # that lost the file. ModuleKit's copy lands in the CoreTests output through its ProjectReference, so
+    # that copy is the artefact; the host twin compiles into CoreTests itself.
+    ("followups: ModuleKit's MoveFileEx fallback drops the long-path form",
+     MODULEKIT_ATOMIC,
+     b"            if (!MoveFileEx(ExtendedLengthPath(temporaryPath), ExtendedLengthPath(destinationPath),",
+     b"            if (!MoveFileEx(temporaryPath, destinationPath,",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "ModuleKit AtomicFile: the MoveFileEx fallback threw past MAX_PATH"),
+
+    ("followups: the host twin's MoveFileEx fallback drops the long-path form",
+     APPSETTINGS_STORE,
+     b"                    ExtendedLengthPath(temporaryPath),",
+     b"                    temporaryPath,",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "host AtomicFile (AppSettingsStore.cs): the MoveFileEx fallback threw past MAX_PATH"),
+
+
     # ---- lane fix/deadcode ----
 )
 

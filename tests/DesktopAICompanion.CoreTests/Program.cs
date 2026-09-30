@@ -53,6 +53,7 @@ namespace DesktopAICompanion
                 Run("Child-position coordinate reproduction", TestChildPositionReproduction);
                 Run("Screen dimensions and fullscreen detection", TestMetricsAndFullscreen);
                 Run("ModuleKit atomic file writes", TestModuleKitAtomicFile);
+                Run("Atomic replace fallback past MAX_PATH", TestAtomicReplaceFallbackPastMaxPath);
                 Run("ModuleKit embedded resources", TestModuleKitEmbeddedResources);
                 Run("ModuleKit unicode boundaries", TestModuleKitUnicodeBoundaries);
                 Run("ModuleKit json settings store", TestModuleKitJsonSettingsStore);

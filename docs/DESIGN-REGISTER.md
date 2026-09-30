@@ -748,6 +748,19 @@ order of work is: confirm against Claude Code with both shapes (a plain quoted n
 `$( )`, which Claude Code may prompt on regardless of allow rules); change the JS original; then both ports; then
 add both shapes to the shared corpus. The first three steps are outside this module's lane.
 
+#### fix/followups
+
+**The MoveFileEx fallback keeps its P/Invoke and gains the extended-length form; it does not move to
+File.Move(overwrite: true) (2026-09-30, N-gates-01).** Both `AtomicFile` twins (ModuleKit, and the host's in
+`AppSettingsStore.cs`) now hand `MoveFileEx` `\\?\`-prefixed paths (`\\?\UNC\` for a network path), normalised
+first because the prefix switches Win32's own normalisation off. `File.Move(overwrite)` handles long paths
+by itself and was rejected: it asks for `MOVEFILE_COPY_ALLOWED` without `MOVEFILE_WRITE_THROUGH`, so it may
+degrade to a copy-and-delete and returns before the rename is on disk, and the write-through rename is the
+durability the fallback exists to give. The app has no `longPathAware` manifest entry, so the registry's
+`LongPathsEnabled` does not reach a raw P/Invoke; .NET's own file APIs add the prefix themselves, which is
+why `File.Replace` and `File.Copy` on the neighbouring lines never failed. Pinned in CoreTests through the
+`replaceFile` seam at a 400-character path, with the same forced fallback at a short path as the WITNESS.
+
 #### fix/deadcode
 
 (none yet)

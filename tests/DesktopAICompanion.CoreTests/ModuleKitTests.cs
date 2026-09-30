@@ -17,6 +17,9 @@ using DesktopAICompanion.Modules;
 // asserts the assembly it landed in, so the next same-named type cannot rebind them in silence.
 using KitAtomicFile = DesktopAICompanion.ModuleKit.AtomicFile;
 using KitUnicode = DesktopAICompanion.ModuleKit.UnicodeTextProgress;
+// The host's twin, compiled INTO this harness from src\Portable\AppSettingsStore.cs, named explicitly for
+// the one group that tests both copies side by side (N-gates-01).
+using HostAtomicFile = DesktopAICompanion.AtomicFile;
 
 namespace DesktopAICompanion
 {
@@ -65,6 +68,79 @@ namespace DesktopAICompanion
             foreach (string leftover in Directory.GetFiles(directory))
                 AssertFalse(leftover.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase),
                     "A temp file survived an atomic write: " + leftover);
+        }
+
+        /// <summary>The shape both twins' ReplaceExisting share, so one driver exercises each.</summary>
+        private delegate void ReplaceExistingDelegate(string temporaryPath, string destinationPath,
+            string backupPath, System.Threading.CancellationToken cancellationToken,
+            Action<string, string, string, bool> replaceFile);
+
+        /// <summary>
+        /// The MoveFileEx fallback of BOTH AtomicFile twins past MAX_PATH (N-gates-01), reached through the
+        /// test seam that refuses File.Replace, the way the Fortunes VectorCache probe reaches it. The raw
+        /// P/Invoke was handed the plain path and failed with ERROR_FILENAME_EXCED_RANGE once that path passed
+        /// 260 characters, while File.Replace on the happy path accepted the same path, so the fallback was
+        /// durable only under a short data root: measured on 2026-09-29, a 74-character %TEMP% passed and a
+        /// 107-character one lost the save. The WITNESS runs the same forced fallback at a short path, where
+        /// it always worked, so a failure past MAX_PATH is the length and nothing else.
+        /// </summary>
+        private static void TestAtomicReplaceFallbackPastMaxPath()
+        {
+            AssertEqual(ModuleKitAssemblyName, typeof(KitAtomicFile).Assembly.GetName().Name,
+                "This group bound to an AtomicFile outside ModuleKit.dll, so it would test the wrong copy.");
+            AssertEqual(typeof(Program).Assembly.GetName().Name, typeof(HostAtomicFile).Assembly.GetName().Name,
+                "The host twin did not bind to the copy compiled into this harness.");
+
+            // Past MAX_PATH on the directory alone, whatever TEMP the harness runs under: the shortest
+            // realistic one (C:\Users\x\AppData\Local\Temp) is 30 characters, and this adds 300.
+            string longDirectory = Path.Combine(_testRoot, "atomic-long",
+                new string('a', 120), new string('b', 120), new string('c', 40));
+            AssertTrue(longDirectory.Length > 260,
+                "WITNESS: the long fixture must be past MAX_PATH to test anything; it is " +
+                longDirectory.Length + " characters.");
+            string shortDirectory = Path.Combine(_testRoot, "atomic-short");
+            AssertTrue(Path.Combine(shortDirectory, "settings.json").Length < 260,
+                "WITNESS: the short fixture must be inside MAX_PATH, or both runs test the same thing.");
+
+            // WITNESS first: the forced fallback at a short path, which is where it has always worked.
+            RunForcedFallbackReplace(shortDirectory, "ModuleKit AtomicFile", KitAtomicFile.ReplaceExisting);
+            RunForcedFallbackReplace(shortDirectory, "host AtomicFile (AppSettingsStore.cs)", HostAtomicFile.ReplaceExisting);
+            RunForcedFallbackReplace(longDirectory, "ModuleKit AtomicFile", KitAtomicFile.ReplaceExisting);
+            RunForcedFallbackReplace(longDirectory, "host AtomicFile (AppSettingsStore.cs)", HostAtomicFile.ReplaceExisting);
+        }
+
+        private static void RunForcedFallbackReplace(string directory, string twin, ReplaceExistingDelegate replace)
+        {
+            Directory.CreateDirectory(directory);
+            string destination = Path.Combine(directory, "settings.json");
+            string temporary = Path.Combine(directory, ".settings.json.tmp");
+            string backup = Path.Combine(directory, "settings.bak");
+            File.WriteAllText(destination, "old");
+            File.WriteAllText(temporary, "new");
+            if (File.Exists(backup)) File.Delete(backup);
+
+            int refused = 0;
+            Action<string, string, string, bool> unsupported = delegate
+            {
+                refused++;
+                throw new PlatformNotSupportedException("File.Replace refused by the test seam");
+            };
+            string where = directory.Length > 260 ? "past MAX_PATH" : "at a short path";
+            string label = twin + ": the MoveFileEx fallback";
+            try
+            {
+                replace(temporary, destination, backup, System.Threading.CancellationToken.None, unsupported);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(label + " threw " + where + " (" + directory.Length +
+                    " characters): " + ex.GetType().Name + ": " + ex.Message);
+            }
+            AssertEqual(1, refused, "WITNESS: " + label + " was not reached " + where +
+                ", so the File.Replace seam did not refuse.");
+            AssertEqual("new", File.ReadAllText(destination), label + " did not replace the file " + where + ".");
+            AssertFalse(File.Exists(temporary), label + " left the temporary file behind " + where + ".");
+            AssertEqual("old", File.ReadAllText(backup), label + " did not keep the previous content as the backup " + where + ".");
         }
 
         private static void TestModuleKitEmbeddedResources()
