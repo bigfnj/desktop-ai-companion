@@ -616,7 +616,39 @@ add both shapes to the shared corpus. The first three steps are outside this mod
 
 #### fix/scripts
 
-(none yet)
+**The implicit MSBuild inputs are part of every module's freshness watch set, and an SDK bump therefore
+costs a seven-module republish (F220, 2026-09-30).** `Directory.Build.props`, `Directory.Build.targets`,
+`Directory.Packages.props` (walked up from each project directory to the root) and `global.json` change
+the compiled bytes of every module they govern without appearing in any `Include`, so a commit to one of
+them left every zip reported current while every zip had been built by the old toolchain or settings.
+The trade-off is the one `Test-ModulePublishFreshness.ps1` made the other way for `ProductVersion.props`,
+and it is decided the other way here on purpose: a version stamp is the only thing that file changes,
+whereas these change what the assembly does. Recorded beside `Get-ModuleWatchSet` in
+`packaging/ModuleWatchSet.ps1`. Measured in the scratch clone at the audit commit: a commit touching
+`modules/Directory.Build.props` marks all seven zips stale naming that path; the previous watch set
+reported all seven current on the same tree.
+
+**`#requires -Version 7` on the zip scripts is a floor, and the publish commit records the exact version
+(F213, info, 2026-09-30).** The deflate bytes differ between .NET 8, 9 and 10, so two machines that both
+satisfy the floor zip the same payload differently. Correctness is unaffected because the catalog hashes
+whatever blob is committed; the header of both zip scripts now says so, and `New-ModulePublish.ps1` puts
+`$PSVersionTable.PSVersion` in the publish commit body so a hash churn with no content change is
+attributable to the runtime.
+
+**Catalog assets are read through one `git cat-file --batch` child (F208).** Whole verifier
+(`Test-ContentCatalogIntegrity.ps1`, 219 assets), fresh interleaved processes, three runs each, worktree
+at HEAD, 2026-09-30: Windows PowerShell 5.1 16.0-16.7 s before vs 7.2-7.5 s after; pwsh 7.6.5
+12.5-12.7 s vs 3.8-4.0 s. The remaining time is PowerShell start-up, the deliberate 500 ms stall probe
+and the catalog parse. The generator's hashes are unchanged: a catalog regenerated in the scratch clone
+matched the committed one on all 54 companions, 158 packs and 7 modules.
+
+**Module zips are read through entry streams, not expanded to TEMP (F222).** Whole freshness check
+(`Test-ModulePublishFreshness.ps1`), scratch clone at the audit commit where every zip was current, fresh
+interleaved processes, three runs each, 2026-09-30: Windows PowerShell 5.1 9.5-9.8 s before vs
+2.9-3.1 s after; pwsh 7.6.5 4.6-5.2 s vs 1.6-1.8 s; zero files left under TEMP either way, but the new
+form writes none to begin with (about 150 MB per run before). Same counts printed by both versions
+(159 mappings, 14 first-party DLLs across 7 zips).
+
 ## Known ABI gaps
 
 Add the verb when the module that needs it is written — see `handoff.md`'s host contract. Neither of

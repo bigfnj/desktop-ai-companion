@@ -130,8 +130,20 @@ foreach ($symbolName in 'minHostVersion', 'packageVersion') {
 # checking. The sibling Test-ModulePublishFreshness.ps1 already had this exact correction applied to it;
 # this file did not get it.
 $keptReleases = 3
-$tagOutput = @(& git -C $repoRoot tag --list 'v*' 2>$null)
-if ($LASTEXITCODE -ne 0 -or $tagOutput.Count -eq 0) {
+# Judged by git's EXIT CODE with the preference relaxed for the one call, not by the redirect alone.
+# Under Windows PowerShell 5.1 a redirected stderr line -- `2>$null` included -- is an ErrorRecord that
+# honours $ErrorActionPreference = 'Stop', so a git that said on stderr WHY it had no tags terminated
+# this script on the redirect and the DEGRADED branch below was never reached (F212; pwsh 7 is not
+# affected). Same shape as New-ModulePublish.ps1's Invoke-Git.
+$previousPreference = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try {
+    $tagOutput = @(& git -C $repoRoot tag --list 'v*' 2>&1 |
+        Where-Object { $_ -isnot [Management.Automation.ErrorRecord] } | ForEach-Object { [string]$_ })
+    $tagExit = $LASTEXITCODE
+}
+finally { $ErrorActionPreference = $previousPreference }
+if ($tagExit -ne 0 -or $tagOutput.Count -eq 0) {
     Write-Warning ("DEGRADED  no v* tags are reachable, so packageVersion could not be checked against " +
                    "the releases that still have assets (shallow clone?)")
     throw ("Coverage narrowed silently: the packageVersion release-window check could not run because no " +
@@ -272,6 +284,13 @@ try {
 finally {
     Remove-Sample
     if ($installed) {
-        & dotnet new uninstall $templateDir 2>&1 | Out-Null
+        # Best-effort cleanup inside a finally, so its stderr must not become a terminating error that
+        # REPLACES the failure already in flight: under Windows PowerShell 5.1 a redirected stderr line
+        # is exactly that under 'Stop', and `dotnet new uninstall` writes one whenever the template is
+        # already gone (F212). Nothing here judges the result, as before.
+        $previousPreference = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try { & dotnet new uninstall $templateDir 2>&1 | Out-Null }
+        finally { $ErrorActionPreference = $previousPreference }
     }
 }

@@ -406,14 +406,26 @@ try {
     Push-Location $extensionWorkingDirectory
     try {
         if ($GlobalExtension) {
-            $existingGlobalExtensions = (
-                & $wix extension list -g 2>&1 | Out-String
-            ).Trim()
+            # Preference relaxed for the one native call and judged by EXIT CODE. Under Windows
+            # PowerShell 5.1 a redirected stderr line (`2>&1` included) is an ErrorRecord that honours
+            # $ErrorActionPreference = 'Stop', so the very run this branch was written for -- a clean
+            # runner whose `wix extension list -g` exits non-zero saying on stderr that the cache is
+            # absent -- terminated the script on the redirect and never reached the recovery below
+            # (F212). The Invoke-Git shape from New-ModulePublish.ps1; pwsh 7 is unaffected.
+            $previousPreference = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            try {
+                $existingGlobalExtensions = (
+                    & $wix extension list -g 2>&1 | Out-String
+                ).Trim()
+                $existingListExit = $LASTEXITCODE
+            }
+            finally { $ErrorActionPreference = $previousPreference }
             # A freshly installed wix has no global extension cache yet; on a clean
             # runner `wix extension list -g` exits non-zero listing an absent cache.
             # Treat that as "no global extensions" -- the reuse guard below still
             # rejects a pre-existing extension whenever a listing succeeds.
-            if ($LASTEXITCODE -ne 0) {
+            if ($existingListExit -ne 0) {
                 $existingGlobalExtensions = ''
             }
             foreach ($extensionId in $extensionIds) {
@@ -443,10 +455,18 @@ try {
         if ($GlobalExtension) {
             $extensionListArguments += '-g'
         }
-        $extensionList = (
-            & $wix @extensionListArguments 2>&1 | Out-String
-        ).Trim()
-        if ($LASTEXITCODE -ne 0) {
+        # Same relaxation as the listing above (F212): a wix that fails here says why on stderr, and
+        # under 5.1 that line would replace this script's own message before the exit code was read.
+        $previousPreference = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            $extensionList = (
+                & $wix @extensionListArguments 2>&1 | Out-String
+            ).Trim()
+            $extensionListExit = $LASTEXITCODE
+        }
+        finally { $ErrorActionPreference = $previousPreference }
+        if ($extensionListExit -ne 0) {
             throw 'Could not list the installed WiX extensions.'
         }
         foreach ($extensionId in $extensionIds) {

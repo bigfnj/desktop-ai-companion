@@ -132,6 +132,10 @@ function Get-RelativePathFromUrl([string]$Url) {
 $checked = 0
 $problems = New-Object 'System.Collections.Generic.List[string]'
 
+# try/finally around the loop: Get-CatalogAsset now keeps one `git cat-file --batch` child open across
+# every asset (F208), and a throw mid-loop must not leave it holding the pack files for the rest of the
+# gate. The probe's one-off stall child above is closed by Get-CatalogAsset itself.
+try {
 foreach ($group in @(
         @{ Name = 'companion'; Items = @($catalog.companions) },
         @{ Name = 'pack';      Items = @($catalog.packs) },
@@ -175,6 +179,8 @@ foreach ($group in @(
         }
     }
 }
+}
+finally { Stop-CatalogAssetBatch }
 
 # ---- membership, both directions --------------------------------------------------------------
 # A catalogued asset that no longer exists is caught above. This is the other half: an asset that

@@ -46,125 +46,76 @@ Set-StrictMode -Version Latest
 if (-not $RepoRoot) { $RepoRoot = Split-Path -Parent $PSScriptRoot }
 $RepoRoot = (Resolve-Path -LiteralPath $RepoRoot).ProviderPath
 
+# git's EXIT CODE is the only reliable verdict from a native command in this file. Under Windows
+# PowerShell 5.1 a redirected stderr line -- `2>$null` included -- becomes an ErrorRecord that honours
+# $ErrorActionPreference = 'Stop', so the very case each exit-code branch was written for, git saying
+# on stderr WHY it failed, terminated the script on the redirect before the branch was reached: a
+# `git log` on a path outside the repository died as a raw 'fatal: ... is outside repository' instead
+# of this script's own message (F212, reproduced under 5.1.26100; pwsh 7 is unaffected). Same shape
+# as New-ModulePublish.ps1's Invoke-Git: errors non-terminating for the one call, judged by exit code,
+# preference restored in the finally. Returns the stdout lines; the exit code lands in $script:GitExit.
+$script:GitExit = 0
+function Invoke-GitLines([string[]]$GitArgs) {
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = @(& git -C $RepoRoot @GitArgs 2>&1)
+        $script:GitExit = $LASTEXITCODE
+        return @($output | Where-Object { $_ -isnot [Management.Automation.ErrorRecord] } | ForEach-Object { [string]$_ })
+    }
+    finally { $ErrorActionPreference = $previous }
+}
+
 function Get-LastCommit([string]$path) {
     # -- separates the pathspec from revisions, so a path that looks like a ref cannot be mistaken
     # for one. Empty output = the path has no commits (untracked or never committed).
-    $sha = & git -C $RepoRoot log -1 --format=%H -- $path 2>$null
-    if ($LASTEXITCODE -ne 0) { throw "git log failed for '$path'." }
+    $sha = (@(Invoke-GitLines @('log', '-1', '--format=%H', '--', $path)) -join '')
+    if ($script:GitExit -ne 0) { throw "git log failed for '$path'." }
     if ([string]::IsNullOrWhiteSpace($sha)) { return $null }
     return $sha.Trim()
 }
 
-# Every path OUTSIDE modules\<Name>\ whose content still ends up inside <id>.zip. Watching only the module
-# directory (which is all this script did until 2026-08-27) is blind to the two ways a module's payload
-# changes without its own folder being touched, and BOTH are live in this repo:
-#
-#   * SOURCE-LINKED files. modules\PetStudio compiles 7 files out of src\ and 13 out of
-#     tools\ShimejiConvert.Engine\ (PetStudio.csproj), so editing src\dotNet\CompanionXmlValidator.cs rebuilds
-#     PetStudio.dll while this check stayed green -- exactly the bug class the script exists to catch,
-#     arriving through shared sources instead of module sources.
-#   * BUNDLED project references. ModuleKit is referenced WITHOUT Private="false", so its DLL is copied into
-#     every module folder and ships in every zip; a ModuleKit edit staleness-es all five payloads.
-#
-# Derived from the csproj rather than hardcoded, so a module that starts linking something new is covered
-# without editing this script. ProjectReferences are followed recursively and those marked Private="false"
-# are skipped -- that is precisely the "the host owns the single shared copy" marker, so DesktopAICompanion.Contracts
-# drops out on its own (a Contracts edit does not change the module payload) and no id needs special-casing.
-#
-# DELIBERATELY OUT OF SCOPE: ProductVersion.props. ModuleKit stamps its assembly Version from it, so a host
-# version bump does change the bundled DLL's bytes -- but demanding all five modules be republished on every
-# release, for a version field and no functional change, would make this gate hostile enough to be routed
-# around. Source changes are what this watches.
-function Get-ModuleWatchSet {
+# The per-module WATCH SET -- every path outside modules\<Name>\ whose content still ends up inside the
+# zip -- is derived in packaging\ModuleWatchSet.ps1, shared with New-ModulePublish.ps1 since 2026-09-30
+# so the publish guard refuses exactly the dirt this check would later call stale (F215). What it watches,
+# what it deliberately excludes (ProductVersion.props) and why the implicit MSBuild inputs joined it
+# (F220) is recorded there, once.
+. (Join-Path $PSScriptRoot 'ModuleWatchSet.ps1')
+
+# One or more entries out of a zip, by entry NAME (case-insensitive), copied through the archive's own
+# entry streams and never through a scratch directory. [IO.Compression.ZipFile] is not loaded by default
+# under 5.1, hence the Add-Type; WixToolchainPolicy.ps1 hashes entries the same way.
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+function Read-ZipEntryBytes {
     param(
-        [Parameter(Mandatory = $true)][string]$RepoRoot,
-        [Parameter(Mandatory = $true)][string]$ModuleDirectory
+        [Parameter(Mandatory = $true)][string]$ZipPath,
+        [Parameter(Mandatory = $true)][string[]]$EntryNames
     )
-
-    $root = $RepoRoot.TrimEnd('\', '/')
-    $moduleFull = [IO.Path]::GetFullPath($ModuleDirectory).TrimEnd('\')
-    $external = New-Object 'Collections.Generic.List[string]'
-    $degraded = New-Object 'Collections.Generic.List[string]'
-    $seenProjects = New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
-
-    $queue = New-Object 'Collections.Generic.Queue[string]'
-    foreach ($proj in @(Get-ChildItem -LiteralPath $ModuleDirectory -Filter '*.csproj' -File)) {
-        $queue.Enqueue($proj.FullName)
-    }
-    if ($queue.Count -eq 0) { $degraded.Add("no .csproj under $ModuleDirectory") }
-
-    while ($queue.Count -gt 0) {
-        $projectPath = $queue.Dequeue()
-        if (-not $seenProjects.Add($projectPath)) { continue }
-        if (-not (Test-Path -LiteralPath $projectPath -PathType Leaf)) {
-            $degraded.Add("referenced project is missing: $projectPath")
-            continue
-        }
-
-        try { [xml]$document = Get-Content -LiteralPath $projectPath -Raw -Encoding UTF8 }
-        catch { $degraded.Add("could not parse $projectPath : $($_.Exception.Message)"); continue }
-
-        $projectDirectory = Split-Path -Parent $projectPath
-        $nodes = $document.SelectNodes(
-            '//*[local-name()="Compile" or local-name()="EmbeddedResource" or local-name()="None" ' +
-            'or local-name()="Content" or local-name()="ProjectReference"]')
-
-        foreach ($node in $nodes) {
-            $include = [string]$node.GetAttribute('Include')
-            if ([string]::IsNullOrWhiteSpace($include)) { continue }
-            $isProjectReference = ($node.LocalName -eq 'ProjectReference')
-
-            # Private="false" == the host supplies this assembly, so it is NOT in the payload.
-            if ($isProjectReference -and ([string]$node.GetAttribute('Private')) -ieq 'false') { continue }
-
-            # $(Pkg<PackageId>) is MSBuild's GeneratePathProperty convention: it always resolves into the
-            # NuGet package folder, never into this repository, so it can never be a repo-source staleness.
-            # Skipped without a warning because it is known-benign (Fortunes licenses two ONNX Runtime files
-            # this way); anything ELSE unresolved is reported, because a watch set that quietly shrinks is
-            # exactly how this check went blind to source-linked files in the first place.
-            if ($include -match '\$\(Pkg') { continue }
-            if ($include -match '\$\(') { $degraded.Add("unresolved MSBuild property in $($node.LocalName) '$include' ($projectPath)"); continue }
-
-            # A wildcard names a set, not a file. Watch the deepest wildcard-free ancestor directory, which is
-            # a superset of the glob and so can only ever over-report, never miss.
-            $literal = $include
-            if ($literal -match '[\*\?]') {
-                $segments = $literal -split '[\\/]'
-                $keep = @()
-                foreach ($segment in $segments) {
-                    if ($segment -match '[\*\?]') { break }
-                    $keep += $segment
+    $wanted = New-Object 'Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($entryName in $EntryNames) { [void]$wanted.Add($entryName) }
+    $found = New-Object 'Collections.Generic.List[object]'
+    $archive = [IO.Compression.ZipFile]::OpenRead($ZipPath)
+    try {
+        foreach ($entry in $archive.Entries) {
+            if (-not $wanted.Contains($entry.Name)) { continue }
+            $entryStream = $entry.Open()
+            try {
+                $memory = New-Object IO.MemoryStream
+                try {
+                    $entryStream.CopyTo($memory)
+                    $found.Add([pscustomobject]@{ Name = $entry.Name; FullName = $entry.FullName; Bytes = $memory.ToArray() })
                 }
-                if ($keep.Count -eq 0) { $degraded.Add("un-anchorable wildcard in '$include' ($projectPath)"); continue }
-                $literal = ($keep -join '\')
+                finally { $memory.Dispose() }
             }
-
-            try { $full = [IO.Path]::GetFullPath((Join-Path $projectDirectory $literal)) }
-            catch { $degraded.Add("could not resolve '$include' ($projectPath)"); continue }
-
-            if ($isProjectReference) {
-                $queue.Enqueue($full)
-                # The referenced project's whole directory is watched: its own sources are what rebuild the
-                # DLL that gets copied in. Its nested references are followed on the next pass.
-                $full = (Split-Path -Parent $full)
-            }
-
-            if (-not $full.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) {
-                $degraded.Add("outside the repository, not watched: '$include' ($projectPath)")
-                continue
-            }
-            # Anything under the module's own folder is already covered by the module-directory watch.
-            if ($full.TrimEnd('\').StartsWith($moduleFull, [StringComparison]::OrdinalIgnoreCase)) { continue }
-
-            $relative = $full.Substring($root.Length).TrimStart('\', '/').Replace('\', '/')
-            if ($relative) { $external.Add($relative) }
+            finally { $entryStream.Dispose() }
         }
     }
-
-    return [pscustomobject]@{
-        External = @($external | Sort-Object -Unique)
-        Degraded = @($degraded | Sort-Object -Unique)
-    }
+    finally { $archive.Dispose() }
+    # The bare list, enumerated on output; callers wrap the call in @(). `return @($found)` throws
+    # 'Argument types do not match' under Windows PowerShell 5.1 for a List[object] of custom objects
+    # (measured 2026-09-30), and pwsh 7 does the same on this shape.
+    return $found
 }
 
 $modulesJson = Join-Path $RepoRoot 'modules-dist\modules.json'
@@ -288,8 +239,8 @@ if ($catalogVersionParsed -gt $productVersionParsed) {
 # Check 2 needs tags. It FAILS rather than degrading, for the reason spelled out in the sibling
 # Test-ModuleTemplate.ps1: a control that can run degraded has to say so in a way that stops the run,
 # or it is a check that quietly stopped checking.
-$releaseTags = @(& git -C $RepoRoot tag --list 'v*' 2>$null)
-if ($LASTEXITCODE -ne 0 -or $releaseTags.Count -eq 0) {
+$releaseTags = @(Invoke-GitLines @('tag', '--list', 'v*'))
+if ($script:GitExit -ne 0 -or $releaseTags.Count -eq 0) {
     Write-Warning ("DEGRADED  no v* tags are reachable, so catalog.json app.version could not be " +
                    "checked against the newest release (shallow clone?)")
     throw ("Coverage narrowed silently: the catalog-versus-newest-release check could not run because " +
@@ -381,15 +332,13 @@ foreach ($id in $ids) {
         continue
     }
 
-    # Commits touching anything the published zip is built from that it cannot possibly contain. Markdown is
-    # excluded because it never reaches the assembly -- modules\Fortunes\BACKLOG.md would otherwise
-    # demand a 31 MB republish for a note. Everything else stays in scope on purpose: images and
-    # welcome.json are embedded resources, and probe/self-test code compiles into the shipped DLL just
-    # like anything else, so it genuinely does make the published payload stale.
-    $sourceRelative = "modules/$($sourceDirectory.Name)"
-    $modulePathspec = @($sourceRelative, ":(exclude)$sourceRelative/**/*.md", ":(exclude)$sourceRelative/*.md")
-
-    $watch = Get-ModuleWatchSet -RepoRoot $RepoRoot -ModuleDirectory $sourceDirectory.FullName
+    # Commits touching anything the published zip is built from that it cannot possibly contain. The
+    # pathspecs come from the shared helper (the module directory less its Markdown, plus the watch set)
+    # so this check and the publish guard judge one and the same list; the Markdown exclusion and its
+    # reason are recorded beside Get-ModuleWatchPathspecs.
+    $watch = Get-ModuleWatchPathspecs -RepoRoot $RepoRoot -ModuleDirectory $sourceDirectory
+    $sourceRelative = $watch.SourceRelative
+    $modulePathspec = $watch.ModulePathspec
     # Fail loudly rather than silently narrowing: a watch set that shrinks without saying so is how this
     # check was blind to source-linked files for months.
     #
@@ -403,7 +352,7 @@ foreach ($id in $ids) {
         $degraded += "$id -- watch set degraded: $note"
     }
 
-    $watchedPathspecs = @($modulePathspec) + @($watch.External)
+    $watchedPathspecs = @($watch.Pathspecs)
     $newer = @(& git -C $RepoRoot log --format='%h %s' "$zipCommit..HEAD" -- @watchedPathspecs)
     if ($LASTEXITCODE -ne 0) { throw "git log failed comparing '$sourceRelative' against $zipCommit." }
 
@@ -490,102 +439,98 @@ if (-not (Test-Path -LiteralPath $collectionsPath -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $fortunesZip -PathType Leaf)) {
     throw "modules-dist\fortunes.zip is missing at $fortunesZip, so the pack-to-collection content check cannot run."
 }
-if ((Test-Path -LiteralPath $collectionsPath) -and (Test-Path -LiteralPath $fortunesZip)) {
-    $expected = (Get-Content -LiteralPath $collectionsPath -Raw | ConvertFrom-Json)
-    $expectedPairs = [System.Collections.Generic.List[string]]::new()
-    foreach ($c in $expected.collections) {
-        foreach ($s in $c.sources) { $expectedPairs.Add("$($c.name)`t$s") }
+$expected = (Get-Content -LiteralPath $collectionsPath -Raw | ConvertFrom-Json)
+$expectedPairs = [System.Collections.Generic.List[string]]::new()
+foreach ($c in $expected.collections) {
+    foreach ($s in $c.sources) { $expectedPairs.Add("$($c.name)`t$s") }
+}
+
+# ENTRY STREAMS, not Expand-Archive. This expanded the whole 49 MB payload -- the ONNX model and the
+# runtime included -- into a scratch directory under TEMP to read one sub-megabyte DLL, and the CodeView
+# scan below did the same for every zip: about 150 MB written and deleted per gate run, fortunes twice
+# (F222). Read-ZipEntryBytes copies only the named entry through the archive's own stream. No scratch
+# directory, so the best-effort Remove-Item that used to follow, and the orphan it could leave, are gone.
+$shippedFortunes = @(Read-ZipEntryBytes -ZipPath $fortunesZip -EntryNames @('Fortunes.dll'))
+if ($shippedFortunes.Count -eq 0) { throw "fortunes.zip contains no Fortunes.dll to inspect." }
+$shipped = [Text.Encoding]::UTF8.GetString($shippedFortunes[0].Bytes)
+
+# THE MAPPING, STRUCTURALLY. This used to search for each source id ON ITS OWN and use
+# $expectedPairs only for counts, so a pack MOVED between collections left every id present
+# and passed -- while the success line claimed all the mappings were embedded. Only an ADDED
+# id was ever caught, which is what the original incident happened to be. The old comment
+# said the search "cannot false-negative"; true of ids, false of mappings.
+#
+# collections.json is embedded verbatim as a resource, so the real thing is available: find
+# it, parse it, and compare collection -> sources exactly. A move, a rename, a reorder
+# between collections and a dropped source all fail now.
+$embedded = $null
+$atCollections = $shipped.IndexOf('"collections"', [StringComparison]::Ordinal)
+while ($atCollections -ge 0 -and $null -eq $embedded) {
+    # Walk back to the object that owns the key, then forward to its matching brace, counting
+    # depth and skipping anything inside a string so a brace in a description cannot fool it.
+    $start = $shipped.LastIndexOf('{', $atCollections)
+    if ($start -lt 0) { break }
+    $depth = 0; $inString = $false; $escaped = $false; $end = -1
+    for ($i = $start; $i -lt $shipped.Length; $i++) {
+        $ch = $shipped[$i]
+        if ($escaped) { $escaped = $false; continue }
+        if ($ch -eq '\') { $escaped = $true; continue }
+        if ($ch -eq '"') { $inString = -not $inString; continue }
+        if ($inString) { continue }
+        if ($ch -eq '{') { $depth++ }
+        elseif ($ch -eq '}') { $depth--; if ($depth -eq 0) { $end = $i; break } }
     }
-
-    $scratch = Join-Path ([IO.Path]::GetTempPath()) ("dp-freshness-" + [Guid]::NewGuid().ToString('N'))
-    try {
-        Expand-Archive -LiteralPath $fortunesZip -DestinationPath $scratch -Force
-        $dll = Get-ChildItem $scratch -Recurse -Filter 'Fortunes.dll' | Select-Object -First 1
-        if (-not $dll) { throw "fortunes.zip contains no Fortunes.dll to inspect." }
-        $shipped = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($dll.FullName))
-
-        # THE MAPPING, STRUCTURALLY. This used to search for each source id ON ITS OWN and use
-        # $expectedPairs only for counts, so a pack MOVED between collections left every id present
-        # and passed -- while the success line claimed all the mappings were embedded. Only an ADDED
-        # id was ever caught, which is what the original incident happened to be. The old comment
-        # said the search "cannot false-negative"; true of ids, false of mappings.
-        #
-        # collections.json is embedded verbatim as a resource, so the real thing is available: find
-        # it, parse it, and compare collection -> sources exactly. A move, a rename, a reorder
-        # between collections and a dropped source all fail now.
-        $embedded = $null
-        $atCollections = $shipped.IndexOf('"collections"', [StringComparison]::Ordinal)
-        while ($atCollections -ge 0 -and $null -eq $embedded) {
-            # Walk back to the object that owns the key, then forward to its matching brace, counting
-            # depth and skipping anything inside a string so a brace in a description cannot fool it.
-            $start = $shipped.LastIndexOf('{', $atCollections)
-            if ($start -lt 0) { break }
-            $depth = 0; $inString = $false; $escaped = $false; $end = -1
-            for ($i = $start; $i -lt $shipped.Length; $i++) {
-                $ch = $shipped[$i]
-                if ($escaped) { $escaped = $false; continue }
-                if ($ch -eq '\') { $escaped = $true; continue }
-                if ($ch -eq '"') { $inString = -not $inString; continue }
-                if ($inString) { continue }
-                if ($ch -eq '{') { $depth++ }
-                elseif ($ch -eq '}') { $depth--; if ($depth -eq 0) { $end = $i; break } }
-            }
-            if ($end -gt $start) {
-                try { $embedded = $shipped.Substring($start, $end - $start + 1) | ConvertFrom-Json }
-                catch { $embedded = $null }
-                if ($null -ne $embedded -and -not $embedded.PSObject.Properties['collections']) { $embedded = $null }
-            }
-            $atCollections = $shipped.IndexOf('"collections"', $atCollections + 1, [StringComparison]::Ordinal)
-        }
-        # THROWS rather than falling back to the old id-only search. A check that quietly downgrades
-        # itself to a weaker one is exactly the failure mode this file keeps correcting.
-        if ($null -eq $embedded) {
-            throw ("Could not locate the embedded collections.json inside the shipped Fortunes.dll, so " +
-                   "the pack-to-collection mapping cannot be verified. If the module stopped embedding " +
-                   "it verbatim, this check needs rewriting rather than skipping.")
-        }
-
-        function Get-CollectionMap($doc) {
-            $map = @{}
-            foreach ($c in $doc.collections) {
-                $src = @()
-                if ($c.PSObject.Properties['sources'] -and $null -ne $c.sources) { $src = @($c.sources) }
-                $map[[string]$c.name] = (($src | Sort-Object) -join '|')
-            }
-            return $map
-        }
-
-        $wantMap = Get-CollectionMap $expected
-        $gotMap = Get-CollectionMap $embedded
-        $problems = [System.Collections.Generic.List[string]]::new()
-        foreach ($name in $wantMap.Keys) {
-            if (-not $gotMap.ContainsKey($name)) { $problems.Add("collection '$name' is absent from the shipped DLL"); continue }
-            if ($wantMap[$name] -ne $gotMap[$name]) {
-                $problems.Add("collection '$name' has different sources: expected [" +
-                              ($wantMap[$name] -replace '\|', ', ') + "], shipped [" +
-                              ($gotMap[$name] -replace '\|', ', ') + "]")
-            }
-        }
-        foreach ($name in $gotMap.Keys) {
-            if (-not $wantMap.ContainsKey($name)) { $problems.Add("collection '$name' is in the shipped DLL but not in packs/collections.json") }
-        }
-        if ($problems.Count -gt 0) {
-            Write-Host ''
-            foreach ($m in $problems | Select-Object -First 12) { Write-Host "  $m" }
-            if ($problems.Count -gt 12) { Write-Host "  ... and $($problems.Count - 12) more" }
-            throw ("modules-dist/fortunes.zip was built before the current packs/collections.json: " +
-                   "$($problems.Count) pack-to-collection difference(s) between the shipped Fortunes.dll " +
-                   "and packs/collections.json. Affected packs fall into the fallback 'More packs' group " +
-                   "for every user. REBUILD the module (New-ModulePublish.ps1 WITHOUT -SkipBuild) rather " +
-                   "than re-zipping, then commit the zip and regenerate the catalog.")
-        }
-        Write-Host ("fortunes.zip embeds all $($expectedPairs.Count) current pack-to-collection mappings " +
-                    "across $($wantMap.Count) collection(s), compared structurally.")
+    if ($end -gt $start) {
+        try { $embedded = $shipped.Substring($start, $end - $start + 1) | ConvertFrom-Json }
+        catch { $embedded = $null }
+        if ($null -ne $embedded -and -not $embedded.PSObject.Properties['collections']) { $embedded = $null }
     }
-    finally {
-        Remove-Item $scratch -Recurse -Force -ErrorAction SilentlyContinue
+    $atCollections = $shipped.IndexOf('"collections"', $atCollections + 1, [StringComparison]::Ordinal)
+}
+# THROWS rather than falling back to the old id-only search. A check that quietly downgrades
+# itself to a weaker one is exactly the failure mode this file keeps correcting.
+if ($null -eq $embedded) {
+    throw ("Could not locate the embedded collections.json inside the shipped Fortunes.dll, so " +
+           "the pack-to-collection mapping cannot be verified. If the module stopped embedding " +
+           "it verbatim, this check needs rewriting rather than skipping.")
+}
+
+function Get-CollectionMap($doc) {
+    $map = @{}
+    foreach ($c in $doc.collections) {
+        $src = @()
+        if ($c.PSObject.Properties['sources'] -and $null -ne $c.sources) { $src = @($c.sources) }
+        $map[[string]$c.name] = (($src | Sort-Object) -join '|')
+    }
+    return $map
+}
+
+$wantMap = Get-CollectionMap $expected
+$gotMap = Get-CollectionMap $embedded
+$problems = [System.Collections.Generic.List[string]]::new()
+foreach ($name in $wantMap.Keys) {
+    if (-not $gotMap.ContainsKey($name)) { $problems.Add("collection '$name' is absent from the shipped DLL"); continue }
+    if ($wantMap[$name] -ne $gotMap[$name]) {
+        $problems.Add("collection '$name' has different sources: expected [" +
+                      ($wantMap[$name] -replace '\|', ', ') + "], shipped [" +
+                      ($gotMap[$name] -replace '\|', ', ') + "]")
     }
 }
+foreach ($name in $gotMap.Keys) {
+    if (-not $wantMap.ContainsKey($name)) { $problems.Add("collection '$name' is in the shipped DLL but not in packs/collections.json") }
+}
+if ($problems.Count -gt 0) {
+    Write-Host ''
+    foreach ($m in $problems | Select-Object -First 12) { Write-Host "  $m" }
+    if ($problems.Count -gt 12) { Write-Host "  ... and $($problems.Count - 12) more" }
+    throw ("modules-dist/fortunes.zip was built before the current packs/collections.json: " +
+           "$($problems.Count) pack-to-collection difference(s) between the shipped Fortunes.dll " +
+           "and packs/collections.json. Affected packs fall into the fallback 'More packs' group " +
+           "for every user. REBUILD the module (New-ModulePublish.ps1 WITHOUT -SkipBuild) rather " +
+           "than re-zipping, then commit the zip and regenerate the catalog.")
+}
+Write-Host ("fortunes.zip embeds all $($expectedPairs.Count) current pack-to-collection mappings " +
+            "across $($wantMap.Count) collection(s), compared structurally.")
 
 # ---------------------------------------------------------------------------------------------------
 # NO SHIPPED DLL MAY CARRY AN ABSOLUTE BUILD PATH.
@@ -638,22 +583,21 @@ foreach ($proj in Get-ChildItem -LiteralPath $repoRoot -Recurse -Filter '*.cspro
 }
 if ($ourAssemblies.Count -eq 0) { throw 'No .csproj found, so the build-path scan would check nothing.' }
 
+# ENTRY STREAMS, not Expand-Archive. Every zip used to be expanded whole into a scratch directory under
+# TEMP -- the 32 MB ONNX model, the 15 MB runtime and the 24 MB WinRT projection included -- to read the
+# handful of sub-megabyte first-party DLLs this scan is scoped to; with the fortunes block above doing
+# the same for one DLL, about 150 MB was written and deleted per gate run (F222). Only the named entries
+# are copied now, and there is no scratch directory left to remove or to orphan.
 foreach ($bpZip in $buildPathZips) {
-    $bpScratch = Join-Path ([IO.Path]::GetTempPath()) ("dp-codeview-" + [Guid]::NewGuid().ToString('N'))
-    try {
-        Expand-Archive -LiteralPath $bpZip.FullName -DestinationPath $bpScratch -Force
-        foreach ($bpDll in Get-ChildItem -LiteralPath $bpScratch -Recurse -Filter '*.dll') {
-            if (-not $ourAssemblies.Contains($bpDll.Name)) { continue }
-            $buildPathDlls++
-            # Latin-1, so every byte maps to exactly one char. A UTF-8 decode can merge or drop bytes
-            # and a path could slip through the gap.
-            $bpText = [Text.Encoding]::GetEncoding(28591).GetString([IO.File]::ReadAllBytes($bpDll.FullName))
-            foreach ($bpMatch in $buildPathPattern.Matches($bpText)) {
-                $buildPathOffenders.Add($bpZip.Name + " -> " + $bpDll.Name + " : " + $bpMatch.Value)
-            }
+    foreach ($bpDll in @(Read-ZipEntryBytes -ZipPath $bpZip.FullName -EntryNames @($ourAssemblies))) {
+        $buildPathDlls++
+        # Latin-1, so every byte maps to exactly one char. A UTF-8 decode can merge or drop bytes
+        # and a path could slip through the gap.
+        $bpText = [Text.Encoding]::GetEncoding(28591).GetString($bpDll.Bytes)
+        foreach ($bpMatch in $buildPathPattern.Matches($bpText)) {
+            $buildPathOffenders.Add($bpZip.Name + " -> " + $bpDll.Name + " : " + $bpMatch.Value)
         }
     }
-    finally { Remove-Item $bpScratch -Recurse -Force -ErrorAction SilentlyContinue }
 }
 
 if ($buildPathOffenders.Count -gt 0) {

@@ -9,6 +9,10 @@
     below: hashing the working-tree copy of a text asset gives a different answer from hashing the
     committed blob, because a checkout has CRLF and git stores LF.
 
+    Since 2026-09-30 the blobs come from ONE `git cat-file --batch` child per repository root, started
+    on first use and closed by Stop-CatalogAssetBatch, which both callers run in a finally. Callers:
+    New-ContentCatalog.ps1 (the generator) and Test-ContentCatalogIntegrity.ps1 (the verifier).
+
     Deliberately 5.1-compatible, unlike its first caller: the verifier runs inside the gate, which is
     invoked under both powershell.exe and pwsh.
 #>
@@ -19,21 +23,142 @@
 # committed blob. If the file is not yet committed (a brand-new pet/pack), fall
 # back to the LF-normalized working-tree bytes, matching how git stores a new
 # text asset on commit (.gitattributes: * text=auto eol=lf).
-# $RelPath must use FORWARD slashes: it is handed to `git cat-file blob HEAD:<path>`, which does not
-# accept backslashes and fails silently into the fallback below if given them.
-# $TimeoutMs exists so the timeout path below is REACHABLE in a test. A 60-second default cannot be
-# provoked in a gate, and an error path nobody has ever executed is a guess, not a safeguard.
+# $RelPath must use FORWARD slashes: it is handed to git as `HEAD:<path>`, which does not accept
+# backslashes; such a path comes back as `missing` and lands in the fallback below.
 #
-# $StallChild is the other half of reaching it, and it exists because $TimeoutMs ALONE could not.
-# The test drove the timeout by asking for 1ms on the theory that "git cat-file cannot finish that
-# fast", and that theory is not what the code measures: Process.Start runs BEFORE
-# $stdout.Wait($TimeoutMs), so a child that finishes inside that gap leaves the async copy already
-# complete and Wait returns true however small the budget. On this box git lost that race and the
-# check passed; in CI it won, once, and the gate went red on a docs-only commit. A timing assumption
-# about somebody else's binary is not a test.
-# So: when $StallChild is set the child is that command instead of git, the test points it at
-# something that sleeps well past $TimeoutMs, and the Wait-timeout, the Kill and the refusal below
-# all run for real, on real process machinery, with nothing racing.
+# ONE CHILD, MANY ASSETS. This used to start a fresh `git cat-file blob HEAD:<path>` process per asset,
+# with its own ProcessStartInfo, two async pipe readers and a MemoryStream: 219 spawns at ~30 ms of
+# process creation each came to 9-10 s per run, on every gate and every CI push, growing with every
+# companion or pack added (F208). `git cat-file --batch` answers every request over one stdin/stdout
+# pair; the same 219 paths take about a second. The child is cached per repository root and closed by
+# Stop-CatalogAssetBatch; a child left behind would keep the pack files open for the rest of the
+# PowerShell process, which is why both callers close it in a finally.
+#
+# The protocol, per request line `HEAD:<path>`:
+#   <oid> blob <size>\n<size bytes>\n   the committed bytes
+#   HEAD:<path> missing\n               the path is NOT in HEAD: the one case the worktree fallback exists
+#                                       for. A text asset that is brand new has no blob yet, and git stores
+#                                       it LF-normalized on commit, which the fallback emulates.
+#   anything else, or EOF               git died, could not open the repository, or answered a shape this
+#                                       code does not know. REFUSED, never guessed: the old code turned
+#                                       every non-zero exit into the fallback, so an unreadable object or a
+#                                       git that failed to start hashed CR-stripped worktree bytes -- for a
+#                                       zip a plausible, wrong hash by construction (F209).
+#
+# $TimeoutMs bounds EVERY pipe read, so a git that hangs on a lock or a stalled filesystem still surfaces
+# as a refusal naming the asset rather than a gate that stops dead on one of ~219 assets with nothing
+# said about which. $StallChild keeps that path testable: when set, the child is that command instead of
+# git, a one-off that is never cached, and the read timeout, the Kill and the refusal all run for real.
+# Test-ContentCatalogIntegrity.ps1 records why a tiny budget against real git could not do this: a child
+# that finishes inside the gap between Start and the first wait satisfies any budget, so the timeout
+# was only ever exercised by SUBSTITUTING the child.
+$script:CatalogAssetBatches = @{}
+
+function Start-CatalogAssetBatch([string]$RepoRoot, [string[]]$StallChild) {
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    if ($StallChild -and $StallChild.Count -gt 0) {
+        $psi.FileName = $StallChild[0]
+        if ($StallChild.Count -gt 1) {
+            $psi.Arguments = ($StallChild[1..($StallChild.Count - 1)] -join ' ')
+        }
+    }
+    else {
+        $psi.FileName = 'git'
+        $psi.Arguments = "-C `"$RepoRoot`" cat-file --batch"
+    }
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardInput = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.CreateNoWindow = $true
+    $process = [System.Diagnostics.Process]::Start($psi)
+    return [pscustomobject]@{
+        Process = $process
+        Stdin   = $process.StandardInput.BaseStream
+        Stdout  = $process.StandardOutput.BaseStream
+        # Drained concurrently from the start, so a chatty child can never block on a full stderr pipe
+        # while this side waits on stdout -- the two-pipe deadlock the per-asset version guarded against.
+        Stderr  = $process.StandardError.ReadToEndAsync()
+        Buffer  = New-Object byte[] 65536
+        Start   = 0
+        End     = 0
+    }
+}
+
+function Close-CatalogAssetBatch($Batch, [switch]$Kill) {
+    if ($null -eq $Batch) { return }
+    if ($Kill) { try { $Batch.Process.Kill() } catch { } }
+    # EOF on stdin is how `--batch` is told to finish; a child that does not take the hint is killed.
+    try { $Batch.Stdin.Dispose() } catch { }
+    try { if (-not $Batch.Process.WaitForExit(2000)) { $Batch.Process.Kill() } } catch { }
+    try { $Batch.Process.Dispose() } catch { }
+}
+
+# Close every cached child. Both callers run this in a finally; calling it with nothing open is a no-op.
+function Stop-CatalogAssetBatch {
+    foreach ($batch in @($script:CatalogAssetBatches.Values)) { Close-CatalogAssetBatch $batch }
+    $script:CatalogAssetBatches.Clear()
+}
+
+# One bounded read from the child's stdout. Returns the byte count (0 = the child closed its stdout),
+# or $null when the wait expired.
+function Read-CatalogBatchChunk($Batch, [byte[]]$Destination, [int]$Offset, [int]$Count, [int]$TimeoutMs) {
+    $task = $Batch.Stdout.ReadAsync($Destination, $Offset, $Count)
+    if (-not $task.Wait($TimeoutMs)) { return $null }
+    return $task.Result
+}
+
+# The next LF-terminated line out of the child, through the batch's own read-ahead buffer.
+function Read-CatalogBatchLine($Batch, [int]$TimeoutMs) {
+    while ($true) {
+        $newline = [Array]::IndexOf($Batch.Buffer, [byte]10, $Batch.Start, $Batch.End - $Batch.Start)
+        if ($newline -ge 0) {
+            $line = [Text.Encoding]::UTF8.GetString($Batch.Buffer, $Batch.Start, $newline - $Batch.Start)
+            $Batch.Start = $newline + 1
+            return [pscustomobject]@{ Line = $line; TimedOut = $false; Eof = $false }
+        }
+        if ($Batch.Start -gt 0) {
+            [Array]::Copy($Batch.Buffer, $Batch.Start, $Batch.Buffer, 0, $Batch.End - $Batch.Start)
+            $Batch.End -= $Batch.Start
+            $Batch.Start = 0
+        }
+        if ($Batch.End -ge $Batch.Buffer.Length) {
+            return [pscustomobject]@{ Line = $null; TimedOut = $false; Eof = $true }
+        }
+        $got = Read-CatalogBatchChunk $Batch $Batch.Buffer $Batch.End ($Batch.Buffer.Length - $Batch.End) $TimeoutMs
+        if ($null -eq $got) { return [pscustomobject]@{ Line = $null; TimedOut = $true; Eof = $false } }
+        if ($got -eq 0) { return [pscustomobject]@{ Line = $null; TimedOut = $false; Eof = $true } }
+        $Batch.End += $got
+    }
+}
+
+# Exactly $Size bytes of blob body, then the LF that follows it. Whatever the read-ahead buffer already
+# holds is taken first; the rest is read straight into the destination array. Returns the bytes, or a
+# string naming why it could not.
+function Read-CatalogBatchBody($Batch, [long]$Size, [int]$TimeoutMs) {
+    if ($Size -gt [int]::MaxValue) { return "a $Size-byte blob is larger than this reader handles" }
+    $body = New-Object byte[] ([int]$Size)
+    $got = 0
+    $buffered = [Math]::Min($Batch.End - $Batch.Start, [int]$Size)
+    if ($buffered -gt 0) {
+        [Array]::Copy($Batch.Buffer, $Batch.Start, $body, 0, $buffered)
+        $Batch.Start += $buffered
+        $got += $buffered
+    }
+    while ($got -lt $Size) {
+        $read = Read-CatalogBatchChunk $Batch $body $got ([int]$Size - $got) $TimeoutMs
+        if ($null -eq $read) { return 'timeout' }
+        if ($read -eq 0) { return "the child closed its output $($Size - $got) byte(s) short of the blob" }
+        $got += $read
+    }
+    # The trailing LF, which is part of the reply and would otherwise prefix the NEXT header.
+    $terminator = Read-CatalogBatchLine $Batch $TimeoutMs
+    if ($terminator.TimedOut) { return 'timeout' }
+    if ($terminator.Eof) { return 'the child closed its output before the blob terminator' }
+    if ($terminator.Line -ne '') { return "unexpected bytes after the blob: '$($terminator.Line)'" }
+    return ,$body
+}
+
 function Get-CatalogAsset(
     [string]$RepoRoot,
     [string]$RelPath,
@@ -41,79 +166,66 @@ function Get-CatalogAsset(
     [int]$TimeoutMs = 60000,
     [string[]]$StallChild = $null) {
     $bytes = $null
-    $timedOut = $false
-    $process = $null
-    $memory = $null
+    $missing = $false
+    $failure = $null
+    $oneOff = [bool]($StallChild -and $StallChild.Count -gt 0)
+    $key = [IO.Path]::GetFullPath($RepoRoot).TrimEnd('\', '/').ToLowerInvariant()
+    $batch = $null
     try {
-        $psi = New-Object System.Diagnostics.ProcessStartInfo
-        if ($StallChild -and $StallChild.Count -gt 0) {
-            $psi.FileName = $StallChild[0]
-            if ($StallChild.Count -gt 1) {
-                $psi.Arguments = ($StallChild[1..($StallChild.Count - 1)] -join ' ')
+        if ($oneOff) {
+            $batch = Start-CatalogAssetBatch $RepoRoot $StallChild
+        }
+        else {
+            if (-not $script:CatalogAssetBatches.ContainsKey($key)) {
+                $script:CatalogAssetBatches[$key] = Start-CatalogAssetBatch $RepoRoot $null
             }
+            $batch = $script:CatalogAssetBatches[$key]
         }
-        else {
-            $psi.FileName = 'git'
-            $psi.Arguments = "-C `"$RepoRoot`" cat-file blob `"HEAD:$RelPath`""
-        }
-        $psi.UseShellExecute = $false
-        $psi.RedirectStandardOutput = $true
-        $psi.RedirectStandardError = $true
-        $psi.CreateNoWindow = $true
-        $process = [System.Diagnostics.Process]::Start($psi)
 
-        # BOTH PIPES READ CONCURRENTLY, AND BOTH READS BOUNDED.
-        #
-        # This used to copy stdout to EOF, then read stderr, then WaitForExit with no timeout. Two
-        # distinct hangs live in that order. A child that fills its stderr pipe (~4 KiB) blocks
-        # writing, so it never closes stdout, so the copy never returns and the stderr read that
-        # would have unblocked it is never reached -- the classic two-pipe deadlock. Separately, a
-        # child that simply stalls writes nothing at all, so the COPY blocks first and the unbounded
-        # WaitForExit was never even the statement that hung.
-        #
-        # Neither has fired here, and the reason is worth naming because it is not a property this
-        # file controls: git cat-file's diagnostics are one short line, and a local object read does
-        # not stall. A git that hangs on a lock, a stalled filesystem, or a scanner holding the
-        # objects directory would all arrive as a gate that stops dead on one of ~219 assets with
-        # nothing said about which. Async both, bound both, name the asset.
-        $memory = New-Object System.IO.MemoryStream
-        $stdout = $process.StandardOutput.BaseStream.CopyToAsync($memory)
-        $stderr = $process.StandardError.ReadToEndAsync()
+        $request = [Text.Encoding]::UTF8.GetBytes("HEAD:$RelPath`n")
+        $batch.Stdin.Write($request, 0, $request.Length)
+        $batch.Stdin.Flush()
 
-        if ($stdout.Wait($TimeoutMs) -and $process.WaitForExit($TimeoutMs)) {
-            [void]$stderr.Wait(1000)
-            if ($process.ExitCode -eq 0) { $bytes = $memory.ToArray() }
+        $header = Read-CatalogBatchLine $batch $TimeoutMs
+        if ($header.TimedOut) { $failure = 'timeout' }
+        elseif ($header.Eof) { $failure = 'the child exited or closed its output before answering' }
+        elseif ($header.Line -eq "HEAD:$RelPath missing") { $missing = $true }
+        elseif ($header.Line -match '^[0-9a-f]{40,64} blob (\d+)$') {
+            $body = Read-CatalogBatchBody $batch ([long]$Matches[1]) $TimeoutMs
+            if ($body -is [string]) { $failure = $body } else { $bytes = $body }
         }
-        else {
-            try { $process.Kill() } catch { }
-            $timedOut = $true
-        }
+        else { $failure = "unexpected reply '$($header.Line)'" }
     }
     catch {
-        $bytes = $null
+        $failure = "could not talk to the child: $($_.Exception.Message)"
     }
     finally {
-        # Disposed on every path, including the throw below. This is correctness, NOT a leak fix, and
-        # the distinction is measured rather than assumed: the audit that filed this claimed ~219
-        # leaked handles per gate run, and that is wrong. Sampling DURING 400 real calls under 5.1,
-        # before the change: peak growth +69, end of loop +28, settled -79 (below its own baseline),
-        # never more than 5 git.exe objects live at once. Handle growth was already bounded, because
-        # the finalizer comfortably keeps up. After: +30 / +7 / -21 / 4 -- better on every reading,
-        # but these are single runs of a metric this repo has already documented as noisy, so read
-        # them as "bounded either way", not as a 2x win. What deterministic disposal buys is not a
-        # smaller number: it is that the release no longer
-        # DEPENDS on a GC that a short-lived script is not obliged to run.
-        if ($null -ne $memory) { $memory.Dispose() }
-        if ($null -ne $process) { $process.Dispose() }
+        # A one-off is never reused, and a child that failed is not trusted with the next request
+        # either: it is closed (killed on a timeout, where it is still blocking) and the next call
+        # starts a fresh one. Disposal on every path, so nothing depends on a GC a short-lived script
+        # is not obliged to run.
+        if ($null -ne $batch -and ($oneOff -or $null -ne $failure)) {
+            Close-CatalogAssetBatch $batch -Kill:($failure -eq 'timeout')
+            if (-not $oneOff) { $script:CatalogAssetBatches.Remove($key) }
+        }
     }
 
-    # Thrown OUTSIDE the catch deliberately. A timeout must NOT fall through to the worktree fallback
-    # below: for a binary asset that path CR-strips its way to a plausible, wrong hash -- the exact
-    # failure documented there -- and a catalog silently built from a wrong hash is worse than one
-    # that refused to build. The fallback is for "not committed yet", never for "could not read".
-    if ($timedOut) {
+    # Thrown OUTSIDE the catch deliberately, and for EVERY failure that is not `missing`. A timeout, a
+    # dead child or an unreadable object must NOT fall through to the worktree fallback below: for a
+    # binary asset that path CR-strips its way to a plausible, wrong hash -- the exact failure documented
+    # there -- and a catalog silently built from a wrong hash is worse than one that refused to build.
+    # The fallback is for "not committed yet", never for "could not read".
+    if ($failure -eq 'timeout') {
         throw ("git cat-file did not return within ${TimeoutMs}ms for '$RelPath'. " +
                'Refusing to fall back to the working-tree bytes, which would hash a different ' +
+               'thing from what raw.githubusercontent.com serves.')
+    }
+    if ($null -ne $failure) {
+        $stderrText = ''
+        try { if ($null -ne $batch -and $batch.Stderr.Wait(1000)) { $stderrText = ([string]$batch.Stderr.Result).Trim() } } catch { }
+        throw ("git cat-file --batch could not answer for '$RelPath': $failure" +
+               $(if ($stderrText) { " (git said: $stderrText)" } else { '' }) +
+               '. Refusing to fall back to the working-tree bytes, which would hash a different ' +
                'thing from what raw.githubusercontent.com serves.')
     }
 
@@ -122,9 +234,10 @@ function Get-CatalogAsset(
     # asset the CR-stripping below produces a plausible, wrong hash, and a silent wrong answer is how
     # the first run of Test-ContentCatalogIntegrity.ps1 reported five of six module zips as
     # mismatched. The cause was a backslash in the path handed to `git cat-file`, which needs forward
-    # slashes; cat-file failed, the fallback ran, and nothing said so. Added 2026-09-17.
+    # slashes; cat-file failed, the fallback ran, and nothing said so. Added 2026-09-17. Since
+    # 2026-09-30 the generator refuses it for the module zips too (New-ContentCatalog.ps1).
     $source = 'blob'
-    if ($null -eq $bytes) {
+    if ($missing) {
         $source = 'worktree'
         $raw = [IO.File]::ReadAllBytes($FullPath)
         $out = New-Object 'System.Collections.Generic.List[byte]' ($raw.Length)

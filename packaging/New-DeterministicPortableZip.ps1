@@ -9,6 +9,12 @@
 # hand re-zip under powershell.exe churns a binary every user downloads and forces a new catalog
 # hash for no functional change. Today's committed zips are consistent only because the automated
 # path runs through New-ModulePublish.ps1, which is already 7+.
+#
+# 7 is a FLOOR, not the whole promise. Measured 2026-09-29 (audit F213): the same seeded payload under
+# CompressionLevel.Optimal zips to different bytes under .NET 8, 9 and 10 -- pwsh 7.4, 7.5 and 7.6 --
+# so byte-identical output needs the same pwsh major.minor, not merely 7+. Correctness is unaffected
+# (the catalog hashes whatever blob is committed), and New-ModulePublish.ps1 records the publishing
+# PowerShell version in the commit body so a hash churn can be attributed to the runtime.
 #requires -Version 7
 [CmdletBinding()]
 param(
