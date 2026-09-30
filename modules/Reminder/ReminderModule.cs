@@ -80,11 +80,23 @@ namespace DesktopAICompanion.ReminderModule
                                 //        is one constant; one slot lookup serves the four per-slot settings; the
                                 //        ICS parser has a self-check; the path-less Chime.Play and QuietHours'
                                 //        unused instance API are gone (F187, F190, F195, F198, F202, F203).
+                                //        Phase 8 burn-down (lane burn/reminder), same version: a failed
+                                //        settings write is logged once, retried on the next tick and reported
+                                //        on the status line that caused it; a URL or file edit is fetched at
+                                //        once while the old target's attempt is parked; a parked attempt a newer
+                                //        landing superseded no longer drives the stall report; the chime guard
+                                //        is keyed on the file; a refused chime file is logged once and "Test
+                                //        this reminder" says the built-in chime played, and it still chimes with
+                                //        no companion on screen; Webex matches join shapes only and the
+                                //        teams.live.com form is asserted; the .ics deadline names its phase
+                                //        (RA-169, RA-170, RA-171, RA-172, RA-175, RA-176, RA-177, RA-178,
+                                //        RA-179, R-044, R-045, R-047, R-049, R-050, N-deadcode-02).
                                 // 1.0.6: "Make the companion react" reached 35 of 54 companions, and
                                 //        reactOn defaults to true, so 19 users had a feature switched
                                 //        on that did nothing. The eSheep-era names it used are absent
                                 //        from the converted shimeji. Historical four kept FIRST and in
-                                //        order, so nothing that worked changes; now 43/54.   // 1.0.5: ReminderScheduler.DueNow deleted. No callers, and it tested the fired
+                                //        order, so nothing that worked changes; now 43/54.
+                                 // 1.0.5: ReminderScheduler.DueNow deleted. No callers, and it tested the fired
                                  //        set with a bare event id while DueNowMulti records "<id>@<lead>" --
                                  //        so reviving it on the strength of its signature would have produced a
                                  //        scheduler that re-fired every event on every tick.
@@ -226,7 +238,7 @@ namespace DesktopAICompanion.ReminderModule
                 }
             }
             _settings.Set("migratedSlots", "1");
-            _settings.Save();
+            SaveSettings("legacy slot migration");
         }
 
         // One source instance per slot, kept across Apply. An Apply used to call BuildSource unconditionally and
@@ -329,7 +341,9 @@ namespace DesktopAICompanion.ReminderModule
                     CheckPersonal(now);
                 }
                 MaybeBriefing(now, suppress);
-                if (changed) SaveFired();
+                // Also when an earlier write failed: the module holds one settings handle, so its dictionary
+                // still carries every unsaved value and one successful Save persists them all (RA-178).
+                if (changed || _savePending) SaveFired();
             }
             catch (Exception ex)
             {
@@ -347,10 +361,14 @@ namespace DesktopAICompanion.ReminderModule
         /// (F199). The tick now holds all three the way it already held them for quiet hours: skipped, not
         /// marked, so they fire on the next tick with a companion while their window is open.
         ///
-        /// The same gate AgentFlow keeps in AnyCompanionCanSpeak, with one more source. Pets that were already
-        /// out when this module was loaded (a catalog install at runtime) never came through CompanionSpawned,
-        /// so the list alone would hold every reminder until the next spawn; the companion manager counts what
-        /// is out now, whoever spawned it, and the module declares Companions so it gets the real one.
+        /// The same gate AgentFlow keeps in AnyCompanionCanSpeak, with one more source. A skin reload closes and
+        /// respawns the pets of one type WITHOUT raising CompanionSpawned (StartUp suppresses it during a reload,
+        /// so four copies do not fire four welcomes), which empties _seenPets while pets are out; the companion
+        /// manager counts what is out now, whoever spawned it, and the module declares Companions so it gets the
+        /// real one. An earlier version of this paragraph named "a catalog install at runtime" as the case: this
+        /// host never loads a module at runtime, so it is not one. On Init's own tick no pet exists yet (StartUp
+        /// arms its timer and loads modules in the same method) and the host refuses this module the manager
+        /// until Init returns, so the hold that tick reports is the right answer either way (R-047).
         ///
         /// Speech switched off is deliberately NOT part of this gate. The chime and the reaction still reach
         /// the user, and AgentFlow's recorded decision (AgentFlowModule.Apply, "these gate the SPEECH ONLY") is
@@ -871,7 +889,7 @@ namespace DesktopAICompanion.ReminderModule
                     Label = "Test this reminder",
                     Group = "Calendar " + slot.ToString(CultureInfo.InvariantCulture),
                     ReloadPaneAfter = false,   // no settings change: don't reload and lose other unsaved edits
-                    InvokeAsync = () => System.Threading.Tasks.Task.FromResult(TestReminder(slot)),
+                    InvokeAsync = () => TestReminderAsync(slot),
                 });
             }
             actions.Add(new PaneAction
@@ -920,39 +938,72 @@ namespace DesktopAICompanion.ReminderModule
             return source.IsRefreshing ? "a feed is still refreshing; " + StatusLine() : StatusLine();
         }
 
-        // Fire a sample announcement in this slot's name, style, and chime so the user can see and hear it while
-        // configuring, instead of waiting for a real event. Uses the SAVED settings (a PaneAction can't read the
-        // pane's unsaved edits), so the status reminds the user to Apply first to preview pending changes.
-        /// <summary>What "Test this reminder" answers when no companion is on screen to show it.</summary>
+        /// <summary>What "Test this reminder" answers when no companion is on screen to show it and the slot's
+        /// chime is off: nothing was played or shown.</summary>
         internal const string NoCompanionStatus =
             "✗ no companion is on screen to show it. Add one from the tray, then test again.";
+
+        /// <summary>The same answer when the slot's chime is on: the chime WAS played. PlaySound reaches the
+        /// shared audio output with no pet on screen; only the bubble and the reaction need one, so a tray-only
+        /// user can still audition a chime file (RA-176). A chime outcome may follow it (see TestReminderAsync).</summary>
+        internal const string NoCompanionChimedStatus =
+            "chime played; ✗ no companion is on screen to show the bubble. Add one from the tray, then test again.";
 
         /// <summary>The log line the Agenda tray click leaves when no companion is on screen to read it.</summary>
         internal const string AgendaNobodyLogLine = "agenda not read: no companion is on screen to show it";
 
-        private string TestReminder(int slot)
+        /// <summary>How long "Test this reminder" waits for a custom chime's read before answering. A local file
+        /// lands in milliseconds; a slow share answers "still being read" rather than holding the pane.</summary>
+        private const int TestChimeWaitMilliseconds = 2000;
+
+        // Fire a sample announcement in this slot's name, style, and chime so the user can see and hear it while
+        // configuring, instead of waiting for a real event. Uses the SAVED settings (a PaneAction can't read the
+        // pane's unsaved edits), so the status reminds the user to Apply first to preview pending changes.
+        // Async for the same reason CheckNowAsync is: the host awaits InvokeAsync on the UI thread, so the wait
+        // for the chime's outcome yields to the message loop instead of freezing the window.
+        private async System.Threading.Tasks.Task<string> TestReminderAsync(int slot)
         {
             try
             {
-                // The gate CheckDue holds a due reminder on (F199), applied to the button: SayAll drops its
-                // line when no companion is out, so "✓ test sent" over an empty desktop reported a send that
-                // reached nobody, with the chime and the reaction fired into nothing beside it (N-reminder-03).
-                if (!AnyCompanionOnScreen()) return NoCompanionStatus;
+                // The chime FIRST, whatever is on screen: it needs no pet. N-reminder-03 withheld it with the
+                // bubble and a tray-only user could no longer audition a configured chime (RA-176). Its outcome
+                // is awaited below so the status says what was heard rather than "test sent" over a silent
+                // fall-back to the built-in chime (N-deadcode-02).
+                System.Threading.Tasks.Task<string> chime = _settings.GetBool(SlotKey(slot, "chimeOn"), true)
+                    ? Chime.PlayReporting(_host, _settings.Get(SlotKey(slot, "chime"), ""))
+                    : null;
+                // The gate CheckDue holds a due reminder on (F199), applied to the bubble and the reaction, which
+                // are pet-bound: SayAll drops its line when no companion is out, so "✓ test sent" over an empty
+                // desktop reported a send that reached nobody (N-reminder-03).
+                if (!AnyCompanionOnScreen())
+                    return chime == null ? NoCompanionStatus : NoCompanionChimedStatus + await ChimeOutcome(chime);
                 string label = _settings.Get(SlotKey(slot, "label"), "");
                 string name = string.IsNullOrWhiteSpace(label) ? ("Calendar " + slot.ToString(CultureInfo.InvariantCulture)) : label.Trim();
                 SpeechStyle style = SpeechStyleSettings.ToStyle(_settings, SlotId(slot) + ".");
-                if (_settings.GetBool(SlotKey(slot, "chimeOn"), true))
-                    Chime.Play(_host, _settings.Get(SlotKey(slot, "chime"), ""));
                 // Also fire the reaction here: waiting for a real calendar event is a poor way to find out
                 // whether your pets actually animate, and this button is the only on-demand trigger.
                 React();
                 SpeakReminder(SlotId(slot), name + ": this is a test reminder in this calendar's style.", style);
-                return "✓ test sent. It uses saved settings, so Apply first to preview pending edits.";
+                return "✓ test sent. It uses saved settings, so Apply first to preview pending edits."
+                    + (chime == null ? "" : await ChimeOutcome(chime));
             }
             catch (Exception ex)
             {
                 return "✗ " + ex.Message;
             }
+        }
+
+        /// <summary>The chime's report for a status line: "" when the requested sound played, one sentence when
+        /// the file was refused or the chime dropped, or the still-reading note when the read has not landed
+        /// inside <see cref="TestChimeWaitMilliseconds"/>.</summary>
+        private static async System.Threading.Tasks.Task<string> ChimeOutcome(System.Threading.Tasks.Task<string> chime)
+        {
+            System.Threading.Tasks.Task first = await System.Threading.Tasks.Task.WhenAny(
+                chime, System.Threading.Tasks.Task.Delay(TestChimeWaitMilliseconds));
+            if (first != chime)
+                return " Chime: the file is still being read; if it cannot be read the built-in chime plays and the log says why.";
+            string outcome = await chime;
+            return string.IsNullOrEmpty(outcome) ? "" : " Chime: " + outcome + ".";
         }
 
         // Open a file picker and, on OK, persist the chosen sound as a chime. Best-effort: a cancel or any error
@@ -997,9 +1048,7 @@ namespace DesktopAICompanion.ReminderModule
                         return "✗ that file is over " +
                                (Chime.MaximumCustomBytes / (1024 * 1024)).ToString(CultureInfo.InvariantCulture) +
                                " MiB; pick a short chime.";
-                    _settings.Set(settingKey, path);
-                    _settings.Save();
-                    return "✓ chime set: " + System.IO.Path.GetFileName(path);
+                    return SetChimePath(settingKey, path);
                 }
             }
             catch (Exception ex)
@@ -1008,7 +1057,18 @@ namespace DesktopAICompanion.ReminderModule
             }
         }
 
-        // Speak the rest of today's events on demand.
+        /// <summary>Persist a chosen chime path and say whether it reached the disk. Internal for the self-test:
+        /// the dialog cannot be driven headless, and this is the half that answered ✓ over a failed write
+        /// (RA-178). The value is live in this handle either way, so the pick applies until a restart.</summary>
+        internal string SetChimePath(string settingKey, string path)
+        {
+            _settings.Set(settingKey, path);
+            string name = System.IO.Path.GetFileName(path);
+            return SaveSettings("chime pick")
+                ? "✓ chime set: " + name
+                : "✗ chime chosen, not saved: " + name + " applies until a restart; the settings file could not be written (see the log). The tick retries.";
+        }
+
         // Tray-item icons (TrayItem.IconPng): raw PNG bytes from this module's own embedded resources, so the
         // base renders them without the ABI depending on System.Drawing. Null on any failure, which degrades
         // to an icon-less entry rather than breaking the tray.
@@ -1017,6 +1077,7 @@ namespace DesktopAICompanion.ReminderModule
             return EmbeddedResources.LoadBytes(typeof(ReminderModule).Assembly, fileName);
         }
 
+        // Speak the rest of today's events on demand.
         private TrayItem BuildAgendaTrayItem()
         {
             return new TrayItem
@@ -1235,7 +1296,7 @@ namespace DesktopAICompanion.ReminderModule
             string todayKey;
             if (!BriefingDue(now, out todayKey)) return;
             _settings.Set("briefingLast", todayKey);
-            _settings.Save();
+            SaveSettings("briefing stamp");
             _host.SayAll(AgendaText(now), null);
         }
 
@@ -1269,10 +1330,12 @@ namespace DesktopAICompanion.ReminderModule
             return list;
         }
 
-        private void SavePersonal(List<PersonalReminder> list)
+        /// <summary>Encode and persist the personal list; false when the settings file could not be written, in
+        /// which case the list is live in this handle, logged once and retried by the tick (RA-178).</summary>
+        private bool SavePersonal(List<PersonalReminder> list)
         {
             _settings.Set("personal", string.Join("\n", list.Select(PersonalReminder.Encode)));
-            _settings.Save();
+            return SaveSettings("personal reminders");
         }
 
         // Announce any personal reminder that just came due, in the personal style + chime. Dedup is the
@@ -1394,8 +1457,10 @@ namespace DesktopAICompanion.ReminderModule
                     return "✗ " + err;
                 List<PersonalReminder> list = LoadPersonal();
                 list.Add(r);
-                SavePersonal(list);
-                return "✓ added: " + r.Text + " (" + r.ScheduleSummary() + ")";
+                string added = r.Text + " (" + r.ScheduleSummary() + ")";
+                return SavePersonal(list)
+                    ? "✓ added: " + added
+                    : "✗ added, not saved: " + added + " is live until a restart; the settings file could not be written (see the log). The tick retries.";
             }
             catch (Exception ex)
             {
@@ -1409,8 +1474,10 @@ namespace DesktopAICompanion.ReminderModule
             int before = list.Count;
             List<PersonalReminder> kept = list.Where(r => r != null && r.Enabled).ToList();
             if (kept.Count == before) return "Nothing to remove (no disabled reminders).";
-            SavePersonal(kept);
-            return "✓ removed " + (before - kept.Count) + " disabled reminder(s).";
+            string removed = (before - kept.Count).ToString(CultureInfo.InvariantCulture) + " disabled reminder(s)";
+            return SavePersonal(kept)
+                ? "✓ removed " + removed + "."
+                : "✗ removed " + removed + ", not saved: they return at a restart unless a later write succeeds; the settings file could not be written (see the log). The tick retries.";
         }
 
         private string StatusLine()
@@ -1477,8 +1544,8 @@ namespace DesktopAICompanion.ReminderModule
         /// which is the 1.0.3 fix applied per slot (a slot serving last-good events behind an error counts as
         /// unvouched too, so a cancelled meeting is never mistaken for a stale one); an id no configured slot
         /// claims -- a legacy pre-1.3.0 id, or a slot since turned Off -- is dropped, as it was whenever the
-        /// aggregate was healthy. A snapshot with no per-slot health, one source or a test double, keeps the
-        /// whole-snapshot rule.
+        /// aggregate was healthy. A snapshot with no per-slot health prunes nothing: nothing in it can vouch for
+        /// an id (RA-177).
         /// </summary>
         internal static bool PruneFiredAgainstFeed(CalendarSnapshot snap, HashSet<string> fired)
         {
@@ -1493,10 +1560,14 @@ namespace DesktopAICompanion.ReminderModule
             Dictionary<string, bool> slots = snap.SlotHealthy;
             if (slots == null)
             {
-                // Any error means this is a partial or not-yet-loaded view. Pruning against it would treat
-                // "I cannot see your calendar" as "your calendar is empty".
-                if (!string.IsNullOrEmpty(snap.Error)) return false;
-                return fired.RemoveWhere(id => !feedIds.Contains(ReminderScheduler.EventIdOf(id))) > 0;
+                // No per-slot health means no slot can vouch for an id, and the F204 rule for an unvouched id is
+                // to keep it. The shipped source is always the aggregate, which always fills SlotHealthy, so this
+                // is a test double's or a future source's snapshot, never production's. The 1.0.3 whole-snapshot
+                // rule (prune everything when Error is empty) stood here through 1.0.7 and its six self-test
+                // snapshots were its only callers: they pinned a path the shipped prune never ran, so a guard
+                // that broke the per-slot branch for an empty feed passed the suite (RA-177, shown by mutation).
+                // Those checks now run through a one-slot aggregate, and this branch prunes nothing.
+                return false;
             }
             return fired.RemoveWhere(id =>
             {
@@ -1517,10 +1588,57 @@ namespace DesktopAICompanion.ReminderModule
             return bar < 0 ? null : firedId.Substring(0, bar);
         }
 
-        private void SaveFired()
+        private bool SaveFired()
         {
             _settings.Set("fired", string.Join("\n", _fired));
-            _settings.Save();
+            return SaveSettings("fired reminders");
+        }
+
+        // --- settings writes outside the pane's Apply (RA-178) ----------------------------------------
+        // Five writes happen outside Apply -- the fired set, the personal list, the briefing stamp, a chime pick
+        // and the migration marker -- and every one of them ignored Save()'s false. The host's Save is a
+        // File.WriteAllText inside a try/catch (CompanionHost.ModuleSettings), so a settings.json a backup agent
+        // holds for a few seconds fails it silently: "Add a reminder" and "Browse for a chime" answered ✓ over an
+        // unsaved edit, and a restart with no later successful save re-fired the ids still in their lead window
+        // and re-fired a once-only personal reminder, the F199 commitments lost after all. Now one latch: the
+        // first failure is logged, the tick retries (the module keeps ONE handle, so under the shipped host the
+        // dictionary still holds every unsaved value and one Save persists them all; ModuleKit's fake shows the
+        // disk instead, by its recorded decision, so the self-test seeds and reads the disk), the recovery is
+        // logged once, and the three status lines say what was not saved. The pane's own Apply already returned
+        // Save()'s bool to the host, which shows it.
+        private bool _saveFailureLogged;
+        private bool _savePending;
+
+        /// <summary>Whether a settings write failed and no write has succeeded since; the tick retries on it.
+        /// Internal for the self-test.</summary>
+        internal bool SavePending { get { return _savePending; } }
+
+        private bool SaveSettings(string what)
+        {
+            bool ok;
+            try { ok = _settings.Save(); } catch { ok = false; }
+            if (ok)
+            {
+                _savePending = false;
+                if (_saveFailureLogged)
+                {
+                    _saveFailureLogged = false;
+                    try { _host.Log(Id, "settings saved again (" + what + ")"); } catch { }
+                }
+                return true;
+            }
+            _savePending = true;
+            if (!_saveFailureLogged)
+            {
+                _saveFailureLogged = true;
+                try
+                {
+                    _host.Log(Id, "settings could not be saved (" + what + "); fired reminders, personal reminders, "
+                        + "the briefing stamp and chime picks stay unsaved until a later write succeeds; the tick retries");
+                }
+                catch { }
+            }
+            return false;
         }
 
         // --- self-test -------------------------------------------------------------------------------
@@ -1593,8 +1711,21 @@ namespace DesktopAICompanion.ReminderModule
             // BEFORE kicking the background refresh, so the first call of every launch returns no events with
             // Error set, and Init calls CheckDue directly. The set was therefore wiped and written to disk on
             // every start, and a meeting still inside its lead window announced a second time.
+            // Through a ONE-SLOT aggregate, the shape the shipped prune always sees. These six drove hand-built
+            // snapshots with no per-slot health until the Phase 8 burn-down, and that reached only the null-health
+            // branch: production fetches through AggregateCalendarSource, which always fills SlotHealthy, so a
+            // guard that broke the per-slot prune for an empty feed (`if (feedIds.Count == 0) return false;`)
+            // passed every one of them (RA-177, shown by mutation before the move). The aggregate prefixes each
+            // event id with its slot, so the stub events carry the bare id.
             Func<string, CalendarEvent[], CalendarSnapshot> snapOf = (err, evs) =>
-                new CalendarSnapshot { Events = evs, Error = err };
+                new AggregateCalendarSource(new[]
+                {
+                    new AggregateCalendarSource.Slot
+                    {
+                        Id = "cal1", Label = "Home",
+                        Source = new AggregateCalendarSource.StubSource(evs, string.IsNullOrEmpty(err) ? null : err),
+                    },
+                }).Fetch();
             Func<HashSet<string>> firedOf = () =>
                 new HashSet<string>(new[] { "cal1|uid@15", "cal1|other@5" }, StringComparer.Ordinal);
 
@@ -1606,20 +1737,32 @@ namespace DesktopAICompanion.ReminderModule
 
             // A feed that failed outright, for the same reason: this is not evidence the calendar is empty.
             HashSet<string> f2 = firedOf();
-            PruneFiredAgainstFeed(snapOf("cal1: the server said 503", Array.Empty<CalendarEvent>()), f2);
+            PruneFiredAgainstFeed(snapOf("the server said 503", Array.Empty<CalendarEvent>()), f2);
             check("a failed feed prunes nothing", f2.Count == 2);
 
-            // A PARTIAL failure still carries the healthy slots' events, and its ids must survive too: the
-            // combined error means one slot failed, not that the missing events were cancelled.
-            HashSet<string> f3 = firedOf();
-            PruneFiredAgainstFeed(
-                snapOf("cal2: unreachable", new[] { new CalendarEvent { Id = "cal1|uid" } }), f3);
-            check("a partial failure keeps ids the surviving slot cannot vouch for", f3.Count == 2);
+            // A PARTIAL failure still carries the healthy slot's events, and the FAILED slot's ids must survive:
+            // its error means that slot could not be seen, not that its events were cancelled. Two slots, so the
+            // partial shape is real; the healthy slot's own pruning beside it is the F204 block further down.
+            var f3 = new HashSet<string>(new[] { "cal1|uid@15", "cal2|other@5" }, StringComparer.Ordinal);
+            PruneFiredAgainstFeed(new AggregateCalendarSource(new[]
+            {
+                new AggregateCalendarSource.Slot
+                {
+                    Id = "cal1", Label = "Home",
+                    Source = new AggregateCalendarSource.StubSource(new[] { new CalendarEvent { Id = "uid" } }, null),
+                },
+                new AggregateCalendarSource.Slot
+                {
+                    Id = "cal2", Label = "Work",
+                    Source = new AggregateCalendarSource.StubSource(Array.Empty<CalendarEvent>(), "unreachable"),
+                },
+            }).Fetch(), f3);
+            check("a partial failure keeps ids the failed slot cannot vouch for", f3.Count == 2);
 
             // And the case the prune EXISTS for still works, or this would be a fix that removed the feature.
             HashSet<string> f4 = firedOf();
             bool pruned4 = PruneFiredAgainstFeed(
-                snapOf("", new[] { new CalendarEvent { Id = "cal1|uid" } }), f4);
+                snapOf("", new[] { new CalendarEvent { Id = "uid" } }), f4);
             check("a loaded feed still drops an id whose event is gone",
                 pruned4 && f4.Count == 1 && f4.Contains("cal1|uid@15"));
 
@@ -1630,8 +1773,14 @@ namespace DesktopAICompanion.ReminderModule
 
             // Nothing to do is not a change, or CheckDue would write the settings file on every tick.
             check("an unchanged set reports no change",
-                !PruneFiredAgainstFeed(snapOf("", new[] { new CalendarEvent { Id = "cal1|uid" },
-                                                          new CalendarEvent { Id = "cal1|other" } }), firedOf()));
+                !PruneFiredAgainstFeed(snapOf("", new[] { new CalendarEvent { Id = "uid" },
+                                                          new CalendarEvent { Id = "other" } }), firedOf()));
+
+            // A snapshot with no per-slot health at all -- no shipped source produces one -- prunes nothing,
+            // whatever its Error says: nothing in it can vouch for an id (RA-177).
+            HashSet<string> f6 = firedOf();
+            check("a snapshot without per-slot health prunes nothing, even a healthy-looking one",
+                !PruneFiredAgainstFeed(new CalendarSnapshot { Events = Array.Empty<CalendarEvent>(), Error = null }, f6) && f6.Count == 2);
 
             IReadOnlyList<string> defaults = ParseAnimationCandidates(DefaultReactAnimations);
             // PROPERTIES, NOT THE LITERAL STRING. These three used to assert Count == 4,
@@ -1795,9 +1944,18 @@ namespace DesktopAICompanion.ReminderModule
                     attemptTwo && stalled.OutstandingRefreshes == 2);
                 System.Threading.Thread.Sleep(350);
                 stalled.Fetch();
-                System.Threading.Thread.Sleep(50);
+                // Read what Fetch decided under its own lock, not what the pool has got round to starting: Starts
+                // moves when the scheduled thread runs, and a fixed 50 ms grace sat below the scheduling latency
+                // this machine shows under a harness load, so the cap mutation could pass here and be caught only
+                // by the later steps (R-049). Starts is still asserted, after a bounded wait for the pool to catch
+                // up with the count Fetch committed to.
                 check("parked attempts are capped at " + CachingCalendarSource.MaximumOutstandingRefreshes
-                      + ", so a hung source cannot gain a thread per deadline", stalled.Starts == 2);
+                      + ", so a hung source cannot gain a thread per deadline (" + stalled.OutstandingRefreshes + " outstanding)",
+                      stalled.OutstandingRefreshes == CachingCalendarSource.MaximumOutstandingRefreshes);
+                bool startsCaughtUp = System.Threading.SpinWait.SpinUntil(
+                    delegate { return stalled.Starts >= stalled.OutstandingRefreshes; }, TimeSpan.FromSeconds(10));
+                check("WITNESS every attempt Fetch committed to did start, and no other",
+                      startsCaughtUp && stalled.Starts == CachingCalendarSource.MaximumOutstandingRefreshes);
                 CalendarSnapshot stillStalled = stalled.Fetch();
                 check("WITNESS the stall stays reported while nothing has landed",
                     stillStalled != null && stillStalled.Error != null && stillStalled.Error.Contains("has not completed"));
@@ -1858,7 +2016,10 @@ namespace DesktopAICompanion.ReminderModule
             using (var stallServer = new StallingFeedServer(StallingFeedServer.Mode.Stall, 0))
             {
                 string outcome = BoundedDownload(stallServer.Url, TimeSpan.FromSeconds(3), 1024 * 1024, TimeSpan.FromSeconds(12));
-                check("a feed that sends its headers and then stalls is cut off by the deadline (" + outcome + ")",
+                // "did not finish downloading" is the BODY-phase message since R-050; a deadline that fires before
+                // the headers arrive says "did not respond" instead, so a loaded machine whose connect ate the
+                // whole 3 s fails this line rather than passing it on an exception about the wrong phase.
+                check("a feed that sends its headers and then stalls is cut off by the deadline, in the body phase (" + outcome + ")",
                     outcome.StartsWith("threw", StringComparison.Ordinal) && outcome.Contains("did not finish downloading"));
                 check("WITNESS the server had sent the headers and a first chunk, so it was the body that stalled",
                     System.Threading.SpinWait.SpinUntil(delegate { return stallServer.HeadersSent; }, TimeSpan.FromSeconds(5)));
@@ -2092,20 +2253,34 @@ namespace DesktopAICompanion.ReminderModule
                     if (item != null && item.DynamicText != null && item.DynamicText() == "Read today's agenda") agenda = item;
                 check("the Agenda tray item is registered with a click", agenda != null && agenda.Click != null);
 
-                string testStatus = nobody.TestReminder(1);
+                // Driven from a pool thread, as CheckNowAsync is above: the awaits inside never wait on a
+                // message loop this process is not running.
+                Func<int, string> testReminder = delegate(int slot)
+                {
+                    return System.Threading.Tasks.Task.Run(() => nobody.TestReminderAsync(slot)).GetAwaiter().GetResult();
+                };
+                string testStatus = testReminder(1);
                 check("\"Test this reminder\" with no companion on screen says so instead of \"test sent\"",
-                    testStatus == NoCompanionStatus);
-                check("...and speaks, chimes and animates nothing",
-                    nobodyHost.SaidLines.Count == 0 && nobodyHost.PlayedSounds.Count == 0
+                    testStatus == NoCompanionChimedStatus);
+                // The chime is the one thing that needs no pet, so it is still auditioned (RA-176): the slot's
+                // chime is on by default and blank, so the embedded default reached the host, synchronously.
+                check("...and speaks and animates nothing, while the chime is still auditioned with no companion on screen",
+                    nobodyHost.SaidLines.Count == 0 && nobodyHost.PlayedSounds.Count == 1
                     && nobodyHost.NotificationSoundsPlayed == 0 && nobodyHost.PlayedAnimations.Count == 0);
+                nobodyHost.SettingsFor(Id).Set(SlotKey(1, "chimeOn"), "false");
+                string quietStatus = testReminder(1);
+                check("WITNESS with the slot's chime off the same press plays nothing and says so",
+                    quietStatus == NoCompanionStatus && nobodyHost.PlayedSounds.Count == 1);
+                nobodyHost.SettingsFor(Id).Set(SlotKey(1, "chimeOn"), "true");
                 if (agenda != null && agenda.Click != null) agenda.Click();
                 check("the Agenda tray click with no companion on screen speaks nothing and logs why",
                     nobodyHost.BroadcastLines.Count == 0 && nobodyLogged(AgendaNobodyLogLine) == 1);
 
                 nobodyHost.RaiseCompanionSpawned(new FakeCompanion(1, "sheep"));
-                string sentStatus = nobody.TestReminder(1);
+                string sentStatus = testReminder(1);
                 check("WITNESS with a companion on screen the test reminder is sent and says so",
-                    sentStatus.StartsWith("✓", StringComparison.Ordinal) && nobodyHost.SaidLines.Count == 1);
+                    sentStatus.StartsWith("✓", StringComparison.Ordinal) && nobodyHost.SaidLines.Count == 1
+                    && nobodyHost.PlayedSounds.Count == 2);
                 int broadcastBefore = nobodyHost.BroadcastLines.Count;
                 if (agenda != null && agenda.Click != null) agenda.Click();
                 check("WITNESS ...and the Agenda click reads the agenda, with no second log line",
@@ -2259,14 +2434,19 @@ namespace DesktopAICompanion.ReminderModule
                 try { System.IO.Directory.Delete(applyDirectory, true); } catch { }
             }
 
-            // ---- a custom chime is read off the caller's thread, one at a time (F188) ----
+            // ---- a custom chime is read off the caller's thread, one at a time PER FILE (F188, R-045) ----
             // Chime.Play read the custom file (a FileInfo probe plus up to 8 MiB) and handed it to the host, which
             // decodes it synchronously, all on the caller's thread -- the module's UI-thread tick -- on every
             // fire; and the Browse dialog accepts a share, where the probe alone blocks for the SMB timeout once
             // the VPN is down. The loader is the seam: a gated one proves the read left the thread without a
-            // file that can be made slow, and that a second chime during the read is dropped, not stacked.
+            // file that can be made slow, and that a second chime for the SAME file during the read is dropped,
+            // not stacked, while a chime for ANOTHER file is not: the guard was one process-wide bit, so while one
+            // read sat on a dead share every custom chime for any file was dropped with no fall-back (R-045).
+            // Two probes, one per file, released one at a time: RecordingHost.PlayedSounds is a live List that
+            // Chime appends to from the pool thread, and two reads landing together would race its Add.
             var chimeHost = new RecordingHost();
             var chimeRead = new ChimeReadProbe();
+            var otherRead = new ChimeReadProbe();
             try
             {
                 int chimeCaller = Environment.CurrentManagedThreadId;
@@ -2278,18 +2458,38 @@ namespace DesktopAICompanion.ReminderModule
                 check("WITNESS the read did start", readStarted);
                 check("the read ran on a different thread from the caller",
                     readStarted && chimeRead.ThreadId != 0 && chimeRead.ThreadId != chimeCaller);
-                check("a second chime while the first is still being read is dropped, not stacked", chimeRead.Calls == 1);
+                check("a second chime for the same file while the first is still being read is dropped, not stacked", chimeRead.Calls == 1);
+                Chime.Play(chimeHost, "other.mp3", otherRead.Load);
+                bool otherStarted = System.Threading.SpinWait.SpinUntil(delegate { return otherRead.Calls >= 1; }, TimeSpan.FromSeconds(10));
+                check("a chime for a different file during that read is not dropped: it runs its own read",
+                    otherStarted && otherRead.Calls == 1 && chimeRead.Calls == 1);
+                // The element is read only once it is there: List<T>.Add publishes its count before the item, so
+                // a Count-only spin followed by [0] could NRE on the pool thread's append and turn a FAIL into an
+                // EXC (RA-179). One read lands at a time (see above).
                 chimeRead.Gate.Set();
-                bool played = System.Threading.SpinWait.SpinUntil(delegate { return chimeHost.PlayedSounds.Count >= 1; }, TimeSpan.FromSeconds(10));
+                bool played = System.Threading.SpinWait.SpinUntil(delegate
+                {
+                    List<byte[]> sounds = chimeHost.PlayedSounds;
+                    return sounds.Count >= 1 && sounds[0] != null;
+                }, TimeSpan.FromSeconds(10));
                 check("...and the bytes the read returned reach the host once it lands",
                     played && chimeHost.PlayedSounds.Count == 1 && chimeHost.PlayedSounds[0].Length == 3);
+                otherRead.Gate.Set();
+                bool otherPlayed = System.Threading.SpinWait.SpinUntil(delegate
+                {
+                    List<byte[]> sounds = chimeHost.PlayedSounds;
+                    return sounds.Count >= 2 && sounds[1] != null;
+                }, TimeSpan.FromSeconds(10));
+                check("WITNESS the other file's bytes reach the host too, from its own read",
+                    otherPlayed && chimeHost.PlayedSounds.Count == 2 && chimeHost.PlayedSounds[1].Length == 3);
                 Chime.Play(chimeHost, "", chimeRead.Load);
                 check("WITNESS the embedded default chime is handed to the host synchronously and reads no file",
-                    chimeHost.PlayedSounds.Count == 2 && chimeRead.Calls == 1);
+                    chimeHost.PlayedSounds.Count == 3 && chimeRead.Calls == 1 && otherRead.Calls == 1);
             }
             finally
             {
                 chimeRead.Gate.Set();
+                otherRead.Gate.Set();
             }
 
             // ---- retained events belong to the key that produced them (R-043) ----
@@ -2339,6 +2539,224 @@ namespace DesktopAICompanion.ReminderModule
             check("WITNESS a same-key refresh that fails still falls back to that key's last-good events",
                 backToA != null && aFailed != null && aFailed.Events != null && aFailed.Events.Count == 1 && aFailed.Events[0].Id == "a");
 
+            // ---- a URL or file edit while the old target's attempt is parked is fetched at once (RA-169) ----
+            // F200 keeps the source instance across Apply, and the kick predicate then waited for the in-flight
+            // attempt to land or to outlive the deadline before it read the new key: an edit made while the old
+            // path sat on an SMB connect timeout waited up to a minute plus a tick, where pre-campaign the rebuilt
+            // instance read it on the next tick. The new key is kicked at once, under the cap, and only once:
+            // `changed` stays true until the new target lands, so kicking on it would start one attempt per tick
+            // (the WITNESS). The probe's deadline is the shipped minimum (60 s) and its interval an hour, so only
+            // the key change can be what kicks.
+            var editProbe = new KeyedProbe();
+            var gateA = new System.Threading.ManualResetEventSlim(false);
+            var gateB = new System.Threading.ManualResetEventSlim(false);
+            editProbe.Answer = delegate(string key)
+            {
+                if (key == "A")
+                {
+                    gateA.Wait(TimeSpan.FromSeconds(15));
+                    return new CalendarSnapshot { Events = new List<CalendarEvent> { new CalendarEvent { Id = "a", Title = "Old target", Start = monday } } };
+                }
+                gateB.Wait(TimeSpan.FromSeconds(15));
+                return new CalendarSnapshot { Events = new List<CalendarEvent> { new CalendarEvent { Id = "b", Title = "New target", Start = monday } } };
+            };
+            try
+            {
+                editProbe.Fetch();
+                bool oldStarted = System.Threading.SpinWait.SpinUntil(delegate { return editProbe.Starts == 1; }, TimeSpan.FromSeconds(10));
+                check("WITNESS the old target's attempt started and is parked", oldStarted && editProbe.IsRefreshing);
+                editProbe.Key = "B";   // the user Applied a new address while the old one's read is parked
+                CalendarSnapshot edited = editProbe.Fetch();
+                bool newKicked = System.Threading.SpinWait.SpinUntil(delegate { return editProbe.Starts == 2; }, TimeSpan.FromSeconds(3));
+                check("an edit made while the previous target's attempt is parked is fetched on the next tick, not after the deadline",
+                    newKicked && edited != null && edited.Error != null && (edited.Events == null || edited.Events.Count == 0));
+                gateA.Set();   // the old target lands, and is the newest LANDED result for a moment
+                bool oldLanded = System.Threading.SpinWait.SpinUntil(delegate { return editProbe.OutstandingRefreshes == 1; }, TimeSpan.FromSeconds(10));
+                editProbe.Fetch();
+                editProbe.Fetch();
+                bool extraKick = System.Threading.SpinWait.SpinUntil(delegate { return editProbe.Starts >= 3; }, TimeSpan.FromMilliseconds(250));
+                check("WITNESS while the new target's own attempt is in flight, further ticks do not kick it again",
+                    oldLanded && !extraKick && editProbe.Starts == 2);
+                gateB.Set();
+                CalendarSnapshot newTarget = WaitForFeed(editProbe, delegate(CalendarSnapshot snap)
+                {
+                    return snap != null && snap.Error == null && snap.Events != null && snap.Events.Count == 1 && snap.Events[0].Id == "b";
+                });
+                check("WITNESS the new target's events are served once its attempt lands", newTarget != null);
+            }
+            finally
+            {
+                gateA.Set();
+                gateB.Set();
+            }
+
+            // ---- a parked attempt a newer landing superseded no longer drives the stall report (R-044) ----
+            // The F186 scan took the oldest of EVERY parked attempt. After the retry landed and the report
+            // cleared, the abandoned first attempt was still parked, and on every later tick a fresh, healthy
+            // refresh was in flight the scan found it again: the status flipped to ⚠ and the on-change feed log
+            // wrote a stall and a recovery once per refresh cycle, for the life of the process. Attempts a newer
+            // landing superseded are skipped by the report and the deadline; they still count toward the cap.
+            var superseded = new StallingProbe();
+            try
+            {
+                superseded.Fetch();
+                bool firstUp = System.Threading.SpinWait.SpinUntil(delegate { return superseded.Starts == 1; }, TimeSpan.FromSeconds(10));
+                System.Threading.Thread.Sleep(350);   // past the probe's 150 ms deadline
+                CalendarSnapshot overdueFirst = superseded.Fetch();   // reports the stall and kicks the retry
+                bool retryUp = System.Threading.SpinWait.SpinUntil(delegate { return superseded.Starts == 2; }, TimeSpan.FromSeconds(10));
+                check("WITNESS the first attempt outlived its deadline and the retry was kicked",
+                    firstUp && retryUp && overdueFirst != null && overdueFirst.Error != null && overdueFirst.Error.Contains("has not completed"));
+                superseded.Gates[2].Set();
+                bool retryLanded = System.Threading.SpinWait.SpinUntil(delegate { return !superseded.IsRefreshing; }, TimeSpan.FromSeconds(10));
+                superseded.Invalidate();
+                superseded.Fetch();   // kicks a fresh attempt, which parks on its own gate; the first is still parked too
+                CalendarSnapshot whileFresh = superseded.Fetch();
+                check("a superseded attempt still parked does not drive the stall report while a newer, fresh attempt is in flight",
+                    retryLanded && whileFresh != null && whileFresh.Error == null && superseded.OutstandingRefreshes == 2);
+                bool thirdUp = System.Threading.SpinWait.SpinUntil(delegate { return superseded.Starts == 3; }, TimeSpan.FromSeconds(10));
+                System.Threading.Thread.Sleep(350);
+                CalendarSnapshot freshOverdue = superseded.Fetch();
+                check("WITNESS a fresh attempt that itself outlives the deadline is reported",
+                    thirdUp && freshOverdue != null && freshOverdue.Error != null && freshOverdue.Error.Contains("has not completed"));
+            }
+            finally
+            {
+                superseded.ReleaseAll();
+            }
+
+            // ---- a failed settings write is logged once, retried by the tick and reported (RA-178) ----
+            // Five writes outside the pane's Apply ignored Save()'s false; the host's Save is a File.WriteAllText
+            // in a try/catch, so a settings.json a backup agent holds for a few seconds failed silently, "Add a
+            // reminder" and "Browse for a chime" answered ✓, and a restart re-fired what the F199 hold had just
+            // stopped being spent. ModuleKit's fake shows the DISK after a failed Save (its recorded decision), so
+            // the disk is what is read back here; the values are seeded and saved first for the same reason.
+            var saveHost = new RecordingHost();
+            var saveModule = new ReminderModule();
+            FakeModuleSettings saveSettings = saveHost.SettingsFor(Id);
+            saveSettings.Set("hushPresenting", "false");
+            saveSettings.Set("leads", "5");
+            saveSettings.Save();
+            saveModule.Init(saveHost);
+            try
+            {
+                Func<string, int> saveLogged = delegate(string fragment)
+                {
+                    int n = 0;
+                    foreach (string line in saveHost.LoggedLines) if (line.Contains(fragment)) n++;
+                    return n;
+                };
+                saveHost.RaiseCompanionSpawned(new FakeCompanion(1, "sheep"));
+                DateTimeOffset saveNow = DateTimeOffset.Now;
+                saveModule._source = new AggregateCalendarSource(new[]
+                {
+                    new AggregateCalendarSource.Slot
+                    {
+                        Id = "cal1", Label = "Home",
+                        Source = new AggregateCalendarSource.StubSource(
+                            new[] { new CalendarEvent { Id = "s1", Title = "Standup", Start = saveNow.AddMinutes(3) } }, null),
+                    },
+                });
+                saveSettings.FailSaves = true;
+                saveModule.CheckDue();
+                check("a reminder whose fired-set write failed is still fired in memory, so it is not re-announced this session",
+                    saveModule._fired.Contains("cal1|s1@5") && saveHost.BroadcastLines.Count == 1);
+                check("...and the failed settings write is logged", saveLogged("settings could not be saved") == 1);
+                check("WITNESS the disk does not hold the fired id (the fake shows the disk)", saveSettings.Get("fired", "") == "");
+                int savesBefore = saveSettings.SaveCount;
+                saveModule.CheckDue();   // nothing new is due; the pending write is what this tick does
+                check("the failed write is retried on the next tick, and the failure is logged once, not per tick",
+                    saveSettings.SaveCount == savesBefore + 1 && saveLogged("settings could not be saved") == 1 && saveModule.SavePending);
+                saveSettings.FailSaves = false;
+                saveModule.CheckDue();
+                check("WITNESS once a write succeeds the fired set is on disk, the recovery is logged once and nothing is pending",
+                    saveSettings.Get("fired", "").Contains("cal1|s1@5") && saveLogged("settings saved again") == 1 && !saveModule.SavePending);
+
+                // The status lines: a chime pick and a personal-list edit whose write failed say so.
+                saveSettings.FailSaves = true;
+                string chimeStatus = saveModule.SetChimePath(SlotKey(1, "chime"), @"C:\sounds\ding.mp3");
+                check("a chime pick whose write failed says so instead of ✓",
+                    chimeStatus.StartsWith("✗", StringComparison.Ordinal) && chimeStatus.Contains("not saved"));
+                saveSettings.FailSaves = false;
+                check("WITNESS a chime pick that saved answers ✓",
+                    saveModule.SetChimePath(SlotKey(1, "chime"), @"C:\sounds\ding.mp3").StartsWith("✓", StringComparison.Ordinal));
+                var stalePersonal = new PersonalReminder
+                {
+                    Id = "p9", Text = "Old", Kind = PersonalReminder.KindOnce,
+                    When = saveNow.AddDays(-1), Anchor = saveNow.AddDays(-1), Enabled = false, LastFired = "once",
+                };
+                saveSettings.Set("personal", PersonalReminder.Encode(stalePersonal));
+                saveSettings.Save();
+                saveSettings.FailSaves = true;
+                string removeStatus = saveModule.RemoveDisabledPersonal();
+                check("removing disabled personal reminders whose write failed says so instead of ✓",
+                    removeStatus.StartsWith("✗", StringComparison.Ordinal) && removeStatus.Contains("not saved"));
+                saveSettings.FailSaves = false;
+                check("WITNESS ...and the removal that saved answers ✓",
+                    saveModule.RemoveDisabledPersonal().StartsWith("✓", StringComparison.Ordinal));
+            }
+            finally
+            {
+                saveModule.Shutdown();
+            }
+
+            // ---- a refused chime file is logged once and "Test this reminder" says the built-in chime played (N-deadcode-02) ----
+            // Chime.Play fell back to the default in silence when the configured file was missing, empty or
+            // oversize, and the slot's Test button answered "test sent" either way. F202 made the Browse dialog
+            // refuse an oversize pick; these are its other two halves: a log line per refused file, on change,
+            // and a status that names the fall-back.
+            var rejectHost = new RecordingHost();
+            Func<string, int> rejectLogged = delegate(string fragment)
+            {
+                int n = 0;
+                foreach (string line in rejectHost.LoggedLines) if (line.Contains(fragment)) n++;
+                return n;
+            };
+            Chime.CustomLoader missingLoader = delegate(string path, out string rejection) { rejection = "does not exist"; return null; };
+            Chime.CustomLoader readableLoader = delegate(string path, out string rejection) { rejection = null; return new byte[] { 7, 7, 7 }; };
+            string missingOutcome = Chime.PlayReporting(rejectHost, @"C:\chimes\missing.mp3", missingLoader).GetAwaiter().GetResult();
+            check("a refused chime file falls back to the built-in chime and the outcome says so",
+                missingOutcome != null && missingOutcome.Contains("does not exist") && missingOutcome.Contains("built-in chime played instead")
+                && rejectHost.PlayedSounds.Count == 1 && rejectHost.PlayedSounds[0].Length == Chime.DefaultChime.Length);
+            check("...and the refusal is logged", rejectLogged("chime:") == 1 && rejectLogged("does not exist") == 1);
+            Chime.PlayReporting(rejectHost, @"C:\chimes\missing.mp3", missingLoader).GetAwaiter().GetResult();
+            check("a second refusal of the same file is not logged again", rejectLogged("chime:") == 1);
+            Chime.PlayReporting(rejectHost, @"C:\chimes\other-missing.mp3", missingLoader).GetAwaiter().GetResult();
+            check("WITNESS a different refused file is logged", rejectLogged("chime:") == 2);
+            string readableOutcome = Chime.PlayReporting(rejectHost, @"C:\chimes\missing.mp3", readableLoader).GetAwaiter().GetResult();
+            Chime.PlayReporting(rejectHost, @"C:\chimes\missing.mp3", missingLoader).GetAwaiter().GetResult();
+            check("WITNESS a file that reads again reports nothing, and one that then fails again is logged again (on change, as the feed error is)",
+                readableOutcome == null && rejectLogged("chime:") == 3);
+
+            // The Test button, through the real loader against a path that does not exist and one that does.
+            var testHost = new RecordingHost();
+            var testModule = new ReminderModule();
+            FakeModuleSettings testSettings = testHost.SettingsFor(Id);
+            string chimeDirectory = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(), "dp-reminder-chime-" + Guid.NewGuid().ToString("N"));
+            testSettings.Set("hushPresenting", "false");
+            testSettings.Set(SlotKey(1, "chime"), System.IO.Path.Combine(chimeDirectory, "missing.mp3"));
+            testModule.Init(testHost);
+            try
+            {
+                System.IO.Directory.CreateDirectory(chimeDirectory);
+                testHost.RaiseCompanionSpawned(new FakeCompanion(1, "sheep"));
+                string missingStatus = System.Threading.Tasks.Task.Run(() => testModule.TestReminderAsync(1)).GetAwaiter().GetResult();
+                check("\"Test this reminder\" with a chime file that does not exist says the built-in chime played instead",
+                    missingStatus.StartsWith("✓", StringComparison.Ordinal) && missingStatus.Contains("does not exist")
+                    && missingStatus.Contains("built-in chime played instead"));
+                string readableChime = System.IO.Path.Combine(chimeDirectory, "ding.mp3");
+                System.IO.File.WriteAllBytes(readableChime, new byte[] { 1, 2, 3 });
+                testSettings.Set(SlotKey(1, "chime"), readableChime);
+                string readableStatus = System.Threading.Tasks.Task.Run(() => testModule.TestReminderAsync(1)).GetAwaiter().GetResult();
+                check("WITNESS with a readable chime file the status carries no chime complaint",
+                    readableStatus.StartsWith("✓", StringComparison.Ordinal) && !readableStatus.Contains("Chime:"));
+            }
+            finally
+            {
+                testModule.Shutdown();
+                try { System.IO.Directory.Delete(chimeDirectory, true); } catch { }
+            }
+
             detail = sb.ToString();
             return ok;
         }
@@ -2350,11 +2768,16 @@ namespace DesktopAICompanion.ReminderModule
         {
             internal volatile string Key = "A";
             internal volatile Func<string, CalendarSnapshot> Answer;
+            private int _starts;
             internal KeyedProbe() : base(TimeSpan.FromHours(1)) { }
+            /// <summary>Attempts whose FetchCore has begun, for the RA-169 checks: a kick counts only once the
+            /// pool has started it.</summary>
+            internal int Starts { get { return System.Threading.Volatile.Read(ref _starts); } }
             public override string Name { get { return "keyed probe"; } }
             protected override string RefreshKey() { return Key; }
             protected override CalendarSnapshot FetchCore(string key, DateTimeOffset now)
             {
+                System.Threading.Interlocked.Increment(ref _starts);
                 Func<string, CalendarSnapshot> answer = Answer;
                 return answer != null ? answer(key) : null;
             }
@@ -2370,8 +2793,9 @@ namespace DesktopAICompanion.ReminderModule
             internal volatile bool Completed;
             internal volatile int ThreadId;
             internal int Calls { get { return System.Threading.Volatile.Read(ref _calls); } }
-            internal byte[] Load(string path)
+            internal byte[] Load(string path, out string rejection)
             {
+                rejection = null;
                 System.Threading.Interlocked.Increment(ref _calls);
                 ThreadId = Environment.CurrentManagedThreadId;
                 Gate.Wait(TimeSpan.FromSeconds(10));

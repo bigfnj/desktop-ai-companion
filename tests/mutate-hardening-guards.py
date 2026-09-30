@@ -1003,6 +1003,11 @@ CASES = (
     # ---- lane fix/followups ----
 
 
+    # ---- lane burn/reminder ----
+    # (no source invariant was added by lane burn/reminder; its checks live in the module self-test and are
+    # graded by tests/mutate-selftest-guards.py)
+
+
     # ---- lane fix/deadcode ----
 
     # F124: the Fortunes module compiles the host's FortunePackLoadPolicy.cs instead of carrying a copy kept
