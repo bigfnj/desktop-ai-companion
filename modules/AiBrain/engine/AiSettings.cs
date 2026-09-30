@@ -54,6 +54,10 @@ namespace DesktopAICompanion.Ai
         [JsonIgnore]
         private bool _writesBlockedByFutureSchema;
 
+        /// <summary>True on a copy made by <see cref="CloneForBrain"/>: read by the brain, never saved.</summary>
+        [JsonIgnore]
+        private bool _detachedCopy;
+
         [JsonIgnore]
         private JsonObject _baseline;
 
@@ -99,9 +103,15 @@ namespace DesktopAICompanion.Ai
         public string VisionModel = "gemma3:4b";
 
         /// <summary>
-        /// When true, send a downscaled screenshot to the vision model instead of OCR text.
-        /// Only used for explicit asks (hotkey/tray) — idle commentary always stays on the fast
-        /// text path, since a vision glance can take tens of seconds.
+        /// When true, send a downscaled screenshot to the vision model instead of OCR text, for EVERY remark
+        /// about the screen: the hotkey, the tray row and the unprompted drop alike. Owner decision 2026-09-29
+        /// (BUG-010, docs/ISSUES-post-1.0.0.md): "how else would it know what is on the screen to react to?"
+        /// This comment, the pane label and the brain's routing comment used to say "explicit asks only", a
+        /// rule written for the module's own idle loop (backlog 6.2, when a full-screen glance took about a
+        /// minute) that outlived the loop; the drop responder never honoured it, so the code stood and the
+        /// words changed. The poke reaction is the one path that stays text-only, because a vision glance is
+        /// too slow to feel like a reaction to a click. OCR is the fallback when this is off or the chosen model
+        /// cannot see.
         /// </summary>
         public bool UseVision = false;
 
@@ -364,20 +374,62 @@ namespace DesktopAICompanion.Ai
             get { return AiPaths.AiSettingsFile; }
         }
 
+        /// <summary>
+        /// One line about how this instance came to be, when the load was anything other than an ordinary read
+        /// of the primary: recovered from the backup, reset to defaults, written by a newer build, the lock
+        /// timed out, the host gave no storage. Null for the ordinary case. The module logs it once at Init.
+        /// Until 2026-09-29 every one of those paths produced a settings object and nothing in the diagnostic
+        /// log (F096, F098). Names only a failure category and a file NAME beside the store, never a path, per
+        /// AiBrain.LogSink's contract.
+        /// </summary>
+        [JsonIgnore]
+        public string LoadWarning { get; private set; }
+
         /// <summary>Load settings, writing a default file on first run. Never throws.</summary>
         public static AiSettings Load()
         {
+            return LoadWithin(ProcessLockTimeoutMilliseconds);
+        }
+
+        /// <summary>
+        /// Load within one lock budget. The shipped Init uses the full cross-session budget; the self-test uses
+        /// a short one to prove the timeout path SAYS something. The live budget is deliberately NOT shortened
+        /// (F096): a save that returns false is retried by the next click, but a load that gives up yields
+        /// defaults with every write blocked until restart, so a transient stall is waited out rather than
+        /// converted into a session of silent non-persistence. What changed is that giving up is no longer
+        /// silent: the returned instance carries a <see cref="LoadWarning"/> the module logs.
+        /// </summary>
+        internal static AiSettings LoadWithin(int timeoutMilliseconds)
+        {
             lock (ProcessLock)
             {
+                if (!AiPaths.HasRoot)
+                {
+                    // No storage, no file: defaults, nothing saved, said out loud (N-gates-02). See AiPaths.
+                    var unrooted = new AiSettings { _writesBlockedByFutureSchema = true };
+                    unrooted.LoadWarning =
+                        "the host gave this module no storage directory; running on defaults and saving nothing";
+                    return unrooted;
+                }
                 try
                 {
-                    return WithFileLock(LoadCore);
+                    return WithFileLock(LoadCore, timeoutMilliseconds);
                 }
-                catch { }
-                // A lock/read failure must not turn into a later blind overwrite of settings that
-                // this process never observed.
-                return new AiSettings { _writesBlockedByFutureSchema = true };
+                catch (Exception ex)
+                {
+                    // A lock/read failure must not turn into a later blind overwrite of settings that
+                    // this process never observed.
+                    var blocked = new AiSettings { _writesBlockedByFutureSchema = true };
+                    blocked.LoadWarning = DescribeLoadFailure(ex);
+                    return blocked;
+                }
             }
+        }
+
+        private static string DescribeLoadFailure(Exception ex)
+        {
+            return "AI settings could not be loaded (" + (ex == null ? "unknown" : ex.GetType().Name) +
+                   "); running on defaults, and nothing will be saved this session so the file is not overwritten blind";
         }
 
         /// <summary>
@@ -407,6 +459,9 @@ namespace DesktopAICompanion.Ai
         /// </summary>
         internal bool SaveWithin(int timeoutMilliseconds)
         {
+            // A copy made for the brain factory is never persisted (CloneForBrain): refused before the lock, so
+            // it does not even touch the .lock file.
+            if (_detachedCopy) return false;
             timeoutMilliseconds = Math.Max(0, timeoutMilliseconds);
             Stopwatch stopwatch = Stopwatch.StartNew();
             bool entered = false;
@@ -429,18 +484,34 @@ namespace DesktopAICompanion.Ai
         private static AiSettings LoadCore()
         {
             AiSettings loaded;
-            ReadResult result = TryRead(FilePath, out loaded);
+            string failure;
+            ReadResult result = TryRead(FilePath, out loaded, out failure);
             if (result == ReadResult.Loaded || result == ReadResult.FutureSchema)
             {
                 loaded._writesBlockedByFutureSchema =
                     result == ReadResult.FutureSchema;
                 bool changed = loaded.Normalize();
                 if (changed && result == ReadResult.Loaded) loaded.SaveCore();
+                if (result == ReadResult.FutureSchema)
+                    loaded.LoadWarning =
+                        "ai-settings.json was written by a newer version (schema " +
+                        loaded.SchemaVersion.ToString(CultureInfo.InvariantCulture) + "; this build understands " +
+                        CurrentSchemaVersion.ToString(CultureInfo.InvariantCulture) +
+                        "); it is read, and nothing will be saved this session so it is not damaged";
                 loaded.CaptureBaseline();
                 return loaded;
             }
 
-            ReadResult backupResult = TryRead(FilePath + ".bak", out loaded);
+            // The primary exists and could not be read. Keep it beside the store BEFORE anything overwrites it.
+            // The recovery below restores the backup over the primary with no rotation (so the good .bak is not
+            // itself rotated over), which until 2026-09-29 meant the rejected document, and with it the last
+            // save and whatever edit broke it, was destroyed with nothing logged (F098). The host's own settings
+            // store has kept its corrupt primary as `<name>.corrupt-<stamp>-<guid>.json` since before 1.0.0;
+            // this is the same shape, and the copy is what makes a "corrupt" verdict checkable afterwards.
+            string preserved = result == ReadResult.Unreadable ? PreserveCorruptPrimary() : null;
+
+            string backupFailure;
+            ReadResult backupResult = TryRead(FilePath + ".bak", out loaded, out backupFailure);
             if (backupResult == ReadResult.Loaded ||
                 backupResult == ReadResult.FutureSchema)
             {
@@ -450,6 +521,7 @@ namespace DesktopAICompanion.Ai
                 if (backupResult == ReadResult.Loaded)
                     loaded._writesBlockedByFutureSchema =
                         !loaded.RestorePrimaryWithoutRotatingBackup();
+                loaded.LoadWarning = DescribeRecovery(result, failure, "recovered from the backup", preserved);
                 loaded.CaptureBaseline();
                 return loaded;
             }
@@ -464,7 +536,8 @@ namespace DesktopAICompanion.Ai
                         Path.GetFullPath(FilePath),
                         StringComparison.OrdinalIgnoreCase))
                 {
-                    ReadResult legacyResult = TryRead(legacy, out loaded);
+                    string legacyFailure;
+                    ReadResult legacyResult = TryRead(legacy, out loaded, out legacyFailure);
                     if (legacyResult == ReadResult.Loaded)
                     {
                         loaded.Normalize();
@@ -485,7 +558,50 @@ namespace DesktopAICompanion.Ai
             AiSettings defaults = new AiSettings();
             defaults.SaveCore();
             defaults.CaptureBaseline();
+            if (result != ReadResult.Missing)
+                defaults.LoadWarning = DescribeRecovery(result, failure, "reset to defaults", preserved);
             return defaults;
+        }
+
+        /// <summary>The LoadWarning for a recovery: what was wrong, what was done, where the rejected file went.</summary>
+        private static string DescribeRecovery(ReadResult primary, string failure, string action, string preserved)
+        {
+            string why = primary == ReadResult.Missing
+                ? "ai-settings.json was missing"
+                : "ai-settings.json could not be read (" + (failure ?? "unreadable") + ")";
+            string kept = primary != ReadResult.Unreadable
+                ? ""
+                : preserved != null
+                    ? "; the rejected file is kept beside the store as " + Path.GetFileName(preserved)
+                    : "; the rejected file could not be kept and was overwritten";
+            return why + "; " + action + kept;
+        }
+
+        /// <summary>
+        /// Copy the unreadable primary aside as <c>ai-settings.corrupt-&lt;utc stamp&gt;-&lt;guid&gt;.json</c> and
+        /// remove it, so the recovery writes a fresh primary and never rotates the rejected bytes into the
+        /// backup. Returns the copy's path, or null when it could not be kept (the primary is then left in place
+        /// and overwritten as before, and the warning says so).
+        /// </summary>
+        private static string PreserveCorruptPrimary()
+        {
+            try
+            {
+                string primary = FilePath;
+                string directory = Path.GetDirectoryName(primary);
+                string recovery = Path.Combine(
+                    directory,
+                    Path.GetFileNameWithoutExtension(primary) + ".corrupt-" +
+                    DateTime.UtcNow.ToString("yyyyMMdd-HHmmssfff", CultureInfo.InvariantCulture) + "-" +
+                    Guid.NewGuid().ToString("N") + Path.GetExtension(primary));
+                File.Copy(primary, recovery, false);
+                File.Delete(primary);
+                return recovery;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         private bool SaveMerged()
@@ -495,7 +611,8 @@ namespace DesktopAICompanion.Ai
                 return false;
 
             AiSettings existing;
-            ReadResult result = TryRead(FilePath, out existing);
+            string existingFailure;
+            ReadResult result = TryRead(FilePath, out existing, out existingFailure);
             if (result == ReadResult.FutureSchema)
             {
                 _writesBlockedByFutureSchema = true;
@@ -611,6 +728,17 @@ namespace DesktopAICompanion.Ai
 
             changed |= NormalizeString(
                 ref Endpoint, "http://localhost:11434", MaximumEndpointCharacters);
+            // Empty is not a selector. Every other clamp in this method restores a default for an invalid
+            // value; Endpoint and Hotkey kept an empty string (NormalizeString substitutes its fallback only for
+            // null), and the consumers then disagreed about what "" meant: OllamaClient and the VRAM line read it
+            // as localhost, CanUse refused it and silently disabled the brain, and an empty hotkey registered a
+            // no-op handle while HotkeyEnabled stayed true (F099). The pane cannot write either (it skips blank
+            // values), so the only source is a hand-edited file, which is what a normalizer is for.
+            if (Endpoint.Length == 0)
+            {
+                Endpoint = "http://localhost:11434";
+                changed = true;
+            }
             changed |= NormalizeString(ref LocalBackendKind, "ollama", 32);
             string normalizedLocalKind = LocalBackendKind.ToLowerInvariant();
             if (!string.Equals(LocalBackendKind, normalizedLocalKind, StringComparison.Ordinal))
@@ -724,6 +852,11 @@ namespace DesktopAICompanion.Ai
                 }
             }
             changed |= NormalizeString(ref Hotkey, "Ctrl+Alt+P", 64);
+            if (Hotkey.Length == 0)
+            {
+                Hotkey = "Ctrl+Alt+P";   // see the Endpoint clamp above (F099)
+                changed = true;
+            }
             changed |= NormalizeString(ref OllamaPath, "", MaximumPathCharacters);
             changed |= NormalizeDisabledSources();
             return changed;
@@ -872,21 +1005,33 @@ namespace DesktopAICompanion.Ai
             return names.ToArray();
         }
 
-        private static ReadResult TryRead(string path, out AiSettings settings)
+        /// <param name="failure">Why the read did not yield a document: the exception's type name (a message
+        /// can carry the path), "empty document", or "missing". Null when it did.</param>
+        private static ReadResult TryRead(string path, out AiSettings settings, out string failure)
         {
             settings = null;
+            failure = null;
             try
             {
-                if (!File.Exists(path)) return ReadResult.Missing;
+                if (!File.Exists(path))
+                {
+                    failure = "missing";
+                    return ReadResult.Missing;
+                }
                 string json = ReadBoundedUtf8(path, MaximumSettingsBytes);
                 settings = JsonSerializer.Deserialize<AiSettings>(json, JsonOptions);
-                if (settings == null) return ReadResult.Unreadable;
+                if (settings == null)
+                {
+                    failure = "empty document";
+                    return ReadResult.Unreadable;
+                }
                 return settings.SchemaVersion > CurrentSchemaVersion
                     ? ReadResult.FutureSchema
                     : ReadResult.Loaded;
             }
-            catch
+            catch (Exception ex)
             {
+                failure = ex.GetType().Name;
                 settings = null;
                 return ReadResult.Unreadable;
             }
@@ -917,9 +1062,31 @@ namespace DesktopAICompanion.Ai
                                 "AI settings file exceeds its size limit.");
                         memory.Write(buffer, 0, read);
                     }
-                    return StrictUtf8.GetString(memory.ToArray());
+                    return DecodeSettingsText(memory.ToArray());
                 }
             }
+        }
+
+        /// <summary>
+        /// Decode a settings document that an editor may have re-saved. Strict UTF-8 is still the contract
+        /// (AtomicFile writes it with no BOM), but Encoding.GetString never strips a preamble and STJ's string
+        /// overload rejects U+FEFF as "an invalid start of a value", so a file every other JSON reader accepts
+        /// was classed corrupt and recovered over (F098; measured 2026-09-29 on .NET 10: a UTF-8 BOM throws
+        /// JsonException, UTF-16 bytes throw DecoderFallbackException). A UTF-8 BOM is skipped; a UTF-16 BOM
+        /// (what Windows PowerShell 5.1's Out-File writes by default) is honoured and the text transcoded;
+        /// anything else is the strict decode as before, so invalid bytes still fail loudly rather than becoming
+        /// U+FFFD. The next save rewrites the file as UTF-8 without a BOM either way.
+        /// </summary>
+        internal static string DecodeSettingsText(byte[] bytes)
+        {
+            if (bytes == null) return "";
+            if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
+                return StrictUtf8.GetString(bytes, 3, bytes.Length - 3);
+            if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
+                return new UnicodeEncoding(false, true, true).GetString(bytes, 2, bytes.Length - 2);
+            if (bytes.Length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF)
+                return new UnicodeEncoding(true, true, true).GetString(bytes, 2, bytes.Length - 2);
+            return StrictUtf8.GetString(bytes);
         }
 
         private static bool Clamp(ref int value, int minimum, int maximum)
@@ -1044,6 +1211,34 @@ namespace DesktopAICompanion.Ai
                 clone.TextModel = CloudTextModel ?? "";
                 clone.VisionModel = CloudVisionModel ?? "";
             }
+            return clone;
+        }
+
+        /// <summary>
+        /// A private copy for the brain factory, taken on the UI thread and handed to the pool thread that builds
+        /// the brain. <see cref="ActiveSlotSnapshot"/>'s MemberwiseClone shares <see cref="ApiKeysEnc"/>,
+        /// <see cref="DisabledSources"/>, <see cref="DisabledGenres"/> and <see cref="ExtensionData"/> with the
+        /// live instance, and the factory runs only after the previous brain has retired, up to about two seconds
+        /// later: a pane Save in that window rotates the key or lets Normalize replace those collections under the
+        /// factory's read (F068, F100). The copy owns its collections, so nothing the pane does afterwards reaches
+        /// it, and it can never be persisted: a stray Save through the copy would otherwise overwrite the live file
+        /// with a stale one. The audition (PreviewDispositionAsync) still builds from the live instance, on the UI
+        /// thread and before its first await, where there is nothing to race.
+        /// </summary>
+        internal AiSettings CloneForBrain()
+        {
+            AiSettings clone = (AiSettings)MemberwiseClone();
+            clone.ApiKeysEnc = ApiKeysEnc == null ? null : new Dictionary<string, string>(ApiKeysEnc, StringComparer.Ordinal);
+            clone.DisabledSources = DisabledSources == null
+                ? null
+                : new System.Collections.Generic.List<string>(DisabledSources);
+            clone.DisabledGenres = DisabledGenres == null
+                ? null
+                : new System.Collections.Generic.List<string>(DisabledGenres);
+            clone.ExtensionData = ExtensionData == null
+                ? null
+                : new Dictionary<string, JsonElement>(ExtensionData, StringComparer.Ordinal);
+            clone._detachedCopy = true;
             return clone;
         }
 
@@ -1457,7 +1652,10 @@ namespace DesktopAICompanion.Ai
 
         // Known multimodal (image-capable) families, matched case-insensitively as substrings of the
         // model id. Provider-agnostic and deliberately loose so a genuine vision model is rarely
-        // mis-flagged; a model with no marker is treated as text-only and gets an advisory.
+        // mis-flagged. A model with no marker is offered in no vision dropdown; on a backend that reports
+        // nothing about capabilities, a CONFIGURED one is used unverified rather than refused (see
+        // ChooseModel, F102). Maintained by hand, so it goes stale: refreshed 2026-09-29 with the families
+        // that had shipped since it was written (gpt-5, gemini-3, grok-4, mistral-small/medium-3, glm-4.5v).
         private static readonly string[] VisionModelMarkers =
         {
             "llava", "bakllava", "moondream", "vision", "-vl", "vl-", "vl:", "pixtral",
@@ -1467,11 +1665,9 @@ namespace DesktopAICompanion.Ai
             "claude-3", "claude-4", "claude-opus", "claude-sonnet", "claude-haiku",
             "gemini-1.5", "gemini-2", "gemini-pro-vision", "glm-4v", "deepseek-vl",
             "phi-3-vision", "phi3.5-vision", "phi-4-multimodal", "smolvlm", "aya-vision",
+            "gpt-5", "gemini-3", "grok-4", "mistral-small-3", "mistral-medium-3", "glm-4.5v", "glm-4.6v",
         };
 
-        /// <summary>Best-effort, name-based guess of whether a model accepts image input, so the
-        /// options UI can advise when a text-only model is picked for the vision feature. Advisory
-        /// only, never a hard gate. Empty -> true (no advisory).</summary>
         /// <summary>
         /// Whether to offer a model as vision-capable: the UNION of what the backend reported and the
         /// name heuristic, never one overriding the other.
@@ -1532,17 +1728,41 @@ namespace DesktopAICompanion.Ai
             System.Collections.Generic.IReadOnlyList<ModelListing> available,
             bool needVision)
         {
+            // No id at all is not "unknown inventory": nothing can be sent, and the fix is in the pane. An
+            // empty id used to reach here only because the constructor had filled it with the local default
+            // (F101); now that a cloud slot keeps its blank, this is the branch that says so, once.
+            if (string.IsNullOrWhiteSpace(configured))
+                return new ModelChoice(
+                    null,
+                    needVision
+                        ? "No vision model is set for this provider. Pick one in AI Brain settings."
+                        : "No text model is set for this provider. Pick one in AI Brain settings.",
+                    "none-configured");
+
             if (available == null || available.Count == 0)
                 return new ModelChoice(configured, null, "model-list-unknown");
 
+            bool listedButCannotSee = false;
             foreach (ModelListing listing in available)
             {
                 if (listing == null) continue;
                 if (!ModelIdMatches(configured, listing.Id)) continue;
-                // Present, but it still has to be able to do the job asked of it. A text-only model
-                // selected for the vision path fails the same silent way a missing one does.
-                if (needVision && !IsVisionCapable(listing.Id, listing.Vision))
+                // Present, but it still has to be able to do the job asked of it. A text-only model selected
+                // for the vision path fails the same silent way a missing one does, so a backend that REPORTS
+                // the model cannot see (Ollama's capabilities array) is a hard gate. A backend that reports
+                // nothing (every OpenAI-compatible /v1 list carries Vision = null) is not: the name-marker
+                // list is a hint maintained by hand, and on 2026-09-29 it knew no gpt-5, gemini-3 or grok-4, so
+                // treating a miss as "cannot see" rerouted a working configured model to another vendor's,
+                // with an advisory claiming it "isn't available" while it sat in the list (F102). Unverified
+                // is used as configured and named in the log; a genuinely blind model then fails at request
+                // time with a logged 4xx, which is the direction the dropdown's union rule already chose.
+                if (needVision && listing.Vision == false)
+                {
+                    listedButCannotSee = true;
                     break;
+                }
+                if (needVision && listing.Vision == null && !LooksVisionCapable(listing.Id))
+                    return new ModelChoice(listing.Id, null, "configured-unverified-vision");
                 return new ModelChoice(listing.Id, null, "configured");
             }
 
@@ -1552,7 +1772,8 @@ namespace DesktopAICompanion.Ai
                 if (needVision && !IsVisionCapable(listing.Id, listing.Vision)) continue;
                 return new ModelChoice(
                     listing.Id,
-                    Describe(configured) + " isn't available, so I'm using " + listing.Id + " instead.",
+                    Describe(configured) + (listedButCannotSee ? " can't see images" : " isn't available") +
+                        ", so I'm using " + listing.Id + " instead.",
                     "substituted");
             }
 
@@ -1570,6 +1791,10 @@ namespace DesktopAICompanion.Ai
             return string.IsNullOrWhiteSpace(model) ? "The configured model" : model;
         }
 
+        /// <summary>Best-effort, name-based guess of whether a model accepts image input. Empty -> true (no
+        /// advisory). A hint maintained by hand: on a backend that reports nothing it decides the vision
+        /// DROPDOWNS (a miss hides the model from them) but no longer the ASK, where a configured model it does
+        /// not know is used unverified (see <see cref="ChooseModel"/>, F102).</summary>
         public static bool LooksVisionCapable(string model)
         {
             if (string.IsNullOrWhiteSpace(model)) return true;

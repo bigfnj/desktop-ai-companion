@@ -16,7 +16,7 @@ namespace DesktopAICompanion.Ai
     /// Non-streaming; the request JSON is built by hand so we control the vision "images" array.
     /// A single <see cref="HttpClient"/> is reused for the client's lifetime.
     /// </summary>
-    internal sealed class OllamaClient : ICompanionBrainBackend
+    internal sealed class OllamaClient : ICompanionBrainBackend, IModelLister
     {
         private static readonly TimeSpan DefaultStartupDeadline =
             TimeSpan.FromSeconds(20);
@@ -33,6 +33,8 @@ namespace DesktopAICompanion.Ai
         private readonly TimeSpan _probeDeadline;
         private readonly TimeSpan _pollInterval;
         private readonly Func<CancellationToken, bool> _serverStarter;
+        /// <summary>The bound on the PUBLIC reachability probe (F105); the startup poll keeps its own, shorter one.</summary>
+        private readonly TimeSpan _availabilityDeadline;
 
         public OllamaClient(string endpoint, TimeSpan timeout, string exePath)
         {
@@ -44,6 +46,7 @@ namespace DesktopAICompanion.Ai
             _startupDeadline = DefaultStartupDeadline;
             _probeDeadline = DefaultProbeDeadline;
             _pollInterval = DefaultPollInterval;
+            _availabilityDeadline = AiEndpointPolicy.Shorter(_deadline, AiEndpointPolicy.AvailabilityProbeDeadline);
             _http = new HttpClient(AiEndpointPolicy.CreateNoRedirectHandler())
             {
                 Timeout = Timeout.InfiniteTimeSpan
@@ -79,6 +82,8 @@ namespace DesktopAICompanion.Ai
             _pollInterval = AiEndpointPolicy.ValidateDeadline(
                 pollInterval,
                 "pollInterval");
+            // One knob bounds every probe under test, the startup poll and the public availability probe alike.
+            _availabilityDeadline = _probeDeadline;
             _http = new HttpClient(handler)
             {
                 Timeout = Timeout.InfiniteTimeSpan
@@ -86,9 +91,12 @@ namespace DesktopAICompanion.Ai
             _serverStarter = serverStarter;
         }
 
+        /// <summary>Reachability, bounded by the probe deadline rather than the chat deadline it used to borrow:
+        /// a refused loopback connection burns its whole deadline before failing (measured 2026-09-27), so this
+        /// probe ran before every ask with a two-minute worst case (F105).</summary>
         public async Task<bool> IsAvailableAsync(CancellationToken ct)
         {
-            return await IsAvailableAsync(_deadline, ct).ConfigureAwait(false);
+            return await IsAvailableAsync(_availabilityDeadline, ct).ConfigureAwait(false);
         }
 
         private async Task<bool> IsAvailableAsync(
@@ -136,7 +144,8 @@ namespace DesktopAICompanion.Ai
                         _http,
                         request,
                         _deadline,
-                        ct).ConfigureAwait(false);
+                        ct,
+                        AiEndpointPolicy.MaximumListingResponseBytes).ConfigureAwait(false);
                     JsonNode obj = JsonNode.Parse(json);
                     JsonArray models = obj?["models"] as JsonArray;
                     if (models != null)
@@ -311,11 +320,17 @@ namespace DesktopAICompanion.Ai
             try
             {
                 // No "prompt" -> Ollama just loads the model into memory (done_reason: "load").
+                // The SAME keep_alive the chat requests carry, so the warm-up cannot disagree with the residency
+                // it serves. The only production caller is the "keep" residency (AiBrain.PrepareAsync gates on
+                // WarmUpDesired), whose contract is "hold it for the session"; a literal "10m" here meant the launch
+                // warm-up expired ten idle minutes later and the first remark paid the cold load the setting exists
+                // to avoid, while the pane said the model stays loaded (F106). The literal survives only for a
+                // client nobody gave a policy to.
                 JsonObject payload = new JsonObject
                 {
                     ["model"] = normalizedModel,
                     ["stream"] = false,
-                    ["keep_alive"] = "10m"
+                    ["keep_alive"] = KeepAliveSeconds.HasValue ? (JsonNode)KeepAliveSeconds.Value : (JsonNode)"10m"
                 };
                 using (StringContent content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json"))
                 using (var request = new HttpRequestMessage(HttpMethod.Post, _endpoint + "/api/generate"))

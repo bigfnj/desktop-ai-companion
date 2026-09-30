@@ -33,6 +33,18 @@ namespace DesktopAICompanion.Ai
         private readonly string _tesseractPath;
 
         /// <summary>
+        /// The resolved Tesseract executable, or null, once <see cref="_tesseractResolved"/>. Resolving walks a
+        /// configured path, two install directories and every PATH entry, and it ran on every ask, twice (F077).
+        /// The answer changes only when Tesseract is installed or removed; every Apply builds a new brain, which
+        /// resolves afresh, and the "Test OCR" button resolves afresh on purpose. Asks are serialized per brain by
+        /// the session, so a race here can at worst resolve twice.
+        /// </summary>
+        private string _resolvedTesseract;
+        private bool _tesseractResolved;
+        /// <summary>How many times this brain walked the resolution; the self-test asserts one.</summary>
+        internal int TesseractResolutionsForDiagnostics;
+
+        /// <summary>
         /// Where this engine's diagnostic lines go. <c>AiBrainModule</c> points it at
         /// <c>IHost.Log(Info.Id, ...)</c>; left null (self-tests, the probe) the lines are discarded.
         ///
@@ -144,7 +156,31 @@ namespace DesktopAICompanion.Ai
             Log("backend " + (up ? "reachable" : "unreachable") +
                 (first ? " (first check)" : " (was " + (!up ? "reachable" : "unreachable") + ")") +
                 (up || string.IsNullOrEmpty(reason) ? "" : " reason=" + reason) +
-                " endpoint=" + DescribeEndpoint(_settings.Endpoint));
+                " endpoint=" + BackendHostDescription);
+        }
+
+        /// <summary>
+        /// The host(s) the backend was actually built against, for the availability, inventory and failure
+        /// lines. Defaults to the snapshot's local Endpoint host, which is right for the local slot only: a
+        /// cloud-primary brain's snapshot still carries the local URL (ActiveSlotSnapshot promotes only the
+        /// models), so every line said "endpoint=localhost" during a cloud outage (F073).
+        /// AiBrainModule.CreateBrain sets it to the cloud host, or "cloudHost->localHost" for the composite.
+        /// </summary>
+        internal string BackendHostDescription { get; set; }
+
+        /// <summary>
+        /// The failure line's fields, from the path actually TAKEN: the model that was sent (a substitute, or
+        /// "(unresolved)" when the failure came before resolution), whether this turn was a vision turn, and
+        /// the backend host. The old line read the SETTING (<c>_useVision ? _visionModel : _textModel</c>) and
+        /// the local endpoint from the snapshot, so a failed text-path poke under UseVision logged the vision
+        /// model with vision=True, and a cloud outage logged "endpoint=localhost" (F073).
+        /// </summary>
+        internal string DescribeFailure(Exception ex, ModelChoice choice, bool useVisionPath)
+        {
+            return DescribeError(ex) +
+                   " model=" + (choice != null && !string.IsNullOrEmpty(choice.Model) ? choice.Model : "(unresolved)") +
+                   " vision=" + useVisionPath +
+                   " endpoint=" + BackendHostDescription;
         }
 
         /// <summary>
@@ -159,7 +195,7 @@ namespace DesktopAICompanion.Ai
             try
             {
                 bool up = await _backend.IsAvailableAsync(ct).ConfigureAwait(false);
-                NoteBackendAvailability(up, up ? null : "backend reported unavailable");
+                await ObserveReachabilityAsync(up, "backend reported unavailable", ct).ConfigureAwait(false);
                 return up;
             }
             catch (OperationCanceledException) { throw; }
@@ -171,13 +207,52 @@ namespace DesktopAICompanion.Ai
         }
 
         /// <summary>
+        /// Record reachability and, when the backend has just been seen up, take its inventory. Until 2026-09-29
+        /// the inventory was taken in PrepareAsync alone, once per brain: a brain built lazily on its first ask
+        /// (auto-start off, no warm-up) never ran PrepareAsync and so never re-validated its configured model, and
+        /// a model pulled while the server was restarted stayed "missing" until the next Apply (F071). Listing on
+        /// the transition to up, the first check included, covers both; a backend that stays up is not re-listed
+        /// per ask, and the pane's Refresh reaches the live brain through AiSessionManager.RefreshInventoryAsync.
+        /// </summary>
+        private async Task ObserveReachabilityAsync(bool up, string downReason, CancellationToken ct)
+        {
+            bool wasUp = _lastBackendUp == true;
+            NoteBackendAvailability(up, up ? null : downReason);
+            if (up && !wasUp) await RefreshInventoryAsync(ct).ConfigureAwait(false);
+        }
+
+        /// <summary>The reachability check, for the self-test: it drives the transition record and the inventory
+        /// refresh without a screen.</summary>
+        internal Task<bool> CheckBackendAvailableForDiagnosticsAsync(CancellationToken ct)
+        {
+            return CheckBackendAvailableAsync(ct);
+        }
+
+        /// <summary>Said when a brain factory throws on the session's pool thread (F100); category only.</summary>
+        internal static void LogBuildFailure(Exception ex)
+        {
+            Log("brain build failed: " + DescribeError(ex));
+        }
+
+        /// <summary>
         /// Classify a swallowed exception into a short, non-identifying category. The message itself can
         /// carry a URL or a file path, so only the type name and a coarse bucket are recorded.
         /// </summary>
         internal static string DescribeError(Exception ex)
         {
             if (ex == null) return "none";
-            if (ex is TaskCanceledException || ex is OperationCanceledException) return "timeout-or-cancelled";
+            // TimeoutException is what AiEndpointPolicy's end-to-end deadline throws, and it was missing from
+            // the bucket named for it: a deadline that fired logged as "TimeoutException" while a client-side
+            // cancel logged as "timeout-or-cancelled", two spellings of one thing (found while adding the F107
+            // case below).
+            if (ex is TaskCanceledException || ex is OperationCanceledException || ex is TimeoutException)
+                return "timeout-or-cancelled";
+            // BEFORE the HttpRequestException test it derives from: an answered status is a category of its own.
+            // Every 4xx and 5xx used to be filed as "backend-unreachable", so a bad cloud key logged "backend
+            // reachable (first check)" and "screen ask failed: backend-unreachable" for the same turn (F107).
+            // The status code carries nothing identifying; the provider's message can, and stays out.
+            AiBackendHttpException http = ex as AiBackendHttpException;
+            if (http != null) return "http-" + http.StatusCode.ToString(CultureInfo.InvariantCulture);
             if (ex is HttpRequestException) return "backend-unreachable";
             if (ex is System.Text.Json.JsonException) return "bad-response-json";
             if (ex is UnauthorizedAccessException) return "access-denied";
@@ -705,17 +780,25 @@ namespace DesktopAICompanion.Ai
         {
             _backend = backend;
             _settings = settings ?? new AiSettings();
+            // The literal fallback belongs to the LOCAL slot only. A cloud snapshot (Provider set) promotes the
+            // cloud ids into TextModel/VisionModel, and an unset cloud model is empty by design
+            // (AiSettings.NormalizeOptionalModel: "a cloud slot has no meaningful Ollama default"); filling the
+            // blank with an Ollama tag sent "gemma3:4b" to OpenRouter on every remark (F101). Empty stays empty
+            // here, and ChooseModel answers "none-configured" with an advisory the user can act on, before any
+            // capture.
+            bool cloudSlot = !string.IsNullOrEmpty(_settings.Provider);
             string normalizedModel;
             _textModel = AiModelPolicy.TryNormalize(
                 _settings.TextModel, out normalizedModel)
                 ? normalizedModel
-                : "gemma3:4b";
+                : (cloudSlot ? "" : "gemma3:4b");
             _visionModel = AiModelPolicy.TryNormalize(
                 _settings.VisionModel, out normalizedModel)
                 ? normalizedModel
-                : "gemma3:4b";
+                : (cloudSlot ? "" : "gemma3:4b");
             _useVision = _settings.UseVision;
             _tesseractPath = _settings.TesseractPath;
+            BackendHostDescription = DescribeEndpoint(_settings.Endpoint);
         }
 
         /// <summary>
@@ -723,7 +806,10 @@ namespace DesktopAICompanion.Ai
         /// preload the active model so the first ask doesn't pay the cold-start cost. Never throws.
         /// Returns true when the backend is reachable (used to drive the "AI ready" hint).
         /// </summary>
-        public async Task<bool> PrepareAsync(CancellationToken ct = default(CancellationToken))
+        /// <param name="warmUp">False for a throwaway brain that will run its own requests straight away (the
+        /// persona audition): its samples run on the text model, so warming the model a live vision ask would
+        /// use under "keep" residency loaded a second model for nothing (F063). The launch routine keeps true.</param>
+        public async Task<bool> PrepareAsync(CancellationToken ct = default(CancellationToken), bool warmUp = true)
         {
             try
             {
@@ -735,20 +821,18 @@ namespace DesktopAICompanion.Ai
                     // and belongs in the same transition record. Distinguished in the reason, because
                     // "we tried to launch it and it still is not there" is a different user problem from
                     // "it was never running and we were told not to start it".
-                    NoteBackendAvailability(up, up ? null : "auto-start ran and the backend is still absent");
+                    await ObserveReachabilityAsync(up, "auto-start ran and the backend is still absent", ct).ConfigureAwait(false);
                 }
                 else
                 {
                     up = await CheckBackendAvailableAsync(ct).ConfigureAwait(false);
                 }
 
-                // Learn what the backend HAS, while we are already talking to it. Without this the
-                // configured model is never re-validated and BUG-002's failure mode (a saved id that the
-                // backend no longer offers) stays invisible until someone reads the log. Best-effort:
-                // a backend that cannot list models leaves the inventory unknown, which is handled.
-                if (up) await RefreshInventoryAsync(ct).ConfigureAwait(false);
+                // The inventory (what the backend HAS, so the configured model is re-validated and BUG-002's failure
+                // mode, a saved id the backend no longer offers, is visible) is taken by ObserveReachabilityAsync on
+                // the way through: on this first sight of the backend, and again whenever it comes back (F071).
 
-                if (up && _settings.WarmUpDesired)
+                if (up && warmUp && _settings.WarmUpDesired)
                     await _backend.WarmUpAsync(_useVision ? _visionModel : _textModel, ct).ConfigureAwait(false);
 
                 return up;
@@ -838,19 +922,26 @@ namespace DesktopAICompanion.Ai
 
         /// <summary>
         /// Refresh the cached backend inventory. Never throws and never blocks an ask: a listing failure
-        /// leaves the previous snapshot (or null) in place, and null simply means "unknown".
+        /// leaves the previous snapshot (or null) in place, and null simply means "unknown". Called on the
+        /// transition to reachable (<see cref="ObserveReachabilityAsync"/>) and by the session for the pane's
+        /// Refresh (F071); internal for the latter.
         /// </summary>
-        private async Task RefreshInventoryAsync(CancellationToken ct)
+        internal async Task RefreshInventoryAsync(CancellationToken ct)
         {
             Func<CancellationToken, Task<IReadOnlyList<ModelListing>>> lister = ModelLister;
             if (lister == null) return;
             try
             {
                 IReadOnlyList<ModelListing> listed = await lister(ct).ConfigureAwait(false);
-                if (listed == null) return;
+                if (listed == null)
+                {
+                    // Said, because this used to be the silent reason BUG-002's advisory never fired for a
+                    // cloud user with the default fallback (F103): the composite could not enumerate.
+                    Log("model inventory: the backend cannot enumerate models, so the configured id is not re-validated");
+                    return;
+                }
                 _available = listed;
-                Log("model inventory: " + listed.Count + " model(s) reported by " +
-                    DescribeEndpoint(_settings.Endpoint));
+                Log("model inventory: " + listed.Count + " model(s) reported by " + BackendHostDescription);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
@@ -906,6 +997,10 @@ namespace DesktopAICompanion.Ai
             bool allowVision = true,
             CancellationToken ct = default(CancellationToken))
         {
+            // Hoisted out of the try so the failure line can say which path was taken and which model was sent
+            // (F073); a null choice means the failure came before the model was resolved.
+            bool useVisionPath = _useVision && allowVision;
+            ModelChoice choice = null;
             try
             {
                 if (!await CheckBackendAvailableAsync(ct).ConfigureAwait(false))
@@ -949,23 +1044,12 @@ namespace DesktopAICompanion.Ai
                 // bandwidth: 896 is the native input size of a Gemma-family SigLIP encoder, and pixels
                 // beyond it are either thrown away by the model or turned into extra image tiles that
                 // multiply prefill cost for detail a one-line remark does not need.
-                bool useVisionPath = _useVision && allowVision;
 
-                // BUG-002: settle WHICH model before paying for a capture. A saved id is not evidence the
-                // backend still has it -- "Refresh local models" can drop one, and the shipped default is
-                // an id many machines never had -- and the ask path returns null on any failure, so an
-                // absent model was indistinguishable from a quiet companion. Resolving here also avoids
-                // capturing the screen for a request that cannot be sent.
-                ModelChoice choice = AiModelPolicy.ChooseModel(
-                    useVisionPath ? _visionModel : _textModel,
-                    _available,
-                    useVisionPath);
-                Log("model resolve: " + choice.Reason +
-                    " configured=" + (useVisionPath ? _visionModel : _textModel) +
-                    " using=" + (choice.Model ?? "(none)") +
-                    " vision=" + useVisionPath);
-                if (!choice.Usable)
-                    return AdvisoryOnce(choice.Advisory);
+                // BUG-002: settle WHICH model before paying for a capture, and say anything that needs saying
+                // about it BEFORE the capture too (F072). ResolveBeforeCapture holds the reasoning.
+                BrainResponse advisory;
+                if (!ResolveBeforeCapture(useVisionPath, out choice, out advisory))
+                    return advisory;
 
                 using (Bitmap shot = CaptureScreen(captureBounds, useVisionPath ? VisionMaxWidth : OcrCaptureWidth))
                 {
@@ -981,8 +1065,13 @@ namespace DesktopAICompanion.Ai
 
                     string ctx = DescribeScreenContext(captureContext, petZone);
 
-                    // Routing (backlog 6.2): vision only for explicit asks; idle stays on the fast
-                    // text path since a vision glance can take tens of seconds.
+                    // Routing: with UseVision on, every remark about the screen takes the vision path when the
+                    // caller allows it, and the hotkey, the tray row and the unprompted drop all do (owner
+                    // decision 2026-09-29, BUG-010). The backlog 6.2 rule this comment used to cite kept the
+                    // module's OWN idle loop on the text path when a full-screen glance took about a minute;
+                    // the 896 px downscale removed that cost and aibrain 1.2.3 removed the loop. The poke
+                    // passes allowVision=false and stays on the fast text path, being a reaction to a click.
+                    // OCR is the fallback when vision is off or the chosen model cannot see (ChooseModel).
                     string userText;
                     string[] images = null;
                     if (useVisionPath)
@@ -1010,18 +1099,10 @@ namespace DesktopAICompanion.Ai
                     }
 
                     // Generation, the already-said list and the repeat check all live in there, so the
-                    // reply-parse diagnostic does too rather than being written twice.
-                    BrainResponse resp = await GenerateWithRepeatGuardAsync(
+                    // reply-parse diagnostic does too rather than being written twice. Nothing generated here
+                    // is discarded any more: a substitution's advisory was spoken before the capture (F072).
+                    return await GenerateWithRepeatGuardAsync(
                         model, userText, images, ct).ConfigureAwait(false);
-                    // A substitution worked, so the turn is fine -- but the user is now talking to a model
-                    // they did not choose, and silently swapping one is how BUG-002 stayed hidden. Said
-                    // once, then never again for the same message.
-                    if (choice.Advisory != null)
-                    {
-                        BrainResponse advisory = AdvisoryOnce(choice.Advisory);
-                        if (advisory != null) return advisory;
-                    }
-                    return resp;
                 }
             }
             catch (OperationCanceledException)
@@ -1033,13 +1114,54 @@ namespace DesktopAICompanion.Ai
                 // Still returns null -- the pet staying silent on a broken backend is correct -- but no
                 // longer SILENTLY. Before this line a missing model, an unreachable server and "nothing
                 // interesting to say" were the same observable event, which is what made BUG-002 take a
-                // maintainer bisect to explain. Category and model id only; see LogSink's contract.
-                Log("screen ask failed: " + DescribeError(ex) +
-                    " model=" + (_useVision ? _visionModel : _textModel) +
-                    " vision=" + _useVision +
-                    " endpoint=" + DescribeEndpoint(_settings.Endpoint));
+                // maintainer bisect to explain. Category and model id only; see LogSink's contract. The
+                // fields come from the path actually taken (F073): see DescribeFailure.
+                Log("screen ask failed: " + DescribeFailure(ex, choice, useVisionPath));
                 return null;   // never crash the app over the AI layer
             }
+        }
+
+        /// <summary>
+        /// Everything a turn decides BEFORE it pays for a capture, and whether it should go on to one.
+        ///
+        /// BUG-002: settle WHICH model first. A saved id is not evidence the backend still has it ("Refresh
+        /// local models" can drop one, and the shipped default is an id many machines never had), and the ask
+        /// path returns null on any failure, so an absent model used to be indistinguishable from a quiet
+        /// companion. Resolving here also avoids capturing the screen for a request that cannot be sent.
+        ///
+        /// F072: a SUBSTITUTION is announced here as well, once, instead of after the generation. The old order
+        /// wanted the substitute proven before it was named, and paid for that with a capture, an OCR pass and
+        /// a full generation (a cold load under the default residency) whose remark was then discarded for the
+        /// advisory and remembered as spoken, so the next prompt quoted, under "you have ALREADY said", a line
+        /// nobody heard. If the substitute fails after being announced, the log says so; the user hears one
+        /// advisory either way.
+        ///
+        /// Split out so the probe can drive it with a fake inventory and no screen at all.
+        /// </summary>
+        /// <returns>True to go on to the capture; false to return <paramref name="advisory"/> (null when the
+        /// advisory for this configuration has already been spoken) and end the turn.</returns>
+        internal bool ResolveBeforeCapture(bool useVisionPath, out ModelChoice choice, out BrainResponse advisory)
+        {
+            advisory = null;
+            choice = AiModelPolicy.ChooseModel(
+                useVisionPath ? _visionModel : _textModel,
+                _available,
+                useVisionPath);
+            Log("model resolve: " + choice.Reason +
+                " configured=" + (useVisionPath ? _visionModel : _textModel) +
+                " using=" + (choice.Model ?? "(none)") +
+                " vision=" + useVisionPath);
+            if (!choice.Usable)
+            {
+                advisory = AdvisoryOnce(choice.Advisory);
+                return false;
+            }
+            if (choice.Advisory != null)
+            {
+                advisory = AdvisoryOnce(choice.Advisory);
+                if (advisory != null) return false;
+            }
+            return true;
         }
 
         private async Task<string> ChatWithRetryAsync(string model, IList<ChatMessage> messages, CancellationToken ct)
@@ -1405,7 +1527,7 @@ namespace DesktopAICompanion.Ai
         internal string DescribeOcrEngine()
         {
             string exe = null;
-            try { exe = ResolveTesseract(); } catch { }
+            try { exe = ResolveTesseractOnce(); } catch { }
             if (!string.IsNullOrEmpty(exe)) return Path.GetFileName(exe) + " (" + exe + ")";
             return WindowsOcr.IsAvailable ? WindowsOcr.DisplayName : null;
         }
@@ -1420,7 +1542,7 @@ namespace DesktopAICompanion.Ai
             // File NAME only, never the resolved path: the path contains the Windows user name.
             string exe = null;
             string resolveError = null;
-            try { exe = ResolveTesseract(); }
+            try { exe = ResolveTesseractOnce(); }
             catch (Exception ex) { resolveError = DescribeError(ex); }
 
             // No Tesseract anywhere -> fall back to the OS engine rather than going screen-blind.
@@ -1654,6 +1776,17 @@ namespace DesktopAICompanion.Ai
                 TaskScheduler.Default);
         }
 
+        /// <summary><see cref="ResolveTesseract"/> once per brain (F077). A resolution that throws is not cached,
+        /// so the next ask tries again and logs again.</summary>
+        private string ResolveTesseractOnce()
+        {
+            if (_tesseractResolved) return _resolvedTesseract;
+            TesseractResolutionsForDiagnostics++;
+            _resolvedTesseract = ResolveTesseract();
+            _tesseractResolved = true;
+            return _resolvedTesseract;
+        }
+
         private string ResolveTesseract()
         {
             if (!string.IsNullOrWhiteSpace(_tesseractPath))
@@ -1687,7 +1820,9 @@ namespace DesktopAICompanion.Ai
         internal async Task<string> SelfTestOcrAsync(CancellationToken ct)
         {
             string exe;
-            try { exe = ResolveTesseract(); }
+            // Afresh, not from the cache: the button is pressed right after an install, and the answer it gives
+            // becomes the one the cache holds for this brain's remaining asks (F077).
+            try { _tesseractResolved = false; exe = ResolveTesseractOnce(); }
             catch { exe = null; }
             bool usingTesseract = !string.IsNullOrWhiteSpace(exe);
             string engine = usingTesseract ? System.IO.Path.GetFileName(exe) : WindowsOcr.DisplayName;

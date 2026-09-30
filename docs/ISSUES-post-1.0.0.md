@@ -211,9 +211,59 @@ relied on since 1.0.4 and which the audit's probe on this box found immediate.
 |---|---|
 | Bugs | BUG-010 OnDrop calls Ask(pet, true), so with "Use vision" on every random drop captures the screen and sends an image, while the label, the settings comment and the brain's own comment say vision is for the hotkey and the poke (finding F066) |
 | Found | 2026-09-29, by the full code audit |
-| Fixed by | pending: lane fix/aibrain of the 2026-09-29 campaign. The owner decided on 2026-09-29 that vision, when enabled, applies to every remark, so the code stays and the label, comments and register change; the post-mortem records that decision |
+| Fixed by | aibrain 1.1.14 (lane fix/aibrain, 2026-09-29), as a DECISION rather than a code change: the owner ruled that vision, when enabled, applies to every remark, unprompted drops included. The code stood; the label, the settings comment and the brain's routing comment changed to say what the code does, and the module self-test now pins the drop's `allowVision: true` so the next change to that argument is a visible decision rather than a drift |
 
-Filed from the audit; the disposition and its verification are written here when the lane closes it.
+**The code and the record disagreed from aibrain 1.2.3 onward, and the code was the one running.**
+`AiBrain.AskAboutScreenAsync` routes a turn with `useVisionPath = _useVision && allowVision`. `OnDrop` has passed
+`allowVision: true` since the 1.0.0 snapshot (`0936658`, line 723 of the file as it was then), while `OnPokeReaction`
+passes `false`. Against that stood four sentences saying vision was for explicit asks only: the pane label ("Use
+vision on explicit asks"), the comment beside it, the `UseVision` field's own doc in `AiSettings.cs`, and the
+routing comment in `AiBrain.cs` citing "backlog 6.2". Nothing asserted either version.
+
+**How the disagreement arose.** The 6.2 rule (`82580b612`, 2026-07-27) was written for the module's OWN idle loop,
+when a full-screen glance on gemma3:4b took about 68 seconds and every unprompted vision ask timed out; forcing
+that loop onto the text path was the fix, and the 896 px downscale that landed in the same change is what made
+vision fast enough to be unprompted at all. aibrain 1.2.3 (`896dd688d`, 2026-08-27) then deleted the loop and made
+the host's global drop the only unprompted schedule. Its commit message decides the schedule, the cooldown and the
+fate of the screen-change gate, and says nothing about routing, so the drop kept the `true` it had always carried
+while the sentences written for the dead loop went on describing a path that no longer existed.
+
+**Why the audit rated it high, and why that was fair.** With a cloud provider and consent granted, a screenshot of
+the foreground window left the machine every 15 +/- 3 minutes under a label that promised images on explicit asks
+only. Locally the cost was latency: a cold vision load per drop, about 11 s against about 5 s on the text path by
+the module's own measurement. The consent screen and the label are the two things a user reads before enabling a
+feature, and both said the wrong thing.
+
+**The decision.** Asked on 2026-09-29 whether the drop should go back to the text path, the owner said: "it should
+always use vision, because how else would it know what is on the screen to react to?" So vision, when enabled,
+applies to every remark about the screen: the hotkey, the tray row and the unprompted drop alike. OCR stays as the
+fallback for vision off and for a model that cannot see (`ChooseModel` substitutes or declines). The poke reaction
+is the one entry point that stays on the text path, because "the code stands" includes `OnPokeReaction`'s `false`
+and its reason still holds: a vision glance is too slow to feel like a reaction to a click.
+
+**What changed.** The label now reads "Use vision (send a screenshot, not OCR text, with each remark)"; the
+`UseVision` doc comment and the routing comment in `AiBrain.AskAboutScreenAsync` describe the decision and cite this
+entry; `OnDrop` says at the call why its `true` is deliberate; the owner's decision is recorded at the top of the
+campaign section in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md), with the poke exception under `#### fix/aibrain`.
+`PRIVACY.md` needed no change: it already says an image of the screen is sent "for supported requests" without
+naming a trigger. The one sentence outside this lane's boundary, "routed hotkey-only" at
+`HISTORY-post-1.0.0.md:45`, is a dated record of what Phase 6 did and is left as history.
+
+**How it is pinned.** `--module-selftest=aibrain` now drives a real `AiBrainModule` through ModuleKit's
+`RecordingHost` (`engine/AiEngineProbe.Module.cs`). A one-field seam, `AskSinkForDiagnostics`, receives a started
+turn in place of `AskCoreAsync`, so the routing decision every entry point makes is recorded BEFORE anything needs
+a screen, a model or a network: the drop asks with vision allowed, the poke without, the tray row with. The seeded
+settings turn the brain on with auto-start off and the local slot on the OpenAI-compatible protocol, so building
+and retiring the brain touches nothing on the machine.
+
+**Verified:** `--module-selftest=aibrain` RESULT=PASS with the new lines; the mutation `return Ask(pet, true);`
+to `return Ask(pet, false);` in `OnDrop` FIRED on "BUG-010: the unprompted drop asks WITH vision allowed"
+(`tests/mutate-selftest-guards.py`, "the unprompted drop stops allowing vision (the fix the owner declined)"),
+source restored byte-identical.
+
+**The lesson is the one BUG-008 taught from the other side.** A behaviour described in four places and asserted in
+none is described by whichever sentence the reader happens to open. The label is what the user reads, the code is
+what runs, and only an assertion makes the two move together.
 
 ### BUG-009 — Remembrance stops recording by waiting on an event that is posted to the thread doing the waiting
 

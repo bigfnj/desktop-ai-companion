@@ -514,14 +514,24 @@ namespace DesktopAICompanion.AiBrainModule
     }
 
     /// <summary>Records the model it was last asked for and returns a canned reply; availability is configurable.
-    /// Used as the LOCAL leg of a FallbackBackend to observe whether (and with which model) it was invoked.</summary>
+    /// Used as the LOCAL leg of a FallbackBackend to observe whether (and with which model) it was invoked.
+    /// Also counts warm-ups and records unloads, so a check can say what a retirement or a preparation
+    /// actually asked of the backend.</summary>
     internal sealed class RecordingBackend : ICompanionBrainBackend
     {
         private readonly string _reply;
-        private readonly bool _available;
+        private bool _available;
         public RecordingBackend(string reply, bool available) { _reply = reply; _available = available; }
+        /// <summary>Flip reachability mid-check: the F071 probe takes the backend down and brings it back.</summary>
+        public bool Available { get { return _available; } set { _available = value; } }
         public int ChatCalls { get; private set; }
         public string LastModel { get; private set; }
+        public int WarmUpCalls { get; private set; }
+        private int _ensureServerCalls;
+        /// <summary>How many times EnsureServerAsync was asked; read from another thread by the F105 check.</summary>
+        public int EnsureServerCalls { get { return Volatile.Read(ref _ensureServerCalls); } }
+        /// <summary>Every model an UnloadAsync named, in order.</summary>
+        public List<string> UnloadedModels { get; } = new List<string>();
         public Task<string> ChatAsync(string model, IList<ChatMessage> messages, bool jsonFormat, CancellationToken ct)
         {
             ChatCalls++;
@@ -529,9 +539,58 @@ namespace DesktopAICompanion.AiBrainModule
             return Task.FromResult(_reply);
         }
         public Task<bool> IsAvailableAsync(CancellationToken ct) { return Task.FromResult(_available); }
-        public Task<bool> EnsureServerAsync(CancellationToken ct) { return Task.FromResult(_available); }
+        public Task<bool> EnsureServerAsync(CancellationToken ct)
+        {
+            Interlocked.Increment(ref _ensureServerCalls);
+            return Task.FromResult(_available);
+        }
+        public Task WarmUpAsync(string model, CancellationToken ct) { WarmUpCalls++; return Task.CompletedTask; }
+        public Task UnloadAsync(string model, CancellationToken ct) { UnloadedModels.Add(model ?? ""); return Task.CompletedTask; }
+        public void Dispose() { }
+    }
+
+    /// <summary>Answers every request with one fixed status and body: a server that is REACHABLE and says no,
+    /// which is the 401/402/404 shape F107 and F080 are about.</summary>
+    internal sealed class FixedStatusHandler : HttpMessageHandler
+    {
+        private readonly HttpStatusCode _status;
+        private readonly string _body;
+        public int Requests { get; private set; }
+        public FixedStatusHandler(HttpStatusCode status, string body) { _status = status; _body = body ?? ""; }
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Requests++;
+            return Task.FromResult(new HttpResponseMessage(_status)
+            {
+                Content = new StringContent(_body, System.Text.Encoding.UTF8, "application/json")
+            });
+        }
+    }
+
+    /// <summary>The transport failing before any answer: connection refused, no such host, a dropped socket.</summary>
+    internal sealed class RefusingHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            throw new HttpRequestException("connection refused (double)");
+        }
+    }
+
+    /// <summary>A leg whose reachability and readiness probes hang until <see cref="Release"/>: the cloud whose
+    /// traffic is silently dropped, which F105 is about. Chats answer at once so nothing else blocks.</summary>
+    internal sealed class HangingBackend : ICompanionBrainBackend
+    {
+        private readonly TaskCompletionSource<bool> _gate =
+            new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _ensureServerCalls;
+        public int EnsureServerCalls { get { return Volatile.Read(ref _ensureServerCalls); } }
+        public Task<string> ChatAsync(string model, IList<ChatMessage> messages, bool jsonFormat, CancellationToken ct) { return Task.FromResult(""); }
+        public Task<bool> IsAvailableAsync(CancellationToken ct) { return _gate.Task; }
+        public Task<bool> EnsureServerAsync(CancellationToken ct) { Interlocked.Increment(ref _ensureServerCalls); return _gate.Task; }
         public Task WarmUpAsync(string model, CancellationToken ct) { return Task.CompletedTask; }
         public Task UnloadAsync(string model, CancellationToken ct) { return Task.CompletedTask; }
+        /// <summary>Let every pending probe complete with this answer.</summary>
+        public void Release(bool up) { _gate.TrySetResult(up); }
         public void Dispose() { }
     }
 }

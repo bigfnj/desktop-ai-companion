@@ -401,7 +401,123 @@ module blinker's own, so Shutdown's `Stop()` finds the belief true and the key l
 
 #### fix/aibrain
 
-(none yet)
+**The poke reaction stays on the text path under the vision-for-every-remark decision (2026-09-29).** "The code
+stands" in the owner's BUG-010 ruling includes `OnPokeReaction`'s `allowVision: false`: a poke is a reaction to a
+click, and a vision glance is too slow to read as one (the module's own figure is about 11 s cold against about 5 s
+on the text path, `AiBrainModule.VramStatusLine`). The hotkey, the tray row and the unprompted drop all allow
+vision; the module self-test pins all four routings (`engine/AiEngineProbe.Module.cs`). Changing the poke is a
+separate decision to take on purpose, not a drift to make in passing.
+
+**The explicit ask declines under the fullscreen stand-down and says so in the log only (F067, 2026-09-29).** A
+refused hotkey has no responder chain behind it, so unlike the drop and the poke nothing speaks in its place. A
+log line was chosen over a canned spoken line: on a single monitor the companion is hidden while the game runs and
+a bubble would land behind it, and the log is the file SUPPORT.md asks users to attach. The setting's label now
+names the hotkey so the refusal is not a surprise.
+
+**The settings load stays on Init's thread with the full 10 s cross-session budget; what changed is that giving up
+is no longer silent (F096, 2026-09-29).** The audit's own verifier made the case against shortening it: a save that
+returns false is retried by the next click, but a load that gives up returns defaults with every write blocked
+until restart, so a shorter budget would make the worse outcome more likely under a transient stall, and the worst
+case (a peer hung inside the lock) is not the two-instances-start-together case, which costs milliseconds. Moving
+the load off-thread would mean ApplyState, the tray rows and the hotkey all starting from settings that arrive
+later; not worth it for a stall that needs a hung peer. The timeout path, the future-schema path and a host that
+gives no storage now each carry a `LoadWarning` that Init logs once.
+
+**A host that gives this module no storage gets defaults and no persistence, never a temp folder (N-gates-02,
+2026-09-29).** `AiPaths` used to fall back to `%TEMP%\DesktopAICompanion.AiBrain` when nothing had set a root,
+which is where `--module-selftest=aibrain` left an ai-settings.json and its .lock on every by-hand run. The shipped
+host always provisions a storage directory, so the fallback served only the headless convention host, and serving
+it by writing into a directory nobody owned was the wrong answer. ModuleKit's `ModulePaths.FromStorage` still
+carries the same fallback for every other module; that is the ModuleKit owner's call and is noted, not changed.
+
+**The vision dropdowns keep the name-marker filter for backends that report no capabilities; the ask does not
+(F102, 2026-09-29).** `ChooseModel` now gates a vision ask only on a REPORTED `Vision == false`: a listed model the
+marker list does not know is used as configured and named `configured-unverified-vision` in the log, because the
+list is maintained by hand and had gone stale (no gpt-5, gemini-3 or grok-4 on 2026-09-29), and a miss used to
+reroute a working configured model to another vendor's with an advisory that said it "isn't available" while it
+sat in the list. `BuildModelOptions(visionOnly)` keeps filtering `/v1` lists by the same markers, deliberately: on
+OpenRouter that list is 460 ids and an unfiltered vision dropdown defeats the filter's purpose, and with the ask
+no longer punishing a miss, a model the dropdown hides can still be configured by file or migration and will run.
+The marker list was refreshed with the families that had shipped; refreshing it again is the maintenance this
+records, not a design change. Reached only when the composite can enumerate at all (F103), which is why the two
+landed together.
+
+**A cloud endpoint that answers is reachable, whatever it answers (F107, 2026-09-29).** `OpenAiCompatBackend.
+IsAvailableAsync` used to return false on a 401, so "Test connection" told an OpenAI user with a mistyped key that
+api.openai.com was not reachable, and the cloud+local composite treated a keyed-out cloud as down. Now only a
+redirect and a transport failure or timeout are "not reachable", and the status surfaces from the chat request,
+where the recorded no-fallover-on-a-bad-key decision wants it (`FallbackBackend`, HISTORY-pre-1.0.0.md 53d130b87).
+The cost, stated: a cloud answering 5xx during an outage now counts as reachable, so each ask pays one failed
+cloud request before `IsRetryable` fails it over to the local leg, where the probe used to short-circuit that.
+`OllamaClient` keeps the SUCCESS probe, because `EnsureServerAsync` uses its answer to decide whether to launch
+`ollama serve`, and a foreign server answering 404 on :11434 must not suppress the launch.
+
+**A substitution is announced before it is proven (F072, 2026-09-29).** The old order generated a remark on the
+substitute first and spoke the advisory instead of it, so the substitute was known to work before it was named;
+the price was a capture, an OCR pass and a generation (a cold load under the default residency) thrown away, plus
+a remark remembered as spoken that nobody heard. The advisory is spoken from `ResolveBeforeCapture` now; if the
+substitute then fails, the failure line names it and the next ask stays quiet, which is the same silence with one
+more line in the log.
+
+**Certificate revocation checking stays off on the cloud slot's TLS handler (F079, 2026-09-29): an owner-decision
+candidate, not a lane decision.** It is the .NET default. Turning `CheckCertificateRevocationList` on for the
+non-loopback handler makes an unreachable OCSP or CRL responder a hard failure ("The SSL connection could not be
+established") of every cloud ask and of "Test connection" on the networks most likely to be hostile, and the
+exploit it closes needs an on-path attacker holding a revoked-but-unexpired certificate for the provider host.
+The host's own `src/dotNet/SecureDownload.cs` and Remembrance's `WhisperInstaller` carry the same posture, so a
+flip belongs to all three at once, with `DescribeChain`-style text that shows the revocation cause, or to none.
+If the owner wants it: `AiEndpointPolicy.CreateNoRedirectHandler(bool remote)` setting the flag when the
+normalized base is not loopback is the whole module-side change.
+
+**The credential caps stay as they are (F092, 2026-09-29).** 32 scopes x 16 KB ciphertext exceeds the 256 KB file
+cap in arithmetic only: it needs about 24 keys of 8 KB each, and real provider keys are 50-200 characters (32 of
+them serialize to about 20 KB). If a real key ever approaches 8 KB, the useful half is a size reason on the save
+refusal, not smaller caps.
+
+**Every Apply still rebuilds the brain; what a same-backend Apply no longer does is evict its model (F065, F095,
+2026-09-29).** The audit proposed skipping the rebuild behind a fingerprint of the settings the brain reads. The
+brain reads the persona (CompanionName, UserName, Disposition) from its own settings clone on every prompt, so
+that fingerprint would have to name every such field and would silently stop an edit reaching the brain the day
+it missed one; the rebuild is cheap (a new HttpClient, a listing) and is kept as the one path every settings
+change takes. What cost 5-11 s was the eviction on retire, and that is now gated on `BackendFingerprint`, which
+names only what decides which model is resident where. Under "unload" the eviction on retire stays, because the
+model is gone after each remark anyway and the unload is free.
+
+**The repeat-guard retry keeps its possible second cold load under "unload" residency (F070, 2026-09-29).** The
+audition, a burst of five requests the module itself issues, now holds its model for a minute between samples
+and evicts when the run ends. The live retry is left alone: it fires only after a model has repeated itself,
+which is the case the guard exists for; giving its first request a longer keep_alive than its second needs a
+per-request keep_alive on the backend interface that every backend would have to carry; and the repo's one
+recorded audition timing under the same eviction (5498/3803/419/380/385 ms) shows the race against Ollama's
+asynchronous eviction is won more often than lost, so the doubled load is a possibility, not a rule.
+
+**Reachability probes are bounded at ten seconds, and the composite asks both legs at once (F105, 2026-09-29).**
+Ten is a chosen number, not a measured one: far beyond any server that is answering (a running Ollama answers
+/api/tags in 5-56 ms, measured 2026-09-27 for the VRAM line) and short enough that a cloud whose traffic is
+silently dropped costs an ask ten seconds rather than two minutes of probe before the local leg is asked. The
+chat's own deadline is the user's timeout setting and is untouched. The audit's third suggestion, remembering a
+recent primary timeout and trying local first for a while, was not taken: the concurrent probe already answers
+from the local leg as soon as it is up.
+
+**The model inventory follows reachability; there is no periodic re-list (F071, 2026-09-29).** The audit's
+"bounded to once every few minutes" was not taken: a timer re-lists a backend that has not changed on every tick
+of its schedule, and the two events that change what is installed are visible without one. A restarted server is
+a down-then-up transition and is re-listed on the way back; a model pulled while the server stays up is followed
+by the user pressing Refresh in the pane, which now reaches the live brain. The gap that remains is a pull with
+neither: the brain substitutes until the next Apply, and says so once.
+
+**The "ocr engine:" log line still costs one OcrEngine creation before the read (F077, 2026-09-29).**
+`RunOcrAsync` words that line from `WindowsOcr.IsAvailable` before `RecognizeAsync` creates its own engine. Kept:
+the line is written BEFORE the read on purpose, so a hung or crashing recognizer still leaves the engine's name in
+the log, and caching availability per brain would hide a language pack removed mid-session. Its cost is unmeasured
+and the finding gave no figure for it; what was fixed is the PATH walk's per-entry exception and the per-ask
+re-resolution, which were the two costs the finding did name.
+
+**Windows OCR states a property, not a saving (F109, 2026-09-29).** The finding measured 45-60 ms against 1-2 ms
+in a warm loop. Under the measurement rule this campaign works to, a warm-loop delta is not a number to publish,
+so neither the code comment nor the disposition carries it. The claim is that no codec pass runs on the ask path,
+which the self-test asserts through two route counters, and that the PNG route survives as the fallback for a copy
+that throws rather than being deleted.
 
 #### fix/fortunes
 

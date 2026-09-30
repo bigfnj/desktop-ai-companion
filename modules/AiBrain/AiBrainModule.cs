@@ -100,7 +100,40 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.1.13",  // 1.1.13: the emotion reaction reached 18/54, 35/54, 8/54, 8/54 and
+            Version = "1.1.14",  // 1.1.14: the 2026-09-29 audit campaign, lane fix/aibrain. Vision, when on,
+                                 //         applies to every remark including the unprompted drop (owner
+                                 //         decision, BUG-010): the code stood, the label and comments changed,
+                                 //         and the module self-test pins the drop's routing. The hotkey and
+                                 //         the tray row honour the fullscreen stand-down. LaunchProcess is
+                                 //         declared. The settings store reads a BOM'd or UTF-16 file, keeps a
+                                 //         rejected primary as ai-settings.corrupt-*.json, says in the log
+                                 //         when it could not load, restores an empty endpoint or hotkey, and
+                                 //         has no %TEMP% fallback root. A cloud slot needs a model before the
+                                 //         brain builds; the cloud+local composite can be enumerated, so a bad
+                                 //         cloud id is re-validated (BUG-002); a vision model the marker list
+                                 //         does not know is used, not refused; an answered 401 is reachable
+                                 //         and described as a rejected key, and the log files answered
+                                 //         statuses as http-<n>; model listings read under their own 8 MiB
+                                 //         cap; the failure line names the model sent and the host built
+                                 //         against; a substitution is announced before any capture. The
+                                 //         reachability probes are bounded by their own 10 s deadline and
+                                 //         the composite runs both legs at once; the warm-up carries the
+                                 //         residency's keep_alive; an Apply that leaves the backend as it
+                                 //         was keeps the model resident; the timed-out dispose releases the
+                                 //         model before disposing the backend; a reply that completed is
+                                 //         never discarded to a deadline that fired during the read; the
+                                 //         audition holds its model between samples and warms nothing; a
+                                 //         fallover picks the local model by whether the request carries an
+                                 //         image. The brain factory reads a private copy of the settings
+                                 //         taken on the UI thread, and a factory that throws is logged; the
+                                 //         inventory is taken when the backend is first seen up and again
+                                 //         when it comes back, and the pane's Refresh reaches the live
+                                 //         brain; the OCR engine resolves once per brain and the PATH walk
+                                 //         throws nothing; Windows OCR is fed the capture's pixels, not a
+                                 //         PNG round trip; the audition guard is interlocked. Every item is
+                                 //         dispositioned in BACKLOG.md; decisions under `#### fix/aibrain`
+                                 //         in docs/DESIGN-REGISTER.md.
+                                 // 1.1.13: the emotion reaction reached 18/54, 35/54, 8/54, 8/54 and
                                  //         8/54 companions. "thinking" fires on EVERY ask, so on 46 of
                                  //         54 it silently did nothing -- the eSheep-era names it used
                                  //         are absent from the 32 converted shimeji. Original names
@@ -204,9 +237,15 @@ namespace DesktopAICompanion.AiBrainModule
             // also the first to exercise the sequencing rule: do NOT publish this to the catalog until host
             // 1.1.0 has shipped, or the catalog offers users a module their host correctly refuses.
             MinHostVersion = "1.1.0",
+            // LaunchProcess: this module starts `ollama serve` (engine\OllamaClient.TryStartServer) and runs
+            // tesseract.exe as a child for OCR (engine\AiBrain.RunOcrAsync), and no flag had ever said so on
+            // the consent screen (F226: the flag shipped in host 1.2.5 naming this module as a holder, and no
+            // module declared it). A disclosure, not a gate, like every flag in the enum. Declaring an existing
+            // flag needs no MinHostVersion raise.
             Permissions = ModulePermissions.Speech | ModulePermissions.Animation |
                           ModulePermissions.ScreenContext | ModulePermissions.Network |
-                          ModulePermissions.Hotkey | ModulePermissions.Storage,
+                          ModulePermissions.Hotkey | ModulePermissions.Storage |
+                          ModulePermissions.LaunchProcess,
         };
 
         public void Init(IHost host)
@@ -234,6 +273,12 @@ namespace DesktopAICompanion.AiBrainModule
                     MigrateFromBaseIfNeeded(storage.DataDirectory);   // one-time, non-destructive
                 }
                 _settings = AiSettings.Load();
+                // Said out loud. Load never throws, and until 2026-09-29 it also could not SAY anything: a
+                // corrupt primary recovered from the backup, a lock that timed out and a host that gave no
+                // storage all produced a settings object and nothing in the file SUPPORT.md asks for (F096,
+                // F098, N-gates-02). One line, once, at the start of the module's life.
+                if (!string.IsNullOrEmpty(_settings.LoadWarning))
+                    try { host.Log(Info.Id, "settings: " + _settings.LoadWarning); } catch { }
             }
             catch { _settings = new AiSettings(); }
 
@@ -303,8 +348,13 @@ namespace DesktopAICompanion.AiBrainModule
                     new SettingField { Id = "endpoint", Label = "Local endpoint (base URL)", Kind = SettingKind.Text, Group = "Local provider" },
                     _textModelField,
                     _visionModelField,
-                    new SettingField { Id = "useVision", Label = "Use vision on explicit asks", Kind = SettingKind.Bool, Group = "Local provider" },
-                    // Screen reading uses this OCR engine on the fast path (vision is explicit-asks only).
+                    // Vision, when on, applies to EVERY remark about the screen: the hotkey, the tray row and
+                    // the unprompted drop alike, so the companion reacts to what is actually on screen rather
+                    // than to OCR text. Owner decision 2026-09-29 (BUG-010): the label used to say "on explicit
+                    // asks" while OnDrop had always allowed vision; the code stood and the words changed. The
+                    // poke reaction is the one exception and stays on the text path (see OnPokeReaction).
+                    new SettingField { Id = "useVision", Label = "Use vision (send a screenshot, not OCR text, with each remark)", Kind = SettingKind.Bool, Group = "Local provider" },
+                    // Screen reading uses this OCR engine whenever vision is off or the chosen model cannot see.
                     // Empty = search the usual install locations, then PATH.
                     new SettingField { Id = "tesseractPath", Label = "OCR engine (blank = auto-detect)", Kind = SettingKind.Text, Group = "Screen reading" },
                     new SettingField { Id = "autoStart", Label = "Start Ollama automatically", Kind = SettingKind.Bool, Group = "Local server (Ollama only)" },
@@ -313,7 +363,7 @@ namespace DesktopAICompanion.AiBrainModule
                     new SettingField
                     {
                         Id = "standDownFullscreen",
-                        Label = "Stand down while a fullscreen app is running (releases VRAM; fortunes speak instead)",
+                        Label = "Stand down while a fullscreen app is running (releases VRAM, declines the Ask hotkey; fortunes speak instead)",
                         Kind = SettingKind.Bool,
                         Group = "Local server (Ollama only)",
                     },
@@ -371,10 +421,25 @@ namespace DesktopAICompanion.AiBrainModule
         /// Guard against a second audition starting while one is running. Five sequential generations is
         /// the one action in this pane long enough for an impatient user to press twice, and the backlog
         /// called that out: pressing it repeatedly while comparing characters would otherwise queue 25
-        /// generations against one local model. Not a lock -- pane actions arrive on the UI thread -- just
-        /// a flag, so a second press gets an explanation instead of silently doubling the work.
+        /// generations against one local model. The press arrives on the UI thread, but the CLEAR does not:
+        /// the audition awaits with ConfigureAwait(false), so its finally runs on a pool thread. An earlier
+        /// comment here claimed a single-thread model the code had stopped following (F062); the flag is an
+        /// int taken and released with interlocked operations, so the check and the set are one step and a
+        /// second press gets an explanation instead of silently doubling the work.
         /// </summary>
-        private bool _auditionRunning;
+        private int _auditionRunning;
+
+        /// <summary>Claim the audition slot; false when one is already running.</summary>
+        internal bool TryBeginAudition()
+        {
+            return Interlocked.CompareExchange(ref _auditionRunning, 1, 0) == 0;
+        }
+
+        /// <summary>Release the audition slot, from whichever thread the audition ended on.</summary>
+        internal void EndAudition()
+        {
+            Interlocked.Exchange(ref _auditionRunning, 0);
+        }
 
         /// <summary>
         /// "Show me 5 examples" for the Persona card: generate one remark per canned scene so a
@@ -407,11 +472,18 @@ namespace DesktopAICompanion.AiBrainModule
             return PreviewDispositionAsync(true);
         }
 
-        private async Task<string> PreviewDispositionAsync(bool live)
+        // internal, not private: the module self-test presses it with the slot held (F062).
+        internal async Task<string> PreviewDispositionAsync(bool live)
+        {
+            if (!TryBeginAudition()) return "⏳ Already generating examples — give it a moment.";
+            try { return await RunAuditionAsync(live).ConfigureAwait(false); }
+            finally { EndAudition(); }
+        }
+
+        private async Task<string> RunAuditionAsync(bool live)
         {
             AiSettings s = _settings;
             if (s == null) return "✗ No settings.";
-            if (_auditionRunning) return "⏳ Already generating examples — give it a moment.";
 
             string dispositionName = DispositionNameForId(s.Disposition);
 
@@ -455,25 +527,33 @@ namespace DesktopAICompanion.AiBrainModule
             // "cannot run forever". The engine also honours this token between samples.
             TimeSpan whole = TimeSpan.FromSeconds(perSample.TotalSeconds * DispositionScenes.All.Length + 15);
 
-            _auditionRunning = true;
             try
             {
                 AiBrain brain;
-                try { brain = CreateBrain(s); }
+                // A short positive keep_alive for the audition's Ollama client under "unload" residency: five
+                // back-to-back samples with keep_alive:0 raced Ollama's eviction and could pay up to four extra
+                // cold loads (F070). Evicted explicitly when the run ends, below.
+                try { brain = CreateBrain(s, AuditionKeepAliveSeconds(s)); }
                 catch (Exception ex) { return "✗ " + ex.Message; }
 
                 using (brain)
                 using (var run = new CancellationTokenSource(whole))
                 {
                     // Fills the model inventory, so ChooseModel can tell "configured model is missing"
-                    // from "backend is down" instead of producing five identical silences (BUG-002).
-                    if (!await brain.PrepareAsync(run.Token).ConfigureAwait(false))
+                    // from "backend is down" instead of producing five identical silences (BUG-002). No warm-up:
+                    // the canned samples run on the text model and the live ones load whatever they use on their
+                    // first sample; PrepareAsync's warm-up belongs to the launch routine (F063).
+                    if (!await brain.PrepareAsync(run.Token, false).ConfigureAwait(false))
                         return "✗ Not reachable at " + normalized + " — start the provider and try again.";
 
                     DispositionAudition audition =
                         await brain.SampleDispositionAsync(
                             s.Disposition, liveContext, petZone, perSample, run.Token)
                             .ConfigureAwait(false);
+                    // The VRAM back now, under "unload": the samples held the model for a minute between them, and
+                    // the residency's promise is that it is gone after the remark.
+                    if (string.Equals(s.ModelResidency, AiSettings.ResidencyUnload, StringComparison.OrdinalIgnoreCase))
+                        await brain.UnloadAsync(run.Token).ConfigureAwait(false);
                     return FormatAudition(dispositionName, audition, cloud, live);
                 }
             }
@@ -482,7 +562,6 @@ namespace DesktopAICompanion.AiBrainModule
                 return "✗ Gave up after " + (int)whole.TotalSeconds + "s — the provider is too slow for an audition.";
             }
             catch (Exception ex) { return "✗ " + ex.Message; }
-            finally { _auditionRunning = false; }
         }
 
         /// <summary>
@@ -564,15 +643,48 @@ namespace DesktopAICompanion.AiBrainModule
                     if (!await backend.IsAvailableAsync(CancellationToken.None).ConfigureAwait(false))
                         return "✗ Not reachable at " + normalized;
                     // Test whichever slot is active: cloud model when a cloud provider is selected, else local.
+                    // A blank cloud model is refused, not defaulted: this used to substitute the LOCAL default
+                    // "gemma3:4b" and report the provider's 400 (F101).
                     string activeModel = local ? s.TextModel : s.CloudTextModel;
-                    string model = string.IsNullOrWhiteSpace(activeModel) ? "gemma3:4b" : activeModel.Trim();
+                    if (string.IsNullOrWhiteSpace(activeModel))
+                        return local
+                            ? "✗ No local text model is set."
+                            : "✗ Pick a cloud text model first (Refresh cloud models, then choose one).";
+                    string model = activeModel.Trim();
                     var msgs = new List<ChatMessage> { ChatMessage.System("Reply with OK."), ChatMessage.User("OK?", null) };
                     string reply = await backend.ChatAsync(model, msgs, false, CancellationToken.None).ConfigureAwait(false);
                     sw.Stop();
                     return TestConnectionVerdict(reply, model, sw.ElapsedMilliseconds);
                 }
             }
+            catch (AiBackendHttpException ex) { return DescribeHttpFailure(ex, normalized); }
             catch (Exception ex) { return "✗ " + ex.Message; }
+        }
+
+        /// <summary>
+        /// The pane's line for an answered HTTP failure: the status, the host it came from, the likely cause
+        /// for the ones a user can fix themselves, and the provider's own words when it sent any. "AI backend
+        /// returned HTTP 401." named neither the host nor the key (F107), and the provider's error.message
+        /// ("Insufficient credits", "not a valid model ID") was never read at all (F080). Pane text only; the
+        /// diagnostic log carries the status category.
+        /// </summary>
+        internal static string DescribeHttpFailure(AiBackendHttpException ex, string endpoint)
+        {
+            string host = AiBrain.DescribeEndpoint(endpoint);
+            string cause;
+            switch (ex.StatusCode)
+            {
+                case 401:
+                case 403: cause = "the provider rejected the API key"; break;
+                case 402: cause = "the provider wants payment or credits on this key"; break;
+                case 404: cause = "check the base URL (it usually ends in /v1) and the model id"; break;
+                case 429: cause = "the provider is rate-limiting this key"; break;
+                default: cause = ex.StatusCode >= 500 ? "the provider is having trouble; try again later" : ""; break;
+            }
+            string line = "✗ HTTP " + ex.StatusCode.ToString(CultureInfo.InvariantCulture) + " from " + host +
+                          (cause.Length > 0 ? ": " + cause : "");
+            if (!string.IsNullOrEmpty(ex.ProviderMessage)) line += " (" + ex.ProviderMessage + ")";
+            return line;
         }
 
         /// <summary>
@@ -999,16 +1111,8 @@ namespace DesktopAICompanion.AiBrainModule
             {
                 IReadOnlyList<ModelListing> models;
                 using (ICompanionBrainBackend backend = BuildLocalBackend(s, normalized, timeout))
-                {
-                    OllamaClient ollama = backend as OllamaClient;
-                    OpenAiCompatBackend compat = backend as OpenAiCompatBackend;
-                    if (ollama != null)
-                        models = await ollama.ListModelsAsync(CancellationToken.None).ConfigureAwait(false);
-                    else if (compat != null)
-                        models = await compat.ListModelsAsync(CancellationToken.None).ConfigureAwait(false);
-                    else
-                        models = new List<ModelListing>();
-                }
+                    models = await ListBackendModelsAsync(backend, CancellationToken.None).ConfigureAwait(false)
+                             ?? (IReadOnlyList<ModelListing>)new List<ModelListing>();
                 // One critical section: swapping the list and rebuilding the dropdowns from it is a
                 // single logical update, so a concurrent cloud refresh cannot read a half-replaced list.
                 lock (_modelsLock)
@@ -1017,6 +1121,9 @@ namespace DesktopAICompanion.AiBrainModule
                     _localModels.AddRange(models);
                     RefreshModelFieldOptions();
                 }
+                // The live brain re-lists its own backend too, so the pane and the brain agree about what is
+                // installed: a model pulled mid-session stayed "missing" to the brain until the next Apply (F071).
+                _ = _session.RefreshInventoryAsync(_lifetime.Token);
                 return ModelListStatus(models, normalized);
             }
             catch (Exception ex) { return "✗ " + ex.Message; }
@@ -1044,6 +1151,7 @@ namespace DesktopAICompanion.AiBrainModule
                     _cloudModels.AddRange(models);
                     RefreshModelFieldOptions();
                 }
+                _ = _session.RefreshInventoryAsync(_lifetime.Token);   // as above (F071)
                 return ModelListStatus(models, normalized);
             }
             catch (Exception ex) { return "✗ " + ex.Message; }
@@ -1093,6 +1201,12 @@ namespace DesktopAICompanion.AiBrainModule
             // says something, it just says something free. And while a game is fullscreen the pet is hidden
             // anyway, so a model answer would be invisible as well as risky.
             if (FullscreenBlocked()) return false;
+            // allowVision: TRUE, deliberately, and pinned by the module self-test. A drop is unprompted
+            // commentary, and with UseVision on it is a vision turn exactly like the hotkey and the tray row:
+            // the owner's decision of 2026-09-29 (BUG-010, docs/ISSUES-post-1.0.0.md) is that vision, when
+            // enabled, applies to every remark, because the screen is what the remark is about. The audit
+            // proposed `false` here to match a label written for the module's OLD idle loop; the label was
+            // what changed. Only the poke stays text-only, and OnPokeReaction says why.
             return Ask(pet, true);
         }
 
@@ -1173,6 +1287,18 @@ namespace DesktopAICompanion.AiBrainModule
             // One in-flight ask at a time, so at most one pending subject. Per-pet concurrency (two pets
             // asked at once) is BACKLOG #16(a) and deliberately not attempted here.
             if (session.RequestInProgress) return false;
+            // The stand-down applies to EVERY entry point, not only the two responders. A global hotkey is
+            // delivered while a game has focus, and the explicit path allows vision, so a press during a game
+            // used to load the vision model beside the game the setting exists to protect and deliver the
+            // answer to a companion the fullscreen logic had hidden (F067). The responders keep their own call
+            // in front of this one: declining THERE is what lets the chain fall through to Fortunes, and the
+            // source invariant asserts it there. The explicit path has no chain behind it, so a refusal here
+            // would be silent to the user and to the log SUPPORT.md asks for; hence the line.
+            if (FullscreenBlocked())
+            {
+                try { host.Log(Info.Id, "ask declined: fullscreen stand-down"); } catch { }
+                return false;
+            }
             ICompanion pet = subject ?? _lastPet;
             if (pet == null || !host.IsCompanionAlive(pet)) return false;
 
@@ -1186,9 +1312,23 @@ namespace DesktopAICompanion.AiBrainModule
             // asked, which is the same bug the answer below had.
             try { PlayEmotionOn(host, pet, "thinking"); host.Say(pet, "…"); } catch { }
 
-            _ = AskCoreAsync(session, ctx, ctx.WindowUnderCompanion, allowVision, pet);
+            Func<ScreenContext, string, bool, ICompanion, Task> sink = AskSinkForDiagnostics;
+            _ = sink != null
+                ? sink(ctx, ctx.WindowUnderCompanion, allowVision, pet)
+                : AskCoreAsync(session, ctx, ctx.WindowUnderCompanion, allowVision, pet);
             return true;
         }
+
+        /// <summary>
+        /// Test seam: where a STARTED turn goes instead of <see cref="AskCoreAsync"/>. Null in the shipped
+        /// module. The module self-test sets it to record the routing decision each entry point makes, which
+        /// pet and whether vision was allowed, WITHOUT the turn reaching the session and a backend: the decision
+        /// under test is made before this point, by OnDrop, OnPokeReaction, the tray row and the hotkey, and
+        /// everything after it needs a screen, a model and a network. Same shape as
+        /// AiSessionManager.ReconfigureAdmittedForDiagnostics. It exists because BUG-010 was a routing
+        /// argument that four sentences described and nothing asserted.
+        /// </summary>
+        internal Func<ScreenContext, string, bool, ICompanion, Task> AskSinkForDiagnostics;
 
         /// <summary>Play the first animation this pet actually defines for an emotion. The module owns the
         /// emotion -&gt; candidates mapping, so this needs no host verb beyond TryPlayAnimation.</summary>
@@ -1239,17 +1379,41 @@ namespace DesktopAICompanion.AiBrainModule
             // brain is on; clear it when off so they fall back to their own default (the Windows user name).
             try { if (_host != null) _host.SetOwnerName((s.AiBrainEnabled && !string.IsNullOrWhiteSpace(s.UserName)) ? s.UserName.Trim() : ""); }
             catch { }
-            string err;
+            string err = null;
             bool allowed = s.AiBrainEnabled && CanUse(s, out err);
+            // The reason the brain is NOT being built, said once per Apply. `err` was computed and dropped, so
+            // an invalid endpoint, a missing consent or a missing cloud model disabled the brain with nothing
+            // in the log while the tray row still read "Disable AI" (F101, F099).
+            if (s.AiBrainEnabled && !allowed && _host != null)
+                try { _host.Log(Info.Id, "AI brain not started: " + err); } catch { }
             bool prepare = allowed && (s.AutoStartServer || s.WarmUpDesired);
-            AiSettings snapshot = s;
+            // A private copy, taken HERE on the UI thread. The factory below runs on a pool thread once the previous
+            // brain has retired (up to ~2 s later), and it used to read the live instance: a pane Save in that
+            // window rotated the key or replaced a collection under CreateBrain's read (F068, F100). The copy
+            // cannot be saved.
+            AiSettings forBrain = s.CloneForBrain();
+            // Retire WITHOUT evicting when the replacement targets the same backend and models. Every Apply
+            // rebuilds the brain (the persona is read from its settings clone, so a name or disposition edit must
+            // reach a NEW brain, and a fingerprint that skipped the rebuild would have to know every field the
+            // brain reads), but under "keep" or "server" residency the old brain's retirement also evicted a model
+            // the user asked to keep resident, so a hotkey edit cost a cold reload (F095, F065). The fingerprint
+            // names every field that decides WHICH model is resident WHERE and nothing else; under "unload" the
+            // model is gone after each remark anyway, so the eviction on retire stays (it is free there).
+            string fingerprint = allowed ? BackendFingerprint(s) : null;
+            bool sameBackend = fingerprint != null &&
+                string.Equals(fingerprint, _liveBackendFingerprint, StringComparison.Ordinal);
+            bool releaseModel = !(sameBackend &&
+                !string.Equals(s.ModelResidency, AiSettings.ResidencyUnload, StringComparison.OrdinalIgnoreCase));
+            _liveBackendFingerprint = fingerprint;
 
             // Fire-and-forget: the session serializes generations, so a stale config can never apply.
             _ = _session.ReconfigureAsync(
-                allowed ? (Func<AiBrain>)delegate { return CreateBrain(snapshot); } : null,
+                allowed ? (Func<AiBrain>)delegate { return CreateBrain(forBrain); } : null,
                 allowed,
                 prepare,
-                _lifetime.Token);
+                _lifetime.Token,
+                null,
+                releaseModel);
 
             if (_hotkey != null) { try { _hotkey.Dispose(); } catch { } _hotkey = null; }
             if (allowed && s.HotkeyEnabled && _host != null)
@@ -1259,7 +1423,55 @@ namespace DesktopAICompanion.AiBrainModule
 
         // ---- brain construction (mirrors StartUp.CreateBrain / CanUseAiConfiguration) -------------
 
-        private static AiBrain CreateBrain(AiSettings s)
+        /// <summary>The fingerprint of the brain the live session was last built for, or null when it was
+        /// disabled. Compared by ApplyState to decide whether retiring the old brain must evict its model.</summary>
+        private string _liveBackendFingerprint;
+
+        /// <summary>
+        /// Every setting that decides which model is resident where: the local slot's endpoint, protocol and two
+        /// models, the cloud selector with its endpoint and models, the fallback switch, the residency and the
+        /// executable path. Persona fields are deliberately absent: the brain is rebuilt on every Apply regardless,
+        /// and this decides only whether its retirement EVICTS (F095). Internal so the self-test can pin what is
+        /// and is not in it.
+        /// </summary>
+        internal static string BackendFingerprint(AiSettings s)
+        {
+            return string.Join("\n", new[]
+            {
+                s.Endpoint ?? "", s.LocalBackendKind ?? "", s.TextModel ?? "", s.VisionModel ?? "",
+                s.Provider ?? "", s.OpenAiBaseUrl ?? "", s.CloudTextModel ?? "", s.CloudVisionModel ?? "",
+                s.UseLocalFallback ? "fallback" : "no-fallback", s.ModelResidency ?? "", s.OllamaPath ?? "",
+            });
+        }
+
+        /// <summary>
+        /// The keep_alive the AUDITION brain's Ollama client sends. Under the default "unload" residency every chat
+        /// carries keep_alive:0, so five back-to-back samples raced Ollama's eviction and could pay up to four extra
+        /// loads, about 5 s each on gemma3:4b against about 400 ms of inference (F070; the repo's one recorded
+        /// audition timing, 5498/3803/419/380/385 ms, shows the race being won three times out of five). The
+        /// audition is a burst the module itself issues, so it holds the model for a minute between samples and
+        /// PreviewDispositionAsync evicts explicitly when the run ends. The other residencies keep their own value:
+        /// "keep" is resident anyway and "server" defers to Ollama.
+        /// </summary>
+        internal static int? AuditionKeepAliveSeconds(AiSettings s)
+        {
+            return string.Equals(s.ModelResidency, AiSettings.ResidencyUnload, StringComparison.OrdinalIgnoreCase)
+                ? (int?)AuditionKeepAliveWindowSeconds
+                : s.KeepAliveForRequests;
+        }
+
+        private const int AuditionKeepAliveWindowSeconds = 60;
+
+        // internal, not private: the self-test builds a cloud-primary brain from settings alone (no network is
+        // touched by construction) to assert what the failure line will name as its endpoint (F073).
+        internal static AiBrain CreateBrain(AiSettings s)
+        {
+            return CreateBrain(s, s.KeepAliveForRequests);
+        }
+
+        /// <param name="localKeepAliveSeconds">The keep_alive the LOCAL Ollama client puts on each chat request: the
+        /// residency's own value for the live brain, a short positive window for the audition brain (F070).</param>
+        internal static AiBrain CreateBrain(AiSettings s, int? localKeepAliveSeconds)
         {
             string endpoint = SelectedEndpoint(s);
             string normalized, error;
@@ -1269,6 +1481,10 @@ namespace DesktopAICompanion.AiBrainModule
                 throw new InvalidOperationException("Cloud data consent is required for a non-local AI endpoint.");
 
             TimeSpan timeout = TimeSpan.FromSeconds(s.TimeoutSeconds);
+            // The host(s) the brain will name in its log lines: the endpoint it was built against, plus the
+            // local leg when one is wrapped in below. The snapshot the brain receives keeps the LOCAL Endpoint
+            // for a cloud-primary brain, so without this every line said "endpoint=localhost" (F073).
+            string backendHosts = AiBrain.DescribeEndpoint(normalized);
             // No cloud selected (Provider == "") -> the LOCAL backend (BuildLocalBackend: Ollama-native or a
             // generic OpenAI-compatible /v1 server per LocalBackendKind). A cloud selector -> the OpenAI-
             // compatible backend with the cloud-scoped key; and when "use local as fallback" is on and the
@@ -1278,7 +1494,7 @@ namespace DesktopAICompanion.AiBrainModule
             ICompanionBrainBackend backend;
             if (IsLocalSlot(s))
             {
-                backend = BuildLocalBackend(s, normalized, timeout);
+                backend = BuildLocalBackend(s, normalized, timeout, localKeepAliveSeconds);
             }
             else
             {
@@ -1288,8 +1504,9 @@ namespace DesktopAICompanion.AiBrainModule
                     AiEndpointPolicy.TryNormalize(s.Endpoint, out localNormalized, out localError) &&
                     AiEndpointPolicy.IsLoopbackEndpoint(localNormalized))
                 {
-                    ICompanionBrainBackend local = BuildLocalBackend(s, localNormalized, timeout);
+                    ICompanionBrainBackend local = BuildLocalBackend(s, localNormalized, timeout, localKeepAliveSeconds);
                     backend = new FallbackBackend(cloud, local, s.CloudVisionModel, s.TextModel, s.VisionModel);
+                    backendHosts += "->" + AiBrain.DescribeEndpoint(localNormalized);
                 }
                 else
                 {
@@ -1297,6 +1514,7 @@ namespace DesktopAICompanion.AiBrainModule
                 }
             }
             AiBrain brain = new AiBrain(backend, s.ActiveSlotSnapshot());
+            brain.BackendHostDescription = backendHosts;
             // Let the brain re-validate its configured model against what the backend actually offers
             // (BUG-002). Uses the SAME listing call the Options pane uses, so the two can never disagree
             // about what is installed. Captures the backend the brain owns, not a fresh one.
@@ -1305,22 +1523,24 @@ namespace DesktopAICompanion.AiBrainModule
         }
 
         /// <summary>
-        /// List what a backend offers, or an empty list when that backend has no listing endpoint. Empty
-        /// and null mean different things downstream: <see cref="AiModelPolicy.ChooseModel"/> treats an
-        /// unknown inventory as "do not complain", so a backend that cannot enumerate must not be able to
-        /// make the brain claim a model is missing.
+        /// List what a backend offers, or NULL when that backend cannot enumerate. Null and empty mean different
+        /// things downstream: <see cref="AiModelPolicy.ChooseModel"/> treats an unknown inventory as "do not
+        /// complain", so a backend that cannot enumerate must not be able to make the brain claim a model is
+        /// missing. Through <see cref="IModelLister"/> rather than two type tests: the type tests answered null
+        /// for the cloud+local composite, i.e. for every cloud user who left the default fallback on, so a
+        /// removed or mistyped cloud id was never re-validated and BUG-002's spoken advisory never fired on the
+        /// configuration it was written for (F103).
         /// </summary>
-        private static async Task<IReadOnlyList<ModelListing>> ListBackendModelsAsync(
+        internal static async Task<IReadOnlyList<ModelListing>> ListBackendModelsAsync(
             ICompanionBrainBackend backend, CancellationToken ct)
         {
-            OllamaClient ollama = backend as OllamaClient;
-            if (ollama != null) return await ollama.ListModelsAsync(ct).ConfigureAwait(false);
-            OpenAiCompatBackend compat = backend as OpenAiCompatBackend;
-            if (compat != null) return await compat.ListModelsAsync(ct).ConfigureAwait(false);
-            return null;
+            IModelLister lister = backend as IModelLister;
+            if (lister == null) return null;
+            return await lister.ListModelsAsync(ct).ConfigureAwait(false);
         }
 
-        private static bool CanUse(AiSettings s, out string error)
+        // internal, not private: the self-test asserts the cloud-slot rule below without a host.
+        internal static bool CanUse(AiSettings s, out string error)
         {
             error = null;
             if (s == null) { error = "AI settings are unavailable."; return false; }
@@ -1330,6 +1550,25 @@ namespace DesktopAICompanion.AiBrainModule
             {
                 error = "Approve cloud data sharing before using a non-local AI endpoint.";
                 return false;
+            }
+            // A cloud slot has no model until the user picks one: the dropdown is empty until "Refresh cloud
+            // models" runs, so a first-time cloud setup naturally leaves it blank, and the brain used to fill
+            // the blank with the LOCAL default "gemma3:4b" and send that to the provider: HTTP 400 on every
+            // remark, logged as unreachable, or with the fallback off a silent substitution to whatever the
+            // provider listed first, billed to the user's key (F101). Refused here, where ApplyState logs the
+            // reason, rather than discovered one remark at a time.
+            if (!IsLocalSlot(s))
+            {
+                if (string.IsNullOrWhiteSpace(s.CloudTextModel))
+                {
+                    error = "Pick a cloud text model first (Refresh cloud models, then choose one).";
+                    return false;
+                }
+                if (s.UseVision && string.IsNullOrWhiteSpace(s.CloudVisionModel))
+                {
+                    error = "Pick a cloud vision model first (Refresh cloud models, then choose one), or turn vision off.";
+                    return false;
+                }
             }
             return true;
         }
@@ -1385,11 +1624,10 @@ namespace DesktopAICompanion.AiBrainModule
         /// <summary>
         /// What is resident in VRAM right now, read from the server rather than asserted.
         ///
-        /// Also states the two things that would otherwise make the eject setting look broken:
-        ///   * "Preload model on launch" pins keep_alive to 10 minutes, so a warmed model OUTLIVES a short
-        ///     eject setting until the next remark re-stamps it. Two settings that appear to contradict each
-        ///     other, with no explanation, is a support question waiting to happen.
-        ///   * the reload cost is real and is paid per remark. Better said here than discovered as lag.
+        /// Also states the reload cost, which is real and is paid per remark under "unload": better said here than
+        /// discovered as lag. This comment used to describe a second thing, "Preload model on launch" pinning
+        /// keep_alive to 10 minutes and outliving a short eject window; that setting was folded into the residency
+        /// choice in 1.3.0 and the last trace of its 10-minute pin, in OllamaClient.WarmUpAsync, went with F106.
         /// </summary>
         private string VramStatusLine(AiSettings s)
         {
@@ -1491,6 +1729,14 @@ namespace DesktopAICompanion.AiBrainModule
         // plumbs through is the exact failure this project's rule about source-text checks warns about.
         internal static ICompanionBrainBackend BuildLocalBackend(AiSettings s, string normalizedLocalEndpoint, TimeSpan timeout)
         {
+            return BuildLocalBackend(s, normalizedLocalEndpoint, timeout, s.KeepAliveForRequests);
+        }
+
+        /// <param name="keepAliveSeconds">What the Ollama client puts on each chat request; the residency's value
+        /// for the live brain (the overload above), a short window for the audition brain (F070).</param>
+        internal static ICompanionBrainBackend BuildLocalBackend(
+            AiSettings s, string normalizedLocalEndpoint, TimeSpan timeout, int? keepAliveSeconds)
+        {
             if (string.Equals(s.LocalBackendKind, "openai-compat", StringComparison.OrdinalIgnoreCase))
                 return new OpenAiCompatBackend(normalizedLocalEndpoint, "", timeout);
             // keep_alive is an Ollama-native field, so the residency setting only reaches the Ollama client.
@@ -1498,7 +1744,7 @@ namespace DesktopAICompanion.AiBrainModule
             // pane says the setting is Ollama-only rather than appearing to work everywhere.
             return new OllamaClient(normalizedLocalEndpoint, timeout, s.OllamaPath)
             {
-                KeepAliveSeconds = s.KeepAliveForRequests,
+                KeepAliveSeconds = keepAliveSeconds,
             };
         }
 

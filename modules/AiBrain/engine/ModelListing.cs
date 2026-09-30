@@ -53,7 +53,8 @@ namespace DesktopAICompanion.Ai
         /// <summary>A short line the companion can say, or null when all is well.</summary>
         public string Advisory { get; private set; }
 
-        /// <summary>One of: configured, substituted, none-usable, model-list-unknown.</summary>
+        /// <summary>One of: configured, configured-unverified-vision (listed, no capability report, no name
+        /// marker; used as is), substituted, none-usable, none-configured (no id set at all), model-list-unknown.</summary>
         public string Reason { get; private set; }
 
         public bool Usable { get { return !string.IsNullOrWhiteSpace(Model); } }
