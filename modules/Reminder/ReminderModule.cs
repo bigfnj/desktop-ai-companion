@@ -60,7 +60,15 @@ namespace DesktopAICompanion.ReminderModule
         {
             Id = Id,
             Name = "Reminder",
-            Version = "1.0.6",  // 1.0.6: "Make the companion react" reached 35 of 54 companions, and
+            Version = "1.0.7",  // 1.0.7: the 2026-09-29 audit's eleven Reminder findings. A refresh that
+                                //        never returns no longer freezes its slot (deadline, one retry,
+                                //        a cap on parked attempts); an .ics download is bounded in time
+                                //        and size; a reminder due while no companion is on screen is held
+                                //        rather than spent; an Apply keeps the slots whose type it did not
+                                //        change; the fired set is pruned per slot; "Check now" re-reads
+                                //        the feeds; a custom chime is read off the UI thread; a feed error
+                                //        is logged on change, not per tick; Teams' short join links match.
+                                // 1.0.6: "Make the companion react" reached 35 of 54 companions, and
                                 //        reactOn defaults to true, so 19 users had a feature switched
                                 //        on that did nothing. The eSheep-era names it used are absent
                                 //        from the converted shimeji. Historical four kept FIRST and in
