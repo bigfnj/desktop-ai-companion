@@ -36,8 +36,12 @@
 
 .PARAMETER LogDirectory
     Where to put captured child output and where the child writes its markers: it is ALSO the
-    child's TEMP for the duration of the run. Defaults to a fresh dp-selftests-run-<guid> directory
-    under $env:TEMP, removed at the end when every flag passed and kept (and named) when one did not.
+    child's TEMP for the duration of the run. Defaults to a fresh dp-str-<12 hex> directory under
+    $env:TEMP (short on purpose: see the SHORT NAME comment at the assignment; this text named a
+    dp-selftests-run-<guid> the code never created, R-059), removed at the end when every flag passed
+    and kept when one did not. The kept path is printed on the console ("child logs and markers kept
+    for inspection"), and the next run's sweep removes any dp-* directory older than an hour, so that
+    console line, not a search by prefix, is how to find kept logs.
 
 .PARAMETER TimeoutSeconds
     How long one flag may run before it is killed and reported as a failure. Default 180.
@@ -356,6 +360,21 @@ try {
                 $anyFailure = $true
                 Write-Output ($FailurePrefix + ('{0} (SKIPPED: {1})' -f $flag, $skips[0].Line.Trim()))
                 Write-Host ('  FAIL  {0} -- skipped, did not actually run' -f $flag) -ForegroundColor Red
+                continue
+            }
+            # A FAIL: or EXC: line under exit 0 is not a pass either (R-063): a Check() whose bool was never
+            # folded into ok, or a probe that threw after the verdict was decided, exits 0 and writes
+            # RESULT=PASS over the line that says what failed. Until 2026-09-30 the exit code was the only
+            # thing this runner and CI read, so such a marker was `ok` here and green on every push, and
+            # only tests/mutate-selftest-guards.py -- which neither runs -- could have seen the line.
+            # Same two shapes as the skip above; same pattern family as the failing-lines printer. Measured
+            # with a stub exe whose every marker carries exactly that shape: fifteen `ok` before this block,
+            # every marker-writing flag a named failure after it.
+            $unfolded = @(Select-String -LiteralPath $markerPath -Pattern '^\s*(\[[^\]]*\]\s*)?(FAIL|EXC):')
+            if ($unfolded.Count -gt 0) {
+                $anyFailure = $true
+                Write-Output ($FailurePrefix + ('{0} (exit 0 but the marker carries a FAIL/EXC line: {1})' -f $flag, $unfolded[0].Line.Trim()))
+                Write-Host ('  FAIL  {0} -- a FAIL/EXC line under a green exit' -f $flag) -ForegroundColor Red
                 continue
             }
         }

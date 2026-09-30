@@ -223,6 +223,11 @@ try {
         Where-Object { $_.Path -and $_.Path.StartsWith($buildRoot, [StringComparison]::OrdinalIgnoreCase) } |
         ForEach-Object { try { $_.Kill(); [void]$_.WaitForExit(5000) } catch { } }
     $env:DESKTOP_AI_COMPANION_DATA_ROOT = $previousRoot
-    try { Remove-Item -LiteralPath $dataRoot -Recurse -Force -ErrorAction SilentlyContinue } catch { }
+    # The F414 shape (RA-335): a data root that will not delete is a WARNING naming the path, never a
+    # `-ErrorAction SilentlyContinue` inside an empty catch, which left ~1 MB of settings.json with the
+    # embedded pet XML under TEMP per run with nothing said, on a box where the delete fails. The Kill sweep
+    # above has run, so the app no longer holds the file; what is left is a genuine leftover.
+    try { [IO.Directory]::Delete($dataRoot, $true) }
+    catch { Write-Warning ("the smoke's data root could not be removed and is left for inspection: $dataRoot ($($_.Exception.Message))") }
 }
 exit $code

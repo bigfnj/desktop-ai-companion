@@ -44,9 +44,14 @@ internal static class StandDown
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y, int cx, int cy,
                                             uint flags);
+    // As the host declares it (DesktopWindows.cs): the extended style is a 32-bit value on every platform.
+    [DllImport("user32.dll")]
+    private static extern int GetWindowLong(IntPtr hWnd, int index);
 
     private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
     private const uint SWP_NOMOVE = 0x0002, SWP_NOSIZE = 0x0001, SWP_NOACTIVATE = 0x0010;
+    private const int GWL_EXSTYLE = -20;
+    private const int WS_EX_LAYERED = 0x00080000;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct RECT { public int Left, Top, Right, Bottom; }
@@ -71,11 +76,22 @@ internal static class StandDown
     // the wrong reason: a companion walking off the top edge is clipped to a 40x2 window, so "no
     // companion is visible" was true because the sprite was thin while IsWindowVisible still said
     // VIS. The point is to read the window's own visibility, so nothing else may decide it.
+    //
+    // Filtered by WS_EX_LAYERED (RA-348). The speech bubble (FormSpeech) is a top-level borderless Form of
+    // the same class prefix, TopMost and not parked while it shows, so the Fortunes welcome that appears in
+    // the same UI-thread burst as the pet was tracked as a companion -- and the stand-down only drops a
+    // bubble's TopMost, it never hides it, so a tracked bubble failed the single-monitor step 3 outright
+    // and made step 5's "hide" latency the bubble's remaining life rather than the app's hide.
+    // WS_EX_TOOLWINDOW does not discriminate (both forms set it); WS_EX_LAYERED does: FormCompanion's
+    // CreateParams forces it for UpdateLayeredWindow, and FormSpeech deliberately does not (its shape comes
+    // from Form.Region). Report prints each tracked window's class and extended style, so the filter's
+    // verdict is readable in the log.
     private static bool LooksLikeCompanion(IntPtr h)
     {
         RECT r;
         if (!GetWindowRect(h, out r)) return false;
         if (r.Left <= -30000 || r.Top <= -30000) return false;
+        if ((GetWindowLong(h, GWL_EXSTYLE) & WS_EX_LAYERED) == 0) return false;
         return ClassOf(h).StartsWith("WindowsForms10.Window.8", StringComparison.Ordinal);
     }
 
@@ -90,6 +106,40 @@ internal static class StandDown
             return true;
         }, IntPtr.Zero);
         return found;
+    }
+
+    // EVERY top-level window the app's process owns, visible or not, companion or not: what the replica
+    // excludes when it asks whether the primary monitor is blocked (RA-344), the way the app's scan
+    // excludes StartUp.SheepHandles(). Recomputed at the call, like SheepHandles is per scan.
+    private static HashSet<IntPtr> WindowsOf(uint pid)
+    {
+        var found = new HashSet<IntPtr>();
+        EnumWindows(delegate (IntPtr h, IntPtr l)
+        {
+            uint owner;
+            GetWindowThreadProcessId(h, out owner);
+            if (owner == pid) found.Add(h);
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+
+    private static string Describe(IntPtr h)
+    {
+        if (h == IntPtr.Zero) return "no window";
+        if (!IsWindow(h)) return "0x" + h.ToString("X") + " (destroyed)";
+        return "0x" + h.ToString("X") + " '" + TitleOf(h) + "' " + ClassOf(h);
+    }
+
+    // A tracked handle that is no longer a window (RA-349). IsWindowVisible answers false for a destroyed
+    // HWND, so StoodDown and the step-5 predicate read a companion form the app closed and recreated -- a
+    // reload, a pet-mix change, a Kill; not the walk-off respawn, which reuses the HWND -- as "hidden" and
+    // PASSED, while only Report said "gone" and step 6 then blamed the restore path. Checked before each
+    // verdict is trusted, beside the HasExited check F395 added for the whole-app death.
+    private static IntPtr FirstDestroyed(List<IntPtr> tracked)
+    {
+        foreach (IntPtr h in tracked) if (!IsWindow(h)) return h;
+        return IntPtr.Zero;
     }
 
     private static int MonitorOf(IntPtr h)
@@ -109,6 +159,7 @@ internal static class StandDown
     // blocked.
     private static bool StoodDown(IntPtr h, bool[] blocked)
     {
+        if (!IsWindow(h)) return false;                  // destroyed is not stood down (RA-349); the caller reports it
         if (!IsWindowVisible(h)) return true;
         int m = MonitorOf(h);
         if (m < 0 || m >= blocked.Length) return true;   // cannot place it; not evidence of a fault
@@ -147,7 +198,8 @@ internal static class StandDown
             RECT r;
             GetWindowRect(h, out r);
             int m = MonitorOf(h);
-            sb.Append(" ['" + TitleOf(h) + "' " + (r.Right - r.Left) + "x" + (r.Bottom - r.Top) +
+            sb.Append(" ['" + TitleOf(h) + "' " + ClassOf(h) + " ex=0x" + GetWindowLong(h, GWL_EXSTYLE).ToString("X") +
+                " " + (r.Right - r.Left) + "x" + (r.Bottom - r.Top) +
                 " @" + r.Left + "," + r.Top + " mon" + m +
                 (IsWindowVisible(h) ? " VIS" : " hid") +
                 (StoodDown(h, blocked) ? " ok" : " OVER-A-GAME") + "]");
@@ -248,7 +300,8 @@ internal static class StandDown
                 }
                 return true;
             }, 5000, covers, out t);
-            bool reallyBlocked = Program.PrimaryMonitorBlocked();
+            IntPtr decidedBy;
+            bool reallyBlocked = Program.PrimaryMonitorBlocked(WindowsOf(pid), out decidedBy);
             Console.WriteLine("step3 " + (multiMonitor ? "relocated to a free monitor=" : "off the blocked monitor=")
                 + okOne + " after " +
                 t.ToString("F0", CultureInfo.InvariantCulture) + "ms desktopBlocked=" +
@@ -256,16 +309,25 @@ internal static class StandDown
             // A DEAD app satisfies every "not visible" invariant: IsWindowVisible on a destroyed HWND is
             // false, so on a single monitor a companion that crashed after step 1 passed step 3 and step 5
             // vacuously and failed only at step 6, blaming the restore path (F395). Checked before each
-            // verdict is trusted, the way debug-menu-smoke.ps1 already does.
+            // verdict is trusted, the way debug-menu-smoke.ps1 already does. A destroyed tracked WINDOW
+            // in a live app is the same vacuity one level down (RA-349), and is refused the same way.
             if (app.HasExited)
             {
                 Console.WriteLine("RESULT=FAIL app exited during step 3 with code " + app.ExitCode);
                 return 1;
             }
+            IntPtr destroyed = FirstDestroyed(tracked);
+            if (destroyed != IntPtr.Zero)
+            {
+                Console.WriteLine("RESULT=FAIL a tracked companion window was destroyed during step 3 (" + Describe(destroyed) +
+                    "): the app closed and recreated a form, so its dead handle would have read as hidden");
+                return 1;
+            }
             if (!okOne && !reallyBlocked)
             {
                 Console.WriteLine("RESULT=INCONCLUSIVE the probe window was not the top window "
-                    + "covering the monitor centre, so nothing was fullscreen to stand down from");
+                    + "covering the monitor centre, so nothing was fullscreen to stand down from"
+                    + " (the centre was decided by " + Describe(decidedBy) + ")");
                 return 2;
             }
             if (!okOne) failures++;
@@ -281,7 +343,9 @@ internal static class StandDown
 
             bool okAll = WaitFor(delegate
             {
-                foreach (IntPtr h in tracked) if (IsWindowVisible(h)) return false;
+                // A destroyed handle is not "hidden" (RA-349): it keeps this wait running until the
+                // check below names it, instead of passing the step on a dead HWND.
+                foreach (IntPtr h in tracked) if (!IsWindow(h) || IsWindowVisible(h)) return false;
                 return true;
             }, 6000, covers, out t);
             Console.WriteLine("step5 every companion hidden=" + okAll + " after " +
@@ -289,6 +353,13 @@ internal static class StandDown
             if (app.HasExited)
             {
                 Console.WriteLine("RESULT=FAIL app exited during step 5 with code " + app.ExitCode);
+                return 1;
+            }
+            destroyed = FirstDestroyed(tracked);
+            if (destroyed != IntPtr.Zero)
+            {
+                Console.WriteLine("RESULT=FAIL a tracked companion window was destroyed during step 5 (" + Describe(destroyed) +
+                    "): the app closed and recreated a form, so its dead handle would have read as hidden");
                 return 1;
             }
             if (!okAll) failures++;
@@ -307,6 +378,13 @@ internal static class StandDown
             if (app.HasExited)
             {
                 Console.WriteLine("RESULT=FAIL app exited during step 6 with code " + app.ExitCode);
+                return 1;
+            }
+            destroyed = FirstDestroyed(tracked);
+            if (destroyed != IntPtr.Zero)
+            {
+                Console.WriteLine("RESULT=FAIL a tracked companion window was destroyed during step 6 (" + Describe(destroyed) +
+                    "): the restore path is not what failed, the form the probe was watching is gone");
                 return 1;
             }
             if (!back) failures++;
