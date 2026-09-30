@@ -747,6 +747,23 @@ CASES = (
      CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
      CORETESTS, None, "ModuleKit json settings store"),
 
+    # N-host-04: a decided monitor can be re-decided by a lower window, so the rain window at the bottom of the
+    # z-order re-blocks a monitor a normal window above it had released.
+    ("a decided monitor is re-decided by a lower window",
+     os.path.join(REPO, "src", "dotNet", "FullscreenScan.cs"),
+     b"                    if (decided[i]) continue;\n",
+     b"",
+     HOST_CSPROJ, EXE,
+     "--fullscreen-selftest", "dp-fullscreen-selftest.txt", "small-above-rain-left"),
+
+    # N-host-04: the decider stops excluding the companions' own windows (F278's promise).
+    ("the decider lets a companion's own window decide a monitor",
+     os.path.join(REPO, "src", "dotNet", "FullscreenScan.cs"),
+     b"                if (petHandles != null && petHandles.Contains(hWnd)) return true;\n",
+     b"",
+     HOST_CSPROJ, EXE,
+     "--fullscreen-selftest", "dp-fullscreen-selftest.txt", "companion-above-rain-left"),
+
     # ---- lane fix/tools ----
 
 

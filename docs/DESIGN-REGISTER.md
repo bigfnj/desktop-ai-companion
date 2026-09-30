@@ -409,6 +409,23 @@ that differs is an error naming the line. Both transforms carry a `--selfcheck` 
 runs; the gate does not run that script, so the selfchecks' hand mutations are recorded in the commit and
 the source-text invariants are what the gate sees.
 
+**The fullscreen scan's z-order rule stands, and MatrixDesktop is its worked example (2026-09-30,
+N-host-04).** The coordinator read a visible Sheep over the rain window on the campaign build, and no Sheep
+on the pre-campaign build, as a stand-down the campaign lost. Three measurements said otherwise: the scan
+sources are byte-identical between the two builds; the installed 1.2.6 showed three visible, TopMost Sheep
+over the same window at the same moment; and a read-only replay of the scan's own walk named the cause,
+normal windows above the rain window holding both monitor centres, so both monitors were decided clear
+before the enumeration reached it. That is the rule FullscreenScan's summary has stated since the scan was
+introduced: the topmost real window at a monitor's centre decides it, so a fullscreen app under the active
+window does not count and a normal window over a game does not hide it. "Fullscreen-sized anywhere in the
+z-order blocks" was declined: an idle animation sized to the virtual screen sits under the user's working
+windows for hours (this one from 01:42), and that rule would hide every companion for the whole of it. The
+pre-campaign instance's "no Sheep window at all" is not a stand-down either -- a stood-down companion keeps
+its window, hidden -- but an instance with no companions, which its 0-pet mix of 2026-09-29 already said.
+The decision half of BlockedMonitors is now `FullscreenScan.MonitorDecider`, fed one window at a time by the
+enumeration, so the rule is pinned in `--fullscreen-selftest` against described windows rather than against
+whatever the desktop holds when the gate runs. N-host-01's sentence gained the z-order qualifier it lacked.
+
 #### fix/tools
 
 **No format-ladder rung for F425, F428, F429 or F431 (2026-09-29).** Each changes emitter output only on inputs
