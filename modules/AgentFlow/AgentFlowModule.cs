@@ -197,6 +197,12 @@ namespace DesktopAICompanion.AgentFlow
                                  //         receive-buffer check now counts on its own thread. The approvals
                                  //         tally takes the first shell WORD of a command, quotes honoured,
                                  //         so a quoted path with a space logs its leaf and not a directory.
+                                 //         One Deliver carries both notices over the three channels and
+                                 //         reports what REACHED the user: a refused chime or an animation
+                                 //         with no pet is held, not logged as a signal; a prompt seen on
+                                 //         screen chimes and animates too, and is held rather than spent
+                                 //         when nobody can hear it; a call that reads Working for one tick
+                                 //         keeps its one-shot.
                                  // 1.4.11: the options pane no longer probes VS Code's setup on the UI
                                  //         thread. The doc said the cold path was only between Init and
                                  //         the first tick, but OnTick returns before the probe when the
@@ -562,10 +568,13 @@ namespace DesktopAICompanion.AgentFlow
         /// the stored choice can outlive the pet it was made for, and the ordered candidate list
         /// exists precisely so that case degrades instead of failing.
         /// </summary>
-        private void PlayChosenAnimation()
+        /// <returns>Whether any pet was there to play it (R-004). The named pet's TryPlayAnimation
+        /// answers for itself; PlayAnimationAll is void by contract, so for the fallback the only
+        /// module-side evidence is the companions this module has seen spawn and still finds alive.</returns>
+        private bool PlayChosenAnimation()
         {
             IHost host = _host;
-            if (host == null) return;
+            if (host == null) return false;
             var candidates = new List<string>(PetAnimations.Candidates(
                 _settings == null ? "" : _settings.Get(SettingAnimName, "")));
 
@@ -579,15 +588,74 @@ namespace DesktopAICompanion.AgentFlow
                         continue;
                     foreach (string name in candidates)
                     {
-                        try { if (host.TryPlayAnimation(companion, name)) return; }
+                        try { if (host.TryPlayAnimation(companion, name)) return true; }
                         catch (Exception) { }
                     }
                     // It is on screen and defines none of these. Stop anyway: the user named a
                     // pet, and animating a DIFFERENT one is not a graceful degradation of that.
-                    return;
+                    return false;
                 }
             }
             host.PlayAnimationAll(candidates);
+            PruneCompanions();
+            return _companions.Count > 0;
+        }
+
+        /// <summary>What one delivery over the three notify channels REACHED, not what was switched on.</summary>
+        private sealed class Delivery
+        {
+            public bool Spoke, Chimed, Animated;
+            /// <summary>Whether any channel was asked for at all.</summary>
+            public bool Wanted;
+            public bool Delivered { get { return Spoke || Chimed || Animated; } }
+            /// <summary>Why a wanted channel reached nobody, for the log. Empty when everything asked for landed.</summary>
+            public string Undelivered = "";
+        }
+
+        /// <summary>
+        /// Send one line over the three channels the pane offers, and report what each one REACHED
+        /// (R-004): speech needs a speaker (app speech on and a companion on screen); the chime is the
+        /// host's answer, since PlayNotificationSound says false when the app's sounds are off, muted or
+        /// without a device; the animation is whether any pet was there to play it. F034 made the log
+        /// honest for every channel off; this makes it honest for a channel that was on and reached
+        /// nobody, which used to be logged as "signalled about" with the one-shot spent. Both the
+        /// transcript notice (Apply) and the screen notice (AnnounceScreenPrompt) come through here, so
+        /// the two cannot drift apart in which switches they honour (RA-026).
+        /// </summary>
+        private Delivery Deliver(string line)
+        {
+            var result = new Delivery();
+            IHost host = _host;
+            if (host == null) return result;
+            bool wantsSpeech = NotifySpeakOn && AgentMode.Speaks(Mode);
+            bool canSpeak = host.SpeechEnabled && AnyCompanionCanSpeak();
+            bool wantsSound = NotifySoundOn;
+            bool wantsAnimation = Animate;
+            result.Wanted = wantsSpeech || wantsSound || wantsAnimation;
+            result.Spoke = wantsSpeech && canSpeak;
+            // SayAll, not Say: this is a message to the USER, not a companion reacting to
+            // something. The host routes it to exactly one companion, so several on screen do
+            // not chant it in unison. Three independent channels, which is what the pane offers:
+            // a user who wants a chime and no chatter gets exactly that.
+            if (result.Spoke)
+            {
+                try { host.SayAll(line); }
+                catch (Exception) { result.Spoke = false; }
+            }
+            if (wantsSound)
+            {
+                try { result.Chimed = host.PlayNotificationSound(Info.Id); }
+                catch (Exception) { result.Chimed = false; }
+            }
+            if (wantsAnimation) result.Animated = PlayChosenAnimation();
+
+            var why = new List<string>();
+            if (wantsSpeech && !canSpeak)
+                why.Add(!host.SpeechEnabled ? "speech is switched off" : "no companion on screen to say it");
+            if (wantsSound && !result.Chimed) why.Add("the chime was refused by the app (sounds off, muted or no device)");
+            if (wantsAnimation && !result.Animated) why.Add("no pet on screen to animate");
+            result.Undelivered = string.Join("; ", why.ToArray());
+            return result;
         }
 
         /// <summary>
@@ -1162,25 +1230,39 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         internal void AnnounceScreenPrompt(ScreenPrompt seen)
         {
-            if (seen == null) { _announcedScreenPrompt = null; return; }   // screen quiet: re-arm
+            if (seen == null) { _announcedScreenPrompt = null; _lastScreenHeldBack = null; return; }   // screen quiet: re-arm
             if (_host == null || _shuttingDown) return;
             if (string.Equals(seen.Signature, _announcedScreenPrompt, StringComparison.Ordinal)) return;
             if (_budget != null && _budget.IsPaused(DateTime.UtcNow)) return;
 
+            // The same three channels as the transcript notice, and the same rule about the one-shot
+            // (RA-025, RA-026). This honoured speech alone, so a user with the chime on and speech off
+            // got nothing for a prompt seen on screen; and it marked the prompt announced BEFORE asking
+            // whether a speaker existed, so with no pet on screen -- the first tick after launch
+            // included -- or app speech off, the one announcement this prompt gets was spent on a tick
+            // that delivered nothing. Held now, said once in the log, until a channel can carry it.
+            Delivery delivery = Deliver(seen.Notice ?? ("Something is waiting for you: " + seen.Subject + "."));
+            if (delivery.Wanted && !delivery.Delivered)
+            {
+                string heldBack = "held back a screen notice about " + seen.Subject + ": " + delivery.Undelivered;
+                if (!string.Equals(heldBack, _lastScreenHeldBack, StringComparison.Ordinal))
+                {
+                    _lastScreenHeldBack = heldBack;
+                    Log(heldBack);
+                }
+                return;
+            }
+            _lastScreenHeldBack = null;
             _announcedScreenPrompt = seen.Signature;
             Log(seen.Notice
                 ?? ("a prompt is waiting on screen for " + seen.Subject
                     + " and nothing pressed it"));
-            if (NotifySpeakOn && AgentMode.Speaks(Mode))
-            {
-                try
-                {
-                    _host.SayAll(seen.Notice
-                                 ?? ("Something is waiting for you: " + seen.Subject + "."));
-                }
-                catch (Exception) { }
-            }
         }
+
+        /// <summary>The last "held back a screen notice" line written, so a prompt that stands with nobody
+        /// to hear it is held once in the log rather than once per tick. Cleared when the screen goes
+        /// quiet or a notice is delivered. Same guard as <see cref="_lastHeldBack"/> for the transcript path.</summary>
+        private string _lastScreenHeldBack;
 
         /// <summary>Whether a pane id is a display-only row, per the schema the host actually rendered.
         /// Schema-driven because the id-prefix guesses beside the call site were wrong for two of the eight
@@ -1463,6 +1545,16 @@ namespace DesktopAICompanion.AgentFlow
 
             // Drop one-shot keys for prompts that are no longer outstanding, so the same session
             // can notify again about a genuinely new prompt without ever repeating an old one.
+            //
+            // EVERY outstanding call of every live session, whatever the session's outcome this tick
+            // (RA-048). `live` was the Blocked detections' keys alone, so a call still outstanding whose
+            // session read Working, StalledButAllowed or NotDecidable for one tick -- a permission-mode
+            // record appended, a rule file edited -- lost its key here, and after the cooldown the same
+            // prompt was announced again, which is the repeat the one-shot exists to prevent.
+            foreach (Detection detection in results)
+                if (detection.Session != null && detection.Session.Outstanding != null)
+                    foreach (OutstandingCall call in detection.Session.Outstanding)
+                        live.Add(detection.Session.SessionId + "/" + call.Id);
             _budget.Retain(live);
 
             // Same bound as every other set in this module: what the current tick can see, not
@@ -1522,45 +1614,26 @@ namespace DesktopAICompanion.AgentFlow
                 DescribeWait(speakThis.IdleSeconds));
             if (string.IsNullOrEmpty(line)) line = BlockedDetector.Describe(speakThis);
 
-            // Both of these are checked BEFORE the budget is consumed, because a notification the
-            // user cannot possibly have seen must remain pending rather than being spent. The
-            // companion check is the one that was missing and swallowed the first notice after
-            // every launch; SpeechEnabled has the same shape, so it is treated the same way.
-            // These gate the SPEECH ONLY. They used to return, which withheld the chime and the
-            // animation too -- neither of which needs a speaker or a companion on screen -- so a user
-            // who turned app speech off and ticked "Play the notification sound" got nothing at all,
-            // contradicting the comment four lines down about wanting a chime and no chatter.
-            bool wantsSpeech = NotifySpeakOn && AgentMode.Speaks(Mode);
-            bool canSpeak = _host.SpeechEnabled && AnyCompanionCanSpeak();
-            bool spoke = wantsSpeech && canSpeak;
-            // Whether ANY channel reaches the user this time round. Decided here, beside the three
-            // switches, so the log line at the bottom can say what happened rather than what was
-            // meant to (F034).
-            bool delivered = spoke || NotifySoundOn || Animate;
-
-            // SayAll, not Say: this is a message to the USER, not a companion reacting to
-            // something. The host routes it to exactly one companion, so several on screen do
-            // not chant it in unison.
-            // Three independent channels now, which is what the pane offers. A user who
-            // wants a chime and no chatter gets exactly that.
-            if (spoke) _host.SayAll(line);
-            if (NotifySoundOn) _host.PlayNotificationSound(Info.Id);
-            if (Animate)
-            {
-                PlayChosenAnimation();
-            }
+            // Delivered over the three channels, and reported as what REACHED the user rather than
+            // what was switched on (R-004): "spoke" is a speaker found, "chimed" is the host's answer,
+            // "animated" is a pet on screen to play it. The companion check is the one that was missing
+            // and swallowed the first notice after every launch; SpeechEnabled has the same shape and is
+            // treated the same way; and F034's `delivered = spoke || NotifySoundOn || Animate` was the
+            // switches again for the other two channels, so a chime the app refused was logged as a
+            // signal with the one-shot spent. See Deliver.
+            Delivery delivery = Deliver(line);
             // Deferral is for a notice the user ASKED to hear and could not: hold it rather than spend
             // it. NOT for a user who simply has every channel switched off, and NOT for Log mode, whose
             // delivery channel IS the log line below -- deferring there would make Log mode stop
             // recording anything at all, which the assertion in SelfCheckNotifyChannels caught.
             // The budget is deliberately not consumed on this path, so the repeat guard is what stops
-            // the line being written every ten seconds until the user comes back.
-            if (wantsSpeech && !canSpeak && !NotifySoundOn && !Animate)
+            // the line being written every ten seconds until the user comes back. Since R-004 this
+            // covers a chime the app refused and an animation with no pet to play it, not only speech
+            // with no speaker: each is a notice the user asked for and did not get.
+            if (delivery.Wanted && !delivery.Delivered)
             {
                 LogDeferredNotice("deferred a notice about " + (speakThis.ToolName ?? "?")
-                                  + (!_host.SpeechEnabled
-                                     ? ": speech is switched off"
-                                     : ": no companion on screen to say it"));
+                                  + ": " + delivery.Undelivered);
                 return;
             }
             _lastDeferredNotice = null;
@@ -1573,12 +1646,12 @@ namespace DesktopAICompanion.AgentFlow
             // they were "signalled": nothing reached them, the one-shot is spent by the decision
             // recorded above, and a line claiming a signal was the same line-that-cannot-fail in a
             // different coat (F034). In Log mode the log IS the channel, so "signalled" stays its
-            // word there.
+            // word there. A channel that was on and reached nobody never gets here: it was held above.
             bool speakingMode = AgentMode.Speaks(Mode);
-            string verb = spoke ? "spoke about "
-                        : (delivered || !speakingMode) ? "signalled about "
+            string verb = delivery.Spoke ? "spoke about "
+                        : (delivery.Delivered || !speakingMode) ? "signalled about "
                         : "recorded a notice about ";
-            string why = (!delivered && speakingMode) ? " (no notify channel is enabled)" : "";
+            string why = (!delivery.Delivered && speakingMode) ? " (no notify channel is enabled)" : "";
             Log(verb + (speakThis.ToolName ?? "?") + " waiting "
                 + ((int)Math.Round(speakThis.IdleSeconds)).ToString(CultureInfo.InvariantCulture)
                 + "s in session " + Short(speakThis.Session) + why);
@@ -5857,6 +5930,113 @@ namespace DesktopAICompanion.AgentFlow
                         module5._budget.WasAnnounced(silent[0]));
                     module5.Shutdown();
                 }
+
+                // R-004: `delivered` was the switches, not their outcome. A chime the app refuses (its sounds
+                // off, muted, no device: PlayNotificationSound answers false) reached nobody, and the log
+                // said "signalled about" while the one-shot was spent. Held now, like speech with no speaker,
+                // and delivered when the app plays it.
+                using (var storage6 =
+                           new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-ch6"))
+                {
+                    var host6 = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    host6.UseStorage("agentflow", storage6);
+                    host6.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);
+                    var module6 = new AgentFlowModule();
+                    host6.Declared = module6.Info.Permissions;
+                    module6.Init(host6);
+                    module6._settings.Set(SettingMode, AgentMode.Notify);
+                    module6._settings.Set(SettingNotifySpeak, "false");
+                    module6._settings.Set(SettingNotifySound, "true");
+                    module6._settings.Set(SettingAnimate, "false");
+                    module6._settings.Save();
+                    host6.RaiseCompanionSpawned(new FakeCompanion());
+                    host6.PlaySoundResult = false;   // asked, and refused: the app's sounds are off
+                    List<Detection> refusedChime = OneBlockedDetection();
+                    module6.Apply(refusedChime);
+                    probe.Check("WITNESS the chime was ASKED for and the app refused it",
+                        host6.NotificationSoundsPlayed == 1);
+                    probe.Check("WITNESS a chime the app refused is held back, not logged as a signal, and the one-shot is not spent",
+                        CountLoggedContaining(host6.LoggedLines, "signalled about") == 0
+                        && CountLoggedContaining(host6.LoggedLines, "deferred a notice about") == 1
+                        && CountLoggedContaining(host6.LoggedLines, "the chime was refused") == 1
+                        && !module6._budget.WasAnnounced(refusedChime[0]));
+                    host6.PlaySoundResult = true;
+                    module6.Apply(OneBlockedDetection());
+                    probe.Check("...and is delivered, and logged as a signal, once the app plays it",
+                        host6.NotificationSoundsPlayed == 2
+                        && CountLoggedContaining(host6.LoggedLines, "signalled about") == 1
+                        && module6._budget.WasAnnounced(refusedChime[0]));
+                    module6.Shutdown();
+                }
+
+                // R-004, the animation: on, and no pet on screen to play it (the first tick after launch).
+                using (var storage7 =
+                           new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-ch7"))
+                {
+                    var host7 = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    host7.UseStorage("agentflow", storage7);
+                    host7.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);
+                    var module7 = new AgentFlowModule();
+                    host7.Declared = module7.Info.Permissions;
+                    module7.Init(host7);
+                    module7._settings.Set(SettingMode, AgentMode.Notify);
+                    module7._settings.Set(SettingNotifySpeak, "false");
+                    module7._settings.Set(SettingNotifySound, "false");
+                    module7._settings.Set(SettingAnimate, "true");
+                    module7._settings.Save();
+                    List<Detection> noPet = OneBlockedDetection();
+                    module7.Apply(noPet);
+                    probe.Check("WITNESS an animation with no pet on screen is held back, not logged as a signal",
+                        CountLoggedContaining(host7.LoggedLines, "signalled about") == 0
+                        && CountLoggedContaining(host7.LoggedLines, "no pet on screen to animate") == 1
+                        && !module7._budget.WasAnnounced(noPet[0]));
+                    host7.RaiseCompanionSpawned(new FakeCompanion());
+                    module7.Apply(OneBlockedDetection());
+                    probe.Check("...and plays, and is logged as a signal, once a pet is there",
+                        host7.PlayedAnimations.Count > 0
+                        && CountLoggedContaining(host7.LoggedLines, "signalled about") == 1
+                        && module7._budget.WasAnnounced(noPet[0]));
+                    module7.Shutdown();
+                }
+
+                // RA-048: a call still outstanding whose session reads WORKING for one tick (a permission-mode
+                // record appended, a rule file edited) kept its one-shot. Retain was fed the Blocked keys
+                // alone, so the key was dropped, and after the cooldown the same prompt spoke again.
+                using (var storage8 =
+                           new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-ch8"))
+                {
+                    var host8 = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                    host8.UseStorage("agentflow", storage8);
+                    host8.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);
+                    var module8 = new AgentFlowModule();
+                    host8.Declared = module8.Info.Permissions;
+                    module8.Init(host8);
+                    module8._settings.Set(SettingMode, AgentMode.Notify);
+                    module8._settings.Set(SettingNotifySpeak, "true");
+                    module8._settings.Save();
+                    host8.RaiseCompanionSpawned(new FakeCompanion());
+                    module8._budget.SetCooldownSeconds(0);   // so the one-shot is the only thing that can hold it
+                    DateTime t8 = DateTime.UtcNow;
+                    AgentSession stalled8 = Session(t8.AddSeconds(-300), t8.AddSeconds(-300),
+                                                    "curl https://example.com", "default");
+                    Detection blocked8 = BlockedDetector.Evaluate(stalled8, new RuleSet(), 30, t8);
+                    module8.Apply(new List<Detection> { blocked8 });
+                    probe.Check("WITNESS the prompt is announced once",
+                        host8.BroadcastLines.Count == 1 && module8._budget.WasAnnounced(blocked8));
+                    // The same call, still outstanding, read five seconds after the write: Working.
+                    Detection working8 = BlockedDetector.Evaluate(stalled8, new RuleSet(), 30, t8.AddSeconds(-295));
+                    probe.Check("WITNESS the fixture reads Working with the same call still outstanding",
+                        working8.Outcome == DetectionOutcome.Working && working8.Session.Outstanding.Count == 1);
+                    module8.Apply(new List<Detection> { working8 });
+                    module8.Apply(new List<Detection> { blocked8 });
+                    probe.Check("WITNESS a call that reads Working for one tick keeps its one-shot, so it is not announced again",
+                        host8.BroadcastLines.Count == 1 && module8._budget.WasAnnounced(blocked8));
+                    // ...while a session that has left the window frees it, which is the bound that remains.
+                    module8.Apply(new List<Detection>());
+                    probe.Check("...and a session that leaves the window frees its one-shot",
+                        !module8._budget.WasAnnounced(blocked8));
+                    module8.Shutdown();
+                }
             }
             return true;
         }
@@ -6819,13 +6999,26 @@ namespace DesktopAICompanion.AgentFlow
                 // switched-off module stays quiet, which is not the property under test.
                 host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Notify);
                 host.SettingsFor("agentflow").Set(SettingNotifySpeak, "true");
+                // The double refuses an undeclared chime, as the host does; the chime case below needs it.
+                host.Declared = module.Info.Permissions;
 
                 int Spoken() { return host.BroadcastLines.Count; }
                 var first = new ScreenPrompt { Signature = "codex|Deny|Allow once", Subject = "a Codex command" };
 
+                // RA-025: no pet on screen yet, which is every first tick after launch. The one
+                // announcement this prompt gets must not be spent on a tick with nobody to hear it.
+                module.AnnounceScreenPrompt(first);
+                probe.Check("WITNESS with no companion on screen a screen prompt is held, not announced into nothing",
+                    Spoken() == 0
+                    && CountLoggedContaining(host.LoggedLines, "held back a screen notice") == 1
+                    && CountLoggedContaining(host.LoggedLines, "no companion on screen") == 1);
+                module.AnnounceScreenPrompt(first);
+                probe.Check("...and the hold is logged once, not once per tick",
+                    CountLoggedContaining(host.LoggedLines, "held back a screen notice") == 1);
+                host.RaiseCompanionSpawned(new FakeCompanion());
                 module.AnnounceScreenPrompt(first);
                 int afterFirst = Spoken();
-                probe.Check("WITNESS a prompt on screen is announced", afterFirst > 0);
+                probe.Check("WITNESS the same screen prompt is still announced once a companion appears", afterFirst > 0);
 
                 module.AnnounceScreenPrompt(first);
                 module.AnnounceScreenPrompt(first);
@@ -6866,6 +7059,24 @@ namespace DesktopAICompanion.AgentFlow
                 module.AnnounceScreenPrompt(third);
                 probe.Check("WITNESS ...and the SAME prompt is still announced once the pause ends",
                     Spoken() > beforePaused);
+
+                // RA-026: the screen notice honours the chime and the animation, not speech alone. A user
+                // with "Play the notification sound" on and speech off got nothing for a prompt on screen.
+                host.SettingsFor("agentflow").Set(SettingNotifySpeak, "false");
+                host.SettingsFor("agentflow").Set(SettingNotifySound, "true");
+                int spokenBeforeChime = Spoken();
+                int chimesBefore = host.NotificationSoundsPlayed;
+                module.AnnounceScreenPrompt(new ScreenPrompt { Signature = "codex|chime", Subject = "a Codex command" });
+                probe.Check("WITNESS a screen prompt chimes when the chime is on and speech is off, and says nothing",
+                    host.NotificationSoundsPlayed == chimesBefore + 1 && Spoken() == spokenBeforeChime);
+                host.SettingsFor("agentflow").Set(SettingNotifySound, "false");
+                host.SettingsFor("agentflow").Set(SettingAnimate, "true");
+                int animationsBefore = host.PlayedAnimations.Count;
+                module.AnnounceScreenPrompt(new ScreenPrompt { Signature = "codex|anim", Subject = "a Codex command" });
+                probe.Check("WITNESS ...and animates when the animation is on",
+                    host.PlayedAnimations.Count > animationsBefore && Spoken() == spokenBeforeChime);
+                host.SettingsFor("agentflow").Set(SettingAnimate, "false");
+                host.SettingsFor("agentflow").Set(SettingNotifySpeak, "true");
 
                 module.Shutdown();
                 int afterShutdown = Spoken();

@@ -978,6 +978,21 @@ change while it stands, the fingerprint changes with it and the guard degrades t
 never to a wrong press; `docs/agentflow/agentflow_cdp_probe.py` replays both expressions with the
 fingerprint in them, so the next live probe shows whether two ticks saw one card or two.
 
+**A notice a channel was asked to carry and could not is HELD, whatever the channel (2026-09-30, R-004,
+RA-025, RA-026, RA-048).** The rule already held for speech with no speaker (the swallowed first notice
+after every launch); it now holds for the chime the app refused (`PlayNotificationSound` answers false when
+the app's sounds are off, muted or without a device) and for an animation with no pet on screen, and for a
+prompt seen on screen as well as one predicted from a transcript, through one `Deliver` both paths share.
+The alternative, spending the one-shot and logging "recorded a notice about X (the chime was refused)", was
+rejected: the user asked to be told and was not, and a one-shot spent on a tick that reached nobody is the
+permanent version of the bug F034 fixed the wording of. What is kept from F034: with every channel OFF the
+one-shot IS spent and the log says so, because there the user asked for nothing. Residue, stated: a chime
+the app refuses permanently (notification sounds off in Preferences with the module's chime left on) holds
+the notice for as long as the prompt stands, once in the log, exactly as app speech off already did. The
+one-shot's Retain is fed every outstanding call of every live session, not the Blocked ones alone, so a
+session that reads Working for one tick keeps its one-shot; the bound that remains is the fifteen-minute
+window, and a call still outstanding when its session comes back after it is a new prompt to the budget.
+
 #### fix/deadcode
 
 **A member whose only reader is a test is not dead, and what the test pins decides what happens to it

@@ -208,27 +208,30 @@ CASES = (
     ),
     # The defect the real app exposed and no test had caught: notifying before a companion is
     # on screen, where the host drops the line silently and the budget spends it anyway.
+    # Re-pointed 2026-09-30 (lane burn/agentflow, R-004): the three channels moved into Deliver, where the
+    # host is a local, so the `_host.SpeechEnabled` patterns matched nothing and both cases went NO-OP.
     (
         "speaks with no companion on screen (the swallowed-first-notice bug)",
         MODULE,
-        "            bool canSpeak = _host.SpeechEnabled && AnyCompanionCanSpeak();",
-        "            bool canSpeak = _host.SpeechEnabled;",
+        "            bool canSpeak = host.SpeechEnabled && AnyCompanionCanSpeak();",
+        "            bool canSpeak = host.SpeechEnabled;",
         "says nothing when no companion is on screen",
     ),
     (
         "speaks while speech is switched off",
         MODULE,
-        "            bool canSpeak = _host.SpeechEnabled && AnyCompanionCanSpeak();",
+        "            bool canSpeak = host.SpeechEnabled && AnyCompanionCanSpeak();",
         "            bool canSpeak = AnyCompanionCanSpeak();",
         "says nothing while speech is switched off",
     ),
     # The other half of that fix, and the half that made the bug PERMANENT rather than merely
-    # late: consuming the budget for a notice nobody could have seen.
+    # late: consuming the budget for a notice nobody could have seen. Re-pointed 2026-09-30 at the
+    # deferral Deliver's outcome drives (R-004).
     (
         "the budget is spent even when the notice was deferred",
         MODULE,
-        '                                     : ": no companion on screen to say it"));\n                return;',
-        '                                     : ": no companion on screen to say it"));\n                _budget.Record(speakThis, now);\n                return;',
+        '                                  + ": " + delivery.Undelivered);\n                return;',
+        '                                  + ": " + delivery.Undelivered);\n                _budget.Record(speakThis, now);\n                return;',
         "held notice is still delivered once a companion appears",
     ),
     # Saving the pane used to REPLACE the budget so a changed cooldown took effect at once, which
@@ -668,10 +671,12 @@ CASES = (
         "a chime with no chatter is possible",
     ),
     (
+        # Re-pointed 2026-09-30 (lane burn/agentflow, R-004): the chime is asked for inside Deliver and its
+        # answer kept, so the gate is `if (wantsSound)` around a try.
         "the sound fires whether or not it was asked for",
         MODULE,
-        "            if (NotifySoundOn) _host.PlayNotificationSound(Info.Id);",
-        "            _host.PlayNotificationSound(Info.Id);",
+        "            if (wantsSound)\n            {\n                try { result.Chimed = host.PlayNotificationSound(Info.Id); }",
+        "            if (wantsSound || !wantsSound)\n            {\n                try { result.Chimed = host.PlayNotificationSound(Info.Id); }",
         "speech alone speaks and makes no sound",
     ),
     (
@@ -1013,11 +1018,12 @@ CASES = (
         "a second session that blocks while the first still stands IS announced",
     ),
     (
-        # F034: "signalled about" was written with every channel off.
+        # F034: "signalled about" was written with every channel off. Re-pointed 2026-09-30 (lane
+        # burn/agentflow, R-004) at the verb's condition, since `delivered` is Deliver's outcome now.
         "the notice log claims a signal with every channel off again",
         MODULE,
-        "            bool delivered = spoke || NotifySoundOn || Animate;",
-        "            bool delivered = true;",
+        "                        : (delivery.Delivered || !speakingMode) ? \"signalled about \"",
+        "                        : (delivery.Delivered || !delivery.Delivered || !speakingMode) ? \"signalled about \"",
         "the log does not claim it signalled anyone",
     ),
     (
@@ -1199,6 +1205,46 @@ CASES = (
         "            if (powerShell && first == \"&\") first = FirstToken(rest, true, out rest);",
         "            if (powerShell && first == \"&&\") first = FirstToken(rest, true, out rest);",
         "PowerShell's call operator on a quoted path logs the executable",
+    ),
+    (
+        # R-004: the chime's outcome becomes the switch again, so a refused chime is logged as a signal.
+        "burn: R-004 a refused chime counts as delivered again",
+        MODULE,
+        "                try { result.Chimed = host.PlayNotificationSound(Info.Id); }",
+        "                try { host.PlayNotificationSound(Info.Id); result.Chimed = true; }",
+        "a chime the app refused is held back, not logged as a signal",
+    ),
+    (
+        # R-004: the animation reports a pet whether or not one was there.
+        "burn: R-004 an animation with no pet counts as delivered again",
+        MODULE,
+        "            host.PlayAnimationAll(candidates);\n            PruneCompanions();\n            return _companions.Count > 0;",
+        "            host.PlayAnimationAll(candidates);\n            PruneCompanions();\n            return true;",
+        "an animation with no pet on screen is held back",
+    ),
+    (
+        # RA-025: the screen one-shot is spent before anything could carry it.
+        "burn: RA-025 a screen notice nobody can hear spends the one-shot again",
+        MODULE,
+        "            if (delivery.Wanted && !delivery.Delivered)\n            {\n                string heldBack = \"held back a screen notice about \"",
+        "            if (false && delivery.Wanted && !delivery.Delivered)\n            {\n                string heldBack = \"held back a screen notice about \"",
+        "the same screen prompt is still announced once a companion appears",
+    ),
+    (
+        # RA-026: the screen notice goes back to speech alone.
+        "burn: RA-026 the screen notice honours speech alone again",
+        MODULE,
+        "            Delivery delivery = Deliver(seen.Notice ?? (\"Something is waiting for you: \" + seen.Subject + \".\"));",
+        "            var delivery = new Delivery { Wanted = true }; if (NotifySpeakOn && AgentMode.Speaks(Mode) && _host.SpeechEnabled && AnyCompanionCanSpeak()) { _host.SayAll(seen.Notice ?? (\"Something is waiting for you: \" + seen.Subject + \".\")); delivery.Spoke = true; }",
+        "a screen prompt chimes when the chime is on and speech is off",
+    ),
+    (
+        # RA-048: Retain is fed the Blocked keys alone again, so a call that reads Working for a tick is re-armed.
+        "burn: RA-048 Retain forgets a call whose session read Working for one tick",
+        MODULE,
+        "                if (detection.Session != null && detection.Session.Outstanding != null)\n                    foreach (OutstandingCall call in detection.Session.Outstanding)",
+        "                if (detection.Outcome == DetectionOutcome.Blocked && detection.Session != null && detection.Session.Outstanding != null)\n                    foreach (OutstandingCall call in detection.Session.Outstanding)",
+        "a call that reads Working for one tick keeps its one-shot",
     ),
     # ---- lane fix/deadcode ----
     # F047: the detailed split's separators were produced and read by nothing; the splitter self-test

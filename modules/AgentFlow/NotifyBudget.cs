@@ -181,7 +181,16 @@ namespace DesktopAICompanion.AgentFlow
         // below supersedes it by keeping only the keys still live, which is the same job done from the
         // other end and without the caller having to know which call ended.
 
-        /// <summary>Drop one-shot keys for calls that are no longer outstanding anywhere.</summary>
+        /// <summary>
+        /// Drop one-shot keys for calls that are no longer outstanding anywhere.
+        ///
+        /// FED EVERY OUTSTANDING CALL of every live session since RA-048, whatever the session's outcome
+        /// that tick. Apply used to hand this the Blocked detections' keys alone, so a call still
+        /// outstanding whose session read Working, StalledButAllowed or NotDecidable for one tick lost
+        /// its key here and was announced again after the cooldown. The bound that remains: a session
+        /// that leaves the fifteen-minute window is not live, so its keys go with it, and the same call
+        /// still outstanding when it returns is a new prompt to this budget.
+        /// </summary>
         public void Retain(IEnumerable<string> liveKeys)
         {
             if (liveKeys == null) return;
