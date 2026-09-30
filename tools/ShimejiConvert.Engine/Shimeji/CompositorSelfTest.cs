@@ -183,6 +183,89 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 {
                     foreach (Bitmap b in capOwned.Values) b.Dispose();
                 }
+
+                // ---- THE SHEET CLAMP TAKES THE SMALLER RATIO, ONCE ----
+                // ClampSheet used to multiply BOTH ratios into the scale, the second computed from the
+                // pre-clamp size and applied to a scale the first had already reduced, so a sheet over the cap
+                // on both axes was shrunk by their PRODUCT: the ~600-cell 512px template shape came out at
+                // 109px cells where 163px fit every cap, the pet at two thirds of its allowed size, silently
+                // (F459). Asserted on the arithmetic over a grid of shapes rather than on a 4096px fixture:
+                // the shapes cover neither axis over, one axis over, and both axes over, at three scales.
+                int clampCases = 0, clampEngaged = 0;
+                foreach (int[] shape in new[]
+                         {
+                             new[] { 25, 24, 512, 512 },   // both axes over at scale 0.5: the template shape
+                             new[] { 17, 16, 256, 256 },   // width over only
+                             new[] { 32, 32, 300, 160 },   // both over at scale 1 and 0.85, width only at 0.5
+                             new[] { 2, 40, 200, 200 },    // height over only
+                             new[] { 10, 10, 100, 100 },   // neither: the clamp must leave the scale alone
+                         })
+                    foreach (double scale in new[] { 1.0, 0.5, 0.8505 })
+                    {
+                        int tx = shape[0], ty = shape[1], cw = shape[2], ch = shape[3];
+                        double sheetW = tx * cw * scale, sheetH = ty * ch * scale;
+                        double expected = scale * Math.Min(1.0, Math.Min(
+                            SpriteSheetBuilder.MaxSheetDimension / sheetW, SpriteSheetBuilder.MaxSheetDimension / sheetH));
+                        double got = SpriteSheetBuilder.ClampSheet(scale, cw, ch, tx, ty);
+                        clampCases++;
+                        if (expected < scale) clampEngaged++;
+                        if (Math.Abs(got - expected) > 1e-9)
+                            failures.Add(string.Format(
+                                "ClampSheet({0}, cell {1}x{2}, tiles {3}x{4}) = {5:0.######}, expected {6:0.######} (the smaller "
+                                + "ratio applied once); the ratios were compounded, over-shrinking a sheet that exceeds "
+                                + "the cap on both axes", scale, cw, ch, tx, ty, got, expected));
+                    }
+                // WITNESS: the grid engaged the clamp in more than half its cases, or the equality above is
+                // mostly checking that an untouched scale comes back untouched.
+                if (clampEngaged * 2 <= clampCases)
+                    failures.Add("WITNESS: the clamp grid engaged the clamp in only " + clampEngaged + " of " + clampCases
+                        + " cases, so it barely tests the ratio arithmetic");
+
+                // ---- ROUNDING MUST NOT LAND THE SHEET PAST THE CAP ----
+                // After a binding clamp, cell*scale is exactly 4096/tiles and Math.Round can take it UP: 17
+                // tiles of 241px cells clamp to 240.94, round to 241, and the sheet is 4097px, which the app's
+                // validator refuses ("invalid dimensions or tile geometry") while the compositor reports
+                // success (F459). 289 distinct 1x241 frames keep the fixture to a few hundred KB of bitmaps and a
+                // 17x4080 sheet. The fit must come from the SCALE, not from trimming the cell: the frame's
+                // anchor row (its feet) must still be the bottom row of its tile.
+                var tallOwned = new Dictionary<string, Bitmap>(StringComparer.Ordinal);
+                try
+                {
+                    var tallPoses = new List<ShimejiPose>();
+                    for (int i = 0; i < 17 * 17; i++)
+                    {
+                        string nm = "/tall" + i + ".png";
+                        // One colour per frame (the G,B pair is i), so the content dedupe keeps all 289 cells.
+                        tallOwned[nm] = Solid(1, 241, Color.FromArgb(255, (i >> 16) & 0xFF, (i >> 8) & 0xFF, i & 0xFF));
+                        tallPoses.Add(new ShimejiPose { Image = nm, AnchorX = 0, AnchorY = 241, Duration = 1 });
+                    }
+                    Func<string, Bitmap> tallLoad = delegate(string n) { return new Bitmap(tallOwned[n]); };
+                    SpriteSheet tall; string tallErr;
+                    if (!SpriteSheetBuilder.Build(tallPoses, tallLoad, true, out tall, out tallErr))
+                        failures.Add("the 17x17 rounding fixture would not build: " + tallErr);
+                    else
+                    {
+                        if (tall.TilesX * tall.CellWidth > SpriteSheetBuilder.MaxSheetDimension
+                            || tall.TilesY * tall.CellHeight > SpriteSheetBuilder.MaxSheetDimension)
+                            failures.Add("sheet " + (tall.TilesX * tall.CellWidth) + "x" + (tall.TilesY * tall.CellHeight)
+                                + " exceeds the " + SpriteSheetBuilder.MaxSheetDimension + " px cap the validator enforces; "
+                                + "rounding the clamped cell up landed the sheet past it");
+                        if (!TileBottomRowPainted(tall.PngBytes, tall.TilesX, tall.CellWidth, tall.CellHeight, 0))
+                            failures.Add("the first frame does not reach the bottom row of its cell, so the sheet was fitted "
+                                + "by trimming the cell rather than by scaling the sprite, and the feet are clipped");
+                        // WITNESS: the clamp engaged on this shape, or the geometry assertion is idle.
+                        if (tall.Scale >= 1.0)
+                            failures.Add("WITNESS: 17 tiles of 241px cells never engaged the sheet clamp (scale " + tall.Scale
+                                + "), so the rounding assertion tests nothing");
+                        if (tall.TilesX != 17 || tall.TilesY != 17)
+                            failures.Add("WITNESS: the rounding fixture is " + tall.TilesX + "x" + tall.TilesY + " tiles, not the "
+                                + "17x17 the rounding case needs");
+                    }
+                }
+                finally
+                {
+                    foreach (Bitmap b in tallOwned.Values) b.Dispose();
+                }
             }
             finally
             {
@@ -202,6 +285,22 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             var bmp = new Bitmap(w, h, PixelFormat.Format32bppArgb);
             using (var g = Graphics.FromImage(bmp)) { g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceCopy; g.Clear(c); }
             return bmp;
+        }
+
+        /// <summary>True when the bottom row of the given tile carries any pixel with alpha, i.e. the frame's
+        /// anchor row was drawn rather than clipped off.</summary>
+        private static bool TileBottomRowPainted(byte[] png, int tilesX, int cellW, int cellH, int tile)
+        {
+            using (var ms = new MemoryStream(png, false))
+            using (var bmp = new Bitmap(ms))
+            {
+                int x0 = (tile % tilesX) * cellW;
+                int y = (tile / tilesX) * cellH + cellH - 1;
+                if (y >= bmp.Height) return false;
+                for (int x = x0; x < x0 + cellW && x < bmp.Width; x++)
+                    if (bmp.GetPixel(x, y).A != 0) return true;
+                return false;
+            }
         }
 
         private static Bitmap Transparent(int w, int h)

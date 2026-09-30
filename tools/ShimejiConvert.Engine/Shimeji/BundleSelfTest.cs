@@ -138,6 +138,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                         ? r.Root.Animations.Animation.Length : 0;
                     // 2 floor spokes (stand, walk_left) + fall + drag + kill + sync + turn = 7
                     if (anims != 7) failures.Add("expected 7 animations, got " + anims);
+                    // WITNESS for part 4 below: a bundle whose sprites all match the manifest is not told
+                    // anything was re-anchored.
+                    if (r.Residue != null && r.Residue.Notes.Exists(s => s.IndexOf("anchored to their own pixels", StringComparison.Ordinal) >= 0))
+                        failures.Add("WITNESS: the uniform bundle's residue reports re-anchored sprites although every sprite matches the manifest");
                 }
             }
             catch (Exception ex)
@@ -147,6 +151,73 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             finally
             {
                 try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, true); } catch { /* best-effort cleanup */ }
+            }
+
+            // ---- 4) ANCHORS COME FROM THE DECODED SPRITES, NOT FROM THE MANIFEST ----
+            // A bundle anchors every pose at (width/2, height) of the manifest's declared size. Five of 948 real
+            // bundles ship sprites that disagree with their own manifest, and the cell height came from that
+            // anchor while the width came from the real bitmap: a shorter sprite was drawn at the cell top and
+            // floated above the floor by the difference, a taller one lost its bottom rows to the tile clip,
+            // and the pet was ACCEPTED (F444). This bundle declares 32x40 and ships sprite 0 at 24 rows and
+            // sprite 2 at 48. The cell must be 48 tall (the tallest real sprite), and every sprite's lowest
+            // painted row must sit on the SAME line, four rows above the cell bottom (WritePng leaves a 4px
+            // transparent border): that is the feet on the floor, whatever the sprite's height.
+            string mixedDir = Path.Combine(Path.GetTempPath(), "shimeji-bundle-mixed-selftest-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                WriteSyntheticBundle(mixedDir, new[] { 24, SpriteH, 48, SpriteH, SpriteH, SpriteH });
+                string mixedError;
+                ConversionResult m = BundleConverter.ConvertBundle(mixedDir, "Mixed Skin", out mixedError);
+                if (m == null)
+                    failures.Add("the mixed-size bundle failed to convert: " + mixedError);
+                else if (!m.Accepted)
+                    failures.Add("the mixed-size bundle was not ACCEPTED: " + m.Error);
+                else
+                {
+                    using (var ms = new MemoryStream(Convert.FromBase64String(m.Root.Image.Png)))
+                    using (var sheetBmp = new Bitmap(ms))
+                    {
+                        int tilesX = m.Root.Image.TilesX;
+                        int cw = sheetBmp.Width / tilesX;
+                        int ch = sheetBmp.Height / m.Root.Image.TilesY;
+                        if (ch != 48)
+                            failures.Add("the mixed-size bundle's cell is " + ch + " rows tall; the tallest decoded sprite is 48, so "
+                                + "the manifest's 40 won and the tall sprite lost its bottom rows");
+                        XmlData.AnimationNode standAnim = AnimationNamed(m, "stand");
+                        XmlData.AnimationNode walkAnim = AnimationNamed(m, "walk") ?? AnimationNamed(m, "walk_left");
+                        if (standAnim == null || standAnim.Sequence == null || standAnim.Sequence.Frame == null
+                            || standAnim.Sequence.Frame.Length < 2 || walkAnim == null || walkAnim.Sequence == null
+                            || walkAnim.Sequence.Frame == null || walkAnim.Sequence.Frame.Length < 1)
+                            failures.Add("the mixed-size bundle lost the animations the anchor assertions need (stand with 2 frames, walk with 1+)");
+                        else
+                        {
+                            int floorRow = ch - 1 - 4;
+                            int shortRow = LowestPaintedRow(sheetBmp, tilesX, cw, ch, standAnim.Sequence.Frame[0]);
+                            int normalRow = LowestPaintedRow(sheetBmp, tilesX, cw, ch, standAnim.Sequence.Frame[1]);
+                            int tallRow = LowestPaintedRow(sheetBmp, tilesX, cw, ch, walkAnim.Sequence.Frame[0]);
+                            if (shortRow != floorRow)
+                                failures.Add("the 24-row sprite's feet are on row " + shortRow + " of a " + ch + "-row cell, not on the "
+                                    + "floor line (" + floorRow + "): its anchor came from the manifest, so it floats above the floor");
+                            if (normalRow != floorRow)
+                                failures.Add("the 40-row sprite's feet are on row " + normalRow + ", not on the floor line (" + floorRow + ")");
+                            if (tallRow != floorRow)
+                                failures.Add("the 48-row sprite's feet are on row " + tallRow + ", not on the floor line (" + floorRow
+                                    + "): it was clipped to the manifest's height instead of anchored to its own");
+                        }
+                    }
+                    if (!m.Residue.Notes.Exists(s => s.IndexOf("anchored to their own pixels", StringComparison.Ordinal) >= 0
+                                                     && s.IndexOf("/0000.png", StringComparison.Ordinal) >= 0
+                                                     && s.IndexOf("/0002.png", StringComparison.Ordinal) >= 0))
+                        failures.Add("the residue does not name the two sprites that disagree with the manifest");
+                }
+            }
+            catch (Exception ex)
+            {
+                failures.Add("mixed-size bundle convert threw -- " + ex.Message);
+            }
+            finally
+            {
+                try { if (Directory.Exists(mixedDir)) Directory.Delete(mixedDir, true); } catch { /* best-effort cleanup */ }
             }
 
             // ---- 3) the WebP path itself: FindDwebp, the process spawn, the '-o -' stream, both bounds ----
@@ -208,7 +279,33 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             if (a.BorderType != border) failures.Add(name + " BorderType=" + (a.BorderType ?? "<null>") + ", expected " + (border ?? "<null>"));
         }
 
-        private static void WriteSyntheticBundle(string dir)
+        private static XmlData.AnimationNode AnimationNamed(ConversionResult r, string name)
+        {
+            if (r == null || r.Root == null || r.Root.Animations == null || r.Root.Animations.Animation == null) return null;
+            foreach (XmlData.AnimationNode a in r.Root.Animations.Animation)
+                if (a != null && string.Equals(a.Name, name, StringComparison.Ordinal)) return a;
+            return null;
+        }
+
+        /// <summary>The lowest row WITHIN the tile that carries a pixel with alpha, or -1 for a blank tile.
+        /// Where a sprite's feet landed, in other words.</summary>
+        private static int LowestPaintedRow(Bitmap sheet, int tilesX, int cellW, int cellH, int tile)
+        {
+            int x0 = (tile % tilesX) * cellW;
+            int y0 = (tile / tilesX) * cellH;
+            for (int row = cellH - 1; row >= 0; row--)
+            {
+                int y = y0 + row;
+                if (y >= sheet.Height) continue;
+                for (int x = x0; x < x0 + cellW && x < sheet.Width; x++)
+                    if (sheet.GetPixel(x, y).A != 0) return row;
+            }
+            return -1;
+        }
+
+        /// <summary>Write the synthetic bundle. <paramref name="heights"/>, when given, overrides each sprite's
+        /// pixel height while the manifest keeps declaring <see cref="SpriteH"/>: the mixed-size case.</summary>
+        private static void WriteSyntheticBundle(string dir, int[] heights = null)
         {
             string spritesDir = Path.Combine(dir, "sprites");
             Directory.CreateDirectory(spritesDir);
@@ -222,18 +319,19 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 Color.FromArgb(255, 200, 40, 200), Color.FromArgb(255, 40, 200, 200),
             };
             for (int i = 0; i < colours.Length; i++)
-                WritePng(Path.Combine(spritesDir, string.Format("{0:D4}.png", i)), colours[i]);
+                WritePng(Path.Combine(spritesDir, string.Format("{0:D4}.png", i)), colours[i],
+                    heights != null && i < heights.Length ? heights[i] : SpriteH);
         }
 
-        private static void WritePng(string path, Color colour)
+        private static void WritePng(string path, Color colour, int height)
         {
-            using (var bmp = new Bitmap(SpriteW, SpriteH, PixelFormat.Format32bppArgb))
+            using (var bmp = new Bitmap(SpriteW, height, PixelFormat.Format32bppArgb))
             {
                 using (var g = Graphics.FromImage(bmp))
                 {
                     g.Clear(Color.FromArgb(0, 0, 0, 0));   // a transparent border, so alpha is meaningful
                     using (var brush = new SolidBrush(colour))
-                        g.FillRectangle(brush, 4, 4, SpriteW - 8, SpriteH - 8);
+                        g.FillRectangle(brush, 4, 4, SpriteW - 8, height - 8);
                 }
                 bmp.Save(path, ImageFormat.Png);
             }

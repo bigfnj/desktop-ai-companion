@@ -74,6 +74,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         /// </summary>
         public bool AnchorToTop;
 
+        /// <summary>
+        /// The anchor was DERIVED from a declared sprite size rather than authored for this pose, so the
+        /// compositor re-derives it from the bitmap it actually decodes. An Android bundle anchors every pose
+        /// bottom-centre at (width/2, height) of the manifest's sprites.size, and 5 of 948 real bundles ship
+        /// sprites that disagree with their own manifest: an anchor taken from the manifest then floats a
+        /// shorter sprite above the floor line or clips a taller one, and nothing downstream can see it
+        /// (F444). A classic skin authors ImageAnchor per pose and leaves this false.
+        /// </summary>
+        public bool AnchorFollowsSprite;
+
         /// <summary>Frame identity for the sprite sheet: a given image placed with a given anchor is one tile.
         /// Two poses that reuse the same image at the same anchor share a tile; a different anchor is a
         /// different tile, because the anchor is baked into pixel placement.</summary>

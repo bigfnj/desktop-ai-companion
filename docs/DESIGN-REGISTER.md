@@ -293,6 +293,18 @@ child that hangs for 30 s. The gate cannot pay that, and no argument-shaped stan
 holding the output file open, so the fix is the documented Kill -> WaitForExit sequence and the audit record's own
 measurement (plain Kill: 20/20 partial files left behind; a wait after the kill: 0/20) is the evidence for it.
 
+**No rung for F444, F459 or F460 either (2026-09-29).** F444's five disagreeing bundles are unshipped and a rung cannot
+move pixels; the shipped converted sheets never engaged the sheet clamp (the largest is 14x14 tiles at 3584 px, read
+from the PNG headers of all 32 by the audit), so F459 changes no shipped sheet; F460 changes how a sprite is decoded,
+not what is emitted. F459's rounding half keeps `Math.Round` for every sheet inside the cap and re-fits only a sheet
+that would land past it: switching to Floor would shave a pixel off the six shipped fractional-scale pets on
+re-conversion, download churn for no defect.
+
+**F460's saving is a property, not a number (2026-09-29).** For a WebP sprite the PNG deflate inside dwebp and the WIC
+PNG decode on this side no longer run. The audit measured 7-10 ms per cartoon sprite and about 35 ms per noisy one on
+the dwebp half alone (fresh processes, 30 runs in rotation); that figure is the record's, not re-measured cold here,
+so nothing is claimed for the converter as a whole.
+
 #### fix/remembrance
 
 (none yet)

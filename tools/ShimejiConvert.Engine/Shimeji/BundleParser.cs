@@ -137,8 +137,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                                 VelX = GetInt(fr, "dx", 0),
                                 VelY = GetInt(fr, "dy", 0),
                                 // Bottom-centre anchor: sprites are drawn feet-at-bottom, centred horizontally.
+                                // From the manifest's DECLARED size here, because no pixel has been decoded yet;
+                                // the compositor re-derives it from the decoded bitmap for any sprite whose real
+                                // size disagrees with the manifest (see ShimejiPose.AnchorFollowsSprite).
                                 AnchorX = info.SpriteWidth / 2,
                                 AnchorY = info.SpriteHeight,
+                                AnchorFollowsSprite = true,
                             };
                             animation.Poses.Add(pose);
                             config.Poses.Add(pose);   // complete sprite set, exactly as ShimejiParser gathers it
