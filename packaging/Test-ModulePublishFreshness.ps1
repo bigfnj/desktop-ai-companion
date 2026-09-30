@@ -479,6 +479,17 @@ Write-Host "All $($ids.Count) published module payload(s) are current with their
 # sufficient and cannot false-negative: if the current bytes are absent, the zip is stale.
 $collectionsPath = Join-Path $repoRoot 'packs\collections.json'
 $fortunesZip = Join-Path $repoRoot 'modules-dist\fortunes.zip'
+# A MISSING INPUT IS A THROW, NOT A SKIP. This block sat behind `if (both exist)` with no else, so a
+# renamed collections.json would have turned the one guard against a stale-built zip into a silent
+# pass, in a file that refuses on every other narrowed run (F221). collections.json is a build input
+# the Fortunes module embeds and fortunes.zip is a committed artifact, so neither has a legitimate
+# absent case; the condition never consulted -ModuleId, so it was only ever a skip.
+if (-not (Test-Path -LiteralPath $collectionsPath -PathType Leaf)) {
+    throw "packs\collections.json is missing at $collectionsPath, so the pack-to-collection content check cannot run."
+}
+if (-not (Test-Path -LiteralPath $fortunesZip -PathType Leaf)) {
+    throw "modules-dist\fortunes.zip is missing at $fortunesZip, so the pack-to-collection content check cannot run."
+}
 if ((Test-Path -LiteralPath $collectionsPath) -and (Test-Path -LiteralPath $fortunesZip)) {
     $expected = (Get-Content -LiteralPath $collectionsPath -Raw | ConvertFrom-Json)
     $expectedPairs = [System.Collections.Generic.List[string]]::new()

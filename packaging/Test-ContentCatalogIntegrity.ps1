@@ -63,9 +63,17 @@ if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
 # matters as much: the same call at the real default, against real git, must SUCCEED, or this would
 # pass on a file that simply cannot be read.
 $timeoutProbeRel = 'packs/collections.json'
-$timeoutProbeFull = Join-Path (Split-Path $PSScriptRoot -Parent) 'packs\collections.json'
+# From $RepoRoot, so a -RepoRoot run probes the repository it was asked about rather than the one
+# this script happens to live in.
+$timeoutProbeFull = Join-Path $RepoRoot 'packs\collections.json'
+# A MISSING PROBE FILE IS A THROW, NOT A SKIP. The whole probe used to sit behind `if (Test-Path)` with
+# no else, so a renamed collections.json turned the only execution of the timeout path into a silent
+# pass, in a file that refuses on every other narrowed run (F221).
+if (-not (Test-Path -LiteralPath $timeoutProbeFull -PathType Leaf)) {
+    throw "packs\collections.json is missing at $timeoutProbeFull, so the catalog-asset timeout path cannot be exercised."
+}
 if (Test-Path -LiteralPath $timeoutProbeFull) {
-    $repoRootForProbe = Split-Path $PSScriptRoot -Parent
+    $repoRootForProbe = $RepoRoot
     $probeThrew = ''
     $stallSeconds = 10
     $stallBudgetMs = 500

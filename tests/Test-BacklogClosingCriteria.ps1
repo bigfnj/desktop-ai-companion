@@ -90,6 +90,21 @@ $broken = New-Object System.Collections.Generic.List[string]
 $currentIsOpen = $false
 $currentTitle = ''
 $currentLine = 0
+# The indentation of the line that opened the current item, so a tick on a line indented BELOW it is
+# read as a finished sub-task of the item rather than as the item closing. Before this, an open item
+# whose body carried a `  - ✅ sub-task done` line ahead of its CLOSES-WHEN flipped the parser to
+# closed on the sub-bullet, so the criterion was neither evaluated nor counted, and the only trace was
+# the summary's "carry a CLOSES-WHEN" count moving by one -- indistinguishable from an item with no
+# criterion, in a check whose header promises it cannot go quiet (F417). Indentation only, on purpose:
+# an attempt to also treat every bullet under a heading as nested made the glyph-less `## ` section
+# headings swallow every item after them, and a nested OPEN pin still takes over below, because an
+# open sub-item is open work that may carry its own criterion.
+$currentIndent = [int]::MaxValue
+
+function Get-LineIndent {
+    param([string] $Line)
+    return [regex]::Match($Line, '^(\s*)').Groups[1].Value.Length
+}
 
 function Test-Criterion {
     param([string] $Verb, [string] $Target, [string] $Needle, [string] $Where,
@@ -155,13 +170,20 @@ for ($i = 0; $i -lt $lines.Count; $i++) {
 
     if ($line -match $openPattern) {
         $currentIsOpen = $true
+        $currentIndent = Get-LineIndent $line
         $currentLine = $i + 1
         $currentTitle = ($line -replace '^\s*(-|###)\s*\S+\s*', '').Trim()
         if ($currentTitle.Length -gt 90) { $currentTitle = $currentTitle.Substring(0, 90) + '...' }
         $open++
         continue
     }
-    if ($line -match $closedPattern) { $currentIsOpen = $false; continue }
+    if ($line -match $closedPattern) {
+        # A tick indented below the current item is a finished sub-task inside it, not the item
+        # closing; only a tick at the item's own indentation or shallower ends it.
+        $indent = Get-LineIndent $line
+        if ($indent -le $currentIndent) { $currentIsOpen = $false; $currentIndent = $indent }
+        continue
+    }
 
     # A LINE THAT SAYS CLOSES-WHEN BUT DOES NOT PARSE IS NOT A LINE WITHOUT A CRITERION.
     # The pattern below wants `<verb> <path> "<quoted needle>"`, and anything else -- arguments the
