@@ -690,6 +690,10 @@ CASES = (
         "the animation played is not the one-pet list any more",
     ),
     (
+        # Kept as it stands, checked 2026-09-30 by lane fix/followups: the whole run scored this case WRONG
+        # for a day after N-host-03 folded the log-path arithmetic into the containment WITNESSes, whose
+        # labels said containment while the arithmetic was what failed. SelfCheckRevealPath asserts the
+        # arithmetic under its own labels again, this one among them, so the expectation below is unchanged.
         "the log path goes up one level instead of two",
         PANE,
         "                return System.IO.Path.Combine(modules.Parent.FullName, " + chr(34) + "diagnostics.log" + chr(34) + ");",

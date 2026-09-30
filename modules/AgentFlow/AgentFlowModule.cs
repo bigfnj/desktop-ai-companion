@@ -5498,17 +5498,25 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("no storage means no path to ask for",
                 RevealPathFrom(null) == null && RevealPathFrom(new FakeStorage("")) == null);
 
-            // WITNESS: the log two levels up, which the button used to ask for, is OUTSIDE the root
-            // the host permits, so the containment lines above are not satisfied by any path.
-            probe.Check("WITNESS the app's log two levels up is outside this module's storage, which is why the button no longer asks for it",
-                LogPathFrom(installed) == @"C:\Users\x\AppData\Local\DesktopAICompanion\diagnostics.log"
-                && !IsInsideStorage(LogPathFrom(installed), installed));
-            probe.Check("WITNESS ...and under the PORTABLE layout too",
-                LogPathFrom(portable) == @"D:\build\x64\data\diagnostics.log"
-                && !IsInsideStorage(LogPathFrom(portable), portable));
+            // The pane's note names the log through LogPathFrom, so its ARITHMETIC keeps assertions of its
+            // own, one thing per line: two levels up, under both layouts, whatever the trailing separator.
+            // These carried the reveal path until 2026-09-30 and were folded into the containment lines
+            // below for a day, which left mutate-agentflow.py's "goes up one level" case failing on lines
+            // whose label said containment; each check asserts exactly what its label names again.
+            probe.Check("WITNESS the log is found under an INSTALLED data root",
+                LogPathFrom(installed) == @"C:\Users\x\AppData\Local\DesktopAICompanion\diagnostics.log");
+            probe.Check("WITNESS ...and under a PORTABLE one beside the exe, which is what broke",
+                LogPathFrom(portable) == @"D:\build\x64\data\diagnostics.log");
             probe.Check("a trailing separator does not shift the log up a level",
-                LogPathFrom(new FakeStorage(@"D:\data\modules\agentflow\")) == @"D:\data\diagnostics.log"
-                && LogPathFrom(null) == null && LogPathFrom(new FakeStorage("")) == null);
+                LogPathFrom(new FakeStorage(@"D:\data\modules\agentflow\")) == @"D:\data\diagnostics.log");
+            probe.Check("no storage means no log to name",
+                LogPathFrom(null) == null && LogPathFrom(new FakeStorage("")) == null);
+
+            // WITNESS: the log two levels up, which the button used to ask for, is OUTSIDE the root the host
+            // permits under both layouts, so the containment lines above are not satisfied by any path.
+            // Containment only: the arithmetic is the lines just above.
+            probe.Check("WITNESS the app's log two levels up is outside this module's storage, which is why the button no longer asks for it",
+                !IsInsideStorage(LogPathFrom(installed), installed) && !IsInsideStorage(LogPathFrom(portable), portable));
 
             // The action itself, against a real storage: nothing saved yet is said, a saved file is handed
             // over, and the pane's note names the log.
