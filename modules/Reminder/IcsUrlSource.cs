@@ -85,12 +85,21 @@ namespace DesktopAICompanion.ReminderModule
                 (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp))
                 throw new InvalidOperationException("The calendar URL must be an http(s) or webcal address.");
 
+            // Which phase the deadline fired in, for the message. GetAsync returns once the HEADERS are in
+            // (ResponseHeadersRead), so a cancellation before that is a server that did not answer, and one after
+            // it is a body that stalled, the F189 shape. One message for both told the user "did not finish
+            // downloading" about a feed that never began, and let the self-test's stall check pass on a loaded
+            // machine where the client's own connect took the whole deadline, proving nothing about the body read
+            // it exists to bound (R-050). HttpClient.Timeout throws the same exception type for the headers phase
+            // in production, so it reads the same way here.
+            bool headersReceived = false;
             try
             {
                 using (var cts = new CancellationTokenSource(deadline))
                 using (HttpResponseMessage response = Http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cts.Token)
                            .GetAwaiter().GetResult())
                 {
+                    headersReceived = true;
                     response.EnsureSuccessStatusCode();
                     // A declared length over the cap is refused before a byte of body is read. A body that
                     // declares nothing, or lies, is caught by the running total below.
@@ -116,8 +125,10 @@ namespace DesktopAICompanion.ReminderModule
             catch (OperationCanceledException)
             {
                 // "A task was canceled." is what the user would otherwise read in the status line.
-                throw new TimeoutException("The calendar feed did not finish downloading within "
-                    + deadline.TotalSeconds.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + " seconds.");
+                string seconds = deadline.TotalSeconds.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture);
+                throw new TimeoutException(headersReceived
+                    ? "The calendar feed did not finish downloading within " + seconds + " seconds."
+                    : "The calendar feed did not respond within " + seconds + " seconds.");
             }
         }
 
@@ -307,8 +318,11 @@ namespace DesktopAICompanion.ReminderModule
             CalendarSnapshot empty = ParseIcs("   ", now);
             ok &= Check(sb, "an empty feed is an error snapshot, not an exception",
                 empty.Error != null && empty.Events != null && empty.Events.Count == 0);
+            // Error asserted too, not only "no events": reported as a healthy empty calendar, garbage would make
+            // the slot vouch for an empty feed and the F204 prune would drop every fired id it holds (RA-170).
             CalendarSnapshot garbage = ParseIcs("this is not a calendar", now);
-            ok &= Check(sb, "garbage never throws and yields no events", garbage.Events != null && garbage.Events.Count == 0);
+            ok &= Check(sb, "garbage is an error snapshot with no events, not an empty healthy calendar (and never throws)",
+                garbage.Error != null && garbage.Events != null && garbage.Events.Count == 0);
 
             sb.AppendLine(ok ? "IcsUrlSource self-test PASSED" : "IcsUrlSource self-test FAILED");
             detail = sb.ToString();

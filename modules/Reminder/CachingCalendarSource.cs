@@ -54,11 +54,16 @@ namespace DesktopAICompanion.ReminderModule
         private string _lastGoodKey;
         private DateTimeOffset _lastFetchUtc = DateTimeOffset.MinValue;
         private string _lastKey;
+        // The key the NEWEST attempt was kicked for, stamped at the kick rather than at the landing like
+        // _lastKey. Fetch compares the caller's key with it to tell "the target I am already fetching" from "a
+        // target the user has just switched to", which is what lets an edit made while the old target's attempt
+        // is parked be fetched at once (RA-169).
+        private string _kickedKey;
         // The latch, in three parts. _generation counts kicks and _landedGeneration is the newest kick whose
         // result has been stored, so "a refresh is in flight" is the two disagreeing. _started holds the start
         // time of every attempt kicked and not yet returned, of ANY generation: its count is what the cap
-        // bounds, its oldest entry is what the stall report names, and its newest is what the deadline
-        // measures before another attempt is kicked.
+        // bounds; among the entries a newer landing has not superseded, its oldest is what the stall report
+        // names and its newest is what the deadline measures before another attempt is kicked (R-044).
         private int _generation;
         private int _landedGeneration;
         private readonly Dictionary<int, DateTimeOffset> _started = new Dictionary<int, DateTimeOffset>();
@@ -154,23 +159,45 @@ namespace DesktopAICompanion.ReminderModule
                 bool abandoned = false;
                 if (inFlight)
                 {
+                    // Only attempts that can still become the served result take part in the report and in
+                    // the deadline. An attempt whose generation is below _landedGeneration was superseded when
+                    // a newer one landed: DoRefresh will drop its result whenever it returns, so it is not a
+                    // stall of the data being served. Without this filter a permanently parked first attempt
+                    // drove the report on every tick a later, healthy refresh was in flight -- the status
+                    // flipped to ⚠ and the on-change feed log wrote a stall and a recovery once per refresh
+                    // cycle, for the life of the process (R-044). It still counts toward the cap below: a
+                    // parked thread is a parked thread whatever generation it carries.
                     DateTimeOffset oldest = DateTimeOffset.MaxValue, newest = DateTimeOffset.MinValue;
-                    foreach (DateTimeOffset started in _started.Values)
+                    bool live = false;
+                    foreach (KeyValuePair<int, DateTimeOffset> attempt in _started)
                     {
-                        if (started < oldest) oldest = started;
-                        if (started > newest) newest = started;
+                        if (attempt.Key < _landedGeneration) continue;
+                        live = true;
+                        if (attempt.Value < oldest) oldest = attempt.Value;
+                        if (attempt.Value > newest) newest = attempt.Value;
                     }
-                    if (_started.Count > 0 && nowUtc - oldest > deadline)
+                    if (live && nowUtc - oldest > deadline)
                         stall = "a refresh started at "
                             + oldest.ToLocalTime().ToString("t", CultureInfo.CurrentCulture)
                             + " has not completed";
-                    abandoned = _started.Count > 0 && nowUtc - newest > deadline;
+                    abandoned = live && nowUtc - newest > deadline;
                 }
-                kick = stale && (!inFlight || abandoned) && _started.Count < MaximumOutstandingRefreshes;
+                // A key the newest attempt was not kicked for is a new calendar: the user edited the URL or the
+                // file while the previous target's attempt was still out (a share whose host is unreachable
+                // parks it on the SMB connect timeout for a minute or more). Pre-campaign every Apply rebuilt
+                // the source, so a fresh instance read the new target on the next tick; F200 keeps the instance,
+                // and until this branch the edit waited for the old attempt to land or to outlive the deadline
+                // (RA-169). The new key is kicked at once, under the cap, and the old attempt is left to return
+                // in its own time, its result dropped by the generation rule. Compared with the KICKED key, not
+                // the landed one: `changed` stays true on every tick until the new target lands, and kicking on
+                // it would start one attempt per tick.
+                bool pendingForKey = inFlight && string.Equals(key, _kickedKey, StringComparison.Ordinal);
+                kick = stale && (!inFlight || abandoned || !pendingForKey) && _started.Count < MaximumOutstandingRefreshes;
                 if (kick)
                 {
                     generation = ++_generation;
                     _started[generation] = nowUtc;
+                    _kickedKey = key;
                 }
                 // A changed key means the cache describes a calendar the user no longer points at. Serving it
                 // for the tick between the edit and the new target's first landing announced the old

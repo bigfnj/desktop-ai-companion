@@ -1,5 +1,6 @@
 using System;
-using System.Threading;
+using System.Collections.Generic;
+using System.Globalization;
 using System.Threading.Tasks;
 using DesktopAICompanion.Modules;
 
@@ -117,10 +118,36 @@ namespace DesktopAICompanion.ReminderModule
         internal const long MaximumCustomBytes = 8 * 1024 * 1024;
 
         // Decoded once. The base64 literal used to be re-decoded on every fire; ~6 KB each time, cosmetic but free.
-        private static readonly byte[] DefaultChime = Convert.FromBase64String(ChimeMp3Base64);
+        // Internal so the self-test can tell a fall-back to it from the custom bytes it handed the loader.
+        internal static readonly byte[] DefaultChime = Convert.FromBase64String(ChimeMp3Base64);
 
-        // Single-flight latch for the custom read: 1 while a read-and-play is in flight on a pool thread.
-        private static int _customReadInFlight;
+        // Single-flight latch for the custom read, keyed on the FILE: the paths whose read-and-play is in flight
+        // on a pool thread. One process-wide bit stood here first (F188), and it dropped every custom chime for
+        // any file while ONE read sat on a dead share's SMB timeout: the personal reminder's local chime, another
+        // slot's own file, all silent for the minute the probe took, with no fall-back to the default, because
+        // the only fall-back lived inside the blocked read (R-045). Keyed on the path (trimmed, case-folded, as
+        // Windows paths are), the same file in one tick's burst is still one read -- the F188 property -- and a
+        // different file runs its own; the set is bounded by the distinct chimes configured, one per slot plus
+        // the personal one. Rejected: falling back to the default while the bit was held, which would have made
+        // a same-file burst sound one custom chime plus N-1 defaults.
+        private static readonly object _customReadLock = new object();
+        private static readonly HashSet<string> _customReadsInFlight = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // The custom paths whose last read was refused (missing, empty, oversize, unreadable) and said so in the
+        // log. On CHANGE, the F197 shape: a refused path is logged once, not on every fire, and a later read of
+        // the same path that succeeds clears it, so a file that breaks again is logged again (N-deadcode-02).
+        private static readonly HashSet<string> _rejectedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Reads a custom chime's bytes, or returns null with <paramref name="rejection"/> saying why, as
+        /// a clause that follows the file's path ("does not exist", "is empty", "is over 8 MiB"). The self-test's
+        /// seam: the loader is what blocks, so a gated one proves the read leaves the caller's thread without a
+        /// file that can be made slow, and one that refuses proves the fall-back is reported.</summary>
+        internal delegate byte[] CustomLoader(string path, out string rejection);
+
+        /// <summary>What <see cref="PlayReporting(IHost, string)"/> answers when a read of the same file is
+        /// already in flight and this chime was therefore dropped (F188's dropped duplicate, now per file).</summary>
+        internal const string DuplicateOutcome =
+            "a read of that chime file is still in flight from the previous chime, so this one was dropped";
 
         // No path-less Play overload: every caller names its slot's chime setting, and the one-argument form had
         // no caller since per-slot chimes arrived (F187).
@@ -128,7 +155,8 @@ namespace DesktopAICompanion.ReminderModule
         /// <summary>
         /// Play a reminder chime once. When <paramref name="customPath"/> points at a readable WAV/MP3 within the
         /// size cap, that file is played; otherwise the embedded default chime is used. Best-effort and silent
-        /// on failure, so a reminder still announces even if audio is unavailable.
+        /// on failure, so a reminder still announces even if audio is unavailable; the fall-back is said once in
+        /// the log per file (see <see cref="PlayReporting(IHost, string)"/> for the status-line form).
         ///
         /// The CUSTOM path is read and handed to the host on a pool thread. Both used to happen on the caller's
         /// thread, which is the module's UI-thread tick: a FileInfo probe plus ReadAllBytes of up to 8 MiB, then
@@ -136,70 +164,120 @@ namespace DesktopAICompanion.ReminderModule
         /// stall 1.0.4 removed from the file source, and the Browse dialog accepts a share, where the probe alone
         /// blocks for the SMB timeout once the VPN is down (F188). The host fixed the identical shape for
         /// PlayNotificationSound on 2026-09-28 (NotificationSound.Play, deferCustomRead) and this is that fix in
-        /// the module: Task.Run, an Interlocked single-flight guard so a burst of reminders cannot stack one
-        /// 8 MiB read and one decode per chime (a dropped duplicate chime is not a loss), and the embedded default
-        /// left synchronous, because it costs nothing to read and a thread hop would make the default
-        /// configuration behave differently from every assertion written about it.
+        /// the module: Task.Run, a per-file single-flight guard so a burst of reminders sharing one file cannot
+        /// stack one 8 MiB read and one decode per chime (a dropped duplicate chime is not a loss) while a chime
+        /// for another file is never taken for a duplicate (R-045), and the embedded default left synchronous,
+        /// because it costs nothing to read and a thread hop would make the default configuration behave
+        /// differently from every assertion written about it.
         ///
         /// Rejected: a module-side byte cache keyed on LastWriteTimeUtc. It still needs the FileInfo probe on the
         /// share per fire, which IS the stall; it pins up to 8 MiB for a sound played a few times a day; and it
         /// saves no decode, because PlayOwned decodes fresh by design.
         ///
-        /// IHost.PlaySound carries no thread note of its own (the ABI's blanket "services must be called on the
-        /// UI thread unless noted" covers it by omission); its implementation reads the module list and the
-        /// volume and hands the bytes to AudioOutput, which the host itself already drives from a pool thread for
-        /// the shared chime. The note that says so belongs in the Contracts project, outside this module.
+        /// IHost.PlaySound is thread-safe, and PluginApi.cs says so (N-reminder-02): its implementation reads the
+        /// module list and the volume and hands the bytes to AudioOutput, which the host itself already drives
+        /// from a pool thread for the shared chime.
         /// </summary>
-        public static void Play(IHost host, string customPath) { Play(host, customPath, LoadCustom); }
+        public static void Play(IHost host, string customPath) { PlayReporting(host, customPath, LoadCustom); }
 
-        /// <summary>The seam the self-test uses: the loader is what blocks, so a gated loader proves the read
-        /// leaves the caller's thread without needing a file that can be made slow.</summary>
-        internal static void Play(IHost host, string customPath, Func<string, byte[]> loadCustom)
+        /// <summary>The seam the self-test uses (see <see cref="CustomLoader"/>).</summary>
+        internal static void Play(IHost host, string customPath, CustomLoader loadCustom) { PlayReporting(host, customPath, loadCustom); }
+
+        /// <summary>
+        /// As <see cref="Play(IHost, string)"/>, and answers how the chime went once it has: null when the
+        /// requested sound played (the custom file, or the embedded default because none is configured),
+        /// otherwise one clause for a status line: the custom file was refused and the default played instead,
+        /// or a read of that same file was already in flight so this chime was dropped. "Test this reminder"
+        /// awaits it, bounded, so its status says what the user heard rather than "test sent" over a silent
+        /// fall-back (N-deadcode-02). The tick's callers use Play and never wait. Never faults into the caller:
+        /// a refusal is a value, and anything else is swallowed as it always was.
+        /// </summary>
+        internal static Task<string> PlayReporting(IHost host, string customPath) { return PlayReporting(host, customPath, LoadCustom); }
+
+        internal static Task<string> PlayReporting(IHost host, string customPath, CustomLoader loadCustom)
         {
-            if (host == null) return;
+            if (host == null) return Task.FromResult<string>(null);
             try
             {
                 if (string.IsNullOrWhiteSpace(customPath))
                 {
                     // Same module id the host checks ModulePermissions.Audio against.
                     host.PlaySound(ReminderModule.Id, DefaultChime, ChimeVolume);
-                    return;
+                    return Task.FromResult<string>(null);
                 }
-                if (Interlocked.CompareExchange(ref _customReadInFlight, 1, 0) != 0) return;
-                string path = customPath;
-                try { Task.Run(() => PlayCustom(host, path, loadCustom)); }
-                catch { Interlocked.Exchange(ref _customReadInFlight, 0); throw; }
+                string path = customPath.Trim();
+                lock (_customReadLock)
+                {
+                    if (!_customReadsInFlight.Add(path)) return Task.FromResult(DuplicateOutcome);
+                }
+                try { return Task.Run(() => PlayCustom(host, path, loadCustom)); }
+                catch { lock (_customReadLock) _customReadsInFlight.Remove(path); throw; }
             }
             catch
             {
                 // A chime is decoration; a reminder must still announce even if audio is unavailable.
+                return Task.FromResult<string>(null);
             }
         }
 
-        // Off the caller's thread. Releases the single-flight guard whatever happens; a file that cannot be read
-        // falls back to the default chime, as it always did.
-        private static void PlayCustom(IHost host, string path, Func<string, byte[]> loadCustom)
+        // Off the caller's thread. Releases this file's single-flight slot whatever happens; a file that cannot
+        // be read falls back to the default chime, as it always did, and now says so: once in the log per file
+        // (on change), and in the outcome the Test button shows.
+        private static string PlayCustom(IHost host, string path, CustomLoader loadCustom)
         {
+            string outcome = null;
             try
             {
                 byte[] audio = null;
-                try { audio = loadCustom != null ? loadCustom(path) : null; } catch { }
+                string rejection = null;
+                try { audio = loadCustom != null ? loadCustom(path, out rejection) : null; }
+                catch (Exception ex) { audio = null; rejection = "could not be read (" + ex.GetType().Name + ")"; }
+                if (audio == null)
+                {
+                    outcome = "the chime file " + path + " " + (rejection ?? "could not be read")
+                        + "; the built-in chime played instead";
+                    ReportRejectionOnChange(host, path, outcome);
+                }
+                else
+                {
+                    lock (_customReadLock) _rejectedPaths.Remove(path);
+                }
                 host.PlaySound(ReminderModule.Id, audio ?? DefaultChime, ChimeVolume);
             }
             catch { }
-            finally { Interlocked.Exchange(ref _customReadInFlight, 0); }
+            finally { lock (_customReadLock) _customReadsInFlight.Remove(path); }
+            return outcome;
         }
 
-        private static byte[] LoadCustom(string path)
+        // One log line per refused file while it stays refused; a successful read of the same file re-arms it
+        // (PlayCustom removes it from the set), so the log records transitions the way the feed error does (F197).
+        private static void ReportRejectionOnChange(IHost host, string path, string outcome)
         {
-            if (string.IsNullOrWhiteSpace(path)) return null;
+            lock (_customReadLock)
+            {
+                if (!_rejectedPaths.Add(path)) return;
+            }
+            try { host.Log(ReminderModule.Id, "chime: " + outcome); } catch { }
+        }
+
+        // The real loader: the bytes, or null and the reason, as a clause that reads after the path.
+        private static byte[] LoadCustom(string path, out string rejection)
+        {
+            rejection = null;
+            if (string.IsNullOrWhiteSpace(path)) { rejection = "is blank"; return null; }
             try
             {
                 var info = new System.IO.FileInfo(path.Trim());
-                if (!info.Exists || info.Length == 0 || info.Length > MaximumCustomBytes) return null;
+                if (!info.Exists) { rejection = "does not exist"; return null; }
+                if (info.Length == 0) { rejection = "is empty"; return null; }
+                if (info.Length > MaximumCustomBytes)
+                {
+                    rejection = "is over " + (MaximumCustomBytes / (1024 * 1024)).ToString(CultureInfo.InvariantCulture) + " MiB";
+                    return null;
+                }
                 return System.IO.File.ReadAllBytes(info.FullName);
             }
-            catch { return null; }
+            catch (Exception ex) { rejection = "could not be read (" + ex.GetType().Name + ")"; return null; }
         }
     }
 }

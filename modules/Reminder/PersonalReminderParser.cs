@@ -127,14 +127,28 @@ namespace DesktopAICompanion.ReminderModule
         internal static bool SelfCheck(out string detail)
         {
             var now = new DateTimeOffset(2026, 8, 26, 10, 0, 0, TimeSpan.FromHours(-7));
-            bool ok = true;
-            PersonalReminder r; string err;
+            // One named entry per case, as a FAIL: line of its own, so the detail says WHICH case failed and the
+            // mutation harness can name it. One `err` shared by fourteen calls used to be quoted at the end, and
+            // the last call is a must-fail case, so whichever case broke the detail quoted that case's refusal
+            // text (RA-172).
+            var failed = new System.Collections.Generic.List<string>();
+            Action<string, DateTimeOffset, Func<PersonalReminder, bool>> expect = (input, at, fields) =>
+            {
+                PersonalReminder parsed; string why;
+                if (!TryParse(input, at, out parsed, out why)) { failed.Add("'" + input + "' was refused: " + (why ?? "null")); return; }
+                if (!fields(parsed)) failed.Add("'" + input + "' parsed with the wrong fields (" + parsed.ScheduleSummary() + ")");
+            };
+            Action<string, DateTimeOffset, string> refuse = (input, at, reason) =>
+            {
+                PersonalReminder parsed; string why;
+                if (TryParse(input, at, out parsed, out why)) failed.Add("'" + input + "' parsed and must not: " + reason);
+            };
 
-            ok &= TryParse("every 60m Stand up", now, out r, out err) && r.Kind == PersonalReminder.KindEveryN && r.IntervalMinutes == 60 && r.Text == "Stand up";
-            ok &= TryParse("daily 09:00 Standup", now, out r, out err) && r.Kind == PersonalReminder.KindDaily && r.TimeOfDayMinutes == 540;
-            ok &= TryParse("in 2h Call back", now, out r, out err) && r.Kind == PersonalReminder.KindOnce && Math.Abs((r.When - now).TotalMinutes - 120) < 0.5;
-            ok &= TryParse("weekdays 17:00 Log off", now, out r, out err) && r.Kind == PersonalReminder.KindWeekdays && r.TimeOfDayMinutes == 1020;
-            ok &= TryParse("2026-09-01 14:00 Dentist", now, out r, out err) && r.Kind == PersonalReminder.KindOnce && r.When.Hour == 14 && r.Text == "Dentist";
+            expect("every 60m Stand up", now, r => r.Kind == PersonalReminder.KindEveryN && r.IntervalMinutes == 60 && r.Text == "Stand up");
+            expect("daily 09:00 Standup", now, r => r.Kind == PersonalReminder.KindDaily && r.TimeOfDayMinutes == 540);
+            expect("in 2h Call back", now, r => r.Kind == PersonalReminder.KindOnce && Math.Abs((r.When - now).TotalMinutes - 120) < 0.5);
+            expect("weekdays 17:00 Log off", now, r => r.Kind == PersonalReminder.KindWeekdays && r.TimeOfDayMinutes == 1020);
+            expect("2026-09-01 14:00 Dentist", now, r => r.Kind == PersonalReminder.KindOnce && r.When.Hour == 14 && r.Text == "Dentist");
 
             // 'at' and the bare HH:mm form, and the roll-to-tomorrow rule they share. The detail line
             // below claimed 'at' was covered while nothing parsed one, so deleting either branch, or
@@ -144,22 +158,26 @@ namespace DesktopAICompanion.ReminderModule
             // tomorrow, and the expectations are literal dates rather than a mirror of the rule.
             var localTen = new DateTime(2026, 8, 26, 10, 0, 0);
             var localNow = new DateTimeOffset(localTen, TimeZoneInfo.Local.GetUtcOffset(localTen));
-            ok &= TryParse("at 15:00 Call the vet", localNow, out r, out err) && r.Kind == PersonalReminder.KindOnce
-                  && r.When.LocalDateTime == new DateTime(2026, 8, 26, 15, 0, 0) && r.Text == "Call the vet";
-            ok &= TryParse("at 09:00 Early", localNow, out r, out err) && r.Kind == PersonalReminder.KindOnce
-                  && r.When.LocalDateTime == new DateTime(2026, 8, 27, 9, 0, 0) && r.Text == "Early";
-            ok &= TryParse("07:30 Gym", localNow, out r, out err) && r.Kind == PersonalReminder.KindOnce
-                  && r.When.LocalDateTime == new DateTime(2026, 8, 27, 7, 30, 0) && r.Text == "Gym";
-            ok &= !TryParse("at soon Call the vet", localNow, out r, out err);  // 'at' without a time
-            ok &= !TryParse("every Stand up", now, out r, out err);            // missing interval
-            ok &= !TryParse("daily 09:00", now, out r, out err);               // missing text
-            ok &= !TryParse("gibberish here", now, out r, out err);            // no schedule
-            ok &= !TryParse("daily 25:00 Late", now, out r, out err);         // hour out of range
-            ok &= !TryParse("at +9:00 Signed", localNow, out r, out err);    // a sign is not a time (F203)
+            expect("at 15:00 Call the vet", localNow, r => r.Kind == PersonalReminder.KindOnce
+                && r.When.LocalDateTime == new DateTime(2026, 8, 26, 15, 0, 0) && r.Text == "Call the vet");
+            expect("at 09:00 Early", localNow, r => r.Kind == PersonalReminder.KindOnce
+                && r.When.LocalDateTime == new DateTime(2026, 8, 27, 9, 0, 0) && r.Text == "Early");
+            expect("07:30 Gym", localNow, r => r.Kind == PersonalReminder.KindOnce
+                && r.When.LocalDateTime == new DateTime(2026, 8, 27, 7, 30, 0) && r.Text == "Gym");
+            refuse("at soon Call the vet", localNow, "'at' without a time");
+            refuse("every Stand up", now, "missing interval");
+            refuse("daily 09:00", now, "missing text");
+            refuse("gibberish here", now, "no schedule");
+            refuse("daily 25:00 Late", now, "hour out of range");
+            refuse("at +9:00 Signed", localNow, "a sign is not a time (F203)");
 
-            detail = ok ? "personal-reminder parser: every/daily/in/weekdays/date/at parse; malformed rejected"
-                        : "personal-reminder parser wrong (last err=" + (err ?? "null") + ")";
-            return ok;
+            var sb = new System.Text.StringBuilder();
+            foreach (string f in failed) sb.AppendLine("FAIL: " + f);
+            sb.Append(failed.Count == 0
+                ? "personal-reminder parser: every/daily/in/weekdays/date/at and bare HH:mm parse; malformed rejected"
+                : "personal-reminder parser wrong: " + failed.Count.ToString(CultureInfo.InvariantCulture) + " case(s) above");
+            detail = sb.ToString();
+            return failed.Count == 0;
         }
     }
 }

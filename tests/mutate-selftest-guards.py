@@ -2038,18 +2038,20 @@ CASES = (
     # the retry, the cap on parked attempts, and the generation rule that keeps a late result from an
     # abandoned attempt from overwriting the newer one. The retry and cap mutations also fail the later steps
     # of the same sequential scenario; the first FAIL line is the one named here.
+    # Re-pointed 2026-09-30 by lane burn/reminder: the scan skips attempts a newer landing superseded (R-044),
+    # so `_started.Count > 0` became `live` on both lines; the mutations negate it.
     ("the refresh stall is never reported on the served snapshot",
      CACHING_CALENDAR_SOURCE,
-     b"                    if (_started.Count > 0 && nowUtc - oldest > deadline)\n",
-     b"                    if (_started.Count < 0 && nowUtc - oldest > deadline)\n",
+     b"                    if (live && nowUtc - oldest > deadline)\n",
+     b"                    if (!live && nowUtc - oldest > deadline)\n",
      REMINDER_CSPROJ, REMINDER_DLL,
      "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
      "a refresh that outlives its deadline is reported on the served snapshot"),
 
     ("an overdue refresh never triggers a retry",
      CACHING_CALENDAR_SOURCE,
-     b"                    abandoned = _started.Count > 0 && nowUtc - newest > deadline;\n",
-     b"                    abandoned = _started.Count < 0 && nowUtc - newest > deadline;\n",
+     b"                    abandoned = live && nowUtc - newest > deadline;\n",
+     b"                    abandoned = !live && nowUtc - newest > deadline;\n",
      REMINDER_CSPROJ, REMINDER_DLL,
      "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
      "one more attempt is started while the first stays parked"),
@@ -2062,10 +2064,13 @@ CASES = (
      "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
      "a result from the abandoned attempt, landing late, does not overwrite the newer one"),
 
+    # Re-pointed 2026-09-30 by lane burn/reminder: the predicate gained the kicked-key term (RA-169), and the cap
+    # check now reads OutstandingRefreshes, which Fetch updates under its lock, so this fires at its named line
+    # whatever the pool's scheduling latency (R-049).
     ("the cap on parked refresh attempts is one higher than declared",
      CACHING_CALENDAR_SOURCE,
-     b"                kick = stale && (!inFlight || abandoned) && _started.Count < MaximumOutstandingRefreshes;\n",
-     b"                kick = stale && (!inFlight || abandoned) && _started.Count < MaximumOutstandingRefreshes + 1;\n",
+     b"                kick = stale && (!inFlight || abandoned || !pendingForKey) && _started.Count < MaximumOutstandingRefreshes;\n",
+     b"                kick = stale && (!inFlight || abandoned || !pendingForKey) && _started.Count < MaximumOutstandingRefreshes + 1;\n",
      REMINDER_CSPROJ, REMINDER_DLL,
      "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
      "parked attempts are capped at"),
@@ -2091,7 +2096,7 @@ CASES = (
 
     # IcsUrlSource.Download's two bounds (F189), each put back the way it shipped: a body read with no token,
     # and a size cap that does not run while the body arrives. The self-test's loopback server stalls, so
-    # each mutation is caught by the test's own bound ("hung past the 8 s bound") rather than hanging the run.
+    # each mutation is caught by the test's own bound ("hung past the 12 s bound") rather than hanging the run.
     ("the .ics body read carries no deadline",
      os.path.join(REPO, "modules", "Reminder", "IcsUrlSource.cs"),
      b"                            int read = body.ReadAsync(chunk, 0, chunk.Length, cts.Token).GetAwaiter().GetResult();\n",
@@ -2185,10 +2190,12 @@ CASES = (
 
     # The custom chime's read leaves the caller's thread (F188). The mutation runs PlayCustom inline, which is
     # the shipped shape; the self-test's gated loader then completes before Play returns.
+    # Re-pointed 2026-09-30 by lane burn/reminder: PlayCustom answers an outcome the Test button awaits
+    # (N-deadcode-02), so the call returns its Task; the inline shape wraps the synchronous result instead.
     ("the custom chime is read inline on the caller's thread",
      os.path.join(REPO, "modules", "Reminder", "Chime.cs"),
-     b"                try { Task.Run(() => PlayCustom(host, path, loadCustom)); }\n",
-     b"                try { PlayCustom(host, path, loadCustom); }\n",
+     b"                try { return Task.Run(() => PlayCustom(host, path, loadCustom)); }\n",
+     b"                try { return Task.FromResult(PlayCustom(host, path, loadCustom)); }\n",
      REMINDER_CSPROJ, REMINDER_DLL,
      "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
      "a custom chime's read does not run on the caller's thread"),
@@ -2301,10 +2308,14 @@ CASES = (
     # N-reminder-03: the two on-demand paths stop asking whether a companion is on screen, the shipped shape.
     # `_host == null &&` keeps each guard compiling and never true after Init, with no unreachable-code
     # warning (CS0162 would fail the module's warnings-as-errors build).
+    # Re-pointed 2026-09-30 by lane burn/reminder: the gate sits after the chime and answers one of two
+    # constants (RA-176), so the guard line is the two-line `if`; the mutation still makes it never true.
     ("followups: reminder: 'Test this reminder' reports sent with nobody on screen again",
      os.path.join(REPO, "modules", "Reminder", "ReminderModule.cs"),
-     b"                if (!AnyCompanionOnScreen()) return NoCompanionStatus;",
-     b"                if (_host == null && !AnyCompanionOnScreen()) return NoCompanionStatus;",
+     b"                if (!AnyCompanionOnScreen())\n"
+     b"                    return chime == null ? NoCompanionStatus : NoCompanionChimedStatus + await ChimeOutcome(chime);",
+     b"                if (_host == null && !AnyCompanionOnScreen())\n"
+     b"                    return chime == null ? NoCompanionStatus : NoCompanionChimedStatus + await ChimeOutcome(chime);",
      REMINDER_CSPROJ, REMINDER_DLL,
      "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
      "says so instead of"),
@@ -2326,6 +2337,181 @@ CASES = (
      b"                    ShimejiAction source = members[i];",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "moonwalks over the left-facing art"),
+
+
+    # ---- lane burn/reminder ----
+    # The Phase 8 burn-down of the Reminder module (2026-09-30). Named "burn: ..." so one --only=burn: run covers
+    # the lane; every case names Reminder.csproj and Reminder.dll, the artefact --module-selftest=reminder loads.
+    # The module's per-case SelfCheck details are FAIL: lines of their own since RA-172, so a case can name the
+    # exact link shape or parser input that broke instead of the suite that contains it.
+
+    # RA-169: the kick predicate waits for the in-flight attempt again, whatever key it was kicked for, so an
+    # edit made while the old target's attempt is parked is not fetched until it lands or outlives the deadline
+    # (the F200 regression as shipped).
+    ("burn: an edit while the old target's attempt is parked waits for the deadline again",
+     CACHING_CALENDAR_SOURCE,
+     b"                kick = stale && (!inFlight || abandoned || !pendingForKey) && _started.Count < MaximumOutstandingRefreshes;\n",
+     b"                kick = stale && (!inFlight || abandoned) && _started.Count < MaximumOutstandingRefreshes;\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "is fetched on the next tick, not after the deadline"),
+
+    # RA-169, the other direction: the pending test compares against the LANDED key, which is stamped only when
+    # an attempt lands, so while the new target's own attempt is in flight every tick reads as a change and
+    # kicks again (the over-eager predicate the re-audit warned against).
+    ("burn: a key change kicks a new attempt on every tick while the new target is in flight",
+     CACHING_CALENDAR_SOURCE,
+     b"                bool pendingForKey = inFlight && string.Equals(key, _kickedKey, StringComparison.Ordinal);\n",
+     b"                bool pendingForKey = inFlight && string.Equals(key, _lastKey, StringComparison.Ordinal);\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "further ticks do not kick it again"),
+
+    # R-044: the stall scan takes every parked attempt again, the ones a newer landing superseded included.
+    ("burn: a superseded parked attempt drives the stall report again",
+     CACHING_CALENDAR_SOURCE,
+     b"                        if (attempt.Key < _landedGeneration) continue;\n",
+     b"",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "a superseded attempt still parked does not drive the stall report"),
+
+    # RA-170: ParseIcs reports garbage as a healthy empty calendar, which the slot would vouch for and the F204
+    # prune would then act on. The THROW path: iCal.Net throws on "this is not a calendar" rather than returning
+    # null (measured 2026-09-30: the same mutation on the null-calendar return SURVIVED). `ex` stays used, since
+    # an unused catch variable is a warning and the module builds warnings-as-errors.
+    ("burn: garbage parses as a healthy empty calendar",
+     REMINDER_ICS,
+     b"                return new CalendarSnapshot { Events = Array.Empty<CalendarEvent>(), Error = \"The calendar feed is not valid iCalendar: \" + Short(ex.Message) };\n",
+     b"                return new CalendarSnapshot { Events = Array.Empty<CalendarEvent>(), Error = string.IsNullOrEmpty(ex.Message) ? \"The calendar feed is not valid iCalendar.\" : null };\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "garbage is an error snapshot"),
+
+    # RA-171: the Webex provider takes any path on any *webex.com host again (the shipped pattern), so a help
+    # article ahead of the join link is what the tray would open.
+    ("burn: Webex matches any path on any webex.com host again",
+     os.path.join(REPO, "modules", "Reminder", "MeetingLinkDetector.cs"),
+     b"            new Provider(\"Webex\", @\"https://(?:[a-z0-9\\-]+\\.)*webex\\.com/(?:(?:[a-z0-9._\\-]+/)*(?:j|e|g)\\.php\\?|(?:meet|join)/|webappng/sites/|wbxmjs/joinservice/)[^\\s\"\"'<>]+\"),\n",
+     b"            new Provider(\"Webex\", @\"https://[a-z0-9.\\-]*webex\\.com/[^\\s\"\"'<>]+\"),\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "help.webex.com is not a join link"),
+
+    # RA-171: the teams.live.com provider deleted; it had been accepted all along and asserted never.
+    ("burn: the teams.live.com join link is no longer matched",
+     os.path.join(REPO, "modules", "Reminder", "MeetingLinkDetector.cs"),
+     b"            new Provider(\"Teams\", @\"https://teams\\.live\\.com/meet/[^\\s\"\"'<>]+\"),\n",
+     b"",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "teams.live.com short link keeps its passcode"),
+
+    # RA-172: F194's mutation (the parser loses its 'at' branch), graded on the CASE the detail names rather
+    # than on the suite's FAIL line; before RA-172 the detail quoted the last must-fail case's refusal text.
+    ("burn: the parser loses its 'at' branch and the detail names the case that broke",
+     REMINDER_PARSER,
+     b"            else if (headLower == \"at\")\n"
+     b"            {\n"
+     b"                string tok = FirstWord(rest, out string text);\n"
+     b"                if (!QuietHours.TryParseTimeOfDay(tok, out hhmm)) { error = \"After 'at', give a time like 15:00. \" + Help; return false; }\n"
+     b"                r.Kind = PersonalReminder.KindOnce; r.When = TodayOrTomorrowAt(now, hhmm); r.Text = text;\n"
+     b"            }\n",
+     b"",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "'at 15:00 Call the vet' was refused"),
+
+    # RA-176: the companion gate moves back in front of the chime, so a tray-only user cannot audition one.
+    ("burn: 'Test this reminder' withholds the chime with nobody on screen again",
+     REMINDER_MODULE,
+     b"                System.Threading.Tasks.Task<string> chime = _settings.GetBool(SlotKey(slot, \"chimeOn\"), true)\n",
+     b"                if (!AnyCompanionOnScreen()) return NoCompanionStatus;\n"
+     b"                System.Threading.Tasks.Task<string> chime = _settings.GetBool(SlotKey(slot, \"chimeOn\"), true)\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "still auditioned with no companion on screen"),
+
+    # RA-177: a guard that stops the per-slot prune on an empty feed. Before the six 1.0.3 checks moved onto a
+    # one-slot aggregate this SURVIVED: measured by hand on 2026-09-30, RESULT=PASS with the guard in place.
+    ("burn: the per-slot prune keeps everything when the feed is empty",
+     REMINDER_MODULE,
+     b"            return fired.RemoveWhere(id =>\n"
+     b"            {\n"
+     b"                string slot = SlotOf(id);\n",
+     b"            if (feedIds.Count == 0) return false;\n"
+     b"            return fired.RemoveWhere(id =>\n"
+     b"            {\n"
+     b"                string slot = SlotOf(id);\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "a loaded but empty calendar drops everything"),
+
+    # RA-177: the null-health branch prunes on the whole snapshot again (the 1.0.3 rule it replaced).
+    ("burn: a snapshot without per-slot health prunes on its Error again",
+     REMINDER_MODULE,
+     b"                // Those checks now run through a one-slot aggregate, and this branch prunes nothing.\n"
+     b"                return false;\n",
+     b"                // Those checks now run through a one-slot aggregate, and this branch prunes nothing.\n"
+     b"                return fired.RemoveWhere(id => !feedIds.Contains(ReminderScheduler.EventIdOf(id))) > 0;\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "a snapshot without per-slot health prunes nothing"),
+
+    # RA-178: a failed settings write is swallowed again (SaveSettings answers true whatever Save() said).
+    ("burn: a failed settings write is swallowed again",
+     REMINDER_MODULE,
+     b"            try { ok = _settings.Save(); } catch { ok = false; }\n",
+     b"            try { _settings.Save(); ok = true; } catch { ok = false; }\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "the failed settings write is logged"),
+
+    # RA-178: the tick stops retrying a failed write.
+    ("burn: the tick no longer retries a failed settings write",
+     REMINDER_MODULE,
+     b"                if (changed || _savePending) SaveFired();\n",
+     b"                if (changed) SaveFired();\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "retried on the next tick"),
+
+    # R-045: the chime guard is keyed on nothing again, one slot for every file (the F188 shape as shipped).
+    ("burn: the chime guard is keyed on nothing again",
+     os.path.join(REPO, "modules", "Reminder", "Chime.cs"),
+     b"                    if (!_customReadsInFlight.Add(path)) return Task.FromResult(DuplicateOutcome);\n",
+     b"                    if (!_customReadsInFlight.Add(\"\")) return Task.FromResult(DuplicateOutcome);\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "a chime for a different file during that read is not dropped"),
+
+    # R-050: the deadline message names the wrong phase (headers for a stalled body), so the stall check no
+    # longer proves the body read was what the deadline cut.
+    ("burn: the .ics deadline names the headers phase for a stalled body",
+     REMINDER_ICS,
+     b"                throw new TimeoutException(headersReceived\n",
+     b"                throw new TimeoutException(!headersReceived\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "in the body phase"),
+
+    # N-deadcode-02: the refused-file log line is dropped.
+    ("burn: a refused chime file is no longer logged",
+     os.path.join(REPO, "modules", "Reminder", "Chime.cs"),
+     b"            try { host.Log(ReminderModule.Id, \"chime: \" + outcome); } catch { }\n",
+     b"            try { } catch { }\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "the refusal is logged"),
+
+    # N-deadcode-02: the Test button drops the chime's outcome: "test sent" over a silent fall-back again.
+    ("burn: 'Test this reminder' reports sent over a refused chime file again",
+     REMINDER_MODULE,
+     b"            return string.IsNullOrEmpty(outcome) ? \"\" : \" Chime: \" + outcome + \".\";\n",
+     b"            return string.IsNullOrEmpty(outcome) ? \"\" : \"\";\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "says the built-in chime played instead"),
 
 
     # ---- lane fix/deadcode ----

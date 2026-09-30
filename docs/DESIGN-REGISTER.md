@@ -943,6 +943,101 @@ no storage on purpose as the gate's exercise of every module's null tolerance (F
 every path member throwing that warning, which is AiBrain's N-gates-02 shape (defaults, nothing persisted,
 said once in the log) generalised. The template shows the check; the only in-tree caller was the template.
 
+#### burn/reminder
+
+**The custom-chime single-flight guard is keyed on the file, not on the process (2026-09-30, R-045).** F188's
+guard was one bit for every custom chime, so while one read sat on a dead share's SMB timeout every other
+custom chime, for any file and any reminder, was dropped with no fall-back to the built-in chime. Two repairs
+were on the table. Falling back to the default while the bit was held was rejected: the burst F188 was written
+for, several reminders in one tick sharing one file, would then sound one custom chime plus N-1 defaults.
+Chosen: a set of in-flight paths (trimmed, case-folded) under one lock, so the same file in a burst is still
+one read and a chime for another file runs its own; the set is bounded by the distinct chimes configured, one
+per slot plus the personal one.
+
+**"Test this reminder" plays the chime with no companion on screen, and withholds only the bubble and the
+reaction (2026-09-30, RA-176).** N-reminder-03 applied the F199 hold to the whole button. The hold exists
+because `SayAll` drops its line with no pet out; `PlaySound` reaches the shared audio output regardless, and
+the button is the only way to audition a chime file, which a tray-only user still configures. So the chime
+plays first and the status says so (`NoCompanionChimedStatus`); with the slot's chime off the old answer
+stands. The tick's hold in `CheckDue` is unchanged: a due reminder's chime is still held with its bubble, so
+it is not chimed into nothing and chimed again when a pet appears.
+
+**A snapshot with no per-slot health prunes nothing (2026-09-30, RA-177).** The 1.0.3 whole-snapshot rule
+(prune every stale id when the combined Error is empty) survived F204 as the `SlotHealthy == null` branch of
+`PruneFiredAgainstFeed`, and its only callers were six self-test snapshots: production fetches through
+`AggregateCalendarSource`, which always fills `SlotHealthy`. Shown by mutation before the change: a guard
+that stopped the per-slot prune on an empty feed passed the whole suite. The F204 rule for an unvouched id
+is to keep it, and a snapshot that names no slot can vouch for nothing, so the branch now returns false, the
+six checks run through a one-slot aggregate, and a seventh pins the null-health default. A snapshot without
+per-slot health is a test double's or a future source's; if a future source needs pruning it fills
+`SlotHealthy`, the way the aggregate does.
+
+**A failed settings write outside Apply is retried by the tick, and the fake's disk is what the self-test
+reads (2026-09-30, RA-178).** The module holds one `IModuleSettings` handle for its life, so under the shipped
+host a failed `Save()` leaves every unsaved value in the handle's dictionary and one later `Save` persists
+them all; `_savePending` makes `CheckDue` call `SaveFired` on the next tick for exactly that. ModuleKit's
+`FakeModuleSettings` shows the disk after a failed save instead (N-blinkingled-02, recorded under
+`#### fix/followups`), which the self-test works with rather than against: it seeds and saves its values
+first and asserts on `Get` after the retry succeeds. The alternative, a retry timer of its own, was rejected:
+the 20 s tick already runs, and a small JSON write per tick while the file is held is the cheapest recovery
+there is.
+
+**Held reminders burst when a companion returns, and the burst is accepted (2026-09-30, RA-173).** Under the
+F199 hold every stale once-only personal reminder and the day's briefing fire together on the first tick a pet
+appears (calendar reminders only inside their one-minute grace, so they do not join it). Capping the age of a
+held once-only reminder, disabling one older than some hours with a log line, was considered and declined: a
+held reminder is one the user typed and never saw, and disabling it unseen is the F199 defect by another
+route. The burst is bounded by what the user asked for, chimes at most once per distinct configured file, and
+the personal list card shows what fired. The finding's other observation stands as an observation: a future
+Voice responder would be held with the bubble, because the hold asks whether a companion is on screen, not
+whether anyone could voice the line; no Voice responder ships, and the question is the host's to answer when
+one does.
+
+**A reaction that no on-screen pet can play stays silent, and the module keeps `PlayAnimationAll`
+(2026-09-30, RA-174).** `IHost.PlayAnimationAll` returns void, so the module cannot tell a miss from a play.
+Detecting it module-side, by iterating `TryPlayAnimation` over `_seenPets`, was rejected: that list misses
+pets a skin reload respawned without `CompanionSpawned` (R-047), so it would report misses that were plays,
+and it moves per-pet candidate selection out of the host, which owns it for AiBrain and AgentFlow too. The
+1.0.6 measurement (43 of 54 companions define a default candidate) and the comment at `React()` remain the
+record of the accepted miss. The additive ABI change, `PlayAnimationAll` returning the number of pets that
+played, is the host's, and is noted for it in the lane's report.
+
+**The end-of-campaign republish is one step and it is the coordinator's (2026-09-30, R-046).** Every module
+this campaign touched is still published at its pre-campaign version, so `Test-ModulePublishFreshness` is red
+by design on every branch until the coordinator republishes the zips and both catalogs once at the end;
+`modules-dist/` and `catalog.json` are out of bounds for every lane (LANE-RULES). The gate staying red until
+then is the check working: it says the deployed artefact does not yet carry the fixes the record marks FIXED.
+
+**Module self-tests stay in the module class, and ReminderModule.cs carries its own (2026-09-30, R-048).**
+At `8eea13a` the file is 2,559 lines, of which the self-test, its helpers and eight nested doubles are lines
+1526 to 2558 (measured with `wc -l` and the section markers); this lane's work moves both numbers up. The test
+lives in the class because it reaches private state (`_source`, `_fired`, `_lastSnapshot`, `_slotSources`,
+`CheckDue`, `CheckNowAsync`), and `--module-selftest` reflects on the module TYPE, so a `partial class` split
+into a `ReminderModule.SelfTest.cs` (a name that must not end in `Module.cs`, which the freshness gate reserves
+for the one version-bearing file) would keep both properties. It is not done here because the layout is the
+convention every module uses (RA-162 records Remembrance's twin); splitting one module in a burn-down lane
+would leave the repo with two conventions, and the split is mechanical enough to do for all of them at once
+when the owner wants it.
+
+**`RecordingHost.PlayedSounds` is appended from a pool thread since F188, so the N-remembrance-01 premise for
+leaving it live no longer holds (2026-09-30, RA-179).** That entry (under `#### fix/followups`) kept
+`PlayedAnimations`, `PlayedSounds` and the contribution lists live because "the module appends to them from the
+raise the test itself made, on the test's thread". Reminder's `Chime.PlayCustom` calls `host.PlaySound` from
+`Task.Run`, so a Count-only spin followed by an indexer read could observe `List<T>.Add`'s count before its
+element and NRE, turning a FAIL into an EXC. The in-boundary half is done: the self-test reads an element only
+once it is non-null and releases its two gated reads one at a time, so two pool threads never `Add`
+concurrently. The ModuleKit half, `PlayedSounds` appended under `_recordSync` and handed out as a snapshot like
+`SaidLines`, is outside this lane's boundary and is described in its report.
+
+**Webex join links are matched by shape, and a shape not listed is a miss rather than a wrong link
+(2026-09-30, RA-171).** The provider accepted any path on any host ending in `webex.com`, so a help article
+ahead of the join link was what the tray opened. It now accepts the classic and event links (`/<site>/j.php?`,
+`/<site>/e.php?`, the older `/<site>/onstage/g.php?`), a Personal Room (`/meet/`, `/join/`) and the Webex App's
+own two (`/webappng/sites/`, `/wbxmjs/joinservice/`), with the host anchored to a label boundary (Zoom's is
+anchored the same way). Precision over recall, deliberately: a join shape this list lacks costs the Join hint
+and the tray row while the bubble still announces, where a wrong match sends the user to a help page at the
+moment the meeting starts.
+
 #### fix/deadcode
 
 **A member whose only reader is a test is not dead, and what the test pins decides what happens to it
