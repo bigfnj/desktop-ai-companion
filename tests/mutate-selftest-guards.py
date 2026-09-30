@@ -569,6 +569,33 @@ CASES = (
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
      "real keypresses are paired"),
 
+    # F110: Save() answers false for a failed write and never throws, so the lines that report the write
+    # test the bool. Each mutation puts back a shipped shape: a "saved" line whatever Save() answered, and
+    # a tray handler that drops the bool.
+    ("the Caps Lock stop reports 'saved' whatever Save() answered",
+     BLINKINGLED_MODULE,
+     b"                saved = s.Save();",
+     b"                s.Save(); saved = true;",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "says the off was NOT persisted"),
+
+    ("a failed tray speed pick is silent again",
+     BLINKINGLED_MODULE,
+     b'                if (!s.Save()) Log("tray pick not persisted (rate " + rate + ", on), so the live state is unchanged");',
+     b"                s.Save();",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a tray speed pick whose write fails is logged"),
+
+    ("a failed tray Off is silent again",
+     BLINKINGLED_MODULE,
+     b'                if (!s.Save()) Log("tray pick not persisted (" + (on ? "on" : "off") + "), so the live state is unchanged");',
+     b"                s.Save();",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "a tray Off whose write fails is logged"),
+
 
     # ---- lane fix/aibrain ----
 

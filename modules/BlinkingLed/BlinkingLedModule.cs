@@ -455,7 +455,14 @@ namespace DesktopAICompanion.BlinkingLed
                 if (sameRate && alreadyOn) return;   // picking what is already live is not worth a remark
                 s.Set("rate", rate);
                 s.Set("enabled", "true");
-                s.Save();
+                // Save() reports a failed write (a full disk, a locked or read-only settings.json) by
+                // returning false, never by throwing: the host's store swallows the I/O exception, and so
+                // does every other IModuleSettings in the repo. ApplyState re-reads the FILE, so a failed
+                // write leaves the live state exactly as it was and the click did nothing; until this line
+                // nothing said so (F110). Logging only, deliberately: driving the blinker from the in-memory
+                // values would run a state the tray, which reads the file, denies, and "disk wins" is at
+                // least consistent.
+                if (!s.Save()) Log("tray pick not persisted (rate " + rate + ", on), so the live state is unchanged");
                 ApplyState(true);
             }
             catch { /* a module must never throw into the host */ }
@@ -468,7 +475,8 @@ namespace DesktopAICompanion.BlinkingLed
                 IModuleSettings s = Settings();
                 if (s.GetBool("enabled", true) == on) return;
                 s.Set("enabled", on ? "true" : "false");
-                s.Save();
+                // Same as SetRateFromTray: a false from Save() is the only way a failed write is reported.
+                if (!s.Save()) Log("tray pick not persisted (" + (on ? "on" : "off") + "), so the live state is unchanged");
                 ApplyState(true);
             }
             catch { /* a module must never throw into the host */ }
@@ -480,42 +488,31 @@ namespace DesktopAICompanion.BlinkingLed
         private void OnCapsLockStop()
         {
             // The blinking has ALREADY stopped -- the engine stops before raising this -- so the line
-            // records a transition that has happened, whatever the settings write below does.
+            // records a transition that has happened, and it says WHICH WAY the settings write went. Save()
+            // reports a failed write by returning false, never by throwing: the host's store swallows the
+            // I/O exception, MemoryModuleSettings always answers false, the ModuleKit fake answers
+            // !FailSaves. The previous shape logged "saved it as off" BEFORE the save and caught an
+            // exception no implementation raises (its Categorize helper had that one dead caller), so a
+            // full disk or a locked settings.json produced a false "saved" line and nothing else, and the
+            // next settings read started the blinking again with the log claiming the stop was persisted
+            // (F110). One line either way, so the self-test's "exactly one line" holds and a reader of the
+            // log gets the two states told apart, which is what that catch was written to do.
             //
             // This is the one state change the user is never told about: the remark is deliberately
             // suppressed (they pressed the key, and it can fire mid-typing) and the OFF is PERSISTED, so a
             // week later the feature is off, the tray agrees it is off, and nothing anywhere says that Caps
             // Lock did it. "It stops switching itself on" is a plausible bug report with no other evidence.
-            Log("caps lock is on: stopped blinking and saved it as off");
+            bool saved;
             try
             {
                 IModuleSettings s = Settings();
                 s.Set("enabled", "false");
-                s.Save();
-                // Deliberately silent: the user hit Caps Lock, which IS the feedback, and this can fire while
-                // they are typing.
+                saved = s.Save();
             }
-            catch (Exception ex)
-            {
-                // A different state from the line above, and worth telling apart: the blinker is stopped but
-                // the setting still says on, so the next ApplyState (a settings visit, a restart) starts it
-                // again and the stop looks like it never happened.
-                Log("caps lock stop was not persisted (" + Categorize(ex) + "), so it will start again");
-            }
-        }
-
-        /// <summary>
-        /// A swallowed exception as a short, non-identifying category. The message itself can name a file
-        /// path (the settings store writes one), and the diagnostic log is what SUPPORT.md tells users to
-        /// attach to a public issue, so only the bucket is recorded.
-        /// </summary>
-        private static string Categorize(Exception ex)
-        {
-            if (ex == null) return "none";
-            if (ex is UnauthorizedAccessException) return "access-denied";
-            if (ex is System.IO.IOException) return "io";
-            if (ex is InvalidOperationException) return "invalid-state";
-            return ex.GetType().Name;
+            catch { saved = false; }   // a third-party host that throws; every shipped store returns false
+            Log(saved
+                ? "caps lock is on: stopped blinking and saved it as off"
+                : "caps lock is on: stopped blinking but the off was NOT persisted, so the next settings read will start it again");
         }
 
         private System.Threading.Tasks.Task<string> BlinkOnceAsync()
@@ -1076,6 +1073,38 @@ namespace DesktopAICompanion.BlinkingLed
                         CountLogged(host.LoggedLines, "caps lock is on") == 1 &&
                         host.LoggedLines.Count - loggedBefore == 1);
                     probe.Check("...and it really did switch off", pane.Load()["enabled"] == "false");
+
+                    // F110: the line tells the truth about the write. Every IModuleSettings in the repo
+                    // reports a failed Save() by returning false (none throws), which FailSaves reproduces.
+                    // The previous shape logged "saved it as off" before saving and caught an exception
+                    // nothing raised, so a failed write produced a false "saved" line and nothing else, and
+                    // the two tray handlers dropped the bool outright, so a click whose write failed did
+                    // nothing and said nothing. The fake keeps the Set even when Save() fails, so what the
+                    // module reads back afterwards is NOT what the host would show (disk wins there); the
+                    // assertions are on the log lines alone, and each counts a delta of exactly one.
+                    DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings failing = host.SettingsFor("blinkingled");
+                    failing.FailSaves = true;
+                    loggedBefore = host.LoggedLines.Count;
+                    module.OnCapsLockStop();
+                    string capsLine = LastLoggedMatching(host.LoggedLines, "caps lock is on");
+                    probe.Check("a Caps Lock stop whose write fails says the off was NOT persisted, in its one line",
+                        host.LoggedLines.Count - loggedBefore == 1 &&
+                        capsLine != null && capsLine.Contains("NOT persisted") && !capsLine.Contains("saved it as off"));
+                    loggedBefore = host.LoggedLines.Count;
+                    module.SetRateFromTray("Hyper");                          // a change, so the handler reaches Save()
+                    probe.Check("a tray speed pick whose write fails is logged rather than silently doing nothing",
+                        CountLogged(host.LoggedLines, "tray pick not persisted (rate Hyper, on)") == 1 &&
+                        host.LoggedLines.Count - loggedBefore == 1);
+                    loggedBefore = host.LoggedLines.Count;
+                    module.SetEnabledFromTray(false);
+                    probe.Check("WITNESS a tray Off whose write fails is logged too",
+                        CountLogged(host.LoggedLines, "tray pick not persisted (off)") == 1 &&
+                        host.LoggedLines.Count - loggedBefore == 1);
+                    failing.FailSaves = false;
+                    loggedBefore = host.LoggedLines.Count;
+                    module.SetEnabledFromTray(true);
+                    probe.Check("WITNESS a tray pick whose write succeeds logs nothing",
+                        host.LoggedLines.Count == loggedBefore);
 
                     // Every line carries this module's id, which is what the per-module log mute keys on.
                     bool allTagged = true;
