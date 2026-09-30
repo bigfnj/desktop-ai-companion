@@ -48,7 +48,22 @@ namespace DesktopAICompanion.RemembranceModule
         {
             Id = Id,
             Name = "Remembrance",
-            Version = "1.0.16",  // 1.0.16: the 72-hour purge may only delete the file SHAPES this module
+            Version = "1.0.17",  // 1.0.17: stopping a recording at exit no longer waits out 10 s per source.
+                                 //         NAudio delivered RecordingStopped through the WinForms
+                                 //         SynchronizationContext it captured when the capture was built on
+                                 //         the UI thread -- the very thread then blocked waiting for it with
+                                 //         no message loop -- so every wait ran to its timeout, and an OS or
+                                 //         Restart Manager exit killed the process before the scratch WAVs
+                                 //         were finalised (BUG-009). Captures are built with no context
+                                 //         current now. Also from the 2026-09-29 audit: the scratch WAVs are
+                                 //         purge shapes, a save still in flight is waited for at exit, the
+                                 //         loopback track is kept fed with silence so it stays aligned with
+                                 //         the microphone, a partial map-reduce says which parts it covers,
+                                 //         whisper's time limit follows the recording length, the download
+                                 //         button opens the release LIST, the release lookup is bounded,
+                                 //         snapshots encode off the UI thread, Init neither enumerates
+                                 //         devices nor purges, and LaunchProcess is declared.
+                                 // 1.0.16: the 72-hour purge may only delete the file SHAPES this module
                                  //         writes. Three of the four branches were looser than that: any
                                  //         snap*.png inside a capture folder, ANY .wav in the root, and
                                  //         Contains(" - snap") which also matched "holiday - snapshot.png".
