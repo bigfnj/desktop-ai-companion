@@ -43,6 +43,9 @@ namespace DesktopAICompanion.BlinkingLed
                                  //        The self-test also reads the settings back after every failed
                                  //        tray write and asserts the click did nothing, now that the
                                  //        ModuleKit fake shows the disk after a failed Save() (N-blinkingled-02).
+                                 //        Start() adopts the key's state, so a Scroll Lock the user had lit
+                                 //        before enabling no longer runs the cadence inverted, and Stop()
+                                 //        clears it: stopping always leaves the light off (N-blinkingled-01).
                                  // 1.0.5: "Blink once now" no longer strands the LED when the feature was
                                  //        ALREADY off. 1.0.4 fixed only the other ordering (blink, then
                                  //        switch off); Stop() returned early on !_running, so a blink made
@@ -592,6 +595,14 @@ namespace DesktopAICompanion.BlinkingLed
 
                     var module = new BlinkingLedModule();
                     module.Init(host);
+                    // The module's own blinker reads the developer's REAL Scroll Lock, and since 2026-09-30
+                    // Start() adopts whatever it reads (N-blinkingled-01): on a box whose key happens to be lit,
+                    // the pane saves below would adopt it and the next Stop() would press the key for real,
+                    // an unpaired press that moves the developer's LED and breaks the parity assertion (F113).
+                    // Pinned dark, so this instance never believes it holds a key it did not press; the two
+                    // real presses the wiring check makes are paired on their own, and the adoption itself is
+                    // asserted on private probes further down through the same seam.
+                    module._blinker.ScrollLockReader = delegate { return false; };
 
                     // Exactly ONE tray entry. An equality, not a minimum: this module shares the tray with the
                     // host and five others, so growing it must be a deliberate decision, and folding Off into
@@ -941,6 +952,10 @@ namespace DesktopAICompanion.BlinkingLed
                     var tickProbe = new ScrollLockBlinker();
                     tickProbe.SetRate("Normal");                              // 2500 lit / 7500 dark
                     tickProbe.KeypressSender = RefusedKeypress;
+                    // Dark, whatever the machine's key reads: Start() adopts the key since 2026-09-30
+                    // (N-blinkingled-01), and this probe's two assertions are written for a cadence that starts
+                    // from the dark gap. On a box whose Scroll Lock was lit it adopted lit and both failed.
+                    tickProbe.ScrollLockReader = delegate { return false; };
                     tickProbe.Start();
                     tickProbe.Tick();
                     probe.Check("a refused cadence tick leaves the phase where it was and keeps the dark gap armed",
@@ -979,13 +994,35 @@ namespace DesktopAICompanion.BlinkingLed
                         !startDarkProbe.PhaseOn && startDarkProbe.ArmedIntervalMs == 7500);
                     startDarkProbe.Dispose();
 
+                    // N-blinkingled-01: a Scroll Lock the USER lit before enabling is ADOPTED, so the cadence
+                    // starts from the lit phase instead of inverted, and Stop() then clears it, which is what
+                    // makes the Readme's "stopping always leaves the light off" true for a key the module did
+                    // not light. The 1.0.6 first cut asserted the opposite here (variant B); the coordinator
+                    // chose variant C on 2026-09-30, recorded under #### fix/blinkingled in the register.
                     var startUserLitProbe = new ScrollLockBlinker();
+                    startUserLitProbe.KeypressSender = AcceptedKeypress;
                     startUserLitProbe.ScrollLockReader = delegate { return true; };
                     startUserLitProbe.SetRate("Normal");
                     startUserLitProbe.Start();
-                    probe.Check("WITNESS Start() does not adopt a lit key it never lit, and arms the dark gap",
-                        !startUserLitProbe.PhaseOn && startUserLitProbe.ArmedIntervalMs == 7500);
+                    probe.Check("Start() adopts a lit key it never lit, and arms the LIT interval, so the cadence is never inverted",
+                        startUserLitProbe.PhaseOn && startUserLitProbe.ArmedIntervalMs == 2500 && startUserLitProbe.AttemptCount == 0);
+                    startUserLitProbe.Stop();
+                    probe.Check("...and Stop() then clears it, so stopping always leaves the light off, as the Readme says",
+                        !startUserLitProbe.PhaseOn && startUserLitProbe.ToggleCount == 1 && startUserLitProbe.AttemptCount == 1);
                     startUserLitProbe.Dispose();
+
+                    // WITNESS: adoption reads the key rather than assuming it lit. A dark key it never lit
+                    // adopts dark and arms the dark gap, and Stop() has nothing to clear.
+                    var startUserDarkProbe = new ScrollLockBlinker();
+                    startUserDarkProbe.KeypressSender = AcceptedKeypress;
+                    startUserDarkProbe.ScrollLockReader = delegate { return false; };
+                    startUserDarkProbe.SetRate("Normal");
+                    startUserDarkProbe.Start();
+                    probe.Check("WITNESS Start() over a dark key it never lit adopts dark and arms the dark gap",
+                        !startUserDarkProbe.PhaseOn && startUserDarkProbe.ArmedIntervalMs == 7500);
+                    startUserDarkProbe.Stop();
+                    probe.Check("WITNESS ...and Stop() then presses nothing", startUserDarkProbe.AttemptCount == 0);
+                    startUserDarkProbe.Dispose();
 
                     // THE CORRECTIVE TOGGLE ITSELF (F114), and what Stop() believes afterwards (F116). The
                     // reader is substituted so both branches of the gate run whatever the machine's LED is
@@ -1000,6 +1037,8 @@ namespace DesktopAICompanion.BlinkingLed
                         litProbe.AttemptCount == attemptsBeforeStop + 1);
                     probe.Check("Stop() clears a blink-once made while the feature was switched off",
                         !litProbe.PhaseOn);
+                    probe.Check("WITNESS a key the module lit is still cleared by Stop() now that Start() adopts the key too",
+                        litProbe.ToggleCount == 2);
                     litProbe.Dispose();
 
                     var userLitProbe = new ScrollLockBlinker();

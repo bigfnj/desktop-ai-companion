@@ -670,63 +670,82 @@ namespace DesktopAICompanion.RemembranceModule
             catch { return null; }
         }
 
-        private static async Task DownloadAsync(HttpClient http, string url, string destination,
+        /// <summary>
+        /// Fetch <paramref name="url"/> into <paramref name="destination"/> through a <c>.part</c> file that
+        /// becomes the destination only once every byte has arrived. Internal so the self-test can drive it
+        /// against a scripted handler; the two callers are InstallAsync's CLI and model steps.
+        /// </summary>
+        internal static async Task DownloadAsync(HttpClient http, string url, string destination,
             Action<string> report, CancellationToken cancellationToken)
         {
             string temporary = destination + ".part";
             TryDelete(temporary);
             string label = Path.GetFileName(destination);
-            // One linked source for the whole download, re-armed before every read: the bound is on SILENCE
-            // -- no headers, then no bytes -- never on the whole file, which is hundreds of MB on a slow link
-            // and must be allowed to take as long as it takes (F184).
-            using (CancellationTokenSource idle = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+            // The .part is deleted on EVERY way out except the rename that makes it the destination: the idle
+            // bound firing, the CALLER's token (Shutdown cancels _installCts mid-install, F184), a refused
+            // status, a write that fails. Until 2026-09-30 only the bound's own catch below deleted it, so an
+            // install the user closed the app on left one stale partial download -- hundreds of MB for a
+            // model -- until the next attempt's TryDelete at the top collected it (N-remembrance-02).
+            bool completed = false;
+            try
             {
-                try
+                // One linked source for the whole download, re-armed before every read: the bound is on
+                // SILENCE -- no headers, then no bytes -- never on the whole file, which is hundreds of MB on
+                // a slow link and must be allowed to take as long as it takes (F184).
+                using (CancellationTokenSource idle = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
                 {
-                    idle.CancelAfter(LookupBound);
-                    using (HttpResponseMessage response = await http
-                        .GetAsync(url, HttpCompletionOption.ResponseHeadersRead, idle.Token).ConfigureAwait(false))
+                    try
                     {
-                        response.EnsureSuccessStatusCode();
-                        long? total = response.Content.Headers.ContentLength;
-
-                        using (Stream source = await response.Content.ReadAsStreamAsync(idle.Token).ConfigureAwait(false))
-                        using (var target = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16))
+                        idle.CancelAfter(LookupBound);
+                        using (HttpResponseMessage response = await http
+                            .GetAsync(url, HttpCompletionOption.ResponseHeadersRead, idle.Token).ConfigureAwait(false))
                         {
-                            var buffer = new byte[1 << 16];
-                            long written = 0;
-                            int lastReported = -1;
-                            while (true)
+                            response.EnsureSuccessStatusCode();
+                            long? total = response.Content.Headers.ContentLength;
+
+                            using (Stream source = await response.Content.ReadAsStreamAsync(idle.Token).ConfigureAwait(false))
+                            using (var target = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16))
                             {
-                                idle.CancelAfter(ReadIdleBound);
-                                int read = await source.ReadAsync(buffer, 0, buffer.Length, idle.Token).ConfigureAwait(false);
-                                if (read <= 0) break;
-                                await target.WriteAsync(buffer, 0, read, cancellationToken).ConfigureAwait(false);
-                                written += read;
-                                if (total.HasValue && total.Value > 0)
+                                var buffer = new byte[1 << 16];
+                                long written = 0;
+                                int lastReported = -1;
+                                while (true)
                                 {
-                                    int percent = (int)(written * 100 / total.Value);
-                                    if (percent >= lastReported + 5)
+                                    idle.CancelAfter(ReadIdleBound);
+                                    int read = await source.ReadAsync(buffer, 0, buffer.Length, idle.Token).ConfigureAwait(false);
+                                    if (read <= 0) break;
+                                    await target.WriteAsync(buffer, 0, read, cancellationToken).ConfigureAwait(false);
+                                    written += read;
+                                    if (total.HasValue && total.Value > 0)
                                     {
-                                        lastReported = percent;
-                                        report(label + ": " + percent + "%");
+                                        int percent = (int)(written * 100 / total.Value);
+                                        if (percent >= lastReported + 5)
+                                        {
+                                            lastReported = percent;
+                                            report(label + ": " + percent + "%");
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        // The bound, not the caller: say so. The finally below removes the partial.
+                        throw new TimeoutException("The download of " + label + " stalled: no answer within " +
+                            LookupBound.TotalSeconds.ToString(CultureInfo.InvariantCulture) + " s, or no data for " +
+                            ReadIdleBound.TotalSeconds.ToString(CultureInfo.InvariantCulture) + " s. Try again, or " +
+                            "fetch it in a browser and use the Browse actions.");
+                    }
                 }
-                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-                {
-                    TryDelete(temporary);
-                    throw new TimeoutException("The download of " + label + " stalled: no answer within " +
-                        LookupBound.TotalSeconds.ToString(CultureInfo.InvariantCulture) + " s, or no data for " +
-                        ReadIdleBound.TotalSeconds.ToString(CultureInfo.InvariantCulture) + " s. Try again, or " +
-                        "fetch it in a browser and use the Browse actions.");
-                }
+                TryDelete(destination);
+                File.Move(temporary, destination);
+                completed = true;
             }
-            TryDelete(destination);
-            File.Move(temporary, destination);
+            finally
+            {
+                if (!completed) TryDelete(temporary);
+            }
         }
 
         // ---- verification --------------------------------------------------------------------------

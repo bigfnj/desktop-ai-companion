@@ -75,6 +75,8 @@ namespace DesktopAICompanion.RemembranceModule
                                  //         devices nor purges, and LaunchProcess is declared. The self-test
                                  //         resets the fake host's recorded links through ClearOpenedLinks
                                  //         (the ModuleKit fake hands out snapshots now, N-remembrance-01).
+                                 //         A download the CALLER cancels (Shutdown mid-install) deletes its
+                                 //         .part instead of leaving a stale partial model (N-remembrance-02).
                                  // 1.0.16: the 72-hour purge may only delete the file SHAPES this module
                                  //         writes. Three of the four branches were looser than that: any
                                  //         snap*.png inside a capture folder, ANY .wav in the root, and
@@ -2045,6 +2047,7 @@ namespace DesktopAICompanion.RemembranceModule
             SelfCheckSummaryCoverage(check);
             SelfCheckWhisperLimit(check);
             SelfCheckLookupBound(check);
+            SelfCheckDownloadCleanup(check);
 
             detail = sb.ToString();
             return ok;
@@ -2350,6 +2353,145 @@ namespace DesktopAICompanion.RemembranceModule
             }
             catch (Exception ex) { check("lookup bound: " + ex.Message, false); }
             finally { WhisperInstaller.LookupBound = savedBound; }
+        }
+
+        /// <summary>
+        /// A download the CALLER cancels leaves no .part behind, and a completed one keeps its file
+        /// (N-remembrance-02). Shutdown cancels _installCts mid-install (F184), and until 2026-09-30 only the
+        /// download's own idle bound deleted the partial, so a model download the user closed the app on
+        /// stayed on disk until the next attempt. Driven against a scripted response body: the first chunk
+        /// arrives, the second read blocks until the caller's token fires, so the .part is provably on disk
+        /// when the cancel lands.
+        /// </summary>
+        private static void SelfCheckDownloadCleanup(Action<string, bool> check)
+        {
+            string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-remembrance-dl-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            try
+            {
+                System.IO.Directory.CreateDirectory(scratch);
+                string destination = System.IO.Path.Combine(scratch, "ggml-probe.bin");
+                const string url = "https://example.invalid/ggml-probe.bin";
+                var payload = new byte[3 * 65536 + 17];
+                for (int i = 0; i < payload.Length; i++) payload[i] = (byte)(i * 31);
+
+                // 1. The caller cancels after the first chunk has landed in the .part.
+                var stalling = new StallingBody(payload, 65536);
+                using (var http = new System.Net.Http.HttpClient(new ScriptedHandler(stalling, payload.Length)))
+                using (var cts = new CancellationTokenSource())
+                {
+                    Task download = WhisperInstaller.DownloadAsync(http, url, destination, delegate { }, cts.Token);
+                    bool stalled = stalling.Stalled.Wait(TimeSpan.FromSeconds(10));
+                    bool partialOnDisk = System.IO.File.Exists(destination + ".part");
+                    cts.Cancel();
+                    bool cancelled = false;
+                    bool ended;
+                    try { ended = download.Wait(TimeSpan.FromSeconds(10)); }
+                    catch (AggregateException ex) { ended = true; cancelled = ex.InnerException is OperationCanceledException; }
+                    check("WITNESS the partial download was on disk while the download was in flight", stalled && partialOnDisk);
+                    check("a download the CALLER cancels surfaces the cancellation, not a stall", ended && cancelled);
+                    check("a download the CALLER cancels leaves no .part behind",
+                        !System.IO.File.Exists(destination + ".part") && !System.IO.File.Exists(destination));
+                }
+
+                // 2. WITNESS: a download that completes keeps its file, byte for byte, and no .part.
+                using (var http = new System.Net.Http.HttpClient(new ScriptedHandler(new StallingBody(payload, payload.Length), payload.Length)))
+                {
+                    var reported = new List<string>();
+                    WhisperInstaller.DownloadAsync(http, url, destination, reported.Add, CancellationToken.None)
+                        .Wait(TimeSpan.FromSeconds(10));
+                    byte[] got = System.IO.File.Exists(destination) ? System.IO.File.ReadAllBytes(destination) : new byte[0];
+                    check("WITNESS a completed download keeps its file, byte for byte", got.SequenceEqual(payload));
+                    check("WITNESS ...leaves no .part", !System.IO.File.Exists(destination + ".part"));
+                    // Progress is reported in 5-point steps, so a report at 95..99 leaves 100 unreported: the
+                    // last report is at least 95%, never necessarily 100%.
+                    int lastPercent = -1;
+                    if (reported.Count > 0)
+                    {
+                        string last = reported[reported.Count - 1];
+                        int colon = last.LastIndexOf(": ", StringComparison.Ordinal);
+                        int.TryParse(last.Substring(colon + 2).TrimEnd('%'), NumberStyles.Integer,
+                            CultureInfo.InvariantCulture, out lastPercent);
+                    }
+                    check("WITNESS ...and reported its progress against the declared length (last report "
+                          + lastPercent.ToString(CultureInfo.InvariantCulture) + "%)",
+                        lastPercent >= 95);
+                }
+            }
+            catch (Exception ex) { check("download cleanup: " + ex.Message, false); }
+            finally
+            {
+                try { if (System.IO.Directory.Exists(scratch)) System.IO.Directory.Delete(scratch, true); } catch { }
+            }
+        }
+
+        /// <summary>An HttpMessageHandler that answers 200 with <paramref name="body"/> as the content and
+        /// the given length in the headers, so the download's progress arithmetic runs.</summary>
+        private sealed class ScriptedHandler : System.Net.Http.HttpMessageHandler
+        {
+            private readonly System.IO.Stream _body;
+            private readonly long _length;
+            internal ScriptedHandler(System.IO.Stream body, long length) { _body = body; _length = length; }
+            protected override Task<System.Net.Http.HttpResponseMessage> SendAsync(
+                System.Net.Http.HttpRequestMessage request, CancellationToken cancellationToken)
+            {
+                var response = new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new System.Net.Http.StreamContent(_body),
+                };
+                response.Content.Headers.ContentLength = _length;
+                return Task.FromResult(response);
+            }
+        }
+
+        /// <summary>
+        /// A response body that delivers its first <c>firstChunk</c> bytes and then blocks every read until
+        /// the read's token is cancelled; with firstChunk equal to the payload length it delivers everything
+        /// and ends. Stalled is set when the blocking read begins, which is after the caller has written the
+        /// first chunk to its .part.
+        /// </summary>
+        private sealed class StallingBody : System.IO.Stream
+        {
+            private readonly byte[] _payload;
+            private readonly int _firstChunk;
+            private int _position;
+            internal readonly ManualResetEventSlim Stalled = new ManualResetEventSlim(false);
+
+            internal StallingBody(byte[] payload, int firstChunk) { _payload = payload; _firstChunk = firstChunk; }
+
+            public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            {
+                if (_position < _firstChunk)
+                {
+                    int n = Math.Min(count, _firstChunk - _position);
+                    Array.Copy(_payload, _position, buffer, offset, n);
+                    _position += n;
+                    return n;
+                }
+                if (_position >= _payload.Length) return 0;
+                Stalled.Set();
+                await Task.Delay(Timeout.Infinite, cancellationToken).ConfigureAwait(false);
+                return 0;
+            }
+
+            public override int Read(byte[] buffer, int offset, int count)
+            {
+                // The download reads asynchronously; a synchronous read of the stalled half would hang the
+                // suite, so it fails loudly instead.
+                if (_position >= _firstChunk && _position < _payload.Length)
+                    throw new NotSupportedException("the stalling half is only readable asynchronously");
+                return ReadAsync(buffer, offset, count, CancellationToken.None).GetAwaiter().GetResult();
+            }
+
+            public override bool CanRead { get { return true; } }
+            public override bool CanSeek { get { return false; } }
+            public override bool CanWrite { get { return false; } }
+            public override long Length { get { throw new NotSupportedException(); } }
+            public override long Position { get { return _position; } set { throw new NotSupportedException(); } }
+            public override void Flush() { }
+            public override long Seek(long offset, System.IO.SeekOrigin origin) { throw new NotSupportedException(); }
+            public override void SetLength(long value) { throw new NotSupportedException(); }
+            public override void Write(byte[] buffer, int offset, int count) { throw new NotSupportedException(); }
         }
 
         /// <summary>An HttpMessageHandler that accepts the request and never answers: a black-holed proxy.</summary>

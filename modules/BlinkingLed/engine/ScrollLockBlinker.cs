@@ -181,15 +181,23 @@ namespace DesktopAICompanion.BlinkingLed
             // Glacial, lit for four minutes and dark for four seconds) and disarmed Stop()'s corrective
             // toggle whenever the LED was lit: the very defect 1.0.5's note claimed fixed (F115, BUG-011).
             //
-            // Same rule as Stop(): our own belief AND the hardware. A key we lit that still reads lit stays
-            // ours, and the cadence continues from its LIT phase, so the blink the user just made becomes
-            // the first blink rather than being undone; a key we lit that reads dark is no longer ours (the
-            // user pressed it); a lit key we never lit is left alone, as at startup. No keypress on enable,
-            // deliberately. The rejected alternative was to mirror Stop() and clear the key first, which
-            // costs a SendInput that can itself be refused and would then leave flag and key disagreeing
-            // again, the shape this release exists to remove. The read is the same one Stop() has relied
-            // on since 1.0.4; a reader that throws is treated as "unknown", and the belief stands.
-            try { if (_phaseOn && !ScrollLockReader()) _phaseOn = false; } catch { }
+            // ADOPT the key: the belief becomes whatever the key reads, so the cadence can never start
+            // inverted. A key we lit that still reads lit stays ours and the cadence continues from its LIT
+            // phase, so the blink the user just made becomes the first blink rather than being undone; a key
+            // we lit that reads dark is no longer ours (the user pressed it). Both as in the 1.0.6 first cut.
+            // What that cut did NOT do was adopt a Scroll Lock the USER had lit before enabling: it applied
+            // Stop()'s "our belief AND the hardware" rule here too, left `_phaseOn` false against a lit key,
+            // and the cadence ran inverted for the session (lit for the dark gap's share of the cycle, 75%
+            // on Normal) while Stop() then left the key wherever the cadence landed, so the Readme's "stopping
+            // always leaves the light off" held only for a key the module lit (N-blinkingled-01). Adopting
+            // lets Stop() clear a key the module did not light; the coordinator chose that on 2026-09-30
+            // (variant C under `#### fix/blinkingled` in docs/DESIGN-REGISTER.md): a user who switches the
+            // blinker on has asked for the light to be driven, and "off when it stops" is the promise made.
+            // No keypress on enable, still: the rejected alternative was to mirror Stop() and clear the key
+            // first, which costs a SendInput that can itself be refused and would then leave flag and key
+            // disagreeing again. The read is the same one Stop() has relied on since 1.0.4; a reader that
+            // throws is treated as "unknown", and the belief stands.
+            try { _phaseOn = ScrollLockReader(); } catch { }
             _timer = new Timer();
             _timer.Interval = Math.Max(1, _phaseOn ? _onMs : _offMs);
             _timer.Tick += OnTick;
@@ -222,9 +230,12 @@ namespace DesktopAICompanion.BlinkingLed
             // to reconcile as well (1.0.6, F115).
             //
             // Gated on _phaseOn AND the hardware, not on the hardware alone. _phaseOn is this object's
-            // own belief that WE are the ones holding the key on -- BlinkOnce and the cadence both
-            // maintain it -- so a Scroll Lock the USER turned on for their own reasons is left alone,
-            // including at startup, where Init calls ApplyState(false) on a fresh blinker.
+            // own belief that WE are holding the key on -- BlinkOnce and the cadence both maintain it, and
+            // since 2026-09-30 Start() ADOPTS the key's state as well (N-blinkingled-01) -- so a Scroll Lock
+            // the USER turned on is left alone only while the blinker was never started: at startup with the
+            // feature off, where Init calls ApplyState(false) on a fresh blinker. Once the user has switched
+            // the blinker on, the light is the module's to drive, and stopping leaves it off, as the Readme
+            // promises.
             _running = false;
             DisposeTimer();
             if (_phaseOn)

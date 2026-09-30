@@ -986,9 +986,11 @@ CASES = (
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
      "a refused cadence tick leaves the phase where it was"),
 
+    # Re-pointed 2026-09-30 by lane fix/followups: Start() adopts the key's state (variant C, N-blinkingled-01),
+    # so the variant-B reconciliation line matched 0 times. Same regression, same expected assertion.
     ("Start() zeroes the phase against a key it lit again (the 1.0.5 shape)",
      SCROLLLOCK_BLINKER,
-     b"            try { if (_phaseOn && !ScrollLockReader()) _phaseOn = false; } catch { }",
+     b"            try { _phaseOn = ScrollLockReader(); } catch { }",
      b"            _phaseOn = false;",
      BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
@@ -1002,15 +1004,17 @@ CASES = (
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
      "arms the LIT phase's interval"),
 
-    # The design rule Stop() states (our belief AND the hardware) applied to Start(): a lit key the
-    # blinker never lit is not adopted.
-    ("Start() adopts a lit key it never lit",
+    # Inverted 2026-09-30 by lane fix/followups. This case used to put ADOPTION in as the mutation and expect
+    # "does not adopt a lit key it never lit"; the coordinator chose that adoption (variant C, N-blinkingled-01),
+    # so the regression is now the 1.0.6 first cut coming back: a lit key the blinker never lit is left
+    # un-adopted and the cadence starts inverted.
+    ("Start() stops adopting a lit key it never lit (the 1.0.6 first cut)",
      SCROLLLOCK_BLINKER,
-     b"            try { if (_phaseOn && !ScrollLockReader()) _phaseOn = false; } catch { }",
      b"            try { _phaseOn = ScrollLockReader(); } catch { }",
+     b"            try { if (_phaseOn && !ScrollLockReader()) _phaseOn = false; } catch { }",
      BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
-     "does not adopt a lit key it never lit"),
+     "Start() adopts a lit key it never lit"),
 
     ("Stop() zeroes the belief after a refused corrective toggle",
      SCROLLLOCK_BLINKER,
@@ -2019,6 +2023,45 @@ CASES = (
      b'            if (string.IsNullOrWhiteSpace(root)) return new ModulePaths(Path.Combine(Path.GetTempPath(), "DesktopAICompanion." + moduleId), moduleId);',
      CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
      CORETESTS, None, "A null storage produced a root"),
+
+    # N-remembrance-02: the .part is kept when the CALLER's token cancels the download, the shipped shape (only
+    # the download's own idle bound deleted it). The self-test cancels after the first chunk has landed.
+    ("followups: remembrance: a download the caller cancels keeps its .part again",
+     WHISPER_INSTALLER,
+     b"                if (!completed) TryDelete(temporary);",
+     b"                if (!completed && !cancellationToken.IsCancellationRequested) TryDelete(temporary);",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a download the CALLER cancels leaves no .part behind"),
+
+    # N-blinkingled-01: Start() adopts the INVERSE of what the key reads, the purest form of the inverted
+    # cadence. The adopted-key probe's Stop() then believes it holds nothing and leaves the lit key lit.
+    ("followups: blinkingled: Start() adopts the inverse of what the key reads",
+     SCROLLLOCK_BLINKER,
+     b"            try { _phaseOn = ScrollLockReader(); } catch { }",
+     b"            try { _phaseOn = !ScrollLockReader(); } catch { }",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "and Stop() then clears it, so stopping always leaves the light off"),
+
+    # N-reminder-03: the two on-demand paths stop asking whether a companion is on screen, the shipped shape.
+    # `_host == null &&` keeps each guard compiling and never true after Init, with no unreachable-code
+    # warning (CS0162 would fail the module's warnings-as-errors build).
+    ("followups: reminder: 'Test this reminder' reports sent with nobody on screen again",
+     os.path.join(REPO, "modules", "Reminder", "ReminderModule.cs"),
+     b"                if (!AnyCompanionOnScreen()) return NoCompanionStatus;",
+     b"                if (_host == null && !AnyCompanionOnScreen()) return NoCompanionStatus;",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "says so instead of"),
+
+    ("followups: reminder: the Agenda click speaks into nothing again",
+     os.path.join(REPO, "modules", "Reminder", "ReminderModule.cs"),
+     b"                    if (!AnyCompanionOnScreen()) { try { _host.Log(Id, AgendaNobodyLogLine); } catch { } return; }",
+     b"                    if (_host == null && !AnyCompanionOnScreen()) { try { _host.Log(Id, AgendaNobodyLogLine); } catch { } return; }",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "the Agenda tray click with no companion on screen speaks nothing"),
 
 
     # ---- lane fix/deadcode ----

@@ -522,6 +522,15 @@ Lock the USER had lit before enabling (N-blinkingled-01), but it lets `Stop()` c
 light, which the `Stop()` comment forbids. That is the owner's rule to change, not a lane's, so (C) is filed
 rather than taken.
 
+**Variant (C) was chosen on 2026-09-30 by the coordinator (N-blinkingled-01, implemented by lane fix/followups).**
+`Start()` adopts the key's state (`_phaseOn = reader()`), so a Scroll Lock the user had lit before enabling
+runs the cadence from its lit phase rather than inverted, and `Stop()` clears it: the Readme's "stopping
+always leaves the light off" (Readme.md, Blinking LED) now holds for a key the module did not light too. The
+reason: a user who switches the blinker on has asked for the light to be driven, and "off when it stops" is
+the promise the Readme makes; (B) kept that promise only for a key the module lit. A key the user lit is still
+left alone while the blinker was never started (startup with the feature off), which is the `Stop()` rule's
+remaining scope.
+
 **Stop() keeps the belief when its corrective toggle is refused (2026-09-29, F116).** `_phaseOn` is the object's
 claim that it is holding the key lit; after a refused clearing press that claim is still true, so it stands and
 the next `Stop()` or `Start()` retries. Zeroing it regardless was the third write of the flag that ignored the

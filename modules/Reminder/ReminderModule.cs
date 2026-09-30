@@ -69,6 +69,8 @@ namespace DesktopAICompanion.ReminderModule
                                 //        change; the fired set is pruned per slot; "Check now" re-reads
                                 //        the feeds; a custom chime is read off the UI thread; a feed error
                                 //        is logged on change, not per tick; Teams' short join links match.
+                                //        "Test this reminder" and the Agenda tray click say so when no
+                                //        companion is on screen instead of reporting a send nobody saw.
                                 // 1.0.6: "Make the companion react" reached 35 of 54 companions, and
                                 //        reactOn defaults to true, so 19 users had a feature switched
                                 //        on that did nothing. The eSheep-era names it used are absent
@@ -911,10 +913,21 @@ namespace DesktopAICompanion.ReminderModule
         // Fire a sample announcement in this slot's name, style, and chime so the user can see and hear it while
         // configuring, instead of waiting for a real event. Uses the SAVED settings (a PaneAction can't read the
         // pane's unsaved edits), so the status reminds the user to Apply first to preview pending changes.
+        /// <summary>What "Test this reminder" answers when no companion is on screen to show it.</summary>
+        internal const string NoCompanionStatus =
+            "✗ no companion is on screen to show it. Add one from the tray, then test again.";
+
+        /// <summary>The log line the Agenda tray click leaves when no companion is on screen to read it.</summary>
+        internal const string AgendaNobodyLogLine = "agenda not read: no companion is on screen to show it";
+
         private string TestReminder(int slot)
         {
             try
             {
+                // The gate CheckDue holds a due reminder on (F199), applied to the button: SayAll drops its
+                // line when no companion is out, so "✓ test sent" over an empty desktop reported a send that
+                // reached nobody, with the chime and the reaction fired into nothing beside it (N-reminder-03).
+                if (!AnyCompanionOnScreen()) return NoCompanionStatus;
                 string label = _settings.Get(SlotKey(slot, "label"), "");
                 string name = string.IsNullOrWhiteSpace(label) ? ("Calendar " + slot.ToString(CultureInfo.InvariantCulture)) : label.Trim();
                 SpeechStyle style = SpeechStyleSettings.ToStyle(_settings, SlotId(slot) + ".");
@@ -1001,6 +1014,10 @@ namespace DesktopAICompanion.ReminderModule
                 DynamicText = () => "Read today's agenda",
                 Click = () =>
                 {
+                    // SayAll would drop the agenda with nobody on screen (F199), and a tray click has no
+                    // status line to answer on, so the log is where it says why nothing was read
+                    // (N-reminder-03); the log is the file SUPPORT.md asks for.
+                    if (!AnyCompanionOnScreen()) { try { _host.Log(Id, AgendaNobodyLogLine); } catch { } return; }
                     try { _lastSnapshot = _source.Fetch(); } catch { }
                     _host.SayAll(AgendaText(DateTimeOffset.Now), null);
                 },
@@ -2017,6 +2034,53 @@ namespace DesktopAICompanion.ReminderModule
             finally
             {
                 delivery.Shutdown();
+            }
+
+            // ---- "Test this reminder" and the Agenda tray click say so when nobody is on screen (N-reminder-03) ----
+            // The F199 hold applied to the two on-demand paths: the button answered "✓ test sent" and the click
+            // spoke through SayAll while the host had no companion to show either, so both looked like they
+            // worked and neither did. RecordingHost records a SayAll whatever is on screen, so what is asserted
+            // is that the module did not speak, chime or animate at all, and said why on the channel each path
+            // has: the button's status line, and the log for the click.
+            var nobodyHost = new RecordingHost();
+            var nobody = new ReminderModule();
+            nobodyHost.SettingsFor(Id).Set("hushPresenting", "false");
+            nobody.Init(nobodyHost);
+            try
+            {
+                Func<string, int> nobodyLogged = delegate(string fragment)
+                {
+                    int n = 0;
+                    foreach (string line in nobodyHost.LoggedLines) if (line.Contains(fragment)) n++;
+                    return n;
+                };
+                TrayItem agenda = null;
+                foreach (TrayItem item in nobodyHost.TrayItems)
+                    if (item != null && item.DynamicText != null && item.DynamicText() == "Read today's agenda") agenda = item;
+                check("the Agenda tray item is registered with a click", agenda != null && agenda.Click != null);
+
+                string testStatus = nobody.TestReminder(1);
+                check("\"Test this reminder\" with no companion on screen says so instead of \"test sent\"",
+                    testStatus == NoCompanionStatus);
+                check("...and speaks, chimes and animates nothing",
+                    nobodyHost.SaidLines.Count == 0 && nobodyHost.PlayedSounds.Count == 0
+                    && nobodyHost.NotificationSoundsPlayed == 0 && nobodyHost.PlayedAnimations.Count == 0);
+                if (agenda != null && agenda.Click != null) agenda.Click();
+                check("the Agenda tray click with no companion on screen speaks nothing and logs why",
+                    nobodyHost.BroadcastLines.Count == 0 && nobodyLogged(AgendaNobodyLogLine) == 1);
+
+                nobodyHost.RaiseCompanionSpawned(new FakeCompanion(1, "sheep"));
+                string sentStatus = nobody.TestReminder(1);
+                check("WITNESS with a companion on screen the test reminder is sent and says so",
+                    sentStatus.StartsWith("✓", StringComparison.Ordinal) && nobodyHost.SaidLines.Count == 1);
+                int broadcastBefore = nobodyHost.BroadcastLines.Count;
+                if (agenda != null && agenda.Click != null) agenda.Click();
+                check("WITNESS ...and the Agenda click reads the agenda, with no second log line",
+                    nobodyHost.BroadcastLines.Count == broadcastBefore + 1 && nobodyLogged(AgendaNobodyLogLine) == 1);
+            }
+            finally
+            {
+                nobody.Shutdown();
             }
 
             // ---- an unchanged feed error is logged once (F197) ----
