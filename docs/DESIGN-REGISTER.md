@@ -703,7 +703,43 @@ and a no-settings host gets smart picks off.
 
 #### fix/petstudio
 
-(none yet)
+**The analyzer adopts the validator's parse rather than calling the host's `TryReadXml(stageImages: false)`
+(2026-09-29, F155 / BUG-012).** The host lane grew that overload for this finding and it is the smaller
+change; it was declined on a reading of what it still runs. `CompanionXmlValidator.TryParse` proves the
+sheet with `Image.FromStream(stream, true, true)`, a full GDI+ decode, and `TryReadXml` calls `TryParse`
+again on the same text, so the overload would have left two validating parses and two GDI+ decodes of
+the sheet per analyze where the analyzer needs one graph. Assigning the RootNode the analyzer's own
+`TryParse` returned to `Xml.AnimationXML` and calling the host's `LoadAnimations` (which runs
+`ResolveMagicAnimations`) gives the walk the engine's exact entry ids from one parse and no bitmap; the
+field is public in the source-linked `Xml.cs`, so a host that makes it private breaks this module's
+compile rather than its behaviour. Mirroring the three-step magic-name resolution in the module was
+declined for the drift the source-link exists to prevent. What still runs per analyze, on a pool thread:
+one `TryParse` (the XSD deserialize, the base64 of sheet and icon, the GDI+ proof decode),
+`LoadAnimations` (which also base64-decodes each `<sound>`), the reachability walk and `BuildNodes`. No
+timing is claimed, because nothing here was measured cold in interleaved fresh processes; the property is
+that the dispatcher thread parses, decodes and tiles nothing per analyze and decodes the sheet for the
+preview once per sheet.
+
+**`BeginAnalyze` is the rule-6 shape plus a remembered rerun (2026-09-29, F155).**
+`AiBrainModule.BeginVramProbe` and `AgentFlowModule.BeginSetupProbe` DROP a request that arrives while a
+probe is in flight, which is right for a cache the next tick refreshes anyway. An analysis has no next
+tick: a request that arrives mid-flight describes newer text, and dropping it would leave the editor
+showing a verdict for text the author has already changed until the next pause. So the gate is kept (one
+analysis in flight, ever) and a request the gate refuses sets a UI-thread-only rerun flag, honoured after
+the flight lands and its result has been judged by the generation. `FortunesModule.RebuildEngineAsync` is
+the same generation-then-publish shape without the gate.
+
+**An import's status defers to the analysis verdict; "the host would reject it" is said only when the
+validator refused (2026-09-29, the PetStudio half of the tools lane's F429 note, and F165).**
+`LoadConvertedIntoEditor` announced "but the host would reject it" whenever `ConversionResult.Accepted`
+was false, and `Accepted` is the CONVERTER's bar: Valid AND RoundTrips AND no unreachable animation. A
+valid pet with one unreachable animation was reported as rejected by a host that had accepted it. With
+the analysis asynchronous there is one writer of the status, `RenderAnalysis`, so the import supplies a
+prefix (`ImportedStatusPrefix`: the name, the skin count, and the one converter fact the analyzer cannot
+see, a pet whose XML does not round-trip through the host's serializer) and the analyzer's verdict
+follows: "runs, but N animation(s) will never play" for the unreachable case, "would reject" only for the
+validator's refusal. The "Preview or install." call to action went with it; "good to go" is the same
+statement. The timeline's dropped-step note (F165) rides the same sentence, which is what lets it render.
 
 #### fix/reminder
 

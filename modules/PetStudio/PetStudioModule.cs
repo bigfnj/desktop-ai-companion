@@ -513,6 +513,42 @@ namespace DesktopAICompanion.PetStudioModule
                             + report.Nodes.Count + " animations)",
                     report.IsValid && report.Nodes.Count >= 50);
 
+                // BUG-012 (F155): the reachability stage adopts the validator's parse and touches no sprite.
+                // Both facts are recorded by Analyze itself, so this asserts what the shipped path DID, not
+                // what its comment says it does.
+                probe.Check("the analyzer's reachability stage decodes no sprite frame (BUG-012: it tiled the whole sheet per analyze)",
+                    report.StagedSpriteFrames == 0);
+                probe.Check("the analyzer's reachability stage adopts the validator's parsed graph rather than parsing the XML a second time",
+                    report.StagedFromParsedGraph);
+                probe.Check("WITNESS the fixture's sheet has tiles to decode (" + (report.TilesX * report.TilesY)
+                            + "), so a staged frame count of 0 is a choice and not an empty sheet",
+                    report.TilesX * report.TilesY > 1);
+                bool entriesAreRoots = true;
+                int entriesSeen = 0;
+                foreach (AnimNode n in report.Nodes)
+                    foreach (string magic in new[] { "drag", "fall", "kill", "sync" })
+                        if (string.Equals(n.Name, magic, StringComparison.OrdinalIgnoreCase))
+                        {
+                            entriesSeen++;
+                            if (!n.IsRoot) entriesAreRoots = false;
+                        }
+                probe.Check("WITNESS the staged graph still resolves the engine's entry animations: the fixture's drag, fall, kill and sync are roots ("
+                            + entriesSeen + " found)",
+                    entriesSeen == 4 && entriesAreRoots);
+
+                // F165 and the F429 wording: the status sentences are pure, so their words can be pinned here.
+                probe.Check("the analysis status carries the timeline's dropped-step note (F165)",
+                    PetStudioWindow.AnalysisStatus(true, 0, 2).IndexOf("Dropped 2 timeline step(s)", StringComparison.Ordinal) >= 0);
+                probe.Check("WITNESS nothing dropped, nothing said: the plain verdict is unchanged",
+                    PetStudioWindow.AnalysisStatus(true, 0, 0) == "This companion is good to go.");
+                probe.Check("the verdict still names the never-play count and the rejection",
+                    PetStudioWindow.AnalysisStatus(true, 3, 0).IndexOf("3 animation(s) will never play", StringComparison.Ordinal) >= 0
+                    && PetStudioWindow.AnalysisStatus(false, 5, 0) == "The host would reject this companion.");
+                probe.Check("an imported pet the validator accepted is not announced as one the host would reject (F429)",
+                    PetStudioWindow.ImportedStatusPrefix("hornet", true, true, "") == "Imported 'hornet'. ");
+                probe.Check("WITNESS the one converter fact the analysis cannot see is still said: a pet whose XML does not round-trip",
+                    PetStudioWindow.ImportedStatusPrefix("hornet", true, false, "").IndexOf("does not round-trip", StringComparison.Ordinal) >= 0);
+
                 RunChecks(probe, "BehaviourChainSelfCheck", BehaviourChainSelfCheck.RunChecks, fixture,
                     "the chain builder's verdicts hold on the fixture pet");
                 RunChecks(probe, "AnimCapabilitySelfCheck", AnimCapabilitySelfCheck.RunChecks, fixture,

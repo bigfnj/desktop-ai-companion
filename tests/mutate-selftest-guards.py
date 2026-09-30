@@ -56,6 +56,9 @@ BLINKINGLED_MODULE = os.path.join(REPO, "modules", "BlinkingLed", "BlinkingLedMo
 SCROLLLOCK_BLINKER = os.path.join(REPO, "modules", "BlinkingLed", "engine", "ScrollLockBlinker.cs")
 PETSTUDIO_MODULE = os.path.join(REPO, "modules", "PetStudio", "PetStudioModule.cs")
 BEHAVIOUR_CHAIN = os.path.join(REPO, "modules", "PetStudio", "BehaviourChain.cs")
+PETREPORT = os.path.join(REPO, "modules", "PetStudio", "PetReport.cs")
+PETSTUDIO_WINDOW = os.path.join(REPO, "modules", "PetStudio", "PetStudioWindow.cs")
+ANIM_CAPABILITY = os.path.join(REPO, "modules", "PetStudio", "AnimCapability.cs")
 BLINKINGLED_DLL = os.path.join(BIN, "modules", "blinkingled", "BlinkingLed.dll")
 PETSTUDIO_DLL = os.path.join(BIN, "modules", "petstudio", "PetStudio.dll")
 BLINKINGLED_CSPROJ = os.path.join(REPO, "modules", "BlinkingLed", "BlinkingLed.csproj")
@@ -1777,6 +1780,49 @@ CASES = (
 
     # ---- lane fix/petstudio ----
 
+    # BUG-012 (F155): the analyzer's reachability stage adopts the validator's parse and stages no sprite.
+    # Each mutation puts back one shipped shape. The first is the 1.1.17 loader call, which parsed the text
+    # again and decoded and tiled the sheet; the second is the host's stageImages:false overload, which
+    # decodes no tile but still parses the same text a second time. Analyze records both facts on the
+    # report, so the assertions read what the shipped path did.
+    ("petstudio: the reachability stage tiles the sheet again (BUG-012)",
+     PETREPORT,
+     b"                    xml.AnimationXML = root;\n"
+     b"                    xml.LoadAnimations(animations);",
+     b"                    string stageError;\n"
+     b"                    if (!xml.TryReadXml(animationsXml, out stageError)) throw new InvalidOperationException(stageError);\n"
+     b"                    xml.LoadAnimations(animations);",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "decodes no sprite frame"),
+    ("petstudio: the reachability stage parses the XML a second time (F155)",
+     PETREPORT,
+     b"                    xml.AnimationXML = root;\n",
+     b"                    string stageError;\n"
+     b"                    if (!xml.TryReadXml(animationsXml, false, out stageError)) throw new InvalidOperationException(stageError);\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "adopts the validator's parsed graph"),
+
+    # F165: the timeline's dropped-step note leaves the verdict sentence again.
+    ("petstudio: the verdict loses the timeline's dropped-step note (F165)",
+     PETSTUDIO_WINDOW,
+     b"            if (droppedSteps > 0)\n",
+     b"            if (droppedSteps < 0)\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "carries the timeline's dropped-step note"),
+
+    # F429 (the tools lane's note): the converter's stricter acceptance bar is announced as the host's
+    # rejection again, for a pet the validator accepted.
+    ("petstudio: an accepted import is announced as rejected by the host again (F429)",
+     PETSTUDIO_WINDOW,
+     b"            string prefix = \"Imported '\" + name + \"'\" + (extra ?? \"\");\n",
+     b"            string prefix = \"Imported '\" + name + \"'\" + (extra ?? \"\") + \", but the host would reject it\";\n",
+     PETSTUDIO_CSPROJ, PETSTUDIO_DLL,
+     "--module-selftest=petstudio", "dp-module-petstudio-selftest.txt",
+     "is not announced as one the host would reject"),
+
 
     # ---- lane fix/reminder ----
 
@@ -1967,6 +2013,9 @@ BASELINES = (
     # Lane fix/fortunes' cases all run this flag; a red baseline here is refused, not scored.
     ("--module-selftest=fortunes", "dp-module-fortunes-selftest.txt"),
     ("--module-selftest=aibrain", "dp-module-aibrain-selftest.txt"),
+    # Lane fix/petstudio's cases all run this flag (2026-09-29); without it here a red petstudio suite would
+    # score every one of them FIRED instead of refusing the baseline (the gap N-reminder-01 records for reminder).
+    ("--module-selftest=petstudio", "dp-module-petstudio-selftest.txt"),
     ("--audio-selftest", "dp-audio-selftest.txt"),
     (CORETESTS, None),
 )

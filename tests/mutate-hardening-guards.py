@@ -28,6 +28,7 @@ BUILDPS1 = os.path.join(REPO, "build.ps1")
 FORTUNE_PROVIDER = os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneProvider.cs")
 FORTUNES_MODULE = os.path.join(REPO, "modules", "Fortunes", "FortunesModule.cs")
 WEBLINKS = os.path.join(REPO, "src", "Portable", "WebLinks.cs")
+PETSTUDIO_WINDOW = os.path.join(REPO, "modules", "PetStudio", "PetStudioWindow.cs")
 
 
 def read(p):
@@ -259,6 +260,35 @@ CASES = (
         b"            {\n"
         b"                bool current =",
         "clears the picker inside the same lock",
+    ),
+
+
+    # ---- lane fix/petstudio ----
+    # (between two merged lanes' blocks on purpose: the block below fix/host is where the still-running
+    # lanes add theirs, and an insertion next to it would conflict at the merge)
+
+    # BUG-012 (F155): the analysis comes back onto the UI thread, and an overtaken result renders anyway.
+    (
+        "the studio analyzes on the UI thread again",
+        PETSTUDIO_WINDOW,
+        b"                report = await Task.Run(delegate { return PetAnalyzer.Analyze(xml); });",
+        b"                report = PetAnalyzer.Analyze(xml); await Task.Yield();",
+        "inside the awaited Task.Run",
+    ),
+    (
+        "an overtaken analysis renders anyway",
+        PETSTUDIO_WINDOW,
+        b"            if (Volatile.Read(ref _analyzeGeneration) == generation && report != null) RenderAnalysis(report, statusPrefix);",
+        b"            if (report != null) RenderAnalysis(report, statusPrefix);",
+        "compared ahead of RenderAnalysis",
+    ),
+    # F165: the count Resync returns is discarded before the status is written.
+    (
+        "the dropped-step count is discarded before the status",
+        PETSTUDIO_WINDOW,
+        b"            SetStatus(statusPrefix + AnalysisStatus(report.IsValid, report.UnreachableAnimations.Count, droppedSteps));",
+        b"            SetStatus(statusPrefix + AnalysisStatus(report.IsValid, report.UnreachableAnimations.Count, 0));",
+        "reaches the one status the analysis writes",
     ),
 
 

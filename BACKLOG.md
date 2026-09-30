@@ -366,7 +366,7 @@ Taken on from other lanes, and found on the way:
 
 10 items: 10 to fix or disposition, 0 info to disposition.
 
-- 📌 **F155** [high/performance] Every analyze re-runs the XSD-validating parse and GDI+-decodes and tiles the whole sprite sheet on the UI thread through Xml.TryReadXml; the backlog's 'no second decode' refutation read the wrong lines (`modules/PetStudio/PetReport.cs:161`)
+- ✅ **F155** **FIXED 2026-09-29 (petstudio 1.1.18).** `PetAnalyzer.Analyze` no longer stages the pet through `Xml.TryReadXml`: the reachability walk adopts the RootNode the validator already returned (`xml.AnimationXML = root; xml.LoadAnimations(animations)`, the host's own loader over the host's own parse), so one validating parse runs per analyze and no sprite frame is decoded or tiled (`SpriteCount` stays 0); `PetStudioWindow.BeginAnalyze` runs that analysis under `Task.Run` behind an Interlocked single-flight gate and a generation, renders only the newest result on the dispatcher and re-runs for a request that arrived meanwhile, so the UI thread parses, decodes and tiles nothing per analyze (the WPF `PetSprite.TryDecode` stays once per sheet behind `SpriteKey`). The stage records `StagedSpriteFrames` and `StagedFromParsedGraph` on the report and `PetStudioModule.SelfTest` asserts both, with WITNESS lines (176 tiles available; drag/fall/kill/sync still roots); two source invariants pin the awaited `Task.Run` and the generation compare ahead of `RenderAnalysis`. MUTATION: `TryReadXml(text)` put back FIRED ("decodes no sprite frame"); `TryReadXml(text, false)` FIRED ("adopts the validator's parsed graph"); the analysis moved back inline FIRED; the generation compare removed FIRED. Post-mortem BUG-012 in `docs/ISSUES-post-1.0.0.md`; the 2026-09-27 refutation near the end of this file is rewritten in place. No timing claimed (nothing measured cold); the property is stated.
 - 📌 **F150** [medium/correctness] Surface-pose growth stops at flip-action turns: the bundled sheep's ceiling walk reads MOVE, its wall descent Idle, and its wall-bounce `boing` reads CLIMB; the fixture check cannot fail on it (`modules/PetStudio/AnimCapability.cs:108`)
 - 📌 **F158** [medium/race] Zip import: _importing is set only after the extraction await, so a second Import (or closing) during extraction deletes the tree the extractor is writing and the second pick is then refused (`modules/PetStudio/PetStudioWindow.cs:712`)
 - 📌 **F157** [low/correctness] Picking an installed companion leaves the Save button in whatever state it had, so Save availability depends on history (`modules/PetStudio/PetStudioWindow.cs:587`)
@@ -375,7 +375,7 @@ Taken on from other lanes, and found on the way:
 - 📌 **F162** [low/correctness] After a zip import the remembered skin folder is the temp extraction directory, not the folder the zip came from (`modules/PetStudio/PetStudioWindow.cs:794`)
 - 📌 **F163** [low/race] Open and the installed picker are not refused during an import, so the finished conversion replaces whatever was loaded or typed meanwhile (Save is unaffected) (`modules/PetStudio/PetStudioWindow.cs:897`)
 - 📌 **F164** [low/correctness] FindBundleRoot abandons the walk when it lists the first inaccessible subdirectory and reports 'no bundle'; bundles listed after it, including direct children of the chosen folder, are never checked (`modules/PetStudio/PetStudioWindow.cs:913`)
-- 📌 **F165** [low/correctness] The 'Dropped N timeline step(s)' status from Resync is overwritten in the same Analyze call and never renders (`modules/PetStudio/PetStudioWindow.cs:994`)
+- ✅ **F165** **FIXED 2026-09-29 (petstudio 1.1.18).** `TimelinePane.Resync` returns how many steps it dropped instead of writing a status the verdict then overwrote; `RenderMap` hands the count to `PetStudioWindow.AnalysisStatus(isValid, unreachable, droppedSteps)`, the one pure function that composes the status every analysis writes (" Dropped N timeline step(s) this companion does not have."), worded for an edit that deletes an animation and for an Open that swaps the pet alike. Pinned in `PetStudioModule.SelfTest` (WITNESS: a clean analysis says nothing about steps); a source invariant pins the wiring (the count `RenderMap` returns is the argument, not a literal). MUTATION: the note's condition inverted FIRED; the count replaced by 0 at the call site FIRED.
 
 ### Lane fix/reminder (Phase 2-3)
 
@@ -1487,10 +1487,19 @@ open-item blindness plus the bug-number drift.
   could read the result, then `RenderCensus` → `Census` classified it again. Twice per analyze, on a
   ~750 ms debounce while typing. `Census` now takes an optional precomputed map.
 
-  **REFUTED — `PetAnalyzer.Analyze` does not decode the sheet.** It copies the base64 STRING into
-  the report; the decode is in `PetSprite.TryDecode`, which the `SpriteKey` cache already guards. The
-  entry had this backwards, describing the cache as guarding a small decode while a large one ran
-  unguarded beside it. There is no second decode.
+  **REFUTED on 2026-09-27, AND THE REFUTATION WAS WRONG (F155 / BUG-012, found 2026-09-29).** What
+  it read was true: `PetAnalyzer.Analyze` copies the base64 STRING into the report, and the window's
+  `PetSprite.TryDecode` sits behind the `SpriteKey` cache. What it did not read was fifteen lines
+  further down the same method: the analyzer staged the pet through `Xml.TryReadXml`, the host's
+  WHOLE loader, which parsed and XSD-validated the text a second time, base64-decoded the sheet
+  again, decoded it with GDI+ and cut it into up to 1,024 tile bitmaps, then disposed them at the end
+  of the using block -- once per analyze, on the dispatcher thread, to read four entry ids. So the
+  claim this paragraph refuted ("decodes the sprite sheet a second time") was true at a line the
+  refutation never pointed at, and the refutation went into the audit's known-items digest as "do not
+  refile" until two independent verifiers reopened it. Fixed in petstudio 1.1.18: the stage adopts the
+  validator's parse and the analysis leaves the UI thread; post-mortem BUG-012 in
+  `docs/ISSUES-post-1.0.0.md`. Rewritten rather than deleted, because the shape to recognise next
+  time is a refutation that names what it read and not what it did not.
 
   **DECLINED-MEASURED — the `XmlSchemaSet` compile.** Real, but it lives in
   `CompanionXmlValidator.TryParse` (host code, every caller), not in PetStudio, and it costs

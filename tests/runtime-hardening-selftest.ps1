@@ -2716,6 +2716,40 @@ Assert-True (
 # ---- lane fix/petstudio ----
 # (invariants added by lane fix/petstudio go directly below this line)
 
+# BUG-012 (F155): the studio's analysis leaves the UI thread, and a result a newer request overtook is
+# dropped before anything renders. The pool-thread half is asserted by --module-selftest=petstudio (the
+# staged Xml carries no sprite frame and adopts the validator's parse). WHERE the analysis runs and the
+# generation compare ahead of the render are dispatcher ordering no headless self-test can force, so the
+# SHAPE is asserted: PetAnalyzer.Analyze is called exactly once in the window and that call sits inside
+# the awaited Task.Run, and the continuation compares the generation before RenderAnalysis. -cmatch, so a
+# renamed field or method fails rather than matching prose.
+$petStudioWindowCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\PetStudio\PetStudioWindow.cs') -Raw)
+$beginAnalyzeBody = Get-MethodBody $petStudioWindowCode `
+    'private async void BeginAnalyze(string statusPrefix)' `
+    @("`n        private ", "`n        internal ")
+Assert-True ($beginAnalyzeBody.Length -gt 0) 'BeginAnalyze exists and could be sliced out for inspection'
+Assert-True (
+    ($beginAnalyzeBody -cmatch 'await Task\.Run\(delegate \{ return PetAnalyzer\.Analyze\(xml\); \}\)') -and
+    ([regex]::Matches($petStudioWindowCode, 'PetAnalyzer\.Analyze\(').Count -eq 1)
+) 'the studio analyzes on a pool thread: PetAnalyzer.Analyze is called once in the window, inside the awaited Task.Run (BUG-012)'
+Assert-True (
+    $beginAnalyzeBody -cmatch '(?s)await Task\.Run.*Volatile\.Read\(ref _analyzeGeneration\) == generation && report != null\) RenderAnalysis\('
+) 'an analysis a newer request overtook is dropped unrendered: the generation is compared ahead of RenderAnalysis'
+
+# F165: the dropped-step count Resync hands back reaches the ONE status the analysis writes. The note used
+# to be written by Resync and overwritten by the verdict a few statements later in the same Analyze, so it
+# never rendered; AnalysisStatus is pinned as a pure function in --module-selftest=petstudio, and this is
+# the wiring: the count RenderMap returns is the argument, not a literal.
+$renderAnalysisBody = Get-MethodBody $petStudioWindowCode `
+    'private void RenderAnalysis(PetReport report, string statusPrefix)' `
+    @("`n        private ", "`n        internal ")
+Assert-True ($renderAnalysisBody.Length -gt 0) 'RenderAnalysis exists and could be sliced out for inspection'
+Assert-True (
+    ($renderAnalysisBody -cmatch 'int droppedSteps = RenderMap\(report\);') -and
+    ($renderAnalysisBody -cmatch 'AnalysisStatus\(report\.IsValid, report\.UnreachableAnimations\.Count, droppedSteps\)')
+) 'the dropped-step count Resync returns reaches the one status the analysis writes (F165)'
+
 
 
 # ---- lane fix/reminder ----
