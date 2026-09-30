@@ -1078,6 +1078,40 @@ CASES = (
         "            return FetchInstalledPets();",
         "one pane build asks for the installed pets ONCE",
     ),
+    # ---- lane fix/deadcode ----
+    # F047: the detailed split's separators were produced and read by nothing; the splitter self-test
+    # now pins them. F048: FakeCdpServer serves connections concurrently, so the WIRE press case runs
+    # Decide -> Click over a second connection inside the sweep. F052: the U+001F signature separator
+    # is spelled as an escape and asserted to be a control character. F054: RuleLoader's home override
+    # goes through TranscriptReader.FullyQualifiedOverride, and a drive-relative value is refused.
+    (
+        "deadcode: the splitter stops recording separators",
+        SPLITTER,
+        "                    segments.Add(new CommandSegment { Value = value, Separator = separator });",
+        "                    segments.Add(new CommandSegment { Value = value, Separator = null });",
+        "detailed split records each segment's leading separator",
+    ),
+    (
+        "deadcode: Click stops reporting the outcome of the evaluated template",
+        CDP,
+        "                        string result = session.Evaluate(sessionId, expression);\n                        return string.IsNullOrEmpty(result) ? \"gone\" : result;",
+        "                        string result = session.Evaluate(sessionId, expression);\n                        return \"gone\";",
+        "WIRE the production callback presses through a second connection",
+    ),
+    (
+        "deadcode: the signature separator becomes a visible character",
+        BUDGETPRESS,
+        "text.Append('\\u001F');",
+        "text.Append('|');",
+        "the signature separator is a control character",
+    ),
+    (
+        "deadcode: the home override honours a drive-relative path again",
+        RULELOADER,
+        "            string over = TranscriptReader.FullyQualifiedOverride(HomeVariable);",
+        "            string over = Environment.GetEnvironmentVariable(HomeVariable);",
+        "a drive-relative AGENTFLOW_CLAUDE_HOME is ignored",
+    ),
 )
 
 

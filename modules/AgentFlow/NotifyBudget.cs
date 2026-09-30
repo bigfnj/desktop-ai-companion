@@ -24,11 +24,14 @@ namespace DesktopAICompanion.AgentFlow
     ///   simply cycles forever rather than stopping. Here the pause is entered explicitly and the
     ///   window is not cleared by it, so a loop that keeps firing keeps the guard closed.
     ///
-    /// Why a read-only module needs this at all: AgentFlow only speaks, it never presses anything,
-    /// so it cannot get into the retry loop that guard was written for. It can still get into the
-    /// NOTIFICATION equivalent -- an agent that blocks, is answered, blocks again on the same
-    /// wrong thing, forever -- and the cost there is the user turning the module off, which is a
-    /// silent failure that looks like the feature not working.
+    /// This budget guards SPEECH. Since 1.3.x the module also presses, and the retry loop that guard
+    /// was written for is <see cref="PressBudget"/>'s job, kept separate on purpose: the two failure
+    /// modes cost different things (an annoying pet versus hundreds of unattended approvals), so they
+    /// get different windows and different caps. (This paragraph said the module "never presses
+    /// anything" long after it did, F049.) What THIS one catches is the notification equivalent of a
+    /// death loop -- an agent that blocks, is answered, blocks again on the same wrong thing, forever
+    /// -- where the cost is the user turning the module off, a silent failure that looks like the
+    /// feature not working.
     /// </summary>
     public sealed class NotifyBudget
     {

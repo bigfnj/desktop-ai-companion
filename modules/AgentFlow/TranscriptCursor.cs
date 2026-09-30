@@ -214,7 +214,8 @@ namespace DesktopAICompanion.AgentFlow
             };
         }
 
-        internal string Path { get { return _path; } }
+        // No Path accessor: SessionCache keys cursors by the path string itself and no test read it, the same
+        // reasoning that removed AgentSession.Path (F056). Snapshot and Stat still read _path.
 
         /// <summary>Test seam: how far into the file the cursor has committed to.</summary>
         internal long Offset { get { return _offset; } }

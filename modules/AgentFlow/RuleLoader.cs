@@ -15,26 +15,29 @@ namespace DesktopAICompanion.AgentFlow
     /// </summary>
     public static class RuleLoader
     {
-        /// <summary>Settings files in evaluation order. Missing ones are skipped, not an error.</summary>
         /// <summary>Environment override for the directory holding Claude's settings files.
         /// Same convention, and the same two reasons, as
         /// <see cref="TranscriptReader.ClaudeRootVariable"/>: an agent can keep its state
         /// somewhere else, and it is the only way to exercise rule discovery without writing into
-        /// the user's real settings. Must be fully qualified or it is ignored.</summary>
+        /// the user's real settings. Must be fully qualified or it is ignored, by the SAME test
+        /// (<see cref="TranscriptReader.FullyQualifiedOverride"/>), not a restatement of it.</summary>
         public static readonly string HomeVariable = "AGENTFLOW_CLAUDE_HOME";
 
+        /// <summary>Settings files in evaluation order. Missing ones are skipped, not an error.</summary>
         public static IEnumerable<string> DefaultPaths()
         {
             // NOT Environment.GetEnvironmentVariable("USERPROFILE"): GetFolderPath goes to the
             // shell API and ignores that variable entirely, measured 2026-09-22, so overriding it
             // does nothing. This is a separate, explicit override for the same reason the
             // transcript roots have one.
-            string overridden = Environment.GetEnvironmentVariable(HomeVariable);
-            string home = !string.IsNullOrWhiteSpace(overridden)
-                          && Path.IsPathRooted(overridden)
-                          && overridden.IndexOf(Path.VolumeSeparatorChar) == 1
-                ? overridden
-                : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            //
+            // ONE fully-qualified test, TranscriptReader's (F054). Until 2026-09-30 this re-implemented it
+            // with a different rule -- IsPathRooted plus "colon at index 1", no trimming -- which honoured
+            // a drive-relative C:foo (resolved against the current directory) and refused UNC, device and
+            // quoted values the transcript override accepted, while the summary above claimed the same
+            // convention. Two copies of one policy drift; this file holds the rule about that.
+            string over = TranscriptReader.FullyQualifiedOverride(HomeVariable);
+            string home = over ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             yield return Path.Combine(home, ".claude", "settings.json");
             yield return Path.Combine(home, ".claude", "remote-settings.json");
             yield return Path.Combine(home, ".claude", "settings.local.json");

@@ -52,6 +52,10 @@ namespace DesktopAICompanion.AgentFlow
             /// <summary>What Runtime.evaluate returns for this target, or null to answer with no value
             /// at all -- which is how a target that cannot be read presents on the wire.</summary>
             public string EvaluateResult;
+            /// <summary>What Runtime.evaluate returns for the CLICK template (recognised by its `b.click()`),
+            /// or null to answer it like any other expression. Production presses through a second connection
+            /// inside the sweep, so a press test needs the read and the click told apart (F048).</summary>
+            public string ClickResult;
             /// <summary>Answer Runtime.evaluate with exceptionDetails instead of a value.</summary>
             public bool Throws;
             /// <summary>Refuse the attach, as a target that vanished mid-sweep does.</summary>
@@ -92,8 +96,18 @@ namespace DesktopAICompanion.AgentFlow
                 HttpListenerContext context;
                 try { context = _listener.GetContext(); }
                 catch { return; }   // disposed: the only way out of GetContext
-                try { Handle(context); }
-                catch { /* a fake server that throws must not take the test process with it */ }
+                // Each connection on its own task. Serve blocks until the client closes its socket, and until
+                // 2026-09-30 it ran on THIS thread, so no second request was accepted while a WebSocket session
+                // was open. Production presses INSIDE the sweep's session (Decide -> CdpApprover.Click opens a
+                // second connection), so a press could not be tested at all: the nested GET waited in the
+                // listener queue, timed out, and read as "gone" (F048). The catch stays inside the task, so a
+                // fake that throws still cannot take the test process with it.
+                HttpListenerContext accepted = context;
+                Task.Run(delegate
+                {
+                    try { Handle(accepted); }
+                    catch { /* a fake server that throws must not take the test process with it */ }
+                });
             }
         }
 
@@ -210,6 +224,13 @@ namespace DesktopAICompanion.AgentFlow
                             Send(socket, "{\"id\":" + id + ",\"result\":{\"result\":{\"type\":\"object\"},"
                                 + "\"exceptionDetails\":{\"text\":\"Uncaught\"}}}");
                         }
+                        else if (target.ClickResult != null && IsClickTemplate(request))
+                        {
+                            // The press. Both click templates end in `b.click()`; the read expressions do
+                            // not, so this is what tells a press apart from the read that preceded it (F048).
+                            Send(socket, "{\"id\":" + id + ",\"result\":{\"result\":{\"type\":\"string\",\"value\":"
+                                + Quote(target.ClickResult) + "}}}");
+                        }
                         else if (target.EvaluateResult == null)
                         {
                             // A result with no value: the shape a target gives when the expression
@@ -240,6 +261,14 @@ namespace DesktopAICompanion.AgentFlow
                 foreach (Target t in _targets)
                     if (string.Equals(t.Id, id, StringComparison.Ordinal)) return t;
             return null;
+        }
+
+        /// <summary>Whether a Runtime.evaluate request carries a CLICK template rather than a read: the
+        /// request's `params.expression` (a JSON string, read through the same small reader as every other
+        /// field) contains the `b.click()` both templates end in and neither read expression has.</summary>
+        private static bool IsClickTemplate(string request)
+        {
+            return StringField(request, "expression").IndexOf("b.click()", StringComparison.Ordinal) >= 0;
         }
 
         private static void Send(WebSocket socket, string json)

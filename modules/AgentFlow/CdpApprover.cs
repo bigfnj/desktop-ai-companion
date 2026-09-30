@@ -522,12 +522,9 @@ namespace DesktopAICompanion.AgentFlow
         /// a live session through that decision would put an open debugger socket on the far side
         /// of a branch that usually says no.
         /// </summary>
-        public static string Click(int port, string targetId, int index, string expectedLabel,
-                                   int timeoutMs)
-        {
-            return Click(port, targetId, index, expectedLabel, timeoutMs, AgentClaude);
-        }
-
+        // No five-argument overload defaulting the agent to Claude (F045): every press names its agent, because
+        // a Codex target pressed with the Claude click expression is exactly the implicit choice the Codex work
+        // removed elsewhere, and nothing called the shorter form.
         public static string Click(int port, string targetId, int index, string expectedLabel,
                                    int timeoutMs, string agent)
         {

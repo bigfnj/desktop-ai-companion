@@ -171,7 +171,7 @@ namespace DesktopAICompanion.AgentFlow
         {
             var text = new System.Text.StringBuilder(toolName ?? "");
             if (options != null)
-                foreach (string option in options) { text.Append(''); text.Append(option ?? ""); }
+                foreach (string option in options) { text.Append('\u001F'); text.Append(option ?? ""); }
             return text.ToString();
         }
     }

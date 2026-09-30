@@ -573,10 +573,10 @@ namespace DesktopAICompanion
     }
 
         /// <summary>
-        /// Sound structure. A sound that can be played together with the animation. Since S2 (Sound
-        /// module) this is a NAudio-free data holder: the base parses and carries the raw MP3 bytes, and
-        /// the out-of-process-optional Sound module (if installed) decodes + plays them via
-        /// <see cref="SoundSink"/>. The base no longer references NAudio.
+        /// Sound structure. A sound that can be played together with the animation. A NAudio-free data
+        /// holder: the base parses and carries the raw MP3 bytes, and the host's own AudioOutput plays them
+        /// through the <see cref="SoundSink"/> delegate StartUp installs. (The S2 Sound module this used to
+        /// name was retired when audio came back into the host, B1; the sink stayed, F038.)
         /// </summary>
     public sealed class TSound
     {
