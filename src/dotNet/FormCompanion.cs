@@ -2389,8 +2389,6 @@ namespace DesktopAICompanion
         private static string ReadBoundedPetXml(string file)
         {
             int maximumBytes = CompanionXmlValidator.MaximumXmlBytes;
-            byte[] bytes = new byte[checked(maximumBytes + 1)];
-            int total = 0;
             CompanionXmlValidator.RetainedLocalXmlFile retained;
             string pathError;
             if (!CompanionXmlValidator.TryOpenLocalXmlFile(
@@ -2398,21 +2396,54 @@ namespace DesktopAICompanion
                     out retained,
                     out pathError))
                 throw new InvalidDataException(pathError);
+            byte[] bytes;
+            int total;
             using (retained)
             using (var stream = retained.OpenRead(4096))
-            {
-                while (total < bytes.Length)
-                {
-                    int read = stream.Read(bytes, total, bytes.Length - total);
-                    if (read == 0) break;
-                    total += read;
-                }
-            }
+                total = ReadBoundedBytes(stream, maximumBytes, out bytes);
 
             if (total > maximumBytes)
                 throw new InvalidDataException("Pet XML exceeds the 12 MiB limit.");
 
             return DecodePetXml(bytes, total);
+        }
+
+        /// <summary>
+        /// Read a stream into a buffer sized from the stream, not from the ceiling (F271): the fixed buffer
+        /// was a 12 MiB allocation per drop for a pet a hundredth of that size. The sentinel stays -- the
+        /// buffer never exceeds one byte more than the limit -- so a stream that is over the limit, or grows
+        /// past it while it is read, still comes back with a total the caller's bound refuses instead of
+        /// being cut to fit; a buffer that fills before the limit grows. Returns the bytes read.
+        /// </summary>
+        internal static int ReadBoundedBytes(Stream stream, int maximumBytes, out byte[] bytes)
+        {
+            bytes = new byte[(int)BoundedReadCapacity(stream, maximumBytes)];
+            int total = 0;
+            while (true)
+            {
+                if (total == bytes.Length)
+                {
+                    if (bytes.Length > maximumBytes) break;   // the sentinel byte is filled: over the limit
+                    Array.Resize(ref bytes, (int)Math.Min((long)maximumBytes + 1, (long)bytes.Length * 2));
+                }
+                int read = stream.Read(bytes, total, bytes.Length - total);
+                if (read == 0) break;
+                total += read;
+            }
+            return total;
+        }
+
+        /// <summary>The read buffer for a bounded pet read (F271): the stream's length plus one sentinel
+        /// byte, clamped to one over the limit, and never below a small floor for a stream that cannot say
+        /// how long it is.</summary>
+        internal static long BoundedReadCapacity(Stream stream, int maximumBytes)
+        {
+            long length = -1;
+            try { if (stream != null && stream.CanSeek) length = stream.Length; }
+            catch (IOException) { length = -1; }
+            catch (NotSupportedException) { length = -1; }
+            long wanted = length < 0 ? 64 * 1024 : length + 1;
+            return Math.Max(4096, Math.Min((long)maximumBytes + 1, wanted));
         }
 
         private static string DecodePetXml(byte[] bytes, int count)

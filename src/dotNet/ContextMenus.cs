@@ -75,9 +75,10 @@ namespace DesktopAICompanion
                 {
                     // Each rebuild decodes a fresh Image from the module's IconPng bytes (BuildModuleMenuItem
                     // below) that nothing else references, so it must be disposed here or it leaks every time
-                    // the tray menu opens.
-                    try { if (prior.Image != null) prior.Image.Dispose(); } catch { }
-                    try { menu.Items.Remove(prior); prior.Dispose(); } catch { }
+                    // the tray menu opens -- and so must the Images of the submenu children a previous open
+                    // built under it (F255), which disposing the parent alone never reached.
+                    try { menu.Items.Remove(prior); } catch { }
+                    DisposeItemTree(prior);
                 }
                 moduleTrayItems.Clear();
 
@@ -177,14 +178,7 @@ namespace DesktopAICompanion
                 //
                 // The soak cannot see this either way: BUG-004 records that GDI+ Bitmap and Font
                 // are not necessarily counted by GetGuiResources, so it would leak invisibly.
-                var stale = new List<ToolStripItem>();
-                foreach (ToolStripItem prior in parent.DropDownItems) stale.Add(prior);
-                parent.DropDownItems.Clear();
-                foreach (ToolStripItem prior in stale)
-                {
-                    try { if (prior.Image != null) prior.Image.Dispose(); } catch { }
-                    try { prior.Dispose(); } catch { }
-                }
+                ClearAndDispose(parent.DropDownItems);
                 IEnumerable<TrayItem> children = null;
                 try { if (ti.BuildChildren != null) children = ti.BuildChildren(); } catch { children = null; }
                 if (children != null)
@@ -374,7 +368,7 @@ namespace DesktopAICompanion
         // built-in default is first; each entry spawns one of that type alongside any existing pets.
         void AddPetMenu_Opening(object sender, EventArgs e)
         {
-            addPetMenuItem.DropDownItems.Clear();
+            ClearAndDispose(addPetMenuItem.DropDownItems);
             bool full = Program.Mainthread != null && Program.Mainthread.IsAtMaxPets;
             foreach (CompanionCatalog.CompanionInfo info in CompanionCatalog.EnumerateLocal())
             {
@@ -400,7 +394,7 @@ namespace DesktopAICompanion
         // "Pearl x2" / "Rick x1". Each entry removes one pet of that type.
         void RemovePetMenu_Opening(object sender, EventArgs e)
         {
-            removePetMenuItem.DropDownItems.Clear();
+            ClearAndDispose(removePetMenuItem.DropDownItems);
             System.Collections.Generic.List<CompanionCountEntry> mix =
                 Program.Mainthread != null ? Program.Mainthread.OnScreenMix() : null;
             if (mix != null)
@@ -447,7 +441,7 @@ namespace DesktopAICompanion
         /// </summary>
         void PetSpeechMenu_Opening(object sender, EventArgs e)
         {
-            petSpeechMenuItem.DropDownItems.Clear();
+            ClearAndDispose(petSpeechMenuItem.DropDownItems);
             try
             {
                 System.Collections.Generic.List<string> labels;
@@ -487,10 +481,48 @@ namespace DesktopAICompanion
             }
             catch
             {
-                petSpeechMenuItem.DropDownItems.Clear();
+                ClearAndDispose(petSpeechMenuItem.DropDownItems);
                 petSpeechMenuItem.DropDownItems.Add(
                     new ToolStripMenuItem { Text = "(unavailable)", Enabled = false });
             }
+        }
+
+        /// <summary>
+        /// Dispose a menu item AND everything it owns (F255, F256): its Image, which ToolStripItem.Dispose
+        /// never touches, and every drop-down child recursively, each with its own Image. A drop-down item
+        /// disposes its drop-down and the drop-down its items, but no layer disposes an Image, so a submenu
+        /// child's Bitmap built in one tray session was orphaned when the next open disposed only the
+        /// parent. The children are snapshotted first: Dispose removes an item from its owner's collection,
+        /// which would break the enumeration.
+        /// </summary>
+        internal static void DisposeItemTree(ToolStripItem item)
+        {
+            if (item == null) return;
+            var dropDown = item as ToolStripDropDownItem;
+            if (dropDown != null && dropDown.HasDropDownItems)
+            {
+                var children = new List<ToolStripItem>();
+                foreach (ToolStripItem child in dropDown.DropDownItems) children.Add(child);
+                foreach (ToolStripItem child in children) DisposeItemTree(child);
+            }
+            try
+            {
+                Image image = item.Image;
+                if (image != null) { item.Image = null; image.Dispose(); }
+            }
+            catch { }
+            try { item.Dispose(); } catch { }
+        }
+
+        /// <summary>Empty a drop-down and DISPOSE what was in it (F256). Clear() alone left every removed
+        /// item, and the hidden drop-down HWND a hovered submenu had created, alive until finalization.</summary>
+        internal static void ClearAndDispose(ToolStripItemCollection items)
+        {
+            if (items == null) return;
+            var stale = new List<ToolStripItem>();
+            foreach (ToolStripItem prior in items) stale.Add(prior);
+            items.Clear();
+            foreach (ToolStripItem prior in stale) DisposeItemTree(prior);
         }
 
         /// <summary>One pet's source list, ticked on the effective choice. Clicking writes it live -- the
@@ -621,8 +653,11 @@ namespace DesktopAICompanion
         {
             ContextMenuStrip menu = ownedMenu;
             ownedMenu = null;
-            if (menu != null) { menu.Opening -= ModuleTray_Opening; menu.Dispose(); }
+            // The module items' Images (and their children's) first, while they are still reachable: the
+            // menu's own Dispose disposes its items but never an Image (F255).
+            foreach (ToolStripItem prior in moduleTrayItems) DisposeItemTree(prior);
             moduleTrayItems.Clear();
+            if (menu != null) { menu.Opening -= ModuleTray_Opening; menu.Dispose(); }
             // ALL FIVE. syncPetsMenuItem was the one left set, rooting a disposed
             // ToolStripMenuItem for the process lifetime. Not a use-after-dispose -- its only reader
             // is the menu.Opening lambda, which hangs off the ContextMenuStrip disposed three lines

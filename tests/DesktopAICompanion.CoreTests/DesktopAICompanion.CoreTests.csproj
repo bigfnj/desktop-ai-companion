@@ -56,6 +56,13 @@
     <ProjectReference Include="..\..\src\DesktopAICompanion.Contracts\DesktopAICompanion.Contracts.csproj" />
   </ItemGroup>
 
+  <!-- Two embedded fixtures whose names collide on a bare suffix (F229). The decoy is listed FIRST, and the
+       manifest keeps item order, so a loader that matched with EndsWith would return it for "icon.png". -->
+  <ItemGroup>
+    <EmbeddedResource Include="Fixtures\tray-icon.png" />
+    <EmbeddedResource Include="Fixtures\icon.png" />
+  </ItemGroup>
+
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="ModuleKitTests.cs" />

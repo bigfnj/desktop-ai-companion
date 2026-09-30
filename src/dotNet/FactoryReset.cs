@@ -74,12 +74,12 @@ namespace DesktopAICompanion
             }
 
             int files = 0, dirs = 0, failed = 0;
-            foreach (string file in SafeList(delegate { return Directory.GetFiles(root); }))
+            foreach (string file in SafeList(delegate { return Directory.GetFiles(root); }, "the files of " + what, log, ref failed))
             {
                 try { File.SetAttributes(file, FileAttributes.Normal); File.Delete(file); files++; }
                 catch (Exception ex) { failed++; log.Add("    could not delete " + Path.GetFileName(file) + ": " + ex.Message); }
             }
-            foreach (string dir in SafeList(delegate { return Directory.GetDirectories(root); }))
+            foreach (string dir in SafeList(delegate { return Directory.GetDirectories(root); }, "the folders of " + what, log, ref failed))
             {
                 try { Directory.Delete(dir, true); dirs++; }
                 catch (Exception ex) { failed++; log.Add("    could not delete " + Path.GetFileName(dir) + "\\: " + ex.Message); }
@@ -89,9 +89,18 @@ namespace DesktopAICompanion
             return failed == 0;
         }
 
-        private static string[] SafeList(Func<string[]> list)
+        /// <summary>List through <paramref name="list"/>; when the listing itself throws, count it as a failure
+        /// and say so (F260). A root that could not be listed used to come back as an empty one, wiped with
+        /// success, so the exit code said "clean" over a folder that was never touched.</summary>
+        internal static string[] SafeList(Func<string[]> list, string what, List<string> log, ref int failed)
         {
-            try { return list(); } catch { return new string[0]; }
+            try { return list() ?? new string[0]; }
+            catch (Exception ex)
+            {
+                failed++;
+                if (log != null) log.Add("    could not list " + what + ": " + ex.Message);
+                return new string[0];
+            }
         }
 
         /// <summary>

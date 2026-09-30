@@ -39,6 +39,16 @@ namespace DesktopAICompanion.ModuleKit
 
         public string Path_ { get { return _path; } }
 
+        /// <summary>The path of the backup <see cref="Save"/> keeps: the previous document, so one bad write
+        /// is recoverable by hand, as the two stores this class was distilled from already did (F230).</summary>
+        public string BackupPath_ { get { return _path + ".bak"; } }
+
+        /// <summary>True when the last <see cref="Load"/> found a file it could not read (corrupt, or not
+        /// JSON) and answered defaults. A module can say so; <see cref="Update"/> refuses to write over it.</summary>
+        public bool LastLoadWasUnreadable { get; private set; }
+
+        private enum ReadResult { Missing, Loaded, Unreadable }
+
         /// <summary>Read the document, or a default-constructed one when the file is absent or unreadable.
         /// Unknown JSON properties are preserved for a round-trip only if <typeparamref name="T"/> carries a
         /// [JsonExtensionData] member — the trick this codebase uses to migrate a retired field.</summary>
@@ -46,29 +56,42 @@ namespace DesktopAICompanion.ModuleKit
         {
             lock (_processLock)
             {
-                try
+                T value;
+                using (CrossSessionLock.TryAcquire(MutexName(), _path, LockTimeoutMilliseconds))
                 {
-                    if (!File.Exists(_path)) return new T();
-                    string json;
-                    using (CrossSessionLock.TryAcquire(MutexName(), _path, LockTimeoutMilliseconds))
-                    {
-                        // A read still proceeds if the lock timed out (null lease): a stale reader is far
-                        // better than refusing to start.
-                        json = File.ReadAllText(_path);
-                    }
-                    if (string.IsNullOrWhiteSpace(json)) return new T();
-                    T loaded = JsonSerializer.Deserialize<T>(json.TrimStart('﻿'), ReadOptions());
-                    return loaded ?? new T();
+                    // A read still proceeds if the lock timed out (null lease): a stale reader is far
+                    // better than refusing to start.
+                    ReadResult result = TryRead(out value);
+                    LastLoadWasUnreadable = result == ReadResult.Unreadable;
                 }
-                catch
-                {
-                    return new T();
-                }
+                return value ?? new T();
             }
         }
 
-        /// <summary>Write the document durably. Returns false instead of throwing, so a failed save can be
-        /// surfaced in the UI without unwinding the caller.</summary>
+        /// <summary>The read itself, with the verdict Load's contract hides: Missing and Loaded may be written
+        /// over, Unreadable must not be (F230). Takes no lease; the caller holds one.</summary>
+        private ReadResult TryRead(out T value)
+        {
+            value = null;
+            try
+            {
+                if (!File.Exists(_path)) { value = new T(); return ReadResult.Missing; }
+                string json = File.ReadAllText(_path);
+                if (string.IsNullOrWhiteSpace(json)) { value = new T(); return ReadResult.Loaded; }
+                T loaded = JsonSerializer.Deserialize<T>(json.TrimStart('﻿'), ReadOptions());
+                if (loaded == null) return ReadResult.Unreadable;
+                value = loaded;
+                return ReadResult.Loaded;
+            }
+            catch
+            {
+                value = new T();
+                return ReadResult.Unreadable;
+            }
+        }
+
+        /// <summary>Write the document durably, keeping the previous one at <see cref="BackupPath_"/>. Returns
+        /// false instead of throwing, so a failed save can be surfaced in the UI without unwinding the caller.</summary>
         public bool Save(T value)
         {
             if (value == null) return false;
@@ -76,12 +99,11 @@ namespace DesktopAICompanion.ModuleKit
             {
                 try
                 {
-                    string json = JsonSerializer.Serialize(value, WriteOptions());
                     using (IDisposable lease = CrossSessionLock.TryAcquire(MutexName(), _path, LockTimeoutMilliseconds))
                     {
                         // Unlike a read, a write without the lease is a corruption risk, so refuse it.
                         if (lease == null) return false;
-                        return AtomicFile.TryWriteAllText(_path, json, null);
+                        return SaveCore(value);
                     }
                 }
                 catch
@@ -91,16 +113,42 @@ namespace DesktopAICompanion.ModuleKit
             }
         }
 
-        /// <summary>Load, mutate, and save in one locked step. Returns false when the save failed.</summary>
+        private bool SaveCore(T value)
+        {
+            string json = JsonSerializer.Serialize(value, WriteOptions());
+            return AtomicFile.TryWriteAllText(_path, json, BackupPath_);
+        }
+
+        /// <summary>
+        /// Load, mutate, and save under ONE cross-session lease (F231): Load and Save each took their own, so a
+        /// second instance could write between them and lose to this one's Save. Returns false when the lease
+        /// could not be taken, when the file exists but could not be read (F230: writing defaults over a
+        /// document that is merely unreadable to this build is how a setting vanishes), when the mutation
+        /// threw, or when the save failed. The lease is held across <paramref name="mutate"/>, so keep it short.
+        /// </summary>
         public bool Update(Action<T> mutate)
         {
             if (mutate == null) return false;
             lock (_processLock)
             {
-                T current = Load();
-                try { mutate(current); }
-                catch { return false; }
-                return Save(current);
+                try
+                {
+                    using (IDisposable lease = CrossSessionLock.TryAcquire(MutexName(), _path, LockTimeoutMilliseconds))
+                    {
+                        if (lease == null) return false;
+                        T current;
+                        ReadResult result = TryRead(out current);
+                        LastLoadWasUnreadable = result == ReadResult.Unreadable;
+                        if (result == ReadResult.Unreadable) return false;
+                        try { mutate(current); }
+                        catch { return false; }
+                        return SaveCore(current);
+                    }
+                }
+                catch
+                {
+                    return false;
+                }
             }
         }
 

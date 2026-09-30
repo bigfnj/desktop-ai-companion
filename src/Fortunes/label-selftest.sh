@@ -192,6 +192,11 @@ mkdir -p -- "$maintenance"
 cp -- "$SOURCE_DIR/classify-corpus.py" "$SOURCE_DIR/strip-authors.py" "$maintenance/"
 python_bin="${PYTHON:-python}"
 
+# Each transform carries its own behavioural check (F321: one layout per file; F323: the summary
+# figures do not overlap). Run them before the fixtures below lean on the transforms.
+"$python_bin" "$maintenance/classify-corpus.py" --selfcheck >/dev/null
+"$python_bin" "$maintenance/strip-authors.py" --selfcheck >/dev/null
+
 classify_target="$maintenance/classify-target.tsv"
 printf 'src\ttech\tA valid first fortune.\nbroken\trow\n' > "$classify_target"
 before_transform="$(sha256_file "$classify_target")"

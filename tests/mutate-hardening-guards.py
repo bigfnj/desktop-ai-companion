@@ -613,6 +613,143 @@ CASES = (
         "commits it once after the last",
     ),
 
+    # F318: the loader grows a base64 decode of its own again.
+    (
+        "the loader decodes the icon's base64 itself again",
+        os.path.join(REPO, "src", "dotNet", "Xml.cs"),
+        b"            stagedIcon = new MemoryStream(iconBytes ?? new byte[0], false);\n",
+        b'            stagedIcon = new MemoryStream(Convert.FromBase64String(root.Header.Icon ?? ""), false);\n',
+        "the loader takes the sheet and icon bytes",
+    ),
+    # F317: the alpha flag is written before the commit block again.
+    (
+        "the alpha flag is assigned before DisposeAssets again",
+        os.path.join(REPO, "src", "dotNet", "Xml.cs"),
+        b"                DisposeAssets();\n                AnimationXML = parsed;\n",
+        b"                usesAlpha = stagedUsesAlpha;\n                DisposeAssets();\n                AnimationXML = parsed;\n",
+        "the alpha flag is committed with the rest",
+    ),
+    # F241: the chooser evaluates the chosen animation against the primary screen again.
+    (
+        "the chooser evaluates the chosen animation itself again",
+        os.path.join(REPO, "src", "dotNet", "Animations.cs"),
+        b'            TAnimation ani = SheepAnimations[id];\n            StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info, "new animation: "',
+        b'            TAnimation ani = SheepAnimations[id];\n            ani.UpdateValues();\n            StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info, "new animation: "',
+        "the chooser only announces the chosen animation",
+    ),
+    # F271: the fixed 12 MiB drop buffer comes back.
+    (
+        "the drop read allocates the 12 MiB ceiling again",
+        FORMPET,
+        b"            bytes = new byte[(int)BoundedReadCapacity(stream, maximumBytes)];\n",
+        b"            bytes = new byte[checked(maximumBytes + 1)];\n",
+        "the drop read allocates from the file",
+    ),
+    # F229: the bare EndsWith comes back into the resource lookup.
+    (
+        "the resource lookup matches a bare suffix again",
+        os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "EmbeddedResources.cs"),
+        b"                if (MatchesResourceName(candidate, fileNameSuffix))\n",
+        b"                if (candidate.EndsWith(fileNameSuffix, StringComparison.OrdinalIgnoreCase))\n",
+        "the resource lookup matches an exact name",
+    ),
+    # F230: Update writes defaults over an unreadable document again.
+    (
+        "JsonSettingsStore.Update stops refusing an unreadable document",
+        os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "JsonSettingsStore.cs"),
+        b"                        if (result == ReadResult.Unreadable) return false;\n",
+        b"",
+        "Update takes its lease first",
+    ),
+    # F207: TestModule walks the installed library by hand again.
+    (
+        "TestModule's preview reads %LOCALAPPDATA% by hand again",
+        os.path.join(REPO, "modules", "TestModule", "TestModule.cs"),
+        b"                if (pets.TryReadTypeXml(type.TypeId, out xml, out readError)) break;\n",
+        b'                xml = System.IO.File.ReadAllText(System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "x")); if (xml != null) break;\n',
+        "the preview verb reads the installed pet",
+    ),
+    # F330 follow-up: the template fetches a fresh settings handle per call again.
+    (
+        "the module template fetches settings per call again",
+        os.path.join(REPO, "templates", "desktop-ai-companion-module", "SampleModule.cs"),
+        b"            if (_settings == null && _host != null) _settings = _host.GetSettings(Info.Id);\n",
+        b"            _settings = _host != null ? _host.GetSettings(Info.Id) : null;\n",
+        "memoises one handle instead of fetching",
+    ),
+    # F256: a host drop-down is Clear()ed without disposal again.
+    (
+        "the Add-a-companion drop-down is Clear()ed without disposal again",
+        os.path.join(REPO, "src", "dotNet", "ContextMenus.cs"),
+        b"            ClearAndDispose(addPetMenuItem.DropDownItems);\n",
+        b"            addPetMenuItem.DropDownItems.Clear();\n",
+        "no tray drop-down is Clear()ed",
+    ),
+    # F255: the item is disposed before its children, which orphans their Images.
+    (
+        "DisposeItemTree disposes the item before its children",
+        os.path.join(REPO, "src", "dotNet", "ContextMenus.cs"),
+        b"            if (item == null) return;\n            var dropDown = item as ToolStripDropDownItem;\n",
+        b"            if (item == null) return;\n            try { item.Dispose(); } catch { }\n            var dropDown = item as ToolStripDropDownItem;\n",
+        "DisposeItemTree disposes the children and the Image",
+    ),
+    # F272: the never-shown Icon is deserialised per spawn again.
+    (
+        "the companion form deserialises its Icon again",
+        os.path.join(REPO, "src", "dotNet", "FormCompanion.Designer.cs"),
+        b"\t\t\tthis.ShowIcon = false;\n",
+        b'\t\t\tthis.ShowIcon = false;\n\t\t\tthis.Icon = ((System.Drawing.Icon)(new System.ComponentModel.ComponentResourceManager(typeof(FormCompanion)).GetObject("$this.Icon")));\n',
+        "the companion form loads no Icon",
+    ),
+    # F273: the row cap is not applied after a plain add.
+    (
+        "the debug window stops trimming after a plain add",
+        os.path.join(REPO, "src", "dotNet", "FormDebug.cs"),
+        b"\t\t\tlistView1.Items.Add(item);\n\t\t\tTrimRows();\n",
+        b"\t\t\tlistView1.Items.Add(item);\n",
+        "the debug window trims after every add",
+    ),
+    # F274: a failed handoff is swallowed again (the catch no longer starts with the log line).
+    (
+        "the debug window swallows a failed text handoff again",
+        os.path.join(REPO, "src", "dotNet", "FormDebug.cs"),
+        b"\t\t\tcatch (Exception ex)\n\t\t\t{\n\t\t\t\tStartUp.AddDebugInfo(StartUp.DEBUG_TYPE.error,\n",
+        b"\t\t\tcatch (Exception ex)\n\t\t\t{\n\t\t\t\tif (ex == null) return;\n\t\t\t\tStartUp.AddDebugInfo(StartUp.DEBUG_TYPE.error,\n",
+        "the debug window trims after every add",
+    ),
+    # F325: an animation name goes into the label verbatim again.
+    (
+        "the DOT export emits an animation name unescaped again",
+        os.path.join(REPO, "src", "Tools", "XmlToDot.cs"),
+        b".Append(EscapeLabel(anim.Name))",
+        b".Append(anim.Name)",
+        "every animation name and only-flag",
+    ),
+    # F260: a listing that throws is logged but no longer counted.
+    (
+        "a root that cannot be listed is a clean wipe again",
+        os.path.join(REPO, "src", "dotNet", "FactoryReset.cs"),
+        b'                failed++;\n                if (log != null) log.Add("    could not list " + what',
+        b'                if (log != null) log.Add("    could not list " + what',
+        "a listing that throws counts as a failure",
+    ),
+    # F321: the per-file layout rule is disabled while its statement stays in place.
+    (
+        "the classifier stops rejecting a row whose field count differs",
+        os.path.join(REPO, "src", "Fortunes", "classify-corpus.py"),
+        b"                elif len(parts) != layout:\n",
+        b"                elif False and len(parts) != layout:\n",
+        "the classifier fixes the field layout",
+    ),
+    # F323: the stripped count moves back before the drop test.
+    (
+        "the stripper counts a dropped row as stripped again",
+        os.path.join(REPO, "src", "Fortunes", "strip-authors.py"),
+        b"                    if len(new) < 8:\n                        dropped += 1\n                        continue\n",
+        b"                    if new != text:\n                        changed += 1\n                    if len(new) < 8:\n                        dropped += 1\n                        continue\n",
+        "the stripper counts a byline as stripped only",
+    ),
+
 
     # ---- lane fix/settings ----
 

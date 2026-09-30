@@ -182,11 +182,13 @@ def process(path):
                 else:
                     lead, text = parts[:-1], parts[-1]
                     new = strip_author(text)
-                    if new != text:
-                        changed += 1
                     if len(new) < 8:
                         dropped += 1
                         continue
+                    # Counted AFTER the drop test (F323): a row stripped and then dropped as a
+                    # fragment used to count under both figures, so stripped + dropped overlapped.
+                    if new != text:
+                        changed += 1
                     output_line = "\t".join(lead + [new]) + "\n"
                 output_bytes += len(output_line.encode("utf-8"))
                 if output_bytes > MAX_OUTPUT_BYTES:
@@ -208,8 +210,35 @@ def process(path):
             except FileNotFoundError:
                 pass
     print(f"{path}: bylines stripped={changed} short-fragments dropped={dropped} kept={kept}")
+    return changed, dropped, kept
+
+
+def _selfcheck():
+    """--selfcheck: the two summary figures do not overlap (F323). Exit 0 when every line below
+    reads PASS, 1 otherwise."""
+    failures = []
+
+    def expect(label, ok):
+        print(("PASS: " if ok else "FAIL: ") + label)
+        if not ok:
+            failures.append(label)
+
+    with tempfile.TemporaryDirectory() as scratch:
+        target = os.path.join(scratch, "selfcheck.tsv")
+        with open(target, "w", encoding="utf-8", newline="\n") as writer:
+            writer.write("src\tcreative\tA thoughtful sentence. -- Jane Doe\n"   # stripped, kept
+                         "src\tcreative\tA plain sentence with no byline.\n"     # unchanged, kept
+                         "src\tcreative\tShort -- Jane Doe\n")                  # stripped, then dropped
+        changed, dropped, kept = process(target)
+        expect("witness: the kept row whose byline was stripped counts as stripped", changed >= 1)
+        expect("a row stripped and then dropped as a fragment counts once, under dropped",
+               (changed, dropped, kept) == (1, 1, 2))
+    return 1 if failures else 0
+
 
 if __name__ == '__main__':
+    if sys.argv[1:] == ['--selfcheck']:
+        sys.exit(_selfcheck())
     files = sys.argv[1:] or ['fortunes.txt']
     for f in files:
         process(f)

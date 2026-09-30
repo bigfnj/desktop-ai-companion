@@ -88,17 +88,54 @@ namespace DesktopAICompanion
             AssertEqual("", EmbeddedResources.LoadText(kit, null), "A null suffix returned text.");
 
             // The suffix match is the contract: the SDK prefixes a manifest name with namespace + folder,
-            // so callers match on the trailing file name. Prove it against a real resource in this harness's
-            // own assembly if one exists; otherwise the absent-path assertions above carry the group.
-            string[] names = typeof(Program).Assembly.GetManifestResourceNames();
-            if (names.Length > 0)
+            // so callers match on the trailing file name -- and the suffix must start at a segment boundary
+            // (F229), or "icon.png" also finds "tray-icon.png". The pure rule first.
+            AssertTrue(EmbeddedResources.MatchesResourceName("Mod.Assets.icon.png", "icon.png"),
+                "A segment-aligned suffix did not match.");
+            AssertTrue(EmbeddedResources.MatchesResourceName("icon.png", "ICON.PNG"),
+                "An exact name did not match case-insensitively.");
+            AssertFalse(EmbeddedResources.MatchesResourceName("Mod.Assets.tray-icon.png", "icon.png"),
+                "A longer file name that merely ends the same way matched.");
+            AssertFalse(EmbeddedResources.MatchesResourceName("Mod.Assets.myicon.png", "icon.png"),
+                "A suffix starting mid-segment matched.");
+
+            // Then the loader, against this harness's own two embedded fixtures. The csproj lists the decoy
+            // FIRST, and the manifest keeps that order, so a loader that matched with a bare EndsWith would
+            // hand back tray-icon.png for "icon.png". The WITNESS asserts the order and that the bytes differ,
+            // because a check that would pass on either fixture proves nothing.
+            Assembly self = typeof(Program).Assembly;
+            string[] names = self.GetManifestResourceNames();
+            string iconName = Array.Find(names, n => n.EndsWith(".Fixtures.icon.png", StringComparison.Ordinal));
+            string decoyName = Array.Find(names, n => n.EndsWith(".Fixtures.tray-icon.png", StringComparison.Ordinal));
+            AssertTrue(iconName != null && decoyName != null, "The colliding fixtures are not embedded.");
+            AssertTrue(Array.IndexOf(names, decoyName) < Array.IndexOf(names, iconName),
+                "WITNESS: the decoy must be listed before the real resource for this test to bite.");
+            byte[] iconBytes = ReadManifestResource(self, iconName);
+            byte[] decoyBytes = ReadManifestResource(self, decoyName);
+            AssertFalse(BytesEqual(iconBytes, decoyBytes), "WITNESS: the two fixtures must differ.");
+            AssertTrue(BytesEqual(iconBytes, EmbeddedResources.LoadBytes(self, "icon.png")),
+                "LoadBytes(\"icon.png\") did not return icon.png's bytes (the decoy tray-icon.png won).");
+            AssertTrue(BytesEqual(decoyBytes, EmbeddedResources.LoadBytes(self, "tray-icon.png")),
+                "LoadBytes(\"tray-icon.png\") did not return tray-icon.png's bytes.");
+            AssertTrue(EmbeddedResources.Exists(self, "icon.png") && EmbeddedResources.Exists(self, "Fixtures.icon.png"),
+                "A resource that exists was not found by its trailing name.");
+        }
+
+        private static byte[] ReadManifestResource(Assembly assembly, string name)
+        {
+            using (Stream stream = assembly.GetManifestResourceStream(name))
+            using (var buffer = new MemoryStream())
             {
-                string full = names[0];
-                int dot = full.LastIndexOf('.');
-                string suffix = dot > 0 && dot < full.Length - 1 ? full.Substring(dot + 1) : full;
-                AssertTrue(EmbeddedResources.Exists(typeof(Program).Assembly, suffix),
-                    "A resource that exists was not found by its trailing name: " + full);
+                stream.CopyTo(buffer);
+                return buffer.ToArray();
             }
+        }
+
+        private static bool BytesEqual(byte[] a, byte[] b)
+        {
+            if (a == null || b == null || a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
+            return true;
         }
 
         private static void TestModuleKitUnicodeBoundaries()
@@ -168,19 +205,39 @@ namespace DesktopAICompanion
             AssertEqual(3, loaded.Count, "An int did not round-trip.");
             AssertTrue(loaded.Items != null && loaded.Items.Count == 2, "A list did not round-trip.");
 
-            // Update mutates and persists in one step.
+            // Update mutates and persists in one step, and the write keeps the previous document as a
+            // backup (F230), as the two stores this class was distilled from do.
             AssertTrue(store.Update(s => s.Count = 7), "Update() failed.");
             AssertEqual(7, store.Load().Count, "Update() did not persist.");
+            AssertTrue(File.Exists(store.BackupPath_), "Save() kept no backup of the previous document.");
+            AssertTrue(File.ReadAllText(store.BackupPath_).Contains("\"Count\": 3"),
+                "The backup is not the previous document.");
 
-            // Corrupt content degrades to defaults instead of throwing.
+            // Corrupt content degrades to defaults instead of throwing, says so, and is NOT written over:
+            // Update on a document that is merely unreadable to this build would replace the user's
+            // settings with defaults (F230). The file is left byte for byte.
             File.WriteAllText(path, "{ this is not json");
             ProbeSettings recovered = store.Load();
             AssertTrue(recovered != null, "A corrupt file threw instead of returning defaults.");
             AssertEqual(null, recovered.Name, "A corrupt file did not fall back to defaults.");
+            AssertTrue(store.LastLoadWasUnreadable, "An unreadable file was not reported as such.");
+            AssertFalse(store.Update(s => s.Count = 9), "Update() wrote defaults over an unreadable file.");
+            AssertEqual("{ this is not json", File.ReadAllText(path), "Update() changed an unreadable file.");
 
             // A BOM-prefixed file still parses (the reader trims it).
             File.WriteAllText(path, "{\"Name\":\"gus\"}", new UTF8Encoding(true));
             AssertEqual("gus", store.Load().Name, "A BOM-prefixed settings file failed to parse.");
+            AssertFalse(store.LastLoadWasUnreadable, "A readable file was reported unreadable.");
+
+            // Update holds ONE cross-session lease across read, mutate and write (F231). With the lease held
+            // elsewhere it declines outright, where Load-then-Save under two leases let a second instance
+            // write in between and lose. Held the way the settings-store lock test holds its lock: the lease
+            // file open with no sharing.
+            using (new FileStream(path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+            {
+                AssertFalse(store.Update(s => s.Name = "raced"), "Update() proceeded without the lease.");
+            }
+            AssertEqual("gus", store.Load().Name, "A declined Update() still changed the file.");
 
             AssertFalse(store.Save(null), "Saving null reported success.");
         }

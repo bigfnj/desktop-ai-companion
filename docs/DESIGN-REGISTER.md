@@ -358,6 +358,57 @@ removed, and this lane made none; a saving that is not measured that way has bee
 believed in this repo. The alpha-pet push-skip, the CheckTopWindow throttle, the bubble DPI cache and the
 pooled HttpClient are recorded here so the next reader starts from the measurement, not the idea.
 
+**The loader has a graph-only overload, and the validator hands its decoded bytes on (2026-09-30, F318,
+F317, F155).** `Xml.TryReadXml(string xmlText, bool stageImages, out string error)` is additive: with
+`stageImages` false the definition is validated and adopted (AnimationXML, icon, frame size from the PNG
+IHDR, scale factor) and no bitmap is decoded, SpriteCount is 0, and the instance must never be handed to a
+running companion. `CompanionXmlValidator.TryParse(xml, out root, out spriteBytes, out iconBytes, out
+error)` is the other additive shape: the loader reads the bytes the validator decoded and proved, so the
+second base64 pass is gone rather than made faster. Both files are source-linked by PetStudio, which is
+why the existing signatures did not move. The alpha flag moved into the commit block; the only observable
+was a violated contract, and the contract is what the invariant asserts.
+
+**The XSD schema set stays uncached (2026-09-30, F254, DECLINED-MEASURED).** 0.95 ms per TryParse, warm,
+30 reps. TryParse runs per install, download, drop or Studio analyze; a cached `XmlSchemaSet` would save
+under a millisecond on a user-paced path and add a shared mutable object to a stateless class.
+
+**The chooser evaluates nothing; a counter says so (2026-09-30, F241, F242).** `TAnimation.EvaluationCount`
+is a counter seam like `AppSettingsStore.DurableWrites`: the self-test asserts a chooser call adds nothing
+and the consumer's `UpdateValues(DisplayIndex)` adds one, stated as a count and never as a timing. The
+store-back into `SheepAnimations` went with the evaluation because `TAnimation` is a struct and nothing read
+an evaluated value out of the dictionary, only names and edge lists.
+
+**The drop read is sized from the file, with the sentinel kept (2026-09-30, F271).** The buffer is the
+stream's length plus one byte, clamped to one over the limit, floor 4 KB, and grows if the file grows while
+it is read; the over-limit test on the bytes read is unchanged. The probe COUNTS allocation through
+`GC.GetAllocatedBytesForCurrentThread` rather than timing anything: a 2 KB drop under 1 MiB where the old
+buffer was 12 MiB.
+
+**`JsonSettingsStore.Update` holds its lease across the mutation (2026-09-30, F230, F231).** One lease
+for read, mutate and write closes the two-lease window; the mutation therefore runs under a cross-session
+lock and must stay short, which the doc comment says. An `Unreadable` document is refused rather than
+written over, and `LastLoadWasUnreadable` lets a module say so; the backup is `<path>.bak`, as in the two
+stores the class was distilled from. No in-tree consumer yet, so the CoreTests group is the only caller.
+
+**The companion form's Icon is removed, not disposed (2026-09-30, F272).** Nothing reads the property
+(border None, ShowIcon false, tool window, no reader in `src/`), so not creating the HICON beats creating
+and disposing one per spawn. The `ComponentResourceManager` line went with it: the icon was its only use.
+
+**The debug window hands text over by file, not by automating Notepad (2026-09-30, F274).** On Windows 11
+notepad.exe is a launcher stub, so the WM_SETTEXT handoff wrote into the wrong window or none and swallowed
+the failure. One fixed `dp-debug-<kind>.txt` per kind under %TEMP%, overwritten, opened through the shell;
+this is the user's default editor rather than Notepad by name, and a failure is an error row in the window.
+
+**The module template holds one settings handle (2026-09-30, F330 follow-up).** F330 stays
+ACCEPTED-RECORDED for the host, but the template is this lane's own, and it is the sample every new module
+is copied from, so it now memoises the handle its own comment tells authors to hold.
+
+**The corpus classifier decides its layout once per file (2026-09-30, F321, F323).** A per-row field count
+turned a tab inside a text into a reinterpreted, truncated row; now row 1 sets the layout and a later row
+that differs is an error naming the line. Both transforms carry a `--selfcheck` that `label-selftest.sh`
+runs; the gate does not run that script, so the selfchecks' hand mutations are recorded in the commit and
+the source-text invariants are what the gate sees.
+
 #### fix/tools
 
 (none yet)

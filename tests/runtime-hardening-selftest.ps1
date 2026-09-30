@@ -2467,6 +2467,200 @@ Assert-True (
     $resetBodyHost -cmatch 'Reset failed: the settings could not be saved'
 ) 'the reset is one committed batch whose failure is reported instead of a rebuilt pane over unmoved values'
 
+# ---- lane fix/host, groups F to H: loader, ModuleKit, TestModule, tray, debug window, corpus scripts ----
+$xmlCodeHost = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\Xml.cs') -Raw)
+$animationsCodeHost = Remove-LineComments $animationsSource
+$formDebugCodeHost = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\FormDebug.cs') -Raw)
+$xmlToDotCodeHost = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\Tools\XmlToDot.cs') -Raw)
+$formPetDesignerCodeHost = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\FormCompanion.Designer.cs') -Raw)
+$factoryResetCodeHost = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\FactoryReset.cs') -Raw)
+$embeddedResourcesCodeHost = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\DesktopAICompanion.ModuleKit\EmbeddedResources.cs') -Raw)
+$jsonStoreCodeHost = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\DesktopAICompanion.ModuleKit\JsonSettingsStore.cs') -Raw)
+$testModuleCodeHost = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'modules\TestModule\TestModule.cs') -Raw)
+$sampleModuleCodeHost = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'templates\desktop-ai-companion-module\SampleModule.cs') -Raw)
+$classifySource = Get-Content -LiteralPath (Join-Path $repoRoot 'src\Fortunes\classify-corpus.py') -Raw
+$stripAuthorsSource = Get-Content -LiteralPath (Join-Path $repoRoot 'src\Fortunes\strip-authors.py') -Raw
+$hostMemberStops = @("`n        private ", "`n        internal ", "`n        public ", "`n        void ", "`n        static ")
+
+# The loader reads the bytes the validator already decoded and proved, and decodes no base64 of its own (F318):
+# one pass over a multi-megabyte string per staged pet, not two. The overload that skips the sprite staging is
+# the additive shape PetStudio's F155 asked for, and its frame size comes from the PNG header. Asserted as an
+# ABSENCE across the whole file beside the argument the loader passes.
+$tryReadBodyHost = Get-MethodBody $xmlCodeHost 'public bool TryReadXml(string xmlText, bool stageImages, out string error)' $hostMemberStops
+$readImagesBodyHost = Get-MethodBody $xmlCodeHost 'private void ReadImages(' $hostMemberStops
+Assert-True ($tryReadBodyHost.Length -gt 0 -and $readImagesBodyHost.Length -gt 0) 'Xml.TryReadXml(xml, stageImages, out error) and ReadImages were located'
+Assert-True (
+    $xmlCodeHost -cnotmatch 'FromBase64String' -and
+    $tryReadBodyHost -cmatch 'CompanionXmlValidator\.TryParse\(xmlText, out parsed, out sheetBytes, out iconBytes, out error\)' -and
+    $readImagesBodyHost -cmatch 'if \(!stageImages\)' -and
+    $readImagesBodyHost -cmatch 'ReadPngSize\(imageBytes, out sheetWidth, out sheetHeight\)'
+) 'the loader takes the sheet and icon bytes the validator decoded, decodes no base64 of its own, and the no-stage path sizes the frame from the PNG header'
+
+# The alpha flag is part of the commit block (F317): assigned after DisposeAssets, and ReadImages assigns a
+# local, never the field, so a failed re-read cannot leave the old frames with the new pet's flag.
+$disposeAssetsAt = $tryReadBodyHost.IndexOf('DisposeAssets();')
+$usesAlphaAt = $tryReadBodyHost.IndexOf('usesAlpha = stagedUsesAlpha;')
+Assert-True (
+    $disposeAssetsAt -ge 0 -and $usesAlphaAt -gt $disposeAssetsAt -and
+    $readImagesBodyHost -cnotmatch '(?m)^\s*usesAlpha ='
+) 'the alpha flag is committed with the rest of the definition, after DisposeAssets, and ReadImages assigns a local instead of the field'
+
+# The chooser announces the chosen animation and evaluates nothing (F241): the one consumer evaluates its own
+# copy for the pet's DisplayIndex right after GetAnimation, and the old evaluate-and-store method is gone.
+$announceBodyHost = Get-MethodBody $animationsCodeHost 'private void AnnounceChosenAnimation(int id)' $hostMemberStops
+$setNewAnimationCoreBody = Get-MethodBody $formPetCodeHost 'private void SetNewAnimationCore(int id)' $hostMemberStops
+Assert-True ($announceBodyHost.Length -gt 0 -and $setNewAnimationCoreBody.Length -gt 0) 'AnnounceChosenAnimation and SetNewAnimationCore were located'
+Assert-True (
+    $announceBodyHost -cnotmatch '\.UpdateValues\(' -and
+    $announceBodyHost -cmatch 'AddDebugInfo\(StartUp\.DEBUG_TYPE\.info, "new animation: "' -and
+    $animationsCodeHost -cnotmatch 'UpdateAnimationValues' -and
+    $setNewAnimationCoreBody.IndexOf('CurrentAnimation.UpdateValues(DisplayIndex);') -gt $setNewAnimationCoreBody.IndexOf('CurrentAnimation = Animations.GetAnimation(id);')
+) 'the chooser only announces the chosen animation; the one evaluation is the consumer''s, for its own DisplayIndex, right after GetAnimation'
+
+# The drag-drop read is sized from the file (F271): the fixed 12 MiB buffer is gone, the capacity comes from
+# BoundedReadCapacity given the stream, and the over-limit test on the bytes actually read stays.
+$readBoundedBody = Get-MethodBody $formPetCodeHost 'private static string ReadBoundedPetXml(string file)' $hostMemberStops
+$readBoundedBytesBody = Get-MethodBody $formPetCodeHost 'internal static int ReadBoundedBytes(Stream stream, int maximumBytes, out byte[] bytes)' $hostMemberStops
+Assert-True ($readBoundedBody.Length -gt 0 -and $readBoundedBytesBody.Length -gt 0) 'ReadBoundedPetXml and ReadBoundedBytes were located'
+Assert-True (
+    $readBoundedBody -cnotmatch 'new byte\[' -and
+    $readBoundedBody -cmatch 'total = ReadBoundedBytes\(stream, maximumBytes, out bytes\);' -and
+    $readBoundedBody -cmatch 'if \(total > maximumBytes\)' -and
+    $readBoundedBytesBody -cmatch 'bytes = new byte\[\(int\)BoundedReadCapacity\(stream, maximumBytes\)\];' -and
+    $readBoundedBytesBody -cnotmatch 'checked\(maximumBytes \+ 1\)'
+) 'the drop read allocates from the file''s length through BoundedReadCapacity and keeps the over-limit test on the bytes read'
+
+# The embedded-resource suffix starts at a segment boundary (F229): FindName tries the exact name, then the
+# boundary rule, and the bare EndsWith that let "icon.png" find "tray-icon.png" is gone.
+$findNameBody = Get-MethodBody $embeddedResourcesCodeHost 'private static string FindName(Assembly assembly, string fileNameSuffix)' $hostMemberStops
+$matchesBody = Get-MethodBody $embeddedResourcesCodeHost 'public static bool MatchesResourceName(string manifestName, string fileNameSuffix)' $hostMemberStops
+Assert-True ($findNameBody.Length -gt 0 -and $matchesBody.Length -gt 0) 'EmbeddedResources.FindName and MatchesResourceName were located'
+Assert-True (
+    $findNameBody -cnotmatch 'candidate\.EndsWith\(' -and
+    $findNameBody -cmatch 'MatchesResourceName\(candidate, fileNameSuffix\)' -and
+    $matchesBody -cmatch "manifestName\[manifestName\.Length - fileNameSuffix\.Length - 1\] == '\.'"
+) 'the resource lookup matches an exact name or a suffix that starts after a dot, never a bare EndsWith'
+
+# JsonSettingsStore.Update reads, mutates and writes under ONE lease and refuses an unreadable document
+# (F230, F231), and the write keeps the previous document as a backup. ORDER inside Update, not presence.
+$jsonUpdateBody = Get-MethodBody $jsonStoreCodeHost 'public bool Update(Action<T> mutate)' $hostMemberStops
+$jsonSaveCoreBody = Get-MethodBody $jsonStoreCodeHost 'private bool SaveCore(T value)' $hostMemberStops
+Assert-True ($jsonUpdateBody.Length -gt 0 -and $jsonSaveCoreBody.Length -gt 0) 'JsonSettingsStore.Update and SaveCore were located'
+$jsonLeaseAt = $jsonUpdateBody.IndexOf('CrossSessionLock.TryAcquire(')
+$jsonReadAt = $jsonUpdateBody.IndexOf('TryRead(out current)')
+$jsonRefuseAt = $jsonUpdateBody.IndexOf('if (result == ReadResult.Unreadable) return false;')
+$jsonWriteAt = $jsonUpdateBody.IndexOf('SaveCore(current)')
+Assert-True (
+    $jsonLeaseAt -ge 0 -and $jsonReadAt -gt $jsonLeaseAt -and $jsonRefuseAt -gt $jsonReadAt -and $jsonWriteAt -gt $jsonRefuseAt -and
+    $jsonUpdateBody -cnotmatch 'Load\(\)' -and $jsonUpdateBody -cnotmatch 'return Save\(' -and
+    $jsonSaveCoreBody -cmatch 'AtomicFile\.TryWriteAllText\(_path, json, BackupPath_\)'
+) 'Update takes its lease first, reads under it, refuses an unreadable document before mutating, writes under the same lease, and the write names the backup path'
+
+# TestModule's preview verb reads the installed pet through the ABI (F207): no hand-rolled walk of the
+# installed layout's %LOCALAPPDATA% library, which the portable dev tree never has.
+$previewClickedBody = Get-MethodBody $testModuleCodeHost 'private void PreviewClicked()' $hostMemberStops
+Assert-True ($previewClickedBody.Length -gt 0) 'TestModule.PreviewClicked was located'
+Assert-True (
+    $previewClickedBody -cmatch 'pets\.TryReadTypeXml\(type\.TypeId, out xml, out readError\)' -and
+    $testModuleCodeHost -cnotmatch 'LocalApplicationData' -and
+    $testModuleCodeHost -cnotmatch 'ReadInstalledXml'
+) 'the preview verb reads the installed pet through ICompanionManager.TryReadTypeXml, with no hand-rolled path into the installed library'
+
+# The module template holds ONE settings handle (F330 follow-up in the lane's own boundary): each
+# IHost.GetSettings call is a file parse, so the sample every module is copied from must not fetch per call.
+$templateSettingsBody = Get-MethodBody $sampleModuleCodeHost 'private IModuleSettings Settings()' $hostMemberStops
+Assert-True ($templateSettingsBody.Length -gt 0) 'the template''s Settings() accessor was located'
+Assert-True (
+    $templateSettingsBody -cmatch 'if \(_settings == null && _host != null\) _settings = _host\.GetSettings\(Info\.Id\);' -and
+    $sampleModuleCodeHost -cnotmatch 'Settings\(\) \{ return _host\.GetSettings'
+) 'the template''s Settings() memoises one handle instead of fetching a fresh parse per call'
+
+# Tray drop-downs are emptied with ClearAndDispose and module items disposed as trees (F255, F256): no
+# DropDownItems.Clear() anywhere in the file, and the tree disposal reaches children and Image before the item.
+$moduleTrayOpeningBody = Get-MethodBody $contextMenusCodeHost 'private void ModuleTray_Opening(object sender, System.ComponentModel.CancelEventArgs e)' $hostMemberStops
+$rebuildSubmenuBody = Get-MethodBody $contextMenusCodeHost 'private static void RebuildModuleSubmenu(ToolStripMenuItem parent, TrayItem ti)' $hostMemberStops
+$disposeTreeBody = Get-MethodBody $contextMenusCodeHost 'internal static void DisposeItemTree(ToolStripItem item)' $hostMemberStops
+Assert-True ($moduleTrayOpeningBody.Length -gt 0 -and $rebuildSubmenuBody.Length -gt 0 -and $disposeTreeBody.Length -gt 0) 'ModuleTray_Opening, RebuildModuleSubmenu and DisposeItemTree were located'
+Assert-True (
+    $contextMenusCodeHost -cnotmatch 'DropDownItems\.Clear\(\);' -and
+    $moduleTrayOpeningBody -cmatch 'DisposeItemTree\(prior\);' -and
+    $rebuildSubmenuBody -cmatch 'ClearAndDispose\(parent\.DropDownItems\);' -and
+    $contextMenusCodeHost -cmatch 'ClearAndDispose\(addPetMenuItem\.DropDownItems\);' -and
+    $contextMenusCodeHost -cmatch 'ClearAndDispose\(removePetMenuItem\.DropDownItems\);' -and
+    $contextMenusCodeHost -cmatch 'ClearAndDispose\(petSpeechMenuItem\.DropDownItems\);'
+) 'no tray drop-down is Clear()ed without disposing its rows, and the module items are disposed as trees'
+Assert-True (
+    $disposeTreeBody.IndexOf('DisposeItemTree(child)') -ge 0 -and $disposeTreeBody.IndexOf('image.Dispose()') -ge 0 -and
+    $disposeTreeBody.IndexOf('DisposeItemTree(child)') -lt $disposeTreeBody.IndexOf('item.Dispose()') -and
+    $disposeTreeBody.IndexOf('image.Dispose()') -lt $disposeTreeBody.IndexOf('item.Dispose()')
+) 'DisposeItemTree disposes the children and the Image before the item itself'
+
+# The companion form deserialises no Icon (F272): no border, ShowIcon false, a tool window off the taskbar, so
+# nothing could ever show the HICON the designer created per spawn.
+$initComponentBody = Get-MethodBody $formPetDesignerCodeHost 'private void InitializeComponent()' @("`n        private ", "`n        #endregion", "`n        internal ", "`n        public ")
+Assert-True ($initComponentBody.Length -gt 0) 'FormCompanion.InitializeComponent was located'
+Assert-True (
+    $initComponentBody -cnotmatch 'this\.Icon = ' -and
+    $initComponentBody -cnotmatch 'ComponentResourceManager' -and
+    $initComponentBody -cmatch 'this\.ShowIcon = false;'
+) 'the companion form loads no Icon from its resx: ShowIcon is false and nothing could show one'
+
+# The debug window caps its rows and hands text over by file (F273, F274): no P/Invoke, no WM_SETTEXT into a
+# window it did not create, and a failed handoff is logged in the window instead of swallowed.
+$debugMemberStops = @("`n`t`tprivate ", "`n`t`tinternal ", "`n`t`tpublic ", "`n        private ", "`n        internal ", "`n        public ")
+$addDebugInfoBody = Get-MethodBody $formDebugCodeHost 'public void AddDebugInfo(StartUp.DEBUG_TYPE type, string text)' $debugMemberStops
+$openTextBody = Get-MethodBody $formDebugCodeHost 'private static void OpenText(string kind, string text)' $debugMemberStops
+Assert-True ($addDebugInfoBody.Length -gt 0 -and $openTextBody.Length -gt 0) 'FormDebug.AddDebugInfo and OpenText were located'
+Assert-True (
+    $formDebugCodeHost -cnotmatch 'DllImport' -and
+    $formDebugCodeHost -cnotmatch 'SendMessageTimeout|FindWindowEx|MainWindowHandle' -and
+    $addDebugInfoBody.IndexOf('TrimRows();') -gt $addDebugInfoBody.IndexOf('listView1.Items.Add(item);') -and
+    $openTextBody -cmatch 'UseShellExecute = true' -and
+    $openTextBody -cmatch 'catch \(Exception ex\)\s*\{\s*StartUp\.AddDebugInfo\(StartUp\.DEBUG_TYPE\.error,'
+) 'the debug window trims after every add, opens its text through the shell from a file, and logs a failed handoff instead of swallowing it'
+
+# The DOT export escapes every name it puts inside a label (F325), builds into a StringBuilder and writes no
+# Console line a windowed process could read.
+$dotMemberStops = @("`n`t`tstatic ", "`n`t`tprivate ", "`n`t`tinternal ", "`n`t`tpublic ")
+$processNextBody = Get-MethodBody $xmlToDotCodeHost 'static private void ProcessNext(StringBuilder dot, Next type, int totalProbability, XmlData.AnimationNode anim, XmlData.NextNode[] nexts)' $dotMemberStops
+$processAnimationsBody = Get-MethodBody $xmlToDotCodeHost 'static private string ProcessAnimations(string animationTitle, XmlData.AnimationNode[] animations)' $dotMemberStops
+Assert-True ($processNextBody.Length -gt 0 -and $processAnimationsBody.Length -gt 0) 'XmlToDot.ProcessAnimations and ProcessNext were located'
+Assert-True (
+    $xmlToDotCodeHost -cnotmatch 'Console\.WriteLine' -and
+    $processAnimationsBody -cmatch 'Append\(EscapeLabel\(anim\.Name\)\)' -and
+    $processNextBody -cmatch 'Append\(EscapeLabel\(next\.OnlyFlag\)\)' -and
+    $xmlToDotCodeHost -cnotmatch 'returnString \+='
+) 'every animation name and only-flag in a DOT label passes through EscapeLabel, into a StringBuilder, with no Console line'
+
+# A root that cannot be listed is a failed wipe (F260): SafeList counts and logs a listing that throws, and both
+# of Wipe's listings pass the failure counter in.
+$safeListBody = Get-MethodBody $factoryResetCodeHost 'internal static string[] SafeList(Func<string[]> list, string what, List<string> log, ref int failed)' $hostMemberStops
+$wipeBody = Get-MethodBody $factoryResetCodeHost 'private static bool Wipe(string root, string what, List<string> log)' $hostMemberStops
+Assert-True ($safeListBody.Length -gt 0 -and $wipeBody.Length -gt 0) 'FactoryReset.SafeList and Wipe were located'
+Assert-True (
+    $safeListBody -cmatch 'catch \(Exception ex\)\s*\{\s*failed\+\+;' -and
+    $safeListBody -cnotmatch 'catch \{ return new string\[0\]; \}' -and
+    ([regex]::Matches($wipeBody, 'ref failed\)')).Count -eq 2
+) 'a listing that throws counts as a failure in SafeList, and both of Wipe''s listings pass the counter in'
+
+# The corpus classifier decides the field layout ONCE per file (F321) and the byline stripper counts a stripped
+# row only after the drop test (F323). Python, so no comment stripping; the bodies are sliced on def boundaries.
+$classifyProcessBody = Get-MethodBody $classifySource 'def process(path):' @("`ndef ", "`nif __name__")
+$stripProcessBody = Get-MethodBody $stripAuthorsSource 'def process(path):' @("`ndef ", "`nif __name__")
+Assert-True ($classifyProcessBody.Length -gt 0 -and $stripProcessBody.Length -gt 0) 'both corpus transforms'' process() bodies were located'
+Assert-True (
+    $classifyProcessBody -cmatch '(?m)^\s+if layout is None:' -and
+    $classifyProcessBody -cmatch '(?m)^\s+elif len\(parts\) != layout:' -and
+    $classifyProcessBody -cmatch '(?m)^\s+if layout == 6:' -and
+    $classifyProcessBody -cnotmatch 'if len\(parts\) == 6:'
+) 'the classifier fixes the field layout from row 1, rejects a later row that differs, and no longer infers the schema per row'
+$stripDropAt = $stripProcessBody.IndexOf('dropped += 1')
+$stripChangedAt = $stripProcessBody.IndexOf('changed += 1')
+$stripContinueAt = if ($stripDropAt -ge 0) { $stripProcessBody.IndexOf('continue', $stripDropAt) } else { -1 }
+Assert-True (
+    $stripDropAt -ge 0 -and $stripContinueAt -gt $stripDropAt -and $stripChangedAt -gt $stripContinueAt
+) 'the stripper counts a byline as stripped only for a row it kept: the count follows the drop test''s continue'
+
 
 
 # ---- lane fix/tools ----

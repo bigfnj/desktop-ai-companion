@@ -1,6 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text;
 
 namespace DesktopAICompanion.Tools
@@ -10,66 +8,93 @@ namespace DesktopAICompanion.Tools
     /// </summary>
     /// <remarks>
     /// A DOT file can be opened with Graphviz (or http://www.webgraphviz.com/) to generate a graphically view of the XML.
+    /// Reached from the SHIFT-start debug window's "Convert to DOT" only. Builds into a StringBuilder, writes no
+    /// Console line, and escapes every name it puts inside a DOT string (F325): the old export concatenated
+    /// strings quadratically, formatted a Console line per sequence edge that nothing in a windowed process
+    /// reads, and emitted animation names verbatim, so a quote in a pet's name broke the label and the graph.
     /// </remarks>
 	class XmlToDot
-	{	
-		static private string animationTitle;
-
+	{
         /// <summary>
         /// Convert the Xml to a DOT and returns the result as string.
         /// </summary>
         /// <param name="model">The root node of xml file.</param>
-        /// <returns></returns>
+        /// <returns>The DOT text; a one-line comment when the model has no animations.</returns>
 		static public string ProcessXml(XmlData.RootNode model)
 		{
-			//var animations = model.Animations;
-			if (model.Animations == null)
-			{
-				Console.WriteLine("No animations found exiting.");
-				return null;
-			}
-			animationTitle = model.Header.Title;
-			return ProcessAnimations(model.Animations.Animation);
+			if (model == null || model.Animations == null || model.Animations.Animation == null)
+				return "# No animations found.\r\n";
+			string title = model.Header != null ? model.Header.Title : null;
+			return ProcessAnimations(title, model.Animations.Animation);
 		}
 
-		static private string ProcessAnimations(XmlData.AnimationNode[] animations)
+		static private string ProcessAnimations(string animationTitle, XmlData.AnimationNode[] animations)
 		{
-			Console.WriteLine($"# Processing {animations.Length} animations.");
-
-			string returnString = "";
-			returnString += $"# Convert {animationTitle} to Graphviz dot format by DesktopAICompanion Xml2Gv {DateTime.Now}\r\n";
-			returnString += $"# Copy the text and insert it into https://dreampuf.github.io/GraphvizOnline/ or http://webgraphviz.com/ to generate an image\r\n";
-			returnString += $"# This functionality was added after this isse: https://github.com/Adrianotiger/desktopPet/issues/6 \r\n";
-			returnString += $"digraph PetGraph {{\r\n";
-			returnString += $" rankdir = LR;\r\n";
+			var dot = new StringBuilder();
+			dot.Append("# Convert ").Append(animationTitle).Append(" to Graphviz dot format by DesktopAICompanion Xml2Gv ")
+			   .Append(DateTime.Now).Append("\r\n");
+			dot.Append("# Copy the text and insert it into https://dreampuf.github.io/GraphvizOnline/ or http://webgraphviz.com/ to generate an image\r\n");
+			dot.Append("# This functionality was added after this isse: https://github.com/Adrianotiger/desktopPet/issues/6 \r\n");
+			dot.Append("digraph PetGraph {\r\n");
+			dot.Append(" rankdir = LR;\r\n");
 
 			foreach (var anim in animations)
 			{
-				if (anim.Sequence.Next != null)
+				if (anim == null) continue;
+				if (anim.Sequence != null && anim.Sequence.Next != null)
 				{
-					returnString += $"# {anim.Id} Sequence {anim.Sequence.Next.Length}\r\n";
-					var totalProbability = anim.Sequence.Next.Sum(n => n.Probability);
-					returnString += ProcessNext(Next.Sequence, totalProbability, anim, anim.Sequence.Next);
+					dot.Append("# ").Append(anim.Id).Append(" Sequence ").Append(anim.Sequence.Next.Length).Append("\r\n");
+					ProcessNext(dot, Next.Sequence, TotalProbability(anim.Sequence.Next), anim, anim.Sequence.Next);
 				}
 
 				if (anim.Border != null && anim.Border.Next != null)
 				{
-					returnString += $"# {anim.Id} Border {anim.Border.Next.Length}\r\n";
-					var totalProbability = anim.Border.Next.Sum(n => n.Probability);
-					returnString += ProcessNext(Next.Border, totalProbability, anim, anim.Border.Next);
+					dot.Append("# ").Append(anim.Id).Append(" Border ").Append(anim.Border.Next.Length).Append("\r\n");
+					ProcessNext(dot, Next.Border, TotalProbability(anim.Border.Next), anim, anim.Border.Next);
 				}
 
 				if (anim.Gravity != null && anim.Gravity.Next != null)
 				{
-					returnString += $"# {anim.Id} Gravity {anim.Gravity.Next.Length}\r\n";
-					var totalProbability = anim.Gravity.Next.Sum(n => n.Probability);
-					returnString += ProcessNext(Next.Gravity, totalProbability, anim, anim.Gravity.Next);
+					dot.Append("# ").Append(anim.Id).Append(" Gravity ").Append(anim.Gravity.Next.Length).Append("\r\n");
+					ProcessNext(dot, Next.Gravity, TotalProbability(anim.Gravity.Next), anim, anim.Gravity.Next);
 				}
 
-				returnString += $"  anim_{anim.Id} [ label=\"{anim.Name} ({anim.Id})\" ]\r\n";
+				dot.Append("  anim_").Append(anim.Id).Append(" [ label=\"").Append(EscapeLabel(anim.Name))
+				   .Append(" (").Append(anim.Id).Append(")\" ]\r\n");
 			}
-			returnString += $"}}\n";
-			return returnString;
+			dot.Append("}\n");
+			return dot.ToString();
+		}
+
+		/// <summary>
+		/// The text of a DOT double-quoted string: backslash and quote escaped, a line break written as \n,
+		/// a carriage return dropped (F325). Everything an animation name or an "only" flag contributes to a
+		/// label goes through here.
+		/// </summary>
+		internal static string EscapeLabel(string text)
+		{
+			if (string.IsNullOrEmpty(text)) return "";
+			var escaped = new StringBuilder(text.Length + 8);
+			foreach (char c in text)
+			{
+				switch (c)
+				{
+					case '\\': escaped.Append("\\\\"); break;
+					case '"': escaped.Append("\\\""); break;
+					case '\r': break;
+					case '\n': escaped.Append("\\n"); break;
+					default: escaped.Append(c); break;
+				}
+			}
+			return escaped.ToString();
+		}
+
+		private static int TotalProbability(XmlData.NextNode[] nexts)
+		{
+			int total = 0;
+			foreach (var next in nexts)
+				if (next != null) total += next.Probability;
+			return total;
 		}
 
 		private enum Next { Sequence, Border, Gravity };
@@ -78,9 +103,8 @@ namespace DesktopAICompanion.Tools
 		private const string borderColor = "#5555DDFF";
 		private const string gravityColor = "#55DD55FF";
 
-		static private string ProcessNext(Next type, int totalProbability, XmlData.AnimationNode anim, XmlData.NextNode[] nexts)
+		static private void ProcessNext(StringBuilder dot, Next type, int totalProbability, XmlData.AnimationNode anim, XmlData.NextNode[] nexts)
 		{
-			string returnString = "";
 			var edgeColor = sequenceColor;
 			var typeMarker = "S";
 			if (type == Next.Border) { edgeColor = borderColor; typeMarker = "B"; }
@@ -88,34 +112,26 @@ namespace DesktopAICompanion.Tools
 
 			foreach (var next in nexts)
 			{
-				var relative = (double)next.Probability / totalProbability;
-				edgeColor = type == Next.Sequence ? convertProbabilityToGray(relative) : edgeColor;
-				var relative2Decimal = relative.ToString("00%");
-				var probability = relative2Decimal == "100%" ? "" : $"({next.Probability})";
-				var label = $"[ label=\"{relative2Decimal}{probability} {next.OnlyFlag} {typeMarker}\" color=\"{edgeColor}\" fontcolor=\"{edgeColor}\" penwidth=\"1\" ]";
-				returnString += $"  anim_{anim.Id} -> anim_{next.Value} {label}\r\n";
+				if (next == null) continue;
+				double relative = totalProbability > 0 ? (double)next.Probability / totalProbability : 0.0;
+				string color = type == Next.Sequence ? ProbabilityToGray(relative) : edgeColor;
+				string relative2Decimal = relative.ToString("00%");
+				string probability = relative2Decimal == "100%" ? "" : "(" + next.Probability + ")";
+				dot.Append("  anim_").Append(anim.Id).Append(" -> anim_").Append(next.Value)
+				   .Append(" [ label=\"").Append(relative2Decimal).Append(probability).Append(' ')
+				   .Append(EscapeLabel(next.OnlyFlag)).Append(' ').Append(typeMarker)
+				   .Append("\" color=\"").Append(color).Append("\" fontcolor=\"").Append(color)
+				   .Append("\" penwidth=\"1\" ]\r\n");
 			}
-			return returnString;
 		}
 
-		static private string convertProbabilityToGray(double relativeProbability)
+		static private string ProbabilityToGray(double relativeProbability)
 		{
-			// convert prob of 0 to 1 to gray50 down to gray0(black)
-			// linear mapping.
-			//var p1 = Math.Floor((0.5 + (relativeProbability / 2)) * 100);
-			//var p2 = 50 - (p1 - 50);
-
+			// A relative probability of 0..1 maps linearly onto grey70 (light) .. grey0 (black):
+			// p1 spans 30..100, and p2 mirrors it back into the grey scale.
 			var p1 = Math.Floor((0.3 + (relativeProbability / (1 / 0.7))) * 100);
-			// range 30 to 100
 			var p2 = 70 - (p1 - 30);
-
-			// input range 50 to 100.
-			// output range 50 to 0.
-			var p3 = p2.ToString();
-			//p2 = p2 == "100" ? "0" : p2;
-			Console.WriteLine($"# {relativeProbability}, {p1}, {p2}, {p3}");
-			return $"grey{p3}";
-			//return "grey36";
+			return "grey" + p2;
 		}
 	}
 }

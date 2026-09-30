@@ -182,6 +182,24 @@ namespace DesktopAICompanion
         /// </summary>
         public bool TryReadXml(string xmlText, out string error)
         {
+            return TryReadXml(xmlText, true, out error);
+        }
+
+        /// <summary>
+        /// As above, with the choice of NOT staging the sprite frames (F318; the overload PetStudio's F155
+        /// asked for). With <paramref name="stageImages"/> false the definition is validated and adopted --
+        /// AnimationXML, the icon, the frame size and the scale factor are all set, the frame size read
+        /// from the sheet's PNG header -- but no bitmap is decoded and <see cref="SpriteCount"/> is 0. That
+        /// is the loader a caller wants when it reads the GRAPH (an analysis, a report) and never draws:
+        /// on the largest shipped pet the sheet decode and tiling is the bulk of the stage. An instance
+        /// staged this way must not be handed to a running companion.
+        ///
+        /// Either way the validator's own decode of the sheet and icon is what is read here, not a second
+        /// base64 pass over the same multi-megabyte string (F318), and the alpha flag joins the commit
+        /// block below instead of being written before it (F317).
+        /// </summary>
+        public bool TryReadXml(string xmlText, bool stageImages, out string error)
+        {
             error = null;
             if (disposed)
             {
@@ -190,7 +208,9 @@ namespace DesktopAICompanion
             }
 
             XmlData.RootNode parsed;
-            if (!CompanionXmlValidator.TryParse(xmlText, out parsed, out error))
+            byte[] sheetBytes;
+            byte[] iconBytes;
+            if (!CompanionXmlValidator.TryParse(xmlText, out parsed, out sheetBytes, out iconBytes, out error))
                 return false;
 
             IList<Bitmap> stagedSprites = null;
@@ -201,13 +221,18 @@ namespace DesktopAICompanion
                 int stagedWidth;
                 int stagedHeight;
                 double stagedFactor;
+                bool stagedUsesAlpha;
                 ReadImages(
                     parsed,
+                    sheetBytes,
+                    iconBytes,
+                    stageImages,
                     out stagedSprites,
                     out stagedIcon,
                     out stagedWidth,
                     out stagedHeight,
-                    out stagedFactor);
+                    out stagedFactor,
+                    out stagedUsesAlpha);
 
                 parsed.Header.Petname =
                     UnicodeTextProgress.TruncateAtCodePointBoundary(
@@ -227,6 +252,11 @@ namespace DesktopAICompanion
                 spriteHeight = stagedHeight;
                 scaleFactorD = stagedFactor;
                 iScale = ScalePolicy.LevelForExpression(stagedFactor);
+                // In the commit block with everything else (F317): it was written inside ReadImages, before
+                // any of the steps that can throw, so a failed re-read on a live instance kept the old frames
+                // with the NEW pet's alpha flag. Unobservable while every caller stages into a fresh Xml,
+                // and a violation of this method's own contract all the same.
+                usesAlpha = stagedUsesAlpha;
 
                 // The source string remains the canonical persisted definition. Do not retain a
                 // second multi-megabyte base64 copy in the deserialized runtime graph.
@@ -478,19 +508,24 @@ namespace DesktopAICompanion
 
         private void ReadImages(
             XmlData.RootNode root,
+            byte[] imageBytes,
+            byte[] iconBytes,
+            bool stageImages,
             out IList<Bitmap> stagedSprites,
             out MemoryStream stagedIcon,
             out int stagedWidth,
             out int stagedHeight,
-            out double stagedFactor)
+            out double stagedFactor,
+            out bool stagedUsesAlpha)
         {
-            byte[] imageBytes = DecodeBase64(root.Image.Png);
-            byte[] iconBytes = DecodeBase64(root.Header.Icon);
-            usesAlpha = string.Equals(
+            // The validator's bytes (F318): it decoded and proved both, so this method no longer runs its
+            // own base64 pass over the sheet. A local, not the field (F317): the field is assigned in the
+            // caller's commit block, after every step here that can throw.
+            stagedUsesAlpha = string.Equals(
                 (root.Image.Transparency ?? string.Empty).Trim(),
                 AlphaTransparencyKeyword,
                 StringComparison.OrdinalIgnoreCase);
-            stagedIcon = new MemoryStream(iconBytes, false);
+            stagedIcon = new MemoryStream(iconBytes ?? new byte[0], false);
             stagedSprites = null;
             stagedWidth = 0;
             stagedHeight = 0;
@@ -498,6 +533,24 @@ namespace DesktopAICompanion
 
             try
             {
+                if (!stageImages)
+                {
+                    // The frame size without decoding the sheet: the validator required a PNG container, and
+                    // a PNG's IHDR carries the dimensions at a fixed offset. Same fit, same limits, no bitmap.
+                    int sheetWidth, sheetHeight;
+                    ReadPngSize(imageBytes, out sheetWidth, out sheetHeight);
+                    int sourceWidth = sheetWidth / root.Image.TilesX;
+                    int sourceHeight = sheetHeight / root.Image.TilesY;
+                    stagedFactor = ScalePolicy.FitFactorForFrameD(scaleFactorD, sourceWidth, sourceHeight, 256);
+                    stagedWidth = Math.Max(1, (int)Math.Round(sourceWidth * stagedFactor));
+                    stagedHeight = Math.Max(1, (int)Math.Round(sourceHeight * stagedFactor));
+                    if (stagedWidth > 256 || stagedHeight > 256)
+                        throw new InvalidDataException("A sprite frame exceeds the 256-pixel runtime limit.");
+                    ValidateSpriteBudget(root.Image.TilesX, root.Image.TilesY, stagedWidth, stagedHeight);
+                    stagedSprites = new List<Bitmap>();
+                    return;
+                }
+
                 using (var imageStream = new MemoryStream(imageBytes, false))
                 using (var decoded = new Bitmap(imageStream))
                 {
@@ -521,7 +574,7 @@ namespace DesktopAICompanion
                     // Downscaling a magenta colour-key sheet with a smooth filter would blend edge pixels into
                     // the key and leave a halo, so only alpha pets get the high-quality downscale; magenta pets
                     // (and every upscale) stay nearest-neighbour, exactly as before.
-                    bool smoothDownscale = usesAlpha &&
+                    bool smoothDownscale = stagedUsesAlpha &&
                         (stagedWidth < sourceWidth || stagedHeight < sourceHeight);
                     stagedSprites = BuildSprites(
                         decoded,
@@ -540,6 +593,19 @@ namespace DesktopAICompanion
                 stagedIcon = null;
                 throw;
             }
+        }
+
+        /// <summary>The width and height from a PNG's IHDR chunk, which the format fixes at bytes 16..23,
+        /// big-endian. The validator has already proved the container, so a short array here is a defect
+        /// rather than an input to tolerate.</summary>
+        internal static void ReadPngSize(byte[] png, out int width, out int height)
+        {
+            if (png == null || png.Length < 24)
+                throw new InvalidDataException("The sprite sheet is not a PNG.");
+            width = (png[16] << 24) | (png[17] << 16) | (png[18] << 8) | png[19];
+            height = (png[20] << 24) | (png[21] << 16) | (png[22] << 8) | png[23];
+            if (width <= 0 || height <= 0)
+                throw new InvalidDataException("The sprite sheet's PNG header carries no size.");
         }
 
         /// <summary>
@@ -727,15 +793,6 @@ namespace DesktopAICompanion
                 foreach (Bitmap frame in result) frame.Dispose();
                 throw;
             }
-        }
-
-        private static byte[] DecodeBase64(string value)
-        {
-            int marker = value == null
-                ? -1
-                : value.IndexOf(";base64,", StringComparison.OrdinalIgnoreCase);
-            string encoded = marker >= 0 ? value.Substring(marker + 8) : value;
-            return Convert.FromBase64String(encoded ?? "");
         }
 
         private void DisposeAssets()

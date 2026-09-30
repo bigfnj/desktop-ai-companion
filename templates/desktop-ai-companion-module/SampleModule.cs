@@ -147,7 +147,16 @@ namespace DesktopAICompanion.SampleModule
             return System.Threading.Tasks.Task.FromResult("Said it.");
         }
 
-        private IModuleSettings Settings() { return _host.GetSettings(Info.Id); }
+        // ONE handle, taken on first use and kept. Each IHost.GetSettings call reads and parses the settings
+        // file afresh and hands back an independent dictionary, so a module that fetches per call pays a
+        // file parse per read and can lose a write when two of its own handles disagree (PluginApi.cs on
+        // IModuleSettings). Hold the handle; call Save() on it when you change something (F330).
+        private IModuleSettings _settings;
+        private IModuleSettings Settings()
+        {
+            if (_settings == null && _host != null) _settings = _host.GetSettings(Info.Id);
+            return _settings ?? new MemoryModuleSettings();
+        }
 
         private IReadOnlyDictionary<string, string> LoadPaneValues()
         {

@@ -637,6 +637,102 @@ CASES = (
      "asynchronous failure is observed"),
 
 
+    # F318: the no-stage path is never taken, so TryReadXml(xml, false) decodes the sheet anyway.
+    ("the no-stage loader decodes the sprite sheet anyway",
+     os.path.join(REPO, "src", "dotNet", "Xml.cs"),
+     b"                if (!stageImages)\n",
+     b"                if (!stageImages && imageBytes == null)\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "the no-stage read decodes none"),
+
+    # F241: the chooser evaluates the chosen animation itself again, which the counter sees.
+    ("the chooser evaluates an expression again",
+     os.path.join(REPO, "src", "dotNet", "Animations.cs"),
+     b'            TAnimation ani = SheepAnimations[id];\n            StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info, "new animation: "',
+     b'            TAnimation ani = SheepAnimations[id];\n            ani.UpdateValues();\n            StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info, "new animation: "',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "choosing the next animation evaluates no expression"),
+
+    # F271: the fixed 12 MiB drop buffer comes back, which the allocation count sees.
+    ("the drop read allocates the 12 MiB ceiling again",
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+     b"            bytes = new byte[(int)BoundedReadCapacity(stream, maximumBytes)];\n",
+     b"            bytes = new byte[checked(maximumBytes + 1)];\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "allocating under 1 MiB"),
+
+    # F255: the tree disposal stops disposing an item's Image.
+    ("DisposeItemTree leaves the Image alive",
+     os.path.join(REPO, "src", "dotNet", "ContextMenus.cs"),
+     b"                if (image != null) { item.Image = null; image.Dispose(); }\n",
+     b"                if (image != null) { item.Image = null; }\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "disposes a submenu child's Image"),
+
+    # F260: a listing that throws is logged but no longer counted as a failure.
+    ("SafeList stops counting a listing that throws",
+     os.path.join(REPO, "src", "dotNet", "FactoryReset.cs"),
+     b'                failed++;\n                if (log != null) log.Add("    could not list " + what',
+     b'                if (log != null) log.Add("    could not list " + what',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "counts as a failure and is logged"),
+
+    # F273: the row cap is twice what it says.
+    ("the debug window's row cap is doubled",
+     os.path.join(REPO, "src", "dotNet", "FormDebug.cs"),
+     b"\t\t\twhile (listView1.Items.Count > MaxRows)\n",
+     b"\t\t\twhile (listView1.Items.Count > MaxRows * 2)\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "the row count is capped at MaxRows"),
+
+    # F274: the debug text goes to a random file name instead of one fixed file per kind.
+    ("the debug text file gets a random name",
+     os.path.join(REPO, "src", "dotNet", "FormDebug.cs"),
+     b'\t\t\t\t"dp-debug-" + (safe.Length == 0 ? "text" : safe.ToString()) + ".txt");\n',
+     b'\t\t\t\t"dp-debug-" + (safe.Length == 0 ? "text" : safe.ToString()) + Guid.NewGuid().ToString("N") + ".txt");\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "one per-kind file under TEMP"),
+
+    # F325: a quote inside a label is no longer escaped.
+    ("the DOT label leaves a quote unescaped",
+     os.path.join(REPO, "src", "Tools", "XmlToDot.cs"),
+     b"\t\t\t\t\tcase '\"': escaped.Append(\"\\\\\\\"\"); break;\n",
+     b"\t\t\t\t\tcase '\"': escaped.Append('\"'); break;\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "escaped in the label"),
+
+    # F229: the segment-boundary rule answers true for any suffix, so the decoy wins again.
+    ("MatchesResourceName accepts a suffix that starts mid-segment",
+     os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "EmbeddedResources.cs"),
+     b"            return manifestName[manifestName.Length - fileNameSuffix.Length - 1] == '.';\n",
+     b"            return true;\n",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "ModuleKit embedded resources"),
+
+    # F230: Update writes defaults over an unreadable document again.
+    ("JsonSettingsStore.Update writes over an unreadable document",
+     os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "JsonSettingsStore.cs"),
+     b"                        if (result == ReadResult.Unreadable) return false;\n",
+     b"",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "ModuleKit json settings store"),
+
+    # F230: the write keeps no backup.
+    ("JsonSettingsStore.Save keeps no backup",
+     os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "JsonSettingsStore.cs"),
+     b"            return AtomicFile.TryWriteAllText(_path, json, BackupPath_);\n",
+     b"            return AtomicFile.TryWriteAllText(_path, json, null);\n",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "ModuleKit json settings store"),
+
+    # F231: Update proceeds without the lease.
+    ("JsonSettingsStore.Update proceeds without the lease",
+     os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "JsonSettingsStore.cs"),
+     b"                        if (lease == null) return false;\n                        T current;\n",
+     b"                        if (lease == null) { }\n                        T current;\n",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "ModuleKit json settings store"),
+
     # ---- lane fix/tools ----
 
 
