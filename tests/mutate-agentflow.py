@@ -1183,6 +1183,23 @@ CASES = (
         "            if (_ui == null && _ui != null) OnTick(null, EventArgs.Empty);",
         "with a UI context Init attempts the first tick at once",
     ),
+    (
+        # RA-046: the first word was the text up to the first space, so a quoted path with a space in it was
+        # cut mid-directory and a directory NAME reached the log. Put the space cut back.
+        "burn: RA-046 the first word of a command is cut at its first space again",
+        DETECTOR,
+        "            first = FirstToken(first, powerShell, out rest);",
+        "            int space = first.IndexOfAny(new[] { ' ', '\\t', '\\n', '\\r' });\n            if (space > 0) first = first.Substring(0, space);\n            rest = first;",
+        "a quoted executable path with a space is logged as its leaf",
+    ),
+    (
+        # RA-046, PowerShell: the call operator is not the executable.
+        "burn: RA-046 PowerShell's call operator is logged as the executable",
+        DETECTOR,
+        "            if (powerShell && first == \"&\") first = FirstToken(rest, true, out rest);",
+        "            if (powerShell && first == \"&&\") first = FirstToken(rest, true, out rest);",
+        "PowerShell's call operator on a quoted path logs the executable",
+    ),
     # ---- lane fix/deadcode ----
     # F047: the detailed split's separators were produced and read by nothing; the splitter self-test
     # now pins them. F048: FakeCdpServer serves connections concurrently, so the WIRE press case runs

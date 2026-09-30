@@ -194,7 +194,9 @@ namespace DesktopAICompanion.AgentFlow
                                  //         Init starts its immediate scan only under a UI context, so the
                                  //         app's convention runner no longer scans real transcripts or
                                  //         sweeps the live editor beside the module's own self-test, whose
-                                 //         receive-buffer check now counts on its own thread.
+                                 //         receive-buffer check now counts on its own thread. The approvals
+                                 //         tally takes the first shell WORD of a command, quotes honoured,
+                                 //         so a quoted path with a space logs its leaf and not a directory.
                                  // 1.4.11: the options pane no longer probes VS Code's setup on the UI
                                  //         thread. The doc said the cold path was only between Init and
                                  //         the first tick, but OnTick returns before the probe when the
@@ -3530,6 +3532,39 @@ namespace DesktopAICompanion.AgentFlow
                 BlockedDetector.ApprovedSince(pathy, pathRules, new HashSet<string>(StringComparer.Ordinal), null);
             probe.Check("WITNESS an executable given by PATH is logged as its leaf only",
                 pathTally.ContainsKey("git") && !pathTally.ContainsKey("/usr/local/secret-dir/git"));
+
+            // RA-046: a QUOTED executable path with a space in it. The first-word cut was IndexOfAny(space),
+            // so `"D:\Clients\Acme Corp\tools\build.exe" all` became `"D:\Clients\Acme` and, leaf taken,
+            // `Acme`: a directory name -- a client, an employer, a first name -- in the log this tally
+            // promises carries no path. Through the tally, so the rule join and the splitter see the
+            // same quoted segment the log does.
+            var quoted = new AgentSession { SessionId = "s4", Agent = TranscriptReader.AgentClaude };
+            quoted.NoteCompleted(Completed("q1", "\"D:\\Clients\\Acme Corp\\tools\\build.exe\" all"));
+            quoted.NoteCompleted(Completed("q2", "/home/someone/my\\ tools/git status"));
+            var quotedRules = new RuleSet();
+            quotedRules.Allow.Add("Bash(\"D:\\Clients\\Acme Corp\\tools\\build.exe\" *)");
+            quotedRules.Allow.Add("Bash(/home/someone/my\\ tools/git *)");
+            Dictionary<string, int> quotedTally = BlockedDetector.ApprovedSince(
+                quoted, quotedRules, new HashSet<string>(StringComparer.Ordinal), null);
+            probe.Check("WITNESS a quoted executable path with a space is logged as its leaf, not cut at the space",
+                quotedTally.ContainsKey("build.exe") && !quotedTally.ContainsKey("Acme")
+                && !quotedTally.ContainsKey("\"D:\\Clients\\Acme"));
+            probe.Check("WITNESS an escaped space in a bare path stays inside the path, and the leaf is still the executable",
+                quotedTally.ContainsKey("git") && quotedTally.Count == 2);
+            // PowerShell: the call operator names the executable in its second word, and the quoting is its own.
+            probe.Check("WITNESS PowerShell's call operator on a quoted path logs the executable, not '&' or a fragment",
+                BlockedDetector.RootExecutable(new OutstandingCall
+                {
+                    Id = "p1", Tool = "PowerShell", Command = "& 'C:\\Program Files\\Acme\\tool.exe' -x 1",
+                }) == "tool.exe");
+            probe.Check("...and a PowerShell double-quoted path holding a doubled quote still yields its leaf",
+                BlockedDetector.RootExecutable(new OutstandingCall
+                {
+                    Id = "p2", Tool = "PowerShell", Command = "\"C:\\Program Files\\Ac \"\"me\"\"\\run.exe\" -y",
+                }) == "run.exe");
+            probe.Check("a bare word is still the word, and a bare path still its leaf",
+                BlockedDetector.RootExecutable(Completed("b1", "git status")) == "git"
+                && BlockedDetector.RootExecutable(Completed("b2", "/usr/bin/rg needle")) == "rg");
 
             probe.Check("nothing approved produces no line at all, rather than 'approved 0'",
                 BlockedDetector.DescribeApprovals(
