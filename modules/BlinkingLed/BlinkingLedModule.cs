@@ -31,7 +31,16 @@ namespace DesktopAICompanion.BlinkingLed
         {
             Id = "blinkingled",
             Name = "Blinking LED",
-            Version = "1.0.5",   // 1.0.5: "Blink once now" no longer strands the LED when the feature was
+            Version = "1.0.6",   // 1.0.6: the blinker's belief about the LED moves only with the LED. A
+                                 //        Scroll Lock press Windows refused (a locked session, a UAC prompt,
+                                 //        an elevated foreground window) no longer flips the phase flag, and
+                                 //        enabling the feature after a "Blink once now" reconciles the flag
+                                 //        with the key it lit instead of zeroing it; either one ran the
+                                 //        cadence inverted for the session and disarmed Stop()'s corrective
+                                 //        toggle whenever the LED was lit (BUG-011). The Caps Lock stop and
+                                 //        the tray picks now say when the settings write failed, and the
+                                 //        self-test leaves the developer's Scroll Lock where it found it.
+                                 // 1.0.5: "Blink once now" no longer strands the LED when the feature was
                                  //        ALREADY off. 1.0.4 fixed only the other ordering (blink, then
                                  //        switch off); Stop() returned early on !_running, so a blink made
                                  //        with the feature off was never reconciled, and ticking the
