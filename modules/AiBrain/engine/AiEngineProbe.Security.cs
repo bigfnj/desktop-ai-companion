@@ -226,16 +226,31 @@ namespace DesktopAICompanion.AiBrainModule
                     recorder.UserContent[1].IndexOf("ALREADY said", StringComparison.Ordinal) >= 0 &&
                     recorder.UserContent[1].IndexOf("REMARK-NUMBER-1", StringComparison.Ordinal) >= 0);
                 // Bounded, or a long audition would spend more prefill on its own transcript than on the
-                // screen it is supposed to be reacting to.
-                bool boundedRecall = true;
-                if (recorder.UserContent.Count >= 5)
-                {
-                    string last = recorder.UserContent[recorder.UserContent.Count - 1];
-                    // Five samples, recall of four: by the last prompt the very first remark has aged out.
-                    if (last.IndexOf("REMARK-NUMBER-1\"", StringComparison.Ordinal) >= 0) boundedRecall = false;
-                    if (last.IndexOf("REMARK-NUMBER-4", StringComparison.Ordinal) < 0) boundedRecall = false;
-                }
-                ok &= Check(sb, "the already-said list is bounded, not a growing transcript", boundedRecall);
+                // screen it is supposed to be reacting to. Two assertions, because the audition alone
+                // cannot show the bound: it has exactly five scenes and the prompt quotes the last FOUR
+                // remarks, so the fifth prompt legitimately carries REMARK-NUMBER-1..4 and nothing has
+                // aged out yet. The check that used to sit here looked for `REMARK-NUMBER-1"` -- a stray
+                // quote the bullet rendering never produces, so it could not fire -- and its second needle
+                // only proved recall >= 1 (F084). Now: the audition prompt's exact bullet count, and the
+                // ageing rule on the builder itself with more remarks than it quotes.
+                int asks = recorder.UserContent.Count;
+                string lastPrompt = asks > 0 ? recorder.UserContent[asks - 1] : "";
+                int quoted = CountOccurrences(lastPrompt, "\n- REMARK-NUMBER-");
+                ok &= Check(
+                    sb,
+                    "the last audition prompt quotes exactly min(" + AiBrain.RemarksQuotedInPrompt +
+                        ", asks-1) earlier remarks (" + quoted + " of " + asks + " asks)",
+                    asks >= 2 && quoted == Math.Min(AiBrain.RemarksQuotedInPrompt, asks - 1));
+                var overflow = new List<string>();
+                for (int i = 1; i <= AiBrain.RemarksQuotedInPrompt + 2; i++) overflow.Add("REMARK-NUMBER-" + i);
+                string described = AiBrain.DescribeAlreadySaidForDiagnostics(overflow);
+                ok &= Check(
+                    sb,
+                    "the already-said list is bounded, not a growing transcript",
+                    CountOccurrences(described, "\n- REMARK-NUMBER-") == AiBrain.RemarksQuotedInPrompt &&
+                    described.IndexOf("\n- REMARK-NUMBER-1\n", StringComparison.Ordinal) < 0 &&
+                    !described.EndsWith("\n- REMARK-NUMBER-1", StringComparison.Ordinal) &&
+                    described.IndexOf("\n- REMARK-NUMBER-" + (AiBrain.RemarksQuotedInPrompt + 2), StringComparison.Ordinal) >= 0);
                 ok &= Check(
                     sb,
                     "a canned-scene audition sends no image",
@@ -469,17 +484,23 @@ namespace DesktopAICompanion.AiBrainModule
                         sb,
                         "a cancelled AI request is not logged as a request failure",
                         !joined.Contains("request failed"));
+                    // The actual invariant, not a phrase: the cancel path logs NOTHING (lines was cleared
+                    // just above this block), so a future "request cancelled: ..." line fails here by
+                    // name instead of slipping past the phrase check and the monotone count below (F085).
+                    ok &= Check(
+                        sb,
+                        "a cancelled AI request emits no diagnostic line at all",
+                        lines.Count == 0);
                 }
 
                 // --- the privacy half of the contract, over every line emitted above ---
                 // Asserted against the accumulated list so it cannot pass by looking at nothing; the
                 // count assertion is what proves that.
                 string all = string.Join("\n", everyLine.ToArray());
-                // Exactly three: one per outcome case above. The cancellation case contributes NOTHING,
-                // which is the point of it, so a fourth line here would mean a cancel had started being
-                // reported as an event. Written as >= 3 rather than == 3 so adding a case is not a
-                // failure, and it is deliberately not >= 4: that was the first guess, and this assertion
-                // caught it.
+                // At least one line per non-cancel outcome case above. This proves only that the privacy
+                // assertion below looked at something; it is >= 3 so adding a case is not a failure, and
+                // it does NOT guard the cancel path -- a monotone count cannot notice a fourth line, which
+                // is why the cancellation block asserts lines.Count == 0 itself.
                 ok &= Check(
                     sb,
                     "the instrumentation emitted lines to examine at all",
@@ -2395,9 +2416,19 @@ namespace DesktopAICompanion.AiBrainModule
                             delegate
                             {
                                 Interlocked.Increment(ref callbackCount);
+                                // What the not-entered branch actually does, recorded rather than
+                                // assumed: the manager disposes the backend FIRST and the deferred
+                                // cleanup issues the unload afterwards, so with the shipping
+                                // OllamaClient that unload lands on a disposed HttpClient and is
+                                // dropped. The double used to count the call without knowing it
+                                // came after Dispose, so this check read as proof of an eviction the
+                                // real backend cannot perform (F089). Asserted as it IS; the ordering
+                                // fix (F091, aibrain lane) makes UnloadCallsAfterDispose 0 and must
+                                // update this line to say so.
                                 observedRetired =
                                     backend.UnloadCalls == 1 &&
-                                    backend.DisposeCount == 1;
+                                    backend.DisposeCount == 1 &&
+                                    backend.UnloadCallsAfterDispose == 1;
                                 observedSerialized =
                                     operation.CurrentCount == 0;
                                 completed.Set();
@@ -2414,7 +2445,8 @@ namespace DesktopAICompanion.AiBrainModule
 
                         ok &= Check(
                             sb,
-                            "deferred dispose drains pending after-retire actions",
+                            "deferred dispose drains pending after-retire actions (the unload it issues " +
+                                "arrives AFTER the backend was disposed: recorded, not an eviction -- F091)",
                             canceledWhileHeld &&
                             deferredCompleted &&
                             callbackCount == 1 &&
@@ -2505,6 +2537,18 @@ namespace DesktopAICompanion.AiBrainModule
                 }
             }
             return true;
+        }
+
+        /// <summary>Non-overlapping occurrences of <paramref name="needle"/> in <paramref name="text"/>; 0 for
+        /// a null or empty input. Used to count prompt bullets, where IndexOf could only prove "at least one".</summary>
+        private static int CountOccurrences(string text, string needle)
+        {
+            if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(needle)) return 0;
+            int count = 0;
+            for (int at = text.IndexOf(needle, StringComparison.Ordinal); at >= 0;
+                 at = text.IndexOf(needle, at + needle.Length, StringComparison.Ordinal))
+                count++;
+            return count;
         }
 
         private static bool ByteArraysEqual(byte[] left, byte[] right)

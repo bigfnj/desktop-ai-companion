@@ -427,5 +427,108 @@ namespace DesktopAICompanion.PetStudioModule
             // Closing removes any live preview: the window owns that handle.
             try { window.Close(); } catch { }
         }
+
+        /// <summary>
+        /// The module's own self-test, reached by <c>--module-selftest=petstudio</c> (ModuleConventionSelfTest
+        /// finds this exact shape by reflection) and listed as COVERED in tests/Test-ModuleSelfTests.ps1.
+        ///
+        /// The in-module checks (<see cref="BehaviourChainSelfCheck"/>, <see cref="AnimCapabilitySelfCheck"/>)
+        /// need a pet to analyse. The host's <c>--petstudio-selftest</c> hands them its bundled pet; a module
+        /// cannot reference the host's resources, so this one ships its own: Resources/selftest-companion.xml,
+        /// the bundled eSheep GRAPH (54 animations, every edge kind, flagged border edges) with the 640x760
+        /// sprite sheet replaced by a generated 64x44 placeholder (16x11 cells, the Magenta colour key the XML
+        /// declares, one opaque block per cell). The graph is what the checks read; the art only has to
+        /// decode. 42 KB instead of 158 KB. Rejected: reading Companions/ off disk (a self-test must not
+        /// depend on the working directory), and a hand-written stub pet (the chain checks want a real graph
+        /// with both natural and forced joins, and the bundled one is exactly that).
+        ///
+        /// The ONLY <c>SelfTest</c> in this assembly, by design: the host invokes the first
+        /// <c>public static bool SelfTest(out string)</c> it finds and reports an ambiguity if there are two,
+        /// which is why the two check classes are named RunChecks.
+        /// </summary>
+        public static bool SelfTest(out string detail)
+        {
+            var probe = new SelfTestProbe();
+            try
+            {
+                var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                var module = new PetStudioModule();
+                module.Init(host);
+
+                probe.Check("contributes exactly one tray entry", host.TrayItems.Count == 1);
+                probe.Check("the tray entry ships an icon (embedded PNG resolves)",
+                    host.TrayItems.Count == 1 && host.TrayItems[0].IconPng != null && host.TrayItems[0].IconPng.Length > 0);
+                probe.Check("contributes exactly one settings pane", host.OptionsPanes.Count == 1);
+                // The ACTION, not the array: the studio must be openable from the settings window.
+                PaneAction openStudio = null;
+                if (host.OptionsPanes.Count == 1 && host.OptionsPanes[0].Actions != null)
+                    foreach (PaneAction action in host.OptionsPanes[0].Actions)
+                        if (action != null && action.Label != null
+                            && action.Label.StartsWith("Open Companion Studio", StringComparison.Ordinal))
+                            openStudio = action;
+                probe.Check("opening the studio is offered as a pane action (labelled, with an InvokeAsync)",
+                    openStudio != null && openStudio.InvokeAsync != null);
+                probe.Check("declares Speech, Animation, Companions and Storage",
+                    module.Info.Permissions.HasFlag(ModulePermissions.Speech)
+                    && module.Info.Permissions.HasFlag(ModulePermissions.Animation)
+                    && module.Info.Permissions.HasFlag(ModulePermissions.Companions)
+                    && module.Info.Permissions.HasFlag(ModulePermissions.Storage));
+                probe.Check("says and logs nothing at startup", host.SaidLines.Count == 0 && host.LoggedLines.Count == 0);
+
+                // ReportFailure: the log line is the report that survives a speech path with nobody to speak
+                // through, and it carries a CATEGORY rather than the message, which for the failures reachable
+                // here quotes a path inside the user's profile. The bubble keeps the message: it is the user's
+                // own screen.
+                module.ReportFailure("could not open", new System.IO.FileNotFoundException(@"C:\Users\someone\secret-pet.xml"));
+                probe.Check("a failure is logged under the module id as a category",
+                    host.LoggedLines.Count == 1 && host.LoggedLines[0] == "petstudio: could not open: assembly-or-file-missing");
+                probe.Check("WITNESS the log line does not quote the path the exception carried",
+                    host.LoggedLines.Count == 1 && host.LoggedLines[0].IndexOf("secret-pet", StringComparison.Ordinal) < 0);
+                probe.Check("the same failure is spoken to the user with its message",
+                    host.SaidLines.Count == 1
+                    && host.SaidLines[0].StartsWith("Companion Studio could not open: ", StringComparison.Ordinal)
+                    && host.SaidLines[0].IndexOf("secret-pet.xml", StringComparison.Ordinal) >= 0);
+
+                string fixture = EmbeddedResources.LoadText(typeof(PetStudioModule).Assembly, "selftest-companion.xml");
+                if (!probe.Check("the self-test companion is embedded (" + fixture.Length + " chars)", fixture.Length > 1000))
+                    return probe.Finish(out detail);
+                PetReport report = PetAnalyzer.Analyze(fixture);
+                probe.Check("WITNESS the fixture analyses as a valid pet carrying the bundled graph ("
+                            + report.Nodes.Count + " animations)",
+                    report.IsValid && report.Nodes.Count >= 50);
+
+                RunChecks(probe, "BehaviourChainSelfCheck", BehaviourChainSelfCheck.RunChecks, fixture,
+                    "the chain builder's verdicts hold on the fixture pet");
+                RunChecks(probe, "AnimCapabilitySelfCheck", AnimCapabilitySelfCheck.RunChecks, fixture,
+                    "the capability map reports what each animation DOES, not just its name");
+
+                module.Shutdown();
+            }
+            catch (Exception ex) { probe.Exception(ex); }
+            return probe.Finish(out detail);
+        }
+
+        private delegate bool ChecksRunner(string fixturePetXml, out string detail);
+
+        /// <summary>Run one RunChecks entry point and fold its verdict in. Its passing lines are echoed as
+        /// notes; each FAILING line becomes a FAIL of its own, so the report (and tests/mutate-selftest-guards.py,
+        /// which reads column-0 FAIL lines) names the assertion that fell rather than only the group.</summary>
+        private static void RunChecks(SelfTestProbe probe, string name, ChecksRunner run, string fixturePetXml, string verdict)
+        {
+            string lines;
+            bool ok = run(fixturePetXml, out lines);
+            foreach (string raw in (lines ?? "").Split('\n'))
+            {
+                string line = raw.Trim();
+                if (line.Length == 0) continue;
+                if (line.StartsWith("FAIL ", StringComparison.Ordinal))
+                    probe.Check("[" + name + "] " + line.Substring(5).Trim(), false);
+                else if (line.StartsWith("EXC ", StringComparison.Ordinal))
+                    probe.Check("[" + name + "] " + line, false);
+                else
+                    probe.Note("[" + name + "] " + line);
+            }
+            probe.Check(verdict, ok);
+        }
     }
 }

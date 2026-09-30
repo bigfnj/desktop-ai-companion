@@ -478,10 +478,11 @@ namespace DesktopAICompanion.AiBrainModule
                 s.Provider = "openai";
                 s.OpenAiBaseUrl = "https://api.openai.com/v1";
                 string setError;
-                // Deliberately NOT shaped like a real key. TrySetApiKey validates only length, so the
-                // value is arbitrary and only has to survive the encrypt/reload round trip below -- and
-                // an "sk-..." literal in a public repo is the one string here that trips a secret
-                // scanner and makes a human stop and check whether a key leaked.
+                // Deliberately NOT shaped like a real key. TrySetApiKey requires a selected provider
+                // scope and a plausible length, then DPAPI-ENCRYPTS the value on set, so the value is
+                // arbitrary and only has to survive the encrypt/reload round trip below -- and an
+                // "sk-..." literal in a public repo is the one string here that trips a secret scanner
+                // and makes a human stop and check whether a key leaked.
                 bool keyStored = s.TrySetApiKey("DPAPI-ROUNDTRIP-FIXTURE-not-a-real-key", out setError);
                 bool saved = s.Save();
                 ok &= Check(sb, "settings save (atomic write + cross-session lock) succeeds", saved);
@@ -496,8 +497,14 @@ namespace DesktopAICompanion.AiBrainModule
                 }
                 else
                 {
-                    // DPAPI can be unavailable in a headless/service context; that is not an engine defect.
-                    sb.AppendLine("SKIP: DPAPI key store unavailable here (" + setError + ") - round-trip not asserted");
+                    // A FAIL, not a SKIP. This branch used to print "SKIP: DPAPI key store unavailable" as
+                    // an environment fact, but nothing else in this run tolerated that fact: three
+                    // RunSecurity checks assign the ApiKey property and throw on the same failure, the
+                    // schema-migration check ANDs keySeeded, and Invoke-SelfTests.ps1 fails any marker
+                    // carrying a SKIP line regardless. The skip was dead as a pass path and misleading in
+                    // the log (F083); the line now names the check that could not run and why.
+                    ok &= Check(sb, "DPAPI key store available, so the API-key round-trip can be asserted (" +
+                        setError + ")", false);
                 }
 
                 // --- Windows built-in OCR (the zero-install fallback when Tesseract is absent) ---

@@ -148,6 +148,22 @@ namespace DesktopAICompanion.ReminderModule
             ok &= TryParse("in 2h Call back", now, out r, out err) && r.Kind == PersonalReminder.KindOnce && Math.Abs((r.When - now).TotalMinutes - 120) < 0.5;
             ok &= TryParse("weekdays 17:00 Log off", now, out r, out err) && r.Kind == PersonalReminder.KindWeekdays && r.TimeOfDayMinutes == 1020;
             ok &= TryParse("2026-09-01 14:00 Dentist", now, out r, out err) && r.Kind == PersonalReminder.KindOnce && r.When.Hour == 14 && r.Text == "Dentist";
+
+            // 'at' and the bare HH:mm form, and the roll-to-tomorrow rule they share. The detail line
+            // below claimed 'at' was covered while nothing parsed one, so deleting either branch, or
+            // TodayOrTomorrowAt, left this green (F194). A LOCAL-zone `now`, because TodayOrTomorrowAt
+            // rolls on the machine's local calendar day: the -7 fixture above is a 17:00 UTC instant, which
+            // a UTC runner would already have past 15:00 of. 10:00 local, so 15:00 is today and 09:00 is
+            // tomorrow, and the expectations are literal dates rather than a mirror of the rule.
+            var localTen = new DateTime(2026, 8, 26, 10, 0, 0);
+            var localNow = new DateTimeOffset(localTen, TimeZoneInfo.Local.GetUtcOffset(localTen));
+            ok &= TryParse("at 15:00 Call the vet", localNow, out r, out err) && r.Kind == PersonalReminder.KindOnce
+                  && r.When.LocalDateTime == new DateTime(2026, 8, 26, 15, 0, 0) && r.Text == "Call the vet";
+            ok &= TryParse("at 09:00 Early", localNow, out r, out err) && r.Kind == PersonalReminder.KindOnce
+                  && r.When.LocalDateTime == new DateTime(2026, 8, 27, 9, 0, 0) && r.Text == "Early";
+            ok &= TryParse("07:30 Gym", localNow, out r, out err) && r.Kind == PersonalReminder.KindOnce
+                  && r.When.LocalDateTime == new DateTime(2026, 8, 27, 7, 30, 0) && r.Text == "Gym";
+            ok &= !TryParse("at soon Call the vet", localNow, out r, out err);  // 'at' without a time
             ok &= !TryParse("every Stand up", now, out r, out err);            // missing interval
             ok &= !TryParse("daily 09:00", now, out r, out err);               // missing text
             ok &= !TryParse("gibberish here", now, out r, out err);            // no schedule

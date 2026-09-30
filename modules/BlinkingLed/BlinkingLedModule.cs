@@ -632,9 +632,14 @@ namespace DesktopAICompanion.BlinkingLed
                     probe.Check("Off switches it off and keeps the chosen speed",
                         afterOff["enabled"] == "false" && afterOff["rate"] == "Fast");
                     probe.Check("contributes a settings pane", host.OptionsPanes.Count == 1);
-                    probe.Check("declares the permissions it uses",
+                    // InputSynthesis is the disclosure the 2026-09-17 change existed for, and it gates
+                    // nothing at runtime (the module P/Invokes SendInput itself), so this line is the only
+                    // thing that notices it gone; without it the pane went back to printing "wants: Speech,
+                    // Storage" beside a module that synthesizes input, under a green suite (F111).
+                    probe.Check("declares the permissions it uses, including the InputSynthesis disclosure",
                         module.Info.Permissions.HasFlag(ModulePermissions.Speech) &&
-                        module.Info.Permissions.HasFlag(ModulePermissions.Storage));
+                        module.Info.Permissions.HasFlag(ModulePermissions.Storage) &&
+                        module.Info.Permissions.HasFlag(ModulePermissions.InputSynthesis));
                     probe.Check("declares no permission it does not use",
                         !module.Info.Permissions.HasFlag(ModulePermissions.Network) &&
                         !module.Info.Permissions.HasFlag(ModulePermissions.ScreenContext));
@@ -907,6 +912,40 @@ namespace DesktopAICompanion.BlinkingLed
                         litBeforeStop && !stopProbe.PhaseOn);
                     if (stopProbe.PhaseOn) stopProbe.BlinkOnce();   // only reached if the check failed
                     stopProbe.Dispose();
+
+                    // THE CORRECTIVE TOGGLE ITSELF. The stopProbe check above reads PhaseOn, which Stop()
+                    // resets unconditionally, so it catches only a re-added `if (!_running) return;`:
+                    // deleting the toggle block, inverting its gate, or dropping the key read all left this
+                    // suite green while the 1.0.4 stuck-LED bug came back (F114). AttemptCount counts
+                    // attempts rather than acceptances, so these hold on a runner that refuses synthesized
+                    // input, and the key read is substituted so both branches of the gate run whatever the
+                    // machine's own LED is doing. Every real toggle below is paired, so the developer's LED
+                    // ends where it started.
+                    var litProbe = new ScrollLockBlinker();
+                    litProbe.ScrollLockReader = delegate { return true; };
+                    litProbe.BlinkOnce();                                   // one real toggle; the blinker now believes it lit the key
+                    long attemptsBeforeStop = litProbe.AttemptCount;
+                    litProbe.Stop();                                        // key reads lit: the corrective toggle pairs the one above
+                    probe.Check("Stop() attempts the corrective toggle when it lit the key and the key reads lit",
+                        litProbe.AttemptCount == attemptsBeforeStop + 1);
+                    litProbe.Dispose();
+
+                    var userLitProbe = new ScrollLockBlinker();
+                    userLitProbe.ScrollLockReader = delegate { return false; };
+                    userLitProbe.BlinkOnce();                               // one real toggle
+                    attemptsBeforeStop = userLitProbe.AttemptCount;
+                    userLitProbe.Stop();                                    // key does not read lit: nothing to correct
+                    probe.Check("WITNESS Stop() leaves a key that does not read lit alone, even when it believes it lit it",
+                        userLitProbe.AttemptCount == attemptsBeforeStop);
+                    userLitProbe.BlinkOnce();                               // the pairing toggle for the one above
+                    userLitProbe.Dispose();
+
+                    var neverLitProbe = new ScrollLockBlinker();
+                    neverLitProbe.ScrollLockReader = delegate { return true; };
+                    neverLitProbe.Stop();                                   // never lit anything: the startup ApplyState(false) shape
+                    probe.Check("WITNESS Stop() on a blinker that never lit the key attempts nothing, however the key reads",
+                        neverLitProbe.AttemptCount == 0);
+                    neverLitProbe.Dispose();
                     // Put the key back where the machine had it. Scroll Lock is inert, but leaving a
                     // developer's LED lit because a self-test ran is still litter. The second attempt has
                     // the same outcome as the first, so it adds no line.

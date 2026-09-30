@@ -291,6 +291,12 @@ namespace DesktopAICompanion.AiBrainModule
             CancellationToken cancellationToken)
         {
             Interlocked.Increment(ref unloadCalls);
+            // Counted, not thrown. The shipping OllamaClient would answer an unload after Dispose with
+            // ObjectDisposedException from its disposed HttpClient (swallowed by its own catch-all, so
+            // nothing is sent); this double stayed silent about the ordering and let a check certify an
+            // eviction the real backend cannot perform (F089). Recording it lets the check say what
+            // actually happened; throwing here would pre-empt the manager-ordering fix (F091).
+            if (Volatile.Read(ref disposeCount) > 0) Interlocked.Increment(ref unloadCallsAfterDispose);
             return Task.CompletedTask;
         }
 
@@ -298,6 +304,10 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Interlocked.Increment(ref disposeCount);
         }
+
+        private int unloadCallsAfterDispose;
+        /// <summary>Unloads that arrived AFTER Dispose, which the real backend would drop.</summary>
+        public int UnloadCallsAfterDispose { get { return Volatile.Read(ref unloadCallsAfterDispose); } }
     }
 
     /// <summary>An unload that never completes, to bound cancellation-ignoring retirement.</summary>

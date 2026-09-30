@@ -124,7 +124,12 @@ namespace DesktopAICompanion.Ai
         private readonly List<FortuneEntry> _all  = new List<FortuneEntry>();
         private readonly List<string>       _pool = new List<string>();
         private readonly List<FortuneEntry> _poolE = new List<FortuneEntry>();   // filtered entries (for the smart picker)
-        private readonly Random _rng = new Random();
+        // Not readonly: the progressive self-test seeds it (SeedForDiagnostics) so its simulated day can
+        // be replayed. Production never touches it and stays unseeded.
+        private Random _rng = new Random();
+
+        /// <summary>Replace the shuffle bag's random source with a seeded one. Diagnostics only (F140).</summary>
+        internal void SeedForDiagnostics(int seed) { _rng = new Random(seed); }
         private readonly List<int> _bag = new List<int>();   // shuffle-bag: shuffled pool indices not yet drawn since the last refill
         private int _last = -1;
 
@@ -1093,17 +1098,14 @@ namespace DesktopAICompanion.Ai
         private static bool ValidateEmbeddedForSelfTest(StringBuilder sb)
         {
             List<FortuneEntry> entries = EmbeddedCorpus();
+            // The live assertion is the NON-EMPTY count. Taxonomy validity is enforced by the parser: a
+            // row with an unknown topic, genre or level makes TryParseTaggedContent clear the whole list,
+            // so a bad row in the shipped corpus arrives here as ZERO entries and fails on the count.
+            // This used to also loop over every entry re-checking the taxonomy, which no input could make
+            // fail -- the parser had already refused anything the loop could catch (F126) -- and read as
+            // a per-entry gate that did not exist. FortuneEngineProbe's `embedded.Count > 3000` is the
+            // stronger floor for a truncated resource.
             bool ok = entries.Count > 0;
-            foreach (FortuneEntry entry in entries)
-            {
-                if (!FortuneTaxonomy.IsTopic(entry.Topic) ||
-                    !FortuneTaxonomy.IsGenre(entry.Genre) ||
-                    !FortuneTaxonomy.IsLevel(entry.Level))
-                {
-                    ok = false;
-                    break;
-                }
-            }
             sb.AppendLine("embedded_rows=" + entries.Count + " schema=" +
                 _embeddedSchemaVersion + " taxonomy=" + (ok ? "PASS" : "FAIL"));
             if (!string.IsNullOrEmpty(_embeddedError)) sb.AppendLine("embedded_error=" + _embeddedError);
@@ -1182,6 +1184,18 @@ namespace DesktopAICompanion.Ai
         private static List<FortuneEntry> _customCorpus;                         // parsed writable drop folder, cached on a directory fingerprint
         private static string _customSignature;
         private static readonly object _customCorpusLock = new object();
+        private static int _customParses;                                        // times the folder was actually PARSED, not served from RAM
+
+        /// <summary>
+        /// How many times the writable folder has been parsed rather than served from the cache. Read by
+        /// <see cref="CustomCacheSelfTest"/>: every other assertion there is a freshness check, and a
+        /// CustomCorpus() that re-parsed on every call satisfied all of them while the Options pane went back
+        /// to the multi-second freeze the cache exists to end (F134). This is the observable that fails.
+        /// </summary>
+        internal static int CustomParsesForDiagnostics
+        {
+            get { return System.Threading.Volatile.Read(ref _customParses); }
+        }
 
         private static void LoadCustom(List<FortuneEntry> list)
         {
@@ -1211,6 +1225,7 @@ namespace DesktopAICompanion.Ai
                 if (_customCorpus != null && string.Equals(_customSignature, signature, StringComparison.Ordinal))
                     return _customCorpus;
                 var parsed = new List<FortuneEntry>();
+                System.Threading.Interlocked.Increment(ref _customParses);
                 try { LoadCustomFromDirectory(parsed, directory, DefaultCustomLoadLimits); }
                 catch { parsed.Clear(); }
                 _customCorpus = parsed;
@@ -2112,8 +2127,9 @@ namespace DesktopAICompanion.Ai
 
         /// <summary>
         /// Proves the writable-folder cache reflects add / edit / remove without a restart -- i.e.
-        /// that the directory fingerprint invalidates correctly. Called by the host's
-        /// `--fortunes-selftest`, which runs the module against throwaway storage, so `CustomDir`
+        /// that the directory fingerprint invalidates correctly -- AND that an unchanged folder is
+        /// served without a re-parse, through <see cref="CustomParsesForDiagnostics"/>. Called by the
+        /// host's `--fortunes-selftest`, which runs the module against throwaway storage, so `CustomDir`
         /// resolves inside that scratch folder.
         ///
         /// It used to require `DESKTOP_AI_COMPANION_DATA_ROOT` to be set "so it only ever writes
@@ -2147,19 +2163,33 @@ namespace DesktopAICompanion.Ai
                     return false;
                 }
                 ok &= CacheCheck(sb, "source absent before any file", SourceCount(id) == 0);
+                int parsesBeforeAdd = CustomParsesForDiagnostics;
 
                 File.WriteAllText(file, "cache test alpha\ncache test bravo\ncache test charlie\n", utf8);
                 int afterAdd = SourceCount(id);
                 ok &= CacheCheck(sb, "add is reflected (source appears)", afterAdd > 0);
+                int parsesAfterAdd = CustomParsesForDiagnostics;
+                ok &= CacheCheck(sb, "WITNESS the add re-parsed the folder (the counter moves when the folder changes)",
+                    parsesAfterAdd == parsesBeforeAdd + 1);
                 ok &= CacheCheck(sb, "repeat read is stable (cache hit returns same)", SourceCount(id) == afterAdd);
+                // The property this test is NAMED for. Every other line here is a freshness check, and a
+                // CustomCorpus() that re-parsed on every call passed all of them (F134); this is the one a cache
+                // that never caches fails. Two reads of an unchanged folder, and the parse counter has not moved.
+                SourceCount(id);
+                ok &= CacheCheck(sb, "an unchanged folder is served from the cache (two more reads, no re-parse)",
+                    CustomParsesForDiagnostics == parsesAfterAdd);
 
                 System.Threading.Thread.Sleep(20);   // ensure a distinct last-write time on fast disks
+                int parsesBeforeEdit = CustomParsesForDiagnostics;
                 File.WriteAllText(file, "cache test alpha\ncache test bravo\ncache test charlie\ncache test delta\ncache test echo\ncache test foxtrot\n", utf8);
                 int afterEdit = SourceCount(id);
                 ok &= CacheCheck(sb, "edit is reflected (count grows)", afterEdit > afterAdd);
+                ok &= CacheCheck(sb, "the edit re-parsed exactly once", CustomParsesForDiagnostics == parsesBeforeEdit + 1);
 
+                int parsesBeforeRemove = CustomParsesForDiagnostics;
                 File.Delete(file); file = null;
                 ok &= CacheCheck(sb, "remove is reflected (source gone)", SourceCount(id) == 0);
+                ok &= CacheCheck(sb, "the remove re-parsed exactly once", CustomParsesForDiagnostics == parsesBeforeRemove + 1);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
             finally { try { if (file != null && File.Exists(file)) File.Delete(file); } catch { } }

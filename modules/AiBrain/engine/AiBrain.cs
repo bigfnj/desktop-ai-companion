@@ -100,13 +100,21 @@ namespace DesktopAICompanion.Ai
         private const int RecentRemarkMemory = 40;
 
         /// <summary>
-        /// How many remarks are quoted back to the model. Bounded because this is prefill on every single
-        /// ask: at roughly 20-40 words a remark, eight is a few hundred tokens, which is negligible on a
-        /// local model and still small on a metered one. Raising it to the full memory would put the
-        /// transcript above the screen description in size, i.e. spend more on what NOT to say than on
-        /// what to react to.
+        /// How many recent remarks are HANDED to the prompt builder. This is a pre-cut of the memory, not
+        /// what the model reads: <see cref="DescribeAlreadySaid"/> quotes only the last
+        /// <see cref="RemarksQuotedInPrompt"/> of whatever it is given, so the effective recall in every
+        /// prompt is four, not the eight this comment used to describe as "a few hundred tokens" (F084).
+        /// Bounded because this is prefill on every single ask; raising the quoted count to the full memory
+        /// would put the transcript above the screen description in size, i.e. spend more on what NOT to
+        /// say than on what to react to. Whether the quoted count should rise to meet this one is an
+        /// AiBrain decision; the two constants are named separately so the gap is visible rather than a
+        /// comment's mistake.
         /// </summary>
         private const int RecentRemarkPromptRecall = 8;
+
+        /// <summary>How many remarks <see cref="DescribeAlreadySaid"/> quotes back to the model, oldest
+        /// dropped first. Internal so the self-test can assert the bound with MORE remarks than this.</summary>
+        internal const int RemarksQuotedInPrompt = 4;
 
         /// <summary>
         /// Emit one diagnostic line. Never throws: a broken sink must not be able to take down an AI turn,
@@ -225,7 +233,11 @@ namespace DesktopAICompanion.Ai
         private const int OcrCaptureWidth = 1280;
         private const int MaximumCaptureWidth = 2048;
         private const int MaximumCaptureHeight = 2048;
-        private const int MaximumCapturePixels = 4 * 1024 * 1024;
+        // The pixel budget IS the two clamps. This used to be a third literal (4 * 1024 * 1024) behind a
+        // guard in CaptureScreen that no input could reach, because both dimensions are clamped to at most
+        // 2048 before it and 2048 * 2048 is exactly that literal (F074). Kept as a name, derived rather
+        // than typed, so raising one dimension cap cannot silently leave the other bound in place.
+        private const long MaximumCapturePixels = (long)MaximumCaptureWidth * MaximumCaptureHeight;
         private const int MaximumResponseCharacters = 512;
         private const int MaximumEmotionCharacters = 32;
 
@@ -653,15 +665,22 @@ namespace DesktopAICompanion.Ai
         /// and a growing verbatim transcript would eventually cost more prefill than the remark it is
         /// trying to vary. Trimmed rather than summarised, because a summary needs another inference.
         /// </summary>
+        /// <summary>Test seam for <see cref="DescribeAlreadySaid"/>: the audition drives exactly five
+        /// scenes, one more than the quoted count, so the ageing rule has to be asserted on the builder
+        /// itself with more remarks than it quotes (F084).</summary>
+        internal static string DescribeAlreadySaidForDiagnostics(IList<string> alreadySaid)
+        {
+            return DescribeAlreadySaid(alreadySaid);
+        }
+
         private static string DescribeAlreadySaid(IList<string> alreadySaid)
         {
             if (alreadySaid == null || alreadySaid.Count == 0) return "";
-            const int Remembered = 4;
             const int PerRemark = 160;
             var sb = new StringBuilder();
             sb.Append("\n\nYou have ALREADY said the following about this. Say something clearly " +
                       "different this time -- a different detail, a different angle:");
-            int from = Math.Max(0, alreadySaid.Count - Remembered);
+            int from = Math.Max(0, alreadySaid.Count - RemarksQuotedInPrompt);
             for (int i = from; i < alreadySaid.Count; i++)
             {
                 string said = (alreadySaid[i] ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
@@ -1250,8 +1269,10 @@ namespace DesktopAICompanion.Ai
                         (MaximumCaptureHeight / (double)targetHeight)));
                 targetHeight = MaximumCaptureHeight;
             }
-            if ((long)targetWidth * targetHeight > MaximumCapturePixels)
-                throw new InvalidOperationException("The screen capture exceeds its pixel budget.");
+            // No pixel-budget throw here: after the two clamps above the product is at most
+            // MaximumCapturePixels by construction, and the guard that used to sit here could never
+            // fire (F074). A budget check that cannot fail hides the coupling it pretends to enforce.
+            System.Diagnostics.Debug.Assert((long)targetWidth * targetHeight <= MaximumCapturePixels);
 
             Bitmap capture = null;
             IntPtr sourceDc = IntPtr.Zero;
