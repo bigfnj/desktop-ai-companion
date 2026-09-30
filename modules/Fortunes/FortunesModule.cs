@@ -1282,8 +1282,8 @@ namespace DesktopAICompanion.FortunesModule
         }
 
         /// <summary>"Rebuild smart index" action: reload packs from disk and (when smart is on) re-warm the
-        /// semantic index, then report status. Also the way to pick up a pack dropped straight into the
-        /// folder until the sources/packs card lands.</summary>
+        /// semantic index, then report status. Also picks up a pack dropped straight into the folder; the
+        /// packs card's "Rescan folder" does the same without re-warming the index.</summary>
         private Task<string> RebuildSmartIndexAsync()
         {
             try
@@ -1296,7 +1296,16 @@ namespace DesktopAICompanion.FortunesModule
                 {
                     bool ready, complete; int indexed, total;
                     sm.WarmProgress(out ready, out complete, out indexed, out total);
-                    if (complete && _indexedSignature == PoolSignature(provider.PoolEntries()))
+                    // Compared against the pool the CURRENT settings and folder would produce, not the
+                    // list already indexed. `provider.PoolEntries()` is the very list _indexedSignature was
+                    // computed from -- both are written together in RebuildEngine and the list is never
+                    // mutated afterwards -- so that equality could never be false, and once a warm had
+                    // completed this button was a no-op that answered "already built for these N fortunes"
+                    // after a pack had been dropped into the folder (F149). A fresh provider re-reads the
+                    // folder through the fingerprint-cached CustomCorpus: an unchanged folder costs one
+                    // Select() pass, a changed one costs what RebuildEngine would have spent anyway.
+                    FortuneProvider fresh = new FortuneProvider(LoadFortuneSettings(_host));
+                    if (complete && _indexedSignature == PoolSignature(fresh.PoolEntries()))
                         return Task.FromResult("Smart index is already built for these " + Count(indexed) +
                             " fortunes — nothing to rebuild.");
                 }

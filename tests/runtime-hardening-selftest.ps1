@@ -23,6 +23,65 @@ function Remove-LineComments {
     return (($Text -split "`n") | ForEach-Object { $_ -replace '//.*$', '' }) -join "`n"
 }
 
+# Every object-initialiser body that follows `new ProcessStartInfo`, sliced on BRACE BALANCE.
+#
+# The slicer this replaced was the regex `new ProcessStartInfo(.*?)\}\s*;`. It was right for every
+# site in the tree -- all of them close with `};` -- and wrong for the shape
+# `Process.Start(new ProcessStartInfo { ... }))`, which closes with `}))`: the lazy match then ran on
+# to the next `};` anywhere later in the file and judged that span instead, so a later, pinned
+# initialiser's `StandardOutputEncoding =` would have cleared an unpinned site and its redirects would
+# have kept the declared-vs-covered count square (F412). Counting braces from the initialiser's `{` to
+# its match ends each slice where the initialiser ends, whatever follows it. Constructor arguments
+# before the brace (`new ProcessStartInfo("cmd.exe", "/c") { ... }`) are skipped over; a bare
+# `new ProcessStartInfo(...)` with no initialiser yields no slice, and its later property assignments
+# then surface in the declared-vs-covered count exactly as before. Braces inside string literals are
+# not tracked: no initialiser in the repo carries one, and the WITNESS beside the redirect check is
+# where a slicer regression shows first. Takes COMMENT-STRIPPED code.
+function Get-ProcessStartInfoInitialisers {
+    param([string] $Code)
+    $slices = @()
+    $from = 0
+    while ($from -lt $Code.Length) {
+        $m = [regex]::Match($Code.Substring($from), 'new\s+(?:[\w.]+\.)?ProcessStartInfo\b')
+        if (-not $m.Success) { break }
+        $pos = $from + $m.Index + $m.Length
+        while ($pos -lt $Code.Length -and [char]::IsWhiteSpace($Code[$pos])) { $pos++ }
+        if ($pos -lt $Code.Length -and $Code[$pos] -eq '(') {
+            $parens = 0
+            do {
+                if ($Code[$pos] -eq '(') { $parens++ } elseif ($Code[$pos] -eq ')') { $parens-- }
+                $pos++
+            } while ($pos -lt $Code.Length -and $parens -gt 0)
+            while ($pos -lt $Code.Length -and [char]::IsWhiteSpace($Code[$pos])) { $pos++ }
+        }
+        if ($pos -ge $Code.Length -or $Code[$pos] -ne '{') { $from = $from + $m.Index + $m.Length; continue }
+        $open = $pos
+        $braces = 0
+        do {
+            if ($Code[$pos] -eq '{') { $braces++ } elseif ($Code[$pos] -eq '}') { $braces-- }
+            $pos++
+        } while ($pos -lt $Code.Length -and $braces -gt 0)
+        $slices += $Code.Substring($open, $pos - $open)
+        $from = $pos
+    }
+    # Enumerated on the way out; every caller wraps the call in @(), which is what keeps one slice
+    # and zero slices both arrays. (`return ,$slices` double-wrapped under that @() and the first
+    # run of this iterated over the array itself.)
+    return $slices
+}
+
+# Synchronous reads of a redirected stream, in CODE. Strips line comments first: until 2026-09-29 the
+# scan ran on the raw text, so a comment saying "never call StandardOutput.ReadToEnd()" would have
+# redded the gate -- the prose-versus-code failure this file records fixing four times (F412). Two
+# forms, because those are the two the repo actually uses; a sync ReadLine loop would slip through and
+# is worth adding the day someone writes one.
+function Get-SynchronousReadSites {
+    param([string] $Text)
+    $code = Remove-LineComments $Text
+    return @([regex]::Matches($code,
+        'Standard(?:Output|Error)\s*\.\s*(?:BaseStream\s*\.\s*CopyTo\(|ReadToEnd\(\))'))
+}
+
 
 $testsRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent $testsRoot
@@ -93,13 +152,16 @@ $redirectSiteCount = 0
 foreach ($file in Get-ChildItem -LiteralPath $repoRoot -Recurse -Filter *.cs -File |
         Where-Object { $_.FullName -notmatch '\\(obj|bin)\\' }) {
     $text = Get-Content -LiteralPath $file.FullName -Raw
-    if ($text -notmatch 'RedirectStandard(Output|Error)\s*=\s*true') { continue }
+    # Comment-stripped throughout, so a redirect mentioned in prose neither admits a file nor counts
+    # as a declared assignment the slicer then fails to cover.
+    $code = Remove-LineComments $text
+    if ($code -notmatch 'RedirectStandard(Output|Error)\s*=\s*true') { continue }
     $relative = $file.FullName.Substring($repoRoot.Length + 1)
     $coveredRedirects = 0
-    # One ProcessStartInfo initialiser at a time. Slicing on the brace that closes each initialiser
-    # is what makes this per-SITE: two sites in one file are judged separately.
-    foreach ($block in [regex]::Matches($text, '(?s)new\s+(?:[\w.]+\.)?ProcessStartInfo(.*?)\}\s*;')) {
-        $body = $block.Groups[1].Value
+    # One ProcessStartInfo initialiser at a time, each sliced from its opening brace to the brace
+    # that closes it (see Get-ProcessStartInfoInitialisers for why not the next `};`). Slicing per
+    # initialiser is what makes this per-SITE: two sites in one file are judged separately.
+    foreach ($body in @(Get-ProcessStartInfoInitialisers $code)) {
         $redirectsOut = $body -match 'RedirectStandardOutput\s*=\s*true'
         $redirectsErr = $body -match 'RedirectStandardError\s*=\s*true'
         if (-not ($redirectsOut -or $redirectsErr)) { continue }
@@ -120,8 +182,8 @@ foreach ($file in Get-ChildItem -LiteralPath $repoRoot -Recurse -Filter *.cs -Fi
     # and zero offenders and is silently never judged. Counting what was admitted against what was
     # actually sliced turns that blind spot into a named failure.
     #
-    # Latent today and deliberately left that way: all 13 redirect assignments in the repo are
-    # initialisers, so this adds no work now. It stops being latent the first time anyone writes the
+    # Latent today and deliberately left that way: every redirect assignment in the repo sits in an
+    # initialiser, so this adds no work now. It stops being latent the first time anyone writes the
     # other form -- which is the form ContentCatalogAssets.ps1 uses, in PowerShell, where nothing
     # scans it at all.
     # DRAIN ORDER, REPO-WIDE. Three named files had this pinned individually; nothing asserted it for
@@ -132,18 +194,14 @@ foreach ($file in Get-ChildItem -LiteralPath $repoRoot -Recurse -Filter *.cs -Fi
     # `WaitForExit(30000)`, so a dwebp that hung without closing stdout hung the converter forever and
     # the 30 seconds never applied. Async reads (ReadToEndAsync, CopyToAsync) do not have the problem,
     # and every other site in the repo already used them.
-    #
-    # Two forms, because those are the two the repo actually uses; a sync ReadLine loop would slip
-    # through and is worth adding the day someone writes one.
-    foreach ($syncRead in [regex]::Matches($text,
-            'Standard(?:Output|Error)\s*\.\s*(?:BaseStream\s*\.\s*CopyTo\(|ReadToEnd\(\))')) {
-        $line = ($text.Substring(0, $syncRead.Index) -split "`n").Count
+    foreach ($syncRead in @(Get-SynchronousReadSites $text)) {
+        $line = ($code.Substring(0, $syncRead.Index) -split "`n").Count
         $redirectOffenders += ("$relative`:$line reads a redirected stream SYNCHRONOUSLY " +
             "($($syncRead.Value.Trim())), which blocks until the child exits and makes any " +
             'WaitForExit timeout after it unreachable -- use ReadToEndAsync/CopyToAsync')
     }
 
-    $declaredRedirects = [regex]::Matches($text, 'RedirectStandard(Output|Error)\s*=\s*true').Count
+    $declaredRedirects = [regex]::Matches($code, 'RedirectStandard(Output|Error)\s*=\s*true').Count
     if ($declaredRedirects -gt $coveredRedirects) {
         $redirectOffenders += ("$relative`: $($declaredRedirects - $coveredRedirects) redirect " +
             'assignment(s) sit outside a ProcessStartInfo initialiser, so this scan cannot judge ' +
@@ -155,6 +213,31 @@ Assert-True ($redirectSiteCount -ge 6) (
 Assert-True ($redirectOffenders.Count -eq 0) (
     'every redirected child stream pins its own encoding, per SITE' +
     $(if ($redirectOffenders.Count -gt 0) { " (offenders: $($redirectOffenders -join '; '))" } else { '' }))
+
+# WITNESS for the slicer: the exact shape the regex slicer got wrong. Two initialisers, the first an
+# unpinned site closed by `}))`, the second pinned and closed by `};`, then a bare constructor. The
+# old slicer returned ONE span running from the first `new` to the second `};`, in which the pin
+# cleared the unpinned site. The brace walk must return two slices, and only the second may carry the
+# pin. Fed through the same function the loop above uses, so a slicer regression fails here by name.
+$slicerProbe = @'
+using (Process p = Process.Start(new ProcessStartInfo { FileName = "a", RedirectStandardOutput = true })) { }
+var psi = new ProcessStartInfo("cmd.exe", "/c dir") { RedirectStandardOutput = true, StandardOutputEncoding = Encoding.UTF8 };
+var bare = new ProcessStartInfo();
+'@
+$slicerSites = @(Get-ProcessStartInfoInitialisers $slicerProbe)
+Assert-True ($slicerSites.Count -eq 2) (
+    'WITNESS the initialiser slicer separates a site closed by }))' + ' from the site closed by };' +
+    ' after it (found ' + $slicerSites.Count + ' slices, expected 2)')
+Assert-True (
+    $slicerSites.Count -eq 2 -and
+    ($slicerSites[0] -notmatch 'StandardOutputEncoding') -and
+    ($slicerSites[1] -match 'StandardOutputEncoding\s*=')
+) 'WITNESS the pin in the second initialiser does not leak into the unpinned first one'
+# WITNESS for the synchronous-read scan: the same call as a comment must not count, and as code must.
+Assert-True (
+    @(Get-SynchronousReadSites '    // never call proc.StandardOutput.ReadToEnd() here').Count -eq 0 -and
+    @(Get-SynchronousReadSites '    string all = proc.StandardOutput.ReadToEnd();').Count -eq 1
+) 'WITNESS the synchronous-read scan sees code and ignores comments'
 
 # Module payloads must be unpacked OFF the UI thread. fortunes.zip is ~31 MB, and unpacking it
 # synchronously froze the settings window for seconds during an install or update. Nothing else catches
@@ -1838,6 +1921,50 @@ Assert-True (-not ($previewBody -match 'NotificationSound\.Play\([^)]*,\s*true\s
 
 # ---- lane fix/gates ----
 # (invariants added by lane fix/gates go directly below this line)
+
+# The fortune-pack FILE cap exists twice. The host's FortunePackLoadPolicy.MaximumFiles has exactly one
+# reader, the --catalog-selftest check that compares it with the catalog entry cap; the cap that governs
+# LOADING is the Fortunes module's own copy in FortuneProvider.cs, which the host self-test cannot see
+# and which the module project does not source-link. The two were kept equal by a comment, so the
+# 512-listed-vs-128-loadable regression that check describes would have passed it (F287). Parsed as
+# NUMBERS from comment-stripped source and compared as a CONDITION: the module cap must equal the host
+# cap, and the module cap must cover every pack the catalog may list. -cmatch, and a digit group, so a
+# renamed or removed constant fails the presence line rather than matching prose.
+$hostPolicyCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'src\dotNet\Ai\FortunePackLoadPolicy.cs') -Raw)
+$modulePolicyCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\Fortunes\engine\FortuneProvider.cs') -Raw)
+$catalogCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'src\dotNet\RemoteCatalog.cs') -Raw)
+$hostFileCap = [regex]::Match($hostPolicyCode, 'MaximumFiles\s*=\s*(\d+)')
+$moduleFileCap = [regex]::Match($modulePolicyCode, 'MaximumFiles\s*=\s*(\d+)')
+$catalogEntryCap = [regex]::Match($catalogCode, 'MaximumEntries\s*=\s*(\d+)')
+Assert-True ($hostFileCap.Success -and $moduleFileCap.Success -and $catalogEntryCap.Success) (
+    'the three pack caps are present to compare (host MaximumFiles ' + $hostFileCap.Success +
+    ', module MaximumFiles ' + $moduleFileCap.Success + ', catalog MaximumEntries ' + $catalogEntryCap.Success + ')')
+Assert-True ([int] $moduleFileCap.Groups[1].Value -eq [int] $hostFileCap.Groups[1].Value) (
+    "the Fortunes module's pack file cap equals the host copy the catalog self-test reads (module " +
+    $moduleFileCap.Groups[1].Value + ', host ' + $hostFileCap.Groups[1].Value + ')')
+Assert-True ([int] $moduleFileCap.Groups[1].Value -ge [int] $catalogEntryCap.Groups[1].Value) (
+    'the pack file cap that governs LOADING covers every pack the catalog may list (module cap ' +
+    $moduleFileCap.Groups[1].Value + ', catalog entries ' + $catalogEntryCap.Groups[1].Value + ')')
+
+# 'Rebuild smart index' decides "already built" by comparing the indexed pool's signature with the pool
+# the CURRENT folder yields. It compared it with `provider.PoolEntries()` -- the very list the signature
+# was computed from, written together with it in RebuildEngine -- so the equality could never be false
+# and a complete index made the button a no-op that reported "already built" after a pack had been
+# dropped into the folder (F149). The runtime suites cannot see this: reaching the guard needs a
+# COMPLETE warm of the whole corpus, minutes on the embedder. So the ARGUMENT is asserted here: the
+# comparison reads a freshly built provider, and the self-referential operand is gone.
+$fortunesModuleCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\Fortunes\FortunesModule.cs') -Raw)
+$rebuildBody = Get-MethodBody $fortunesModuleCode 'private Task<string> RebuildSmartIndexAsync()' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($rebuildBody.Length -gt 0) 'RebuildSmartIndexAsync exists and could be sliced out for inspection'
+Assert-True (
+    $rebuildBody -cmatch 'PoolSignature\(fresh\.PoolEntries\(\)\)' -and
+    $rebuildBody -cnotmatch 'PoolSignature\(provider\.PoolEntries\(\)\)'
+) "'Rebuild smart index' compares the index against a FRESHLY built pool, not the list it was built from"
 
 
 

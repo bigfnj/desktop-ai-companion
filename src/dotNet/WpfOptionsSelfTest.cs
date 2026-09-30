@@ -407,9 +407,23 @@ namespace DesktopAICompanion
                 ok &= Check(sb, "PaneView.Save forwards to the pane", view.Save());
                 ok &= Check(sb, "saved carries the non-secret fields, not the secret", saved.ContainsKey("b") && !saved.ContainsKey("s"));
 
-                // 4) Pane actions (S5b): the action invokes and returns its status string.
-                string actionResult = pane.Actions[0].InvokeAsync().GetAwaiter().GetResult();
-                ok &= Check(sb, "pane action invokes + returns a status", actionResult == "ok");
+                // 4) Pane actions (S5b): the BUTTON the pane renders for an action runs it and shows its
+                // status. This used to call pane.Actions[0].InvokeAsync() directly and compare the result
+                // with the literal this test returns from that delegate, so no PaneView code ran between
+                // the call and the check and an emptied Click handler kept it green (F315). Clicked through
+                // the rendered control instead, the way sections 12 and 13 already do.
+                var actionButtons = new List<System.Windows.Controls.Button>();
+                CollectAll(element as System.Windows.DependencyObject, actionButtons);
+                System.Windows.Controls.Button probeAction = null;
+                foreach (System.Windows.Controls.Button b in actionButtons)
+                    if (string.Equals(b.Content as string, "Probe action", StringComparison.Ordinal)) probeAction = b;
+                ok &= Check(sb, "the pane renders a button for its action", probeAction != null);
+                if (probeAction != null)
+                {
+                    probeAction.RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                    ok &= Check(sb, "pane action invokes + returns a status",
+                        StatusOf(probeAction) != null && StatusOf(probeAction).Text == "ok");
+                }
 
                 // 5) Grouped list cards get a whole-group checkbox on the Expander header. Without it,
                 // switching off a section (the 19 NSFW fortune packs) is 19 individual clicks. The contract
@@ -1089,7 +1103,10 @@ namespace DesktopAICompanion
 
                     ok &= Check(sb, "InvokeWithPendingAsync sees the value just chosen, not the saved one",
                         StatusOf(pendingButtons[0]) != null && StatusOf(pendingButtons[0]).Text == "✓ just-picked");
-                    ok &= Check(sb, "...which is the value Load did NOT return",
+                    // A FIXTURE witness, and labelled as one: it calls this test's own Load delegate, so
+                    // it proves only that "just-picked" above cannot have come from Load. It pins the
+                    // assertion above against a degenerate fixture, not any host behaviour (F315).
+                    ok &= Check(sb, "WITNESS fixture: Load returns 'saved', so 'just-picked' came from the pending edit",
                         pendingPane.Load()["flavour"] == "saved");
                     // The documented shape of the dictionary, same as Save and LoadPending receive.
                     ok &= Check(sb, "a blank Secret is ABSENT from the pending values, never an empty string",
