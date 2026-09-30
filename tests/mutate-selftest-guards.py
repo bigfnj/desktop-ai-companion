@@ -385,10 +385,12 @@ CASES = (
      "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
      "PersonalReminderParser"),
 
+    # Re-pointed 2026-09-29 by lane fix/reminder: DoRefresh took a generation argument for F186, and the
+    # whole-harness run reported this case NO-OP against the old shape.
     ("the calendar feed is read inline on the caller's thread",
      CACHING_CALENDAR_SOURCE,
-     b"                Task.Run(() => DoRefresh(key));",
-     b"                DoRefresh(key);",
+     b"                Task.Run(() => DoRefresh(key, generation));",
+     b"                DoRefresh(key, generation);",
      REMINDER_CSPROJ, REMINDER_DLL,
      "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
      "Fetch returns before the read completes"),
