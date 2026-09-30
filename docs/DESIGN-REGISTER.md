@@ -295,7 +295,11 @@ timer is not the user leaving: `OptionsWindow.ShowPane(title)` refuses while App
 `ReloadPaneAfter` only for the pane on screen and only while it is open; a continuation from a pane the user
 left drops its stash and its message rather than rebuilding under a nav that lights something else. The
 alternative (driving the rebuild through the nav so the two cannot disagree) would move the user back to a
-pane they had left, which is the same surprise from the other side.
+pane they had left, which is the same surprise from the other side. Since 2026-09-30 (RA-329, RA-330, lane
+burn/host-shell) the window answers only the VIEW that asked, through a per-build generation: the pane
+object is shared by every view of that pane, so a continuation from a torn-down view of the same pane (the
+user left and came back, or a faster action rebuilt it) still passed the identity test and rebuilt over the
+fresh view, its edits gone and the stale stash shown in their place.
 
 **Reset to defaults touches only what the page shows (2026-09-29, F371).** `themeMode` has been dormant since
 the Theme dropdown went (2026-08-07, "the window follows the OS"); the reset no longer writes it, and no
@@ -942,6 +946,17 @@ no storage on purpose as the gate's exercise of every module's null tolerance (F
 `ModulePaths` unusable in the very test the repo runs. Chosen: `HasRoot` false and a `Warning` to log, with
 every path member throwing that warning, which is AiBrain's N-gates-02 shape (defaults, nothing persisted,
 said once in the log) generalised. The template shows the check; the only in-tree caller was the template.
+
+#### burn/host-shell
+
+**A redirect over a pane with a download in flight asks, on the terms a redirect over unsaved edits does
+(2026-09-30, RA-328).** The F368 rule read the Apply button, and a custom pane has none, so the module-update
+balloon could land on Modules over a Companions download and cancel it with the pane, its status line torn
+down before it could say so. The two panes now report a downloads-in-flight count through the host-only
+`IBusyPane`, `OptionsWindow.ShowPane(title)` refuses on `IsDirty || IsCurrentPaneBusy`, and the question names
+the download ("Stop it and open <pane>?"). Letting the download finish and then redirecting was declined: the
+redirect is the user's click, and a window that moves on its own seconds later is the F375 surprise from the
+other side.
 
 #### fix/deadcode
 

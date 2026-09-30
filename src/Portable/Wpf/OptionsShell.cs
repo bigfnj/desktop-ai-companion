@@ -63,19 +63,25 @@ namespace DesktopAICompanion.Wpf
         }
 
         /// <summary>
-        /// Send the open window to the caller's pane, unless the pane that is up has unsaved edits (F368).
-        /// The caller is the module-update balloon or the restart reopen timer, so the redirect arrives
-        /// unbidden over a pane the user may be halfway through editing, and it used to drop those edits
-        /// without a word. Asked rather than decided: the balloon's pane is what they clicked for, and
-        /// the edits are what they were doing. Yes discards and goes; anything else stays put, edits
-        /// intact. A title the window does not know is simply not shown, as before.
+        /// Send the open window to the caller's pane, unless the pane that is up has unsaved edits (F368)
+        /// or a download in flight (RA-328). The caller is the module-update balloon or the restart reopen
+        /// timer, so the redirect arrives unbidden over a pane the user may be halfway through editing, and
+        /// it used to drop those edits without a word; a Companions or Modules download was cancelled the
+        /// same way, the pane torn down before its status line could say so. Asked rather than decided: the
+        /// balloon's pane is what they clicked for, and the edits or the download are what they were doing.
+        /// Yes discards (or stops) and goes; anything else stays put. A title the window does not know is
+        /// simply not shown, as before.
         /// </summary>
         private static void RedirectOpenWindow(OptionsWindow window, string paneTitle)
         {
             if (window.ShowPane(paneTitle) || !window.HasPane(paneTitle)) return;
+            string question = window.IsDirty
+                ? "You have unsaved changes on the " + window.CurrentPaneTitle + " pane.\n\n" +
+                  "Discard them and open " + paneTitle + "?"
+                : "A download is still running on the " + window.CurrentPaneTitle + " pane.\n\n" +
+                  "Stop it and open " + paneTitle + "?";
             var choice = System.Windows.MessageBox.Show(window,
-                "You have unsaved changes on the " + window.CurrentPaneTitle + " pane.\n\n" +
-                "Discard them and open " + paneTitle + "?",
+                question,
                 "Settings",
                 System.Windows.MessageBoxButton.YesNo,
                 System.Windows.MessageBoxImage.Warning);

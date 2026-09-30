@@ -210,11 +210,14 @@ CASES = [
      "                height = preferred.Height;",
      "wpf", "fits a 1366x768 laptop"),
 
-    # F375: the pane-identity half of the guard is removed, so a ReloadPaneAfter finishing after a pane
+    # F375: the view-identity half of the guard is removed, so a ReloadPaneAfter finishing after a pane
     # switch rebuilds its pane over the one the user moved to. The _closed half stays, because a field that
     # is written and never read is a warning, and warnings are errors: the mutation has to compile.
+    # Re-pointed 2026-09-30 by lane burn/host-shell: the guard keys on the build generation (RA-329,
+    # RA-330), which a pane switch also advances, so dropping it still fires this case (and the same-pane
+    # case below it). `gen` stays read by the NotifyDirty delegate, so the mutant compiles.
     ("a late ReloadPaneAfter rebuilds its pane over the one on screen again", OPTIONSWINDOW,
-     "                if (_closed || !ReferenceEquals(_current, pane)) return false;\n",
+     "                if (_closed || gen != _buildGeneration) return false;\n",
      "                if (_closed) return false;\n",
      "wpf", "does not rebuild its pane over the one on screen"),
 
@@ -228,9 +231,11 @@ CASES = [
      "                    if (!_requestReload()) return;",
      "wpf", "leaves nothing stashed"),
 
-    # F368: a redirect by title switches panes over unsaved edits again.
+    # F368: a redirect by title switches panes over unsaved edits again. Re-pointed 2026-09-30 by lane
+    # burn/host-shell: the guard gained the busy-pane term (RA-328); deleting the whole line still fires
+    # this case (and the busy case below it).
     ("a redirect by title discards unsaved edits again", OPTIONSWINDOW,
-     "            if (IsDirty && !discardEdits) return false;\n",
+     "            if ((IsDirty || IsCurrentPaneBusy) && !discardEdits) return false;\n",
      "",
      "wpf", "REFUSED while the pane has unsaved edits"),
 
@@ -253,6 +258,49 @@ CASES = [
      "",
      "wpf", "never grows a horizontal scrollbar"),
 
+    # ---- lane burn/host-shell ----
+
+    # RA-329, RA-330: the reload guard keys on PANE identity again, the F375 shape. A pane switch still
+    # declines (the F375 case above covers that), but a stale continuation from a torn-down view of the SAME
+    # pane rebuilds over the fresh view. Only the same-pane check can tell the two guards apart.
+    ("burn/host-shell: the reload guard keys on pane identity instead of the build generation", OPTIONSWINDOW,
+     "                if (_closed || gen != _buildGeneration) return false;\n",
+     "                if (_closed || !ReferenceEquals(_current, pane)) return false;\n",
+     "wpf", "does not rebuild over the fresh view"),
+
+    # RA-328: the busy-pane term leaves the redirect guard, so a redirect lands over a download again.
+    ("burn/host-shell: a redirect by title cancels a custom pane's download again", OPTIONSWINDOW,
+     "            if ((IsDirty || IsCurrentPaneBusy) && !discardEdits) return false;\n",
+     "            if (IsDirty && !discardEdits) return false;\n",
+     "wpf", "REFUSED while the custom pane has a download in flight"),
+
+    # RA-331: the Load-only cascade never overlays its stash (the condition can never hold), so the rebuilt
+    # pane shows the stored value again and the edit snaps back.
+    ("burn/host-shell: a ReloadOnChange rebuild on a Load-only pane drops the stash again", OPTIONSWINDOW,
+     "                if (pending != null && pending.Count > 0)\n                {\n                    var overlaid",
+     "                if (pending != null && pending.Count < 0)\n                {\n                    var overlaid",
+     "wpf", "shows the value just picked, not the stored one"),
+
+    # RA-332: a deferred card on a Save-less pane stages its ticks again, for a flush that never comes.
+    ("burn/host-shell: a deferred card on a pane without Save stages its ticks again", OPTIONSWINDOW,
+     "                        if (lc.DeferChanges && _pane != null && _pane.Save != null)\n",
+     "                        if (lc.DeferChanges)\n",
+     "wpf", "reaches SetChecked at once"),
+
+    # RA-326, both halves. The pure conversion stops scaling, so a 125% panel is fitted in pixels read as
+    # DIPs (a window 25% too tall for it); and the constructor goes back to the primary's work area, which
+    # the re-pointed F372 source invariant refuses. The gate fragment sits in the label's first 80
+    # characters on purpose: powershell.exe wraps a thrown message at the console width when its output is
+    # captured, and the ladder reads only the line that ends in "failed." (the first draft of this case
+    # read WRONG on exactly that wrap).
+    ("burn/host-shell: the work area stops being converted to the monitor's DIPs", OPTIONSWINDOW,
+     "            double scale = dpi > 0 ? 96.0 / dpi : 1.0;\n",
+     "            double scale = 1.0;\n",
+     "wpf", "fitted in that panel's DIPs"),
+    ("burn/host-shell: the window is fitted to the primary work area again", OPTIONSWINDOW,
+     "            Size fitted = InitialSize(PreferredSize, MinimumSize, StartupWorkArea());\n",
+     "            Size fitted = InitialSize(PreferredSize, MinimumSize, SystemParameters.WorkArea);\n",
+     "gate", "fitted to the monitor it opens on"),
 
     # ---- lane fix/settings ----
 ]

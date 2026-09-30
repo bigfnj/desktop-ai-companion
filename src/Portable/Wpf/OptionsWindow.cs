@@ -26,6 +26,19 @@ namespace DesktopAICompanion.Wpf
         /// module action is still awaiting, and a rebuild into a closed window ran the module's Load for
         /// nobody (F375).</summary>
         private bool _closed;
+        /// <summary>
+        /// Advanced by every <see cref="ShowPane(int)"/>. The reload and dirty delegates a build hands its
+        /// view capture the generation they were built under and decline once it has moved on, so a view
+        /// the window has since torn down cannot act on the one that replaced it.
+        ///
+        /// The F375 guard keyed on PANE identity (<c>ReferenceEquals(_current, pane)</c>), which is the same
+        /// object for every view of that pane: a slow ReloadPaneAfter continuation from a view the user had
+        /// left and come back to, or from a view an intervening fast action had already rebuilt, still passed
+        /// it and rebuilt over the fresh view, dropping its edits and re-showing the torn-down view's stash
+        /// (RA-329, RA-330). A pane switch also advances the generation, so this one test covers the case
+        /// the identity test did and the two it did not.
+        /// </summary>
+        private int _buildGeneration;
 
         /// <summary>The size asked for when the work area allows it: the Pets gallery reflows to 3 cards
         /// across and ~4 rows down at this size (the WrapPanel wraps to fewer columns as the window
@@ -43,12 +56,18 @@ namespace DesktopAICompanion.Wpf
             Title = "DesktopAICompanion — Settings";
             MinWidth = MinimumSize.Width;
             MinHeight = MinimumSize.Height;
-            // FITTED to the primary work area, not fixed (F372). WPF's CenterScreen centres the REQUESTED
+            // FITTED to the work area, not fixed (F372). WPF's CenterScreen centres the REQUESTED
             // height and never clamps it, and Windows clamps only the SIZE, so the fixed 820 opened on a
             // 1366x768 laptop (a 720 DIP work area) with its caption and first nav row above the screen
             // top: no title bar to drag it back by, and the same on a 1080p panel at 150%. Resizable
             // either way; MaxHeight is deliberately NOT set, so a bigger monitor can still enlarge it.
-            Size fitted = InitialSize(PreferredSize, MinimumSize, SystemParameters.WorkArea);
+            //
+            // Fitted to the monitor the window will OPEN ON, which is the one under the cursor: an
+            // ownerless CenterScreen centres there, not on the primary. F372 fitted to
+            // SystemParameters.WorkArea, the primary's, so a tray click on a shorter secondary monitor
+            // beside a roomy primary still opened the caption off that monitor's top (RA-326). The work
+            // area is read in that monitor's own DIPs, since that is the DPI the window ends up at.
+            Size fitted = InitialSize(PreferredSize, MinimumSize, StartupWorkArea());
             Width = fitted.Width;
             Height = fitted.Height;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -149,6 +168,47 @@ namespace DesktopAICompanion.Wpf
             return new Size(Math.Max(minimum.Width, width), Math.Max(minimum.Height, height));
         }
 
+        /// <summary>
+        /// The work area of the monitor an ownerless CenterScreen window opens on (the one under the
+        /// cursor), in that monitor's DIPs (RA-326). WinForms is already loaded by the host, so its Screen
+        /// answers the pixel rectangle; the DPI comes from GetDpiForMonitor, because under PerMonitorV2 a
+        /// window centred on a 125% laptop panel is sized in THAT panel's DIPs, not the primary's. Falls
+        /// back to the primary work area when anything about the query fails (no cursor, a headless run,
+        /// an API refusal), which is exactly what the window did before.
+        /// </summary>
+        internal static Rect StartupWorkArea()
+        {
+            try
+            {
+                System.Drawing.Point cursor = System.Windows.Forms.Cursor.Position;
+                System.Drawing.Rectangle pixels = System.Windows.Forms.Screen.FromPoint(cursor).WorkingArea;
+                IntPtr monitor = MonitorFromPoint(new NativePoint { X = cursor.X, Y = cursor.Y }, MONITOR_DEFAULTTONEAREST);
+                uint dpiX, dpiY;
+                if (monitor == IntPtr.Zero || GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, out dpiX, out dpiY) != 0 || dpiX == 0)
+                    return SystemParameters.WorkArea;
+                return WorkAreaInDips(pixels, dpiX);
+            }
+            catch { return SystemParameters.WorkArea; }
+        }
+
+        /// <summary>A pixel work area in the DIPs of a monitor at <paramref name="dpi"/>. Pure, so the
+        /// self-test can hand it the 125% panel this box does not have; a DPI at or below zero is treated
+        /// as 96 rather than dividing by it.</summary>
+        internal static Rect WorkAreaInDips(System.Drawing.Rectangle pixels, double dpi)
+        {
+            double scale = dpi > 0 ? 96.0 / dpi : 1.0;
+            return new Rect(pixels.Left * scale, pixels.Top * scale, pixels.Width * scale, pixels.Height * scale);
+        }
+
+        [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        private struct NativePoint { public int X; public int Y; }
+        private const uint MONITOR_DEFAULTTONEAREST = 2;
+        private const int MDT_EFFECTIVE_DPI = 0;
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern IntPtr MonitorFromPoint(NativePoint pt, uint flags);
+        [System.Runtime.InteropServices.DllImport("shcore.dll")]
+        private static extern int GetDpiForMonitor(IntPtr hmonitor, int dpiType, out uint dpiX, out uint dpiY);
+
         /// <summary>A nav entry: the title, trimmed to the column, with the whole title as its tooltip and
         /// as its automation name so a clipped one is still readable and still findable (F377).</summary>
         internal static TextBlock NavItem(string title)
@@ -205,6 +265,12 @@ namespace DesktopAICompanion.Wpf
             get { return _apply != null && _apply.Visibility == Visibility.Visible && _apply.IsEnabled; }
         }
 
+        /// <summary>Whether the pane on screen has work in flight that leaving it would cancel: a custom
+        /// pane's download (RA-328). The F368 guard read only the Apply button, and a custom pane has no
+        /// Apply, so the module-update balloon could redirect over a Companions download and cancel it
+        /// with the pane torn down before its status line could say so.</summary>
+        internal bool IsCurrentPaneBusy { get { return _current != null && _current.IsBusy; } }
+
         internal string CurrentPaneTitle { get { return _current != null ? _current.Title : null; } }
 
         // Seams for --wpf-options-selftest, which builds this window headlessly and has no other way to
@@ -231,6 +297,9 @@ namespace DesktopAICompanion.Wpf
         /// neither of which the user connects to the window they are editing: clicking the balloon with
         /// six Preferences fields changed used to land on Modules with every edit gone and nothing said.
         /// A nav click still discards, because there the user chose to leave the pane.
+        ///
+        /// Refused on the same terms while the pane is BUSY (RA-328): a custom pane is never dirty, so a
+        /// Companions or Modules download in flight was cancelled by the redirect exactly as silently.
         /// </summary>
         internal bool ShowPane(string title, bool discardEdits = false)
         {
@@ -238,7 +307,7 @@ namespace DesktopAICompanion.Wpf
             int index = IndexOfPane(title);
             if (index < 0) return false;
             if (_nav.SelectedIndex == index) return true;
-            if (IsDirty && !discardEdits) return false;
+            if ((IsDirty || IsCurrentPaneBusy) && !discardEdits) return false;
             _nav.SelectedIndex = index;
             return true;
         }
@@ -255,22 +324,26 @@ namespace DesktopAICompanion.Wpf
             ShellPane pane = _panes[index];
             _current = pane;
             // Let a pane ask to be rebuilt after an action runs (e.g. "reset to defaults" → show new values)
-            // -- but only while it is still the pane on screen (F375). The action row captures this
-            // delegate when the pane is built and calls it after an await, and the nav stays live during
-            // that await, so the user may have moved to another pane or closed the window in between.
-            // The stale continuation then rebuilt ITS pane into the content area under a nav that still
-            // lit the other one, threw that pane's unsaved edits away, and -- had the user come back to
-            // this pane -- fed the torn-down view's stash into the fresh one. Declining tells the caller
-            // (the bool) so it can drop what it stashed for the rebuild.
+            // -- but only while the VIEW asking is still the one on screen (F375, RA-329, RA-330). The
+            // action row captures this delegate when the pane is built and calls it after an await, and
+            // the nav stays live during that await, so the user may have moved to another pane, come back
+            // (a fresh view of the same pane), run a faster action that rebuilt it, or closed the window in
+            // between. The stale continuation then rebuilt ITS view's pane into the content area under a
+            // nav that still lit another one, threw that pane's unsaved edits away, or -- on the same pane
+            // -- rebuilt over the fresh view and fed the torn-down view's stash into it. The build
+            // generation is the identity of the VIEW, which the pane object cannot be: it is the same
+            // object for every view of that pane. Declining tells the caller (the bool) so it can drop
+            // what it stashed for the rebuild.
+            int gen = ++_buildGeneration;
             pane.RequestReload = delegate
             {
-                if (_closed || !ReferenceEquals(_current, pane)) return false;
+                if (_closed || gen != _buildGeneration) return false;
                 ShowPane(index);
                 return true;
             };
             // A field edit in the pane enables the Apply button (it starts disabled = nothing to apply).
-            // Same guard: a view whose pane has been left must not light Apply for the pane that replaced it.
-            pane.NotifyDirty = delegate { if (ReferenceEquals(_current, pane)) SetDirty(true); };
+            // Same guard: a view that has been replaced must not light Apply for the view on screen.
+            pane.NotifyDirty = delegate { if (gen == _buildGeneration) SetDirty(true); };
             FrameworkElement content;
             try { content = _current.BuildContent(); }
             catch (Exception ex) { content = new TextBlock { Text = "This pane failed to load: " + ex.Message, Margin = new Thickness(6), TextWrapping = TextWrapping.Wrap }; }
@@ -349,10 +422,15 @@ namespace DesktopAICompanion.Wpf
         // are stale the moment Apply succeeds, so the window rebuilds the pane to re-run Load(). Panes with
         // no Info field are left alone, so applying doesn't needlessly reset scroll/focus.
         public virtual bool RefreshAfterApply { get { return false; } }
+        // True while the pane has work in flight that tearing it down would cancel (a custom pane's
+        // download). The window refuses a redirect by title over a busy pane the way it refuses one over
+        // unsaved edits (RA-328). Schema panes are never busy: their actions report into the row.
+        public virtual bool IsBusy { get { return false; } }
         // Set by the window before BuildContent: invoke to rebuild this pane (refreshes Load() values).
-        // Answers whether the rebuild RAN: the window declines once this pane is no longer the one on
-        // screen, or it has closed, so a view calling this after an await can discard what it stashed for
-        // the rebuild instead of leaving it for an unrelated later build to consume (F375).
+        // Answers whether the rebuild RAN: the window declines once the VIEW that captured this delegate is
+        // no longer the one on screen (another pane shown, the same pane rebuilt, or the window closed), so
+        // a view calling this after an await can discard what it stashed for the rebuild instead of leaving
+        // it for an unrelated later build to consume (F375, RA-329, RA-330).
         public Func<bool> RequestReload { get; set; }
         // Set by the window before BuildContent: invoke when a field edit makes the pane dirty (enables Apply).
         public Action NotifyDirty { get; set; }
@@ -387,14 +465,33 @@ namespace DesktopAICompanion.Wpf
         }
     }
 
+    /// <summary>A host-built control that can be mid-download when a redirect arrives. Implemented by the
+    /// Companions and Modules panes, read through <see cref="CustomShellPane.IsBusy"/> (RA-328). Host-only,
+    /// like the shell panes: nothing about it reaches the plugin ABI.</summary>
+    internal interface IBusyPane
+    {
+        bool IsBusy { get; }
+    }
+
     /// <summary>A host-built pane that supplies its own WPF control (applies through its own buttons).</summary>
     internal sealed class CustomShellPane : ShellPane
     {
         private readonly string _title;
         private readonly Func<FrameworkElement> _build;
+        /// <summary>The control the last BuildContent produced, so IsBusy asks the view that is actually on
+        /// screen rather than a probe captured at construction.</summary>
+        private FrameworkElement _content;
         public CustomShellPane(string title, Func<FrameworkElement> build) { _title = title; _build = build; }
         public override string Title { get { return _title ?? "(untitled)"; } }
-        public override FrameworkElement BuildContent() { return _build != null ? _build() : new TextBlock(); }
+        public override FrameworkElement BuildContent() { _content = _build != null ? _build() : new TextBlock(); return _content; }
+        public override bool IsBusy
+        {
+            get
+            {
+                var busy = _content as IBusyPane;
+                return busy != null && busy.IsBusy;
+            }
+        }
     }
 
     /// <summary>
@@ -849,6 +946,20 @@ namespace DesktopAICompanion.Wpf
             else
             {
                 try { if (_pane != null && _pane.Load != null) values = _pane.Load(); } catch { values = null; }
+                // A ReloadOnChange cascade on a pane that supplies only Load: Load answers from the STORE,
+                // so the value the user just picked (and every other unsaved edit) is put back over it,
+                // the same way LoadPending is handed the screen state above. Without this the stash was
+                // taken and dropped, the edit snapped back to the stored value, and Apply lit with nothing
+                // new to save (RA-331). Load's own keys win nowhere here on purpose: nothing was saved
+                // between the edit and this rebuild, so every difference is the user's.
+                if (pending != null && pending.Count > 0)
+                {
+                    var overlaid = new Dictionary<string, string>(StringComparer.Ordinal);
+                    if (values != null)
+                        foreach (KeyValuePair<string, string> kv in values) overlaid[kv.Key] = kv.Value;
+                    foreach (KeyValuePair<string, string> kv in pending) overlaid[kv.Key] = kv.Value;
+                    values = overlaid;
+                }
             }
             if (values == null) values = new Dictionary<string, string>();
 
@@ -1029,7 +1140,11 @@ namespace DesktopAICompanion.Wpf
                     {
                         bool wasChecked = it.Checked;
                         Action<bool> set;
-                        if (lc.DeferChanges)
+                        // Deferred only where something will flush the stage: the stage is emptied by
+                        // Save(), and a pane without Save has no Apply, so its staged ticks were never
+                        // flushed and went with the view, while the box on screen said otherwise
+                        // (RA-332). On such a pane a deferred card behaves as a live one.
+                        if (lc.DeferChanges && _pane != null && _pane.Save != null)
                         {
                             // Staged: the box moves now, the module hears about it at Apply. Re-ticking back
                             // to the loaded state drops the entry entirely, so applying never re-does work

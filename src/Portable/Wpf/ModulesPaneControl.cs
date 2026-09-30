@@ -26,8 +26,13 @@ namespace DesktopAICompanion.Wpf
     /// the module — the install list is diffed by id, so an installed module simply disappears from it, and the
     /// only route left was Uninstall (which deletes the module's settings) followed by a fresh install.
     /// </summary>
-    internal sealed class ModulesPaneControl : ContentControl
+    internal sealed class ModulesPaneControl : ContentControl, IBusyPane
     {
+        /// <summary>Installs and updates in flight. Read by the shell through <see cref="IBusyPane"/>, so a
+        /// redirect by title is refused while one runs instead of cancelling it with the pane (RA-328).</summary>
+        private int _downloadsInFlight;
+        public bool IsBusy { get { return _downloadsInFlight > 0; } }
+
         private readonly StackPanel _installedList = new StackPanel { Margin = new Thickness(4) };
         private readonly TextBlock _availableHeader = new TextBlock
         {
@@ -351,6 +356,7 @@ namespace DesktopAICompanion.Wpf
             // The staging folder this attempt owns until MarkForUpdate hands it to the next launch; the
             // catches delete it (F366), because nothing else ever would have.
             string stagedHere = null;
+            _downloadsInFlight++;
             try
             {
                 string installDir = SafeModuleDir(module.Id);   // validates the id, and where it will land
@@ -388,7 +394,11 @@ namespace DesktopAICompanion.Wpf
                 DiscardStaged(stagedHere);
                 if (IsLoaded) _status.Text = "Couldn't update " + module.Name + ": " + PaneText.Short(ex.Message);
             }
-            finally { if (IsLoaded) update.IsEnabled = true; }
+            finally
+            {
+                _downloadsInFlight--;
+                if (IsLoaded) update.IsEnabled = true;
+            }
         }
 
         /// <summary>
@@ -553,6 +563,7 @@ namespace DesktopAICompanion.Wpf
             _status.Text = "Downloading " + module.Name + "…";
             // See UpdateModuleAsync: the staging folder this attempt owns, deleted by the catches.
             string stagedHere = null;
+            _downloadsInFlight++;
             try
             {
                 if (_netCts == null) _netCts = new CancellationTokenSource();
@@ -631,7 +642,11 @@ namespace DesktopAICompanion.Wpf
                 DiscardStaged(stagedHere);
                 if (IsLoaded) _status.Text = "Couldn't install " + module.Name + ": " + PaneText.Short(ex.Message);
             }
-            finally { if (IsLoaded) install.IsEnabled = true; }
+            finally
+            {
+                _downloadsInFlight--;
+                if (IsLoaded) install.IsEnabled = true;
+            }
         }
 
         private static string SafeModuleDir(string id)

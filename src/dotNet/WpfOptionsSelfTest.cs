@@ -542,6 +542,36 @@ namespace DesktopAICompanion
                     ok &= Check(sb, "a second Apply replays nothing", deferredView.Save() && log.Count == 1 && log[0] == "SAVE");
                 }
 
+                // 6b) DeferChanges on a pane WITHOUT Save (RA-332). The stage is flushed inside Save(), and a
+                // pane with no Save has no Apply to call it, so the ticks were staged, never delivered and
+                // discarded with the view while the boxes on screen said otherwise. On such a pane a
+                // deferred card behaves as a live one; the deferred behaviour above is the WITNESS that a
+                // pane WITH Save still stages.
+                var saveLessLog = new List<string>();
+                var saveLessCard = new ListCard
+                {
+                    Title = "Deferred, no Save",
+                    DeferChanges = true,
+                    LoadItems = delegate { return new[] { new ListItem { Id = "n1", Label = "N1", Checked = false } }; },
+                    SetChecked = delegate(string id, bool on) { saveLessLog.Add(id + "=" + (on ? "1" : "0")); },
+                };
+                var saveLessPane = new OptionsPane
+                {
+                    Title = "DeferredNoSave",
+                    Load = delegate { return new Dictionary<string, string>(StringComparer.Ordinal); },
+                    Lists = new[] { saveLessCard },
+                };
+                var saveLessView = new DesktopAICompanion.Wpf.PaneView(saveLessPane);
+                var saveLessBoxes = new List<System.Windows.Controls.CheckBox>();
+                CollectCheckBoxes(saveLessView.Build() as System.Windows.DependencyObject, saveLessBoxes);
+                ok &= Check(sb, "a deferred card on a Save-less pane still renders its checkbox", saveLessBoxes.Count == 1);
+                if (saveLessBoxes.Count == 1)
+                {
+                    saveLessBoxes[0].IsChecked = true;
+                    ok &= Check(sb, "a deferred tick on a pane without Save reaches SetChecked at once, since nothing would ever flush a stage there",
+                        saveLessLog.Count == 1 && saveLessLog[0] == "n1=1");
+                }
+
                 // ================= the six additive 1.1.6 ABI members, rendered here for the first time =====
 
                 // 7) SettingKind.Radio. The kind exists so three options can be three visible choices
@@ -844,6 +874,58 @@ namespace DesktopAICompanion
                     ok &= Check(sb, "Load is never called on a pane that supplies LoadPending", cascadeLoadCalls == 0);
                 }
                 else ok &= Check(sb, "cascade probe rendered both dropdowns", false);
+
+                // 11b) ReloadOnChange on a pane that supplies only Load (RA-331). Load answers from the
+                // store, so the rebuild used to show the STORED value again: the user picked dog, the
+                // dropdown snapped back to cat, and Apply lit with cat to save. The stash the cascade
+                // takes is now put back over Load's answer, the way LoadPending is handed it above.
+                int loadOnlyCascadeLoads = 0;
+                var loadOnlyPet = new SettingField { Id = "pet", Label = "Pet", Kind = SettingKind.Enum, Options = new[] { "cat", "dog" }, ReloadOnChange = true };
+                var loadOnlyNote = new SettingField { Id = "note", Label = "Note", Kind = SettingKind.Text };
+                var loadOnlyCascadePane = new OptionsPane
+                {
+                    Title = "LoadOnlyCascade",
+                    Schema = new[] { loadOnlyPet, loadOnlyNote },
+                    Load = delegate
+                    {
+                        loadOnlyCascadeLoads++;
+                        return new Dictionary<string, string>(StringComparer.Ordinal) { { "pet", "cat" }, { "note", "stored" } };
+                    },
+                };
+                DesktopAICompanion.Wpf.PaneView loadOnlyRebuilt = null;
+                var loadOnlyEvents = new List<string>();
+                var loadOnlyCascadeView = new DesktopAICompanion.Wpf.PaneView(loadOnlyCascadePane,
+                    delegate
+                    {
+                        loadOnlyEvents.Add("rebuild");
+                        loadOnlyRebuilt = new DesktopAICompanion.Wpf.PaneView(loadOnlyCascadePane);
+                        loadOnlyRebuilt.Build();
+                    },
+                    delegate { loadOnlyEvents.Add("dirty"); });
+                var loadOnlyRoot = loadOnlyCascadeView.Build() as System.Windows.DependencyObject;
+                var loadOnlyCombos = new List<System.Windows.Controls.ComboBox>();
+                var loadOnlyTextBoxes = new List<System.Windows.Controls.TextBox>();
+                CollectAll(loadOnlyRoot, loadOnlyCombos);
+                CollectAll(loadOnlyRoot, loadOnlyTextBoxes);
+                if (loadOnlyCombos.Count == 1 && loadOnlyTextBoxes.Count == 1)
+                {
+                    loadOnlyTextBoxes[0].Text = "typed";      // an unsaved edit on ANOTHER field
+                    loadOnlyCombos[0].SelectedItem = "dog";   // the cascade
+                    ok &= Check(sb, "a ReloadOnChange field on a Load-only pane still rebuilds it through Load",
+                        loadOnlyRebuilt != null && loadOnlyCascadeLoads == 2);
+                    ok &= Check(sb, "...and the rebuilt pane shows the value just picked, not the stored one",
+                        loadOnlyRebuilt != null && loadOnlyRebuilt.Collect()["pet"] == "dog");
+                    ok &= Check(sb, "...with the pane's other unsaved edit put back too",
+                        loadOnlyRebuilt != null && loadOnlyRebuilt.Collect()["note"] == "typed");
+                    ok &= Check(sb, "...and the unsaved-edit signal re-raised after the rebuild",
+                        loadOnlyEvents.Count >= 2 && loadOnlyEvents[loadOnlyEvents.Count - 1] == "dirty" &&
+                        loadOnlyEvents[loadOnlyEvents.Count - 2] == "rebuild");
+                    var loadOnlyFresh = new DesktopAICompanion.Wpf.PaneView(loadOnlyCascadePane);
+                    loadOnlyFresh.Build();
+                    ok &= Check(sb, "WITNESS a Load-only pane built with nothing stashed shows the stored values",
+                        loadOnlyFresh.Collect()["pet"] == "cat" && loadOnlyFresh.Collect()["note"] == "stored");
+                }
+                else ok &= Check(sb, "Load-only cascade probe rendered its dropdown and text box", false);
 
                 // 12) PaneAction.RevealsPath. The refusals are the feature: an unrestricted "open this
                 // path" handed to plugins is a shell execution primitive under another name. Every path
@@ -1238,6 +1320,21 @@ namespace DesktopAICompanion
                     preferredSize, minimumSize, new System.Windows.Rect(0, 0, 800, 480));
                 ok &= Check(sb, "...and a work area below the floor still yields the floor on that axis, never less",
                     cramped.Height == minimumSize.Height && cramped.Width == 800 - clearance);
+                // The monitor the window opens on is the one under the cursor, read in ITS DIPs (RA-326):
+                // a 1366x768 laptop panel at 125% under a Win11 taskbar is 1366x728 pixels of work area and
+                // 1092.8x582.4 DIPs, which is what the fit has to be handed for the caption to stay on that
+                // panel. F372 fitted to the PRIMARY work area, so a roomy primary beside it left the fit at
+                // 820. The conversion is pure so the panel this box does not have can be handed in.
+                System.Windows.Rect scaledPanel = DesktopAICompanion.Wpf.OptionsWindow.WorkAreaInDips(
+                    new System.Drawing.Rectangle(-1366, 312, 1366, 728), 120);
+                ok &= Check(sb, "a 125% panel's pixel work area is fitted in that panel's DIPs, not the primary's",
+                    Math.Abs(scaledPanel.Width - 1092.8) < 0.01 && Math.Abs(scaledPanel.Height - 582.4) < 0.01 &&
+                    Math.Abs(scaledPanel.X + 1092.8) < 0.01 && Math.Abs(scaledPanel.Y - 249.6) < 0.01);
+                System.Windows.Rect plainPanel = new System.Windows.Rect(0, 0, 1366, 728);
+                ok &= Check(sb, "WITNESS a 96 DPI work area is unchanged by the conversion",
+                    DesktopAICompanion.Wpf.OptionsWindow.WorkAreaInDips(new System.Drawing.Rectangle(0, 0, 1366, 728), 96) == plainPanel);
+                ok &= Check(sb, "...and a DPI the API could not answer (0) is treated as 96 rather than divided by",
+                    DesktopAICompanion.Wpf.OptionsWindow.WorkAreaInDips(new System.Drawing.Rectangle(0, 0, 1366, 728), 0) == plainPanel);
 
                 // Two schema panes, both with a Save so Apply is on screen; the first carries a
                 // ReloadPaneAfter action whose task completes when this test says so, and a title long
@@ -1279,10 +1376,12 @@ namespace DesktopAICompanion
                     window.SelectedNavIndex == 0 && window.CurrentPaneTitle == slowPane.Title);
                 // The constructor must USE the fit. On a roomy display both numbers are 820, so the source
                 // invariant in runtime-hardening-selftest.ps1 is what pins the call itself; this pins that
-                // the two agree on whatever display the gate runs on.
-                ok &= Check(sb, "the window asks for the size the fit says for this display's work area",
+                // the two agree on whatever display the gate runs on. Against the monitor under the cursor
+                // (RA-326), read a moment after the constructor read it: the same monitor unless the mouse
+                // crosses a monitor edge between the two reads, which no unattended run does.
+                ok &= Check(sb, "the window asks for the size the fit says for the monitor it opens on",
                     window.Height == DesktopAICompanion.Wpf.OptionsWindow.InitialSize(
-                        preferredSize, minimumSize, System.Windows.SystemParameters.WorkArea).Height);
+                        preferredSize, minimumSize, DesktopAICompanion.Wpf.OptionsWindow.StartupWorkArea()).Height);
 
                 // 14b) F377. The nav ListBox brings its own ScrollViewer with WPF's horizontal Auto, and in
                 // dark mode every ScrollBar takes a vertical-only template: a title wider than the column
@@ -1345,6 +1444,40 @@ namespace DesktopAICompanion
                                 StatusOf(rebuiltButtons[0]).Text == "✓ reset");
                         }
                         else ok &= Check(sb, "the slow pane rendered its action button again", false);
+
+                        // THE SAME PANE (RA-329, RA-330). The F375 guard keyed on pane identity, and the pane
+                        // object is the same for every view of it, so a slow action's continuation from a
+                        // view the user had left and come back to (or one a faster action had already
+                        // rebuilt) still passed it and rebuilt over the FRESH view: its edits gone, the
+                        // torn-down view's stash shown in their place. The guard now keys on the build the
+                        // view was made under. Start the slow action on this view (V1), leave and return (a
+                        // fresh view, V2), edit V2, then let V1's action finish.
+                        var v1Buttons = new List<System.Windows.Controls.Button>();
+                        CollectAll(window.CurrentContent as System.Windows.DependencyObject, v1Buttons);
+                        if (v1Buttons.Count == 1)
+                        {
+                            v1Buttons[0].RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                            ok &= Check(sb, "the user leaves the slow pane and comes back while its action still runs",
+                                slowAction != null && !slowAction.Task.IsCompleted &&
+                                window.ShowPane("Other") && window.ShowPane(slowPane.Title) && window.SelectedNavIndex == 0);
+                            object v2Content = window.CurrentContent;
+                            var v2TextBoxes = new List<System.Windows.Controls.TextBox>();
+                            CollectAll(v2Content as System.Windows.DependencyObject, v2TextBoxes);
+                            if (v2TextBoxes.Count == 1) v2TextBoxes[0].Text = "typed on the fresh view";
+                            slowAction.SetResult("✓ reset");
+                            PumpDispatcher();
+                            ok &= Check(sb, "a ReloadPaneAfter action finishing from a torn-down view of the SAME pane does not rebuild over the fresh view",
+                                ReferenceEquals(window.CurrentContent, v2Content) && window.CurrentPaneTitle == slowPane.Title);
+                            ok &= Check(sb, "...the fresh view keeps its edit and its Apply stays lit",
+                                v2TextBoxes.Count == 1 && v2TextBoxes[0].Text == "typed on the fresh view" && window.IsDirty);
+                            ok &= Check(sb, "...and nothing is stashed for the next build of that pane either",
+                                !DesktopAICompanion.Wpf.PaneView.ActionRebuildIsStashed);
+                            // Leave by nav click (discards) and come back clean, so the redirect checks below
+                            // start from the undirtied window they were written against.
+                            ok &= Check(sb, "a nav click away and back leaves the pane clean again",
+                                window.ShowPane("Other", true) && window.ShowPane(slowPane.Title) && !window.IsDirty);
+                        }
+                        else ok &= Check(sb, "the slow pane rendered its action button for the same-pane case", false);
                     }
                 }
                 finally { System.Threading.SynchronizationContext.SetSynchronizationContext(previousContext); }
@@ -1371,6 +1504,26 @@ namespace DesktopAICompanion
                     ok &= Check(sb, "WITNESS the same redirect told to discard the edits goes through, and the new pane is clean",
                         window.ShowPane(slowPane.Title, true) && window.CurrentPaneTitle == slowPane.Title && !window.IsDirty);
                 }
+
+                // A BUSY custom pane refuses a redirect on the same terms (RA-328). A custom pane is never
+                // dirty -- it has no Apply -- so the F368 guard let the module-update balloon land on Modules
+                // over a Companions download and cancel it with the pane. The pane reports through
+                // IBusyPane; the probe control here stands in for the two shipped panes' download counters.
+                var busyProbe = new BusyProbeControl();
+                var busyWindow = new DesktopAICompanion.Wpf.OptionsWindow(new List<DesktopAICompanion.Wpf.ShellPane>
+                {
+                    new DesktopAICompanion.Wpf.CustomShellPane("Busy probe", delegate { return busyProbe; }),
+                    new DesktopAICompanion.Wpf.SchemaShellPane(otherPane),
+                });
+                ok &= Check(sb, "WITNESS a custom pane with nothing in flight lets a redirect by title through",
+                    !busyWindow.IsCurrentPaneBusy && busyWindow.ShowPane("Other") && busyWindow.CurrentPaneTitle == "Other");
+                ok &= Check(sb, "back to the custom pane",
+                    busyWindow.ShowPane("Busy probe") && busyWindow.CurrentPaneTitle == "Busy probe");
+                busyProbe.Busy = true;
+                ok &= Check(sb, "a redirect by title is REFUSED while the custom pane has a download in flight, and the pane stays",
+                    busyWindow.IsCurrentPaneBusy && !busyWindow.ShowPane("Other") && busyWindow.CurrentPaneTitle == "Busy probe");
+                ok &= Check(sb, "...and the same redirect told to discard goes through",
+                    busyWindow.ShowPane("Other", true) && busyWindow.CurrentPaneTitle == "Other");
 
                 // ---- AN "AVAILABLE TO DOWNLOAD" CARD SAYS WHAT THE PET CONTAINS ----
                 // An installed card has always carried "N animations  ·  M sounds"; a download card carried
@@ -1522,6 +1675,14 @@ namespace DesktopAICompanion
         }
 
         private static bool Check(StringBuilder sb, string name, bool cond) { sb.AppendLine((cond ? "PASS: " : "FAIL: ") + name); return cond; }
+
+        /// <summary>A custom pane control whose busy state the test sets by hand, standing in for the
+        /// Companions and Modules panes' download counters (RA-328).</summary>
+        private sealed class BusyProbeControl : System.Windows.Controls.ContentControl, DesktopAICompanion.Wpf.IBusyPane
+        {
+            public bool Busy;
+            public bool IsBusy { get { return Busy; } }
+        }
 
         // Run everything queued on this thread's dispatcher at Normal priority or above. The awaited
         // continuation of a pane action is posted there, and a headless self-test has no message loop

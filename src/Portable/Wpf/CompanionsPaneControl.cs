@@ -26,8 +26,13 @@ namespace DesktopAICompanion.Wpf
     /// classic Options window used, reused here through <see cref="RemoteCatalogClient"/>. Use/Add apply
     /// immediately through the runtime, so this pane has no separate Apply button.
     /// </summary>
-    internal sealed class CompanionsPaneControl : ContentControl
+    internal sealed class CompanionsPaneControl : ContentControl, IBusyPane
     {
+        /// <summary>Downloads in flight (FetchPetAsync). Read by the shell through <see cref="IBusyPane"/>, so
+        /// a redirect by title is refused while one runs instead of cancelling it with the pane (RA-328).</summary>
+        private int _downloadsInFlight;
+        public bool IsBusy { get { return _downloadsInFlight > 0; } }
+
         private readonly CompanionsController _pets;
         private readonly WrapPanel _grid = new WrapPanel { Margin = new Thickness(4) };
         private readonly TextBlock _availableHeader = new TextBlock
@@ -777,6 +782,7 @@ namespace DesktopAICompanion.Wpf
 
             if (trigger != null) trigger.IsEnabled = false;
             _status.Text = (isUpdate ? "Updating " : "Downloading ") + display + "…";
+            _downloadsInFlight++;
             try
             {
                 if (_netCts == null) _netCts = new CancellationTokenSource();
@@ -832,7 +838,11 @@ namespace DesktopAICompanion.Wpf
                 if (IsLoaded) _status.Text = "Stopped " + (isUpdate ? "updating " : "downloading ") + display + ".";
             }
             catch (Exception ex) { if (IsLoaded) _status.Text = "Couldn't " + (isUpdate ? "update " : "download ") + display + ": " + PaneText.Short(ex.Message); }
-            finally { if (IsLoaded && trigger != null) trigger.IsEnabled = true; }
+            finally
+            {
+                _downloadsInFlight--;
+                if (IsLoaded && trigger != null) trigger.IsEnabled = true;
+            }
         }
 
         /// <summary>How the installed copy of a catalog pet compares to the catalog. Delegates to

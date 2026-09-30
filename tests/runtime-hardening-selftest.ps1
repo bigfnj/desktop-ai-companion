@@ -2156,16 +2156,20 @@ Assert-True (
 
 # The window is FITTED to the work area before it is shown (F372). --wpf-options-selftest proves the pure
 # InitialSize on displays this box does not have; this pins that the constructor CALLS it with the live work
-# area and takes both axes from the answer, with no fixed height left standing beside it.
+# area and takes both axes from the answer, with no fixed height left standing beside it. The work area is
+# the one StartupWorkArea reads for the monitor under the cursor, where an ownerless CenterScreen opens
+# (RA-326, re-pointed by lane burn/host-shell): SystemParameters.WorkArea is the PRIMARY's and let a
+# shorter secondary monitor open the caption off-screen, so its presence in the constructor is the old shape.
 $optionsCtorBody = Get-MethodBody $optionsWindowCodeHost 'public OptionsWindow(IReadOnlyList<ShellPane> panes, string initialPaneTitle = null)' `
     @("`n        private ", "`n        internal ", "`n        public ", "`n        protected ")
 Assert-True ($optionsCtorBody.Length -gt 0) 'the OptionsWindow constructor was located'
 Assert-True (
-    $optionsCtorBody -cmatch 'InitialSize\(PreferredSize, MinimumSize, SystemParameters\.WorkArea\)' -and
+    $optionsCtorBody -cmatch 'InitialSize\(PreferredSize, MinimumSize, StartupWorkArea\(\)\)' -and
+    $optionsCtorBody -cnotmatch 'InitialSize\(PreferredSize, MinimumSize, SystemParameters\.WorkArea\)' -and
     $optionsCtorBody -cmatch 'Height = fitted\.Height;' -and
     $optionsCtorBody -cmatch 'Width = fitted\.Width;' -and
     $optionsCtorBody -cnotmatch 'Height = 820;'
-) 'the settings window opens at a size fitted to the primary work area, never at a fixed 820'
+) 'the settings window is fitted to the monitor it opens on, not the primary or a fixed 820'
 
 # Every LocalData setter in the Preferences Save folds its durable result into ok (F369). Five diagnostic-log
 # setters discarded it, so a failed save of only those fields greyed Apply out without the "could not be
