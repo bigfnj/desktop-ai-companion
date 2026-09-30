@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 using DesktopAICompanion.Ai;
 using DesktopAICompanion.ModuleKit;   // AtomicFile / CrossSessionLock / UnicodeTextProgress
@@ -160,6 +161,85 @@ namespace DesktopAICompanion.FortunesModule
                 ok &= Check(sb, "null and empty are handled",
                     FortuneProvider.DecodeScrapedText(null) == null &&
                     FortuneProvider.DecodeScrapedText("") == "");
+
+                // ---- pack files that are not what they look like (F130, F132) ----
+                // Driven through TryValidateCustomPackBytes, the validator the folder loader and the
+                // importer share, so one fixture speaks for both admission paths. The rows are the shape of
+                // every shipped pack: tagged, UNDECLARED (no #!desktop-pet-fortunes-v2 line).
+                const string rowA = "dadjokes\tfamily\tjoke\tgeneral\t0\tWhy did the scarecrow win an award? He was outstanding in his field.";
+                const string rowB = "dadjokes\tfamily\tjoke\tgeneral\t0\tI used to hate facial hair, but then it grew on me.";
+                int rows;
+                string why;
+                ok &= Check(sb, "WITNESS an undeclared tagged pack with valid rows is admitted as tagged (two rows, two entries)",
+                    ValidatePack(rowA + "\n" + rowB, out rows, out why) && rows == 2);
+                // The F130 fault: the strict parse fails on the blank line, and the file used to fall back to
+                // prose, where each row became a valid fortune beginning "dadjokes family joke general 0 ".
+                ok &= Check(sb, "an undeclared tagged pack with one blank line is refused, not demoted to prose that recites its metadata",
+                    !ValidatePack(rowA + "\n\n" + rowB, out rows, out why) &&
+                    why.IndexOf("malformed", StringComparison.Ordinal) >= 0);
+                ok &= Check(sb, "an undeclared tagged pack with one dropped tab is refused too",
+                    !ValidatePack(rowA + "\n" + rowB.Replace("\tjoke\t", " joke\t"), out rows, out why));
+                // The damaged row FIRST: a heuristic that read only the first line demoted this one.
+                ok &= Check(sb, "an undeclared tagged pack whose FIRST row is the damaged one is refused as well",
+                    !ValidatePack(rowA.Replace("\tjoke\t", " joke\t") + "\n" + rowB, out rows, out why));
+                ok &= Check(sb, "WITNESS prose whose columns merely look like metadata is still admitted as prose",
+                    ValidatePack("Ordinary advice\ttech\tquip\tkeeps\tthese\twords understandable.", out rows, out why) && rows == 1);
+                // The F132 fault: the text column was validated BEFORE HTML decoding, so a column that
+                // decodes to nothing, or to a control character, entered the pool.
+                ok &= Check(sb, "WITNESS an escaped ampersand in a tagged row is admitted, decoded",
+                    ValidatePack(rowA + "\nprobe\tlife\tquip\tgeneral\t0\tme &amp; Dave were drunk at the party", out rows, out why) && rows == 2);
+                ok &= Check(sb, "a tagged row whose text is only escaped zero-width spaces is refused after decoding (line 2 named), instead of entering the pool as an empty fortune",
+                    !ValidatePack(rowA + "\nprobe\tlife\tquip\tgeneral\t0\t&amp;#x200B; &amp;#x200B; &amp;#x200B;", out rows, out why) &&
+                    why.IndexOf("line 2", StringComparison.Ordinal) >= 0);
+                ok &= Check(sb, "a tagged row that decodes to a control character is refused",
+                    !ValidatePack(rowA + "\nprobe\tlife\tquip\tgeneral\t0\tA tab&#9;hides inside this fortune text.", out rows, out why));
+
+                // ---- one bad file in the folder (F129) ----
+                string folder = Path.Combine(Path.GetTempPath(),
+                    "DesktopAICompanion-fortune-folder-" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(folder);
+                    var utf8 = new UTF8Encoding(false);
+                    // A lone high surrogate in the file NAME. NTFS accepts it, EnumerateFiles returns it,
+                    // it sorts before "b-", and String.Normalize on that stem throws inside the classifier;
+                    // the loop's single try then dropped every pack after it.
+                    File.WriteAllText(Path.Combine(folder, "a\uD800.txt"),
+                        "A plain fortune whose file name is broken.", utf8);
+                    File.WriteAllText(Path.Combine(folder, "b-valid.txt"),
+                        "A plain fortune that must still load.", utf8);
+                    FortuneProvider.CustomLoadSkips skips;
+                    List<FortuneEntry> loaded = FortuneProvider.LoadCustomDirectoryForDiagnostics(folder, out skips);
+                    ok &= Check(sb, "a pack whose file name holds an unpaired surrogate does not take the packs after it down with it",
+                        loaded.Count == 1 && loaded[0].Source == "b-valid");
+                    ok &= Check(sb, "...and is counted as a refused name, not as an error",
+                        skips.BadName == 1 && skips.Error == 0 && skips.Total == 1);
+
+                    // Junk before the packs must not spend the file-slot cap: a folder capped at ONE pack,
+                    // holding an unreadable file and a valid one, loads the valid one.
+                    string capped = Path.Combine(folder, "capped");
+                    Directory.CreateDirectory(capped);
+                    File.WriteAllBytes(Path.Combine(capped, "a-junk.txt"),
+                        new byte[] { 0x41, 0xFF, 0x42, 0x20, 0x43, 0x44, 0x45, 0x46, 0x47 });
+                    File.WriteAllText(Path.Combine(capped, "b-valid.txt"),
+                        "A plain fortune that must still load.", utf8);
+                    List<FortuneEntry> underCap = FortuneProvider.LoadCustomDirectoryForDiagnostics(
+                        capped, 1, 4096, 4096, 100, out skips);
+                    ok &= Check(sb, "an unreadable file sorted first does not consume the only pack slot",
+                        underCap.Count == 1 && skips.Unreadable == 1);
+                    ok &= Check(sb, "the skip line carries categories and counts, never a name",
+                        FortuneProvider.DescribeSkips(skips) ==
+                        "pack files skipped: malformed=0 unreadable=1 oversized=0 bad-name=0 over-budget=0 error=0");
+                }
+                finally
+                {
+                    try { if (Directory.Exists(folder)) Directory.Delete(folder, true); } catch { }
+                }
+                ok &= Check(sb, "no refused packs, no note on the pane",
+                    FortunesModule.SkippedPacksNote(0) == "");
+                ok &= Check(sb, "refused packs are counted on the pane and point at the log",
+                    FortunesModule.SkippedPacksNote(2).IndexOf("2 pack files", StringComparison.Ordinal) >= 0 &&
+                    FortunesModule.SkippedPacksNote(2).IndexOf("log", StringComparison.Ordinal) >= 0);
 
                 // A COLLAPSED pool must announce itself. This is the bug behind "the same dad joke five times
                 // today": 157 of 190 sources were switched off, leaving exactly one pack of 2,794 lines, and
@@ -412,6 +492,15 @@ namespace DesktopAICompanion.FortunesModule
                     if (line.Length > 0) sb.AppendLine("      " + line);
             }
             catch { }
+        }
+
+        /// <summary>One pack's content through the shared admission validator, as the loader and the
+        /// importer both see it.</summary>
+        private static bool ValidatePack(string content, out int rows, out string error)
+        {
+            return FortuneProvider.TryValidateCustomPackBytes(
+                new UTF8Encoding(false).GetBytes(content), "dadjokes",
+                FortunePackLoadPolicy.MaximumEntries, out rows, out error);
         }
 
         private static bool Check(StringBuilder sb, string name, bool cond) { sb.AppendLine((cond ? "PASS: " : "FAIL: ") + name); return cond; }

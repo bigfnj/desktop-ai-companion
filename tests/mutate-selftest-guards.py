@@ -493,6 +493,73 @@ CASES = (
 
     # ---- lane fix/fortunes ----
 
+    # Every case runs the module's own SelfTest through the convention flag, which is where the probe's
+    # assertions live since 1.0.11. Names carry the "fortunes:" prefix so `--only=fortunes:` runs the lane.
+
+    # F130: an undeclared tagged pack with one strict-parse fault fell back to prose and recited its own
+    # metadata. The guard is the looks-tagged test before the fallback; this disables it.
+    ("fortunes: a faulty undeclared tagged pack is demoted to prose again",
+     FORTUNE_PROVIDER,
+     b"                if (LooksTagged(content))",
+     b"                if (LooksTagged(content) && content.Length < 0)",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "one blank line is refused, not demoted to prose"),
+
+    # F132: the text column was validated RAW and decoded afterwards. This puts the raw column back
+    # into the validator, so an entity-only text decodes to "" and enters the pool again.
+    ("fortunes: the tagged text column is validated before it is decoded again",
+     FORTUNE_PROVIDER,
+     b"            string text = DecodeScrapedText(fields[5]);\n"
+     b"            if (!ValidateCommonFields(fields[0], fields[3], fields[4], text, out error))",
+     b"            string text = DecodeScrapedText(fields[5]);\n"
+     b"            if (!ValidateCommonFields(fields[0], fields[3], fields[4], fields[5], out error))",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "only escaped zero-width spaces is refused after decoding"),
+
+    # F129 (name): drop the unpaired-surrogate refusal. The per-file catch still keeps the later pack
+    # alive, so the check that fires is the one saying WHY the file was refused: it now reads as an
+    # exception, not as a bad name.
+    ("fortunes: a lone surrogate in a pack's file name is accepted as a source id again",
+     FORTUNE_PROVIDER,
+     b"                   !ContainsControlCharacter(source) &&\n"
+     b"                   !ContainsUnpairedSurrogate(source);",
+     b"                   !ContainsControlCharacter(source);",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "counted as a refused name, not as an error"),
+
+    # F129 (slot): a refused file spends a pack slot again, as it did before the charge moved after
+    # the parse.
+    ("fortunes: a refused pack file consumes a pack slot again",
+     FORTUNE_PROVIDER,
+     b"                    if (staged == null)\n"
+     b"                    {\n"
+     b"                        CountSkip(skips, skip);\n"
+     b"                        continue;\n"
+     b"                    }",
+     b"                    if (staged == null)\n"
+     b"                    {\n"
+     b"                        CountSkip(skips, skip);\n"
+     b"                        files++;\n"
+     b"                        continue;\n"
+     b"                    }",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "does not consume the only pack slot"),
+
+    # F130 (surfacing): the pane's note about refused pack files goes quiet.
+    ("fortunes: the pane stops mentioning refused pack files",
+     FORTUNES_MODULE,
+     b"            if (skipped <= 0) return \"\";\n"
+     b"            return \" \xe2\x9a\xa0 \"",
+     b"            if (skipped <= 0 || skipped > 0) return \"\";\n"
+     b"            return \" \xe2\x9a\xa0 \"",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "refused packs are counted on the pane"),
+
 
     # ---- lane fix/petstudio ----
 
@@ -512,6 +579,8 @@ BASELINES = (
     ("--fortunes-engine-selftest", "dp-fortunes-engine-selftest.txt"),
     ("--petstudio-selftest", "dp-petstudio-selftest.txt"),
     ("--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt"),
+    # Lane fix/fortunes' cases all run this flag; a red baseline here is refused, not scored.
+    ("--module-selftest=fortunes", "dp-module-fortunes-selftest.txt"),
     (CORETESTS, None),
 )
 

@@ -146,6 +146,9 @@ namespace DesktopAICompanion.FortunesModule
             // a sink attached afterwards would miss the first stand-down -- which is the one that
             // matters on a machine where the embedder never loads at all.
             SmartFortunes.LogSink = delegate(string line) { Log(line); };
+            // The loader's sink too, for the same reason: the first folder parse is the one inside
+            // RebuildEngine, and a pack it refuses is refused right there.
+            FortuneProvider.LogSink = delegate(string line) { Log(line); };
             RebuildEngine();
 
             host.CompanionSpawned += OnPetSpawned;
@@ -1180,7 +1183,22 @@ namespace DesktopAICompanion.FortunesModule
             }
             catch { }
 
-            return PoolStatusFor(lines, packs, total);
+            return PoolStatusFor(lines, packs, total) + SkippedPacksNote(FortuneProvider.SkippedCustomPacks);
+        }
+
+        /// <summary>
+        /// The pane's word about pack files the loader refused. "" when none: a refusal is the exception,
+        /// and a note that is always there is wallpaper. The reason it exists: a damaged pack used to be
+        /// either recited as prose (F130) or dropped with nothing said anywhere, and the pool count beside
+        /// this note looked normal both times. Categories and counts live in the diagnostic log; the pane
+        /// says how many and where to look.
+        /// </summary>
+        internal static string SkippedPacksNote(int skipped)
+        {
+            if (skipped <= 0) return "";
+            return " ⚠ " + Invariant(skipped) + " pack file" + (skipped == 1 ? "" : "s") +
+                   " in the fortunes folder " + (skipped == 1 ? "was" : "were") +
+                   " skipped (malformed rows, or a file the loader could not read) — see the diagnostic log.";
         }
 
         /// <summary>
@@ -1472,6 +1490,7 @@ namespace DesktopAICompanion.FortunesModule
             // Static, so it outlives the instance unless dropped here. Same contract as
             // AiBrain.LogSink, which is nulled in its own Shutdown for the same reason.
             SmartFortunes.LogSink = null;
+            FortuneProvider.LogSink = null;
             _provider = null;
             _host = null;
         }
