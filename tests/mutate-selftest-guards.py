@@ -109,6 +109,7 @@ APPSETTINGS_STORE = os.path.join(REPO, "src", "Portable", "AppSettingsStore.cs")
 APPPATHS = os.path.join(REPO, "src", "Portable", "AppPaths.cs")
 # The pseudo-flag a case names to run CoreTests instead of the host exe. Its marker is None.
 CORETESTS = "CORETESTS"
+CORETESTS_PROGRAM = os.path.join(REPO, "tests", "DesktopAICompanion.CoreTests", "Program.cs")
 
 # --security-selftest writes no marker either: SecuritySelfTest.Check prints "[PASS] x" / "[FAIL] x" to
 # stdout and Program exits Run() ? 0 : 1 (tests/Invoke-SelfTests.ps1 registers it with a $null marker for
@@ -2159,6 +2160,15 @@ CASES = (
      TESTMODULE_CSPROJ, TESTMODULE_DLL,
      "--module-host-selftest", "dp-module-host-selftest.txt",
      "the poke was routed to the poked pet, not broadcast"),
+
+    # F385: the pet-mix merge fixture's seed has to BIND. The pre-rename "pets" key rode along as extension data
+    # for three weeks while the mix under test started empty; the fixture now asserts the seeded mix was read.
+    ("deadcode: the merge fixture seeds the pre-rename pets key again",
+     CORETESTS_PROGRAM,
+     b"                \"  \\\"companions\\\": [ { \\\"id\\\": \\\"pingus\\\", \\\"count\\\": 1 } ],\\n\" +",
+     b"                \"  \\\"pets\\\": [ { \\\"id\\\": \\\"pingus\\\", \\\"count\\\": 1 } ],\\n\" +",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Merge fixture's seeded mix was not read"),
 )
 
 BASELINES = (

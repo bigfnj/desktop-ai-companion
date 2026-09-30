@@ -38,9 +38,23 @@ dotnet run --project tests\fullscreen-standdown-probe\walkcount.csproj -c Releas
 ```
 
 `walkcount.csproj` also carries the EnumWindows walk counter used to measure the shared-scan change
-(679 callbacks / 781 user32 calls when the early exit cannot fire), and `standdown-ab.ps1` is the
-phase-swept A/B driver. The phase sweep is not optional: a fixed delay reported a 150 ms regression
-that did not exist, because the probe was phase-locked to a scan cycle anchored on companion spawn.
+(679 callbacks / 781 user32 calls when the early exit cannot fire; that is the `walk-uncovered` mode, an extra
+off-desktop monitor whose centre nothing covers, so the early exit never fires):
+
+```powershell
+dotnet run --project tests\fullscreen-standdown-probe\walkcount.csproj -c Release -- walk-uncovered
+```
+
+`standdown-ab.ps1` is the phase-swept A/B driver. Both arms are built exes and the baseline is a build of the
+parent commit (`git worktree add <tmp> HEAD~1`, build there):
+
+```powershell
+dotnet build tests\fullscreen-standdown-probe\walkcount.csproj -c Release
+tests\fullscreen-standdown-probe\standdown-ab.ps1 -Baseline <parent-build>\DesktopAICompanion.exe -Changed <this-build>\DesktopAICompanion.exe
+```
+
+The phase sweep is not optional: a fixed delay reported a 150 ms regression that did not exist, because
+the probe was phase-locked to a scan cycle anchored on companion spawn.
 
 ## What it does NOT cover
 

@@ -398,13 +398,6 @@ namespace DesktopAICompanion.Wpf
     }
 
     /// <summary>
-    /// Renders one <see cref="OptionsPane"/>'s schema into WPF controls and collects/persists edited values
-    /// via the pane's Load/Save. Kept separate + headless-constructable (STA) so the render + Load/Save
-    /// round-trip is unit-testable without showing a window. Secret fields are write-only: the box starts
-    /// empty (a "leave blank to keep the current one" hint when a secret is already set) and only a
-    /// non-empty entry is sent back on Save.
-    /// </summary>
-    /// <summary>
     /// A small masonry (column-balancing) panel: children flow into a responsive number of equal-width
     /// columns, and each child is placed in the currently-shortest column. Unlike a WrapPanel — rigid rows
     /// where a short card sitting next to a tall one stretches into a big empty box — this packs cards of
@@ -520,6 +513,13 @@ namespace DesktopAICompanion.Wpf
         }
     }
 
+    /// <summary>
+    /// Renders one <see cref="OptionsPane"/>'s schema into WPF controls and collects/persists edited values
+    /// via the pane's Load/Save. Kept separate + headless-constructable (STA) so the render + Load/Save
+    /// round-trip is unit-testable without showing a window. Secret fields are write-only: the box starts
+    /// empty (a "leave blank to keep the current one" hint when a secret is already set) and only a
+    /// non-empty entry is sent back on Save.
+    /// </summary>
     internal sealed class PaneView
     {
         private readonly OptionsPane _pane;
@@ -1333,15 +1333,6 @@ namespace DesktopAICompanion.Wpf
             return "✓ shown in Explorer";
         }
 
-        /// <summary>
-        /// The existence + containment check behind <see cref="PaneAction.RevealsPath"/>, kept apart from
-        /// the shell call so a refusal can be asserted without an Explorer window opening. Returns the path
-        /// to reveal, or null with the ✗ message to show beside the button.
-        ///
-        /// Containment is tested BEFORE existence, deliberately. The other order answers "does
-        /// C:\Users\someone\taxes.pdf exist?" for any path a module cares to return, one refusal message at
-        /// a time, which is a filesystem probe the plugin ABI does not otherwise offer.
-        /// </summary>
         /// <summary>The narrowest root this pane's action may reveal inside. Deliberately total: any
         /// failure to resolve an owner yields the data root, so a reveal can never be made MORE permissive
         /// by this lookup, only less.</summary>
@@ -1368,6 +1359,15 @@ namespace DesktopAICompanion.Wpf
             return DesktopAICompanion.Plugins.CompanionHost.ModuleDataDirectoryPath(ownerModuleId);
         }
 
+        /// <summary>
+        /// The existence + containment check behind <see cref="PaneAction.RevealsPath"/>, kept apart from
+        /// the shell call so a refusal can be asserted without an Explorer window opening. Returns the path
+        /// to reveal, or null with the ✗ message to show beside the button.
+        ///
+        /// Containment is tested BEFORE existence, deliberately. The other order answers "does
+        /// C:\Users\someone\taxes.pdf exist?" for any path a module cares to return, one refusal message at
+        /// a time, which is a filesystem probe the plugin ABI does not otherwise offer.
+        /// </summary>
         internal static string ResolveRevealTarget(string returned, string dataRoot, out string refusal)
         {
             refusal = null;

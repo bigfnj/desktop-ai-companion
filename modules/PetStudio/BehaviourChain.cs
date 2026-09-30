@@ -29,11 +29,7 @@ namespace DesktopAICompanion.PetStudioModule
         public int AnimationId;
         public string Name = "";
         public int Repeat = 1;
-
-        internal ChainStep Copy()
-        {
-            return new ChainStep { AnimationId = AnimationId, Name = Name, Repeat = Repeat };
-        }
+        // No Copy(): the timeline reorders by moving the same instance and nothing else copies a step (F152).
     }
 
     /// <summary>What the connector between two timeline chips says.</summary>

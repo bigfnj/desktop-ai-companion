@@ -858,6 +858,18 @@ assertion they were added for, and left the copies.
 Each is real and each is below the line this campaign drew: no behaviour, no gate, and in five cases a file another
 lane moved this week. They stay pinned in BACKLOG.md for the next sweep with this paragraph as their reason.
 
+**Tier B of lane fix/deadcode: what stays and why (2026-09-30, F154, F223, F410, F015, ACCEPTED-RECORDED).**
+PetReport.Describe() is asserted by the gate while PetStudioWindow renders its own text (F154): the fix is one
+rendering for both, and it lives in a file fix/petstudio rewrote this week, so it waits. WiX 5.0.2 is a literal at
+six check sites in three packaging scripts beside the lock that names it (F223): one $script:LockedWixVersion in
+WixToolchainPolicy.ps1 is the shape, and Install-LockedWixToolchain.ps1, which carries three of the six, moved under
+fix/scripts. tests/runtime-hardening-selftest.ps1 reads nine source files under different names, 21 Get-Content
+calls, with two comment strippers (F410): a read-once table is right, and it is a merge hazard while three lanes
+append invariants to the file, so the rule meanwhile is that a NEW invariant reads through Remove-LineComments (or
+an existing stripped variable) and never slices a raw copy; the poke-sass check's ad hoc stripper is the one to
+retire first. agentflow_join.py's rule loop and call decomposition exist twice (F015) in a research script that
+grew by 329 lines on master this campaign; recorded for the next pass over that folder.
+
 #### fix/scripts
 
 (none yet)

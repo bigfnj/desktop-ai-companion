@@ -10,18 +10,35 @@
 # Two latencies per sample, because the invariant is per monitor:
 #   relocate  one monitor covered -> the companion is off it (moved, or hidden)
 #   hide      every monitor covered -> the companion is not visible at all
+#
+# Usage (both arms are BUILT exes; the baseline is a build of the parent commit, e.g. `git worktree add <tmp>
+# HEAD~1` then `.\build.ps1 -Release` there):
+#   .\standdown-ab.ps1 -Baseline <parent-build>\DesktopAICompanion.exe -Changed <this-build>\DesktopAICompanion.exe
+# The probe defaults to this folder's own Release build of walkcount.csproj; build it first. Until F394 the two
+# arms, the probe and the scratch root were hardcoded to one session's temp folder and a removed worktree, so
+# the script threw on every machine including the one it was written on.
 param(
     [int[]] $Phases = @(0, 40, 80, 120, 160, 200, 240, 280, 320, 360),
-    [string] $Baseline = 'C:\Users\Admin\AppData\Local\Temp\claude\d---ai-work\d5d95e35-1b61-45ed-92e3-76dd5d60d9ab\scratchpad\baseline2\build\DesktopAICompanionPortable\bin\Release\x64\DesktopAICompanion.exe'
+    [Parameter(Mandatory = $true)] [string] $Baseline,
+    [Parameter(Mandatory = $true)] [string] $Changed,
+    [string] $Probe = '',
+    [string] $WorkRoot = (Join-Path ([IO.Path]::GetTempPath()) ("standdown-ab-" + $PID))
 )
+$ErrorActionPreference = 'Stop'   # a failed Remove-Item or New-Item on a data root stops the run, never samples a dirty root
 
-$scratch = 'C:\Users\Admin\AppData\Local\Temp\claude\d---ai-work\d5d95e35-1b61-45ed-92e3-76dd5d60d9ab\scratchpad'
-$probe = Join-Path $scratch 'walkcount\bin\Release\net10.0-windows\walkcount.exe'
+# Resolved in the body, not as the parameter's default: Windows PowerShell 5.1 evaluates a script's parameter
+# defaults before $PSScriptRoot is set when the script is run with -File, and Join-Path then refuses the empty
+# string (measured 2026-09-30).
+if ([string]::IsNullOrEmpty($Probe)) { $Probe = Join-Path $PSScriptRoot 'bin\Release\net10.0-windows\walkcount.exe' }
+if (-not (Test-Path -LiteralPath $Probe)) {
+    throw "missing probe at $Probe -- build it first: dotnet build tests\fullscreen-standdown-probe\walkcount.csproj -c Release"
+}
 $arms = [ordered]@{
     BASELINE = $Baseline
-    CHANGED  = 'D:\.ai-work\projects\desktop-ai-companion\.claude\worktrees\agent-ae441f4a40aad1cde\build\DesktopAICompanionPortable\bin\Release\x64\DesktopAICompanion.exe'
+    CHANGED  = $Changed
 }
-foreach ($arm in $arms.Keys) { if (-not (Test-Path $arms[$arm])) { throw "missing $arm at $($arms[$arm])" } }
+foreach ($arm in $arms.Keys) { if (-not (Test-Path -LiteralPath $arms[$arm])) { throw "missing $arm at $($arms[$arm])" } }
+New-Item -ItemType Directory -Path $WorkRoot -Force | Out-Null
 
 $reloc = @{ BASELINE = @(); CHANGED = @() }
 $hide = @{ BASELINE = @(); CHANGED = @() }
@@ -30,15 +47,22 @@ $inconc = @{ BASELINE = 0; CHANGED = 0 }
 
 foreach ($phase in $Phases) {
     foreach ($arm in $arms.Keys) {
-        $root = Join-Path $scratch ("dataroot-ab2-" + $arm)
+        $root = Join-Path $WorkRoot ("dataroot-" + $arm)
         if (Test-Path $root) { Remove-Item -Recurse -Force $root }
         New-Item -ItemType Directory -Path $root | Out-Null
-        $text = (& $probe standdown $arms[$arm] $root $phase 2>&1) -join "`n"
-        $r = [regex]::Match($text, 'step3 nothing on a blocked monitor=(\w+) after (\d+)ms')
+        $text = (& $Probe standdown $arms[$arm] $root $phase 2>&1) -join "`n"
+        # The labels StandDown.cs prints today; the old pattern predated the committed probe and would have read
+        # every relocate latency as 0 ms ([int]'' is 0), so a PASS with no matching line is a parse failure here.
+        $r = [regex]::Match($text, 'step3 (?:relocated to a free monitor|off the blocked monitor)=(\w+) after (\d+)ms')
         $h = [regex]::Match($text, 'step5 every companion hidden=(\w+) after (\d+)ms')
         if ($text -match 'RESULT=INCONCLUSIVE') {
             $inconc[$arm]++
             Write-Host ("phase {0,4} {1,-8} INCONCLUSIVE" -f $phase, $arm)
+            continue
+        }
+        if ($text -match 'RESULT=PASS' -and (-not $r.Success -or -not $h.Success)) {
+            $fails[$arm]++
+            Write-Host ("phase {0,4} {1,-8} PARSE-FAIL  the probe passed but printed no step3/step5 latency line this driver recognises" -f $phase, $arm)
             continue
         }
         if ($text -match 'RESULT=PASS') {

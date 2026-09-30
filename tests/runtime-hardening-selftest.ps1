@@ -1,10 +1,9 @@
 ﻿[CmdletBinding()]
-param(
-    # Accepted for CI compatibility but unused: this script now performs only source-text invariant
-    # checks (it reads .cs files, no assembly load). The reflection/runtime half moved in-process to
-    # the app's --hardening-selftest flag (no PowerShell hosts a net10 assembly).
-    [string] $ExecutablePath
-)
+param()
+# No parameters. This script performs only source-text invariant checks (it reads .cs files, no assembly
+# load); the reflection/runtime half is the app's --hardening-selftest flag, driven by tests\Invoke-SelfTests.ps1.
+# An -ExecutablePath parameter sat here "for CI compatibility" long after every caller (run-gate.ps1, build.yml,
+# two mutation harnesses) had stopped passing one (F408).
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest

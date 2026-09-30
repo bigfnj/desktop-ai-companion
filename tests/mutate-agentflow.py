@@ -70,7 +70,6 @@ MODE = os.path.join(MODULE_DIR, "AgentMode.cs")
 QUIPS = os.path.join(MODULE_DIR, "Quips.cs")
 FEED = os.path.join(MODULE_DIR, "ApprovalFeed.cs")
 PETANIM = os.path.join(MODULE_DIR, "PetAnimations.cs")
-PANE = os.path.join(MODULE_DIR, "AgentFlowPane.cs")
 VSCODE = os.path.join(MODULE_DIR, "VsCodeSetup.cs")
 RULELOADER = os.path.join(MODULE_DIR, "RuleLoader.cs")
 CURSOR = os.path.join(MODULE_DIR, "TranscriptCursor.cs")
@@ -263,12 +262,15 @@ CASES = (
     # This is the half an approval module owes the user: what it LET THROUGH. The privacy case is
     # the one that matters, because this line goes to a log SUPPORT.md tells users to attach to a
     # public issue tracker.
+    # ONE mutant, TWO fragments, both required (F400): this case and "the command reaches the tally the log is
+    # built from" compiled and ran the same BlockedDetector mutant twice to check two labels; the tuple asks
+    # for both in one run, and the grader requires EVERY fragment, so deleting either assertion still fires.
     (
-        "the approval line carries the whole command",
+        "the approval line carries the whole command, and the tally too",
         DETECTOR,
         "                string root = RootExecutable(call);",
         "                string root = call.Command ?? RootExecutable(call);",
-        "approval line carries no command text",
+        ("approval line carries no command text", "the tally the log is built from carries no command text"),
     ),
     (
         "an executable given by an absolute path keeps the path",
@@ -626,13 +628,6 @@ CASES = (
         '            return flat.Length <= Max ? flat : flat.Substring(0, Max - 1) + "\u2026";',
         "            return flat;",
         "a very long command is capped",
-    ),
-    (
-        "the command reaches the tally the log is built from",
-        DETECTOR,
-        "                string root = RootExecutable(call);",
-        "                string root = call.Command ?? RootExecutable(call);",
-        "the tally the log is built from carries no command text",
     ),
     # Reading a pet's own animations. The last case is the defect this replaces.
     (
@@ -1330,14 +1325,21 @@ def score():
                 continue
 
             lines = failing_lines(report)
-            hit = [line for line in lines if expected in line]
-            if hit:
+            # `expected` may be a tuple of fragments; EVERY one must appear among the failing lines. An
+            # any-match would let a merged case pass with one of its assertions deleted, which is exactly
+            # the coverage loss this harness exists to catch (F400).
+            fragments = expected if isinstance(expected, tuple) else (expected,)
+            hit = [line for line in lines if any(fragment in line for fragment in fragments)]
+            missing = [fragment for fragment in fragments if not any(fragment in line for line in lines)]
+            if hit and not missing:
                 fired += 1
                 extra = (" (+%d other failures)" % (len(lines) - len(hit))) if len(lines) > len(hit) else ""
                 print("  %-52s FIRED%s" % (name, extra))
                 print("        %s" % hit[0])
             else:
                 print("  %-52s WRONG -- failed on something else:" % name)
+                for fragment in missing:
+                    print("        missing: %s" % fragment)
                 for line in lines[:3]:
                     print("        %s" % line)
     finally:

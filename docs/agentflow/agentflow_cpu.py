@@ -93,6 +93,12 @@ PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
 MAX_PATH = 260
 
+# Windows only, and said HERE: the WinDLL binding on the next line raises AttributeError on any other platform
+# before main() can print anything, so the guard that used to sit in main() was unreachable (F013).
+if sys.platform != "win32":
+    print("windows only: this reads CPU times through kernel32", file=sys.stderr)
+    sys.exit(2)
+
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 
 
@@ -861,9 +867,6 @@ def main():
     parser.add_argument("--quiet", action="store_true", help="CSV only, no console rows")
     args = parser.parse_args()
 
-    if sys.platform != "win32":
-        print("windows only: this reads CPU times through kernel32", file=sys.stderr)
-        return 2
     if args.verify:
         return verify()
     if args.report:

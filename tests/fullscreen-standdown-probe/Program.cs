@@ -16,6 +16,12 @@
 //   decide      one cold decision pass, print the allocation delta
 //   time-walk   cold-first-call stopwatch around ONE walk, then exit (for interleaving)
 //   time-decide cold-first-call stopwatch around ONE decision pass, then exit
+//   walk-uncovered       one cold walk with an extra off-desktop monitor whose centre nothing covers, so
+//                        the early exit never fires: the realistic worst case, and where the 679-callback /
+//                        781-call figure FormCompanion.cs and README.md quote came from (F392)
+//   time-walk-uncovered  the stopwatch form of the same
+//   standdown <exe> <dataRoot> [phaseDelayMs]
+//                        the end-to-end stand-down probe against a built app (README.md, RELEASE-CHECKLIST.md)
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -305,6 +311,8 @@ internal static class Program
         }
 
         Console.Error.WriteLine("unknown mode " + mode);
+        Console.Error.WriteLine("modes: walk, walk-fs, walk-uncovered, decide, time-walk, time-walk-uncovered, time-decide, "
+            + "standdown <exe> <dataRoot> [phaseDelayMs]");
         return 2;
     }
 }

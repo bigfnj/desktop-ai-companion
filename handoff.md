@@ -1789,10 +1789,11 @@ The precise rebind detail is in the `project-desktoppet` memory note.
 
 - **Build:** `pwsh build.ps1 -Release [-Zip]` → base + all modules into `build\DesktopAICompanionPortable\bin\
   Release\x64\` (modules under `modules\<id>\`). `installer\build-installer.ps1 -Config Release` → MSI (WiX
-  5.0.2). Root `global.json` pins the SDK to **exactly 10.0.302** (`rollForward: disable`), and all three
-  CI jobs install that same version via setup-dotnet, so a local build and a CI build use one SDK. A
-  different patch fails fast rather than quietly building something untested. (This line previously
-  described a relaxed `10.0.100` + `rollForward latestMinor` pin, which no longer matches the file.)
+  5.0.2). Root `global.json` pins the SDK to one exact version (`rollForward: disable`), and all three
+  CI setup-dotnet steps read that file (`global-json-file`), so a local build and a CI build use one SDK and
+  the number is written once (F001). A different patch fails fast rather than quietly building something
+  untested. (This line previously described a relaxed `10.0.100` + `rollForward latestMinor` pin, which no
+  longer matches the file.)
 - **Self-tests:** the app takes `--*-selftest` flags (in-process, no external host), e.g.
   `--module-host-selftest`, `--fortunes-selftest`, `--fortunes-engine-selftest`, `--wpf-options-selftest`,
   `--security-selftest`, `--hardening-selftest`, `--fortunecache-selftest`, … (`--sound-selftest` was removed

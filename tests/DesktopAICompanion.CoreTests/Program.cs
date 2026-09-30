@@ -556,7 +556,7 @@ namespace DesktopAICompanion
                 "  \"speechEnabled\": true,\n" +
                 "  \"speechDurationSeconds\": 6,\n" +
                 "  \"xml\": \"\",\n" +
-                "  \"pets\": [ { \"id\": \"\", \"count\": 1 } ],\n" +
+                "  \"companions\": [ { \"id\": \"pingus\", \"count\": 1 } ],\n" +
                 "  \"futureSameSchema\": { \"keep\": true }\n" +
                 "}",
                 new UTF8Encoding(false));
@@ -565,6 +565,11 @@ namespace DesktopAICompanion
             var secondStore = new AppSettingsStore(path, null);
             AppSettingsDocument first = firstStore.Load();
             AppSettingsDocument second = secondStore.Load();
+            // The seed must BIND. This fixture wrote the pre-rename "pets" key, which rode along as extension data
+            // while the mix under test started EMPTY, so PetMixEquals' element-wise compare never ran and a
+            // length-only regression would have passed (F385). Putting the old key back is the killing mutation.
+            AssertTrue(first.Pets.Count == 1 && first.Pets[0].Id == "pingus" && first.Pets[0].Count == 1,
+                "Merge fixture's seeded mix was not read; the key no longer binds.");
 
             first.Pets = new List<CompanionCountEntry> { new CompanionCountEntry { Id = "red_sheep", Count = 2 } };
             AssertTrue(firstStore.Save(first), "First pet-mix save failed.");
@@ -579,6 +584,7 @@ namespace DesktopAICompanion
             AssertFalse((bool)merged["speechEnabled"], "The stale writer did not save its own change.");
             AssertTrue((bool)merged["futureSameSchema"]["keep"],
                 "A same-schema unknown field was discarded across the pet-mix merge.");
+            AssertTrue(merged["pets"] == null, "A stale 'pets' key rode along as extension data.");
         }
 
         private static void TestSettingsPetSizeValidation()

@@ -48,7 +48,6 @@ def parse_ts(value):
 def walk(path):
     """Yield (tool_name, wait_seconds, denial_kind_or_None) for every paired call."""
     starts = {}        # tool_use_id -> (timestamp, name)
-    denial_by_id = {}  # tool_use_id -> denial kind, when the result records one
     out = []
 
     try:
@@ -85,9 +84,9 @@ def walk(path):
                     wait = (when - started[0]).total_seconds()
                     if wait < 0:
                         continue  # clock skew across a resumed session
-                    if denial:
-                        denial_by_id[use_id] = denial
-                    out.append((started[1], wait, denial_by_id.get(use_id, denial)))
+                    # The denial is the record's own: a dict keyed on use_id that was written and read back in
+                    # the same iteration carried nothing across records (F004).
+                    out.append((started[1], wait, denial))
     return out
 
 
