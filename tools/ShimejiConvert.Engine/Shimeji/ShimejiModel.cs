@@ -32,9 +32,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         /// <summary>Floor / Wall / Ceiling, or null.</summary>
         public string BorderType;
 
-        /// <summary>Every attribute value in this action's subtree (itself and all descendants), concatenated.
-        /// The classifier scans this for the state references (activeIE, cursor, mascot.anchor, totalCount)
-        /// that decide whether an action needs host state a converted pet cannot express today.</summary>
+        /// <summary>The EXPRESSION text in this action's subtree (itself and all descendants): every Condition
+        /// value and every scripted (${...} / #{...}) attribute value, concatenated. Not names, image paths or
+        /// sound paths, which an earlier version included and which made a sprite called cursor*.png read as a
+        /// cursor condition (F441). The classifier scans this for the state references (activeIE, cursor,
+        /// mascot.anchor, totalCount) that decide whether an action needs host state a converted pet cannot
+        /// express today.</summary>
         public string SubtreeBlob;
 
         /// <summary>Result of classification (see <see cref="ActionClassifier"/>).</summary>
@@ -73,6 +76,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         /// the cell, exactly mirroring the floor case where the window's bottom edge is the ground contact.
         /// </summary>
         public bool AnchorToTop;
+
+        /// <summary>
+        /// The anchor was DERIVED from a declared sprite size rather than authored for this pose, so the
+        /// compositor re-derives it from the bitmap it actually decodes. An Android bundle anchors every pose
+        /// bottom-centre at (width/2, height) of the manifest's sprites.size, and 5 of 948 real bundles ship
+        /// sprites that disagree with their own manifest: an anchor taken from the manifest then floats a
+        /// shorter sprite above the floor line or clips a taller one, and nothing downstream can see it
+        /// (F444). A classic skin authors ImageAnchor per pose and leaves this false.
+        /// </summary>
+        public bool AnchorFollowsSprite;
 
         /// <summary>Frame identity for the sprite sheet: a given image placed with a given anchor is one tile.
         /// Two poses that reuse the same image at the same anchor share a tile; a different anchor is a

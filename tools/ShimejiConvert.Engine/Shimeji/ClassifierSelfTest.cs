@@ -244,6 +244,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     <Action Name=""G2_Cursor"" Type=""Stay"" BorderType=""Floor"">
       <Animation Condition=""#{mascot.environment.cursor.x &lt; 100}""><Pose Image=""/f.png"" ImageAnchor=""64,128"" Velocity=""0,0"" Duration=""250"" /></Animation>
     </Action>
+    <!-- Nothing cursor-shaped about its BEHAVIOUR: no Condition, no expression. Only its sprite file and its
+         clip are named after one, which is exactly the shape alan becker's Victim skin ships as `CursorHate`.
+         A classifier that scanned every attribute value for the bare token graded it Group2 on the strength of
+         a filename (F441). G2_Cursor above, whose CONDITION reads the cursor, is the witness that the token
+         still classifies where it belongs. -->
+    <Action Name=""G1_CursorArt"" Type=""Stay"" BorderType=""Floor"">
+      <Animation><Pose Image=""/cursorsetup01.png"" ImageAnchor=""64,128"" Velocity=""0,0"" Duration=""250"" Sound=""/cursor_click.wav"" /></Animation>
+    </Action>
     <Action Name=""G2_Ie"" Type=""Sequence"">
       <ActionReference Name=""G1_Walk"" TargetX=""${mascot.environment.activeIE.left}"" />
     </Action>

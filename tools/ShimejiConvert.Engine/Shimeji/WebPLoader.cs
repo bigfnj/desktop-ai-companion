@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
@@ -15,8 +16,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     /// WebP is decoded through the bundled reference decoder (native/dwebp.exe, libwebp -- see the NOTICE beside
     /// it), NOT through WIC: the Windows Imaging Component's WebP codec decodes to opaque BGR32 on some machines
     /// and silently drops the alpha channel, which turned a converted pet's transparent background into an
-    /// opaque black box. dwebp streams a PNG to stdout with alpha intact, which WIC then decodes faithfully
-    /// (PNG alpha is not affected). PNG/JPEG inputs (used by the self-tests) go straight through WIC.
+    /// opaque black box. dwebp streams its decode to stdout as a PAM -- a seven-line header and the raw RGBA
+    /// samples -- which is copied straight into the bitmap. It used to stream a PNG instead, which cost a full
+    /// deflate on dwebp's side and a WIC PNG decode on this side for every distinct sprite, both existing only
+    /// as transport (measured in the audit at 7-10 ms per cartoon sprite and ~35 ms per noisy one on the dwebp
+    /// half alone, once per distinct sprite of an import); the PAM carries the same bytes with neither (F460).
+    /// PNG/JPEG inputs (used by the self-tests) still go through WIC, which decodes PNG alpha faithfully.
     ///
     /// Deliberately no NuGet/managed-native dependency; the one small, self-contained, BSD-licensed exe is the
     /// least-surprising way to get correct WebP alpha on any Windows box without a Store codec.
@@ -43,11 +48,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         {
             if (string.IsNullOrEmpty(path)) throw new ArgumentNullException("path");
             if (path.EndsWith(".webp", StringComparison.OrdinalIgnoreCase))
-            {
-                byte[] png = DwebpToPng(path);
-                using (var ms = new MemoryStream(png, false))
-                    return DecodeStream(ms);
-            }
+                return DecodePam(DwebpToPam(path), path);
             using (FileStream fs = File.OpenRead(path))
                 return DecodeStream(fs);
         }
@@ -89,8 +90,111 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             return bmp;
         }
 
-        /// <summary>Run the bundled dwebp on a .webp file and return the PNG bytes it streams to stdout.</summary>
-        private static byte[] DwebpToPng(string webpPath)
+        // The largest side this decoder will accept from a PAM header. libwebp itself caps a WebP at 16383
+        // per side, so nothing real is refused; it exists to keep the allocation arithmetic honest against a
+        // header that lies.
+        private const int MaxPamSide = 16384;
+        // dwebp's header is under a hundred bytes; a header that has not ended by here is not dwebp's.
+        private const int MaxPamHeaderBytes = 1024;
+
+        /// <summary>
+        /// Turn dwebp's PAM into a Format32bppArgb bitmap. The header is seven ASCII lines --
+        /// <c>P7</c>, <c>WIDTH w</c>, <c>HEIGHT h</c>, <c>DEPTH 4</c>, <c>MAXVAL 255</c>,
+        /// <c>TUPLTYPE RGB_ALPHA</c>, <c>ENDHDR</c> -- followed by width*height*4 bytes of straight (not
+        /// premultiplied) RGBA, top row first. GDI+ wants BGRA, so R and B swap on the way in. Anything but the
+        /// 8-bit RGB_ALPHA shape is refused loudly rather than misread as pixels.
+        /// </summary>
+        private static Bitmap DecodePam(byte[] pam, string webpPath)
+        {
+            if (pam == null || pam.Length < 3 || pam[0] != (byte)'P' || pam[1] != (byte)'7')
+                throw new InvalidOperationException("dwebp did not write a PAM (no P7 magic) for " + webpPath);
+
+            int width = 0, height = 0, depth = 0, maxval = 0;
+            string tupltype = null;
+            int pos = 0;
+            bool ended = false;
+            while (pos < pam.Length && pos < MaxPamHeaderBytes)
+            {
+                int nl = Array.IndexOf(pam, (byte)'\n', pos);
+                if (nl < 0) break;
+                string line = System.Text.Encoding.ASCII.GetString(pam, pos, nl - pos).Trim();
+                pos = nl + 1;
+                if (line.Length == 0 || line[0] == '#' || line == "P7") continue;
+                if (line == "ENDHDR") { ended = true; break; }
+                int space = line.IndexOf(' ');
+                string key = space < 0 ? line : line.Substring(0, space);
+                string value = space < 0 ? "" : line.Substring(space + 1).Trim();
+                switch (key)
+                {
+                    case "WIDTH": width = HeaderInt(value, key, webpPath); break;
+                    case "HEIGHT": height = HeaderInt(value, key, webpPath); break;
+                    case "DEPTH": depth = HeaderInt(value, key, webpPath); break;
+                    case "MAXVAL": maxval = HeaderInt(value, key, webpPath); break;
+                    case "TUPLTYPE": tupltype = value; break;
+                    default: break;   // a header key this decoder does not know is not a reason to refuse
+                }
+            }
+            if (!ended)
+                throw new InvalidOperationException("dwebp's PAM header for " + webpPath + " did not end within "
+                    + MaxPamHeaderBytes + " bytes");
+            if (depth != 4 || maxval != 255 || !string.Equals(tupltype, "RGB_ALPHA", StringComparison.Ordinal))
+                throw new InvalidOperationException("dwebp wrote a PAM this decoder does not read for " + webpPath
+                    + " (DEPTH " + depth + ", MAXVAL " + maxval + ", TUPLTYPE " + (tupltype ?? "(none)")
+                    + "); 8-bit RGB_ALPHA is the only shape the alpha path accepts");
+            if (width <= 0 || height <= 0 || width > MaxPamSide || height > MaxPamSide)
+                throw new InvalidOperationException("dwebp's PAM for " + webpPath + " declares an impossible size "
+                    + width + "x" + height);
+            long expected = (long)width * height * 4;
+            if ((long)pam.Length - pos < expected)
+                throw new InvalidOperationException("dwebp's PAM payload for " + webpPath + " is short: "
+                    + (pam.Length - pos) + " of " + expected + " bytes");
+
+            var bmp = new Bitmap(width, height, PixelFormat.Format32bppArgb);
+            try
+            {
+                BitmapData data = bmp.LockBits(new Rectangle(0, 0, width, height),
+                    ImageLockMode.WriteOnly, PixelFormat.Format32bppArgb);
+                try
+                {
+                    int rowBytes = width * 4;
+                    var row = new byte[rowBytes];
+                    for (int y = 0; y < height; y++)
+                    {
+                        int src = pos + y * rowBytes;
+                        for (int x = 0; x < rowBytes; x += 4)
+                        {
+                            row[x + 0] = pam[src + x + 2];   // B <- R's slot
+                            row[x + 1] = pam[src + x + 1];   // G
+                            row[x + 2] = pam[src + x + 0];   // R <- B's slot
+                            row[x + 3] = pam[src + x + 3];   // A, straight
+                        }
+                        Marshal.Copy(row, 0, IntPtr.Add(data.Scan0, y * data.Stride), rowBytes);
+                    }
+                }
+                finally
+                {
+                    bmp.UnlockBits(data);
+                }
+                return bmp;
+            }
+            catch
+            {
+                bmp.Dispose();
+                throw;
+            }
+        }
+
+        private static int HeaderInt(string value, string key, string webpPath)
+        {
+            int parsed;
+            if (!int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsed))
+                throw new InvalidOperationException("dwebp's PAM header for " + webpPath + " has a non-numeric "
+                    + key + " (" + value + ")");
+            return parsed;
+        }
+
+        /// <summary>Run the bundled dwebp on a .webp file and return the PAM bytes it streams to stdout.</summary>
+        private static byte[] DwebpToPam(string webpPath)
         {
             string exe = FindDwebp();
             var psi = new ProcessStartInfo
@@ -100,15 +204,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 CreateNoWindow = true,
-                // stdout carries the binary PNG, read raw via BaseStream; Latin1 is byte-preserving so the
+                // stdout carries the binary PAM, read raw via BaseStream; Latin1 is byte-preserving so the
                 // (unused) text reader can never mangle a byte, and it satisfies the redirect-encoding invariant.
                 StandardOutputEncoding = System.Text.Encoding.Latin1,
                 StandardErrorEncoding = System.Text.Encoding.UTF8,
             };
             psi.ArgumentList.Add(webpPath);
             psi.ArgumentList.Add("-quiet");
+            psi.ArgumentList.Add("-pam");       // raw RGBA behind a text header: no PNG encode, no PNG decode
             psi.ArgumentList.Add("-o");
-            psi.ArgumentList.Add("-");          // write the decoded PNG to stdout
+            psi.ArgumentList.Add("-");          // write it to stdout
 
             using (Process p = Process.Start(psi))
             {
@@ -121,6 +226,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 // finish before WaitForExit(30000) was reached at all, which put the timeout after the
                 // only thing it could usefully bound. A dwebp that hung WITHOUT closing stdout hung the
                 // converter permanently, and the 30 seconds this line exists for never applied to it.
+                // The PAM is larger than the PNG was (four bytes a pixel, 1 MiB for a 512px sprite), and the
+                // bound is unchanged: it is a wall-clock bound on a hung child, not a size.
                 const int TimeoutMs = 30000;
                 Task copy = p.StandardOutput.BaseStream.CopyToAsync(outBytes);
                 if (!copy.Wait(TimeoutMs))
@@ -144,10 +251,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     throw new InvalidOperationException(
                         "dwebp failed (" + p.ExitCode + ") on " + webpPath + ": " + (detail ?? "").Trim());
                 }
-                byte[] png = outBytes.ToArray();
-                if (png.Length == 0)
+                byte[] pam = outBytes.ToArray();
+                if (pam.Length == 0)
                     throw new InvalidOperationException("dwebp produced no output for " + webpPath);
-                return png;
+                return pam;
             }
         }
 

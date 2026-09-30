@@ -37,6 +37,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 // one. Its own art, so a direction collapse cannot merge it into a neighbour and hide the
                 // answer.
                 { "/nc.png", Solid(40, 60, Color.FromArgb(255, 90, 160, 110)) },
+                // For the action whose sprite FILE is named after the cursor (the Victim skin's shape). Its
+                // own art, like /nc.png, so a collapse cannot hide the answer.
+                { "/cursorsetup01.png", Solid(40, 60, Color.FromArgb(255, 80, 150, 100)) },
                 { "/t.png", Solid(40, 60, Color.FromArgb(255, 255, 120, 120)) },
                 { "/c1.png", Solid(40, 60, Color.FromArgb(255, 120, 255, 255)) },
                 { "/c2.png", Solid(40, 60, Color.FromArgb(255, 100, 235, 235)) },
@@ -86,6 +89,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 }
 
                 ConversionResult r = PetEmitter.Emit(config, sheet, load, "TestSkin");
+
+                // The conversion's graph is RELEASED when Emit returns. The three per-conversion statics
+                // used to keep the last skin's every floor Emitted -- and through it the parsed action,
+                // its SubtreeBlob, poses and references -- rooted until the next conversion or, in
+                // PetStudio, for the life of the module after one import (F430). This fixture has chains
+                // and a collapsed mirror, so all three sets are non-empty during the emit; zero afterwards
+                // is the assertion, and it cannot pass by the sets never having been filled.
+                if (PetEmitter.RetainedConversionState != 0)
+                    failures.Add("PetEmitter still holds " + PetEmitter.RetainedConversionState + " item(s) of "
+                        + "per-conversion state after Emit returned, so the last skin's action graph stays "
+                        + "rooted until the next conversion");
 
                 if (!r.Valid) failures.Add("emitted XML failed the validator: " + r.Error);
                 if (!r.RoundTrips) failures.Add("emitted XML did not round-trip: " + r.Error);
@@ -259,6 +273,27 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 if (unplayedSteps.Count != 0)
                     failures.Add("'StrollAndHopUnplayed' has no behaviour frequency and recovers nothing, yet it was " +
                         "chained (" + string.Join(", ", unplayedSteps.ToArray()) + "): the PLAYED gate admits everything");
+
+                // ---- A COLLAPSED MIRROR IS NOT A WITHHELD MEMBER ----
+                // WalkBack is Walk over the same frames with the x-velocity mirrored, so CollapseDirectionPairs
+                // merges it into Walk: converted, under Walk's name. StrollBack names it and nothing plays
+                // StrollBack, so the sequence must NOT be chained -- the RECOVERS gate used to read the
+                // post-collapse spoke list, saw no WalkBack, and chained an unplayed sequence whose entry then
+                // took a floor share of the hub (F431). Both halves are asserted: that the collapse happened
+                // (or the chain assertion is vacuous) and that the residue files WalkBack under merged rather
+                // than emitted.
+                if (FindAnimationNamed(r, "WalkBack") != null)
+                    failures.Add("WITNESS: 'WalkBack' was emitted as its own animation, so it did not collapse into "
+                        + "Walk and the collapsed-member chain assertion below tests nothing");
+                List<string> strollBackSteps = NamesStartingWith(r, "StrollBack_");
+                if (strollBackSteps.Count != 0)
+                    failures.Add("'StrollBack' names only a collapsed mirror and an ordinary spoke, and no behaviour "
+                        + "plays it, yet it was chained (" + string.Join(", ", strollBackSteps.ToArray())
+                        + "): the RECOVERS gate treats a direction-collapsed member as withheld");
+                if (!r.Residue.Notes.Exists(s => s.IndexOf("Merged into an identical sibling", StringComparison.Ordinal) >= 0
+                                                 && s.IndexOf("WalkBack", StringComparison.Ordinal) >= 0))
+                    failures.Add("the residue does not list 'WalkBack' under 'Merged into an identical sibling', so "
+                        + "the accounting counted a collapsed member as emitted");
 
                 // ---- A JUMP LANDS, WHETHER OR NOT IT IS LOCOMOTION ----
                 // The whole border block used to sit behind `loco`, which requires Type="Move". The
@@ -1035,6 +1070,24 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     failures.Add("an action was tagged faceCursor for having \"Cursor\" in its NAME, with no cursor condition anywhere");
                 }
 
+                // A FILENAME IS NOT EVIDENCE EITHER. The blob both Has() helpers read used to hold every
+                // attribute value, so a plain Stay whose sprite is /cursorsetup01.png -- the Victim skin's
+                // CursorHate, seven copies in the corpus, no Condition at all -- was Group2 "branches on cursor
+                // position" and emitted as a faceCursor gaze on the strength of its art's name (F441). The blob
+                // is expression text now (Conditions and scripted values), so this must be a plain Group1 rest:
+                // emitted, untagged, and in no residue bucket.
+                XmlData.AnimationNode cursorArt = FindAnimationNamed(r, "CursorHate");
+                if (cursorArt == null)
+                    failures.Add("the action whose sprite is named cursor*.png emitted nothing, so the case below is untested");
+                else if (cursorArt.Sequence != null
+                         && string.Equals(cursorArt.Sequence.Action, "faceCursor", StringComparison.Ordinal))
+                    failures.Add("an action was tagged faceCursor for having \"cursor\" in its sprite FILENAME, with no cursor condition anywhere");
+                if (ResidueHas(r.Residue.Degraded, "CursorHate"))
+                    failures.Add("an action was filed as degraded (cursor state) because its sprite file is named cursor*.png");
+                foreach (ShimejiAction act in config.Actions)
+                    if (string.Equals(act.Name, "CursorHate", StringComparison.Ordinal) && act.Group != FidelityGroup.Group1)
+                        failures.Add("the classifier graded 'CursorHate' " + act.Group + " (" + act.Reason + ") on the strength of a sprite filename");
+
                 // The gaze whose art nothing else uses. Its only route into the sheet is the gaze arm of
                 // PosesToComposite, so this is the assertion that fails when gaze poses stop being composited.
                 XmlData.AnimationNode lonelyGaze = FindAnimationNamed(r, "StandAndWatchMouse");
@@ -1042,6 +1095,101 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     failures.Add("a gaze with no shared art emitted nothing, so gaze poses are not reaching the sprite sheet");
                 else if (lonelyGaze.Sequence == null || !string.Equals(lonelyGaze.Sequence.Action, "faceCursor", StringComparison.Ordinal))
                     failures.Add("the second gaze carries no faceCursor action");
+                else
+                {
+                    // ITS TIMING COMES FROM THE VARIANT IT PLAYS. The frames come from the catch-all (asserted
+                    // for SitAndLookAtMouse above) while BuildSpoke read its intervals from Animations[0], the
+                    // cursor-conditioned variant, so a gaze whose variants differ in Duration cycled at the
+                    // wrong pace (F428). This fixture's catch-all holds two frames at 10 ticks (400ms) and its
+                    // conditional variant one frame at 2 ticks (80ms): a two-frame rest keeps its (capped)
+                    // per-frame interval, so the emitted interval names which variant was read.
+                    int gazeFrames = lonelyGaze.Sequence.Frame != null ? lonelyGaze.Sequence.Frame.Length : 0;
+                    if (gazeFrames != 2)
+                        failures.Add("the two-frame gaze catch-all emitted " + gazeFrames + " frame(s); the timing "
+                            + "assertion below needs the multi-frame rest path");
+                    int gi0 = ParseIntOrZero(lonelyGaze.Start != null ? lonelyGaze.Start.Interval : null);
+                    int giN = ParseIntOrZero(lonelyGaze.End != null ? lonelyGaze.End.Interval : null);
+                    if (gi0 != 400 || giN != 400)
+                        failures.Add("the gaze plays its catch-all frames at " + gi0 + "/" + giN + "ms; the catch-all "
+                            + "is authored at 10 ticks (400ms), so its timing was read from a variant it does not play");
+                    // WITNESS: the two variants' durations differ in the fixture, or 400 could have come from
+                    // either and the line above could not tell them apart.
+                    if (DurationOfVariantPose(config, "StandAndWatchMouse", 0) == DurationOfVariantPose(config, "StandAndWatchMouse", 1))
+                        failures.Add("WITNESS: the gaze fixture's variants share a Duration, so the interval assertion "
+                            + "cannot tell which variant was read");
+                }
+
+                // ---- AND ITS SOUND. The same Animations[0] read sat in FirstSoundClip, so the clip attached
+                // to a gaze was the cursor-conditioned variant's while the frames were the catch-all's. The
+                // loader here records what was asked for and embeds nothing, so the assertion is on the
+                // REQUEST: the conditional variant's clip must never be asked for, and Stand's clip must be
+                // (the witness that the recorder saw the requests at all).
+                var requestedClips = new List<string>();
+                Func<string, byte[]> recordClips = delegate(string clip) { requestedClips.Add(clip); return null; };
+                ConversionResult rq = PetEmitter.Emit(config, sheet, load, "TestSkinClips", recordClips);
+                if (!rq.Valid)
+                    failures.Add("the clip-recording emit produced invalid XML: " + rq.Error);
+                if (requestedClips.Contains("/look.wav"))
+                    failures.Add("the gaze's cursor-conditioned variant's clip (/look.wav) was requested, but the pet "
+                        + "plays the catch-all variant, which carries no sound");
+                if (!requestedClips.Contains("/beep.wav"))
+                    failures.Add("WITNESS: Stand's clip (/beep.wav) was never requested, so the clip assertion above "
+                        + "proves nothing");
+
+                // ---- THE ROOM THE SHEET LEFT, CHARGED PER EMBEDDING ----
+                // Two budgets used to be written as if each owned the whole 12 MiB: the compositor accepts a
+                // sheet as soon as it plus a markup allowance fits, and SoundBaker allowed a fixed 3 MiB of
+                // MP3 knowing nothing about the sheet, so a near-cap sheet plus clips validated on a box
+                // without ffmpeg and failed the 12 MiB check on one with it (F435); and the baker charged a
+                // clip once while the emitter embeds it once per animation that plays it (F426). The emitter
+                // now budgets each embedding against XmlBudgetBytes - the sheet's projection. The loader here
+                // hands back a 200 KiB MPEG-synced stub for every clip, so the validator's sniff accepts it and
+                // the count of <sound> nodes is the whole observation.
+                byte[] fakeMp3 = FakeMp3(200 * 1024);
+                Func<string, byte[]> stubClips = delegate(string clip) { return fakeMp3; };
+                // WITNESS: with the sheet's real projection every embedding fits, and there are FOUR of them
+                // for two clips -- Stand's, and Walk's on Walk plus the two chain steps that replay it -- which
+                // is more than the near-cap room below admits.
+                ConversionResult rs = PetEmitter.Emit(config, sheet, load, "TestSkinSound", stubClips);
+                int embedded = EmbeddedSoundCount(rs);
+                if (!rs.Valid || !rs.Accepted)
+                    failures.Add("with room for every clip the sounded pet was not accepted: " + rs.Error);
+                if (embedded != 4)
+                    failures.Add("WITNESS: expected 4 embedded sounds (Stand, Walk, GatorRide_1_Walk, StrollAndHop_1_Walk), got "
+                        + embedded + " [" + string.Join(", ", EmbeddedSoundNames(rs).ToArray()) + "]; the room assertion "
+                        + "below needs more embeddings than the room admits");
+                // A sheet that left room for exactly TWO embeddings: the projection the compositor would have
+                // reported for a near-cap sheet, set on the real sheet so the document stays small and valid
+                // while the arithmetic under test sees a 12 MiB document. Restored afterwards.
+                int base64Length = Convert.ToBase64String(fakeMp3).Length;
+                int realProjection = sheet.ProjectedXmlBytes;
+                sheet.ProjectedXmlBytes = SpriteSheetBuilder.XmlBudgetBytes
+                    - (2 * (base64Length + PetEmitter.SoundMarkupAllowanceBytes) + 64);
+                try
+                {
+                    ConversionResult rn = PetEmitter.Emit(config, sheet, load, "TestSkinNearCap", stubClips);
+                    int nearCap = EmbeddedSoundCount(rn);
+                    if (!rn.Valid)
+                        failures.Add("a near-cap sheet plus clips emitted invalid XML: " + rn.Error);
+                    if (nearCap != 2)
+                        failures.Add("a sheet with room for two clips embedded " + nearCap
+                            + "; the audio is budgeted against a fixed allowance that knows nothing about the sheet");
+                    long audioInDocument = 0;
+                    if (rn.Root != null && rn.Root.Sounds != null && rn.Root.Sounds.Sound != null)
+                        foreach (XmlData.SoundNode sn in rn.Root.Sounds.Sound)
+                            if (sn != null && sn.Base64 != null) audioInDocument += sn.Base64.Length;
+                    if (sheet.ProjectedXmlBytes + audioInDocument > SpriteSheetBuilder.XmlBudgetBytes)
+                        failures.Add("the sheet's projection plus the embedded audio (" + sheet.ProjectedXmlBytes + " + "
+                            + audioInDocument + ") exceeds the " + SpriteSheetBuilder.XmlBudgetBytes
+                            + " byte budget the validator enforces");
+                    if (rn.Residue == null || !rn.Residue.Notes.Exists(s => s.IndexOf("left no room", StringComparison.Ordinal) >= 0))
+                        failures.Add("the residue does not say the dropped clips had no room under the pet limit, so "
+                            + "the loss reads as missing clips");
+                }
+                finally
+                {
+                    sheet.ProjectedXmlBytes = realProjection;
+                }
 
                 // REFUSED BY POLICY is its own bucket, and it must be VISIBLE. Asserting on the named note
                 // rather than on a count, because a silent refusal reads exactly like a silent loss and the
@@ -1110,6 +1258,28 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                         else if (!HasBorderEdgeTo(fr, flatCeiling.Id, "horizontal"))
                             failures.Add("no only=\"horizontal\" edge reaches the ceiling on the flat-wall "
                                 + "variant, so the synthesised climb never offers the way in");
+                        else
+                        {
+                            // AND THE FLOOR ENTERS THE WALL ON THAT CLIMBER. wallEntry was chosen by reading
+                            // the SOURCE poses, which know nothing of the climb the synthesis invented, so on
+                            // this variant it fell back to wallSpokes[0] -- the flattened ClimbWall, a static
+                            // hold -- while the ceiling hung off GrabWall (F425). Reachability survived because
+                            // wall spokes chain to each other, which is why nothing above caught it. The
+                            // assertion: a locomotion spoke's only="vertical" edge targets the spoke that
+                            // carries the only="horizontal" edge into the ceiling.
+                            List<XmlData.AnimationNode> climbers = BorderSourcesOf(fr, flatCeiling.Id, "horizontal");
+                            XmlData.AnimationNode flatWalk = FindAnimationNamed(fr, "Walk");
+                            int entryId = BorderTargetOf(flatWalk, "vertical");
+                            if (flatWalk == null || entryId < 0)
+                                failures.Add("the flat-wall variant's Walk has no only=\"vertical\" edge, so where a "
+                                    + "walker enters the wall is untested");
+                            else if (climbers.FindIndex(delegate(XmlData.AnimationNode c) { return c.Id == entryId; }) < 0)
+                                failures.Add("a floor walker enters the wall on '" + NameOfId(fr, entryId) + "', not "
+                                    + "on the spoke that climbs to the ceiling (" + string.Join(", ", climbers.ConvertAll(
+                                        delegate(XmlData.AnimationNode c) { return c.Name; }).ToArray())
+                                    + "); the synthesised climb is invisible to the entry choice, so from the floor "
+                                    + "the ceiling is never reached");
+                        }
                     }
                 }
 
@@ -1315,13 +1485,20 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             // otherwise valid and playable. Hand-trimmed and single-pose skins hit it; the shipped corpus
             // never did, because every pet in it carries a Walk -- which is exactly why the main fixture
             // above could not catch it, and why this needs a fixture of its own.
+            //
+            // Declared OUTSIDE the try and disposed in a finally, like `owned` above and the compositor's
+            // fixtures: this was the one fixture in the suite that left its source bitmaps to the finalizer
+            // (F449), and a fixture copied from it inherited the omission.
+            var flat = new Dictionary<string, Bitmap>(StringComparer.Ordinal)
+            {
+                { "/n1.png", Solid(40, 60, Color.FromArgb(255, 210, 190, 120)) },
+                { "/n2.png", Solid(40, 60, Color.FromArgb(255, 190, 170, 100)) },
+                // Wall and ceiling art for the two region fixtures below; distinct, so nothing collapses.
+                { "/n3.png", Solid(40, 60, Color.FromArgb(255, 120, 150, 190)) },
+                { "/n4.png", Solid(40, 60, Color.FromArgb(255, 100, 130, 170)) },
+            };
             try
             {
-                var flat = new Dictionary<string, Bitmap>(StringComparer.Ordinal)
-                {
-                    { "/n1.png", Solid(40, 60, Color.FromArgb(255, 210, 190, 120)) },
-                    { "/n2.png", Solid(40, 60, Color.FromArgb(255, 190, 170, 100)) },
-                };
                 ShimejiConfig still = ShimejiParser.ParseActionsXml(NoLocomotionActionsXml);
                 Func<string, Bitmap> loadFlat = delegate(string name) { return new Bitmap(flat[name]); };
 
@@ -1349,8 +1526,97 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                         nr.EmittedXml.IndexOf(">turn<", StringComparison.Ordinal) >= 0)
                         failures.Add("a skin with no locomotion still emitted a `turn` animation");
                 }
+
+                // ---- THE SAME SKIN WITH WALL AND CEILING ART ----
+                // Every inbound edge to a wall spoke is a LOCOMOTION floor spoke's border edge, another wall
+                // spoke, or a ceiling exit -- and the ceiling is entered from a climbing wall spoke or a
+                // jump. So a skin with wall sprites and no Type="Move" floor action emitted its whole wall
+                // region with nothing able to enter it: Unreachable non-empty, Accepted false, the CLI
+                // exiting 1 on XML the app's validator accepted (F429). The `turn` fix above records the
+                // identical failure and stopped at `turn`. ClimbWall here is Type="Move" ON THE WALL, which
+                // is not floor locomotion and must not count as a way in.
+                ShimejiConfig walled = ShimejiParser.ParseActionsXml(NoLocomotionWallActionsXml);
+                SpriteSheet walledSheet;
+                string walledError;
+                if (!SpriteSheetBuilder.Build(
+                        Emit.PetEmitter.PosesToComposite(walled), loadFlat, false, out walledSheet, out walledError))
+                {
+                    failures.Add("no-locomotion wall fixture failed to composite: " + walledError);
+                }
+                else
+                {
+                    ConversionResult wr = PetEmitter.Emit(walled, walledSheet, loadFlat, "WalledStillSkin");
+                    if (!wr.Valid)
+                        failures.Add("a skin with wall art and no Move action emitted invalid XML: " + wr.Error);
+                    if (wr.Graph == null || wr.Graph.Unreachable.Count != 0)
+                        failures.Add("a skin with wall art and no locomotion left unreachable animations: "
+                            + (wr.Graph == null ? "(no graph)" : string.Join(",", wr.Graph.Unreachable))
+                            + "; the wall region was emitted with nothing able to enter it");
+                    if (!wr.Accepted)
+                        failures.Add("a skin with wall art and no locomotion was not accepted, so a valid playable "
+                            + "pet fails conversion");
+                    // Left OUT, not emitted-and-stranded: the same shape the ceiling and `turn` guards take.
+                    foreach (string region in new[] { "GrabWall", "ClimbWall", "HangCeiling" })
+                        if (FindAnimationNamed(wr, region) != null)
+                            failures.Add("'" + region + "' was emitted although nothing on this skin can reach a wall");
+                    // And the residue SAYS so, from what was emitted rather than from what the config offered.
+                    if (wr.Residue == null || !wr.Residue.Notes.Exists(s => s.IndexOf("nothing can reach a wall", StringComparison.Ordinal) >= 0))
+                        failures.Add("the residue does not say the wall region was left out because nothing can reach it");
+                    if (wr.Residue != null && wr.Residue.Notes.Exists(s => s.IndexOf("Wall climbing IS converted", StringComparison.Ordinal) >= 0))
+                        failures.Add("the residue claims wall climbing IS converted on a pet that carries no wall animation");
+                    if (wr.Residue == null || !wr.Residue.Notes.Exists(s => s.IndexOf("has ceiling animations", StringComparison.Ordinal) >= 0
+                                                                          && s.IndexOf("wall region is left out", StringComparison.Ordinal) >= 0))
+                        failures.Add("the residue does not explain that the ceiling went with the wall");
+                    // A Group1 GrabWall that is neither emitted nor merged used to reach no accounting bucket.
+                    if (wr.Residue != null && wr.Residue.Notes.Exists(s => s.IndexOf("UNACCOUNTED", StringComparison.Ordinal) >= 0))
+                        failures.Add("the residue reports UNACCOUNTED actions for the left-out wall and ceiling art");
+                }
+
+                // ---- WITNESS: A JUMP INTO A CEILING IS A WAY IN, so the wall stays ----
+                // The guard's second term. No floor locomotion here either, but an embedded Jump reaches the
+                // ceiling through its only="window-bottom" edge and the ceiling exits onto a wall, so every
+                // wall animation IS reachable and must be kept; a guard that cleared the region on "no Move
+                // action" alone would fail this. The same fixture pins the ceiling EXIT (F425): the wall art
+                // is a static GrabWall, first in source order, and a DescendWall; the synthesis gives GrabWall
+                // the climb, and the exit must be the descent -- choosing by the SOURCE velocity picked the
+                // static grab that is now the climber, and a ceiling walker was sent back up the wall it had
+                // just climbed.
+                ShimejiConfig jumper = ShimejiParser.ParseActionsXml(JumpOnlyWallActionsXml);
+                SpriteSheet jumperSheet;
+                string jumperError;
+                if (!SpriteSheetBuilder.Build(
+                        Emit.PetEmitter.PosesToComposite(jumper), loadFlat, false, out jumperSheet, out jumperError))
+                {
+                    failures.Add("jump-only wall fixture failed to composite: " + jumperError);
+                }
+                else
+                {
+                    ConversionResult jr = PetEmitter.Emit(jumper, jumperSheet, loadFlat, "JumperSkin");
+                    if (!jr.Accepted)
+                        failures.Add("a skin whose only way up is a jump was not accepted: unreachable="
+                            + (jr.Graph == null ? "(no graph)" : string.Join(",", jr.Graph.Unreachable)) + " " + jr.Error);
+                    XmlData.AnimationNode jGrab = FindAnimationNamed(jr, "GrabWall");
+                    XmlData.AnimationNode jDescend = FindAnimationNamed(jr, "DescendWall");
+                    XmlData.AnimationNode jCeiling = FindAnimationNamed(jr, "HangCeiling");
+                    if (jGrab == null || jDescend == null || jCeiling == null)
+                        failures.Add("WITNESS: the jump-only skin lost a region animation (GrabWall=" + (jGrab != null)
+                            + ", DescendWall=" + (jDescend != null) + ", HangCeiling=" + (jCeiling != null)
+                            + "); a jump into the ceiling makes the wall reachable, so the regions must be kept");
+                    else
+                    {
+                        int exitId = BorderTargetOf(jCeiling, "vertical");
+                        if (exitId != jDescend.Id)
+                            failures.Add("a ceiling walker leaves the ceiling onto '" + NameOfId(jr, exitId)
+                                + "' instead of the descending wall pose; leaving onto the synthesised climber sends "
+                                + "the pet straight back up into the border it just left");
+                    }
+                }
             }
-            catch (Exception ex) { failures.Add("no-locomotion fixture threw: " + ex.Message); }
+            catch (Exception ex) { failures.Add("no-locomotion fixtures threw: " + ex.Message); }
+            finally
+            {
+                foreach (Bitmap b in flat.Values) b.Dispose();
+            }
 
             var sb = new StringBuilder();
             sb.AppendLine("emitter self-test: synthetic skin -> valid, reachable, round-tripping pet");
@@ -1358,6 +1624,32 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             foreach (string f in failures) sb.AppendLine("  FAIL " + f);
             detail = sb.ToString();
             return false;
+        }
+
+        /// <summary>A stub clip the validator's MP3 sniff accepts: an MPEG frame sync (0xFF, 0xFB) followed by
+        /// zeroes. Only its LENGTH matters to the budget under test.</summary>
+        private static byte[] FakeMp3(int length)
+        {
+            var bytes = new byte[Math.Max(2, length)];
+            bytes[0] = 0xFF;
+            bytes[1] = 0xFB;
+            return bytes;
+        }
+
+        private static int EmbeddedSoundCount(ConversionResult r)
+        {
+            return r != null && r.Root != null && r.Root.Sounds != null && r.Root.Sounds.Sound != null
+                ? r.Root.Sounds.Sound.Length : 0;
+        }
+
+        /// <summary>The names of the animations that carry an embedded sound, for a failure message.</summary>
+        private static List<string> EmbeddedSoundNames(ConversionResult r)
+        {
+            var names = new List<string>();
+            if (r == null || r.Root == null || r.Root.Sounds == null || r.Root.Sounds.Sound == null) return names;
+            foreach (XmlData.SoundNode sn in r.Root.Sounds.Sound)
+                if (sn != null) names.Add(NameOfId(r, sn.Id));
+            return names;
         }
 
         private static bool HasAnimationNamed(ConversionResult r, string name)
@@ -1509,6 +1801,37 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             foreach (XmlData.AnimationNode a in r.Root.Animations.Animation)
                 if (a != null && a.Name != null && a.Name.StartsWith(prefix, StringComparison.Ordinal)) names.Add(a.Name);
             return names;
+        }
+
+        /// <summary>The target of an animation's &lt;border&gt; edge carrying the given only-flag, or -1 when it
+        /// has none. The first such edge: the emitter writes at most one per situation on the spokes this
+        /// is asked about.</summary>
+        private static int BorderTargetOf(XmlData.AnimationNode a, string onlyFlag)
+        {
+            if (a == null || a.Border == null || a.Border.Next == null) return -1;
+            foreach (XmlData.NextNode n in a.Border.Next)
+                if (n != null && string.Equals(n.OnlyFlag, onlyFlag, StringComparison.Ordinal)) return n.Value;
+            return -1;
+        }
+
+        /// <summary>The emitted animation's name for an id, or the id itself when nothing carries it, so a
+        /// failure names the pose that was chosen rather than a number.</summary>
+        private static string NameOfId(ConversionResult r, int id)
+        {
+            XmlData.AnimationNode a = FindAnimationById(r, id);
+            return a != null && a.Name != null ? a.Name : "id " + id;
+        }
+
+        /// <summary>The Duration of the first pose of a NAMED variant of an action, or -1 when absent, so the
+        /// gaze timing assertion can prove the fixture's variants actually differ.</summary>
+        private static int DurationOfVariantPose(ShimejiConfig config, string actionName, int variantIndex)
+        {
+            foreach (ShimejiAction a in config.Actions)
+                if (string.Equals(a.Name, actionName, StringComparison.Ordinal)
+                    && variantIndex >= 0 && variantIndex < a.Animations.Count
+                    && a.Animations[variantIndex].Poses.Count > 0)
+                    return a.Animations[variantIndex].Poses[0].Duration;
+            return -1;
         }
 
         /// <summary>True when some animation has a &lt;border&gt; edge with the given only-flag pointing at the
@@ -1704,6 +2027,82 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
   </ActionList>
 </Mascot>";
 
+        /// <summary>The no-locomotion skin with WALL and CEILING art added: a static grab, a climb that is
+        /// Type="Move" on the wall (not floor locomotion), and a ceiling hang. Still no Type="Move" floor
+        /// action, and no jump, so nothing can reach the wall region and it must be left out (F429).</summary>
+        private const string NoLocomotionWallActionsXml =
+@"<?xml version=""1.0"" encoding=""UTF-8"" ?>
+<Mascot xmlns=""http://www.group-finity.com/Mascot"">
+  <ActionList>
+    <Action Name=""Stand"" Type=""Stay"" BorderType=""Floor"">
+      <Animation><Pose Image=""/n1.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""250"" /></Animation>
+    </Action>
+    <Action Name=""Wave"" Type=""Animate"" BorderType=""Floor"">
+      <Animation>
+        <Pose Image=""/n1.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""8"" />
+        <Pose Image=""/n2.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""8"" />
+      </Animation>
+    </Action>
+    <Action Name=""GrabWall"" Type=""Stay"" BorderType=""Wall"">
+      <Animation><Pose Image=""/n3.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""6"" /></Animation>
+    </Action>
+    <Action Name=""ClimbWall"" Type=""Move"" BorderType=""Wall"">
+      <Animation>
+        <Pose Image=""/n3.png"" ImageAnchor=""20,60"" Velocity=""0,-2"" Duration=""4"" />
+        <Pose Image=""/n4.png"" ImageAnchor=""20,60"" Velocity=""0,-2"" Duration=""4"" />
+      </Animation>
+    </Action>
+    <Action Name=""HangCeiling"" Type=""Move"" BorderType=""Ceiling"">
+      <Animation>
+        <Pose Image=""/n4.png"" ImageAnchor=""20,60"" Velocity=""2,0"" Duration=""4"" />
+        <Pose Image=""/n3.png"" ImageAnchor=""20,60"" Velocity=""2,0"" Duration=""4"" />
+      </Animation>
+    </Action>
+    <Action Name=""Falling"" Type=""Embedded"" Class=""com.group_finity.mascot.action.Fall"" Gravity=""2"">
+      <Animation><Pose Image=""/n2.png"" ImageAnchor=""20,60"" Velocity=""0,2"" Duration=""4"" /></Animation>
+    </Action>
+  </ActionList>
+</Mascot>";
+
+        /// <summary>No floor locomotion, but an embedded JUMP plus wall and ceiling art: the jump reaches the
+        /// ceiling at a window's underside and the ceiling exits onto a wall, so the regions ARE reachable and
+        /// must be kept. The wall art is a static GrabWall FIRST and a DescendWall second, on purpose: the
+        /// synthesis gives the grab the climb, and the ceiling exit must still be the descent (F425).</summary>
+        private const string JumpOnlyWallActionsXml =
+@"<?xml version=""1.0"" encoding=""UTF-8"" ?>
+<Mascot xmlns=""http://www.group-finity.com/Mascot"">
+  <ActionList>
+    <Action Name=""Stand"" Type=""Stay"" BorderType=""Floor"">
+      <Animation><Pose Image=""/n1.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""250"" /></Animation>
+    </Action>
+    <Action Name=""HopEmbedded"" Type=""Embedded"" Class=""com.group_finity.mascot.action.Jump""
+            VelocityParam=""14"" BorderType=""Floor"">
+      <Animation>
+        <Pose Image=""/n1.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""4"" />
+        <Pose Image=""/n2.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""4"" />
+      </Animation>
+    </Action>
+    <Action Name=""GrabWall"" Type=""Stay"" BorderType=""Wall"">
+      <Animation><Pose Image=""/n3.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""6"" /></Animation>
+    </Action>
+    <Action Name=""DescendWall"" Type=""Move"" BorderType=""Wall"">
+      <Animation>
+        <Pose Image=""/n4.png"" ImageAnchor=""20,60"" Velocity=""0,2"" Duration=""4"" />
+        <Pose Image=""/n3.png"" ImageAnchor=""20,60"" Velocity=""0,2"" Duration=""4"" />
+      </Animation>
+    </Action>
+    <Action Name=""HangCeiling"" Type=""Move"" BorderType=""Ceiling"">
+      <Animation>
+        <Pose Image=""/n4.png"" ImageAnchor=""20,60"" Velocity=""2,0"" Duration=""4"" />
+        <Pose Image=""/n3.png"" ImageAnchor=""20,60"" Velocity=""2,0"" Duration=""4"" />
+      </Animation>
+    </Action>
+    <Action Name=""Falling"" Type=""Embedded"" Class=""com.group_finity.mascot.action.Fall"" Gravity=""2"">
+      <Animation><Pose Image=""/n2.png"" ImageAnchor=""20,60"" Velocity=""0,2"" Duration=""4"" /></Animation>
+    </Action>
+  </ActionList>
+</Mascot>";
+
         private const string SyntheticActionsXml =
 @"<?xml version=""1.0"" encoding=""UTF-8"" ?>
 <Mascot xmlns=""http://www.group-finity.com/Mascot"">
@@ -1711,9 +2110,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     <Action Name=""Stand"" Type=""Stay"" BorderType=""Floor"">
       <Animation><Pose Image=""/s.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""250"" Sound=""/beep.wav"" /></Animation>
     </Action>
+    <!-- SOUNDED, and a member of two set-pieces below, so its clip is embedded once per animation that
+         plays it (Walk, GatorRide_1_Walk, StrollAndHop_1_Walk): the shape that made per-clip budgeting
+         understate what the document carries (F426). -->
     <Action Name=""Walk"" Type=""Move"" BorderType=""Floor"">
       <Animation>
-        <Pose Image=""/w1.png"" ImageAnchor=""20,60"" Velocity=""-2,0"" Duration=""${5+Math.random()*5}"" />
+        <Pose Image=""/w1.png"" ImageAnchor=""20,60"" Velocity=""-2,0"" Duration=""${5+Math.random()*5}"" Sound=""/step.wav"" />
         <Pose Image=""/w2.png"" ImageAnchor=""20,60"" Velocity=""-2,0"" Duration=""6"" />
       </Animation>
     </Action>
@@ -1789,9 +2191,16 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
          whether gaze poses reach the sprite sheet: Doze shares its neutral image, so the tile is composited
          either way and dropping the gaze from PosesToComposite left every assertion green. This one has no
          such cover, so if gaze poses stop being composited its frames vanish and it emits nothing. -->
+    <!-- Its two variants DIFFER in Duration (2 ticks against 10) and only the conditional one carries a
+         Sound: the emitted rest must take its interval, its dwell arithmetic and its clip from the catch-all
+         it actually plays, not from Animations[0], which is the variant the frames already do not come
+         from (F428). Two frames in the catch-all, so the multi-frame rest path is the one exercised. -->
     <Action Name=""StandAndWatchMouse"" Type=""Stay"" BorderType=""Floor"">
-      <Animation Condition=""#{mascot.environment.cursor.y &lt; 100}""><Pose Image=""/g1.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""250"" /></Animation>
-      <Animation><Pose Image=""/g2.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""250"" /></Animation>
+      <Animation Condition=""#{mascot.environment.cursor.y &lt; 100}""><Pose Image=""/g1.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""2"" Sound=""/look.wav"" /></Animation>
+      <Animation>
+        <Pose Image=""/g2.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""10"" />
+        <Pose Image=""/g1.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""10"" />
+      </Animation>
     </Action>
     <!-- NAMED for the cursor, but with nothing cursor-shaped about it: no condition, no expression, no
          reference to mascot.environment. It must convert as an ordinary floor rest. The gaze test is
@@ -1799,6 +2208,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
          Capital C on purpose: that is the character the two Has() helpers disagreed about. -->
     <Action Name=""RestNearCursor"" Type=""Stay"" BorderType=""Floor"">
       <Animation><Pose Image=""/nc.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""250"" /></Animation>
+    </Action>
+    <!-- And one whose SPRITE FILE is named after the cursor while nothing else is: alan becker's Victim skin
+         ships exactly this (CursorHate over /cursorsetup01.png, a Stay with no Condition). The classifier's
+         blob used to hold every attribute value, so this was Group2 and a gaze on the strength of a filename;
+         it must convert as a plain Group1 rest (F441). -->
+    <Action Name=""CursorHate"" Type=""Stay"" BorderType=""Floor"">
+      <Animation><Pose Image=""/cursorsetup01.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""250"" /></Animation>
     </Action>
     <Action Name=""ThrowIe"" Type=""Embedded"" Class=""com.group_finity.mascot.action.ThrowIE"" InitialVX=""32"">
       <Animation><Pose Image=""/t.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""40"" /></Animation>
@@ -1988,6 +2404,20 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     </Action>
     <Action Name=""StrollAndHopUnplayed"" Type=""Sequence"">
       <ActionReference Name=""Walk"" />
+      <ActionReference Name=""Bounce"" />
+    </Action>
+    <!-- THE MIRROR OF Walk: the same two frames with the x-velocity negated, which is how a fan skin writes
+         walk_left / walk_right over one set of art. CollapseDirectionPairs merges it into Walk, so it is
+         converted, under Walk's name. StrollBack names it and nothing plays StrollBack; a RECOVERS gate that
+         read the post-collapse spoke list saw no WalkBack there and chained the run anyway (F431). -->
+    <Action Name=""WalkBack"" Type=""Move"" BorderType=""Floor"">
+      <Animation>
+        <Pose Image=""/w1.png"" ImageAnchor=""20,60"" Velocity=""2,0"" Duration=""6"" />
+        <Pose Image=""/w2.png"" ImageAnchor=""20,60"" Velocity=""2,0"" Duration=""6"" />
+      </Animation>
+    </Action>
+    <Action Name=""StrollBack"" Type=""Sequence"">
+      <ActionReference Name=""WalkBack"" />
       <ActionReference Name=""Bounce"" />
     </Action>
   </ActionList>

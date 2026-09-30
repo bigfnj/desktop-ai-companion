@@ -122,6 +122,33 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     images[f.Image] = bmp;
                 }
 
+                // 2a. RE-ANCHOR the poses whose anchor was derived, not authored, from the bitmaps just decoded.
+                //
+                // A bundle pose's anchor is (width/2, height) of the manifest's declared sprites.size, and the
+                // cell's HEIGHT below is max(AnchorY) while its width comes from the real bitmap -- so a sprite
+                // shorter than declared was drawn at the cell top with an empty band under its feet (it floats
+                // by the difference), and one taller than declared lost its bottom rows to the tile clip. The
+                // validator, the graph and the round-trip cannot see either, and the pet is ACCEPTED. Measured
+                // over 948 real bundles: 5 disagree with their own manifest (Finn and Goob at 768 with six
+                // 512px frames, Ryomen Sukuna declared 512 with a 1024px sprite, Wemmbu at 4096 with 4608-,
+                // 3632- and 1008-row sprites, mafioso 511 wide), none of them shipped (F444). Bundles anchor
+                // bottom-centre BY DEFINITION, so per-frame re-anchoring to the pixels is the right answer for
+                // a mixed-size bundle, not a compromise.
+                //
+                // EVERY pose in the input, not only the deduplicated `frames`: FrameKey carries the anchor,
+                // and step 1 dropped the later poses that shared a key. The emitter looks each pose up by its
+                // own FrameKey afterwards, so a pose left on the declared anchor would miss the tile and its
+                // animation would silently lose the frame. All poses sharing an image get the same new anchor,
+                // so the step-1 grouping is unchanged. Placed before 2b, whose content key also reads the anchor.
+                foreach (ShimejiPose p in poses)
+                {
+                    if (p == null || !p.AnchorFollowsSprite || string.IsNullOrEmpty(p.Image)) continue;
+                    Bitmap real;
+                    if (!images.TryGetValue(p.Image, out real)) continue;
+                    p.AnchorX = real.Width / 2;
+                    p.AnchorY = real.Height;
+                }
+
                 // 2b. collapse frames whose CELL would be byte-identical.
                 //
                 // Step 1 deduped by FrameKey, which is the image NAME plus the anchor -- so a skin that
@@ -205,6 +232,26 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     int scaledCellW = Math.Max(1, (int)Math.Round(cellW * scale));
                     int scaledCellH = Math.Max(1, (int)Math.Round(cellH * scale));
 
+                    // ROUNDING CAN LAND THE SHEET ON THE FAR SIDE OF THE CAP. After a binding clamp, cell*scale
+                    // is exactly 4096/tiles, and Math.Round takes the .5-and-up half of those UP: for tilesX in
+                    // {17, 18, 19, 20, 24, 25, 26, 27, 30} the sheet came out 4097-4110 px wide and the app's
+                    // validator refused it ("invalid dimensions or tile geometry") -- a convertible skin,
+                    // refused, with the compositor reporting success (F459). Re-fit the SCALE rather than
+                    // trimming the cell: Compose scales sprites by `scale`, so a trimmed cell would clip the
+                    // tallest frame's anchor row, while a fractionally smaller scale keeps every frame whole and
+                    // inside the tile. Integer division floors the target cell, so tiles * cell <= the cap by
+                    // construction. Nearest rounding is kept for every other sheet, deliberately: switching to
+                    // Floor would shave a pixel off every fractional-scale pet on re-conversion (six shipped
+                    // sit below scale 1), which is download churn for no defect.
+                    if (tilesX * scaledCellW > MaxSheetDimension || tilesY * scaledCellH > MaxSheetDimension)
+                    {
+                        double fitW = (double)(MaxSheetDimension / tilesX) / cellW;
+                        double fitH = (double)(MaxSheetDimension / tilesY) / cellH;
+                        scale = Math.Min(scale, Math.Min(fitW, fitH));
+                        scaledCellW = Math.Max(1, (int)Math.Round(cellW * scale));
+                        scaledCellH = Math.Max(1, (int)Math.Round(cellH * scale));
+                    }
+
                     SpriteSheet built = Compose(frames, images, ox, oy, scale, scaledCellW, scaledCellH, tilesX, tilesY, alpha);
                     int projected = built.Base64Png.Length + MarkupAllowanceBytes;
                     if (projected <= XmlBudgetBytes)
@@ -240,13 +287,27 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             }
         }
 
-        private static double ClampSheet(double scale, int cellW, int cellH, int tilesX, int tilesY)
+        /// <summary>
+        /// Shrink <paramref name="scale"/> just enough that neither sheet side exceeds <see cref="MaxSheetDimension"/>:
+        /// the SMALLER of the two ratios, applied once.
+        ///
+        /// The first version multiplied both ratios in, one after the other, with the height ratio computed
+        /// from the pre-clamp size and then applied to a scale the width ratio had already reduced. When both
+        /// sides were over the cap the factor was their PRODUCT: the ~600-cell 512px Android-template shape the
+        /// dedup comment names (tiles 25x24, cell-cap scale 0.5, ratios 0.64 and 0.667) came out at 0.2133 --
+        /// 109px cells on a 2725x2616 sheet -- where 0.32 gives 163px cells inside every cap. The host renders
+        /// a frame at sheet width / tilesx, so that was the pet at two thirds of the size the caps allow,
+        /// silently, on the very shape the XmlBudgetBytes comment says the budget was raised to fill (F459).
+        /// Internal so the self-test can assert the arithmetic over a grid of shapes without a 4096px fixture.
+        /// </summary>
+        internal static double ClampSheet(double scale, int cellW, int cellH, int tilesX, int tilesY)
         {
             double sheetW = tilesX * cellW * scale;
             double sheetH = tilesY * cellH * scale;
-            if (sheetW > MaxSheetDimension) scale *= MaxSheetDimension / sheetW;
-            if (sheetH > MaxSheetDimension) scale *= MaxSheetDimension / sheetH;
-            return scale;
+            double factor = 1.0;
+            if (sheetW > MaxSheetDimension) factor = Math.Min(factor, MaxSheetDimension / sheetW);
+            if (sheetH > MaxSheetDimension) factor = Math.Min(factor, MaxSheetDimension / sheetH);
+            return scale * factor;
         }
 
         private static SpriteSheet Compose(List<ShimejiPose> frames, Dictionary<string, Bitmap> images,

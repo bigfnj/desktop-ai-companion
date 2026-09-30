@@ -273,7 +273,55 @@ print RESULT=PASS with a new "GUI resource counters readable" PASS line per segm
 
 #### fix/tools
 
-(none yet)
+**No format-ladder rung for F425, F428, F429 or F431 (2026-09-29).** Each changes emitter output only on inputs
+no shipped converted pet has. Every one of the 32 carries a Walk, so the wall region was always reachable (F429);
+the synthesised-climb path needs a wall skin with no real climb, which only KinitoPET once was and no longer is
+(F425); and names counted over `Companions/` on 2026-09-29 found 0 multi-frame `faceCursor` animations (F428)
+and 0 `<seq>_<n>_<member>` chain steps (F431). The last two could not have been repaired by a rung anyway: a
+gaze's catch-all timing and a chain's provenance are not recoverable from emitted XML without the source skin,
+so for those the only repair would be re-conversion, and nothing shipped needs it.
+
+**The audio budget lives with the embeddings, not in SoundBaker (2026-09-29, F435 and F426).** SoundBaker's caps bound
+how much DISTINCT audio one conversion transcodes; the room a clip has is decided in the emitter's sound loop, per
+embedding, against the sheet the compositor produced and the validator's audio caps. Two alternatives were
+rejected: a retry-without-sounds when the validator refuses the size, because it hides the cause from the residue;
+and deduplicating embeddings by source action, because the format ties a sound to an animation, so a sounded
+set-piece member is meant to sound on every chain step that plays it.
+
+**F439 is fixed without a self-test (2026-09-29).** The timeout branch of the ffmpeg transcode is reached only by a
+child that hangs for 30 s. The gate cannot pay that, and no argument-shaped stand-in makes a real process hang while
+holding the output file open, so the fix is the documented Kill -> WaitForExit sequence and the audit record's own
+measurement (plain Kill: 20/20 partial files left behind; a wait after the kill: 0/20) is the evidence for it.
+
+**No rung for F444, F459 or F460 either (2026-09-29).** F444's five disagreeing bundles are unshipped and a rung cannot
+move pixels; the shipped converted sheets never engaged the sheet clamp (the largest is 14x14 tiles at 3584 px, read
+from the PNG headers of all 32 by the audit), so F459 changes no shipped sheet; F460 changes how a sprite is decoded,
+not what is emitted. F459's rounding half keeps `Math.Round` for every sheet inside the cap and re-fits only a sheet
+that would land past it: switching to Floor would shave a pixel off the six shipped fractional-scale pets on
+re-conversion, download churn for no defect.
+
+**F460's saving is a property, not a number (2026-09-29).** For a WebP sprite the PNG deflate inside dwebp and the WIC
+PNG decode on this side no longer run. The audit measured 7-10 ms per cartoon sprite and about 35 ms per noisy one on
+the dwebp half alone (fresh processes, 30 runs in rotation); that figure is the record's, not re-measured cold here,
+so nothing is claimed for the converter as a whole.
+
+**RoundTrips on emitted output is a fixed-point check, not a second validation (2026-09-29, F427).** The other option,
+`RoundTrips = Valid`, was rejected: the CLI's convert verbs print the field and `Accepted` reads it, and a value that
+cannot differ from `Valid` claims a check that did not happen. Determinism can fail on its own (a DTO member that
+does not round-trip; an element the text omits that the DTO reads back as its default and writes out) and the
+mutation that stripped `<offsety>0</offsety>` from the text showed the check naming the offset. `ShimejiEngine.RoundTrips`
+(serialize, then validate again) keeps its meaning for hand-authored pets in the `verify` verb.
+
+**PetGraph mirrors the host's magic-name resolution rather than sharing it (2026-09-29, F440).** The runtime's copy
+lives on a staged `Animations` the graph pass does not build, so the rules are restated in `PetGraph` and
+`PetGraphSelfTest` pins each one. Scope: the CLI's verify and migration verbs and the emitter's own acceptance
+verdict. PetStudio's map runs `AnimationReachability` over the real loader and never had the defect.
+
+**F451 declined on a measurement (2026-09-29).** `EmitterSelfTest.TileIsPainted` decodes the fixture sheet once per
+frame reference. The whole `selftest` verb, nine sub-tests after this campaign's fixtures, takes 1.45 s wall-clock on
+this box (Measure-Command around the Release exe, one fresh process; 1.49 s before the campaign), so there is nothing
+to recover. Not a cold interleaved comparison, and none is claimed: the number is the cost of the whole verb, stated
+as the reason not to spend on it.
 
 #### fix/remembrance
 

@@ -72,6 +72,7 @@
     <Compile Include="Shimeji\VocabSelfTest.cs" />
     <Compile Include="Shimeji\SoundResolveSelfTest.cs" />
     <Compile Include="Shimeji\HubWeightSelfTest.cs" />
+    <Compile Include="Shimeji\PetGraphSelfTest.cs" />
     <Compile Include="Shimeji\EngineSelfTest.cs" />
   </ItemGroup>
 

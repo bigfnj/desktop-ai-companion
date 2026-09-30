@@ -47,8 +47,22 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         /// (bar two genuinely dead animations shared by the sheep recolours). A converter must therefore
         /// EMIT all four for the pet to have those behaviours at all -- Shimeji's Fall and Dragged map onto
         /// two of them, and kill/sync have no Shimeji equivalent and have to be synthesised.
+        ///
+        /// BOUND THE WAY THE HOST BINDS THEM. The loader's switch matches the exact name -- no Trim, no case
+        /// folding, and a later duplicate overwrites an earlier one -- and the runtime then falls back for
+        /// fall and drag only (Animations.ResolveMagicAnimations): with no exact match, the lowest id whose
+        /// name CONTAINS the word ignoring case, else the lowest declared id. This pass used to root any
+        /// trimmed, case-insensitive match instead, which was looser than the host in one direction and
+        /// tighter in the other: a "Kill" or "Sync" with no inbound edge was reported connected although the
+        /// host never binds or plays it, a "Fall" beside an exact "fall" likewise, while a lone "Falling"
+        /// that the runtime does bind as the fall was reported as an orphan (F440). The emitter writes exact
+        /// lowercase names and SanitizeName suffixes any source collision, so converted pets were never
+        /// affected; the CLI's verify and migration verbs on hand-authored pets were where it showed.
         /// </summary>
         internal static readonly string[] ReservedEntryPointNames = { "fall", "drag", "kill", "sync" };
+
+        /// <summary>The two of the four the runtime resolves by fallback when no exact name is declared.</summary>
+        private static readonly string[] FallbackResolvedNames = { "fall", "drag" };
 
         public static GraphReport Analyze(XmlData.RootNode root)
         {
@@ -62,11 +76,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
 
             var declared = new HashSet<int>();
             var outgoing = new Dictionary<int, List<int>>();
+            // Reserved name -> the id the loader's switch leaves bound to it: the LAST exact match, as a
+            // later case in a foreach overwrites an earlier one.
+            var exactlyBound = new Dictionary<string, int>(StringComparer.Ordinal);
+            // The first-declared name per id, for the runtime's contains-the-word fallback.
+            var nameById = new Dictionary<int, string>();
 
             foreach (XmlData.AnimationNode animation in animations)
             {
                 if (animation == null) continue;
                 declared.Add(animation.Id);
+                if (!nameById.ContainsKey(animation.Id)) nameById.Add(animation.Id, animation.Name ?? "");
 
                 var targets = new List<int>();
                 if (animation.Sequence != null) Collect(animation.Sequence.Next, targets);
@@ -80,10 +100,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
                 report.EdgeCount += targets.Count;
                 if (targets.Count == 0) report.Terminal.Add(animation.Id);
 
-                if (IsReservedEntryPoint(animation.Name)) AddRoot(report, animation.Id);
+                if (animation.Name != null && Array.IndexOf(ReservedEntryPointNames, animation.Name) >= 0)
+                    exactlyBound[animation.Name] = animation.Id;
             }
 
             report.AnimationCount = declared.Count;
+
+            // The magic entry points, resolved exactly as the host resolves them (see ReservedEntryPointNames).
+            foreach (string reserved in ReservedEntryPointNames)
+            {
+                int bound;
+                if (exactlyBound.TryGetValue(reserved, out bound)) { AddRoot(report, bound); continue; }
+                if (Array.IndexOf(FallbackResolvedNames, reserved) < 0) continue;   // kill and sync: unbound, so not roots
+                int fallback = RuntimeFallbackFor(reserved, nameById);
+                if (fallback >= 0) AddRoot(report, fallback);
+            }
 
             // A pet is entered from a spawn; a child pet is entered from its own <next>. Both are roots.
             if (root.Spawns != null && root.Spawns.Spawn != null)
@@ -140,13 +171,23 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
             }
         }
 
-        private static bool IsReservedEntryPoint(string animationName)
+        /// <summary>
+        /// The id <c>Animations.ResolveMagicAnimation</c> binds to <paramref name="word"/> when no exact match
+        /// was declared: ascending id order, the first whose name contains the word ignoring case, else the
+        /// lowest declared id; -1 for a pet with no animations. Mirrored rather than shared because the
+        /// runtime's copy lives on a staged Animations the graph pass does not build.
+        /// </summary>
+        private static int RuntimeFallbackFor(string word, Dictionary<int, string> nameById)
         {
-            if (string.IsNullOrWhiteSpace(animationName)) return false;
-            string trimmed = animationName.Trim();
-            foreach (string reserved in ReservedEntryPointNames)
-                if (string.Equals(trimmed, reserved, StringComparison.OrdinalIgnoreCase)) return true;
-            return false;
+            if (nameById.Count == 0) return -1;
+            var ids = new List<int>(nameById.Keys);
+            ids.Sort();
+            foreach (int id in ids)
+            {
+                string name = nameById[id];
+                if (!string.IsNullOrEmpty(name) && name.IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0) return id;
+            }
+            return ids[0];
         }
 
         private static void AddRoot(GraphReport report, int id)

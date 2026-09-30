@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using DesktopAICompanion.Tools.ShimejiConvert.Emit;
@@ -56,7 +57,30 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             if (!SpriteSheetBuilder.Build(PetEmitter.PosesToComposite(config), load, true, out sheet, out error))
                 return null;
 
-            return PetEmitter.Emit(config, sheet, load, name);
+            ConversionResult result = PetEmitter.Emit(config, sheet, load, name);
+
+            // Sprites the compositor re-anchored to their own pixels because they disagree with the manifest's
+            // declared size (ShimejiPose.AnchorFollowsSprite). Named in the residue: a bundle that lies about
+            // its sprite size is worth knowing about, and the report's promise is to say what was decided.
+            if (result != null && result.Residue != null)
+            {
+                int declaredX = info.SpriteWidth / 2, declaredY = info.SpriteHeight;
+                var reanchored = new SortedDictionary<string, string>(StringComparer.Ordinal);
+                foreach (ShimejiPose p in config.Poses)
+                {
+                    if (p == null || !p.AnchorFollowsSprite || string.IsNullOrEmpty(p.Image)) continue;
+                    if (p.AnchorX == declaredX && p.AnchorY == declaredY) continue;
+                    if (!reanchored.ContainsKey(p.Image))
+                        reanchored[p.Image] = p.Image + " (anchor " + p.AnchorX + "," + p.AnchorY + ")";
+                }
+                if (reanchored.Count > 0)
+                    result.Residue.Notes.Add("The manifest declares " + info.SpriteWidth + "x" + info.SpriteHeight
+                        + " sprites (anchor " + declaredX + "," + declaredY + "), but " + reanchored.Count
+                        + " sprite(s) decode to a different size and were anchored to their own pixels instead: "
+                        + string.Join(", ", new List<string>(reanchored.Values).ToArray())
+                        + ". Trusting the manifest would have floated a shorter sprite above the floor or clipped a taller one.");
+            }
+            return result;
         }
 
         private static string ResolveSpritesDir(string bundleDir, string basePath)

@@ -16,7 +16,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         public ResidueReport Residue;
         public GraphReport Graph;
         public bool Valid;         // the app's own validator accepted the emitted XML
-        public bool RoundTrips;    // survives serialize -> re-validate
+        // The emitted text is a FIXED POINT of parse -> serialize: what the app reads back serializes to the
+        // same bytes. Not "parses again": for text this serializer just wrote, a second parse could only ever
+        // repeat the first's verdict (F427).
+        public bool RoundTrips;
         public string Error;       // validator/emit error, if any
 
         /// <summary>The machine-checkable acceptance bar: validates, round-trips, and every animation is
@@ -113,7 +116,27 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     "conversion would corrupt both. Serialise the callers.");
             }
             try { return EmitCore(config, sheet, load, skinName, loadSound); }
-            finally { System.Threading.Interlocked.Exchange(ref _emitInFlight, 0); }
+            finally
+            {
+                // Drop the conversion's graph before the flag. After EmitCore returns these three are dead
+                // but still rooted: HubSpokes held every floor Emitted -- each with its ShimejiAction, the
+                // action's SubtreeBlob string, poses and reference list -- until the NEXT conversion replaced
+                // it, or for the life of the PetStudio module's load context after one import (F430). Not
+                // the pixels: bitmaps are disposed by the compositor and the sheet belongs to the result.
+                // Bounded and small, but there is nothing to keep it for.
+                HubSpokes = new List<Emitted>();
+                CollapsedSources = new HashSet<string>(StringComparer.Ordinal);
+                ExpandedSetPieces = new HashSet<string>(StringComparer.Ordinal);
+                System.Threading.Interlocked.Exchange(ref _emitInFlight, 0);
+            }
+        }
+
+        /// <summary>How much per-conversion state the three statics still hold: zero between conversions.
+        /// Exposed for the self-test, which is the only way to assert the release in the finally above
+        /// without making the fields themselves visible.</summary>
+        internal static int RetainedConversionState
+        {
+            get { return HubSpokes.Count + CollapsedSources.Count + ExpandedSetPieces.Count; }
         }
 
         private static ConversionResult EmitCore(ShimejiConfig config, SpriteSheet sheet, Func<string, Bitmap> load, string skinName, Func<string, byte[]> loadSound = null)
@@ -177,6 +200,31 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             SynthesiseClimbIfNeeded(wallSpokes);
             if (!wallSpokes.Any(WillClimb)) ceilingSpokes.Clear();
 
+            // AND THE WALL ITSELF NEEDS A WAY IN, which the two clears above never asked. Every inbound edge to
+            // a wall spoke is one of: a LOCOMOTION floor spoke's only="vertical" / window-left / window-right
+            // border edge (BuildSpoke, all gated on `loco`), another wall spoke, or a ceiling spoke's exit --
+            // and the ceiling is entered only from a climbing wall spoke or from a JUMP's only="window-bottom"
+            // edge. The hub's choice list is floor spokes only; fall/drag/sync/turn route to the hub or to
+            // fall; chain steps route to their successor. So a skin with wall art but no Type="Move" floor
+            // action, and no jump-plus-ceiling pair, emitted every wall animation with zero inbound edges:
+            // Graph.Unreachable non-empty, Accepted false, the CLI exiting 1 and refusing to write the file,
+            // on XML the app's own validator accepted and would play. The `turn` guard further down records
+            // the identical failure for the identical reason and was applied to `turn` alone (F429).
+            //
+            // Decided here, where the ceiling was decided, and from the FLOOR spokes only: `spokes` is final
+            // at this point (chain entries join it later, and a chain step never carries border edges), and
+            // the degenerate hub added below has no source. Both regions go together when the wall goes,
+            // because a ceiling without a wall cannot be left or (without a jump) entered. BuildResidue is
+            // told what was emitted rather than left to re-derive it from the config, so the report says
+            // "left out: nothing can reach the wall" instead of "Wall climbing IS converted".
+            bool anyLocomotion = spokes.Any(IsLocomotion);
+            bool wallReachable = anyLocomotion || (ceilingSpokes.Count > 0 && spokes.Any(Launches));
+            if (!wallReachable)
+            {
+                wallSpokes.Clear();
+                ceilingSpokes.Clear();
+            }
+
             // A hub every spoke can return to. Prefer a standing pose.
             Emitted hub = spokes.FirstOrDefault(e => e.Source != null && string.Equals(e.Source.Name, "Stand", StringComparison.OrdinalIgnoreCase))
                           ?? spokes.FirstOrDefault();
@@ -232,10 +280,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             // unreachable=1 (turn), accepted=False.
             //
             // Same move the emitter already makes one screenful up for the ceiling, which clears
-            // ceilingSpokes when nothing will climb: do not emit a region nothing can enter. Hand-trimmed
-            // and single-pose skins hit this; the shipped corpus never did, because every one carries a
-            // Walk.
-            bool anyLocomotion = spokes.Any(IsLocomotion);
+            // ceilingSpokes when nothing will climb, and now for the wall region too: do not emit a region
+            // nothing can enter. Hand-trimmed and single-pose skins hit this; the shipped corpus never did,
+            // because every one carries a Walk. `anyLocomotion` is decided beside those region clears.
             if (anyLocomotion) all.Add(turn);
 
             // Drop the source's `_left` / `_right` suffixes now the WHOLE name set exists -- including
@@ -272,14 +319,23 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             // Where a floor walker enters the wall. Prefer a climbing (Move) primitive over a static grab, so
             // hitting an edge actually goes somewhere; null when the skin has no wall sprites, in which case
             // everything below degrades to the previous floor-only behaviour.
-            Emitted wallEntry = wallSpokes.FirstOrDefault(e => e.Source != null && ClimbsUpward(e.Source))
+            //
+            // WillClimb, not ClimbsUpward, for the reason BuildWallSpoke's border edges already give: the
+            // source poses do not know about the climb SynthesiseClimbIfNeeded invented, which lives in
+            // e.ForcedVelY. Asking the source here meant that on the synthesis path no spoke "climbed", so the
+            // entry fell back to wallSpokes[0] whatever spoke had been given the climb -- a Descend first in
+            // source order took a floor walker straight down into the floor border and back to `fall`, and
+            // the synthesised climb and the ceiling behind it were never entered from the floor (F425).
+            Emitted wallEntry = wallSpokes.FirstOrDefault(WillClimb)
                                 ?? wallSpokes.FirstOrDefault();
 
             // Where a climbing pet enters the ceiling, and where a ceiling walker gets back onto a wall.
             // Prefer a DESCENDING wall pose for the exit: leaving the ceiling onto a climb would send the pet
-            // straight back up into the border it just left.
+            // straight back up into the border it just left. Same predicate, for the same reason: a
+            // synthesised climber's SOURCE is static, so `!ClimbsUpward(source)` picked it as the exit and
+            // sent the ceiling walker back up the wall it had just climbed.
             Emitted ceilingEntry = ceilingSpokes.FirstOrDefault();
-            Emitted wallExit = wallSpokes.FirstOrDefault(e => e.Source != null && !ClimbsUpward(e.Source))
+            Emitted wallExit = wallSpokes.FirstOrDefault(e => !WillClimb(e))
                                ?? wallSpokes.FirstOrDefault();
 
             // Where a jump LANDS into, so the pet arrives on its feet and keeps moving rather than flipping
@@ -348,8 +404,22 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             // --- sounds: transcode each sounded action's clip to MP3 and attach it to that animation. The
             // desktopPet format ties a sound to an animation (played at its start), so a per-pose clip is
             // mapped to the whole animation via its FIRST sounded pose; per-pose timing is not reproduced. All
-            // best-effort and budgeted by the loader -- a missing clip / no transcoder just leaves it silent. ---
-            int soundWanted = 0, soundCaptured = 0;
+            // best-effort -- a missing clip / no transcoder just leaves it silent. ---
+            //
+            // BUDGETED HERE, PER EMBEDDING, AGAINST THE ROOM THE SHEET LEFT. Two budgets were written as if
+            // each were the only consumer of the 12 MiB: the compositor accepts a sheet as soon as it plus a
+            // 256 KiB markup allowance fits, and SoundBaker allowed a fixed 3 MiB of MP3 while knowing nothing
+            // about the sheet, so a frame-heavy skin that landed near the cap plus a few clips was ACCEPTED on
+            // a box without ffmpeg and refused with "Pet XML exceeds the 12 MiB limit" on one with it (F435).
+            // And the baker charges a CLIP once while this loop embeds it once per animation that plays it --
+            // a sounded action that is also a set-piece member is embedded as the spoke and again as every
+            // chain step -- so the emitted audio could exceed what the baker believed it allowed (F426). One
+            // running total over what is actually WRITTEN, checked against the sheet's own projection and the
+            // validator's per-sound and total audio caps, is the number both findings wanted. A clip that does
+            // not fit is skipped, not the conversion: the residue says how many were dropped for room.
+            long xmlRoom = (long)SpriteSheetBuilder.XmlBudgetBytes - ProjectedXmlBytesOf(sheet);
+            long audioBase64 = 0, audioBytes = 0;
+            int soundWanted = 0, soundCaptured = 0, soundNoRoom = 0;
             var soundNodes = new List<SoundNode>();
             foreach (Emitted e in all)
             {
@@ -361,20 +431,27 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 byte[] mp3;
                 try { mp3 = loadSound(clip); } catch { mp3 = null; }
                 if (mp3 == null || mp3.Length == 0) continue;
+                string base64 = Convert.ToBase64String(mp3);
+                bool fits = mp3.Length <= DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesPerSound
+                            && audioBytes + mp3.Length <= DesktopAICompanion.CompanionXmlValidator.MaximumAudioBytesTotal
+                            && audioBase64 + base64.Length + SoundMarkupAllowanceBytes <= xmlRoom;
+                if (!fits) { soundNoRoom++; continue; }
+                audioBytes += mp3.Length;
+                audioBase64 += base64.Length + SoundMarkupAllowanceBytes;
                 soundNodes.Add(new SoundNode
                 {
                     Id = e.Id,
                     Probability = 100,
                     Loop = 0,
-                    Base64 = Convert.ToBase64String(mp3),
+                    Base64 = base64,
                 });
                 soundCaptured++;
             }
             if (soundNodes.Count > 0)
                 root.Sounds = new SoundsNode { Sound = soundNodes.ToArray() };
 
-            BuildResidue(config, result.Residue, sheet.IsAlpha, all);
-            AppendSoundResidue(result.Residue, soundWanted, soundCaptured, loadSound != null);
+            BuildResidue(config, result.Residue, sheet.IsAlpha, all, wallSpokes.Count > 0, ceilingSpokes.Count > 0);
+            AppendSoundResidue(result.Residue, soundWanted, soundCaptured, loadSound != null, soundNoRoom);
 
             // --- validate + round-trip + reachability ---
             result.Root = root;
@@ -386,9 +463,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             if (result.Valid)
             {
                 result.Graph = ShimejiEngine.Analyze(reparsed);
-                string rtError;
-                result.RoundTrips = ShimejiEngine.RoundTrips(reparsed, out rtError);
-                if (!result.RoundTrips && string.IsNullOrEmpty(result.Error)) result.Error = rtError;
+                // A FIXED-POINT check, not a second validation. ShimejiEngine.RoundTrips (serialize, then
+                // validate again) is the right oracle for the CLI's verify verb on HAND-AUTHORED pets, where
+                // whether the DTOs can express a file someone typed is a real question. Here the input is text
+                // this same serializer wrote from these same DTOs, so a second TryParse could only repeat the
+                // first's verdict -- at the price of a second XSD compile, deserialize, base64 decode and full
+                // PNG decode of a sheet up to 12 MiB, plus every sound's sniff, per conversion (F427). What CAN
+                // fail independently is determinism: what the app reads back must serialize to the very bytes
+                // that were written. A DTO member that does not round-trip, or an element the text omits that
+                // the DTO reads back as its default and writes out again, shows up here as a first-difference
+                // offset rather than passing in silence. One extra Serialize of the reparsed tree, no decode.
+                string again = ShimejiEngine.Serialize(reparsed);
+                result.RoundTrips = string.Equals(again, result.EmittedXml, StringComparison.Ordinal);
+                if (!result.RoundTrips && string.IsNullOrEmpty(result.Error))
+                    result.Error = "the emitted XML is not a fixed point of parse -> serialize: "
+                        + FirstDifference(result.EmittedXml, again);
             }
             else
             {
@@ -559,8 +648,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
 
         private static bool DescendsDownward(ShimejiAction a)
         {
-            if (a == null || a.Animations.Count == 0) return false;
-            foreach (ShimejiPose p in a.Animations[0].Poses)
+            foreach (ShimejiPose p in PosesOf(a))
                 if (p != null && p.VelY > 0) return true;
             return false;
         }
@@ -632,8 +720,25 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
 
         private static List<ShimejiPose> PosesOf(Emitted e)
         {
-            if (e == null || e.Source == null) return new List<ShimejiPose>();
-            ShimejiAnimation variant = VariantFor(e.Source);
+            return e == null ? new List<ShimejiPose>() : PosesOf(e.Source);
+        }
+
+        /// <summary>
+        /// The poses of the variant an action actually PLAYS: <see cref="VariantFor"/>'s pick, which is
+        /// Animations[0] for everything but a gaze and the unconditional catch-all for a gaze.
+        ///
+        /// Every reader of an action's timing, velocity, sound or icon goes through here, not through
+        /// Animations[0]. FramesOf and PosesToComposite already asked VariantFor which variant the pet plays;
+        /// BuildSpoke, the wall and ceiling builders, IsLocomotion, ClimbsUpward, DescendsDownward, LaunchVelY,
+        /// FirstSoundClip and the hub icon each read Animations[0] on their own, so a gaze's FRAMES came from
+        /// the catch-all while its intervals, its rest dwell arithmetic and its sound clip came from the
+        /// first, cursor-conditioned variant it does not play (F428). For a non-gaze the two agree, which is
+        /// why it never showed; for a gaze whose variants differ in Duration the pose cycled at the wrong
+        /// pace. "Which variant" is decided once, in VariantFor, and consumed here.
+        /// </summary>
+        private static List<ShimejiPose> PosesOf(ShimejiAction a)
+        {
+            ShimejiAnimation variant = VariantFor(a);
             return variant == null ? new List<ShimejiPose>() : variant.Poses;
         }
 
@@ -786,9 +891,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         /// </summary>
         private static int LaunchVelY(ShimejiAction a)
         {
-            if (a == null || a.Animations.Count == 0) return 0;
             int strongest = 0;
-            foreach (ShimejiPose p in a.Animations[0].Poses)
+            foreach (ShimejiPose p in PosesOf(a))
                 if (p != null && p.VelY < strongest) strongest = p.VelY;
             return strongest;
         }
@@ -1189,10 +1293,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         /// </summary>
         private static bool IsLocomotion(Emitted e)
         {
-            if (e.Source == null || e.Source.Animations.Count == 0) return false;
+            if (e.Source == null) return false;
             if (!string.Equals(e.Source.Type, "Move", StringComparison.OrdinalIgnoreCase)) return false;
-            foreach (ShimejiPose p in e.Source.Animations[0].Poses)
-                if (p.VelX != 0 || p.VelY != 0) return true;
+            foreach (ShimejiPose p in PosesOf(e.Source))
+                if (p != null && (p.VelX != 0 || p.VelY != 0)) return true;
             return false;
         }
 
@@ -1200,8 +1304,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         /// as the wall entry point.</summary>
         private static bool ClimbsUpward(ShimejiAction a)
         {
-            if (a == null || a.Animations.Count == 0) return false;
-            foreach (ShimejiPose p in a.Animations[0].Poses)
+            foreach (ShimejiPose p in PosesOf(a))
                 if (p != null && p.VelY < 0) return true;
             return false;
         }
@@ -1306,8 +1409,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         /// </summary>
         private static AnimationNode BuildWallSpoke(Emitted e, Emitted fall, IList<Emitted> wallSpokes, Emitted ceilingEntry, Emitted hub)
         {
-            List<ShimejiPose> poses = e.Source != null && e.Source.Animations.Count > 0
-                ? e.Source.Animations[0].Poses : new List<ShimejiPose>();
+            List<ShimejiPose> poses = PosesOf(e);
             // Only the VERTICAL component is kept: horizontal motion on a wall would walk the pet off it, so
             // the source's VelX is read and discarded on purpose rather than never read.
             // ForcedVelY wins: this spoke is a static grab pose being animated upward because the skin lost
@@ -1402,8 +1504,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         /// </summary>
         private static AnimationNode BuildCeilingSpoke(Emitted e, Emitted fall, Emitted wallExit, IList<Emitted> ceilingSpokes)
         {
-            List<ShimejiPose> poses = e.Source != null && e.Source.Animations.Count > 0
-                ? e.Source.Animations[0].Poses : new List<ShimejiPose>();
+            List<ShimejiPose> poses = PosesOf(e);
             int vx0 = poses.Count > 0 ? poses[0].VelX : 0;
             int vxN = poses.Count > 0 ? poses[poses.Count - 1].VelX : 0;
             int iv0 = poses.Count > 0 ? Interval(poses[0].Duration) : 200;
@@ -1459,8 +1560,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
 
         private static AnimationNode BuildSpoke(Emitted e, Emitted hub, Emitted fall, Emitted turn, Emitted wallEntry, Emitted wallExit, Emitted ceilingEntry, Emitted landRun)
         {
-            List<ShimejiPose> poses = e.Source != null && e.Source.Animations.Count > 0
-                ? e.Source.Animations[0].Poses : new List<ShimejiPose>();
+            // The variant the pet PLAYS (PosesOf -> VariantFor), so a gaze's intervals and dwell come from
+            // the same catch-all its frames do.
+            List<ShimejiPose> poses = PosesOf(e);
             int vx0 = poses.Count > 0 ? poses[0].VelX : 0;
             int vy0 = poses.Count > 0 ? poses[0].VelY : 0;
             int vxN = poses.Count > 0 ? poses[poses.Count - 1].VelX : 0;
@@ -2219,6 +2321,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             var alreadyEmitted = new HashSet<string>(StringComparer.Ordinal);
             foreach (Emitted e in spokes)
                 if (e.Source != null && e.Source.Name != null) alreadyEmitted.Add(e.Source.Name);
+            // A member merged away by CollapseDirectionPairs is CONVERTED -- its frames play under the
+            // surviving sibling's name -- so it is not withheld, and a sequence naming it recovers nothing.
+            // `spokes` is the post-collapse list, so without this the mirrored `walk_right` of a fan skin
+            // was absent from the set, every unplayed sequence naming it passed the RECOVERS gate, its chain
+            // took a floor share of the hub the design says structure alone must not take, and the residue
+            // counted the member as emitted instead of merged (F431). All three collapse passes have run
+            // by the time this method is called, so the set is complete here.
+            alreadyEmitted.UnionWith(CollapsedSources);
 
             HashSet<string> played = BehaviourReferencedSequences(config);
 
@@ -2412,9 +2522,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
 
         private static string HubImage(Emitted hub)
         {
-            if (hub.Source != null && hub.Source.Animations.Count > 0 && hub.Source.Animations[0].Poses.Count > 0)
-                return hub.Source.Animations[0].Poses[0].Image;
-            return null;
+            List<ShimejiPose> poses = PosesOf(hub);
+            return poses.Count > 0 && poses[0] != null ? poses[0].Image : null;
         }
 
         /// <summary>
@@ -2434,8 +2543,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             return a != null && string.Equals(a.Type, "OpenURL", StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <param name="wallRegionEmitted">Whether any wall animation was actually emitted. Told rather than
+        /// re-derived from the config: the emitter drops the wall and ceiling regions when nothing can reach
+        /// them (see EmitCore), and a report that read the config alone said "Wall climbing IS converted"
+        /// about a pet that carries no wall animation (F429).</param>
+        /// <param name="ceilingRegionEmitted">Likewise for the ceiling.</param>
         private static void BuildResidue(ShimejiConfig config, ResidueReport residue, bool alpha,
-                                         List<Emitted> emitted)
+                                         List<Emitted> emitted, bool wallRegionEmitted, bool ceilingRegionEmitted)
         {
             ShimejiAction fallAction = FirstWithClass(config, "Fall");
             ShimejiAction dragAction = FirstWithClass(config, "Dragged");
@@ -2488,9 +2602,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 if (QualifiesAsJump(a)) jumpConverted.Add(a.Name);
                 else if (RiseIsFlattened(a)) riseFlattened.Add(a.Name);
             }
-            // Ceiling needs a wall to be reachable, so a skin with ceiling sprites and no wall region emits
-            // none. Report that honestly instead of claiming a ceiling the pet does not have.
-            bool ceilingReachable = wallConverted.Count > 0 && ceilingConverted.Count > 0;
+            // Region actions the emitter LEFT OUT because nothing could reach them: wall art on a skin with
+            // no floor locomotion and no jump into a ceiling, or ceiling art on a skin with no wall. They are
+            // converted in neither sense -- not emitted, and not merged into anything -- so the accounting
+            // needs a bucket of their own, or a Group1 GrabWall on such a skin reached no bucket at all and
+            // the report printed it as UNACCOUNTED, its own word for a reporting bug.
+            var leftOutRegion = new List<string>();
+            if (!wallRegionEmitted) leftOutRegion.AddRange(wallConverted);
+            if (!ceilingRegionEmitted) leftOutRegion.AddRange(ceilingConverted);
 
             int condNeedsState = config.BehaviorConditions.Count(c => c.Group == FidelityGroup.Group2);
             if (alpha)
@@ -2498,12 +2617,19 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             else
                 residue.Notes.Add("Sprite edges are hard, not anti-aliased: the app renders every pet with a 1-bit magenta transparency key (a pixel is either shown or invisible, no partial transparency), so soft/smooth edges cannot be preserved -- mild for hard-outlined art, more visible on glows or shadows.");
             residue.Notes.Add("The pet gets a coherent FLOOR behaviour (idle / walk-and-turn / fall / drag). Shimeji's full conditional behaviour selection (its Markov chain and " + condNeedsState + " state-dependent conditions) is not reproduced; it wanders and rests rather than following the original's exact routine.");
-            if (wallConverted.Count > 0)
+            // What the pet GAINED is stated from what was emitted, not from what the config offered.
+            if (wallRegionEmitted)
                 residue.Notes.Add("Wall climbing IS converted: on reaching a left/right screen edge the pet may grab the wall and climb it, then let go and fall. Converted for this skin: " + string.Join(", ", wallConverted) + ".");
-            if (ceilingReachable)
+            else if (wallConverted.Count > 0)
+                residue.Notes.Add("This skin has wall animations (" + string.Join(", ", wallConverted) + ") but nothing can reach a wall: the way in is a walk (Type=\"Move\") meeting a screen edge, or a jump up into a ceiling, and this skin has neither. They are left out rather than emitted as animations nothing can reach.");
+            if (ceilingRegionEmitted)
                 residue.Notes.Add("Ceiling walking IS converted: a pet that climbs a wall to the top of the screen usually carries on across the ceiling, then either drops or climbs back down the far wall. Converted for this skin: " + string.Join(", ", ceilingConverted) + ".");
             else if (ceilingConverted.Count > 0)
-                residue.Notes.Add("This skin has ceiling animations (" + string.Join(", ", ceilingConverted) + ") but no wall animations, and the ceiling is only reachable by climbing a wall. They are left out rather than emitted as animations nothing can reach.");
+                residue.Notes.Add("This skin has ceiling animations (" + string.Join(", ", ceilingConverted) + ") but "
+                    + (wallConverted.Count == 0
+                        ? "no wall animations, and the ceiling is only reachable by climbing a wall."
+                        : "its wall region is left out (see above), and the ceiling is only reachable by climbing a wall.")
+                    + " They are left out rather than emitted as animations nothing can reach.");
             if (jumpConverted.Count > 0)
                 residue.Notes.Add("Jumping IS converted: the pet launches into a fixed-height arc (about " + JumpPeakPx + "px), falls if the arc outlives the drop, and on landing either hops again or runs off rather than stopping dead. The HEIGHT is the converter's, not the source's -- a Shimeji jump describes a per-tick velocity whose result depends on how many frames the action happens to have, which across this corpus ranged from an 11px twitch to a 72px fling. Converted for this skin: " + string.Join(", ", jumpConverted) + ".");
             // Wording matters here. This used to read "Wall, ceiling and jump animations are not represented",
@@ -2531,9 +2657,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             var degradedNames = new HashSet<string>(StringComparer.Ordinal);
             foreach (ResidueItem d in residue.Degraded) degradedNames.Add(d.Name);
             var notAttemptedNames = new HashSet<string>(notOnFloor, StringComparer.Ordinal);
+            var leftOutNames = new HashSet<string>(leftOutRegion, StringComparer.Ordinal);
 
             int nEmit = 0, nDrop = 0, nDeg = 0, nNot = 0, nAbsorbed = 0, nComposite = 0, nChained = 0, nCollapsed = 0;
-            int nRefused = 0;
+            int nRefused = 0, nLeftOut = 0;
             var absorbedNames = new List<string>();
             var refusedNames = new List<string>();
             var collapsedNames = new List<string>();
@@ -2547,6 +2674,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 else if (droppedNames.Contains(n)) { nDrop++; }
                 else if (degradedNames.Contains(n)) { nDeg++; }
                 else if (notAttemptedNames.Contains(n)) { nNot++; }
+                // After degraded, so a Group2 wall action the region drop also left out counts once.
+                else if (leftOutNames.Contains(n)) { nLeftOut++; }
                 else if (a == fallAction || a == dragAction
                          || string.Equals(a.Class, "SelfDestruct", StringComparison.Ordinal)
                          || string.Equals(a.Class, "Look", StringComparison.Ordinal)
@@ -2581,12 +2710,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 + "{4} not attempted, {5} absorbed (they become the magic fall/drag/kill animations, the flip "
                 + "action, or an offset baked into the sheet), {6} Sequence/Select composites that order OTHER "
                 + "actions rather than carrying frames of their own, {9} merged into an identical sibling "
-                + "animation, {10} refused by policy. These sum to the total by construction. "
+                + "animation, {10} refused by policy, {11} wall/ceiling animations left out because nothing "
+                + "could reach them. These sum to the total by construction. "
                 + "The pet carries {7} animations rather than {1} because {8} are synthesised by the converter "
                 + "with no source action behind them, and a gaze is counted here as emitted even though it is "
                 + "also listed as degraded.",
                 config.Actions.Count, nEmit, nDrop, nDeg, nNot, nAbsorbed, nComposite + nChained,
-                emitted.Count, synthesised, nCollapsed, nRefused));
+                emitted.Count, synthesised, nCollapsed, nRefused, nLeftOut));
             if (nChained > 0)
                 residue.Notes.Add("Set-pieces CONVERTED as chains (" + nChained + "): "
                     + string.Join(", ", ExpandedSetPieces) + ". Each member is emitted as its own animation "
@@ -2747,18 +2877,48 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             return repeat;
         }
 
-        // The first pose in an action's first animation that carries a Sound clip, or null. The pet format
+        // The first pose in the variant the action PLAYS that carries a Sound clip, or null. The pet format
         // attaches a sound to an animation (played at its start), so one representative clip per animation is
-        // the honest mapping of Shimeji's per-pose sounds.
+        // the honest mapping of Shimeji's per-pose sounds. PosesOf, not Animations[0]: a gaze plays its
+        // catch-all variant, and attaching the cursor-conditioned variant's clip to it was F428's sound half.
         private static string FirstSoundClip(ShimejiAction a)
         {
-            if (a == null || a.Animations.Count == 0) return null;
-            foreach (ShimejiPose p in a.Animations[0].Poses)
+            foreach (ShimejiPose p in PosesOf(a))
                 if (p != null && !string.IsNullOrWhiteSpace(p.Sound)) return p.Sound;
             return null;
         }
 
-        private static void AppendSoundResidue(ResidueReport residue, int wanted, int captured, bool attempted)
+        /// <summary>Where two documents first disagree, with a short window of each, for the round-trip error.</summary>
+        private static string FirstDifference(string emitted, string reserialized)
+        {
+            string a = emitted ?? "", b = reserialized ?? "";
+            int n = Math.Min(a.Length, b.Length);
+            int at = 0;
+            while (at < n && a[at] == b[at]) at++;
+            if (at == n && a.Length == b.Length) return "no difference found (lengths " + a.Length + ")";
+            const int Window = 48;
+            string wa = a.Substring(at, Math.Min(Window, a.Length - at)).Replace("\r", "\\r").Replace("\n", "\\n");
+            string wb = b.Substring(at, Math.Min(Window, b.Length - at)).Replace("\r", "\\r").Replace("\n", "\\n");
+            return "at offset " + at + " of " + a.Length + "/" + b.Length + " chars, emitted '" + wa
+                + "' vs re-serialized '" + wb + "'";
+        }
+
+        /// <summary>Markup one &lt;sound&gt; node adds around its base64 -- the element, id, probability and
+        /// whitespace -- charged with each embedding so the running total is the document's growth, not the
+        /// payload's. Generous: the real figure is under 100 bytes. Internal so the self-test can size a
+        /// near-cap projection to admit exactly N embeddings.</summary>
+        internal const int SoundMarkupAllowanceBytes = 256;
+
+        /// <summary>What the sheet will cost in the document: the compositor's own projection (its base64
+        /// plus the 256 KiB markup allowance), or the same sum recomputed when a caller built the sheet by
+        /// hand and left the projection unset.</summary>
+        private static long ProjectedXmlBytesOf(SpriteSheet sheet)
+        {
+            if (sheet.ProjectedXmlBytes > 0) return sheet.ProjectedXmlBytes;
+            return (sheet.Base64Png != null ? sheet.Base64Png.Length : 0) + (long)SpriteSheetBuilder.MarkupAllowanceBytes;
+        }
+
+        private static void AppendSoundResidue(ResidueReport residue, int wanted, int captured, bool attempted, int noRoom)
         {
             if (wanted <= 0) return;
             if (captured == wanted)
@@ -2766,10 +2926,17 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     "they play at each animation's start (Shimeji's per-pose sound timing is not reproduced).");
             else if (captured > 0)
                 residue.Notes.Add(captured + " of " + wanted + " animation sound(s) captured (MP3, played at " +
-                    "animation start); the rest were dropped -- the per-pet audio budget, or an unreadable/oversize clip.");
+                    "animation start); the rest were dropped -- " +
+                    (noRoom > 0
+                        ? noRoom + " because the sprite sheet left no room for the clip under the 12 MiB pet limit " +
+                          "(or the 8 MiB audio total)" +
+                          (noRoom < wanted - captured ? ", the others the per-clip audio budget or an unreadable/oversize clip" : "")
+                        : "the per-clip audio budget, or an unreadable/oversize clip") + ".");
             else
                 residue.Notes.Add(wanted + " animation(s) carry sound, but none was captured (" +
-                    (attempted ? "the clips were missing or over the audio budget" : "no MP3 transcoder was available") +
+                    (!attempted ? "no MP3 transcoder was available"
+                        : noRoom == wanted ? "the sprite sheet left no room for any clip under the 12 MiB pet limit"
+                        : "the clips were missing or over the audio budget") +
                     "), so the pet is silent.");
         }
 
