@@ -169,10 +169,11 @@ namespace DesktopAICompanion.Ai
 
         public int Count { get { return _poolE.Count; } }
 
-        /// <summary>Folder where users drop their own <c>.txt</c> fortune files.</summary>
+        /// <summary>Folder where users drop their own <c>.txt</c> fortune files. The PATH, not the created
+        /// folder: every reader here copes with its absence, and the writers create it themselves.</summary>
         public static string CustomDir
         {
-            get { return FortunePaths.FortunesDir; }
+            get { return FortunePaths.FortunesDirPath; }
         }
 
         /// <summary>

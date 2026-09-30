@@ -230,6 +230,63 @@ namespace DesktopAICompanion.FortunesModule
                     ok &= Check(sb, "the skip line carries categories and counts, never a name",
                         FortuneProvider.DescribeSkips(skips) ==
                         "pack files skipped: malformed=0 unreadable=1 oversized=0 bad-name=0 over-budget=0 error=0");
+
+                    // The importer's half of F129: a file the loader refuses holds no slot and no bytes in
+                    // the admission either. Two existing files, one junk (200 bytes of invalid UTF-8) and
+                    // one valid, a cap of two files and 150 bytes: the junk used to make the folder "full".
+                    string junkDest = Path.Combine(folder, "junk-dest");
+                    Directory.CreateDirectory(junkDest);
+                    var junk = new byte[200];
+                    for (int i = 0; i < junk.Length; i++) junk[i] = 0xFF;
+                    File.WriteAllBytes(Path.Combine(junkDest, "junk.txt"), junk);
+                    File.WriteAllText(Path.Combine(junkDest, "valid.txt"),
+                        "A valid fortune line, long enough to count.\n", utf8);
+                    string newSource = Path.Combine(folder, "new-source.txt");
+                    File.WriteAllText(newSource, "Another valid fortune line, long enough to count.\n", utf8);
+                    FortuneImportBatchResult admitted = FortuneFileImporter.ImportForDiagnostics(
+                        new[] { newSource }, junkDest, 2, 4096, 150, 100);
+                    ok &= Check(sb, "a file the loader refuses holds no slot and no bytes in the importer's admission",
+                        admitted.ImportedCount == 1 && admitted.RejectedCount == 0);
+
+                    // N-tools-02: a transient lock on the destination while the commit replaces it (a
+                    // scanner holding the file the import just wrote) is retried, not surfaced. The stand-in
+                    // for File.Replace refuses twice with a sharing violation and then does the real thing.
+                    string lockedDest = Path.Combine(folder, "locked-dest");
+                    Directory.CreateDirectory(lockedDest);
+                    File.WriteAllText(Path.Combine(lockedDest, "replace.txt"),
+                        "The original line, long enough to count.\n", utf8);
+                    string replacementDir = Path.Combine(folder, "replacement-src");
+                    Directory.CreateDirectory(replacementDir);
+                    string replacementSource = Path.Combine(replacementDir, "replace.txt");
+                    File.WriteAllText(replacementSource, "The replacement line, long enough to count.\n", utf8);
+                    var approved = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "replace.txt" };
+                    int replaceCalls = 0;
+                    FortuneImportBatchResult retried = FortuneFileImporter.ImportForDiagnostics(
+                        new[] { replacementSource }, lockedDest, approved,
+                        delegate(string temporaryPath, string destinationPath, string backupPath, bool ignoreMetadataErrors)
+                        {
+                            if (++replaceCalls <= 2)
+                                throw new System.ComponentModel.Win32Exception(32, "fault-injected sharing violation");
+                            File.Replace(temporaryPath, destinationPath, backupPath, ignoreMetadataErrors);
+                        });
+                    ok &= Check(sb, "a transient sharing violation during the commit is retried, not surfaced (the batch lands on the third attempt)",
+                        retried.ImportedCount == 1 && replaceCalls == 3 &&
+                        File.ReadAllText(Path.Combine(lockedDest, "replace.txt"), utf8)
+                            .StartsWith("The replacement line", StringComparison.Ordinal));
+                    // ...while a permanent fault is surfaced at once and rolled back, as before.
+                    File.WriteAllText(replacementSource, "A second replacement line, long enough.\n", utf8);
+                    int permanentCalls = 0;
+                    FortuneImportBatchResult refused = FortuneFileImporter.ImportForDiagnostics(
+                        new[] { replacementSource }, lockedDest, approved,
+                        delegate(string temporaryPath, string destinationPath, string backupPath, bool ignoreMetadataErrors)
+                        {
+                            permanentCalls++;
+                            throw new UnauthorizedAccessException("fault-injected permanent refusal");
+                        });
+                    ok &= Check(sb, "WITNESS a permanent refusal is surfaced after one attempt and the destination is left as it was",
+                        refused.ImportedCount == 0 && permanentCalls == 1 &&
+                        File.ReadAllText(Path.Combine(lockedDest, "replace.txt"), utf8)
+                            .StartsWith("The replacement line", StringComparison.Ordinal));
                 }
                 finally
                 {
@@ -240,6 +297,13 @@ namespace DesktopAICompanion.FortunesModule
                 ok &= Check(sb, "refused packs are counted on the pane and point at the log",
                     FortunesModule.SkippedPacksNote(2).IndexOf("2 pack files", StringComparison.Ordinal) >= 0 &&
                     FortunesModule.SkippedPacksNote(2).IndexOf("log", StringComparison.Ordinal) >= 0);
+
+                // A host with NO settings store (F121). The convention runner's host is one; its Init used to
+                // start an embed of the whole corpus into the TEMP fallback root on every run.
+                ok &= Check(sb, "a host with no settings store gets smart picks OFF (nothing could persist turning them off)",
+                    !FortunesModule.SettingsFromStore(null).SmartFortunes);
+                ok &= Check(sb, "WITNESS an empty settings store keeps the default: smart picks on",
+                    FortunesModule.SettingsFromStore(new DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings()).SmartFortunes);
 
                 // A COLLAPSED pool must announce itself. This is the bug behind "the same dad joke five times
                 // today": 157 of 190 sources were switched off, leaving exactly one pack of 2,794 lines, and
@@ -354,6 +418,9 @@ namespace DesktopAICompanion.FortunesModule
 
                 // Diagnostics: the module reached IHost.Log at all, and the lines say the bad outcome.
                 ok &= DiagnosticsAreWired(sb);
+
+                // The pane actions that change the folder, against the module itself (no ONNX work).
+                ok &= FolderActionChecks(sb);
 
                 // The engine's full self-test suite, running in the module's context.
                 bool filter = FortuneProvider.FilterSelfTest();
@@ -831,6 +898,115 @@ namespace DesktopAICompanion.FortunesModule
                 }
             }
             return ok;
+        }
+
+        /// <summary>
+        /// The pane actions that change the fortunes folder, driven against the module itself with smart
+        /// picks OFF (no ONNX work): Rescan, Import and Download each land their change and rebuild the
+        /// pool; the parse and the import run on a pool thread rather than the one that pressed the button
+        /// (F122, F127); and once the folder has been loaded an import validates no existing pack again
+        /// (F123). A scratch storage root, removed at the end.
+        /// </summary>
+        private static bool FolderActionChecks(StringBuilder sb)
+        {
+            bool ok = true;
+            string previousRoot = FortunePaths.RootForDiagnostics;
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            var module = new FortunesModule();
+            using (var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("fortunes-folder"))
+            {
+                host.UseStorage("fortunes", storage);
+                host.SettingsFor("fortunes").Set("smartFortunes", "false");
+                string folder = Path.Combine(storage.DataDirectory, "fortunes");
+                var utf8 = new UTF8Encoding(false);
+                try
+                {
+                    Directory.CreateDirectory(folder);
+                    File.WriteAllText(Path.Combine(folder, "seeded.txt"),
+                        "A seeded fortune line that is long enough.\n", utf8);
+                    module.Init(host);
+                    int testThread = Environment.CurrentManagedThreadId;
+                    OptionsPane pane = host.OptionsPanes.Count > 0 ? host.OptionsPanes[0] : null;
+                    PaneAction rescan = FindCardAction(pane, "Fortune packs", "Rescan folder");
+                    PaneAction import = FindCardAction(pane, "Fortune packs", "Import your own…");
+                    PaneAction check = FindCardAction(pane, "Available online", "Check online for packs");
+                    PaneAction selectAll = FindCardAction(pane, "Available online", "Select all");
+                    PaneAction download = FindCardAction(pane, "Available online", "Download selected");
+                    bool actionsFound = rescan != null && import != null && check != null &&
+                                        selectAll != null && download != null;
+                    ok &= Check(sb, "the pane offers rescan, import and the three catalog actions", actionsFound);
+                    if (actionsFound)
+                    {
+                        // Rescan: a pack dropped into the folder joins the pool, parsed off the calling thread.
+                        File.WriteAllText(Path.Combine(folder, "dropped.txt"),
+                            "A dropped fortune line that is long enough.\n", utf8);
+                        string rescanned = rescan.InvokeAsync().GetAwaiter().GetResult() ?? "";
+                        ok &= Check(sb, "Rescan loads a pack dropped into the folder into the live pool",
+                            rescanned.StartsWith("Rescanned", StringComparison.Ordinal) &&
+                            module.PoolContainsForDiagnostics("A dropped fortune line that is long enough."));
+                        ok &= Check(sb, "Rescan's parse ran on a pool thread, not the one that pressed the button",
+                            module.LastParseThreadForDiagnostics != 0 &&
+                            module.LastParseThreadForDiagnostics != testThread);
+
+                        // Import: through the strict importer, on a pool thread, reusing the loader's parses
+                        // of the packs already in the folder.
+                        string mine = Path.Combine(storage.DataDirectory, "my-own-pack.txt");
+                        File.WriteAllText(mine, "A line I wrote myself, long enough to count.\n", utf8);
+                        host.PickedFiles = new List<string> { mine };
+                        int validatedBefore = FortuneFileImporter.ExistingPacksValidatedForDiagnostics;
+                        string imported = import.InvokeAsync().GetAwaiter().GetResult() ?? "";
+                        host.PickedFiles = new List<string>();
+                        ok &= Check(sb, "Import lands the pack in the fortunes folder and reports it",
+                            File.Exists(Path.Combine(folder, "my-own-pack.txt")) &&
+                            imported.IndexOf("Imported 1 pack", StringComparison.Ordinal) >= 0);
+                        ok &= Check(sb, "the imported lines join the live pool",
+                            module.PoolContainsForDiagnostics("A line I wrote myself, long enough to count."));
+                        ok &= Check(sb, "the import ran on a pool thread, not the one that pressed the button",
+                            FortuneFileImporter.LastImportThreadForDiagnostics != 0 &&
+                            FortuneFileImporter.LastImportThreadForDiagnostics != testThread);
+                        ok &= Check(sb, "the import validated no existing pack again (the loader's parses were reused)",
+                            FortuneFileImporter.ExistingPacksValidatedForDiagnostics == validatedBefore);
+
+                        // Download: the catalog stand-in hands the bytes; the file lands and joins the pool.
+                        host.CatalogItems[CatalogKinds.Pack] = new List<CatalogItem>
+                        {
+                            new CatalogItem { Id = "extrapack", Name = "Extra Pack", Bytes = 10, Count = 1 },
+                        };
+                        host.CatalogPayloads[CatalogKinds.Pack + "/extrapack"] =
+                            utf8.GetBytes("A catalog fortune line, long enough.\n");
+                        check.InvokeAsync().GetAwaiter().GetResult();
+                        selectAll.InvokeAsync().GetAwaiter().GetResult();
+                        string downloaded = download.InvokeAsync().GetAwaiter().GetResult() ?? "";
+                        ok &= Check(sb, "Download writes the pack and its lines join the live pool",
+                            File.Exists(Path.Combine(folder, "extrapack.txt")) &&
+                            downloaded.IndexOf("Downloaded 1 pack", StringComparison.Ordinal) >= 0 &&
+                            module.PoolContainsForDiagnostics("A catalog fortune line, long enough."));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ok &= Check(sb, "the folder-action scenario ran (" + ex.GetType().Name + ": " + ex.Message + ")", false);
+                }
+                finally
+                {
+                    try { module.Shutdown(); } catch { }
+                    FortunePaths.SetRoot(previousRoot);
+                }
+            }
+            return ok;
+        }
+
+        private static PaneAction FindCardAction(OptionsPane pane, string cardTitle, string label)
+        {
+            if (pane == null || pane.Lists == null) return null;
+            foreach (ListCard card in pane.Lists)
+            {
+                if (card == null || card.Actions == null ||
+                    !string.Equals(card.Title, cardTitle, StringComparison.Ordinal)) continue;
+                foreach (PaneAction a in card.Actions)
+                    if (a != null && string.Equals(a.Label, label, StringComparison.Ordinal)) return a;
+            }
+            return null;
         }
 
         private static int CountLines(List<string> lines, string prefix)

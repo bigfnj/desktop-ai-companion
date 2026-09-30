@@ -70,6 +70,7 @@ AIBRAIN_DLL = os.path.join(BIN, "modules", "aibrain", "AiBrain.dll")
 AIBRAIN_ENGINE = os.path.join(REPO, "modules", "AiBrain", "engine", "AiBrain.cs")
 EMBEDDER = os.path.join(REPO, "modules", "Fortunes", "engine", "Embedder.cs")
 SMART_FORTUNES = os.path.join(REPO, "modules", "Fortunes", "engine", "SmartFortunes.cs")
+FORTUNE_IMPORTER = os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneFileImporter.cs")
 MODULE_HOST_SELFTEST = os.path.join(REPO, "src", "dotNet", "Plugins", "ModuleHostSelfTest.cs")
 FORTUNES_ENGINE_SELFTEST = os.path.join(REPO, "src", "dotNet", "Plugins", "FortunesEngineSelfTest.cs")
 
@@ -644,14 +645,17 @@ CASES = (
      "a failed vector-cache save is reported, not swallowed"),
 
     # F148: the status derives "enabled" from the picker object again, which is null while a build is in
-    # flight. The button press is the deterministic observer: RebuildEngine has just cleared the field.
+    # flight. The read straight after Init is the deterministic observer: RebuildEngine has just queued
+    # the build and the status is read before the worker can have published. The button press is the
+    # same read behind an asynchronous rebuild, and there the worker can win the race, so a case naming
+    # it read WRONG once the rebuild went off the UI thread (measured 2026-09-29).
     ("fortunes: the status derives 'enabled' from the picker object again",
      FORTUNES_MODULE,
      b"            return SmartStatusFor(_smartWanted, provider.Count, AnyPacksInstalled(), reason, detail,",
      b"            return SmartStatusFor(sm != null, provider.Count, AnyPacksInstalled(), reason, detail,",
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
-     "'Rebuild smart index' pressed while a build is in flight answers indexing"),
+     "with smart picks ON and a build in flight, the button's status says indexing"),
 
     # F147: an unchanged pool rebuilds the picker again (`&& force` makes the keep decision always false).
     ("fortunes: an unchanged pool rebuilds the smart picker again",
@@ -704,6 +708,83 @@ CASES = (
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
      "the same texts under a different topic fingerprint differently"),
+
+    # F127: the folder-changing rebuild parses inline on the calling thread again. Task.Yield keeps the
+    # method honestly async; without it CS1998 (warnings-as-errors) would make the verdict BROKEN.
+    ("fortunes: the folder-changing rebuild parses on the calling thread again",
+     FORTUNES_MODULE,
+     b"                provider = await Task.Run(delegate\n"
+     b"                {\n"
+     b"                    System.Threading.Volatile.Write(ref _lastParseThread, Environment.CurrentManagedThreadId);\n"
+     b"                    return new FortuneProvider(settings);\n"
+     b"                });",
+     b"                System.Threading.Volatile.Write(ref _lastParseThread, Environment.CurrentManagedThreadId);\n"
+     b"                provider = new FortuneProvider(settings);\n"
+     b"                await Task.Yield();",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "Rescan's parse ran on a pool thread"),
+
+    # F122: the import runs inline on the calling thread again.
+    ("fortunes: the import runs on the calling thread again",
+     FORTUNES_MODULE,
+     b"                FortuneImportBatchResult result = await Task.Run(delegate\n"
+     b"                {\n"
+     b"                    return FortuneFileImporter.Import(chosen, directory, null, token);   // no overwrite approved (see summary)\n"
+     b"                });",
+     b"                FortuneImportBatchResult result = FortuneFileImporter.Import(chosen, directory, null, token);\n"
+     b"                await Task.Yield();",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "the import ran on a pool thread"),
+
+    # F123: the importer ignores the loader's per-file cache again.
+    ("fortunes: the importer re-validates every existing pack again",
+     FORTUNE_IMPORTER,
+     b"                    if (FortuneProvider.TryGetCachedPack(",
+     b"                    if (path.Length < 0 && FortuneProvider.TryGetCachedPack(",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "validated no existing pack again"),
+
+    # F129 (the importer's half): a file the loader refuses is charged a slot and its bytes again.
+    ("fortunes: the importer charges a file the loader refuses again",
+     FORTUNE_IMPORTER,
+     b"                            existing.Loadable = FortuneProvider.TryValidateCustomPackBytes(",
+     b"                            existing.Loadable = true | FortuneProvider.TryValidateCustomPackBytes(",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "holds no slot and no bytes in the importer's admission"),
+
+    # N-gates-02: the module's SelfTest stops redirecting the engine to its scratch root (SetRoot
+    # ignores null, so the root in effect stays whatever the runner left).
+    ("fortunes: the module self-test runs against the engine's live root again",
+     FORTUNES_MODULE,
+     b"                FortunePaths.SetRoot(scratch);",
+     b"                FortunePaths.SetRoot(null);",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "landed under its scratch root"),
+
+    # N-tools-02: the commit stops retrying a transient lock (one attempt, then surfaced).
+    ("fortunes: a transient lock during the import's commit is surfaced at once again",
+     FORTUNE_IMPORTER,
+     b"        private const int ReplaceAttempts = 8;",
+     b"        private const int ReplaceAttempts = 1;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "retried, not surfaced"),
+
+    # F121: a host with no settings store gets the expensive default again.
+    ("fortunes: a host with no settings store gets smart picks ON again",
+     FORTUNES_MODULE,
+     b"                s.SmartFortunes = false;\n"
+     b"                return s;",
+     b"                s.SmartFortunes = true;\n"
+     b"                return s;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "gets smart picks OFF"),
 
 
     # ---- lane fix/petstudio ----

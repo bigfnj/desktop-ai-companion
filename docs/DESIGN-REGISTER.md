@@ -302,6 +302,35 @@ for the status from `LoadFortuneSettings(_host)` per press (F148's alternative),
 settings file to learn a value RebuildEngine already had in hand; the setting is recorded in a field when
 the engine is rebuilt.
 
+**The startup parse and Apply's rebuild stay on the calling thread; the pane actions that change the folder
+parse off it (2026-09-29, fortunes 1.0.12).** F127 asked for the corpus parse to leave the UI thread
+everywhere. Two callers keep it. Init, because IModule's contract is a usable module when Init returns:
+the host's own `--fortunes-selftest` raises CompanionLanded straight after LoadFrom and expects speech, and
+at startup the parse runs inside the StartUp constructor before the message loop exists, so there is no
+window to freeze, only the first pet to delay (the audit's 0.25 s on a default install). Apply, because the
+Fortunes pane carries an Info field, so the window re-runs Load the moment Apply returns and reads the pool
+count from the provider (a background publish would have shown the stale count), and Apply is a cache hit
+unless the folder changed underneath it. Rescan, Import, Download and the Rebuild button, whose purpose IS
+a changed folder, parse on a pool thread and publish on the UI-thread continuation behind an engine
+generation, the shape AiBrainModule.BeginVramProbe and the smart build already use; the per-file parse
+cache makes a changed folder cost only the files that changed. No timing is quoted: the property (what no
+longer runs on the UI thread) is stated instead.
+
+**A host that hands the module no settings store gets smart picks OFF (2026-09-29, fortunes 1.0.12).** The
+default is ON for the real host, which always returns a store. A null store means the module cannot
+persist the user turning the expensive default off, so it does not assume the expensive default. In
+practice the only such host is the convention self-test's, whose Init used to start an unobserved embed of
+the whole corpus into the TEMP fallback root on every `--module-selftest=fortunes` (F121, N-gates-02). The
+engine self-test's host hands an EMPTY store instead; seeding `smartFortunes=false` there is the host
+lane's half.
+
+**FortunePaths keeps its TEMP fallback root (2026-09-29).** N-gates-02 asked for `FortunePaths.cs:29` to be
+dispositioned. The fallback stays: a module loaded by a host that hands it no storage still needs somewhere
+to put a vector cache if smart picks are on. What changed is that nothing reaches it by accident: reading
+the fortunes folder no longer creates it (`CustomDir` is the path, not the created folder), the module's
+own SelfTest runs the probe under a scratch root it removes and asserts the fallback root gained nothing,
+and a no-settings host gets smart picks off.
+
 #### fix/petstudio
 
 (none yet)

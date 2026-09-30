@@ -48,6 +48,15 @@ namespace DesktopAICompanion.FortunesModule
         // with the box ticked, on every press that actually rebuilt (F148).
         private volatile bool _smartWanted;
         private volatile bool _smartBuildFailed;   // the current generation's construction threw (F148)
+        // Every rebuild, synchronous or not, takes a generation; an asynchronous parse publishes only if no
+        // later rebuild has moved it on, so two overlapping pane actions cannot leave the older folder state
+        // live (F127). The same shape as the smart build's generation.
+        private int _engineGeneration;
+        private int _lastParseThread;              // diagnostics: the thread the last asynchronous parse ran on
+        // Cancels a pack import in flight when the module shuts down; the importer honours the token
+        // throughout staging and once more before it commits, and rolls back what it had committed.
+        private readonly System.Threading.CancellationTokenSource _shutdown =
+            new System.Threading.CancellationTokenSource();
         private ICompanion _lastPet;               // most-recently-seen pet, for screen-context capture on the drop path
         private IDisposable _dropResponder;
         private IDisposable _pokeResponder;
@@ -154,7 +163,15 @@ namespace DesktopAICompanion.FortunesModule
             {
                 IModuleStorage storage = host.GetStorage("fortunes");
                 if (storage != null && !string.IsNullOrEmpty(storage.DataDirectory))
+                {
                     FortunePaths.SetRoot(storage.DataDirectory);
+                    // The user's drop folder exists from the first run: "Open fortunes folder" opens
+                    // something, and the host's --fortunes-engine-selftest reads its presence under the
+                    // storage root as the proof that this redirect took (F338). Reading the folder no
+                    // longer creates it, so it is created here, and only here: a host that hands no storage
+                    // reaches this line never, and the TEMP fallback root stays empty (N-gates-02).
+                    FortunePaths.CreateFortunesDir();
+                }
             }
             catch { }
             // Wired BEFORE RebuildEngine, because RebuildEngine is what starts the warm task and
@@ -203,6 +220,7 @@ namespace DesktopAICompanion.FortunesModule
         /// request. Every other caller keeps an unchanged index (F147).</param>
         private void RebuildEngine(bool force)
         {
+            System.Threading.Interlocked.Increment(ref _engineGeneration);
             FortuneSettings settings;
             FortuneProvider provider;
             try
@@ -216,6 +234,57 @@ namespace DesktopAICompanion.FortunesModule
                 return;
             }
             PublishEngine(settings, provider, force);
+        }
+
+        /// <summary>
+        /// The rebuild for the pane actions whose purpose IS a changed folder: Rescan, Import, Download and
+        /// the Rebuild button. The settings are read here, on the UI thread where IHost.GetSettings belongs;
+        /// the parse runs on a pool thread; the publish runs on the continuation, which is the UI thread in
+        /// the app because the host awaits a PaneAction from the button's click handler and nothing here
+        /// uses ConfigureAwait(false). The corpus parse used to run inline in that click handler: 1.2-1.4 s
+        /// with the catalog installed, measured by the audit (F127). A rebuild that a later one overtook
+        /// publishes nothing, since the later one's provider describes the newer folder. Same shape as
+        /// AiBrainModule.BeginVramProbe and the smart build above: a generation, Task.Run, a continuation
+        /// that drops a stale result.
+        /// </summary>
+        private async Task RebuildEngineAsync(bool force)
+        {
+            int generation = System.Threading.Interlocked.Increment(ref _engineGeneration);
+            FortuneSettings settings;
+            try { settings = LoadFortuneSettings(_host); }
+            catch (Exception ex) { EngineRebuildFailed(ex); return; }
+            FortuneProvider provider;
+            try
+            {
+                provider = await Task.Run(delegate
+                {
+                    System.Threading.Volatile.Write(ref _lastParseThread, Environment.CurrentManagedThreadId);
+                    return new FortuneProvider(settings);
+                });
+            }
+            catch (Exception ex)
+            {
+                if (System.Threading.Volatile.Read(ref _engineGeneration) == generation) EngineRebuildFailed(ex);
+                return;
+            }
+            if (System.Threading.Volatile.Read(ref _engineGeneration) != generation) return;   // overtaken meanwhile
+            PublishEngine(settings, provider, force);
+        }
+
+        /// <summary>Diagnostics: the thread the last asynchronous rebuild parsed on, 0 before any.</summary>
+        internal int LastParseThreadForDiagnostics
+        {
+            get { return System.Threading.Volatile.Read(ref _lastParseThread); }
+        }
+
+        /// <summary>Diagnostics: whether the live pool holds this exact line.</summary>
+        internal bool PoolContainsForDiagnostics(string text)
+        {
+            FortuneProvider provider = _provider;
+            if (provider == null) return false;
+            foreach (FortuneEntry e in provider.PoolEntries())
+                if (string.Equals(e.Text, text, StringComparison.Ordinal)) return true;
+            return false;
         }
 
         /// <summary>
@@ -516,18 +585,35 @@ namespace DesktopAICompanion.FortunesModule
 
         private static FortuneSettings LoadFortuneSettings(IHost host)
         {
+            IModuleSettings ms = null;
+            try { ms = host.GetSettings("fortunes"); } catch { }
+            return SettingsFromStore(ms);
+        }
+
+        /// <summary>
+        /// The engine's settings from a store, or from NO store. A host that hands the module no settings
+        /// store cannot persist the user turning the expensive default off, so it does not get the expensive
+        /// default: smart picks are OFF when there is nowhere to read the choice from. The real host always
+        /// returns a store. The one that returns null is the convention self-test's, whose Init used to start
+        /// an unobserved embed of the whole corpus into the TEMP fallback root on every
+        /// <c>--module-selftest=fortunes</c> (F121, N-gates-02). Pure, so it is asserted; the decision is in
+        /// docs/DESIGN-REGISTER.md.
+        /// </summary>
+        internal static FortuneSettings SettingsFromStore(IModuleSettings ms)
+        {
             var s = new FortuneSettings();
+            if (ms == null)
+            {
+                s.SmartFortunes = false;
+                return s;
+            }
             try
             {
-                IModuleSettings ms = host.GetSettings("fortunes");
-                if (ms != null)
-                {
-                    s.ContentLevel = ReadContentLevel(ms);
-                    s.NoProfanity = ms.GetBool("noProfanity", s.NoProfanity);
-                    s.SmartFortunes = ms.GetBool("smartFortunes", s.SmartFortunes);
-                    s.DisabledSources = SplitList(ms.Get("disabledSources", ""));
-                    s.DisabledGenres = SplitList(ms.Get("disabledGenres", ""));
-                }
+                s.ContentLevel = ReadContentLevel(ms);
+                s.NoProfanity = ms.GetBool("noProfanity", s.NoProfanity);
+                s.SmartFortunes = ms.GetBool("smartFortunes", s.SmartFortunes);
+                s.DisabledSources = SplitList(ms.Get("disabledSources", ""));
+                s.DisabledGenres = SplitList(ms.Get("disabledGenres", ""));
             }
             catch { }
             return s;
@@ -892,18 +978,18 @@ namespace DesktopAICompanion.FortunesModule
             catch (Exception ex) { return Task.FromResult("Couldn't open the folder: " + ex.Message); }
         }
 
-        private Task<string> RescanAsync()
+        private async Task<string> RescanAsync()
         {
             try
             {
-                RebuildEngine();
+                await RebuildEngineAsync(false);
                 int sources = 0;
                 try { sources = FortuneProvider.Sources().Count; } catch { }
-                return Task.FromResult(sources == 0
+                return sources == 0
                     ? "No packs found yet."
-                    : ("Rescanned — " + sources + (sources == 1 ? " pack" : " packs") + " loaded."));
+                    : ("Rescanned — " + sources + (sources == 1 ? " pack" : " packs") + " loaded.");
             }
-            catch (Exception ex) { return Task.FromResult("Rescan failed: " + ex.Message); }
+            catch (Exception ex) { return "Rescan failed: " + ex.Message; }
         }
 
         /// <summary>
@@ -913,23 +999,30 @@ namespace DesktopAICompanion.FortunesModule
         /// carry no UI framework). Existing files are never silently overwritten: nothing is approved for
         /// overwrite here, so a same-named pack is reported as skipped and the user renames or removes it.
         /// </summary>
-        private Task<string> ImportPacksAsync()
+        private async Task<string> ImportPacksAsync()
         {
             IHost host = _host;
-            if (host == null) return Task.FromResult("No host.");
+            if (host == null) return "No host.";
             try
             {
                 IReadOnlyList<string> chosen = host.PickFilesToOpen(
                     "Import fortune packs", "Fortune packs", new[] { "txt" });
-                if (chosen == null || chosen.Count == 0) return Task.FromResult("");   // cancelled
+                if (chosen == null || chosen.Count == 0) return "";   // cancelled
 
-                FortuneImportBatchResult result = FortuneFileImporter.Import(
-                    chosen,
-                    FortunePaths.FortunesDir,
-                    null,                                   // no overwrite approved (see summary)
-                    System.Threading.CancellationToken.None);
+                // The picker above and the folder path are the UI thread's; the import is not. Its own
+                // class comment has said "intended to run on a worker" since it was written, and it ran
+                // inline in the click handler: every existing pack re-read for the admission count, every
+                // source copied twice and flushed, the folder re-parsed afterwards (F122). Bare await, so
+                // the rebuild and the status resume on the UI thread. The shutdown token stops an import
+                // that outlives the module; the importer rolls back what it had committed.
+                string directory = FortunePaths.FortunesDir;
+                System.Threading.CancellationToken token = _shutdown.Token;
+                FortuneImportBatchResult result = await Task.Run(delegate
+                {
+                    return FortuneFileImporter.Import(chosen, directory, null, token);   // no overwrite approved (see summary)
+                });
 
-                if (result.ImportedCount > 0) RebuildEngine();   // new lines join the pool immediately
+                if (result.ImportedCount > 0) await RebuildEngineAsync(false);   // new lines join the pool at once
 
                 string status = "Imported " + result.ImportedCount +
                     (result.ImportedCount == 1 ? " pack." : " packs.");
@@ -941,9 +1034,10 @@ namespace DesktopAICompanion.FortunesModule
                     status += " " + result.RejectedCount + (result.RejectedCount == 1 ? " file" : " files") +
                         " rejected" + (firstError.Length > 0 ? " (" + firstError + ")" : "") + ".";
                 }
-                return Task.FromResult(status);
+                return status;
             }
-            catch (Exception ex) { return Task.FromResult("✗ Import failed: " + Short(ex.Message)); }
+            catch (OperationCanceledException) { return "Import cancelled."; }
+            catch (Exception ex) { return "✗ Import failed: " + Short(ex.Message); }
         }
 
         // ---- catalog packs (browse + download through the host) -------------------------------------
@@ -1062,13 +1156,16 @@ namespace DesktopAICompanion.FortunesModule
                     try
                     {
                         if (!IsPlainPackId(item.Id)) { failed++; rejectedId++; continue; }
-                        // Bare await (see CheckPacksOnlineAsync): everything after it is UI-thread work.
-                        // _selectedPacks.Remove below, and RebuildEngine + CacheMissingPacks after the loop,
-                        // all touch state the checkbox handlers own -- and RebuildEngine reaches
+                        // Bare awaits (see CheckPacksOnlineAsync): everything after each is UI-thread work.
+                        // _selectedPacks.Remove below, and the rebuild + CacheMissingPacks after the loop,
+                        // all touch state the checkbox handlers own -- and the rebuild reaches
                         // IHost.GetSettings, which PluginApi's IHost contract requires on the UI thread.
                         byte[] bytes = await host.DownloadCatalogItemAsync(CatalogKinds.Pack, item.Id);
                         if (bytes == null || bytes.Length == 0) { failed++; emptyPayload++; continue; }
-                        File.WriteAllBytes(Path.Combine(directory, item.Id + ".txt"), bytes);
+                        // Asynchronous, like the download before it: a synchronous write sat on the UI thread
+                        // once per ticked pack (F146; median 23 KB, so the small half of that handler's
+                        // stall -- the large half was the re-parse, now off the thread in RebuildEngineAsync).
+                        await File.WriteAllBytesAsync(Path.Combine(directory, item.Id + ".txt"), bytes, _shutdown.Token);
                         _selectedPacks.Remove(item.Id);
                         installed++;
                     }
@@ -1084,7 +1181,7 @@ namespace DesktopAICompanion.FortunesModule
                 // order the work happened.
                 Log(DescribeDownload(pending.Count, installed, rejectedId, emptyPayload, threw, lastCategory));
 
-                RebuildEngine();   // the new packs join the pool (and the smart index) right away
+                await RebuildEngineAsync(false);   // the new packs join the pool (and the smart index) right away
                 // Drop the installed ones from the available list so the card shows what's still missing.
                 CacheMissingPacks(_availablePacks);
                 string status = "Downloaded " + installed + (installed == 1 ? " pack." : " packs.");
@@ -1470,10 +1567,22 @@ namespace DesktopAICompanion.FortunesModule
                         return Task.FromResult("Smart index is already built for these " + Count(indexed) +
                             " fortunes — nothing to rebuild.");
                 }
-                RebuildEngine(true);   // force: this button means "rebuild it", whatever state it is in
-                return Task.FromResult(SmartStatusText());
+                return RebuildSmartIndexCoreAsync();
             }
             catch (Exception ex) { return Task.FromResult("Rebuild failed: " + ex.Message); }
+        }
+
+        // Split from the method above so that one keeps its synchronous signature, which the source
+        // invariant for its currency guard slices on; the guard's fresh provider is built on the UI thread
+        // (a cache hit unless the folder changed, and then only the changed files are parsed).
+        private async Task<string> RebuildSmartIndexCoreAsync()
+        {
+            try
+            {
+                await RebuildEngineAsync(true);   // force: this button means "rebuild it", whatever state it is in
+                return SmartStatusText();
+            }
+            catch (Exception ex) { return "Rebuild failed: " + ex.Message; }
         }
 
         /// <summary>
@@ -1663,10 +1772,91 @@ namespace DesktopAICompanion.FortunesModule
         /// </summary>
         public static bool SelfTest(out string detail)
         {
-            return FortuneEngineProbe.Run(out detail);
+            var sb = new StringBuilder();
+            bool ok = true;
+            // UNDER A SCRATCH ROOT. The convention runner's host hands the module no storage, so the engine's
+            // static root was the TEMP fallback, and every run left vectors\cache.bin and its lock there
+            // (N-gates-02). The root in effect is restored afterwards, the scratch is removed, and the
+            // fallback root is asserted untouched.
+            string previousRoot = FortunePaths.RootForDiagnostics;
+            string fallbackRoot = FortunePaths.FallbackRootForDiagnostics;
+            string scratch = Path.Combine(Path.GetTempPath(), "dp-fortunes-selftest-" + Guid.NewGuid().ToString("N"));
+            string[] fallbackBefore = SnapshotTree(fallbackRoot);
+            try
+            {
+                Directory.CreateDirectory(scratch);
+                FortunePaths.SetRoot(scratch);
+                string probeDetail;
+                ok &= FortuneEngineProbe.Run(out probeDetail);
+                sb.Append(probeDetail);
+                // The writable-folder cache check needs a throwaway CustomDir, which the scratch root now is;
+                // until 1.0.12 only the host's --fortunes-selftest could run it, for that reason.
+                string cacheDetail;
+                ok &= FortuneEngineProbe.CustomCacheSelfTest(out cacheDetail);
+                sb.Append(cacheDetail);
+                ok &= SelfTestCheck(sb, "the engine's writes during the self-test landed under its scratch root (the redirect took)",
+                    Directory.Exists(Path.Combine(scratch, "fortunes")));
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                FortunePaths.SetRoot(previousRoot);
+                ok &= SelfTestCheck(sb, "the self-test's scratch root was removed", TryRemoveTree(scratch));
+                ok &= SelfTestCheck(sb, "the TEMP fallback root gained nothing from the self-test",
+                    SameTree(fallbackBefore, SnapshotTree(fallbackRoot)));
+            }
+            detail = sb.ToString();
+            return ok;
         }
+
+        private static bool SelfTestCheck(StringBuilder sb, string name, bool cond)
+        {
+            sb.AppendLine((cond ? "PASS: " : "FAIL: ") + name);
+            return cond;
+        }
+
+        private static string[] SnapshotTree(string root)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) return new string[0];
+                string[] entries = Directory.GetFileSystemEntries(root, "*", SearchOption.AllDirectories);
+                Array.Sort(entries, StringComparer.OrdinalIgnoreCase);
+                return entries;
+            }
+            catch { return new[] { "<unreadable>" }; }
+        }
+
+        private static bool SameTree(string[] before, string[] after)
+        {
+            if (before.Length != after.Length) return false;
+            for (int i = 0; i < before.Length; i++)
+                if (!string.Equals(before[i], after[i], StringComparison.OrdinalIgnoreCase)) return false;
+            return true;
+        }
+
+        // A few retries: the last vector-cache lease or ONNX session may still be letting go of a handle.
+        private static bool TryRemoveTree(string root)
+        {
+            for (int attempt = 0; attempt < 20; attempt++)
+            {
+                try
+                {
+                    if (Directory.Exists(root)) Directory.Delete(root, true);
+                    return !Directory.Exists(root);
+                }
+                catch { System.Threading.Thread.Sleep(100); }
+            }
+            return !Directory.Exists(root);
+        }
+
         public void Shutdown()
         {
+            try { _shutdown.Cancel(); } catch { }
             IHost host = _host;
             if (host != null)
             {
