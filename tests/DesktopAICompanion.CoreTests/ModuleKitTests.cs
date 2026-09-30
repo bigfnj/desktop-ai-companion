@@ -410,6 +410,53 @@ namespace DesktopAICompanion
             AssertEqual(1, host.SaidLines.Count, "SayAll was not captured.");
             AssertEqual("hello", host.SaidLines[0], "The captured line was wrong.");
 
+            // The recorded lists are SNAPSHOTS taken under a lock (N-remembrance-01): a module appends from
+            // whatever thread it calls on, the test reads on its own, and List<T> is safe for neither an
+            // append during a foreach nor a Count read during a growth. A view handed out before an append
+            // keeps its count; a fresh read sees the append; the Clear* methods are the reset, since a
+            // Clear() on the view clears a copy.
+            List<string> view = host.SaidLines;
+            host.SayAll("later");
+            AssertEqual(1, view.Count, "A list handed to a test moved under it: the fake hands out its live list again.");
+            AssertEqual(2, host.SaidLines.Count, "A fresh read did not see the later line.");
+            AssertEqual(2, host.BroadcastLines.Count, "The broadcast copy did not see both lines.");
+            host.ClearSaidLines();
+            AssertEqual(0, host.SaidLines.Count, "ClearSaidLines left lines behind.");
+            AssertEqual(0, host.BroadcastLines.Count, "ClearSaidLines left the broadcast copy behind.");
+            AssertEqual(0, host.SaidToCompanions.Count, "ClearSaidLines left the targeted copy behind.");
+
+            // ...and a pool thread appending while this thread enumerates: nothing thrown, nothing lost. The
+            // writer parks half way so one snapshot is provably taken mid-append (the WITNESS that the reader
+            // overlapped the writer at all), then the rest is appended under continuous enumeration.
+            var stress = new RecordingHost();
+            const int Lines = 20000;
+            var midway = new System.Threading.ManualResetEventSlim();
+            var proceed = new System.Threading.ManualResetEventSlim();
+            System.Threading.Tasks.Task writer = System.Threading.Tasks.Task.Run(delegate
+            {
+                for (int i = 0; i < Lines; i++)
+                {
+                    if (i == Lines / 2) { midway.Set(); proceed.Wait(); }
+                    stress.Log("probe", i.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                }
+            });
+            AssertTrue(midway.Wait(TimeSpan.FromSeconds(30)), "The writer never reached the half-way mark.");
+            AssertEqual(Lines / 2, stress.LoggedLines.Count,
+                "WITNESS: the snapshot taken while the writer is parked half way does not hold exactly the lines written so far.");
+            proceed.Set();
+            int enumerated = 0;
+            while (!writer.IsCompleted)
+            {
+                foreach (string line in stress.LoggedLines)
+                    if (line == null) throw new InvalidOperationException("A null line was recorded.");
+                enumerated++;
+            }
+            writer.GetAwaiter().GetResult();
+            AssertEqual(Lines, stress.LoggedLines.Count, "Lines appended from a pool thread were lost.");
+            AssertTrue(enumerated > 0, "The reader never enumerated while the writer ran.");
+            stress.ClearLoggedLines();
+            AssertEqual(0, stress.LoggedLines.Count, "ClearLoggedLines left lines behind.");
+
             // Responders are arbitrated in registration order: the first that returns true wins.
             var order = new List<string>();
             host.RegisterPokeResponder("first", 0, () => { order.Add("first"); return false; });
@@ -447,6 +494,23 @@ namespace DesktopAICompanion
             settings.Save();
             AssertEqual("v", host.SettingsFor("probe").Get("k", null), "Settings did not persist in the fake.");
             AssertEqual(1, host.SettingsFor("probe").SaveCount, "Save() was not counted.");
+
+            // A failed Save() puts the values back (N-blinkingled-02): the host hands a fresh instance loaded
+            // from disk to every GetSettings, and a write that failed never reached it, so a module that
+            // re-reads after a failed write sees the click did nothing. The same handle still shows a Set()
+            // before Save(), as the host's does.
+            FakeModuleSettings probeSettings = host.SettingsFor("probe");
+            probeSettings.FailSaves = true;
+            settings.Set("k", "unsaved");
+            AssertEqual("unsaved", settings.Get("k", null), "A Set() was not visible on the same handle before Save().");
+            AssertFalse(settings.Save(), "FailSaves did not fail the save.");
+            AssertEqual("v", settings.Get("k", null),
+                "A failed Save() kept the unsaved value; the host's next GetSettings would have read the disk.");
+            AssertEqual(2, probeSettings.SaveCount, "A failed Save() was not counted.");
+            probeSettings.FailSaves = false;
+            settings.Set("k", "saved");
+            AssertTrue(settings.Save(), "WITNESS: a Save() with FailSaves off failed.");
+            AssertEqual("saved", settings.Get("k", null), "WITNESS: a successful Save() did not keep the value.");
 
             // Storage is absent unless the test provides it (mirroring an undeclared Storage permission).
             AssertEqual(null, host.GetStorage("probe"), "Storage was handed out without being provided.");

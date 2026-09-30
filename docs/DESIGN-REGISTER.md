@@ -761,6 +761,24 @@ durability the fallback exists to give. The app has no `longPathAware` manifest 
 why `File.Replace` and `File.Copy` on the neighbouring lines never failed. Pinned in CoreTests through the
 `replaceFile` seam at a 400-character path, with the same forced fallback at a short path as the WITNESS.
 
+**RecordingHost hands out snapshots of what it recorded, and `List<string>` stays their type (2026-09-30,
+N-remembrance-01).** `SaidLines`, `LoggedLines`, `OpenedLinks`, `BroadcastLines` and `SaidToCompanions` are
+appended under one lock and every property read is a copy taken under it. Two alternatives were rejected: a
+thread-safe collection type, which changes the type every module self-test compiles against and loses the
+`List<T>` members some of them call; and locking the writers alone, which leaves the reader side exactly as
+racy as before unless every test learns to take the lock. The price is that a `Clear()` on a property clears
+a copy, so `ClearSaidLines`/`ClearLoggedLines`/`ClearOpenedLinks` exist and Remembrance's two call sites moved
+to them. `PlayedAnimations`, `PlayedSounds` and the contribution lists stay live: the module appends to them
+from the raise the test itself made, on the test's thread.
+
+**A failed `Save()` on the fake settings shows the disk, not the handle (2026-09-30, N-blinkingled-02).** The
+host hands a fresh instance loaded from disk to every `GetSettings`, so a module that re-reads after a failed
+write sees the old values, and the fake now puts them back. Modelling the host exactly (a fresh handle per
+`GetSettings` over one shared store) was rejected: every module self-test seeds through `SettingsFor` without
+a `Save()`, and those seeds would never reach a module's handle. The residue is stated at the site: a module
+holding one handle across a failed write keeps its own edits under the shipped host, which the fake cannot
+show at the same time as the disk; both current `FailSaves` users (BlinkingLed, Fortunes) re-fetch.
+
 #### fix/deadcode
 
 (none yet)

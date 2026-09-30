@@ -99,6 +99,12 @@ CORETESTS_MODULEKIT_DLL = os.path.join(REPO, "tests", "DesktopAICompanion.CoreTe
                                        "DesktopAICompanion.ModuleKit.dll")
 MODULEKIT_ATOMIC = os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "AtomicFile.cs")
 MODULEKIT_UNICODE = os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "UnicodeTextProgress.cs")
+MODULEKIT_FAKES = os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "Testing", "Fakes.cs")
+MODULEKIT_RECORDING_HOST = os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "Testing", "RecordingHost.cs")
+# ModuleKit.dll as COPIED into a module's folder by its ProjectReference: a ModuleKit edit recompiles
+# ModuleKit and the module build copies the new DLL beside the module, while the module's own DLL need not
+# move, so this copy is the artefact for a module self-test case whose mutation lives in ModuleKit.
+BLINKINGLED_MODULEKIT_DLL = os.path.join(BIN, "modules", "blinkingled", "DesktopAICompanion.ModuleKit.dll")
 APPSETTINGS_STORE = os.path.join(REPO, "src", "Portable", "AppSettingsStore.cs")
 APPPATHS = os.path.join(REPO, "src", "Portable", "AppPaths.cs")
 # The pseudo-flag a case names to run CoreTests instead of the host exe. Its marker is None.
@@ -426,11 +432,14 @@ CASES = (
      CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
      CORETESTS, None, "ModuleKit recording host"),
 
+    # Re-pointed 2026-09-30 by lane fix/followups: the recorded lists are appended under a lock into private
+    # fields (N-remembrance-01), so the `OpenedLinks.Add` shape matched 0 times. Same regression, same
+    # expected assertion.
     ("RecordingHost.OpenLink stops refusing a module without Network",
      os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "Testing", "RecordingHost.cs"),
      b"            if (Refuses(ModulePermissions.Network)) return false;\n"
-     b"            OpenedLinks.Add(httpsUrl ?? \"\");",
-     b"            OpenedLinks.Add(httpsUrl ?? \"\");",
+     b"            lock (_recordSync) _openedLinks.Add(httpsUrl ?? \"\");",
+     b"            lock (_recordSync) _openedLinks.Add(httpsUrl ?? \"\");",
      CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
      CORETESTS, None, "ModuleKit recording host"),
 
@@ -1974,6 +1983,33 @@ CASES = (
      b"                    temporaryPath,",
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, "host AtomicFile (AppSettingsStore.cs): the MoveFileEx fallback threw past MAX_PATH"),
+
+    # N-remembrance-01: the recorded lists are handed out live again. The CoreTests group holds a view,
+    # appends through the host, and requires the view's count not to move.
+    ("followups: RecordingHost hands out its live SaidLines list again",
+     MODULEKIT_RECORDING_HOST,
+     b"        public List<string> SaidLines { get { lock (_recordSync) return new List<string>(_saidLines); } }",
+     b"        public List<string> SaidLines { get { return _saidLines; } }",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "A list handed to a test moved under it"),
+
+    # N-blinkingled-02: a failed Save() keeps the unsaved values again, the shape the fake shipped with. Two
+    # checks see it: the fake's own contract in CoreTests, and BlinkingLed's strengthened F110 check, which
+    # reads the settings back after a tray pick whose write failed and requires the old values.
+    ("followups: the fake settings keep a failed Save()'s values again (CoreTests)",
+     MODULEKIT_FAKES,
+     b"            if (FailSaves) { RevertToSaved(); return false; }",
+     b"            if (FailSaves) { return false; }",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "A failed Save() kept the unsaved value"),
+
+    ("followups: the fake settings keep a failed Save()'s values again (BlinkingLed reads them back)",
+     MODULEKIT_FAKES,
+     b"            if (FailSaves) { RevertToSaved(); return false; }",
+     b"            if (FailSaves) { return false; }",
+     BLINKINGLED_CSPROJ, BLINKINGLED_MODULEKIT_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "leaves the saved values as they were"),
 
 
     # ---- lane fix/deadcode ----

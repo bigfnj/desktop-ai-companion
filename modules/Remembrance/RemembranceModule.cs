@@ -72,7 +72,9 @@ namespace DesktopAICompanion.RemembranceModule
                                  //         whisper's time limit follows the recording length, the download
                                  //         button opens the release LIST, the release lookup is bounded,
                                  //         snapshots encode off the UI thread, Init neither enumerates
-                                 //         devices nor purges, and LaunchProcess is declared.
+                                 //         devices nor purges, and LaunchProcess is declared. The self-test
+                                 //         resets the fake host's recorded links through ClearOpenedLinks
+                                 //         (the ModuleKit fake hands out snapshots now, N-remembrance-01).
                                  // 1.0.16: the 72-hour purge may only delete the file SHAPES this module
                                  //         writes. Three of the four branches were looser than that: any
                                  //         snap*.png inside a capture folder, ANY .wav in the root, and
@@ -1719,7 +1721,9 @@ namespace DesktopAICompanion.RemembranceModule
 
                     linkModule._settings.Set("whisperModelChoice", "ggml-small.en.bin");
                     linkModule._settings.Save();
-                    linkHost.OpenedLinks.Clear();
+                    // ClearOpenedLinks, not OpenedLinks.Clear(): the fake hands out snapshots since
+                    // 2026-09-30 (N-remembrance-01), so a Clear() on the property cleared a copy.
+                    linkHost.ClearOpenedLinks();
                     string said = linkModule.OpenWhisperDownloadsForSelfTest();
 
                     check("WITNESS the button opens exactly two pages, not one and not a guess",
@@ -1745,7 +1749,7 @@ namespace DesktopAICompanion.RemembranceModule
                     // pass against a hardcoded link if only the line above were asserted.
                     linkModule._settings.Set("whisperModelChoice", "ggml-tiny.en.bin");
                     linkModule._settings.Save();
-                    linkHost.OpenedLinks.Clear();
+                    linkHost.ClearOpenedLinks();
                     linkModule.OpenWhisperDownloadsForSelfTest();
                     check("WITNESS ...and it tracks a CHANGED choice",
                         linkHost.OpenedLinks.Contains(WhisperInstaller.ModelUrl("ggml-tiny.en.bin"))

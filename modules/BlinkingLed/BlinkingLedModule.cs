@@ -40,6 +40,9 @@ namespace DesktopAICompanion.BlinkingLed
                                  //        toggle whenever the LED was lit (BUG-011). The Caps Lock stop and
                                  //        the tray picks now say when the settings write failed, and the
                                  //        self-test leaves the developer's Scroll Lock where it found it.
+                                 //        The self-test also reads the settings back after every failed
+                                 //        tray write and asserts the click did nothing, now that the
+                                 //        ModuleKit fake shows the disk after a failed Save() (N-blinkingled-02).
                                  // 1.0.5: "Blink once now" no longer strands the LED when the feature was
                                  //        ALREADY off. 1.0.4 fixed only the other ordering (blink, then
                                  //        switch off); Stop() returned early on !_running, so a blink made
@@ -1079,10 +1082,15 @@ namespace DesktopAICompanion.BlinkingLed
                     // The previous shape logged "saved it as off" before saving and caught an exception
                     // nothing raised, so a failed write produced a false "saved" line and nothing else, and
                     // the two tray handlers dropped the bool outright, so a click whose write failed did
-                    // nothing and said nothing. The fake keeps the Set even when Save() fails, so what the
-                    // module reads back afterwards is NOT what the host would show (disk wins there); the
-                    // assertions are on the log lines alone, and each counts a delta of exactly one.
+                    // nothing and said nothing. Since 2026-09-30 the fake puts a failed Save()'s values back
+                    // the way the host's fresh-from-disk instance shows them (N-blinkingled-02), so every
+                    // failing click asserts BOTH halves: its one line, and that what the module reads back
+                    // afterwards is what was there before the click. Switched back on first, with a write
+                    // that lands, so each failed off or pick below has a real change to fail to make.
                     DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings failing = host.SettingsFor("blinkingled");
+                    module.SetEnabledFromTray(true);
+                    probe.Check("WITNESS the pick that switches it back on persists (on, rate Slow)",
+                        failing.Get("enabled", null) == "true" && failing.Get("rate", null) == "Slow");
                     failing.FailSaves = true;
                     loggedBefore = host.LoggedLines.Count;
                     module.OnCapsLockStop();
@@ -1090,21 +1098,29 @@ namespace DesktopAICompanion.BlinkingLed
                     probe.Check("a Caps Lock stop whose write fails says the off was NOT persisted, in its one line",
                         host.LoggedLines.Count - loggedBefore == 1 &&
                         capsLine != null && capsLine.Contains("NOT persisted") && !capsLine.Contains("saved it as off"));
+                    probe.Check("...and the settings still read enabled, which is what that line warns the next read will act on",
+                        failing.GetBool("enabled", false));
                     loggedBefore = host.LoggedLines.Count;
                     module.SetRateFromTray("Hyper");                          // a change, so the handler reaches Save()
                     probe.Check("a tray speed pick whose write fails is logged rather than silently doing nothing",
                         CountLogged(host.LoggedLines, "tray pick not persisted (rate Hyper, on)") == 1 &&
                         host.LoggedLines.Count - loggedBefore == 1);
+                    probe.Check("a tray speed pick whose write fails leaves the saved values as they were, so the click did nothing",
+                        failing.Get("rate", null) == "Slow" && failing.Get("enabled", null) == "true");
                     loggedBefore = host.LoggedLines.Count;
                     module.SetEnabledFromTray(false);
                     probe.Check("WITNESS a tray Off whose write fails is logged too",
                         CountLogged(host.LoggedLines, "tray pick not persisted (off)") == 1 &&
                         host.LoggedLines.Count - loggedBefore == 1);
+                    probe.Check("WITNESS ...and it still reads enabled afterwards",
+                        failing.GetBool("enabled", false));
                     failing.FailSaves = false;
                     loggedBefore = host.LoggedLines.Count;
-                    module.SetEnabledFromTray(true);
+                    module.SetEnabledFromTray(false);
                     probe.Check("WITNESS a tray pick whose write succeeds logs nothing",
                         host.LoggedLines.Count == loggedBefore);
+                    probe.Check("WITNESS ...and its value is what the module reads back",
+                        failing.Get("enabled", null) == "false");
 
                     // Every line carries this module's id, which is what the per-module log mute keys on.
                     bool allTagged = true;
