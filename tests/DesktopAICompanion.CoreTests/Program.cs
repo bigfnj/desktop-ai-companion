@@ -5,6 +5,8 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.Json.Nodes;
+using System.Windows.Forms;
+using Microsoft.Win32;
 
 namespace DesktopAICompanion
 {
@@ -43,6 +45,8 @@ namespace DesktopAICompanion
                 Run("Settings trigger-speech validation", TestSettingsTriggerSpeech);
                 Run("Settings monthly module-update check", TestSettingsMonthlyModuleUpdateCheck);
                 Run("Settings lock-failure fallback", TestSettingsLockFailureFallback);
+                Run("Diagnostic log launch rotation", TestDiagnosticLogLaunchRotation);
+                Run("Startup registration migration and removal", TestStartupRegistrationMigration);
                 Run("Scale level mapping", TestScaleMapping);
                 Run("Monitor local/virtual layouts", TestMonitorLayouts);
                 Run("AI capture monitor selection", TestCaptureMonitorSelection);
@@ -897,6 +901,169 @@ namespace DesktopAICompanion
             AssertTrue(
                 store.Save(recovered),
                 "Settings remained unwritable after the lock was released.");
+        }
+
+        /// <summary>
+        /// The launch rotation shifts with the CEILING and only Configure's trim applies the user's number
+        /// (RA-231). Start() runs before settings exist, so a launch rotation with the field default of 2
+        /// deleted diagnostics.2.log .. .19.log on every launch for anyone who kept more than two. Asserted
+        /// on CONTENT, so a rotation that shifted the wrong file still fails; then the two settings that
+        /// were already right (keep 1 and keep 2) are shown to end where they always did.
+        /// </summary>
+        private static void TestDiagnosticLogLaunchRotation()
+        {
+            string directory = NewDirectory("diaglog-launch");
+            Func<int, string> slot = delegate(int i)
+            {
+                return Path.Combine(directory, i == 0 ? "diagnostics.log" : "diagnostics." + i + ".log");
+            };
+
+            // Five runs kept by a "keep 5" user, plus a stray .20 left by a larger setting.
+            File.WriteAllText(slot(0), "run5");
+            File.WriteAllText(slot(1), "run4");
+            File.WriteAllText(slot(2), "run3");
+            File.WriteAllText(slot(3), "run2");
+            File.WriteAllText(slot(4), "run1");
+            File.WriteAllText(slot(20), "past the ceiling");
+            DiagnosticLog.RotateAtLaunchIn(directory);
+            AssertFalse(File.Exists(slot(0)), "The launch rotation left the previous run's file in the live slot.");
+            // The property the field-default rotation destroyed comes FIRST: with keep 2 the slots from .2 up
+            // are deleted before the shift, so a mutant that rotates with 2 must fail on this line and not on
+            // a later one that happens to read a slot it emptied.
+            AssertTrue(
+                File.Exists(slot(5)) && File.ReadAllText(slot(5)) == "run1" &&
+                File.Exists(slot(4)) && File.ReadAllText(slot(4)) == "run2" &&
+                File.Exists(slot(3)) && File.ReadAllText(slot(3)) == "run3",
+                "The launch rotation discarded an archive a larger keep setting allows.");
+            AssertTrue(
+                File.Exists(slot(1)) && File.ReadAllText(slot(1)) == "run5" &&
+                File.Exists(slot(2)) && File.ReadAllText(slot(2)) == "run4",
+                "The launch rotation did not shift the newest runs up by one slot.");
+            AssertFalse(File.Exists(slot(20)), "The launch rotation kept a file past the ceiling.");
+
+            // Configure's trim then applies the user's number; keep counts the live file, so five means
+            // four archives. The one just shifted out of slot 5 is the oldest and is the one to go.
+            DiagnosticLog.TrimArchivesIn(directory, 5);
+            AssertTrue(
+                File.Exists(slot(4)) && !File.Exists(slot(5)),
+                "Trimming to keep 5 did not leave exactly four archives.");
+
+            // WITNESS keep = 2 (the field default): launch shift then trim ends with .1 alone, as before.
+            for (int i = 1; i <= 20; i++) if (File.Exists(slot(i))) File.Delete(slot(i));
+            File.WriteAllText(slot(0), "latest");
+            File.WriteAllText(slot(1), "before");
+            DiagnosticLog.RotateAtLaunchIn(directory);
+            DiagnosticLog.TrimArchivesIn(directory, 2);
+            AssertTrue(
+                !File.Exists(slot(0)) && File.Exists(slot(1)) && File.ReadAllText(slot(1)) == "latest" &&
+                !File.Exists(slot(2)),
+                "At keep 2 the launch did not end with the previous run alone in .1.log.");
+
+            // WITNESS keep = 1: nothing survives the launch but the file the new run will create.
+            File.WriteAllText(slot(0), "only");
+            DiagnosticLog.RotateAtLaunchIn(directory);
+            DiagnosticLog.TrimArchivesIn(directory, 1);
+            AssertTrue(
+                !File.Exists(slot(0)) && !File.Exists(slot(1)),
+                "At keep 1 an archive outlived the launch.");
+        }
+
+        /// <summary>
+        /// The Run-key migration and removal (RA-267, RA-232), against a throwaway subkey: the redirect
+        /// StartupRegistration honours for self-tests points every read and write below at
+        /// HKCU\Software\DesktopAICompanion\SelfTest\CoreTests-&lt;run&gt;, deleted afterwards with each empty
+        /// parent (the F290 discipline). Nothing here touches the user's real startup entry.
+        /// </summary>
+        private static void TestStartupRegistrationMigration()
+        {
+            const string variable = "DESKTOP_AI_COMPANION_STARTUP_TEST_KEY";
+            string scratch = @"Software\DesktopAICompanion\SelfTest\CoreTests-" + Guid.NewGuid().ToString("N");
+            string previous = Environment.GetEnvironmentVariable(variable);
+            Environment.SetEnvironmentVariable(variable, scratch);
+            try
+            {
+                AssertFalse(StartupRegistration.IsEnabled(), "A fresh scratch key already reads as enabled.");
+                AssertFalse(StartupRegistration.MigrateLegacy(), "Migration reported a legacy entry where none existed.");
+                using (RegistryKey probe = Registry.CurrentUser.OpenSubKey(scratch, false))
+                    AssertTrue(probe == null || probe.GetValue(StartupRegistration.ValueName) == null,
+                        "Migration with nothing to migrate wrote a Run value.");
+
+                // The upgrade case: only the pre-rename value exists, pointing at the uninstalled product.
+                using (RegistryKey key = Registry.CurrentUser.CreateSubKey(scratch))
+                    key.SetValue(StartupRegistration.LegacyValueName, "\"C:\\old\\DesktopPet.exe\"");
+                AssertTrue(StartupRegistration.IsEnabled(), "The legacy value alone did not read as enabled.");
+                AssertTrue(StartupRegistration.MigrateLegacy(), "Migration did not report the legacy entry it found.");
+                string expected = "\"" + Application.ExecutablePath + "\"";
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(scratch, false))
+                {
+                    AssertTrue(key != null && key.GetValue(StartupRegistration.LegacyValueName) == null,
+                        "The pre-rename Run entry survived the migration.");
+                    AssertEqual(expected, key.GetValue(StartupRegistration.ValueName) as string,
+                        "The migrated Run entry does not point at this executable.");
+                }
+                AssertTrue(StartupRegistration.IsEnabled(), "The migrated entry does not read as enabled.");
+                AssertFalse(StartupRegistration.MigrateLegacy(), "A second migration reported work to do.");
+
+                // A current value Preferences already saved wins; the legacy one still goes.
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(scratch, true))
+                {
+                    key.SetValue(StartupRegistration.ValueName, "\"C:\\chosen\\DesktopAICompanion.exe\"");
+                    key.SetValue(StartupRegistration.LegacyValueName, "\"C:\\old\\DesktopPet.exe\"");
+                }
+                AssertTrue(StartupRegistration.MigrateLegacy(), "Migration did not report the second legacy entry.");
+                using (RegistryKey key = Registry.CurrentUser.OpenSubKey(scratch, false))
+                {
+                    AssertTrue(key.GetValue(StartupRegistration.LegacyValueName) == null,
+                        "The second pre-rename entry survived the migration.");
+                    AssertEqual("\"C:\\chosen\\DesktopAICompanion.exe\"",
+                        key.GetValue(StartupRegistration.ValueName) as string,
+                        "Migration overwrote a Run value Preferences had already saved.");
+                }
+
+                // The factory reset's removal: whatever is there goes, and a second call finds nothing.
+                string detail;
+                AssertEqual(StartupRegistration.RemovalOutcome.Removed, StartupRegistration.Remove(out detail),
+                    "Removal did not report the entry it removed.");
+                AssertFalse(StartupRegistration.IsEnabled(), "The Run entry survived the factory-reset removal.");
+                AssertEqual(StartupRegistration.RemovalOutcome.Nothing, StartupRegistration.Remove(out detail),
+                    "A second removal reported an entry to remove.");
+                // ...including the value Set(true) writes, which is the one a real reset meets.
+                StartupRegistration.Set(true);
+                AssertTrue(StartupRegistration.IsEnabled(), "Set(true) did not register the entry.");
+                AssertEqual(StartupRegistration.RemovalOutcome.Removed, StartupRegistration.Remove(out detail),
+                    "Removal did not remove the entry Set(true) wrote.");
+                AssertFalse(StartupRegistration.IsEnabled(), "The entry Set(true) wrote survived removal.");
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(variable, previous);
+                DeleteRegistryScratch(scratch);
+            }
+        }
+
+        /// <summary>The scratch key, then each EMPTY parent up to and including Software\DesktopAICompanion,
+        /// which the app never creates for itself, so an empty one is this run's leftover (F290's rule).
+        /// HKCU\Software itself is never touched.</summary>
+        private static void DeleteRegistryScratch(string scratch)
+        {
+            try { Registry.CurrentUser.DeleteSubKeyTree(scratch, false); } catch { }
+            string parent = scratch;
+            while (true)
+            {
+                int cut = parent.LastIndexOf('\\');
+                if (cut <= "Software".Length) break;
+                parent = parent.Substring(0, cut);
+                try
+                {
+                    using (RegistryKey key = Registry.CurrentUser.OpenSubKey(parent, false))
+                    {
+                        if (key == null) continue;
+                        if (key.SubKeyCount > 0 || key.ValueCount > 0) break;
+                    }
+                    Registry.CurrentUser.DeleteSubKey(parent, false);
+                }
+                catch { break; }
+            }
         }
 
         private static void TestScaleMapping()

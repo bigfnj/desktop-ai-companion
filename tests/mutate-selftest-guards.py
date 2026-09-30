@@ -134,6 +134,8 @@ SECURITY_SELFTEST = os.path.join(REPO, "src", "dotNet", "SecuritySelfTest.cs")
 ANIMATIONS = os.path.join(REPO, "src", "dotNet", "Animations.cs")
 XML_CS = os.path.join(REPO, "src", "dotNet", "Xml.cs")
 RUNTIME_GEOMETRY = os.path.join(REPO, "src", "dotNet", "RuntimeGeometry.cs")
+DIAGNOSTIC_LOG = os.path.join(REPO, "src", "dotNet", "DiagnosticLog.cs")
+STARTUP_REGISTRATION = os.path.join(REPO, "src", "dotNet", "StartupRegistration.cs")
 AISETTINGS = os.path.join(REPO, "modules", "AiBrain", "engine", "AiSettings.cs")
 AIBRAIN_MODULE = os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs")
 AIENGINE_SECURITY = os.path.join(REPO, "modules", "AiBrain", "engine", "AiEngineProbe.Security.cs")
@@ -2327,6 +2329,33 @@ CASES = (
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "moonwalks over the left-facing art"),
 
+
+    # ---- lane burn/host-core ----
+    # RA-231: the launch rotation goes back to the field default of 2, which deleted every archive above .1 on
+    # each launch for a user who kept more than two files. CoreTests pins the shift against a scratch directory.
+    ("host-core: the launch rotation shifts with the field default again",
+     DIAGNOSTIC_LOG,
+     b"            RotateIn(directory, MaximumKeep);",
+     b"            RotateIn(directory, 2);",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "The launch rotation discarded an archive a larger keep setting allows."),
+
+    # RA-267: the migration writes the current name but leaves the pre-rename value in place, so Windows keeps
+    # a second startup item pointing at the uninstalled product. CoreTests pins it against the redirected key.
+    ("host-core: the migration keeps the pre-rename Run entry",
+     STARTUP_REGISTRATION,
+     b"                    key.DeleteValue(LegacyValueName, false);\n"
+     b"                    if (key.GetValue(ValueName) == null)\n",
+     b"                    if (key.GetValue(ValueName) == null)\n",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "The pre-rename Run entry survived the migration."),
+    # RA-232: the factory reset's removal skips the current-name value the app itself writes.
+    ("host-core: the reset's removal leaves the current Run entry",
+     STARTUP_REGISTRATION,
+     b"                    if (current) key.DeleteValue(ValueName, false);\n",
+     b"",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "The Run entry survived the factory-reset removal."),
 
     # ---- lane fix/deadcode ----
     # F291: the slot that duplicated "second absolute clipping cut" now pins the Ceiling on a fractional

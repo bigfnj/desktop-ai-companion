@@ -36,6 +36,8 @@ DEBUG_SMOKE = os.path.join(REPO, "tests", "debug-menu-smoke.ps1")
 TRAY_SMOKE = os.path.join(REPO, "tests", "tray-menu-smoke.ps1")
 PETSTUDIO_WINDOW = os.path.join(REPO, "modules", "PetStudio", "PetStudioWindow.cs")
 AUDIO_OUTPUT = os.path.join(REPO, "src", "dotNet", "AudioOutput.cs")
+DIAGNOSTIC_LOG = os.path.join(REPO, "src", "dotNet", "DiagnosticLog.cs")
+PROGRAM = os.path.join(REPO, "src", "dotNet", "Program.cs")
 
 
 def read(p):
@@ -1029,6 +1031,54 @@ CASES = (
         b"            float[] samples = NotificationSound.Resolve(chosen, builtIn);\n",
         b"            float[] samples; lock (_sync) { samples = NotificationSound.Resolve(chosen, builtIn); }\n",
         "decode between their two lock blocks",
+    ),
+    # RA-231: Start() rotates with the user's keep count again, which before settings load is the field default.
+    (
+        "the launch rotation uses the keep count again",
+        DIAGNOSTIC_LOG,
+        b"                    RotateAtLaunchIn(_directory);\n",
+        b"                    RotateNoLock();\n",
+        "the launch rotation shifts with the ceiling",
+    ),
+    # RA-267: the launch stops migrating the pre-rename Run entry (the log line is left, unconditional).
+    (
+        "the pre-rename Run entry waits for a Preferences Apply again",
+        PROGRAM,
+        b"                if (StartupRegistration.MigrateLegacy())\n",
+        b"",
+        "the pre-rename Run entry is migrated at launch",
+    ),
+    # RA-247: the writability probe is disabled in place, so an unwritable root reads as a running instance again.
+    (
+        "an unwritable data root reads as a running instance again",
+        PROGRAM,
+        b"                if (!TryProbeDataRootWritable(out dataRootFault))\n",
+        b"                if (false && !TryProbeDataRootWritable(out dataRootFault))\n",
+        "probes the data root for writability before it is reported",
+    ),
+    # RA-250: slot 1 is waited on for the whole lease timeout before slot 2 is tried, the shape as it shipped.
+    (
+        "the second instance waits out slot 1's lease timeout again",
+        PROGRAM,
+        b"            IDisposable lease = TryAcquireInstanceSlot(1, 0) ?? TryAcquireInstanceSlot(2, 0);\n",
+        b"            IDisposable lease = TryAcquireInstanceSlot(1, InstanceSlotTimeoutMilliseconds) ?? TryAcquireInstanceSlot(2, 0);\n",
+        "probed with no wait before either is retried",
+    ),
+    # RA-245: the refusal is disabled in place, so the wipe runs under a live instance again.
+    (
+        "the factory reset wipes under a running instance again",
+        os.path.join(REPO, "src", "dotNet", "FactoryReset.cs"),
+        b"                    if (slot1 == null || slot2 == null)\n",
+        b"                    if (false)\n",
+        "refuses a running instance before its first wipe",
+    ),
+    # RA-232: the Run entry outlives the reset again.
+    (
+        "the factory reset leaves the Run entry again",
+        os.path.join(REPO, "src", "dotNet", "FactoryReset.cs"),
+        b"                ok &= ClearStartupRegistration(log);\n",
+        b"",
+        "removes the Run entry with the files",
     ),
 
     # ---- lane fix/deadcode ----

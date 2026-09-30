@@ -34,9 +34,6 @@ namespace DesktopAICompanion
         internal static string ReopenOptionsPane;
 
         /// <summary>
-        /// Open the option dialog, to show some options like reset XML animation or load animation from the webpage.
-        /// </summary>
-        /// <summary>
         /// The main entry point for the application.
         /// </summary>
         [STAThread]
@@ -174,20 +171,27 @@ namespace DesktopAICompanion
                     string catalogPath = arg.Substring("--catalog-parse-file=".Length);
                     string resultPath = Path.Combine(
                         Path.GetTempPath(), "dp-catalog-parse.txt");
+                    // A hand diagnostic with no automated consumer (RA-246): the verdict goes to the marker
+                    // AND to stdout, the F295/F348 convention, so the person who ran it reads it where they
+                    // typed the command rather than in %TEMP%. The exit code is unchanged.
                     try
                     {
                         var parsedCatalog = DesktopAICompanion.RemoteCatalogClient.Parse(
                             File.ReadAllText(catalogPath));
-                        File.WriteAllText(resultPath,
+                        string verdict =
                             "catalog_parse=PASS companions=" + parsedCatalog.Pets.Count +
                             " packs=" + parsedCatalog.Packs.Count +
-                            " modules=" + parsedCatalog.Modules.Count);
+                            " modules=" + parsedCatalog.Modules.Count;
+                        File.WriteAllText(resultPath, verdict);
+                        Console.Out.WriteLine(verdict);
                         Environment.Exit(0);
                     }
                     catch (Exception ex)
                     {
-                        try { File.WriteAllText(resultPath, "catalog_parse=FAIL " + ex.Message); }
+                        string verdict = "catalog_parse=FAIL " + ex.Message;
+                        try { File.WriteAllText(resultPath, verdict); }
                         catch { }
+                        Console.Out.WriteLine(verdict);
                         Environment.Exit(1);
                     }
                 }
@@ -216,6 +220,26 @@ namespace DesktopAICompanion
             IDisposable instanceLease = TryAcquireInstanceSlot();
             if (instanceLease == null)
             {
+                // Two facts hid behind one null (RA-247): both slots are held, or the data root cannot be
+                // written -- CrossSessionLock.TryAcquire answers null for a held mutex, a lock file it could
+                // not open in time AND an UnauthorizedAccessException from creating the directory. A portable
+                // copy unzipped into Program Files (the README says "unzip anywhere") was therefore told a
+                // second instance was running, with no instance running and no log to say otherwise, because
+                // the log lives in the very root that could not be written. The probe below asks the second
+                // question directly, so the message names the folder and what to do about it.
+                string dataRootFault;
+                if (!TryProbeDataRootWritable(out dataRootFault))
+                {
+                    MessageBox.Show(
+                        "DesktopAICompanion cannot write to its data folder, so it cannot start:\r\n" +
+                        SafeDataRoot() + "\r\n\r\n" + dataRootFault + "\r\n\r\n" +
+                        "A portable copy keeps its data beside the executable: move it to a folder you can " +
+                        "write to, or set " + AppPaths.DataRootOverrideEnvironmentVariable + " to one.",
+                        "Data folder not writable",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Error);
+                    return;
+                }
                 MessageBox.Show(
                     "Application is already running! Only 2 instances are allowed.",
                     "Information",
@@ -229,6 +253,16 @@ namespace DesktopAICompanion
                 // instance owns a slot, for the same reason the settings load waits: a rejected third
                 // launch must not touch application data, including this.
                 DiagnosticLog.Start();
+
+                // A pre-rename Run entry is moved onto this executable HERE, at launch (RA-267): every
+                // self-test flag has exited above, this instance owns a slot, and the log can record it.
+                // Until now the rewrite lived only in StartupRegistration.Set, i.e. behind a Preferences
+                // Apply that a user who upgraded with autostart on had no reason to press, because the pane
+                // already showed the box ticked while Windows ran an entry pointing at the uninstalled
+                // product's directory. Nothing is written when there is no legacy entry.
+                if (StartupRegistration.MigrateLegacy())
+                    DiagnosticLog.Write(LogCategory.App, "info", null,
+                        "autostart: moved the pre-rename Run entry onto this executable");
 
                 // Load/migrate mutable settings only after this instance owns a cross-session
                 // slot, so a rejected third launch cannot write application data.
@@ -428,28 +462,84 @@ namespace DesktopAICompanion
             }
         }
 
+        /// <summary>How long a slot's file lease is retried before the slot counts as unavailable. The
+        /// file step can fail transiently (a scanner holding the lock file); a held MUTEX never does.</summary>
+        private const int InstanceSlotTimeoutMilliseconds = 1000;
+
+        /// <summary>The lease path of instance slot 1 or 2 under the data root; the lock file the lease
+        /// holds is this plus ".lock". One definition, read by <see cref="FactoryReset"/> too, so the reset
+        /// probes the same slots the launch takes (RA-245).</summary>
+        internal static string InstanceSlotPath(int slot)
+        {
+            return Path.Combine(AppPaths.DataRoot, ".instance-slot-" + slot);
+        }
+
+        /// <summary>Take instance slot 1 or 2, waiting at most <paramref name="timeoutMilliseconds"/> for
+        /// its file lease; null when it is held elsewhere or the data root cannot be written.</summary>
+        internal static IDisposable TryAcquireInstanceSlot(int slot, int timeoutMilliseconds)
+        {
+            string path = InstanceSlotPath(slot);
+            return CrossSessionLock.TryAcquire(
+                CrossSessionLock.BuildGlobalMutexName("Instance" + slot, path),
+                path,
+                timeoutMilliseconds);
+        }
+
         private static IDisposable TryAcquireInstanceSlot()
         {
-            string firstPath = Path.Combine(
-                AppPaths.DataRoot,
-                ".instance-slot-1");
-            IDisposable lease = CrossSessionLock.TryAcquire(
-                CrossSessionLock.BuildGlobalMutexName(
-                    "Instance1",
-                    firstPath),
-                firstPath,
-                1000);
+            // A held slot is a definite answer, so it is asked with no wait first (RA-250): the second
+            // allowed instance used to sit for the whole 1000 ms lease timeout on slot 1, which a live
+            // process owned and was never going to release, before it tried slot 2, and a third launch paid
+            // both timeouts before its refusal. The patient attempts stay for the one thing the wait is FOR,
+            // a transient failure to open a free slot's lock file, so a slot that answered "held" at once
+            // is retried at length only when neither slot could be taken immediately, which is the refusal
+            // path or a transient, never the second instance's normal start.
+            IDisposable lease = TryAcquireInstanceSlot(1, 0) ?? TryAcquireInstanceSlot(2, 0);
             if (lease != null) return lease;
+            lease = TryAcquireInstanceSlot(1, InstanceSlotTimeoutMilliseconds);
+            return lease ?? TryAcquireInstanceSlot(2, InstanceSlotTimeoutMilliseconds);
+        }
 
-            string secondPath = Path.Combine(
-                AppPaths.DataRoot,
-                ".instance-slot-2");
-            return CrossSessionLock.TryAcquire(
-                CrossSessionLock.BuildGlobalMutexName(
-                    "Instance2",
-                    secondPath),
-                secondPath,
-                1000);
+        /// <summary>
+        /// Whether the data root can be created and written: the question a refused slot cannot answer on
+        /// its own (RA-247). Creates the directory and opens, then deletes, one probe file inside it. Any
+        /// failure is "no", with the exception's own words, because that text is what the message box can
+        /// tell a user whose log cannot be written.
+        /// </summary>
+        internal static bool TryProbeDataRootWritable(out string fault)
+        {
+            fault = null;
+            try
+            {
+                string root = AppPaths.DataRoot;
+                if (string.IsNullOrWhiteSpace(root))
+                {
+                    fault = "no data folder is configured";
+                    return false;
+                }
+                Directory.CreateDirectory(root);
+                using (new FileStream(
+                    Path.Combine(root, ".instance-probe"),
+                    FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite,
+                    FileShare.ReadWrite | FileShare.Delete,
+                    1,
+                    FileOptions.DeleteOnClose))
+                {
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                fault = ex.GetType().Name + ": " + ex.Message;
+                return false;
+            }
+        }
+
+        private static string SafeDataRoot()
+        {
+            try { return AppPaths.DataRoot ?? "(unknown)"; }
+            catch (Exception ex) { return "(unresolvable: " + ex.Message + ")"; }
         }
 
         // ONE Main. The #else branch that sat here was the upstream Store build's entry point: it named a

@@ -1,10 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Custom console harness (its own Program.cs) that recompiles three production source files and
-       asserts their invariants. net10.0-windows + UseWindowsForms so the shared sources compile in the
-       same environment as the app (System.Drawing for RuntimeGeometry, MutexAcl/AccessControl for
-       AppSettingsStore). Console (OutputType Exe) so CI can read its exit code + output at
-       bin\Release\DesktopAICompanion.CoreTests.exe. -->
+  <!-- Custom console harness (its own Program.cs) that recompiles the production source files listed in
+       the Compile group below and asserts their invariants. net10.0-windows + UseWindowsForms so the shared
+       sources compile in the same environment as the app (System.Drawing for RuntimeGeometry,
+       MutexAcl/AccessControl for AppSettingsStore, Application.ProductName for DiagnosticLog). Console
+       (OutputType Exe) so CI can read its exit code + output at bin\Release\DesktopAICompanion.CoreTests.exe. -->
   <Import Project="$(MSBuildThisFileDirectory)..\..\ProductVersion.props" />
 
   <PropertyGroup>
@@ -74,6 +74,17 @@
     </Compile>
     <Compile Include="..\..\src\dotNet\RuntimeGeometry.cs">
       <Link>Production\RuntimeGeometry.cs</Link>
+    </Compile>
+    <!-- Pure over a directory it is handed (RotateIn, RotateAtLaunchIn, TrimArchivesIn), so the launch
+         rotation is asserted here against a scratch directory (RA-231); the file needs only AppPaths above
+         and WinForms' Application for the product name. -->
+    <Compile Include="..\..\src\dotNet\DiagnosticLog.cs">
+      <Link>Production\DiagnosticLog.cs</Link>
+    </Compile>
+    <!-- Honours the DESKTOP_AI_COMPANION_STARTUP_TEST_KEY redirect, so the legacy Run-entry migration and
+         the factory reset's removal are asserted against a throwaway subkey (RA-267, RA-232). -->
+    <Compile Include="..\..\src\dotNet\StartupRegistration.cs">
+      <Link>Production\StartupRegistration.cs</Link>
     </Compile>
   </ItemGroup>
 

@@ -943,6 +943,23 @@ no storage on purpose as the gate's exercise of every module's null tolerance (F
 every path member throwing that warning, which is AiBrain's N-gates-02 shape (defaults, nothing persisted,
 said once in the log) generalised. The template shows the check; the only in-tree caller was the template.
 
+#### burn/host-core
+
+**A held instance slot is asked with no wait; the patient retry stays on the refusal path only (2026-09-30,
+RA-250).** A mutex a live process owns is a definite answer, so the second allowed instance no longer sits
+out the 1000 ms lease timeout on slot 1 before slot 2 is tried. The 1000 ms attempts are kept for what the
+wait is FOR, a transient failure to open a free slot's lock file (a scanner holding it), and they now run
+only when neither slot could be taken at once: a third launch still pays about two seconds before its
+refusal, and that is the price of not reporting a transient as "already running". Stated as a property;
+nothing was timed, because a cold measurement in fresh interleaved processes of a 1000 ms `WaitOne` is a
+measurement of the constant.
+
+**`--catalog-parse-file=` stays a hand diagnostic, and now says its verdict where it was typed (2026-09-30,
+RA-246, ACCEPTED-RECORDED).** No gate, script or test consumes it, and none should be added as a drop-in:
+the flag carries a path argument and reports in a `catalog_parse=PASS` vocabulary the self-test table does
+not grade. The verdict line reaches stdout as well as the marker, the way the hardening and registry
+self-tests already report (F295, F348); the exit code is unchanged.
+
 #### fix/deadcode
 
 **A member whose only reader is a test is not dead, and what the test pins decides what happens to it

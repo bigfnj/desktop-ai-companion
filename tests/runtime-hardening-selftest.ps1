@@ -2691,7 +2691,9 @@ Assert-True (
 # A root that cannot be listed is a failed wipe (F260): SafeList counts and logs a listing that throws, and both
 # of Wipe's listings pass the failure counter in.
 $safeListBody = Get-MethodBody $factoryResetCodeHost 'internal static string[] SafeList(Func<string[]> list, string what, List<string> log, ref int failed)' $hostMemberStops
-$wipeBody = Get-MethodBody $factoryResetCodeHost 'private static bool Wipe(string root, string what, List<string> log)' $hostMemberStops
+# Re-pointed 2026-09-30 by lane burn/host-core: the body moved to the overload that takes the kept lock-file
+# names (RA-245); the three-argument form is a one-line forwarder to it now.
+$wipeBody = Get-MethodBody $factoryResetCodeHost 'private static bool Wipe(string root, string what, List<string> log, ISet<string> keepFileNames)' $hostMemberStops
 Assert-True ($safeListBody.Length -gt 0 -and $wipeBody.Length -gt 0) 'FactoryReset.SafeList and Wipe were located'
 Assert-True (
     $safeListBody -cmatch 'catch \(Exception ex\)\s*\{\s*failed\+\+;' -and
@@ -2947,6 +2949,77 @@ Assert-True (
     $playNotificationBodyCore -cmatch 'lock \(_sync\)\s*\{[^{}]*\}\s*float\[\] samples = NotificationSound\.Resolve\(chosen, builtIn\);' -and
     $playNotificationBodyCore -cmatch 'lock \(_sync\)\s*\{[^{}]*AddInput\(samples,'
 ) 'PlayOwned and PlayNotification decode between their two lock blocks, so a UI-thread Play() does not wait for a pool-thread decode'
+
+# The LAUNCH rotation shifts with the ceiling, not the field default (RA-231). Start() runs before the settings
+# store exists and used to call RotateNoLock(), i.e. RotateIn(_directory, 2): for any user who kept more than two
+# files it deleted .2 .. .19 on every launch, and Configure's trim (F-line above, lane fix/gates) could only cut
+# further. CoreTests pins the behaviour against a scratch directory; this pins the CALL, because Start() is the
+# one caller the CoreTests cannot reach. WITNESS: the cap-driven rotation in Write still goes through RotateNoLock,
+# so the absence asserted on Start() is a pattern this file can see.
+$diagnosticLogCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\DiagnosticLog.cs') -Raw)
+$diagStartBodyCore = Get-MethodBody $diagnosticLogCodeCore 'internal static void Start()' $coreMemberStops
+$diagWriteBodyCore = Get-MethodBody $diagnosticLogCodeCore 'internal static void Write(LogCategory category, string level, string moduleId, string text)' $coreMemberStops
+$diagLaunchBodyCore = Get-MethodBody $diagnosticLogCodeCore 'internal static void RotateAtLaunchIn(string directory)' $coreMemberStops
+Assert-True ($diagStartBodyCore.Length -gt 0 -and $diagWriteBodyCore.Length -gt 0 -and $diagLaunchBodyCore.Length -gt 0) (
+    'DiagnosticLog.Start, Write and RotateAtLaunchIn were located')
+Assert-True (
+    $diagStartBodyCore -cmatch 'RotateAtLaunchIn\(_directory\);' -and
+    $diagStartBodyCore -cnotmatch 'RotateNoLock\(\)' -and
+    $diagWriteBodyCore -cmatch 'RotateNoLock\(\);' -and
+    $diagLaunchBodyCore -cmatch 'RotateIn\(directory, MaximumKeep\);'
+) 'the launch rotation shifts with the ceiling (RotateAtLaunchIn) and only the cap-driven rotation in Write uses the keep count'
+
+# The pre-rename Run entry is migrated at LAUNCH (RA-267), between the log starting and the settings loading:
+# the rewrite lived only in StartupRegistration.Set, behind a Preferences Apply a user who upgraded with
+# autostart on had no reason to press, so the entry Windows ran at logon pointed at the uninstalled product's
+# directory for as long as they left the pane alone. CoreTests pins what MigrateLegacy does to the key; this
+# pins that Main calls it, and where (ORDER: after DiagnosticLog.Start, so the move is logged; before the
+# settings load, the way every other launch-time repair sits).
+$programCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\Program.cs') -Raw)
+$mainBodyCore = Get-MethodBody $programCodeCore 'static void Main(string[] args)' $coreMemberStops
+Assert-True ($mainBodyCore.Length -gt 0) 'Program.Main was located'
+$logStartAt = $mainBodyCore.IndexOf('DiagnosticLog.Start();')
+$migrateAt = $mainBodyCore.IndexOf('if (StartupRegistration.MigrateLegacy())')
+$settingsLoadAt = $mainBodyCore.IndexOf('MyData = new LocalData();')
+Assert-True ($logStartAt -ge 0 -and $migrateAt -gt $logStartAt -and $settingsLoadAt -gt $migrateAt) (
+    'the pre-rename Run entry is migrated at launch, after the diagnostic log starts and before settings load')
+
+# A refused instance slot asks whether the data root can be written BEFORE it is reported as a running instance
+# (RA-247): CrossSessionLock answers one null for a held slot, a lock file it could not open and a directory it
+# could not create, so a portable copy in a read-only folder was told a second copy was running. The CONDITION
+# is asserted literally, not only the call's presence: a guard disabled in place leaves the call text standing.
+$leaseAt = $mainBodyCore.IndexOf('IDisposable instanceLease = TryAcquireInstanceSlot();')
+$probeAt = $mainBodyCore.IndexOf('if (!TryProbeDataRootWritable(out dataRootFault))')
+$runningAt = $mainBodyCore.IndexOf('Application is already running!')
+Assert-True ($leaseAt -ge 0 -and $probeAt -gt $leaseAt -and $runningAt -gt $probeAt) (
+    'a refused instance slot probes the data root for writability before it is reported as a running instance')
+
+# Both slots are probed with NO wait before either is retried for the lease timeout (RA-250): a held mutex is a
+# definite answer, and the second allowed instance used to wait the whole 1000 ms on slot 1 before slot 2 was
+# tried. The patient attempts stay, for a transient failure to open a free slot's lock file.
+$slotBodyCore = Get-MethodBody $programCodeCore 'private static IDisposable TryAcquireInstanceSlot()' $coreMemberStops
+Assert-True (
+    $slotBodyCore.Length -gt 0 -and
+    $slotBodyCore.IndexOf('TryAcquireInstanceSlot(1, 0) ?? TryAcquireInstanceSlot(2, 0)') -ge 0 -and
+    $slotBodyCore.IndexOf('TryAcquireInstanceSlot(1, 0)') -lt $slotBodyCore.IndexOf('TryAcquireInstanceSlot(1, InstanceSlotTimeoutMilliseconds)')
+) 'both instance slots are probed with no wait before either is retried for the lease timeout, so a second instance does not wait on the first'
+
+# The factory reset takes both slots before its first wipe and refuses a running instance (RA-245), and removes
+# the Run entry with the files (RA-232). ORDER: probe, refusal test, then Wipe; the refusal CONDITION literally,
+# for the same reason as above.
+$factoryResetCodeCore = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\FactoryReset.cs') -Raw)
+$factoryRunBodyCore = Get-MethodBody $factoryResetCodeCore 'internal static int Run()' $coreMemberStops
+$clearStartupBodyCore = Get-MethodBody $factoryResetCodeCore 'private static bool ClearStartupRegistration(List<string> log)' $coreMemberStops
+Assert-True ($factoryRunBodyCore.Length -gt 0 -and $clearStartupBodyCore.Length -gt 0) 'FactoryReset.Run and ClearStartupRegistration were located'
+$slotProbeAt = $factoryRunBodyCore.IndexOf('slot1 = Program.TryAcquireInstanceSlot(1, 0);')
+$refuseAt = $factoryRunBodyCore.IndexOf('if (slot1 == null || slot2 == null)')
+$firstWipeAt = $factoryRunBodyCore.IndexOf('Wipe(dataRoot,')
+Assert-True (
+    $slotProbeAt -ge 0 -and $refuseAt -gt $slotProbeAt -and $firstWipeAt -gt $refuseAt -and
+    $factoryRunBodyCore -cmatch 'return RunningInstanceExitCode;' -and
+    $factoryRunBodyCore -cmatch 'ok &= ClearStartupRegistration\(log\);' -and
+    $clearStartupBodyCore -cmatch 'StartupRegistration\.Remove\(out detail\)'
+) 'the factory reset takes both instance slots and refuses a running instance before its first wipe, and removes the Run entry with the files'
 
 
 
