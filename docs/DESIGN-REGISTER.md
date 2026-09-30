@@ -943,6 +943,23 @@ no storage on purpose as the gate's exercise of every module's null tolerance (F
 every path member throwing that warning, which is AiBrain's N-gates-02 shape (defaults, nothing persisted,
 said once in the log) generalised. The template shows the check; the only in-tree caller was the template.
 
+#### burn/agentflow
+
+**The CDP sweep stops at a press, and every refusal it read comes back in one line (2026-09-30, RA-047).**
+`CdpApprover.Sweep` broke out on the first non-null note, and a refusal is a note, so a standing prompt the
+module will not press on the first-listed webview (a plan prompt, an unrecognised option, a disabled row)
+starved every later webview of its approvals and announcements, tick after tick. The handler now says
+whether it pressed (`PromptHandler`); the sweep breaks on a press alone, and one click per tick stays the
+cadence: a second webview's pressable prompt takes the next tick rather than a second click inside the same
+pass, which would run with no budget check between the two clicks and double the wire time under the tick's
+deadline. When nothing was pressed the refusals are joined, sorted, into the one returned note, so the log's
+once-per-outcome guard (F029) sees the same set as one outcome whatever order `/json/list` listed the
+targets in; a press note is returned alone, because a press is logged every time and the standing refusals
+beside it would be re-logged with every press. Several unpressed prompts announce as one notice naming each
+subject, keyed on the sorted set, so the once-per-prompt guard re-arms when the set changes. Announcing only
+the first-listed prompt, the old behaviour, was the same starvation in the other channel and was not kept.
+The string-only `Sweep` overloads survive for the assertions and read every note as a refusal.
+
 #### fix/deadcode
 
 **A member whose only reader is a test is not dead, and what the test pins decides what happens to it

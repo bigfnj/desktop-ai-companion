@@ -2912,6 +2912,27 @@ Assert-True (
 
 
 
+# ---- lane burn/agentflow ----
+# (invariants added by lane burn/agentflow go directly below this line)
+
+# THE TICK HANDS ITS SWEEP PASS THE LIVE SWITCH AND THE LIVE BUDGET (RA-021, RA-047). The per-prompt
+# decision moved out of OnTick's lambda into AgentFlowModule.SweepPass so the module self-test can drive
+# it, and that test supplies its own PressBudget and its own Func<bool>; what it cannot see is what the
+# TICK passes. A constant in place of StillArmed reopens the F026 window (a press landing after the tray
+# switch moved) with every runtime assertion green, and a fresh budget in place of _pressBudget resets the
+# repeat guard every tick. Method-scoped, comment-stripped, the ARGUMENTS asserted rather than the call.
+$agentFlowModuleCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\AgentFlow\AgentFlowModule.cs') -Raw)
+$agentFlowTickBody = Get-MethodBody $agentFlowModuleCode 'private void OnTick(object sender, EventArgs args)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($agentFlowTickBody.Length -gt 0) 'AgentFlow OnTick exists and could be sliced out for inspection'
+Assert-True ($agentFlowTickBody -cmatch 'new SweepPass\(cdpPort, mayPress, allProjects, similar, _pressBudget, StillArmed\)') (
+    'the tick hands its sweep pass the live StillArmed switch and the live press budget, not a constant (RA-021)')
+Assert-True ($agentFlowTickBody -cmatch 'CdpApprover\.Sweep\(cdpPort, pass\.Handle, ') (
+    'the tick sweeps through the pass, so the sweep can tell a press from a refusal (RA-047)')
+
+
+
 # ---- lane fix/deadcode ----
 # (invariants added by lane fix/deadcode go directly below this line)
 

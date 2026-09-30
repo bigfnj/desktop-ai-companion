@@ -39,6 +39,16 @@ namespace DesktopAICompanion.AgentFlow
     }
 
     /// <summary>
+    /// What the sweep asks of its caller for every prompt it can read: a line worth logging (or null for
+    /// nothing to say) and whether the prompt was PRESSED. The second answer is the one the sweep acts
+    /// on. It used to infer it from the first -- any non-null note ended the sweep -- and a REFUSAL is a
+    /// note too, so one standing prompt this module will not press on the first-listed webview ended
+    /// every sweep at that target, and a pressable prompt on the next webview was never read, never
+    /// pressed and never announced, tick after tick, with the log naming only the first panel (RA-047).
+    /// </summary>
+    internal delegate string PromptHandler(PromptView view, out bool pressed);
+
+    /// <summary>
     /// Drives the Claude Code webview over the Chrome DevTools Protocol: reads the option rows of a
     /// pending permission prompt, and presses ONE of them when asked to.
     ///
@@ -405,6 +415,20 @@ namespace DesktopAICompanion.AgentFlow
         public static string Sweep(int port, Func<PromptView, string> press, int timeoutMs,
                                    out bool sawPanel, out bool sawBlind)
         {
+            // A callback that cannot say whether it pressed is read as a REFUSAL, so the sweep records its
+            // note and goes on to the next target. The production pass answers through PromptHandler,
+            // which is the only form that can stop a sweep; this form is the assertions' shorthand.
+            return Sweep(port, delegate (PromptView view, out bool pressed) { pressed = false; return press(view); },
+                         timeoutMs, out sawPanel, out sawBlind);
+        }
+
+        /// <summary>
+        /// The sweep proper. Stops at a PRESS and only at a press; carries on past every refusal, and
+        /// returns them all when nothing was pressed. See <see cref="PromptHandler"/> for why.
+        /// </summary>
+        internal static string Sweep(int port, PromptHandler handle, int timeoutMs,
+                                     out bool sawPanel, out bool sawBlind)
+        {
             sawPanel = false;
             sawBlind = false;
 
@@ -423,7 +447,10 @@ namespace DesktopAICompanion.AgentFlow
 
             bool sawReadable = false, sawUnreadableCard = false;
             string blindAgent = null;
-            string pressed = null;
+            string pressedNote = null;
+            // Every prompt read and left alone this pass, so the caller hears about all of them and not
+            // only the first-listed one (RA-047).
+            var refusals = new List<string>();
             try
             {
                 using (var session = new CdpSession(browserUrl, timeoutMs))
@@ -468,12 +495,23 @@ namespace DesktopAICompanion.AgentFlow
                                 continue;
                             }
                             view.Agent = agent;
-                            string note = press(view);
+                            bool didPress;
+                            string note = handle(view, out didPress);
+                            // STOP AT A PRESS, AND ONLY AT A PRESS. This broke out on the first non-null
+                            // note, and a refusal is a note too, so a plan prompt, an unrecognised option
+                            // or a disabled row on the first-listed webview ended every sweep there and
+                            // starved every later webview of its approvals and announcements (RA-047). A
+                            // press still ends the pass: one click per tick is the cadence the budget and
+                            // the log are built around, and the next target gets the next tick. The note
+                            // is never null on a press in production; the fallback keeps a press from
+                            // reading as "nothing found", which would clear the repeat counter.
+                            //
                             // BREAK, never return. Returning from here skipped the
                             // `sawPanel = sawReadable` below, so every sweep that actually
                             // pressed something reported "cannot see the agent panel" -- the tray
                             // went amber at the exact moment the feature worked.
-                            if (note != null) { pressed = note; break; }
+                            if (didPress) { pressedNote = note ?? "pressed a prompt"; break; }
+                            if (note != null) refusals.Add(note);
                         }
                         finally { session.Detach(sessionId); }
                     }
@@ -498,7 +536,10 @@ namespace DesktopAICompanion.AgentFlow
             // this, and green has to mean a panel was read on THIS pass.
             sawPanel = sawReadable;
             sawBlind = sawUnreadableCard;
-            if (pressed != null) return pressed;
+            // A press note is returned ALONE. A press is logged every time it happens, and dragging
+            // the standing refusals along with it would log them every time too (F029); they are
+            // returned on the next tick, when the pressed prompt is gone.
+            if (pressedNote != null) return pressedNote;
             if (!sawReadable)
                 return "cannot see inside the agent panel: the debugging port answers, "
                        + "but nothing in it exposes the conversation. Approving cannot work "
@@ -506,12 +547,22 @@ namespace DesktopAICompanion.AgentFlow
             // Said loudly and named as a BUILD problem, because the user cannot fix it and the
             // only wrong response is to assume the screen is quiet. The agent name is from this
             // file's own constants, never from the page.
-            if (sawUnreadableCard)
-                return "a " + (blindAgent == AgentCodex ? "Codex" : "Claude Code")
-                       + " prompt is on screen and this build cannot read its options -- the "
-                       + "panel's markup has changed. Nothing was pressed, and this is NOT the "
-                       + "same as 'no prompt waiting'. Answer it yourself and report the build.";
-            return null;
+            if (sawUnreadableCard) refusals.Add(BlindNote(blindAgent));
+            if (refusals.Count == 0) return null;
+            // Every prompt left alone, in ONE line, sorted so /json/list order cannot make the same
+            // set of standing refusals read as a new outcome to the log's once-per-outcome guard. One
+            // refusal is the string it always was.
+            refusals.Sort(StringComparer.Ordinal);
+            return string.Join(" | ", refusals.ToArray());
+        }
+
+        /// <summary>The note for a card this build could not read. Words from this file, never the page.</summary>
+        private static string BlindNote(string agent)
+        {
+            return "a " + (agent == AgentCodex ? "Codex" : "Claude Code")
+                   + " prompt is on screen and this build cannot read its options -- the "
+                   + "panel's markup has changed. Nothing was pressed, and this is NOT the "
+                   + "same as 'no prompt waiting'. Answer it yourself and report the build.";
         }
 
         /// <summary>

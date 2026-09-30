@@ -1088,6 +1088,49 @@ CASES = (
         '            return LogPathFrom(storage);',
         "the reveal path stays inside this module's own storage",
     ),
+    # ---- lane burn/agentflow ----
+    # RA-047: the sweep broke out on the first non-null note, and a refusal is a note, so a standing prompt
+    # the module refuses on the first-listed webview ended every sweep there and a pressable prompt on the
+    # next webview was never reached. Put the read-not-press break back.
+    (
+        "burn: the sweep breaks on the first prompt READ again",
+        CDP,
+        "                            if (didPress) { pressedNote = note ?? \"pressed a prompt\"; break; }\n                            if (note != null) refusals.Add(note);",
+        "                            if (note != null) { pressedNote = note; break; }",
+        "a refused prompt on the first webview does not starve the second",
+    ),
+    (
+        # RA-047, the log half: every refusal read reaches the one returned note, not only the first.
+        "burn: the sweep returns the first refusal alone, dropping the rest",
+        CDP,
+        "                            if (note != null) refusals.Add(note);",
+        "                            if (note != null && refusals.Count == 0) refusals.Add(note);",
+        "both refusals reach the one returned note",
+    ),
+    (
+        # RA-021: the pass records a prompt it left alone, which is what the screen announcement is built from.
+        "burn: the pass drops an unpressed prompt from the announcement",
+        MODULE,
+        "                if (pressed) PressedAny = true;\n                else Unpressed.Add(new ScreenPrompt",
+        "                if (pressed) PressedAny = true;\n                else if (pressed) Unpressed.Add(new ScreenPrompt",
+        "the first-listed webview's prompt is REFUSED, not pressed",
+    ),
+    (
+        # RA-021: the pass records that it pressed, which is what the F029 log split reads.
+        "burn: the pass forgets that it pressed",
+        MODULE,
+        "                if (pressed) PressedAny = true;\n",
+        "                if (false) PressedAny = true;\n",
+        "with the switch held the same prompt is pressed and recorded as such",
+    ),
+    (
+        # RA-047, the announcement half: several unpressed prompts announce as one notice, not as the first.
+        "burn: several unpressed prompts announce only the first",
+        MODULE,
+        "                if (unpressed.Count == 1) return unpressed[0];",
+        "                if (unpressed.Count >= 1) return unpressed[0];",
+        "two unpressed prompts announce as one notice naming both subjects",
+    ),
     # ---- lane fix/deadcode ----
     # F047: the detailed split's separators were produced and read by nothing; the splitter self-test
     # now pins them. F048: FakeCdpServer serves connections concurrently, so the WIRE press case runs

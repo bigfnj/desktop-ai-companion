@@ -35,6 +35,7 @@ RELEASE_YML = os.path.join(REPO, ".github", "workflows", "release.yml")
 DEBUG_SMOKE = os.path.join(REPO, "tests", "debug-menu-smoke.ps1")
 TRAY_SMOKE = os.path.join(REPO, "tests", "tray-menu-smoke.ps1")
 PETSTUDIO_WINDOW = os.path.join(REPO, "modules", "PetStudio", "PetStudioWindow.cs")
+AGENTFLOW_MODULE = os.path.join(REPO, "modules", "AgentFlow", "AgentFlowModule.cs")
 
 
 def read(p):
@@ -1002,6 +1003,19 @@ CASES = (
 
     # ---- lane fix/followups ----
 
+
+    # ---- lane burn/agentflow ----
+
+    # RA-021: the tick hands its sweep pass the live switch. A constant here reopens the F026 window (a press
+    # landing after the tray switch moved) with every runtime assertion green, because the self-test drives
+    # SweepPass with a switch of its own; only the source can see what the TICK passes.
+    (
+        "burn: the tick hands the sweep pass a constant instead of StillArmed",
+        AGENTFLOW_MODULE,
+        b"                    var pass = new SweepPass(cdpPort, mayPress, allProjects, similar, _pressBudget, StillArmed);",
+        b"                    var pass = new SweepPass(cdpPort, mayPress, allProjects, similar, _pressBudget, () => true);",
+        "the tick hands its sweep pass the live StillArmed switch",
+    ),
 
     # ---- lane fix/deadcode ----
 

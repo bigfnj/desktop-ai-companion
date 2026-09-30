@@ -181,6 +181,11 @@ namespace DesktopAICompanion.AgentFlow
                                  //         asserted; RuleLoader shares TranscriptReader's fully-qualified
                                  //         test; the fake CDP server serves connections concurrently, so a
                                  //         real press runs over the wire.
+                                 //         Lane burn/agentflow (same version, zip not yet republished): the
+                                 //         sweep stops at a PRESS, not at the first prompt it read, so a
+                                 //         standing refusal on one webview no longer starves the next one's
+                                 //         approvals and announcements, and every refusal read reaches the
+                                 //         log; the per-prompt decision is a SweepPass the self-test drives.
                                  // 1.4.11: the options pane no longer probes VS Code's setup on the UI
                                  //         thread. The doc said the cold path was only between Init and
                                  //         the first tick, but OnTick returns before the probe when the
@@ -695,34 +700,25 @@ namespace DesktopAICompanion.AgentFlow
                 if (mayLook)
                 {
                     if (_resetPressBudget) { _resetPressBudget = false; _pressBudget.Reset(); }
+                    // The per-prompt decision is a SweepPass rather than a lambda here, so the self-test
+                    // can drive it with a fake prompt and a toggled switch (RA-021). StillArmed is the LAST
+                    // look at the switch, taken inside Decide right before the click: mayPress above was
+                    // read once, before a sweep that is several round trips long, and nothing inside it
+                    // re-read the switch until then (F026).
+                    var pass = new SweepPass(cdpPort, mayPress, allProjects, similar, _pressBudget, StillArmed);
                     ScreenPrompt found = null;
                     try
                     {
-                        approvalNote = CdpApprover.Sweep(cdpPort, view =>
-                        {
-                            bool didPress = false;
-                            // StillArmed is the LAST look at the switch, taken inside Decide right
-                            // before the click. mayPress above was read once, before a sweep that is
-                            // several round trips long, and nothing inside it re-read the switch
-                            // until now (F026).
-                            string note = mayPress
-                                ? Decide(cdpPort, view, _pressBudget, allProjects, similar, StillArmed, out didPress)
-                                : "a prompt is waiting for " + DescribeSubject(view)
-                                  + " (auto-approve is off, so it was left alone)";
-                            if (didPress) pressedThisTick = true;
-                            if (!didPress)
-                                found = new ScreenPrompt
-                                {
-                                    Signature = view.Agent + "|" + string.Join("|", view.Options),
-                                    Subject = DescribeSubject(view),
-                                };
-                            return note;
-                        }, 1500, out sawPanel, out sawBlind);
+                        approvalNote = CdpApprover.Sweep(cdpPort, pass.Handle, 1500, out sawPanel, out sawBlind);
+                        // Every prompt the pass read and left alone, not only the one the sweep stopped
+                        // at: since RA-047 the sweep stops at a press alone.
+                        found = ScreenPrompt.Combine(pass.Unpressed);
                     }
                     catch (Exception)
                     {
                         approvalNote = null; sawPanel = false; sawBlind = false; found = null;
                     }
+                    pressedThisTick = pass.PressedAny;
                     // A card nobody could read is the one case with no PromptView to describe,
                     // and it is the case the user most needs told OUT LOUD rather than left in
                     // a log file: from the outside, an approver that has gone blind and an
@@ -2171,6 +2167,95 @@ namespace DesktopAICompanion.AgentFlow
             /// Written here, so it is as safe to log as any other constant in this file.
             /// </summary>
             public string Notice;
+
+            /// <summary>The identity of a prompt on screen: the agent and its option labels, so the same
+            /// prompt seen ten seconds later is the same prompt and a different one announces.</summary>
+            internal static string SignatureFor(PromptView view)
+            {
+                if (view == null) return "";
+                return view.Agent + "|" + string.Join("|", view.Options);
+            }
+
+            /// <summary>
+            /// The one prompt to announce for a sweep that read several and pressed none: the prompt
+            /// itself when there is one, or a single notice naming every subject, keyed on the whole set
+            /// so the once-per-prompt guard re-arms when the set changes. Until RA-047 this was whichever
+            /// prompt the sweep stopped at, which was the first-listed one for as long as it stood.
+            /// </summary>
+            internal static ScreenPrompt Combine(IList<ScreenPrompt> unpressed)
+            {
+                if (unpressed == null || unpressed.Count == 0) return null;
+                if (unpressed.Count == 1) return unpressed[0];
+                var signatures = new List<string>();
+                var subjects = new List<string>();
+                foreach (ScreenPrompt prompt in unpressed)
+                {
+                    signatures.Add(prompt.Signature ?? "");
+                    subjects.Add(prompt.Subject ?? "a prompt");
+                }
+                // Sorted, so the order the targets were listed in cannot make one set look like another.
+                signatures.Sort(StringComparer.Ordinal);
+                return new ScreenPrompt
+                {
+                    Signature = string.Join("\u001E", signatures.ToArray()),
+                    Subject = string.Join(" and ", subjects.ToArray()),
+                    Notice = unpressed.Count.ToString(CultureInfo.InvariantCulture)
+                             + " prompts are waiting on screen (" + string.Join("; ", subjects.ToArray())
+                             + ") and nothing pressed them.",
+                };
+            }
+        }
+
+        /// <summary>
+        /// One tick's answer to each prompt the sweep reads. This was a lambda inside OnTick, and the
+        /// three hand-offs it makes -- the switch to Decide, a press into <see cref="PressedAny"/>, an
+        /// unpressed prompt into <see cref="Unpressed"/> -- were asserted only at their callees (RA-021).
+        /// As a class the self-test can build one over a fake port, hand it a prompt and a switch that
+        /// says no, and read all three.
+        /// </summary>
+        internal sealed class SweepPass
+        {
+            private readonly int _port;
+            private readonly bool _mayPress, _allProjects, _similar;
+            private readonly PressBudget _budget;
+            private readonly Func<bool> _stillArmed;
+
+            /// <summary>Whether this tick's sweep confirmed a click, carried to the UI thread beside the
+            /// note so the log can tell a press from a standing refusal (F029).</summary>
+            public bool PressedAny;
+
+            /// <summary>Every prompt read and left alone, in target order, for the screen announcement.</summary>
+            public readonly List<ScreenPrompt> Unpressed = new List<ScreenPrompt>();
+
+            public SweepPass(int port, bool mayPress, bool allProjects, bool similar,
+                             PressBudget budget, Func<bool> stillArmed)
+            {
+                _port = port;
+                _mayPress = mayPress;
+                _allProjects = allProjects;
+                _similar = similar;
+                _budget = budget;
+                _stillArmed = stillArmed;
+            }
+
+            /// <summary>The <see cref="PromptHandler"/> the sweep calls once per readable prompt.</summary>
+            public string Handle(PromptView view, out bool pressed)
+            {
+                pressed = false;
+                string note;
+                if (_mayPress)
+                    note = Decide(_port, view, _budget, _allProjects, _similar, _stillArmed, out pressed);
+                else
+                    note = "a prompt is waiting for " + DescribeSubject(view)
+                           + " (auto-approve is off, so it was left alone)";
+                if (pressed) PressedAny = true;
+                else Unpressed.Add(new ScreenPrompt
+                {
+                    Signature = ScreenPrompt.SignatureFor(view),
+                    Subject = DescribeSubject(view),
+                });
+                return note;
+            }
         }
 
         /// <summary>The prompt last announced from the screen, so a poll every ten seconds does
@@ -4554,6 +4639,106 @@ namespace DesktopAICompanion.AgentFlow
                     seen.Count == 1 && seen[0].Agent == CdpApprover.AgentCodex && sawPanel);
                 probe.Check("WIRE both agents' targets come out of the same single list read",
                     both.ListCount == 1);
+            }
+
+            // RA-047: the sweep stops at a PRESS, never at a READ. A standing prompt this module refuses on
+            // the first-listed webview -- here the plan prompt, two mode changes and a decline, so
+            // NothingToPress -- used to end every sweep at that target, and a pressable prompt on the NEXT
+            // webview was never reached: not pressed, not announced, absent from the log. Driven through the
+            // production shape, a SweepPass handing Decide the switch, with a real click on the second
+            // target, so what is pinned is the approval surviving the refusal.
+            const string PlanJson = "{\"tool\":\"\",\"header\":\"Accept this plan?\",\"ext\":\"\",\"options\":"
+                                    + "[\"Yes, and use auto mode\",\"Yes, and manually approve edits\","
+                                    + "\"Send feedback and keep planning\"]}";
+            using (var starved = new FakeCdpServer(new[]
+            {
+                new FakeCdpServer.Target { Id = "claude-plan", Url = claudeUrl, EvaluateResult = PlanJson },
+                new FakeCdpServer.Target
+                {
+                    Id = "claude-bash", Url = claudeUrl, EvaluateResult = PromptJson, ClickResult = "clicked",
+                },
+            }))
+            {
+                var pass = new SweepPass(starved.Port, true, false, false, new PressBudget(), () => true);
+                bool sawPanel, sawBlind;
+                string note = CdpApprover.Sweep(starved.Port, pass.Handle, 4000, out sawPanel, out sawBlind);
+                probe.Check("WITNESS the first-listed webview's prompt is REFUSED, not pressed: nothing on it approves a call",
+                    pass.Unpressed.Count == 1 && pass.Unpressed[0].Subject == "a plan");
+                probe.Check("WIRE a refused prompt on the first webview does not starve the second: its approve row is pressed",
+                    pass.PressedAny && note != null
+                    && note.IndexOf("auto-approve clicked", StringComparison.Ordinal) >= 0);
+                probe.Check("WIRE ...the sweep read both webviews and clicked once: three attaches, three evaluations",
+                    starved.AttachCount == 3 && starved.EvaluateCount == 3 && sawPanel);
+                probe.Check("WITNESS the press note comes back alone, without the standing refusal beside it",
+                    note != null && note.IndexOf("a plan", StringComparison.Ordinal) < 0
+                    && note.IndexOf(" | ", StringComparison.Ordinal) < 0);
+            }
+
+            // Two refused webviews: both are read, both refusals reach the one returned note, and the
+            // screen announcement names both rather than the first-listed one for ever.
+            using (var twoRefused = new FakeCdpServer(new[]
+            {
+                new FakeCdpServer.Target { Id = "claude-plan", Url = claudeUrl, EvaluateResult = PlanJson },
+                new FakeCdpServer.Target
+                {
+                    Id = "codex-odd", Url = codexUrl,
+                    EvaluateResult = "{\"options\":[\"Allow once\",\"Allow everything forever\",\"Deny\"]}",
+                },
+            }))
+            {
+                var pass = new SweepPass(twoRefused.Port, true, false, false, new PressBudget(), () => true);
+                bool sawPanel, sawBlind;
+                string note = CdpApprover.Sweep(twoRefused.Port, pass.Handle, 4000, out sawPanel, out sawBlind);
+                probe.Check("WIRE two refused webviews are both read, and both refusals reach the one returned note",
+                    !pass.PressedAny && pass.Unpressed.Count == 2 && twoRefused.AttachCount == 2 && sawPanel
+                    && note != null && note.IndexOf("a plan", StringComparison.Ordinal) >= 0
+                    && note.IndexOf("unrecognised", StringComparison.Ordinal) >= 0);
+                ScreenPrompt combined = ScreenPrompt.Combine(pass.Unpressed);
+                probe.Check("WITNESS two unpressed prompts announce as one notice naming both subjects",
+                    combined != null && combined.Notice != null
+                    && combined.Notice.IndexOf("2 prompts", StringComparison.Ordinal) >= 0
+                    && combined.Notice.IndexOf("a plan", StringComparison.Ordinal) >= 0
+                    && combined.Notice.IndexOf("a Codex command", StringComparison.Ordinal) >= 0);
+                probe.Check("WITNESS ...keyed on the whole set, so it differs from either prompt alone and from the set reversed",
+                    combined.Signature != pass.Unpressed[0].Signature
+                    && combined.Signature != pass.Unpressed[1].Signature
+                    && ScreenPrompt.Combine(new List<ScreenPrompt> { pass.Unpressed[1], pass.Unpressed[0] }).Signature
+                       == combined.Signature);
+                probe.Check("one unpressed prompt announces as itself",
+                    ReferenceEquals(ScreenPrompt.Combine(new List<ScreenPrompt> { pass.Unpressed[0] }), pass.Unpressed[0])
+                    && ScreenPrompt.Combine(new List<ScreenPrompt>()) == null);
+            }
+
+            // RA-021: the pass hands Decide the switch and folds the answer into its two outputs, which
+            // were asserted only at the callees while the pass was a lambda inside OnTick.
+            using (var armed = new FakeCdpServer(new[]
+            {
+                new FakeCdpServer.Target
+                {
+                    Id = "claude-1", Url = claudeUrl, EvaluateResult = PromptJson, ClickResult = "clicked",
+                },
+            }))
+            {
+                PromptView readable = CdpApprover.Parse("claude-1", PromptJson);
+                readable.Agent = CdpApprover.AgentClaude;
+                var disarmed = new SweepPass(armed.Port, true, false, false, new PressBudget(), () => false);
+                bool pressedDisarmed;
+                string stoodDown = disarmed.Handle(readable, out pressedDisarmed);
+                probe.Check("WITNESS a switch that moved during the sweep stands the pass down before the click, and the prompt is left unpressed",
+                    !pressedDisarmed && !disarmed.PressedAny && disarmed.Unpressed.Count == 1
+                    && stoodDown != null
+                    && stoodDown.IndexOf("stood down before the click", StringComparison.Ordinal) >= 0);
+                var notPressing = new SweepPass(armed.Port, false, false, false, new PressBudget(), () => true);
+                bool pressedOff;
+                string leftAlone = notPressing.Handle(readable, out pressedOff);
+                probe.Check("WITNESS with auto-approve off the pass reads and leaves the prompt alone, saying so",
+                    !pressedOff && notPressing.Unpressed.Count == 1 && leftAlone != null
+                    && leftAlone.IndexOf("auto-approve is off", StringComparison.Ordinal) >= 0);
+                var pressing = new SweepPass(armed.Port, true, false, false, new PressBudget(), () => true);
+                bool pressedOn;
+                pressing.Handle(readable, out pressedOn);
+                probe.Check("WITNESS ...and with the switch held the same prompt is pressed and recorded as such",
+                    pressedOn && pressing.PressedAny && pressing.Unpressed.Count == 0);
             }
 
             // An expression that threw comes back with exceptionDetails. Evaluate must read that as no
