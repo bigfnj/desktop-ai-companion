@@ -806,6 +806,18 @@ one pre-1.0 upgrade-support decision and go together or not at all. The `Registe
 `RegisterPokeResponder` pair is frozen ABI surface for out-of-tree modules (see the unexercised-ABI entry), not a
 bridge, and does not belong on this list.
 
+**A downloaded pack is validated by the loader's own validator before it is written, and a refusal is a download
+cause of its own (2026-09-30, F131).** The host verifies URL, hash and size; the CONTENT check is the module's, and it is
+`TryValidateCustomPackBytes`, the validator the folder loader and the importer already use (tagged or plain), never the
+strict tagged oracle the parser self-test keeps. A refusal is `malformed=N` in the one download log line and a failed pack
+in the pane's status, so "Downloaded 1 pack" can no longer be true of a file the loader then skips.
+
+**A folded sub-report line that reports a failure is re-emitted as a `FAIL: ` verdict line (2026-09-30, F120).** The
+Fortunes probe folds three sub-reports into its output so a red run says which case failed. The gate's failure printer
+and tests/mutate-selftest-guards.py read only lines whose stripped form STARTS with FAIL, so a folded `rewarm_supersedes=FAIL`
+or `FILTER FAIL case=3` was visible to a person and to neither tool; the fold prefixes such lines (`name=FAIL`,
+`SUITE FAIL case`, `EXC:`) with `FAIL: `. A sub-report that wants its cases graded writes them in that vocabulary.
+
 #### fix/scripts
 
 (none yet)

@@ -65,6 +65,9 @@ REMINDER_CSPROJ = os.path.join(REPO, "modules", "Reminder", "Reminder.csproj")
 REMINDER_DLL = os.path.join(BIN, "modules", "reminder", "Reminder.dll")
 REMINDER_PARSER = os.path.join(REPO, "modules", "Reminder", "PersonalReminderParser.cs")
 CACHING_CALENDAR_SOURCE = os.path.join(REPO, "modules", "Reminder", "CachingCalendarSource.cs")
+REMINDER_MODULE = os.path.join(REPO, "modules", "Reminder", "ReminderModule.cs")
+REMINDER_QUIET_HOURS = os.path.join(REPO, "modules", "Reminder", "QuietHours.cs")
+REMINDER_ICS = os.path.join(REPO, "modules", "Reminder", "IcsUrlSource.cs")
 AIBRAIN_CSPROJ = os.path.join(REPO, "modules", "AiBrain", "AiBrain.csproj")
 AIBRAIN_DLL = os.path.join(BIN, "modules", "aibrain", "AiBrain.dll")
 AIBRAIN_ENGINE = os.path.join(REPO, "modules", "AiBrain", "engine", "AiBrain.cs")
@@ -401,7 +404,7 @@ CASES = (
      b"            else if (headLower == \"at\")\n"
      b"            {\n"
      b"                string tok = FirstWord(rest, out string text);\n"
-     b"                if (!TryHhmm(tok, out hhmm)) { error = \"After 'at', give a time like 15:00. \" + Help; return false; }\n"
+     b"                if (!QuietHours.TryParseTimeOfDay(tok, out hhmm)) { error = \"After 'at', give a time like 15:00. \" + Help; return false; }\n"
      b"                r.Kind = PersonalReminder.KindOnce; r.When = TodayOrTomorrowAt(now, hhmm); r.Text = text;\n"
      b"            }\n",
      b"",
@@ -2063,6 +2066,86 @@ CASES = (
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "ChatAsync was entered exactly once"),
+
+    # F131: a downloaded pack is validated before it is written, and a refusal is its own download cause.
+    # Dropping the refusal writes the invalid bytes and counts them installed, which is the shape this fixed.
+    ("deadcode: the downloader writes a malformed catalog payload again",
+     FORTUNES_MODULE,
+     b"                        { failed++; malformed++; continue; }",
+     b"                        { }",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--fortunes-selftest", "dp-fortunes-selftest.txt",
+     "a malformed catalog payload is refused, not installed"),
+
+    # F136: a second Warm on the same picker supersedes the first. Dropping the second call (the first warm
+    # then runs to completion and publishes its own pool) is what the rewarm case has to see.
+    ("deadcode: a second Warm on the same picker is dropped instead of superseding the first",
+     SMART_FORTUNES,
+     b"                if (_warmCancellation != null)\n"
+     b"                {\n"
+     b"                    try { _warmCancellation.Cancel(); } catch { }\n"
+     b"                }\n"
+     b"                if (snapshot == null || snapshot.Count == 0)",
+     b"                if (_warmCancellation != null)\n"
+     b"                {\n"
+     b"                    return;\n"
+     b"                }\n"
+     b"                if (snapshot == null || snapshot.Count == 0)",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "rewarm_supersedes=FAIL"),
+
+    # F120: FilterSelfTest's per-case lines reach the probe output. A sub-case made to fail must show its OWN
+    # line in the module marker, not only the one-line verdict above it; an empty pool picking null is the
+    # smallest production change that fails exactly one of them.
+    ("deadcode: an empty pool picks null and the filter sub-report names the case",
+     FORTUNE_PROVIDER,
+     b"            if (n == 0) return \"\";\n            if (n == 1) return _poolE[0].Text;",
+     b"            if (n == 0) return null;\n            if (n == 1) return _poolE[0].Text;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "FILTER FAIL impossible constraints did not stay empty"),
+
+    # F185: the self-test's digest check reads the release-LIST parser, the path InstallAsync takes; a list
+    # parser that loses the digest has to fail it.
+    ("deadcode: the release-list parser drops the asset digest",
+     WHISPER_INSTALLER,
+     b"                        digestElement.ValueKind == JsonValueKind.String) digest = digestElement.GetString();",
+     b"                        digestElement.ValueKind == JsonValueKind.String) digest = null;",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "release JSON yields the digest"),
+
+    # F190: the ICS parser's id scheme is uid@startUtc, pinned by IcsUrlSource.SelfCheck; an id of the bare
+    # uid collapses a recurring series onto one fired id.
+    ("deadcode: an ICS occurrence id loses its start",
+     REMINDER_ICS,
+     b"                    string id = uid + \"@\" + startUtc.ToString(\"o\");",
+     b"                    string id = uid + \"@\";",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "an occurrence id is uid@startUtc"),
+
+    # F198: the one slot lookup stops one short, so the last slot reads as the default.
+    ("deadcode: the slot lookup stops one slot short",
+     REMINDER_MODULE,
+     b"            for (int i = 1; i <= MaxSlots; i++)\n"
+     b"                if (string.Equals(SlotId(i), sourceId, StringComparison.Ordinal)) return i;",
+     b"            for (int i = 1; i < MaxSlots; i++)\n"
+     b"                if (string.Equals(SlotId(i), sourceId, StringComparison.Ordinal)) return i;",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "every slot id maps to its index"),
+
+    # F203: the shared HH:mm parser loosens to NumberStyles.Integer again, which is what the two deleted copies
+    # did; the sign case fires in QuietHours' own check and through the typed-reminder and briefing callers.
+    ("deadcode: the shared HH:mm parser accepts a signed hour again",
+     REMINDER_QUIET_HOURS,
+     b"            if (!int.TryParse(hh, NumberStyles.None, CultureInfo.InvariantCulture, out h)) return false;",
+     b"            if (!int.TryParse(hh, NumberStyles.Integer, CultureInfo.InvariantCulture, out h)) return false;",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "a signed hour is refused"),
 )
 
 BASELINES = (

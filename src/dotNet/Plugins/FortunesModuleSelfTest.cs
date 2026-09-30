@@ -177,6 +177,22 @@ namespace DesktopAICompanion.Plugins
                         bool spokeAfter = host.FireDrop(new FakeCompanion(1));
                         ok &= Check(sb, "a downloaded pack joins the live pool without a restart",
                             spokeAfter && host.Said.Count > 0);
+
+                        // F131: a catalog payload the folder loader would refuse is refused at download, not
+                        // written and counted installed. The host verifies URL, hash and size; the CONTENT check
+                        // is the module's. 200 bytes of 0xFF are not UTF-8, so no parser accepts them.
+                        var badBytes = new byte[200];
+                        for (int badIndex = 0; badIndex < badBytes.Length; badIndex++) badBytes[badIndex] = 0xFF;
+                        host.CatalogItems.Add(new CatalogItem { Id = "badpack", Name = "Bad Pack", Bytes = 200, Count = 1 });
+                        host.CatalogPayloads["badpack"] = badBytes;
+                        check.InvokeAsync().GetAwaiter().GetResult();
+                        selectAll.InvokeAsync().GetAwaiter().GetResult();
+                        string badStatus = download.InvokeAsync().GetAwaiter().GetResult();
+                        sb.AppendLine("  bad download said: " + badStatus);
+                        ok &= Check(sb, "a malformed catalog payload is refused, not installed",
+                            !File.Exists(Path.Combine(storageDir, "fortunes", "badpack.txt")) &&
+                            badStatus.IndexOf("Downloaded 0 packs", StringComparison.Ordinal) >= 0 &&
+                            badStatus.IndexOf("1 pack failed", StringComparison.Ordinal) >= 0);
                     }
 
                     // Bulk tick on the INSTALLED packs list. Separate from the catalog buttons above and

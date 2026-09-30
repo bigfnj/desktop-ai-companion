@@ -1924,32 +1924,35 @@ Assert-True (-not ($previewBody -match 'NotificationSound\.Play\([^)]*,\s*true\s
 # ---- lane fix/gates ----
 # (invariants added by lane fix/gates go directly below this line)
 
-# The fortune-pack FILE cap exists twice. The host's FortunePackLoadPolicy.MaximumFiles has exactly one
-# reader, the --catalog-selftest check that compares it with the catalog entry cap; the cap that governs
-# LOADING is the Fortunes module's own copy in FortuneProvider.cs, which the host self-test cannot see
-# and which the module project does not source-link. The two were kept equal by a comment, so the
-# 512-listed-vs-128-loadable regression that check describes would have passed it (F287). Parsed as
-# NUMBERS from comment-stripped source and compared as a CONDITION: the module cap must equal the host
-# cap, and the module cap must cover every pack the catalog may list. -cmatch, and a digit group, so a
-# renamed or removed constant fails the presence line rather than matching prose.
+# The fortune-pack FILE cap used to exist twice: the host's FortunePackLoadPolicy.MaximumFiles, read by the
+# --catalog-selftest check that compares it with the catalog entry cap, and the Fortunes module's own copy in
+# FortuneProvider.cs, which governs LOADING and which the module project did not source-link. The two were
+# kept equal by a comment, so the 512-listed-vs-128-loadable regression that check describes would have
+# passed it (F287). Since F124 the module COMPILES the host's file (a Compile Include in Fortunes.csproj), so
+# there is one definition; what is asserted is that the link is still there and that no second definition
+# has grown back in the module tree, then that the one cap covers every pack the catalog may list. Parsed as
+# NUMBERS from comment-stripped source and compared as a CONDITION. -cmatch, and a digit group, so a renamed
+# or removed constant fails the presence line rather than matching prose.
 $hostPolicyCode = Remove-LineComments (Get-Content -LiteralPath (
     Join-Path $repoRoot 'src\dotNet\Ai\FortunePackLoadPolicy.cs') -Raw)
-$modulePolicyCode = Remove-LineComments (Get-Content -LiteralPath (
-    Join-Path $repoRoot 'modules\Fortunes\engine\FortuneProvider.cs') -Raw)
+$fortunesProject = Get-Content -LiteralPath (Join-Path $repoRoot 'modules\Fortunes\Fortunes.csproj') -Raw
+$fortunesPolicyLinked = $fortunesProject -cmatch '<Compile\s+Include="[^"]*src\\dotNet\\Ai\\FortunePackLoadPolicy\.cs"'
+$fortunesPolicyCopies = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'modules\Fortunes') -Filter '*.cs' -Recurse -File |
+    Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' } |
+    Where-Object { (Remove-LineComments (Get-Content -LiteralPath $_.FullName -Raw)) -cmatch 'class\s+FortunePackLoadPolicy\b' })
 $catalogCode = Remove-LineComments (Get-Content -LiteralPath (
     Join-Path $repoRoot 'src\dotNet\RemoteCatalog.cs') -Raw)
 $hostFileCap = [regex]::Match($hostPolicyCode, 'MaximumFiles\s*=\s*(\d+)')
-$moduleFileCap = [regex]::Match($modulePolicyCode, 'MaximumFiles\s*=\s*(\d+)')
 $catalogEntryCap = [regex]::Match($catalogCode, 'MaximumEntries\s*=\s*(\d+)')
-Assert-True ($hostFileCap.Success -and $moduleFileCap.Success -and $catalogEntryCap.Success) (
-    'the three pack caps are present to compare (host MaximumFiles ' + $hostFileCap.Success +
-    ', module MaximumFiles ' + $moduleFileCap.Success + ', catalog MaximumEntries ' + $catalogEntryCap.Success + ')')
-Assert-True ([int] $moduleFileCap.Groups[1].Value -eq [int] $hostFileCap.Groups[1].Value) (
-    "the Fortunes module's pack file cap equals the host copy the catalog self-test reads (module " +
-    $moduleFileCap.Groups[1].Value + ', host ' + $hostFileCap.Groups[1].Value + ')')
-Assert-True ([int] $moduleFileCap.Groups[1].Value -ge [int] $catalogEntryCap.Groups[1].Value) (
-    'the pack file cap that governs LOADING covers every pack the catalog may list (module cap ' +
-    $moduleFileCap.Groups[1].Value + ', catalog entries ' + $catalogEntryCap.Groups[1].Value + ')')
+Assert-True ($hostFileCap.Success -and $catalogEntryCap.Success) (
+    'the pack caps are present to compare (host MaximumFiles ' + $hostFileCap.Success +
+    ', catalog MaximumEntries ' + $catalogEntryCap.Success + ')')
+Assert-True ($fortunesPolicyLinked -and $fortunesPolicyCopies.Count -eq 0) (
+    "the Fortunes module compiles the host's FortunePackLoadPolicy.cs and defines no copy of its own (linked " +
+    $fortunesPolicyLinked + ', copies ' + $fortunesPolicyCopies.Count + ')')
+Assert-True ([int] $hostFileCap.Groups[1].Value -ge [int] $catalogEntryCap.Groups[1].Value) (
+    'the pack file cap that governs LOADING covers every pack the catalog may list (cap ' +
+    $hostFileCap.Groups[1].Value + ', catalog entries ' + $catalogEntryCap.Groups[1].Value + ')')
 
 # 'Rebuild smart index' decides "already built" by comparing the indexed pool's signature with the pool
 # the CURRENT folder yields. It compared it with `provider.PoolEntries()` -- the very list the signature
@@ -2730,6 +2733,24 @@ Assert-True (
 
 # ---- lane fix/deadcode ----
 # (invariants added by lane fix/deadcode go directly below this line)
+
+# The four reserved animation names exist as ONE array (PetGraph.ReservedEntryPointNames, read by the emitter,
+# the graph and PetStudio since F432) and as the loader's switch in src/dotNet/Xml.cs. The converter's csproj
+# asserts the loader still binds each of the four names it knows; nothing compared the ARRAY with the loader,
+# so an element removed from it, or a fifth entry point added to the loader, built clean. Both sets are parsed
+# from comment-stripped source and compared as sorted lists.
+$petGraphCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'tools\ShimejiConvert.Engine\PetGraph.cs') -Raw)
+$xmlLoaderCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\Xml.cs') -Raw)
+$reservedArray = [regex]::Match($petGraphCode, 'ReservedEntryPointNames\s*=\s*\{([^}]*)\}')
+$reservedNames = @([regex]::Matches($reservedArray.Groups[1].Value, '"([a-z]+)"') |
+    ForEach-Object { $_.Groups[1].Value } | Sort-Object)
+$loaderNames = @([regex]::Matches($xmlLoaderCode, 'case\s+"([a-z]+)":\s*animations\.Animation[A-Za-z]+\s*=\s*node\.Id') |
+    ForEach-Object { $_.Groups[1].Value } | Sort-Object)
+Assert-True ($reservedArray.Success -and $reservedNames.Count -gt 0 -and $loaderNames.Count -gt 0 -and
+    (($reservedNames -join ',') -ceq ($loaderNames -join ','))) (
+    'PetGraph.ReservedEntryPointNames names exactly the animation names Xml.cs binds as entry points (array ' +
+    ($reservedNames -join ',') + '; loader ' + ($loaderNames -join ',') + ')')
 
 
 

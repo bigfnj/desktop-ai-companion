@@ -1433,7 +1433,11 @@ namespace DesktopAICompanion.Ai
             bool ok =
                 result.ImportedCount == FortunePackLoadPolicy.MaximumFiles &&
                 result.RejectedCount == 1;
-            if (!ok) output.AppendLine("IMPORT FAIL 128/129 file boundary");
+            if (!ok)
+                output.AppendLine("IMPORT FAIL " +
+                    FortunePackLoadPolicy.MaximumFiles.ToString(System.Globalization.CultureInfo.InvariantCulture) + "/" +
+                    (FortunePackLoadPolicy.MaximumFiles + 1).ToString(System.Globalization.CultureInfo.InvariantCulture) +
+                    " file boundary");
             return ok;
         }
 
