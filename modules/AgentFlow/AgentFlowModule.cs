@@ -147,7 +147,28 @@ namespace DesktopAICompanion.AgentFlow
         {
             Id = "agentflow",
             Name = "AgentFlow",
-            Version = "1.4.11",  // 1.4.11: the options pane no longer probes VS Code's setup on the UI
+            Version = "1.4.12",  // 1.4.12: the 2026-09-29 audit campaign, twenty-one findings. Disable
+                                 //         mapped the dangling comma through comment-STRIPPED text, so
+                                 //         with the port key hand-appended LAST it deleted the wrong
+                                 //         comma and VS Code ignored the whole file while the module
+                                 //         reported success; every offset edit now runs on the blanked
+                                 //         text, and Enable keeps a trailing comment on the port line.
+                                 //         Codex `untrusted` and `on-failure` sessions are watched (only
+                                 //         `never` cannot ask). Project-scope .claude/settings*.json
+                                 //         rules are read per session through a stat-keyed cache, which
+                                 //         also stops re-parsing the home files every tick. A session
+                                 //         that leaves and re-enters the 15-minute window is no longer
+                                 //         tallied from byte zero. One denied folder no longer blanks
+                                 //         the transcript scan, and anything under `subagents` is
+                                 //         skipped. The log dedupes refusals but not presses, explains a
+                                 //         chat-only session once, holds a notice back once, and never
+                                 //         claims it signalled with no channel on. A press is refused
+                                 //         inside the sweep once the switch moves or shutdown begins.
+                                 //         The pane reads the installed pets once per build; a sweep
+                                 //         fetches /json/list once; a CDP session owns one receive
+                                 //         buffer; a permission string is normalised once per verdict
+                                 //         and never cached; the cursor folds bytes without a string.
+                                 // 1.4.11: the options pane no longer probes VS Code's setup on the UI
                                  //         thread. The doc said the cold path was only between Init and
                                  //         the first tick, but OnTick returns before the probe when the
                                  //         mode is Off -- the default -- so a cold pane open paid
