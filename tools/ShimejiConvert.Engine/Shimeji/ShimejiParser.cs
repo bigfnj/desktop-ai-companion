@@ -89,12 +89,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         {
             var config = new ShimejiConfig();
             ParseActions(LoadEmbeddedXml("base-actions.xml", true), config);
-            XDocument behaviors = LoadEmbeddedXml("base-behaviors.xml", false);
-            if (behaviors != null)
-            {
-                ParseBehaviorConditions(behaviors, config);
-                ParseBehaviorFrequencies(behaviors, config);
-            }
+            // REQUIRED, like the actions. This served only the bundle, which always ships a behaviours file,
+            // so its absence is a build defect and not a skin choice -- yet it was loaded with required:false
+            // and skipped in silence, leaving every behaviour frequency at zero (so every hub spoke got the
+            // base weight and the PLAYED set-piece gate went dead) while the self-test still printed
+            // "behaviors.xml embed and parse" (F442). A user skin's optional behaviours go through
+            // ParseConfDirectory and are unaffected.
+            XDocument behaviors = LoadEmbeddedXml("base-behaviors.xml", true);
+            ParseBehaviorConditions(behaviors, config);
+            ParseBehaviorFrequencies(behaviors, config);
             return config;
         }
 

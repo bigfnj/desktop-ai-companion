@@ -13,6 +13,39 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     /// </summary>
     public static class ActionClassifier
     {
+        /// <summary>
+        /// The embedded classes whose frames are an ordinary animation: graded Group1 here with a reason that
+        /// promises the frames will play, and admitted to the floor graph by <c>PetEmitter.IsFloorAction</c>
+        /// through <see cref="IsFramePlayingClass"/>. ONE list, read by both halves of that contract. It used
+        /// to be two -- this file's ClassIs chain and a switch in PetEmitter -- and ClassifierSelfTest's
+        /// "agreement" check took both of its booleans from the emitter's copy, so a class added to either
+        /// side alone passed in silence (F446).
+        ///
+        /// Deliberately absent: Fall / Dragged / SelfDestruct become the magic fall / drag / kill animations,
+        /// and emitting them as spokes too would duplicate them; Look and Offset are a facing change and a
+        /// positional nudge, not animations.
+        /// </summary>
+        public static readonly string[] FramePlayingClasses =
+        {
+            "Jump",             // arc emitted by PetEmitter.BuildSpoke; see QualifiesAsJump
+            "Regist",           // drag-resist wiggle, plays in place
+            "Broadcast",        // deprecated aliases of base animations, the rest of this list
+            "BroadcastStay",
+            "BroadcastMove",
+            "BroadcastJump",
+            "MoveWithTurn",
+        };
+
+        /// <summary>Whether <paramref name="shortClass"/> (the class name after the last '.') is one of
+        /// <see cref="FramePlayingClasses"/>.</summary>
+        public static bool IsFramePlayingClass(string shortClass)
+        {
+            if (shortClass == null) return false;
+            foreach (string c in FramePlayingClasses)
+                if (string.Equals(c, shortClass, StringComparison.Ordinal)) return true;
+            return false;
+        }
+
         private static bool Has(string blob, string token)
         {
             return blob != null && blob.IndexOf(token, StringComparison.Ordinal) >= 0;
@@ -92,18 +125,22 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 return;
             }
 
-            // Group 1 -- preservable with converter-only work.
+            // Group 1 -- preservable with converter-only work. The ABSORBED classes first: each becomes a
+            // magic animation name, a flip or a nudge, and the reason SAYS so, because ClassifierSelfTest
+            // reads these reasons as the classifier's half of its contract with the emitter.
             if (ClassIs(a, "Fall")) { Set(a, FidelityGroup.Group1, "maps to the magic 'fall' animation name"); return; }
             if (ClassIs(a, "Dragged")) { Set(a, FidelityGroup.Group1, "maps to the magic 'drag' animation name"); return; }
-            if (ClassIs(a, "Jump")) { Set(a, FidelityGroup.Group1, "jump arc approximated by start/end velocity"); return; }
             if (ClassIs(a, "Look")) { Set(a, FidelityGroup.Group1, "facing change -> the 'flip' sequence action"); return; }
             if (ClassIs(a, "Offset")) { Set(a, FidelityGroup.Group1, "positional nudge -> baked into the sheet or <offsety>"); return; }
-            if (ClassIs(a, "Regist")) { Set(a, FidelityGroup.Group1, "drag-resist animation; plays as ordinary frames"); return; }
             if (ClassIs(a, "SelfDestruct")) { Set(a, FidelityGroup.Group1, "maps to the magic 'kill' animation name"); return; }
-            if (ClassIs(a, "Broadcast") || ClassIs(a, "BroadcastStay") || ClassIs(a, "BroadcastMove") ||
-                ClassIs(a, "BroadcastJump") || ClassIs(a, "MoveWithTurn"))
+            // Then the FRAME-PLAYING classes, from the one list PetEmitter.IsFloorAction also reads (F446).
+            // Per-class wording because the reason is what the residue report shows the user; every one of
+            // them promises "frames" or a "jump arc", which is the phrase the self-test looks for.
+            if (IsFramePlayingClass(a.Class))
             {
-                Set(a, FidelityGroup.Group1, "deprecated alias of a base animation (" + a.Class + "); converts as ordinary frames (any affordance broadcast for pairing is dropped)");
+                if (ClassIs(a, "Jump")) Set(a, FidelityGroup.Group1, "jump arc approximated by start/end velocity");
+                else if (ClassIs(a, "Regist")) Set(a, FidelityGroup.Group1, "drag-resist animation; plays as ordinary frames");
+                else Set(a, FidelityGroup.Group1, "deprecated alias of a base animation (" + a.Class + "); converts as ordinary frames (any affordance broadcast for pairing is dropped)");
                 return;
             }
 

@@ -770,26 +770,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         /// <summary>
         /// Embedded classes whose frames are an ordinary animation, so they belong on the floor graph.
         ///
-        /// This list is the emitter's half of a contract ActionClassifier already states: every class here
-        /// is graded Group1 there with a reason that promises frames will play. Adding a class to one side
-        /// without the other is what produced the "not attempted" gap, so change them together.
+        /// ONE list, owned by the classifier (<see cref="ActionClassifier.FramePlayingClasses"/>), so the two
+        /// halves of the contract cannot drift. The switch that used to live here was the emitter's private
+        /// copy of that list, and ClassifierSelfTest's "agreement" check compared it against itself: a class
+        /// added to either side alone passed in silence (F446). Adding a class now means adding it THERE, and
+        /// the self-test grades a synthetic action of every listed class through both halves.
         /// </summary>
         internal static bool IsFramePlayingEmbeddedClass(ShimejiAction a)
         {
-            if (a == null || a.Class == null) return false;
-            switch (a.Class)
-            {
-                case "Jump":            // arc emitted by BuildSpoke; see QualifiesAsJump
-                case "Regist":          // drag-resist wiggle, plays in place
-                case "Broadcast":
-                case "BroadcastStay":
-                case "BroadcastMove":
-                case "BroadcastJump":
-                case "MoveWithTurn":    // deprecated aliases of base animations
-                    return true;
-                default:
-                    return false;
-            }
+            return a != null && ActionClassifier.IsFramePlayingClass(a.Class);
         }
 
         /// <summary>

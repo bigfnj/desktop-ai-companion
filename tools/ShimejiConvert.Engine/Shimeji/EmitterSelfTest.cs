@@ -65,9 +65,15 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             {
                 ShimejiConfig config = ShimejiParser.ParseActionsXml(SyntheticActionsXml);
                 // ParseActionsXml reads actions only; a real skin's frequencies arrive from behaviors.xml.
-                // Setting one here is what puts the set-piece through the PLAYED gate rather than the
-                // recovers-a-withheld-member one, so both halves of ExpandSetPieces' condition are exercised.
+                // GatorRide's frequency weights its hub entry but does NOT decide whether it is chained: its
+                // legs are withheld (BorderType="None"), so it enters ExpandSetPieces through the RECOVERS
+                // gate whatever this says. The comment here used to claim it exercised both halves of the
+                // gate; it exercised one, and the PLAYED term could be deleted with the suite green (F447).
+                // The PLAYED half is decided by StrollAndHop below, whose members are ordinary spokes and
+                // which is chained ONLY because of this frequency; its twin StrollAndHopUnplayed has none.
+                const int StrollFrequency = 40;
                 config.BehaviorFrequency["GatorRide"] = 60;
+                config.BehaviorFrequency["StrollAndHop"] = StrollFrequency;
 
                 Func<string, Bitmap> load = delegate(string name) { return new Bitmap(owned[name]); };
 
@@ -114,9 +120,19 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 {
                     foreach (XmlData.SpawnNode sp in r.Root.Spawns.Spawn)
                     {
-                        int x = EvalOnFakeScreen(sp.X, sheet.CellWidth, sheet.CellHeight);
-                        if (x < 0 || x > 1920 - sheet.CellWidth)
-                            failures.Add("spawn " + sp.Id + " lands the pet off-screen horizontally (x=" + x + " of 1920)");
+                        // Over the engine's REAL ranges -- random is 0..99 and randS 10..89 -- not one draw
+                        // at 50. Any linear expression in random lands inside a 1920-wide screen at its
+                        // midpoint, so a spawn that had lost its imageW or margin term passed here while
+                        // leaving the pet part-way off screen at the top of the range (F448). The endpoints
+                        // are where that shows, and the FAIL names the draw that failed.
+                        foreach (int random in new[] { 0, 50, 99 })
+                            foreach (int randS in new[] { 10, 50, 89 })
+                            {
+                                int x = EvalOnFakeScreen(sp.X, sheet.CellWidth, sheet.CellHeight, random, randS);
+                                if (x < 0 || x > 1920 - sheet.CellWidth)
+                                    failures.Add("spawn " + sp.Id + " lands the pet off-screen horizontally (x=" + x +
+                                        " of 1920 at random=" + random + ", randS=" + randS + ")");
+                            }
                     }
                 }
 
@@ -202,6 +218,47 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                         }
                     }
                 }
+
+                // ---- THE PLAYED GATE, IN BOTH DIRECTIONS ----
+                // StrollAndHop and StrollAndHopUnplayed are the same run of two ordinary floor spokes, so
+                // neither RECOVERS anything; only the first carries a behaviour frequency. It must be chained,
+                // with its entry weighted by that frequency, and its twin must not be chained at all. Delete
+                // the PLAYED term and the first block fails; make the gate admit everything and the second does.
+                XmlData.AnimationNode strollEntry = FindAnimationNamed(r, "StrollAndHop_1_Walk");
+                XmlData.AnimationNode strollHop = FindAnimationNamed(r, "StrollAndHop_2_Bounce");
+                if (strollEntry == null || strollHop == null)
+                    failures.Add("the PLAYED sequence 'StrollAndHop' (frequency " + StrollFrequency + ", members already " +
+                        "spokes) was not chained: expected StrollAndHop_1_Walk and StrollAndHop_2_Bounce, got [" +
+                        string.Join(", ", NamesStartingWith(r, "StrollAndHop_").ToArray()) + "]");
+                else
+                {
+                    List<int> strollHubTargets = HubSequenceTargets(r);
+                    if (!strollHubTargets.Contains(strollEntry.Id))
+                        failures.Add("the PLAYED set-piece's first step is not selectable from the hub, so the run can never start");
+                    if (strollHubTargets.Contains(strollHop.Id))
+                        failures.Add("the PLAYED set-piece's second step is selectable from the hub on its own");
+                    List<int> strollSeq = SequenceTargetsOf(strollEntry);
+                    if (strollSeq.Count != 1 || strollSeq[0] != strollHop.Id)
+                        failures.Add("StrollAndHop_1_Walk should hand to exactly StrollAndHop_2_Bounce (" + strollHop.Id +
+                            "), got [" + string.Join(",", strollSeq.ConvertAll(delegate(int v) { return v.ToString(); }).ToArray()) + "]");
+                    // The entry carries the SEQUENCE's frequency, length-corrected -- not its first member's
+                    // weight and not the base weight. The formula rather than a literal, so the constants can
+                    // move without moving this line; both numbers are printed when it fails.
+                    int expectedEntryWeight = Math.Max(1, PetEmitter.HubWeightFromFrequency(StrollFrequency) / 2);
+                    int actualEntryWeight = HubEdgeWeightTo(r, strollEntry.Id);
+                    if (actualEntryWeight != expectedEntryWeight)
+                        failures.Add("the PLAYED set-piece's hub entry weight is " + actualEntryWeight + ", expected " +
+                            expectedEntryWeight + " (HubWeightFromFrequency(" + StrollFrequency + ") over 2 members)");
+                    // WITNESS: the expectation differs from what a frequency-less chain would get, so the line
+                    // above is reading the frequency and not the base weight.
+                    if (expectedEntryWeight == Math.Max(1, PetEmitter.HubBaseWeight / 2))
+                        failures.Add("WITNESS: the fixture frequency yields the base entry weight, so the weight " +
+                            "assertion cannot tell a frequency from none");
+                }
+                List<string> unplayedSteps = NamesStartingWith(r, "StrollAndHopUnplayed_");
+                if (unplayedSteps.Count != 0)
+                    failures.Add("'StrollAndHopUnplayed' has no behaviour frequency and recovers nothing, yet it was " +
+                        "chained (" + string.Join(", ", unplayedSteps.ToArray()) + "): the PLAYED gate admits everything");
 
                 // ---- A JUMP LANDS, WHETHER OR NOT IT IS LOCOMOTION ----
                 // The whole border block used to sit behind `loco`, which requires Type="Move". The
@@ -1007,7 +1064,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 // assertion about it is vacuous. Reverting the fix below to read the SOURCE velocity passed
                 // the whole suite, which is how that was discovered.
                 //
-                // The variant is the same config with ClimbWall's upward pose flattened to 0,0 -- one edit,
+                // The variant is the same config with ClimbWall's upward pose flattened to 0,0 -- one edit
+                // to the XML, and the behaviour frequencies copied across below (ParseActionsXml reads none),
                 // so nothing else about the skin differs and the ceiling's fate is the only variable.
                 string flatWallXml = SyntheticActionsXml.Replace(
                     "<Pose Image=\"/c2.png\" ImageAnchor=\"20,60\" Velocity=\"0,-2\" Duration=\"4\" />",
@@ -1018,6 +1076,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 else
                 {
                     ShimejiConfig flatConfig = ShimejiParser.ParseActionsXml(flatWallXml);
+                    // Without this the variant differed in a SECOND way -- no frequencies at all -- and the
+                    // "one edit" claim above was false, harmlessly today because its chains entered through
+                    // RECOVERS, and not harmlessly the day a PLAYED-only set-piece was added (F447).
+                    foreach (KeyValuePair<string, int> frequency in config.BehaviorFrequency)
+                        flatConfig.BehaviorFrequency[frequency.Key] = frequency.Value;
                     SpriteSheet flatSheet; string flatErr;
                     if (!SpriteSheetBuilder.Build(Emit.PetEmitter.PosesToComposite(flatConfig), load, false,
                                                   out flatSheet, out flatErr))
@@ -1425,6 +1488,29 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             return hub == null ? -1 : hub.Id;
         }
 
+        /// <summary>The probability the floor hub's sequence edge to <paramref name="targetId"/> carries, or
+        /// -1 when the hub has no such edge. The hub is found exactly as <see cref="HubId"/> finds it.</summary>
+        private static int HubEdgeWeightTo(ConversionResult r, int targetId)
+        {
+            int hubId = HubId(r);
+            if (hubId < 0) return -1;
+            XmlData.AnimationNode hub = FindAnimationById(r, hubId);
+            if (hub == null || hub.Sequence == null || hub.Sequence.Next == null) return -1;
+            foreach (XmlData.NextNode n in hub.Sequence.Next)
+                if (n != null && n.Value == targetId) return n.Probability;
+            return -1;
+        }
+
+        /// <summary>Names of every emitted animation starting with <paramref name="prefix"/>, in emission order.</summary>
+        private static List<string> NamesStartingWith(ConversionResult r, string prefix)
+        {
+            var names = new List<string>();
+            if (r.Root == null || r.Root.Animations == null || r.Root.Animations.Animation == null) return names;
+            foreach (XmlData.AnimationNode a in r.Root.Animations.Animation)
+                if (a != null && a.Name != null && a.Name.StartsWith(prefix, StringComparison.Ordinal)) names.Add(a.Name);
+            return names;
+        }
+
         /// <summary>True when some animation has a &lt;border&gt; edge with the given only-flag pointing at the
         /// target id.</summary>
         private static bool HasBorderEdgeTo(ConversionResult r, int targetId, string onlyFlag)
@@ -1566,7 +1652,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             }
         }
 
-        private static int EvalOnFakeScreen(string expr, int imageW, int imageH)
+        private static int EvalOnFakeScreen(string expr, int imageW, int imageH, int random, int randS)
         {
             return DesktopAICompanion.SafeExpression.Evaluate(expr, delegate(string name)
             {
@@ -1580,8 +1666,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                     case "imageH": return imageH;
                     case "imageX": return -1;
                     case "imageY": return -1;
-                    case "random": return 50;
-                    case "randS": return 50;
+                    // The caller sweeps these across the engine's ranges (Xml.cs draws random in 0..99 and
+                    // randS in 10..89); a single midpoint draw hid an off-screen spawn at the extremes (F448).
+                    case "random": return random;
+                    case "randS": return randS;
                     case "scale": return 1;
                     default: throw new System.FormatException("unexpected variable in a spawn expression: " + name);
                 }
@@ -1886,6 +1974,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
       <ActionReference Name=""Walk"" />
       <ActionReference Name=""RunOff"" />
       <ActionReference Name=""ReturnOn"" />
+    </Action>
+    <!-- TWO MORE SEQUENCES WHOSE MEMBERS ARE ALL ORDINARY FLOOR SPOKES. Walk and Bounce are hub spokes
+         already, so neither run RECOVERS anything and the only way into ExpandSetPieces is PLAYED: a
+         <Behavior Frequency> naming the run, which the test sets on the config where a skin's behaviors.xml
+         would. StrollAndHop gets one and must be chained; StrollAndHopUnplayed is the same run without one
+         and must NOT be. GatorRide above always enters through RECOVERS, so until these two existed the
+         PLAYED term could be deleted with the suite green (F447). Distinct art per member (/w1,/w2 vs
+         /j1,/j2), so CollapseDirectionPairs cannot merge the steps and quietly untest this. -->
+    <Action Name=""StrollAndHop"" Type=""Sequence"">
+      <ActionReference Name=""Walk"" />
+      <ActionReference Name=""Bounce"" />
+    </Action>
+    <Action Name=""StrollAndHopUnplayed"" Type=""Sequence"">
+      <ActionReference Name=""Walk"" />
+      <ActionReference Name=""Bounce"" />
     </Action>
   </ActionList>
 </Mascot>";
