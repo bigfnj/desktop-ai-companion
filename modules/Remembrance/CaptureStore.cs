@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -14,6 +15,11 @@ namespace DesktopAICompanion.RemembranceModule
     internal sealed class CaptureStore
     {
         private static readonly TimeSpan Retention = TimeSpan.FromHours(72);
+
+        /// <summary>The file stem inside a per-capture folder: "recording.wav", and the scratch tracks
+        /// "recording.system.wav" / "recording.mic.wav" AudioRecorder writes beside it. One constant, so the
+        /// purge parses the same string NewCapture builds paths from.</summary>
+        internal const string FolderPrefix = "recording";
 
         public string Root { get; private set; }
         public bool FolderPerCapture { get; private set; }
@@ -39,7 +45,7 @@ namespace DesktopAICompanion.RemembranceModule
             string baseName = string.IsNullOrEmpty(meeting) ? stamp : meeting + " - " + stamp;
             string dir = FolderPerCapture ? Path.Combine(Root, baseName) : Root;
             Directory.CreateDirectory(dir);
-            string prefix = FolderPerCapture ? "recording" : baseName;
+            string prefix = FolderPerCapture ? FolderPrefix : baseName;
             return new CapturePaths
             {
                 Directory = dir,
@@ -100,7 +106,7 @@ namespace DesktopAICompanion.RemembranceModule
         /// <summary>
         /// Does this file name match something <see cref="NewCapture"/> would have produced?
         ///
-        /// Derived from the same two strings NewCapture uses, so the two cannot drift apart silently: inside a
+        /// Derived from the same strings NewCapture and AudioRecorder use, so they cannot drift apart silently: inside a
         /// capture folder it writes "recording.wav" and "snap*.png"; flat in the root it writes
         /// "{base}.wav" and "{base} - snap*.png". The flat audio case is the loose one -- any .wav in the root
         /// matches -- and it has to be, because the base name is the user's meeting title and is not
@@ -120,9 +126,20 @@ namespace DesktopAICompanion.RemembranceModule
             //     holding their own audio lost every file in it older than the retention window;
             //   * in the root, `Contains(" - snap")` matched "my holiday - snapshot.png".
             // The narrowing loses nothing: these are the shapes NewCapture and TakeSnapshot build.
+            // The two SCRATCH shapes AudioRecorder writes beside the recording -- "<stem>.system.wav" and
+            // "<stem>.mic.wav" -- are shapes too, and until 2026-09-29 neither branch knew them. The normal
+            // stop deletes them itself after the mix, so the gap showed only on an abnormal end (a crash, a
+            // Restart Manager kill, an exit inside the mix window, a start that failed half-way): exactly when
+            // they hold the only copy of the audio and are largest, they matched nothing here and stayed for
+            // ever against the 72-hour promise (F171). The suffixes come from AudioRecorder's own constants,
+            // for the same reason the rest of this method reads NewCapture's strings: so they cannot drift.
             if (insideCaptureFolder)
-                return lower == "recording.wav" || IsStampedSnapshotName(lower);
+                return lower == FolderPrefix + ".wav"
+                    || lower == FolderPrefix + AudioRecorder.SystemScratchSuffix
+                    || lower == FolderPrefix + AudioRecorder.MicScratchSuffix
+                    || IsStampedSnapshotName(lower);
             return IsCaptureAudioName(lower)
+                || IsScratchAudioName(lower)
                 || IsFlatSnapshotName(lower)
                 || IsStampedSnapshotName(lower);
         }
@@ -207,12 +224,51 @@ namespace DesktopAICompanion.RemembranceModule
         /// </summary>
         internal static bool IsCaptureAudioName(string lowerFileName)
         {
-            const string Separator = " - ";
-            string stem, head;
+            string stem;
             if (!TryStripSuffix(lowerFileName, ".wav", out stem)) return false;
+            return IsCaptureBaseName(stem);
+        }
+
+        /// <summary>
+        /// A scratch track in the root: "&lt;baseName&gt;.system.wav" or "&lt;baseName&gt;.mic.wav", which is
+        /// what AudioRecorder writes beside a flat-mode recording while it is in flight. The base-name rule is
+        /// IsCaptureAudioName's, so "my.system.wav" and "holiday.mic.wav" do not qualify: the suffix alone is
+        /// no more a shape than ".wav" was.
+        /// </summary>
+        internal static bool IsScratchAudioName(string lowerFileName)
+        {
+            string stem;
+            if (!TryStripSuffix(lowerFileName, AudioRecorder.SystemScratchSuffix, out stem)
+                && !TryStripSuffix(lowerFileName, AudioRecorder.MicScratchSuffix, out stem)) return false;
+            return IsCaptureBaseName(stem);
+        }
+
+        /// <summary>NewCapture's baseName, lower-cased: "&lt;stamp&gt;" alone, or "&lt;meeting&gt; - &lt;stamp&gt;".</summary>
+        private static bool IsCaptureBaseName(string stem)
+        {
+            const string Separator = " - ";
+            string head;
             if (!TryStripTrailingStamp(stem, out head)) return false;
             if (head.Length == 0) return true;
             return head.Length > Separator.Length && head.EndsWith(Separator, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Remove the folder NewCapture made for a capture that never started, and only then: a folder with
+        /// anything at all in it is left alone, because this runs in a location the user chose. Returns true
+        /// only when it removed the folder (F171).
+        /// </summary>
+        internal static bool TryRemoveEmptyCaptureFolder(string directory)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory)) return false;
+                using (IEnumerator<string> entries = Directory.EnumerateFileSystemEntries(directory).GetEnumerator())
+                    if (entries.MoveNext()) return false;
+                Directory.Delete(directory);
+                return true;
+            }
+            catch { return false; }
         }
 
         // Only the recorded MEDIA is ephemeral. The written record is permanent: it is the thing worth

@@ -80,8 +80,14 @@ namespace DesktopAICompanion.RemembranceModule
             }
         }
 
+        /// <summary>How many real WASAPI walks have run in this process. For the self-test, which asserts that
+        /// Init runs none of them (F178) and that a pane build runs some (the witness).</summary>
+        internal static int EnumerationCount { get { return _enumerations; } }
+        private static int _enumerations;
+
         private static List<AudioDevice> Enumerate(DataFlow flow, string defaultLabel)
         {
+            System.Threading.Interlocked.Increment(ref _enumerations);
             var list = new List<AudioDevice> { new AudioDevice { Id = "", Name = defaultLabel } };
             try
             {
