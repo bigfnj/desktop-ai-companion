@@ -207,8 +207,15 @@ namespace DesktopAICompanion.AgentFlow
         /// stripped text and hand back only the needle, and WithPort/WithoutPort located it with
         /// IndexOf on the ORIGINAL -- so with a commented-out `remote-debugging-port` line above the
         /// live one, Disable deleted the COMMENT, saw the text change, and reported the port removed
-        /// while it kept opening on every launch. IndexOfTopLevelBrace a few lines down does this
-        /// mapping properly, which is what made the omission an oversight rather than a design.
+        /// while it kept opening on every launch.
+        ///
+        /// EVERY offset-based edit in this class runs on the blanked text now. The sentence that used
+        /// to end this paragraph said IndexOfTopLevelBrace "does this mapping properly": it did not.
+        /// It and FixDanglingComma found their character in the STRIPPED text and mapped it back by
+        /// counting braces or commas, on the premise that stripping preserves every non-comment
+        /// character -- true, and beside the point, because a comment can hold a brace or a comma
+        /// too, and VS Code's own stock file does (F061). Counting is gone; an index into the
+        /// blanked text is used directly on the original, and there is nothing left to get wrong.
         /// </summary>
         private static string BlankLineComments(string text)
         {
@@ -256,25 +263,34 @@ namespace DesktopAICompanion.AgentFlow
         {
             if (port <= 0 || port > 65535) return null;
             string value = "\"" + port.ToString(CultureInfo.InvariantCulture) + "\"";
-            int keyAt = FindKeyIndex(text);
+            string blanked = BlankLineComments(text ?? "");
+            int keyAt = blanked.IndexOf("\"" + PortKey + "\"", StringComparison.Ordinal);
             if (keyAt >= 0)
             {
                 // Replace just the VALUE, leaving the key, its indentation and any trailing comment.
                 // keyAt comes from BlankLineComments, so it indexes the LIVE key: rewriting the first
                 // textual match would edit a commented-out line and leave the real one untouched.
-                int colon = text.IndexOf(':', keyAt);
+                //
+                // The value span is found on the BLANKED text too, and spliced out of the original
+                // at the same indices. This used to scan the ORIGINAL forward from the colon to the
+                // first comma, newline or brace, so on a LAST member -- no comma -- it ran to the
+                // newline and the replaced span swallowed a trailing `// ...` comment, which the
+                // sentence above promised to keep; and a comma INSIDE that comment stopped the scan
+                // early and left half a comment behind, which is not JSONC any more (F060). Blanked,
+                // a comment is a run of spaces, so the value ends where the value ends.
+                int colon = blanked.IndexOf(':', keyAt);
                 if (colon < 0) return null;
-                int end = colon + 1;
-                while (end < text.Length && text[end] != ',' && text[end] != '\n'
-                       && text[end] != '}') end++;
-                return text.Substring(0, colon + 1) + " " + value + text.Substring(end);
+                int start = colon + 1;
+                while (start < blanked.Length && (blanked[start] == ' ' || blanked[start] == '\t')) start++;
+                int end = ValueEnd(blanked, start);
+                return text.Substring(0, start) + value + text.Substring(end);
             }
 
             int brace = IndexOfTopLevelBrace(text);
             if (brace < 0) return null;
             string newline = text.IndexOf("\r\n", StringComparison.Ordinal) >= 0 ? "\r\n" : "\n";
             // A comma is needed only when the object already has a member. Detecting that on the
-            // COMMENT-STRIPPED text, because the first thing after `{` is usually a comment block.
+            // COMMENT-BLANKED text, because the first thing after `{` is usually a comment block.
             bool hasMember = HasAnyMember(text, brace);
             string inserted = newline + "\t\"" + PortKey + "\": " + value + (hasMember ? "," : "");
             return text.Substring(0, brace + 1) + inserted + text.Substring(brace + 1);
@@ -298,60 +314,85 @@ namespace DesktopAICompanion.AgentFlow
             return FixDanglingComma(joined);
         }
 
+        /// <summary>
+        /// Removing the LAST member leaves the comma of the member before it dangling; take it out.
+        ///
+        /// ON THE BLANKED TEXT, and that is the whole of F061. This used to find the dangling comma
+        /// in the comment-STRIPPED text and map it back into the original by counting commas, on the
+        /// stated premise that stripping "preserves every non-comment character". It does, and it
+        /// is beside the point: a COMMENT can hold a comma, and VS Code's own stock argv.json does
+        /// -- `// "disable-hardware-acceleration": true,` sits above the members in every installed
+        /// copy, written by VS Code itself. So with the port key hand-appended as the last member,
+        /// Disable counted one comma short, deleted the comma after `"enable-crash-reporter": true`
+        /// instead, and left a missing comma AND a trailing one. VS Code's reader tolerates only the
+        /// second, so every launch fell back to defaults for the WHOLE file -- crash-reporter id,
+        /// locale, comments -- while this module, seeing the text change and the write succeed,
+        /// reported the port removed. The module's own Enable inserts the key FIRST, so its own
+        /// round trip never formed the shape; a hand edit following the usual instructions does.
+        ///
+        /// BlankLineComments keeps the length, so an index into it is an index into the original
+        /// and nothing needs mapping. The rejected alternative was to keep the count and also
+        /// count commas inside comments, which is the same mistake with more arithmetic.
+        /// </summary>
         private static string FixDanglingComma(string text)
         {
-            string stripped = StripLineComments(text);
-            int close = stripped.LastIndexOf('}');
+            string blanked = BlankLineComments(text);
+            int close = blanked.LastIndexOf('}');
             if (close < 0) return text;
             // Walk back from the closing brace over whitespace; a comma there is now dangling.
             int i = close - 1;
-            while (i >= 0 && char.IsWhiteSpace(stripped[i])) i--;
-            if (i < 0 || stripped[i] != ',') return text;
-            // Map that index back into the ORIGINAL text by counting commas, which is exact because
-            // StripLineComments preserves every non-comment character.
-            int target = CountUpTo(stripped, i, ',');
-            int seen = 0;
-            for (int j = 0; j < text.Length; j++)
-            {
-                if (text[j] != ',') continue;
-                if (seen == target) return text.Substring(0, j) + text.Substring(j + 1);
-                seen++;
-            }
-            return text;
+            while (i >= 0 && char.IsWhiteSpace(blanked[i])) i--;
+            if (i < 0 || blanked[i] != ',') return text;
+            return text.Remove(i, 1);
         }
 
-        private static int CountUpTo(string text, int index, char what)
+        /// <summary>
+        /// One past the last character of the JSON value that starts at <paramref name="start"/> in
+        /// BLANKED text. A quoted string runs to its closing quote, escapes honoured; anything else
+        /// -- a number, true, false, null -- runs to the first whitespace, comma or closing brace.
+        /// Blanked, so a trailing comment is whitespace and can never fall inside the span.
+        /// </summary>
+        private static int ValueEnd(string blanked, int start)
         {
-            int count = 0;
-            for (int i = 0; i < index; i++) if (text[i] == what) count++;
-            return count;
+            if (start >= blanked.Length) return start;
+            if (blanked[start] == '"')
+            {
+                bool escaped = false;
+                for (int i = start + 1; i < blanked.Length; i++)
+                {
+                    char c = blanked[i];
+                    if (escaped) { escaped = false; continue; }
+                    if (c == '\\') { escaped = true; continue; }
+                    if (c == '"') return i + 1;
+                }
+                return blanked.Length;
+            }
+            int end = start;
+            while (end < blanked.Length && !char.IsWhiteSpace(blanked[end])
+                   && blanked[end] != ',' && blanked[end] != '}') end++;
+            return end;
         }
 
+        /// <summary>
+        /// Index of the first `{` outside a comment, or -1. Blanked for the same reason as
+        /// <see cref="FixDanglingComma"/>: this used to count braces through the stripped text, so a
+        /// `{` inside the header comment shifted the count and WithPort spliced the key into that
+        /// comment line -- a broken file that ReadPort then read as live, so Inspect would have said
+        /// "waiting for a restart" for ever.
+        /// </summary>
         private static int IndexOfTopLevelBrace(string text)
         {
             if (string.IsNullOrEmpty(text)) return -1;
-            string stripped = StripLineComments(text);
-            int at = stripped.IndexOf('{');
-            if (at < 0) return -1;
-            // Same offset in the original, because stripping preserves non-comment characters only
-            // by REPLACING comments with a newline -- so count instead.
-            int seen = 0;
-            for (int i = 0; i < text.Length; i++)
-            {
-                if (text[i] != '{') continue;
-                if (seen == CountUpTo(stripped, at, '{')) return i;
-                seen++;
-            }
-            return -1;
+            return BlankLineComments(text).IndexOf('{');
         }
 
         private static bool HasAnyMember(string text, int braceIndex)
         {
-            string stripped = StripLineComments(text.Substring(braceIndex + 1));
-            foreach (char c in stripped)
+            string blanked = BlankLineComments(text);
+            for (int i = braceIndex + 1; i < blanked.Length; i++)
             {
-                if (c == '}') return false;
-                if (c == '"') return true;
+                if (blanked[i] == '}') return false;
+                if (blanked[i] == '"') return true;
             }
             return false;
         }

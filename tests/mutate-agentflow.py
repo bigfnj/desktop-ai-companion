@@ -71,9 +71,12 @@ QUIPS = os.path.join(MODULE_DIR, "Quips.cs")
 FEED = os.path.join(MODULE_DIR, "ApprovalFeed.cs")
 PETANIM = os.path.join(MODULE_DIR, "PetAnimations.cs")
 PANE = os.path.join(MODULE_DIR, "AgentFlowPane.cs")
+VSCODE = os.path.join(MODULE_DIR, "VsCodeSetup.cs")
+RULELOADER = os.path.join(MODULE_DIR, "RuleLoader.cs")
+CURSOR = os.path.join(MODULE_DIR, "TranscriptCursor.cs")
 
 TARGETS = (SPLITTER, RULES, DETECTOR, BUDGET, MODULE, READER, CDP, PROMPTOPTS, BUDGETPRESS,
-           DOT, MODE, QUIPS, FEED, PETANIM, PANE)
+           DOT, MODE, QUIPS, FEED, PETANIM, PANE, VSCODE, RULELOADER, CURSOR)
 
 # (name, file, find, replace, expected fragment of the assertion that must fail)
 CASES = (
@@ -822,16 +825,51 @@ CASES = (
         "a numbered prefix with a parenthesis is list chrome",
     ),
     # ---- lane fix/agentflow ----
+    (
+        # F061: FixDanglingComma found the dangling comma in comment-STRIPPED text and mapped it back
+        # by counting commas, which a comma inside a comment throws off by one. Put the stripped text
+        # back and the stock file with the key appended LAST loses the wrong comma again.
+        "the dangling comma is located in comment-stripped text again",
+        VSCODE,
+        "            string blanked = BlankLineComments(text);\n            int close = blanked.LastIndexOf('}');",
+        "            string blanked = StripLineComments(text);\n            int close = blanked.LastIndexOf('}');",
+        "Disable on a hand-appended LAST member returns the stock file BYTE FOR BYTE",
+    ),
+    (
+        # F061, the brace half: a `{` in the header comment used to shift the brace count.
+        "the top-level brace is located in comment-stripped text again",
+        VSCODE,
+        "            return BlankLineComments(text).IndexOf('{');",
+        "            return StripLineComments(text).IndexOf('{');",
+        "a brace inside a header comment does not misplace the inserted key",
+    ),
+    (
+        # F060: the value-end scan used to run to the first comma, newline or brace, so a trailing
+        # comment on a LAST member (no comma) was swallowed into the replaced span.
+        "the value scan runs to the newline again, swallowing a trailing comment",
+        VSCODE,
+        "            while (end < blanked.Length && !char.IsWhiteSpace(blanked[end])\n                   && blanked[end] != ',' && blanked[end] != '}') end++;",
+        "            while (end < blanked.Length && blanked[end] != '\\n'\n                   && blanked[end] != ',' && blanked[end] != '}') end++;",
+        "Enable on a last member with a trailing comment keeps the comment",
+    ),
 )
 
 
 def read(path):
-    with io.open(path, "r", encoding="utf-8-sig", newline="") as handle:
+    # PLAIN utf-8, not utf-8-sig, in BOTH directions. utf-8-sig strips a leading BOM on read and
+    # writes one on every write, so restore() handed a BOM to every target that never had one:
+    # RuleLoader.cs, TranscriptCursor.cs and VsCodeSetup.cs are BOM-less, and the first run that
+    # listed them left all three "restored" one byte longer than the baseline -- a restore that is
+    # not byte-identical, in the harness whose header promises exactly that (lane fix/agentflow,
+    # 2026-09-29). With plain utf-8 a BOM survives as the U+FEFF character at the head of the text
+    # and is written back as it came; no pattern in this file starts at column 0 of line 1, so the
+    # character is never inside a match.
+    with io.open(path, "r", encoding="utf-8", newline="") as handle:
         return handle.read()
 
 
 def write(path, text):
-    with io.open(path, "w", encoding="utf-8-sig", newline="") as handle:
+    with io.open(path, "w", encoding="utf-8", newline="") as handle:
         handle.write(text)
 
 

@@ -3342,6 +3342,94 @@ namespace DesktopAICompanion.AgentFlow
                 VsCodeSetup.ReadPort(commentedMoved) == 9999
                 && commentedMoved.IndexOf(QT_ + "9222" + QT_, StringComparison.Ordinal) >= 0);
 
+            // ---- F061: the STOCK file with the key hand-appended LAST, then Disable ------------
+            // VS Code's own first-run argv.json carries `// "disable-hardware-acceleration": true,`
+            // above the members: a COMMENT WITH A COMMA IN IT, written by VS Code itself. The fixture
+            // is that file's shape, line for line (the id is invented), which the `shipped` fixture
+            // above is not -- it has no comma inside any comment, which is exactly why every Disable
+            // assertion above it passed against the defect. FixDanglingComma used to find the
+            // dangling comma in comment-STRIPPED text and map it back by counting commas, so that
+            // comment put the count one short and Disable deleted the comma after
+            // "enable-crash-reporter" instead: a missing comma AND a trailing one, which VS Code's
+            // reader rejects outright, so every launch ignored the WHOLE file while the module said
+            // "removed". The module's own Enable writes the key FIRST, so its own round trip was
+            // always byte-identical; hand-appending it LAST is what the usual instructions produce.
+            const string StockId = "0f8a7b6c-1d2e-4f30-9a1b-2c3d4e5f6a7b";
+            string stock =
+                "// This configuration file allows you to pass permanent command line arguments to VS Code." + NL_ +
+                "// Only a subset of arguments is currently supported to reduce the likelihood of breaking" + NL_ +
+                "// the installation." + NL_ +
+                "//" + NL_ +
+                "// PLEASE DO NOT CHANGE WITHOUT UNDERSTANDING THE IMPACT" + NL_ +
+                "//" + NL_ +
+                "// NOTE: Changing this file requires a restart of VS Code." + NL_ +
+                "{" + NL_ +
+                TAB_ + "// Use software rendering instead of hardware accelerated rendering." + NL_ +
+                TAB_ + "// This can help in cases where you see rendering issues in VS Code." + NL_ +
+                TAB_ + "// " + QT_ + "disable-hardware-acceleration" + QT_ + ": true," + NL_ +
+                NL_ +
+                TAB_ + "// Allows to disable crash reporting." + NL_ +
+                TAB_ + "// Should restart the app if the value is changed." + NL_ +
+                TAB_ + QT_ + "enable-crash-reporter" + QT_ + ": true," + NL_ +
+                NL_ +
+                TAB_ + "// Unique id used for correlating crash reports sent from this instance." + NL_ +
+                TAB_ + "// Do not edit this value." + NL_ +
+                TAB_ + QT_ + "crash-reporter-id" + QT_ + ": " + QT_ + StockId + QT_ + NL_ +
+                "}" + NL_;
+            string idLine = TAB_ + QT_ + "crash-reporter-id" + QT_ + ": " + QT_ + StockId + QT_ + NL_ + "}";
+            string keyLast = stock.Replace(idLine,
+                TAB_ + QT_ + "crash-reporter-id" + QT_ + ": " + QT_ + StockId + QT_ + "," + NL_
+                + TAB_ + QT_ + "remote-debugging-port" + QT_ + ": " + QT_ + "9321" + QT_ + NL_ + "}");
+            probe.Check("WITNESS the key-last fixture is the shape it claims: the port is the LAST member "
+                        + "and a comment above it holds a comma",
+                keyLast != stock && VsCodeSetup.ReadPort(keyLast) == 9321
+                && stock.IndexOf("acceleration" + QT_ + ": true,", StringComparison.Ordinal) >= 0
+                && ParsesAsJsonc(keyLast));
+            string keyLastOff = VsCodeSetup.WithoutPort(keyLast);
+            probe.Check("WITNESS Disable on a hand-appended LAST member returns the stock file BYTE FOR BYTE",
+                string.Equals(keyLastOff, stock, StringComparison.Ordinal));
+            probe.Check("WITNESS ...and the result is JSONC VS Code will read, with no trailing comma",
+                ParsesAsJsonc(keyLastOff));
+            // The module's own layout, for contrast: Enable puts the key first, so this always held.
+            probe.Check("the module's own Enable-then-Disable on the stock file is still byte-identical",
+                string.Equals(VsCodeSetup.WithoutPort(VsCodeSetup.WithPort(stock, 9321)), stock,
+                              StringComparison.Ordinal));
+
+            // The same defect, on the brace. A `{` inside the header comment used to shift the brace
+            // count, so WithPort spliced the key into the COMMENT LINE -- a broken file that ReadPort
+            // then read as live, so Inspect would have blamed a missing restart for ever.
+            string bracedComment = "// example: { " + QT_ + "remote-debugging-port" + QT_ + ": "
+                                   + QT_ + "9222" + QT_ + " }" + NL_
+                                   + "{" + NL_ + TAB_ + QT_ + "locale" + QT_ + ": " + QT_ + "en" + QT_ + NL_
+                                   + "}" + NL_;
+            string bracedOn = VsCodeSetup.WithPort(bracedComment, 9321);
+            probe.Check("WITNESS a brace inside a header comment does not misplace the inserted key",
+                bracedOn != null && ParsesAsJsonc(bracedOn) && VsCodeSetup.ReadPort(bracedOn) == 9321
+                && bracedOn.IndexOf(NL_ + "{" + NL_ + TAB_ + QT_ + "remote-debugging-port",
+                                    StringComparison.Ordinal) >= 0
+                && bracedOn.IndexOf("// example: { " + QT_ + "remote-debugging-port",
+                                    StringComparison.Ordinal) >= 0);
+
+            // ---- F060: Enable rewrites the VALUE of a last member that carries a trailing comment --
+            // The old scan ran on the ORIGINAL to the first comma, newline or brace, so with no comma
+            // it swallowed the comment, and a comma INSIDE the comment cut it in two.
+            string trailing = "{" + NL_ + TAB_ + QT_ + "remote-debugging-port" + QT_
+                              + ": 9321 // added for the pet" + NL_ + "}" + NL_;
+            string trailingOn = VsCodeSetup.WithPort(trailing, 9321);
+            bool trailingQuoted;
+            probe.Check("WITNESS Enable on a last member with a trailing comment keeps the comment",
+                trailingOn != null
+                && trailingOn.IndexOf("// added for the pet", StringComparison.Ordinal) >= 0
+                && VsCodeSetup.ReadPort(trailingOn, out trailingQuoted) == 9321 && trailingQuoted
+                && ParsesAsJsonc(trailingOn));
+            string commaComment = "{" + NL_ + TAB_ + QT_ + "remote-debugging-port" + QT_
+                                  + ": 9321 // see a, b" + NL_ + "}" + NL_;
+            string commaCommentOn = VsCodeSetup.WithPort(commaComment, 9321);
+            probe.Check("WITNESS ...and a comma inside that comment does not cut it in two",
+                commaCommentOn != null
+                && commaCommentOn.IndexOf("// see a, b", StringComparison.Ordinal) >= 0
+                && ParsesAsJsonc(commaCommentOn));
+
             // REFUSALS. A file that is not an argv.json must not be overwritten with a fresh one.
             probe.Check("WITNESS a file with no top-level object is refused, not replaced",
                 VsCodeSetup.WithPort("this is not json at all", 9321) == null);
@@ -3427,6 +3515,28 @@ namespace DesktopAICompanion.AgentFlow
                 missing.State == SetupState.NotFound
                 && !string.IsNullOrEmpty(missing.Detail));
             return true;
+        }
+
+        /// <summary>
+        /// Does VS Code's reader accept this text? It skips line comments and then parses strictly,
+        /// retrying once with trailing commas removed -- so comments are skipped here and a trailing
+        /// comma is NOT allowed, which makes this the stricter of its two attempts and the honest
+        /// bar for an edit that claims to leave the file readable.
+        /// </summary>
+        private static bool ParsesAsJsonc(string text)
+        {
+            if (text == null) return false;
+            try
+            {
+                var options = new System.Text.Json.JsonDocumentOptions
+                {
+                    CommentHandling = System.Text.Json.JsonCommentHandling.Skip,
+                    AllowTrailingCommas = false,
+                };
+                using (System.Text.Json.JsonDocument.Parse(text, options)) { }
+                return true;
+            }
+            catch (System.Text.Json.JsonException) { return false; }
         }
 
         private static int CountOccurrences(string text, string needle)
