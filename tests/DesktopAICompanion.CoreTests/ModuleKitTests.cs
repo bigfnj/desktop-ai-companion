@@ -334,27 +334,44 @@ namespace DesktopAICompanion
                 AssertTrue(Directory.Exists(sub), "Directory_() did not create the subdirectory.");
             }
 
-            // A module WITHOUT the Storage permission gets null storage: it must still get a usable root
-            // (scratch space) rather than crash on every path call.
-            ModulePaths fallback = ModulePaths.FromStorage(null, "probe");
-            AssertTrue(!string.IsNullOrEmpty(fallback.Root), "A null storage produced no root.");
-            AssertTrue(fallback.Root.StartsWith(Path.GetTempPath(), StringComparison.OrdinalIgnoreCase),
-                "The no-storage fallback did not land under the temp directory.");
-
-            // A hostile id cannot escape the fallback directory. The property that matters is containment of
-            // the RESOLVED path, not the spelling of the id.
-            string tempRoot = Path.GetFullPath(Path.GetTempPath())
-                .TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-            foreach (string hostileId in new[] { "../../escape", @"..\..\escape", "a/b/c", "..", "   " })
+            // A module handed NO storage gets no root, not a temp folder (N-aibrain-02). The %TEMP% fallback
+            // this group used to assert is the shape N-gates-02 removed from AiBrain: a directory nobody
+            // owned or swept, written on every headless --module-selftest run. The shipped host always
+            // provisions a storage directory, so in the product the branch is unreachable; a test host that
+            // hands none gets HasRoot false, a Warning that names the module and the missing storage, and a
+            // clear exception from every path member. Nothing is created anywhere.
+            string oldFallback = Path.Combine(Path.GetTempPath(), "DesktopAICompanion.probe");
+            if (Directory.Exists(oldFallback)) Directory.Delete(oldFallback, true);
+            ModulePaths none = ModulePaths.FromStorage(null, "probe");
+            AssertFalse(none.HasRoot, "A null storage produced a root.");
+            AssertTrue(none.Warning != null && none.Warning.Contains("'probe'") && none.Warning.Contains("no storage directory"),
+                "The no-storage warning does not name the module and the missing storage: " + none.Warning);
+            AssertThrows<InvalidOperationException>(() => { string r = none.Root; },
+                "Root did not throw with no storage.");
+            AssertThrows<InvalidOperationException>(() => none.Ensure(), "Ensure() did not throw with no storage.");
+            AssertThrows<InvalidOperationException>(() => none.File("state.json"),
+                "File() did not throw with no storage; it used to hand out a %TEMP% path and create it.");
+            AssertThrows<InvalidOperationException>(() => none.Directory_("cache"), "Directory_() did not throw with no storage.");
+            AssertFalse(Directory.Exists(oldFallback),
+                "A module handed no storage created the old %TEMP%\\DesktopAICompanion.<id> fallback directory.");
+            // A blank directory from a storage handle is the same case as none.
+            AssertFalse(ModulePaths.FromStorage(new BlankStorage(), "probe").HasRoot, "A blank storage directory produced a root.");
+            // WITNESS: the same members work as before once there IS a root, so the throws above are the
+            // no-storage state and not a broken class.
+            using (var storage = new TempModuleStorage("probe"))
             {
-                string resolved = Path.GetFullPath(ModulePaths.FromStorage(null, hostileId).Root);
-                AssertTrue(resolved.StartsWith(tempRoot, StringComparison.OrdinalIgnoreCase),
-                    "A hostile module id escaped the temp fallback root: '" + hostileId + "' -> " + resolved);
-                AssertPathEqual(tempRoot.TrimEnd(Path.DirectorySeparatorChar),
-                    Path.GetDirectoryName(resolved));
+                ModulePaths rooted = ModulePaths.FromStorage(storage, "probe");
+                AssertTrue(rooted.HasRoot && rooted.Warning == null, "WITNESS: a real storage did not yield a root.");
+                AssertPathEqual(storage.DataDirectory, rooted.Ensure());
             }
 
             AssertThrows<ArgumentException>(() => ModulePaths.FromRoot(""), "An empty root was accepted.");
+        }
+
+        /// <summary>A storage handle whose directory is blank, for the ModulePaths no-root case.</summary>
+        private sealed class BlankStorage : IModuleStorage
+        {
+            public string DataDirectory { get { return "   "; } }
         }
 
         private static void TestModuleKitSelfTestProbe()

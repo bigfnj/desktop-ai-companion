@@ -9,7 +9,7 @@ the code the first-party modules kept re-copying by hand until it was collected 
 | `AtomicFile.TryWriteAllText` | A write that survives a crash. Returns false rather than throwing. UTF-8, no BOM. |
 | `CrossSessionLock` | Guarding a file against a second session or instance writing at the same time. |
 | `JsonSettingsStore<T>` | Structured state a settings pane can't express — lists, nested objects, a schema version. |
-| `ModulePaths` | Your data directory, from the host, with a temp fallback if you didn't declare Storage. |
+| `ModulePaths` | Your data directory, from the host. No temp fallback: a host that hands none gives `HasRoot == false` and a `Warning` to log, and every path member throws until a root exists. |
 | `EmbeddedResources` | Reading a file you embedded, matched on the trailing name so a namespace rename can't break it. |
 | `UnicodeTextProgress` | Advancing or clipping text without splitting a surrogate pair. |
 | `SelfTestProbe` | The PASS/FAIL/RESULT report shape the app's gate understands. |

@@ -779,6 +779,15 @@ a `Save()`, and those seeds would never reach a module's handle. The residue is 
 holding one handle across a failed write keeps its own edits under the shipped host, which the fake cannot
 show at the same time as the disk; both current `FailSaves` users (BlinkingLed, Fortunes) re-fetch.
 
+**`ModulePaths` degrades to "no root" rather than throwing from `FromStorage` or falling back to `%TEMP%`
+(2026-09-30, N-aibrain-02).** Three shapes were on the table. The old one, a stable `%TEMP%\DesktopAICompanion.<id>`
+folder, wrote into a directory nobody owned or swept on every headless self-test run (the N-gates-02 leak).
+Throwing from `FromStorage` fails a module's Init under the app's own convention self-test host, which hands
+no storage on purpose as the gate's exercise of every module's null tolerance (F341), so it would have made
+`ModulePaths` unusable in the very test the repo runs. Chosen: `HasRoot` false and a `Warning` to log, with
+every path member throwing that warning, which is AiBrain's N-gates-02 shape (defaults, nothing persisted,
+said once in the log) generalised. The template shows the check; the only in-tree caller was the template.
+
 #### fix/deadcode
 
 (none yet)

@@ -42,10 +42,14 @@ namespace DesktopAICompanion.SampleModule
         {
             _host = host;
 
-            // The host provisions a per-module data directory; ModulePaths wraps it (and falls back to temp
-            // if this module ever runs without the Storage permission). It SURVIVES a module update, so
-            // durable state belongs here — never beside the installed exe.
+            // The host provisions a per-module data directory; ModulePaths wraps it. It SURVIVES a module
+            // update, so durable state belongs here — never beside the installed exe. There is no temp
+            // fallback: the shipped host always provisions the directory, and a test host that hands none
+            // (the app's --module-selftest host does, on purpose) gets a module that runs on defaults and
+            // persists nothing, and says so once in the log. Every path member throws until a root exists,
+            // so check HasRoot before you write rather than catching the exception.
             _paths = ModulePaths.FromStorage(host.GetStorage(Info.Id), Info.Id);
+            if (!_paths.HasRoot) host.Log(Info.Id, _paths.Warning);
 
             // React to the pet. Handlers run on the UI thread; keep them quick and never throw.
             host.CompanionPoked += OnPetPoked;

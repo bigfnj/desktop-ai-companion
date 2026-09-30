@@ -2011,6 +2011,15 @@ CASES = (
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
      "leaves the saved values as they were"),
 
+    # N-aibrain-02: a module handed no storage gets the %TEMP%\DesktopAICompanion.<id> folder again, the
+    # shape the class shipped with and N-gates-02 removed from AiBrain.
+    ("followups: ModulePaths falls back to a %TEMP% folder again",
+     os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "ModulePaths.cs"),
+     b"            if (string.IsNullOrWhiteSpace(root)) return new ModulePaths(null, moduleId);",
+     b'            if (string.IsNullOrWhiteSpace(root)) return new ModulePaths(Path.Combine(Path.GetTempPath(), "DesktopAICompanion." + moduleId), moduleId);',
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "A null storage produced a root"),
+
 
     # ---- lane fix/deadcode ----
 )
