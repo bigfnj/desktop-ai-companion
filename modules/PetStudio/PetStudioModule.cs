@@ -24,7 +24,23 @@ namespace DesktopAICompanion.PetStudioModule
         {
             Id = "petstudio",
             Name = "Companion Studio",
-            Version = "1.1.17",  // 1.1.17: no change in this module's OWN code. It source-links
+            Version = "1.1.18",  // 1.1.18: the 2026-09-29 audit's PetStudio lane (BUG-012, F150-F165, F226).
+                                 //         The analyzer adopts the validator's parse for the reachability
+                                 //         walk and stages no sprite frame, and the window analyzes on a
+                                 //         pool thread and renders on the dispatcher, so a typing pause
+                                 //         no longer parses the XML twice or decodes and tiles the sheet
+                                 //         on the UI thread. The capability map grows surface poses
+                                 //         through flip turns and knows which surface it is on, so the
+                                 //         sheep's ceiling walk and wall descent read CLIMB and its wall
+                                 //         bounce does not. The zip import holds its guard through the
+                                 //         extraction, refuses Open and the installed picker meanwhile,
+                                 //         deletes and sweeps off the UI thread, sweeps on every load
+                                 //         path and remembers the zip's folder rather than the temp tree.
+                                 //         Save is offered after an installed pick, the timeline's
+                                 //         dropped-step note reaches the status bar, FindBundleRoot walks
+                                 //         past a folder it cannot list, and LaunchProcess is declared
+                                 //         for the bundled dwebp and the optional ffmpeg.
+                                 // 1.1.17: no change in this module's OWN code. It source-links
                                  //         src/dotNet/RuntimeGeometry.cs (PetStudio.csproj:63), and
                                  //         ScalePolicy.ScaleVelocity there stopped scaling velocity
                                  //         DOWN, so a small pet is small rather than lethargic. A
