@@ -5,11 +5,13 @@
     uncovered set grow in silence.
 
 .DESCRIPTION
-    Added 2026-09-27 because the harness existed, worked, and was run by nothing. BACKLOG.md said
-    "--module-selftest=agentflow runs in both [the gate and CI]" -- no .ps1 and no .yml in the repo
-    contained that string, so 684 module assertions across four modules were executed only when
-    somebody typed the flag by hand. AgentFlow alone accounts for 478 of them, on the module the
-    owner uses every day.
+    Added 2026-09-27 to run EVERY built module's self-test and to refuse a growing uncovered set.
+    (Its first header said no .ps1 or .yml in the repo contained "--module-selftest=agentflow" and
+    that 684 module assertions ran only by hand. git says otherwise: Invoke-SelfTests.ps1 had carried
+    four --module-selftest rows since 2026-09-17, so those four ran in the gate and CI already, and
+    then ran a second time through this file, ~12.5 s of duplicated work per run. The rows left
+    Invoke-SelfTests.ps1 on 2026-09-30 and this file is the one runner for them; F397.) AgentFlow
+    alone accounts for 478 of the assertions, on the module the owner uses every day.
 
     Two halves, and the second is the one that keeps this honest:
 

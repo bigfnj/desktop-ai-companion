@@ -64,14 +64,24 @@ jobs:
           # shape, so a single self-test failure threw here and the 120 source invariants below were
           # never reached: one broken module hid every invariant in the repo, in the one place that
           # gates every pull request.
-          $output = @(& .\tests\Invoke-SelfTests.ps1 -ExecutablePath $exe -OutputRoot $outputRoot)
+          # try/catch, the same shape tests/run-gate.ps1 now uses (F407): the runner's own
+          # infrastructure errors are terminating under pwsh's 'stop' default and would otherwise
+          # skip the three checks below with a raw exception instead of a FAIL list.
+          $output = @()
+          $failures = @()
+          $runnerAborted = $false
+          try { $output = @(& .\tests\Invoke-SelfTests.ps1 -ExecutablePath $exe -OutputRoot $outputRoot) }
+          catch {
+            $runnerAborted = $true
+            $failures += "SELFTEST-FAILURE: Invoke-SelfTests.ps1 aborted midway: $($_.Exception.Message)"
+          }
           $output | ForEach-Object { Write-Host $_ }
-          $failures = @($output | Where-Object { $_ -like 'SELFTEST-FAILURE:*' })
+          $failures += @($output | Where-Object { $_ -like 'SELFTEST-FAILURE:*' })
           # A run that reports zero flags did no work. run-gate.ps1 fails on this; CI ignored the count
           # entirely, so two callers of the same runner disagreed about what an empty run means.
           $countLine = @($output | Where-Object { $_ -like 'SELFTEST-COUNT:*' }) | Select-Object -First 1
           $selfTestCount = if ($countLine) { [int](($countLine -split ':')[1].Trim()) } else { 0 }
-          if ($selfTestCount -le 0) {
+          if (-not $runnerAborted -and $selfTestCount -le 0) {
             $failures += "SELFTEST-FAILURE: the runner reported $selfTestCount flags, so it did no work"
           }
           # Packaging guards that refuse, each fed the input it exists to refuse. Not covered by
@@ -90,11 +100,12 @@ jobs:
           }
 
       - name: Run each module's own self-test
-        # The other half of the split this repo keeps finding: run-gate.ps1 has run these since
-        # 2026-09-27 and CI did not, so 684 module assertions -- agentflow 478, remembrance 114,
-        # blinkingled 56, reminder 36 -- did not run on a push. BACKLOG.md had claimed for months
-        # that "--module-selftest=agentflow runs in both [the gate and CI]" while no .ps1 and no
-        # .yml in the repo contained that string.
+        # The other half of the split this repo keeps finding: run-gate.ps1 has run this script since
+        # 2026-09-27 and CI did not. (This comment used to say the module assertions "did not run on
+        # a push" at all; git shows four of the flags in Invoke-SelfTests.ps1's table since 2026-09-17,
+        # so they ran here through that step -- and then ran AGAIN through this one once it arrived.
+        # The duplicate rows came out of Invoke-SelfTests.ps1 on 2026-09-30 (F397); this step is now
+        # the one place all seven covered modules are self-tested.)
         #
         # Safe to run here because the step above already launches this same exe from this same
         # path: the mechanism is proven on the runner, only the flag is new. ~15s for all eight

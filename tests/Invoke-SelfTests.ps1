@@ -39,6 +39,9 @@
     child's TEMP for the duration of the run. Defaults to a fresh dp-selftests-run-<guid> directory
     under $env:TEMP, removed at the end when every flag passed and kept (and named) when one did not.
 
+.PARAMETER TimeoutSeconds
+    How long one flag may run before it is killed and reported as a failure. Default 180.
+
 .OUTPUTS
     One line per failure, each prefixed with the literal SELFTEST-FAILURE: sentinel. No failures
     means no such line. Progress is written with Write-Host.
@@ -60,7 +63,12 @@
 param(
     [Parameter(Mandatory = $true)][string]$ExecutablePath,
     [string]$OutputRoot,
-    [string]$LogDirectory
+    [string]$LogDirectory,
+    # Per flag. The wait was unbounded until 2026-09-30, so a self-test that hung -- a modal dialog
+    # reached by regression in --wpf-options-selftest, a device open that never returns in
+    # --audio-selftest -- blocked the local gate for ever and CI until its 30-minute job timeout, with
+    # no failure line naming the flag (F398). Test-ModuleSelfTests.ps1 already carried this bound.
+    [int]$TimeoutSeconds = 180
 )
 
 Set-StrictMode -Version Latest
@@ -136,15 +144,15 @@ $SelfTestFlags = [ordered]@{
     # they are asserted rather than eyeballed.
     '--traywatcher-selftest'             = $null
     '--fortunes-smart-progress-selftest' = 'dp-fortunes-smart-progress-selftest.txt'
-    # Convention-based (--module-selftest=<id>): loads the module through the REAL loader and calls
-    # its public static bool SelfTest(out string), so a new module needs no host edit. All four now
-    # carry their marker; three of them did not until 2026-09-17, which meant that for exactly the
-    # checks which load a module through the real loader, only the exit code was tested -- and
-    # ModuleConventionSelfTest returns true for a missing module folder.
-    '--module-selftest=reminder'         = 'dp-module-reminder-selftest.txt'
-    '--module-selftest=remembrance'      = 'dp-module-remembrance-selftest.txt'
-    '--module-selftest=blinkingled'      = 'dp-module-blinkingled-selftest.txt'
-    '--module-selftest=agentflow'        = 'dp-module-agentflow-selftest.txt'
+    # NO --module-selftest=<id> ROWS. The convention-based module self-tests (the host loading a
+    # module through the REAL loader and calling its public static bool SelfTest) ran here for four
+    # modules from 2026-09-17 and, from 2026-09-27, ran AGAIN for all seven covered modules in
+    # tests\Test-ModuleSelfTests.ps1, which both the gate and CI call right after this script. That
+    # was ~12.5 s of duplicated work per run and two chances for one flake to redden a gate (F397).
+    # The second runner is the stronger one -- it grades SKIP lines, a PASS with no assertions, a
+    # marker that could not be deleted, a timeout, and the exact failure set of every uncovered
+    # module -- so the rows came out of here. $RequiredModules above still guards every module
+    # folder, because the flags that remain load modules too.
 }
 
 Write-Output ($CountPrefix + $SelfTestFlags.Count)
@@ -227,15 +235,62 @@ try {
             # It reported "An object at the specified path does not exist" for a path Test-Path had just
             # confirmed existed. Latent until the SECOND run on such a box, because run one has no
             # marker to delete, which is why it survived unnoticed.
-            [System.IO.File]::Delete($markerPath)
+            #
+            # CAUGHT, then ASSERTED, the shape Test-ModuleSelfTests.ps1 settled on. An unguarded Delete
+            # under the caller's $ErrorActionPreference = 'Stop' escaped this script as a raw exception
+            # and took run-gate.ps1 down with it -- no GATE FAILED summary, every later section skipped
+            # -- while an ad-hoc run under the default preference sailed past the failed delete and
+            # graded the PREVIOUS run's marker as this one's (F407). The Test-Path after the catch is
+            # the half that matters: swallowing the exception alone would turn the abort into that
+            # silent stale grading.
+            try { [System.IO.File]::Delete($markerPath) } catch { }
+            if (Test-Path -LiteralPath $markerPath) {
+                $anyFailure = $true
+                Write-Output ($FailurePrefix + ('{0} (stale marker could not be deleted, so any verdict would be the previous run''s: {1})' -f $flag, $markerPath))
+                Write-Host ('  FAIL  {0} -- stale marker' -f $flag) -ForegroundColor Red
+                continue
+            }
         }
 
         # A GUI-subsystem exe does not block PowerShell, so wait explicitly: `& $exe` returns
         # immediately with no exit code. Child output is captured rather than inherited, because these
         # self-tests print hundreds of PASS lines each and would bury the summary.
+        #
+        # BOUNDED. -PassThru without -Wait, then WaitForExit with the budget: a self-test that never
+        # returns is killed and reported as its own failure line naming the flag, instead of holding
+        # the gate until someone notices (F398). $process.Kill(), not Kill($true): the entire-tree
+        # overload does not exist on the .NET Framework that Windows PowerShell 5.1 runs on. The
+        # redirects stay on files, so the repo's synchronous-drain rule is untouched. A launch that
+        # cannot start at all (exe locked by a concurrent rebuild, a redirect target held open) is a
+        # failure line too, not an escape (F407).
         $log = Join-Path $LogDirectory ('dp-gate-' + $flag.Trim('-') + '.log')
-        $process = Start-Process -FilePath $ExecutablePath -ArgumentList $flag -Wait -PassThru -NoNewWindow `
-            -RedirectStandardOutput $log -RedirectStandardError "$log.err"
+        $process = $null
+        try {
+            $process = Start-Process -FilePath $ExecutablePath -ArgumentList $flag -PassThru -NoNewWindow `
+                -RedirectStandardOutput $log -RedirectStandardError "$log.err"
+        }
+        catch {
+            $anyFailure = $true
+            Write-Output ($FailurePrefix + ('{0} (could not start: {1})' -f $flag, $_.Exception.Message))
+            Write-Host ('  FAIL  {0} -- could not start' -f $flag) -ForegroundColor Red
+            continue
+        }
+        # Cache the handle NOW, while the child is alive. Without -Wait, the Process that -PassThru
+        # returns reads ExitCode as $null once the child has gone unless its handle was touched first:
+        # the first run of this shape graded all fifteen flags "(exit )" (measured 2026-09-30).
+        $null = $process.Handle
+        if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
+            try { $process.Kill() } catch { }
+            try { [void]$process.WaitForExit(5000) } catch { }
+            $anyFailure = $true
+            Write-Output ($FailurePrefix + ('{0} (did not exit in {1} s; killed)' -f $flag, $TimeoutSeconds))
+            Write-Host ('  FAIL  {0} -- did not exit in {1} s' -f $flag, $TimeoutSeconds) -ForegroundColor Red
+            foreach ($logPath in @($log, "$log.err")) {
+                if (-not (Test-Path -LiteralPath $logPath)) { continue }
+                Get-Content -LiteralPath $logPath | Select-Object -Last 20 | ForEach-Object { Write-Host "        $_" }
+            }
+            continue
+        }
 
         if ($process.ExitCode -ne 0) {
             $anyFailure = $true
