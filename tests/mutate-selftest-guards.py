@@ -84,6 +84,7 @@ AIBRAIN_ENGINE = os.path.join(REPO, "modules", "AiBrain", "engine", "AiBrain.cs"
 EMBEDDER = os.path.join(REPO, "modules", "Fortunes", "engine", "Embedder.cs")
 SMART_FORTUNES = os.path.join(REPO, "modules", "Fortunes", "engine", "SmartFortunes.cs")
 FORTUNE_IMPORTER = os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneFileImporter.cs")
+FORTUNES_PROBE = os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneEngineProbe.cs")
 MODULE_HOST_SELFTEST = os.path.join(REPO, "src", "dotNet", "Plugins", "ModuleHostSelfTest.cs")
 FORTUNES_ENGINE_SELFTEST = os.path.join(REPO, "src", "dotNet", "Plugins", "FortunesEngineSelfTest.cs")
 REMEMBRANCE_CSPROJ = os.path.join(REPO, "modules", "Remembrance", "Remembrance.csproj")
@@ -2358,6 +2359,176 @@ CASES = (
      FORTUNES_CSPROJ, FORTUNES_DLL,
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
      "rebuilds the live pool on it"),
+
+    # RA-095: the seam swap in RefillBag goes. The old single unseeded seam saw the repeat one run in six;
+    # the seeded sweep sees it every run.
+    ("burn-fortunes: loader: the shuffle-bag seam swap is deleted",
+     FORTUNE_PROVIDER,
+     b"            if (n >= 2 && _bag[n - 1] == _last)\n"
+     b"            {\n"
+     b"                int tmp = _bag[n - 1]; _bag[n - 1] = _bag[0]; _bag[0] = tmp;\n"
+     b"            }",
+     b"            if (n >= 2 && _bag[n - 1] == _last && n < 0)\n"
+     b"            {\n"
+     b"                int tmp = _bag[n - 1]; _bag[n - 1] = _bag[0]; _bag[0] = tmp;\n"
+     b"            }",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "does not repeat the previous line"),
+
+    # R-034 (cap): the walk ends in silence at the file cap again, the `break` shape.
+    ("burn-fortunes: loader: a pack past the file cap vanishes in silence again",
+     FORTUNE_PROVIDER,
+     b"                    if (files >= limits.Files || totalEntries >= limits.Entries)\n"
+     b"                    {\n"
+     b"                        skips.OverCap++;\n"
+     b"                        continue;\n"
+     b"                    }",
+     b"                    if (files >= limits.Files || totalEntries >= limits.Entries)\n"
+     b"                        break;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "counted as over the cap instead of vanishing"),
+
+    # R-034 (wording): the pane folds the valid files that did not fit into the damaged sentence again, so
+    # a budget refusal reads as "malformed rows".
+    ("burn-fortunes: pane: budget refusals are worded as malformed again",
+     FORTUNES_MODULE,
+     b"            int damaged = skips.Damaged;\n"
+     b"            int didNotFit = skips.DidNotFit;",
+     b"            int damaged = skips.Damaged + skips.DidNotFit;\n"
+     b"            int didNotFit = 0;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "never as malformed"),
+
+    # RA-125: the empty-pool path drops the refused-pack note again.
+    ("burn-fortunes: pane: an empty pool's status drops the refused-pack note again",
+     FORTUNES_MODULE,
+     b'            if (lines == 0) return "\xe2\x9c\x97 " + EmptyPoolReason(AnyPacksInstalled()) + SkippedPacksNote(skips);',
+     b'            if (lines == 0) return "\xe2\x9c\x97 " + EmptyPoolReason(AnyPacksInstalled());',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "blames the filters AND names the skipped file"),
+
+    # RA-107, three arms. (a) the walk fault is swallowed whole again: not counted, not flagged.
+    ("burn-fortunes: loader: a faulting folder walk is swallowed uncounted again",
+     FORTUNE_PROVIDER,
+     b"            catch { walkFaulted = true; }\n"
+     b"            if (walkFaulted)",
+     b"            catch { }\n"
+     b"            if (walkFaulted)",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "counted once under error"),
+
+    # (b) the prune runs after a faulted walk again, evicting every parse the walk never reached.
+    ("burn-fortunes: loader: a faulted walk prunes the parses it never reached again",
+     FORTUNE_PROVIDER,
+     b"            if (seen != null && !walkFaulted) PruneCache(directory, seen);",
+     b"            if (seen != null) PruneCache(directory, seen);",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "not pruned from the per-file cache"),
+
+    # (c) a faulted walk is cached under the folder's real fingerprint again and served as a hit.
+    ("burn-fortunes: loader: a faulted walk is served as a cache hit again",
+     FORTUNE_PROVIDER,
+     b'                string published = skips.WalkFaulted ? "faulted:" + Guid.NewGuid().ToString("N") : signature;',
+     b'                string published = signature;',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "never as a cache hit"),
+
+    # RA-108: the source/genre memo never hits (both guards compare against null), so every Sources() and
+    # Genres() call walks the merged corpus again.
+    ("burn-fortunes: loader: the source and genre lists are recomputed on every call again",
+     FORTUNE_PROVIDER,
+     b"            if (current != null && ReferenceEquals(current.Snapshot, snap)) return current;\n"
+     b"            lock (_aggregatesLock)\n"
+     b"            {\n"
+     b"                current = _aggregates;\n"
+     b"                if (current != null && ReferenceEquals(current.Snapshot, snap)) return current;\n",
+     b"            if (current != null && ReferenceEquals(current.Snapshot, null)) return current;\n"
+     b"            lock (_aggregatesLock)\n"
+     b"            {\n"
+     b"                current = _aggregates;\n"
+     b"                if (current != null && ReferenceEquals(current.Snapshot, null)) return current;\n",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "from one memo"),
+
+    # R-028: the per-file cache lookup never hits, so a changed folder re-reads every file (the folder-wide
+    # cache in disguise: the importer's admission check still passes, because every parse is still STORED).
+    ("burn-fortunes: loader: the per-file parse cache never hits",
+     FORTUNE_PROVIDER,
+     b"                    if (_packCache.TryGetValue(path, out hit) &&\n"
+     b"                        string.Equals(hit.Stamp, stamp, StringComparison.Ordinal))\n"
+     b"                        parse = hit;",
+     b"                    if (_packCache.TryGetValue(path, out hit) &&\n"
+     b"                        string.Equals(hit.Stamp, stamp, StringComparison.Ordinal))\n"
+     b"                        parse = null;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "re-read exactly ONE pack file"),
+
+    # RA-098: the fold stops re-emitting a suite-prefixed exception line as a FAIL verdict.
+    ("burn-fortunes: probe: a suite-prefixed EXC line is folded without its FAIL prefix again",
+     FORTUNES_PROBE,
+     b'            if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, "^[A-Z][A-Z ]* EXC: ")) return true;\n',
+     b'',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "re-emitted as a FAIL verdict"),
+
+    # RA-102: every IOException and Win32Exception is transient again, whatever its code.
+    ("burn-fortunes: importer: a permanent file fault is retried as transient again",
+     FORTUNE_IMPORTER,
+     b"            return code == ErrorSharingViolation || code == ErrorLockViolation ||\n"
+     b"                   code == ErrorBusy || code == ErrorUserMappedFile;",
+     b"            return code != int.MinValue;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "surface at once"),
+
+    # RA-104: the commit's catch deletes the backup whatever state the destination is in again.
+    ("burn-fortunes: importer: a torn replace deletes the backup that holds the pack again",
+     FORTUNE_IMPORTER,
+     b"                    RestoreTornReplace(destinationPath, backupPath);\n"
+     b"                    throw;",
+     b"                    TryDeleteFile(backupPath);\n"
+     b"                    throw;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "undone from its backup"),
+
+    # RA-101: the rejection status stops naming the file.
+    ("burn-fortunes: pane: a rejected import no longer names the file",
+     FORTUNES_MODULE,
+     b'                            firstError = (name.Length > 0 ? name + ": " : "") + Short(item.Error);',
+     b'                            firstError = (name.Length < 0 ? name + ": " : "") + Short(item.Error);',
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "names the file it refused"),
+
+    # RA-124: the download's content check runs on the calling thread again.
+    ("burn-fortunes: pane: the download validates its pack on the calling thread again",
+     FORTUNES_MODULE,
+     b"                        bool loadable = await Task.Run(delegate { return ValidateDownloadedPack(bytes, item.Id); });",
+     b"                        bool loadable = ValidateDownloadedPack(bytes, item.Id);",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "content validation ran on a pool thread"),
+
+    # R-030: the decoder stops trimming, so a padded tagged text column is refused as untrimmed again (the
+    # 1.0.11 contract), and the pin says which contract this build carries.
+    ("burn-fortunes: loader: a padded tagged text column is refused as untrimmed again",
+     FORTUNE_PROVIDER,
+     b"            return text.Trim();",
+     b"            return text;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "admitted with the text trimmed"),
 
 
     # ---- lane fix/deadcode ----

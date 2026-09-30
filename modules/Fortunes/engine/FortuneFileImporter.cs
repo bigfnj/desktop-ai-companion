@@ -10,7 +10,7 @@ namespace DesktopAICompanion.Ai
 {
     internal sealed class FortuneImportItemResult
     {
-        public string SourcePath;
+        public string SourcePath;        // the module's rejection status names its leaf, never its path (RA-101)
         public string DestinationPath;
         public bool Imported;
         public string Error;
@@ -146,8 +146,16 @@ namespace DesktopAICompanion.Ai
         // assertion without throwing is RollBackCommittedImports swallowing that exception into "rollback
         // could not be fully verified" -- which is also what a user's import would have reported. So the
         // commit and the rollback retry a transient fault a few times over about a second, and a genuine
-        // one still throws once the attempts are spent. Not retried: a missing file or folder (nothing will
-        // change), and UnauthorizedAccessException, which the self-tests use as the permanent fault.
+        // one still throws once the attempts are spent.
+        //
+        // TRANSIENT MEANS THE WIN32 CODE SAYS SO, not the exception type. The first cut retried every
+        // IOException and every Win32Exception, so a permanent fault -- the destination appearing between the
+        // snapshot and the File.Move (ERROR_ALREADY_EXISTS), a full disk, a read-only volume -- was retried
+        // eight times over ~700 ms before it was reported (RA-102). Windows names the faults that go away on
+        // their own: a sharing violation (32), a lock violation (33), ERROR_BUSY (170) and a file in use by a
+        // memory mapping (1224); .NET keeps the code in Win32Exception.NativeErrorCode and in the low word of
+        // an IOException's HResult (HRESULT_FROM_WIN32). Everything else throws at once, including
+        // UnauthorizedAccessException, which the self-tests use as the permanent fault.
         private const int ReplaceAttempts = 8;
         private const int ReplaceRetryMilliseconds = 25;
 
@@ -170,11 +178,34 @@ namespace DesktopAICompanion.Ai
             }
         }
 
-        private static bool IsTransientFileFault(Exception ex)
+        private const int ErrorSharingViolation = 32;
+        private const int ErrorLockViolation = 33;
+        private const int ErrorBusy = 170;
+        private const int ErrorUserMappedFile = 1224;
+
+        /// <summary>Whether a fault from a file operation is one another process's transient hold produces,
+        /// by its Win32 code (RA-102). Internal so the probe can pin the classification directly.</summary>
+        internal static bool IsTransientFileFault(Exception ex)
         {
-            if (ex is FileNotFoundException || ex is DirectoryNotFoundException || ex is PathTooLongException)
+            int code;
+            Win32Exception win32 = ex as Win32Exception;
+            if (win32 != null)
+            {
+                code = win32.NativeErrorCode;
+            }
+            else if (ex is IOException &&
+                     !(ex is FileNotFoundException || ex is DirectoryNotFoundException || ex is PathTooLongException))
+            {
+                // HRESULT_FROM_WIN32 packs the Win32 code into the low 16 bits (0x8007xxxx); .NET's own
+                // IOException codes (COR_E_IO and friends, 0x8013xxxx) never land on the four values below.
+                code = ex.HResult & 0xFFFF;
+            }
+            else
+            {
                 return false;
-            return ex is IOException || ex is Win32Exception;
+            }
+            return code == ErrorSharingViolation || code == ErrorLockViolation ||
+                   code == ErrorBusy || code == ErrorUserMappedFile;
         }
 
         private sealed class StagedImport
@@ -907,7 +938,12 @@ namespace DesktopAICompanion.Ai
                 }
                 catch
                 {
-                    TryDeleteFile(backupPath);
+                    // A TORN replace leaves the destination gone and the backup holding it: ReplaceFile
+                    // itself renames in two steps, and AtomicFile's IOException fallback copies the
+                    // destination into the backup before its move. This catch used to delete the backup
+                    // whatever state the destination was in, which threw the user's pack away (RA-104).
+                    // Put it back first; delete the backup only when the destination is intact.
+                    RestoreTornReplace(destinationPath, backupPath);
                     throw;
                 }
             }
@@ -917,6 +953,28 @@ namespace DesktopAICompanion.Ai
                 Staged = stagedImport,
                 CreatedNew = true
             };
+        }
+
+        /// <summary>After a failed replace: move a filled backup back over a missing destination, or delete
+        /// the backup when the destination is still there. A backup that cannot be moved back stays where it
+        /// is, because it is then the only copy.</summary>
+        private static void RestoreTornReplace(string destinationPath, string backupPath)
+        {
+            if (string.IsNullOrEmpty(backupPath)) return;
+            try
+            {
+                var backup = new FileInfo(backupPath);
+                if (!File.Exists(destinationPath) && backup.Exists && backup.Length > 0)
+                {
+                    WithTransientRetry(delegate { File.Move(backupPath, destinationPath); });
+                    return;
+                }
+            }
+            catch
+            {
+                return;
+            }
+            TryDeleteFile(backupPath);
         }
 
         private static bool RollBackCommittedImports(

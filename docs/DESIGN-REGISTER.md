@@ -961,6 +961,41 @@ there is nothing to mark. What still survives a Cancel is the batch a FAILED App
 (1.0.4), by design: the host's own pending ticks are gone by then and that map is the only record the
 user's clicks have left.
 
+**The importer's overwrite, backup and rollback half stays unwired (2026-09-30, RA-103, ACCEPTED-RECORDED).**
+`ImportPacksAsync` passes null approvals, so a same-named pack is reported as skipped and the branch that
+replaces a file behind a backup has no production caller; its five self-tests and the N-tools-02 witnesses
+cover that branch. It stays because the ABI has no confirmation prompt through which a module could obtain
+overwrite consent (`PluginApi.cs` offers a file picker and a link opener, nothing that asks a question), so
+wiring consent is a host change, and because the branch is the tested contract that consent will need, not
+a shape production abandoned: deleting it in a lane about residue trades a working, tested path for a
+smaller file. What this lane changed instead is what the coverage claim rested on: the commit's `File.Move`
+branch, the one production reaches, has its transient classification pinned by code (RA-102), and the
+overwrite branch no longer throws a torn replace's backup away (RA-104), so consent, when it arrives,
+arrives on a safe path. The download path writes packs in place by design: `CacheMissingPacks` lists only
+packs not on disk, so a download never replaces one.
+
+**The per-file parse cache keeps a second copy of the custom tier, 2.7 MB at the full catalog (2026-09-30,
+RA-105 DECLINED-MEASURED, RA-106 ACCEPTED-RECORDED).** Each `PackParse` holds its pack's entry list, the
+unit a changed folder reuses, and the `CustomSnapshot` holds the flattened copy that `Select`, `Sources` and
+`Genres` iterate; `FortuneEntry` is five references and two bools, 48 bytes on x64, so the duplicate is
+55,783 x 48 B = 2.68 MB with all 158 catalog packs installed and nothing on a default install, beside a
+vector index of about 90 MB at that scale. Folding them means either a flattened copy per rebuild, which is
+the cost F125 removed, or a list-of-lists enumerator in every consumer, the importer's cache reads included.
+Declined until a measurement says the 2.7 MB matters; the trade is written at the cache.
+
+**A tagged row's text column is admitted trimmed (2026-09-30, R-030, ACCEPTED-RECORDED).** F132 decodes the
+column before validating it and `DecodeScrapedText` trims, so a row whose text carries whitespace around it
+enters the pool trimmed where 1.0.11 refused the row as untrimmed, in the loader and in the importer alike.
+The friendlier admission stays: a hand-edited pack with a trailing space on one line is a pack the user
+meant to load, and the shipped packs are machine-generated and unaffected. It is pinned in the probe and
+named in the 1.0.12 changelog, so a return to the strict reading fails a check first.
+
+**A downloaded pack is parsed twice, once on a pool thread for admission and once by the rebuild
+(2026-09-30, RA-124, residue recorded).** The admission check left the UI thread; the rebuild that follows
+parses the new file again through the per-file cache's miss for a file it has not seen. One file per
+download, on a pool thread. Seeding the cache from the admission parse would need the file's length and
+write time after the write and a second entry point into the cache; not done for one file.
+
 #### fix/deadcode
 
 **A member whose only reader is a test is not dead, and what the test pins decides what happens to it
@@ -1027,9 +1062,11 @@ in the pane's status, so "Downloaded 1 pack" can no longer be true of a file the
 
 **A folded sub-report line that reports a failure is re-emitted as a `FAIL: ` verdict line (2026-09-30, F120).** The
 Fortunes probe folds three sub-reports into its output so a red run says which case failed. The gate's failure printer
-and tests/mutate-selftest-guards.py read only lines whose stripped form STARTS with FAIL, so a folded `rewarm_supersedes=FAIL`
-or `FILTER FAIL case=3` was visible to a person and to neither tool; the fold prefixes such lines (`name=FAIL`,
-`SUITE FAIL case`, `EXC:`) with `FAIL: `. A sub-report that wants its cases graded writes them in that vocabulary.
+matches `(FAIL|EXC|SKIP):` anywhere on a line and tests/mutate-selftest-guards.py grades only lines whose stripped form
+STARTS with FAIL, EXC or SKIP, so a folded `rewarm_supersedes=FAIL` or `FILTER FAIL case=3` (no colon) was visible to a
+person and to neither tool, and a folded `CUSTOM EXC: ...` was visible to the printer and not to the harness (RA-098,
+lane burn/fortunes); the fold prefixes all of them (`name=FAIL`, `SUITE FAIL case`, `EXC:`, a suite-prefixed `EXC:`) with
+`FAIL: `. A sub-report that wants its cases graded writes them in that vocabulary.
 
 **EmitterSelfTest's duplicated hub heuristic stays (2026-09-30, F450, ACCEPTED-RECORDED).** HubSequenceTargets and
 HubId carry the same gravity-plus-fan-out loop and the hub is rediscovered at eight call sites; both copies agree and the

@@ -69,26 +69,48 @@ namespace DesktopAICompanion.FortunesModule
                 // every N-pick window is a full sweep (no line recurs until all N are shown), and the seam
                 // between one bag and the next never repeats a line. Guards the fix for the reported
                 // "thousands of jokes but only the same handful repeat".
+                //
+                // SEEDED AND SWEPT (RA-095). One unseeded bag observed one seam, so a deleted seam swap was
+                // caught one run in six (the odds of a reshuffled bag starting on the line the old one ended
+                // with) and passed the gate most days. Sixty-four seeded bags observe sixty-four seams, and
+                // one seeded bag drawn 600 times observes ninety-nine more; both are the same run every time.
                 var bagEntries = new List<FortuneEntry>();
                 for (int b = 0; b < 6; b++)
                     bagEntries.Add(new FortuneEntry {
                         Source = "bag", Topic = "life", Genre = "quip", Level = "general",
                         Prof = false, Text = "bag line " + b, Custom = false });
-                var bag = new FortuneProvider(bagEntries, new FortuneSettings());
-                var firstSweep = new HashSet<string>(StringComparer.Ordinal);
-                var secondSweep = new HashSet<string>(StringComparer.Ordinal);
-                string previous = null;
-                bool seamDistinct = true;
-                for (int draw = 0; draw < 12; draw++)
+                bool firstSweepsFull = true, secondSweepsFull = true, seamDistinct = true;
+                for (int seed = 0; seed < 64; seed++)
                 {
-                    string line = bag.Pick();
-                    (draw < 6 ? firstSweep : secondSweep).Add(line);
-                    if (draw == 6 && line == previous) seamDistinct = false;   // first of bag 2 vs last of bag 1
-                    previous = line;
+                    var bag = new FortuneProvider(bagEntries, new FortuneSettings());
+                    bag.SeedForDiagnostics(seed);
+                    var firstSweep = new HashSet<string>(StringComparer.Ordinal);
+                    var secondSweep = new HashSet<string>(StringComparer.Ordinal);
+                    string previous = null;
+                    for (int draw = 0; draw < 12; draw++)
+                    {
+                        string line = bag.Pick();
+                        (draw < 6 ? firstSweep : secondSweep).Add(line);
+                        if (draw == 6 && line == previous) seamDistinct = false;   // first of bag 2 vs last of bag 1
+                        previous = line;
+                    }
+                    if (firstSweep.Count != 6) firstSweepsFull = false;
+                    if (secondSweep.Count != 6) secondSweepsFull = false;
                 }
-                ok &= Check(sb, "shuffle-bag sweeps the whole pool before repeating (bag 1)", firstSweep.Count == 6);
-                ok &= Check(sb, "shuffle-bag reshuffles into a full second sweep (bag 2)", secondSweep.Count == 6);
-                ok &= Check(sb, "shuffle-bag boundary does not repeat the previous line", seamDistinct);
+                ok &= Check(sb, "shuffle-bag sweeps the whole pool before repeating (bag 1, 64 seeds)", firstSweepsFull);
+                ok &= Check(sb, "shuffle-bag reshuffles into a full second sweep (bag 2, 64 seeds)", secondSweepsFull);
+                ok &= Check(sb, "shuffle-bag boundary does not repeat the previous line (64 seeded seams)", seamDistinct);
+                var longRun = new FortuneProvider(bagEntries, new FortuneSettings());
+                longRun.SeedForDiagnostics(20260930);
+                int backToBack = 0;
+                string last = null;
+                for (int draw = 0; draw < 600; draw++)
+                {
+                    string line = longRun.Pick();
+                    if (line == last) backToBack++;
+                    last = line;
+                }
+                ok &= Check(sb, "600 seeded draws from a six-line bag never repeat a line back to back (99 seams)", backToBack == 0);
 
                 // Content-level migration: a settings file written before the four tone controls were
                 // collapsed must land on the level that preserves the user's evident intent. Getting this
@@ -216,20 +238,38 @@ namespace DesktopAICompanion.FortunesModule
                         skips.BadName == 1 && skips.Error == 0 && skips.Total == 1);
 
                     // Junk before the packs must not spend the file-slot cap: a folder capped at ONE pack,
-                    // holding an unreadable file and a valid one, loads the valid one.
+                    // holding an unreadable file and two valid ones, loads the first valid one. The second
+                    // valid one is PAST THE CAP: counted, not dropped by a silent `break` (R-034).
                     string capped = Path.Combine(folder, "capped");
                     Directory.CreateDirectory(capped);
                     File.WriteAllBytes(Path.Combine(capped, "a-junk.txt"),
                         new byte[] { 0x41, 0xFF, 0x42, 0x20, 0x43, 0x44, 0x45, 0x46, 0x47 });
                     File.WriteAllText(Path.Combine(capped, "b-valid.txt"),
                         "A plain fortune that must still load.", utf8);
+                    File.WriteAllText(Path.Combine(capped, "c-valid-past-the-cap.txt"),
+                        "A plain fortune past the one-file cap.", utf8);
                     List<FortuneEntry> underCap = FortuneProvider.LoadCustomDirectoryForDiagnostics(
                         capped, 1, 4096, 4096, 100, out skips);
                     ok &= Check(sb, "an unreadable file sorted first does not consume the only pack slot",
                         underCap.Count == 1 && skips.Unreadable == 1);
+                    ok &= Check(sb, "a valid pack past the file cap is counted as over the cap instead of vanishing",
+                        skips.OverCap == 1 && skips.DidNotFit == 1 && skips.Damaged == 1);
                     ok &= Check(sb, "the skip line carries categories and counts, never a name",
                         FortuneProvider.DescribeSkips(skips) ==
-                        "pack files skipped: malformed=0 unreadable=1 oversized=0 bad-name=0 over-budget=0 error=0");
+                        "pack files skipped: malformed=0 unreadable=1 oversized=0 bad-name=0 over-budget=0 over-cap=1 error=0");
+                    // A ZERO-BYTE file has no rows: malformed, the parser's own word for empty content, not
+                    // "oversized" (R-034). A valid file the byte budget has no room for IS oversized.
+                    string empty = Path.Combine(folder, "empty");
+                    Directory.CreateDirectory(empty);
+                    File.WriteAllBytes(Path.Combine(empty, "a-empty.txt"), new byte[0]);
+                    File.WriteAllText(Path.Combine(empty, "b-valid.txt"),
+                        "A plain fortune that must still load.", utf8);
+                    File.WriteAllText(Path.Combine(empty, "c-valid-but-past-the-budget.txt"),
+                        "A plain fortune the byte budget has no room for.", utf8);
+                    List<FortuneEntry> budgeted = FortuneProvider.LoadCustomDirectoryForDiagnostics(
+                        empty, 4, 4096, 40, 100, out skips);
+                    ok &= Check(sb, "an empty pack file is counted as malformed, and a valid one the byte budget cannot hold as oversized",
+                        budgeted.Count == 1 && skips.Malformed == 1 && skips.Oversized == 1 && skips.Unreadable == 0);
 
                     // The importer's half of F129: a file the loader refuses holds no slot and no bytes in
                     // the admission either. Two existing files, one junk (200 bytes of invalid UTF-8) and
@@ -287,16 +327,102 @@ namespace DesktopAICompanion.FortunesModule
                         refused.ImportedCount == 0 && permanentCalls == 1 &&
                         File.ReadAllText(Path.Combine(lockedDest, "replace.txt"), utf8)
                             .StartsWith("The replacement line", StringComparison.Ordinal));
+
+                    // RA-102: transient is a Win32 CODE, not an exception type. The predicate used to retry
+                    // every IOException and every Win32Exception eight times over ~700 ms, a full disk and a
+                    // destination that appeared under the commit included.
+                    ok &= Check(sb, "a sharing violation, a lock violation, ERROR_BUSY and a user-mapped file are transient, as Win32Exception or as IOException",
+                        FortuneFileImporter.IsTransientFileFault(new System.ComponentModel.Win32Exception(32)) &&
+                        FortuneFileImporter.IsTransientFileFault(new System.ComponentModel.Win32Exception(33)) &&
+                        FortuneFileImporter.IsTransientFileFault(new System.ComponentModel.Win32Exception(170)) &&
+                        FortuneFileImporter.IsTransientFileFault(new System.ComponentModel.Win32Exception(1224)) &&
+                        FortuneFileImporter.IsTransientFileFault(new IOException("sharing violation", unchecked((int)0x80070020))));
+                    ok &= Check(sb, "a full disk, a destination that already exists, an access refusal and a missing file are permanent and surface at once",
+                        !FortuneFileImporter.IsTransientFileFault(new IOException("disk full", unchecked((int)0x80070070))) &&
+                        !FortuneFileImporter.IsTransientFileFault(new IOException("already exists", unchecked((int)0x800700B7))) &&
+                        !FortuneFileImporter.IsTransientFileFault(new IOException("a .NET IOException with no Win32 code")) &&
+                        !FortuneFileImporter.IsTransientFileFault(new System.ComponentModel.Win32Exception(5)) &&
+                        !FortuneFileImporter.IsTransientFileFault(new UnauthorizedAccessException("denied")) &&
+                        !FortuneFileImporter.IsTransientFileFault(new FileNotFoundException("gone")));
+
+                    // RA-104: a replace that had already moved the destination aside when it failed (the two
+                    // steps of ReplaceFile, or AtomicFile's IOException fallback copying the destination into
+                    // the backup before its move) used to have that backup deleted by the commit's catch: the
+                    // user's pack, gone. The stand-in does what a torn ReplaceFile does, then fails.
+                    File.WriteAllText(replacementSource, "A torn replacement line, long enough.\n", utf8);
+                    string beforeTorn = File.ReadAllText(Path.Combine(lockedDest, "replace.txt"), utf8);
+                    FortuneImportBatchResult torn = FortuneFileImporter.ImportForDiagnostics(
+                        new[] { replacementSource }, lockedDest, approved,
+                        delegate(string temporaryPath, string destinationPath, string backupPath, bool ignoreMetadataErrors)
+                        {
+                            File.Copy(destinationPath, backupPath, true);
+                            File.Delete(destinationPath);
+                            throw new UnauthorizedAccessException("fault-injected torn replace");
+                        });
+                    ok &= Check(sb, "a replace that failed after moving the destination aside is undone from its backup: the pack is back, the batch refused, nothing left behind",
+                        torn.ImportedCount == 0 &&
+                        File.Exists(Path.Combine(lockedDest, "replace.txt")) &&
+                        File.ReadAllText(Path.Combine(lockedDest, "replace.txt"), utf8) == beforeTorn &&
+                        Directory.GetFiles(lockedDest).Length == 1);
+
+                    // R-030, pinned: F132's decode-then-validate order admits a tagged row whose text column
+                    // carries whitespace around it, TRIMMED, where 1.0.11 refused the row as untrimmed. The
+                    // friendlier contract is kept (register, burn/fortunes); a change to it fails here first.
+                    string padded = Path.Combine(folder, "padded");
+                    Directory.CreateDirectory(padded);
+                    File.WriteAllText(Path.Combine(padded, "padded.txt"),
+                        rowA + "\nprobe\tlife\tquip\tgeneral\t0\t  A padded fortune text with spaces around it.  \n", utf8);
+                    List<FortuneEntry> trimmed = FortuneProvider.LoadCustomDirectoryForDiagnostics(padded, out skips);
+                    ok &= Check(sb, "a tagged row whose text column has whitespace around it is admitted with the text trimmed (the 1.0.12 contract, kept)",
+                        trimmed.Count == 2 && skips.Total == 0 &&
+                        trimmed[1].Text == "A padded fortune text with spaces around it.");
                 }
                 finally
                 {
                     try { if (Directory.Exists(folder)) Directory.Delete(folder, true); } catch { }
                 }
                 ok &= Check(sb, "no refused packs, no note on the pane",
-                    FortunesModule.SkippedPacksNote(0) == "");
+                    FortunesModule.SkippedPacksNote(new FortuneProvider.CustomLoadSkips()) == "" &&
+                    FortunesModule.SkippedPacksNote(null) == "");
+                string damagedNote = FortunesModule.SkippedPacksNote(new FortuneProvider.CustomLoadSkips { Malformed = 2 });
                 ok &= Check(sb, "refused packs are counted on the pane and point at the log",
-                    FortunesModule.SkippedPacksNote(2).IndexOf("2 pack files", StringComparison.Ordinal) >= 0 &&
-                    FortunesModule.SkippedPacksNote(2).IndexOf("log", StringComparison.Ordinal) >= 0);
+                    damagedNote.IndexOf("2 pack files", StringComparison.Ordinal) >= 0 &&
+                    damagedNote.IndexOf("log", StringComparison.Ordinal) >= 0);
+                // R-034: the two kinds of news are two sentences. A budget refusal is about VALID files and
+                // asks for fewer packs; it used to be reported as "malformed or unreadable".
+                ok &= Check(sb, "damaged files alone are described as malformed or unreadable, never as a budget matter",
+                    damagedNote.IndexOf("malformed", StringComparison.Ordinal) >= 0 &&
+                    damagedNote.IndexOf("budget", StringComparison.Ordinal) < 0);
+                string budgetNote = FortunesModule.SkippedPacksNote(
+                    new FortuneProvider.CustomLoadSkips { Oversized = 1, Budget = 1, OverCap = 1 });
+                ok &= Check(sb, "valid files the budget had no room for are described as such, with the budget and the way out, never as malformed",
+                    budgetNote.IndexOf("3 valid pack files", StringComparison.Ordinal) >= 0 &&
+                    budgetNote.IndexOf("did not fit", StringComparison.Ordinal) >= 0 &&
+                    budgetNote.IndexOf("16 MB", StringComparison.Ordinal) >= 0 &&
+                    budgetNote.IndexOf("disable or remove some packs", StringComparison.Ordinal) >= 0 &&
+                    budgetNote.IndexOf("malformed", StringComparison.Ordinal) < 0);
+                string mixedNote = FortunesModule.SkippedPacksNote(
+                    new FortuneProvider.CustomLoadSkips { Unreadable = 1, Budget = 2 });
+                ok &= Check(sb, "WITNESS a mix carries both sentences, damaged first",
+                    mixedNote.IndexOf("1 pack file in the fortunes folder was skipped", StringComparison.Ordinal) >= 0 &&
+                    mixedNote.IndexOf("2 valid pack files did not fit", StringComparison.Ordinal) >
+                        mixedNote.IndexOf("was skipped", StringComparison.Ordinal));
+
+                // F120 residue (RA-098): a folded sub-report's exception line is re-emitted as a FAIL verdict
+                // whatever suite prefix it carries, so tests/mutate-selftest-guards.py, which grades only
+                // FAIL/EXC/SKIP-prefixed lines, sees the exception behind a custom_ingestion=FAIL; the gate's
+                // own printer matches EXC: anywhere on a line and always showed it to a person.
+                ok &= Check(sb, "a suite-prefixed exception line in a folded sub-report is re-emitted as a FAIL verdict",
+                    IsSubReportFailure("CUSTOM EXC: IOException: boom") &&
+                    IsSubReportFailure("IMPORT CLEANUP EXC: still locked") &&
+                    IsSubReportFailure("CACHE EXC: InvalidDataException: bad header") &&
+                    IsSubReportFailure("CLEANUP EXC: in use") &&
+                    IsSubReportFailure("EXC: smart layer: NullReferenceException: x"));
+                ok &= Check(sb, "WITNESS a sub-report's passing and informational lines are not re-emitted as verdicts",
+                    !IsSubReportFailure("custom_ingestion=PASS") &&
+                    !IsSubReportFailure("filter_cases=90 failures=0") &&
+                    !IsSubReportFailure("warmed=True complete=True indexed=515 of 515 in 1234ms") &&
+                    !IsSubReportFailure("[Program.cs - Visual Studio - writing C# code...] -> (random)"));
 
                 // A host with NO settings store (F121). The convention runner's host is one; its Init used to
                 // start an embed of the whole corpus into the TEMP fallback root on every run.
@@ -425,6 +551,9 @@ namespace DesktopAICompanion.FortunesModule
                 // The bulk pack/genre actions save at once (RA-121, RA-122); no ONNX work either.
                 ok &= BulkSelectionChecks(sb);
 
+                // The pane's pool status over an empty pool still names the refused pack file (RA-125).
+                ok &= EmptyPoolNoteChecks(sb);
+
                 // The engine's full self-test suite, running in the module's context.
                 bool filter = FortuneProvider.FilterSelfTest();
                 ok &= Check(sb, "engine FilterSelfTest (dedup/classifier/parser/ingestion/importer/embedded-taxonomy)", filter);
@@ -433,7 +562,7 @@ namespace DesktopAICompanion.FortunesModule
                 AppendReport(sb, "dp-filter-selftest.txt");
 
                 // --- smart layer: proves ONNX loads + runs inside the module's own load context ---
-                ok &= Check(sb, "bge-small model present beside the module", Embedder.ModelPresent);
+                ok &= Check(sb, "the module payload carries bge-small beside Fortunes.dll (the smart checks below need it)", Embedder.ModelPresent);
                 if (Embedder.ModelPresent)
                 {
                     // Embedder.SelfTest loads the ONNX model + embeds hardcoded strings and checks
@@ -462,7 +591,9 @@ namespace DesktopAICompanion.FortunesModule
                 }
                 else
                 {
-                    sb.AppendLine("    (bge-small model absent - smart checks skipped)");
+                    // Not a third verdict: the check above has already FAILED this run. It said "skipped",
+                    // which read as a state the verdict does not have (RA-096).
+                    sb.AppendLine("    (bge-small model absent: the FAIL above is the verdict, and the smart checks did not run)");
                 }
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
@@ -614,10 +745,15 @@ namespace DesktopAICompanion.FortunesModule
             catch { }
         }
 
-        private static bool IsSubReportFailure(string line)
+        internal static bool IsSubReportFailure(string line)
         {
             string trimmed = line.Trim();
             if (trimmed.StartsWith("EXC", StringComparison.Ordinal)) return true;
+            // A suite-prefixed exception line (CUSTOM EXC:, IMPORT CLEANUP EXC:, CACHE EXC:, CLEANUP EXC:) is
+            // an exception too. Only the bare EXC prefix was matched, so those lines reached the gate's printer
+            // (which matches EXC: anywhere) and not tests/mutate-selftest-guards.py, which grades only lines
+            // whose stripped form starts with FAIL, EXC or SKIP (RA-098).
+            if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, "^[A-Z][A-Z ]* EXC: ")) return true;
             if (trimmed.IndexOf("=FAIL", StringComparison.Ordinal) >= 0) return true;
             return System.Text.RegularExpressions.Regex.IsMatch(trimmed, "^[A-Z][A-Z ]* FAIL( |$)");
         }
@@ -998,6 +1134,19 @@ namespace DesktopAICompanion.FortunesModule
                         ok &= Check(sb, "the import validated no existing pack again (the loader's parses were reused)",
                             FortuneFileImporter.ExistingPacksValidatedForDiagnostics == validatedBefore);
 
+                        // RA-101: a rejected file is NAMED in the status, so the user knows which of the files
+                        // they picked to fix. The name is the user's own screen; the log carries none of it.
+                        string junkSource = Path.Combine(storage.DataDirectory, "not-a-pack.txt");
+                        File.WriteAllText(junkSource, "short\n", utf8);
+                        host.PickedFiles = new List<string> { junkSource };
+                        string rejected = import.InvokeAsync().GetAwaiter().GetResult() ?? "";
+                        host.PickedFiles = new List<string>();
+                        ok &= Check(sb, "a rejected import names the file it refused, by its leaf, beside the reason",
+                            rejected.IndexOf("1 file rejected", StringComparison.Ordinal) >= 0 &&
+                            rejected.IndexOf("(not-a-pack.txt: ", StringComparison.Ordinal) >= 0 &&
+                            rejected.IndexOf(storage.DataDirectory, StringComparison.OrdinalIgnoreCase) < 0 &&
+                            !File.Exists(Path.Combine(folder, "not-a-pack.txt")));
+
                         // Download: the catalog stand-in hands the bytes; the file lands and joins the pool.
                         host.CatalogItems[CatalogKinds.Pack] = new List<CatalogItem>
                         {
@@ -1012,6 +1161,11 @@ namespace DesktopAICompanion.FortunesModule
                             File.Exists(Path.Combine(folder, "extrapack.txt")) &&
                             downloaded.IndexOf("Downloaded 1 pack", StringComparison.Ordinal) >= 0 &&
                             module.PoolContainsForDiagnostics("A catalog fortune line, long enough."));
+                        // RA-124: the content check on the downloaded bytes (a full parse, classifier
+                        // included) runs on a pool thread, not the one that pressed the button.
+                        ok &= Check(sb, "the download's content validation ran on a pool thread, not the one that pressed the button",
+                            module.LastDownloadValidationThreadForDiagnostics != 0 &&
+                            module.LastDownloadValidationThreadForDiagnostics != testThread);
                     }
                 }
                 catch (Exception ex)
@@ -1135,6 +1289,75 @@ namespace DesktopAICompanion.FortunesModule
                 }
             }
             return ok;
+        }
+
+        /// <summary>
+        /// The pane's pool status over an EMPTY pool still carries the refused-pack note (RA-125). The empty
+        /// path returned early with the filter reason alone, on the one path where a refused pack is the whole
+        /// cause: a user who unticked the built-in packs to hear their own, and whose own pack the loader had
+        /// just refused, was told to widen the filters. A damaged tagged pack (one blank line, the F130 shape)
+        /// alone in the folder, the two built-in sources disabled; then, as the WITNESS, the same folder with
+        /// the built-in sources on: a healthy pool that ticks and still names the file. Smart picks off.
+        /// </summary>
+        private static bool EmptyPoolNoteChecks(StringBuilder sb)
+        {
+            bool ok = true;
+            string previousRoot = FortunePaths.RootForDiagnostics;
+            const string rowA = "dadjokes\tfamily\tjoke\tgeneral\t0\tWhy did the scarecrow win an award? He was outstanding in his field.";
+            const string rowB = "dadjokes\tfamily\tjoke\tgeneral\t0\tI used to hate facial hair, but then it grew on me.";
+            using (var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("fortunes-emptypool"))
+            {
+                string folder = Path.Combine(storage.DataDirectory, "fortunes");
+                try
+                {
+                    Directory.CreateDirectory(folder);
+                    File.WriteAllText(Path.Combine(folder, "damaged.txt"), rowA + "\n\n" + rowB, new UTF8Encoding(false));
+                    string status = PoolStatusUnder(storage, "fortunes\ndadjokes");
+                    ok &= Check(sb, "an empty pool whose only pack file was refused blames the filters AND names the skipped file",
+                        status.StartsWith("✗", StringComparison.Ordinal) &&
+                        status.IndexOf("No fortunes match these filters", StringComparison.Ordinal) >= 0 &&
+                        status.IndexOf("1 pack file", StringComparison.Ordinal) >= 0 &&
+                        status.IndexOf("skipped", StringComparison.Ordinal) >= 0);
+                    string healthy = PoolStatusUnder(storage, "");
+                    ok &= Check(sb, "WITNESS a healthy pool over the same folder ticks and still names the skipped file (the cached parse's count)",
+                        healthy.StartsWith("✓", StringComparison.Ordinal) &&
+                        healthy.IndexOf("1 pack file", StringComparison.Ordinal) >= 0);
+                }
+                catch (Exception ex)
+                {
+                    ok &= Check(sb, "the empty-pool note scenario ran (" + ex.GetType().Name + ": " + ex.Message + ")", false);
+                }
+                finally
+                {
+                    FortunePaths.SetRoot(previousRoot);
+                }
+            }
+            return ok;
+        }
+
+        /// <summary>Init a module against <paramref name="storage"/> with smart picks off and the given
+        /// disabled-source list, read its pane's pool status, and shut it down.</summary>
+        private static string PoolStatusUnder(DesktopAICompanion.ModuleKit.Testing.TempModuleStorage storage, string disabledSources)
+        {
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            host.UseStorage("fortunes", storage);
+            DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings settings = host.SettingsFor("fortunes");
+            settings.Set("smartFortunes", "false");
+            settings.Set("disabledSources", disabledSources);
+            settings.Save();
+            var module = new FortunesModule();
+            try
+            {
+                module.Init(host);
+                OptionsPane pane = host.OptionsPanes.Count > 0 ? host.OptionsPanes[0] : null;
+                string status = null;
+                if (pane != null && pane.Load != null) pane.Load().TryGetValue("poolStatus", out status);
+                return status ?? "";
+            }
+            finally
+            {
+                try { module.Shutdown(); } catch { }
+            }
         }
 
         /// <summary>The ids of a stored "disabled" list ('\n'-joined, as the module persists it).</summary>

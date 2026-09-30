@@ -2912,6 +2912,28 @@ Assert-True (
 
 
 
+# ---- lane burn/fortunes ----
+# (invariants added by lane burn/fortunes go directly below this line)
+
+# NO INVISIBLE CHARACTER IS A LITERAL IN THE FORTUNES ENGINE. FortuneProvider.cs states the rule at IsZeroWidth
+# ("By CODE POINT, never as a literal") and carried one exception: LooksTagged stripped a per-line BOM with a
+# raw U+FEFF between single quotes, which reads as '' in an editor, which a whitespace-normalising tool or a
+# copy-paste would have deleted without a visible diff, and which could not change the result for any
+# reachable input (R-029). A file's own BOM at byte 0 is its encoding, not a literal, so the scan starts at the
+# second character; every source file of the module is checked, not only the one that states the rule, and
+# the generated files under obj\ are left out because they are not source.
+$fortunesEngineFiles = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'modules\Fortunes') -Filter '*.cs' -Recurse -File |
+    Where-Object { $_.FullName -notmatch '\\(obj|bin)\\' })
+Assert-True ($fortunesEngineFiles.Count -ge 7) (
+    "the Fortunes module's source files are countable (found $($fortunesEngineFiles.Count))")
+foreach ($fortunesFile in $fortunesEngineFiles) {
+    $fortunesText = Get-Content -LiteralPath $fortunesFile.FullName -Raw -Encoding UTF8
+    Assert-True ($fortunesText.Length -gt 0 -and $fortunesText.IndexOf([char]0xFEFF, 1) -lt 0) (
+        "no U+FEFF literal past the first character in $($fortunesFile.Name) (zero-width characters are spelled by code point)")
+}
+
+
+
 # ---- lane fix/deadcode ----
 # (invariants added by lane fix/deadcode go directly below this line)
 

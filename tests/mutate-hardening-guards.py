@@ -1003,6 +1003,20 @@ CASES = (
     # ---- lane fix/followups ----
 
 
+    # ---- lane burn/fortunes ----
+
+    # R-029: an invisible U+FEFF literal grows back inside the engine's source, the shape LooksTagged carried
+    # (a per-line BOM strip spelled as a raw character between quotes). The scan skips the file's own BOM at
+    # byte 0, so this lands one in a comment mid-file.
+    (
+        "a raw U+FEFF literal grows back inside the Fortunes engine",
+        FORTUNE_PROVIDER,
+        b"        internal static string DecodeScrapedText(string text)\n",
+        b"        internal static string DecodeScrapedText(string text)   // \xef\xbb\xbf\n",
+        "no U+FEFF literal",
+    ),
+
+
     # ---- lane fix/deadcode ----
 
     # F124: the Fortunes module compiles the host's FortunePackLoadPolicy.cs instead of carrying a copy kept

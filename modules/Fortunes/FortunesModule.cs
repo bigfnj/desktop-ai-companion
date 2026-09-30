@@ -53,8 +53,10 @@ namespace DesktopAICompanion.FortunesModule
         // live (F127). The same shape as the smart build's generation.
         private int _engineGeneration;
         private int _lastParseThread;              // diagnostics: the thread the last asynchronous parse ran on
-        // Cancels a pack import in flight when the module shuts down; the importer honours the token
-        // throughout staging and once more before it commits, and rolls back what it had committed.
+        // Cancels a pack import in flight when the module shuts down. The importer honours the token
+        // throughout staging and once more immediately before its commit; once committing, the short atomic
+        // loop runs to completion (it never observes the token again) and rolls back only a commit that
+        // FAILED, so a Shutdown mid-commit finishes the batch rather than reverting it (RA-116).
         private readonly System.Threading.CancellationTokenSource _shutdown =
             new System.Threading.CancellationTokenSource();
         private ICompanion _lastPet;               // most-recently-seen pet, for screen-context capture on the drop path
@@ -85,7 +87,16 @@ namespace DesktopAICompanion.FortunesModule
                                  //         Lane burn/fortunes, same version: "Select all/none" on the pack and
                                  //         genre cards saves at once and rebuilds, so a bulk choice no longer
                                  //         waits on an Apply the host could not arm and no longer outlives a
-                                 //         Cancel (RA-121, RA-122).
+                                 //         Cancel (RA-121, RA-122). The pane's refused-pack note tells damaged
+                                 //         files apart from valid ones the budget had no room for, counts the
+                                 //         files past the cap, and rides the empty-pool status too (R-034,
+                                 //         RA-125); a folder walk that faults is counted, not cached (RA-107);
+                                 //         the source and genre lists are one memo over the folder parse
+                                 //         (RA-108); the importer retries only a fault whose Win32 code says
+                                 //         transient and puts a torn replace's backup back (RA-102, RA-104); a
+                                 //         rejected import names its file (RA-101); a download's content check
+                                 //         leaves the UI thread (RA-124); a tagged text column with whitespace
+                                 //         around it is admitted trimmed, pinned (R-030).
                                  // 1.0.11: exposes SelfTest on the module class, so --module-selftest runs
                                  //         FortuneEngineProbe through the convention the gate and CI use.
                                  // 1.0.10: the smart-index status no longer reads "Indexing N fortunes in the
@@ -1053,7 +1064,8 @@ namespace DesktopAICompanion.FortunesModule
                 // inline in the click handler: every existing pack re-read for the admission count, every
                 // source copied twice and flushed, the folder re-parsed afterwards (F122). Bare await, so
                 // the rebuild and the status resume on the UI thread. The shutdown token stops an import
-                // that outlives the module; the importer rolls back what it had committed.
+                // that outlives the module before its commit; a commit already running finishes, and the
+                // importer rolls back only a commit that failed (RA-116).
                 string directory = FortunePaths.FortunesDir;
                 System.Threading.CancellationToken token = _shutdown.Token;
                 FortuneImportBatchResult result = await Task.Run(delegate
@@ -1069,7 +1081,15 @@ namespace DesktopAICompanion.FortunesModule
                 {
                     string firstError = "";
                     foreach (FortuneImportItemResult item in result.Items)
-                        if (!item.Imported && !string.IsNullOrWhiteSpace(item.Error)) { firstError = Short(item.Error); break; }
+                        if (!item.Imported && !string.IsNullOrWhiteSpace(item.Error))
+                        {
+                            // The file NAME, never its path: this status is the user's own screen, and the
+                            // name is what tells them which of the files they picked to fix (RA-101). The
+                            // diagnostic log gets none of it.
+                            string name = FileNameOnly(item.SourcePath);
+                            firstError = (name.Length > 0 ? name + ": " : "") + Short(item.Error);
+                            break;
+                        }
                     status += " " + result.RejectedCount + (result.RejectedCount == 1 ? " file" : " files") +
                         " rejected" + (firstError.Length > 0 ? " (" + firstError + ")" : "") + ".";
                 }
@@ -1207,9 +1227,15 @@ namespace DesktopAICompanion.FortunesModule
                         // at load with only the skip line to say so, so "Downloaded 1 pack" and "no new source"
                         // were both true (F131). Same validator the importer uses: tagged OR plain, the loader's
                         // own limits, and a refusal is its own cause in the log line.
-                        if (!FortuneProvider.TryValidateCustomPackBytes(bytes, item.Id,
-                                FortunePackLoadPolicy.MaximumEntries, out _, out _))
-                        { failed++; malformed++; continue; }
+                        //
+                        // OFF THE UI THREAD (RA-124). This ran inline between the awaits: a full parse of each
+                        // pack, classifier included, on the WPF thread, once per ticked pack. The validator is
+                        // static and pure over the bytes, so it runs where the rebuild's parse runs. The rebuild
+                        // after the loop parses the new file once more, through the per-file cache's miss for a
+                        // file it has not seen: one file per download, on a pool thread; recorded as the
+                        // residue in BACKLOG.md rather than fixed by seeding the cache from here.
+                        bool loadable = await Task.Run(delegate { return ValidateDownloadedPack(bytes, item.Id); });
+                        if (!loadable) { failed++; malformed++; continue; }
                         // Asynchronous, like the download before it: a synchronous write sat on the UI thread
                         // once per ticked pack (F146; median 23 KB, so the small half of that handler's
                         // stall -- the large half was the re-parse, now off the thread in RebuildEngineAsync).
@@ -1245,6 +1271,24 @@ namespace DesktopAICompanion.FortunesModule
                 Log("pack download failed: " + Categorize(ex));
                 return "✗ Download failed: " + Short(ex.Message);
             }
+        }
+
+        /// <summary>The loader's own admission check over a downloaded pack's bytes, on the pool thread the
+        /// download awaits it on (RA-124); the thread is recorded so the probe can assert where it ran.</summary>
+        private bool ValidateDownloadedPack(byte[] bytes, string id)
+        {
+            System.Threading.Volatile.Write(ref _lastDownloadValidationThread, Environment.CurrentManagedThreadId);
+            int entries;
+            string error;
+            return FortuneProvider.TryValidateCustomPackBytes(bytes, id, FortunePackLoadPolicy.MaximumEntries,
+                out entries, out error);
+        }
+        private int _lastDownloadValidationThread;   // diagnostics: the thread the last download's validation ran on
+
+        /// <summary>Diagnostics: the thread the last downloaded pack was validated on, 0 before any.</summary>
+        internal int LastDownloadValidationThreadForDiagnostics
+        {
+            get { return System.Threading.Volatile.Read(ref _lastDownloadValidationThread); }
         }
 
         /// <summary>
@@ -1321,6 +1365,13 @@ namespace DesktopAICompanion.FortunesModule
             if (string.IsNullOrEmpty(message)) return "";
             message = message.Trim();
             return message.Length > 160 ? message.Substring(0, 160) + "…" : message;
+        }
+
+        /// <summary>The leaf of a path, or "" when it has none or cannot be read as a path.</summary>
+        private static string FileNameOnly(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return "";
+            try { return Path.GetFileName(path) ?? ""; } catch { return ""; }
         }
 
         // ---- diagnostics (IHost.Log) -----------------------------------------------------------------
@@ -1447,7 +1498,11 @@ namespace DesktopAICompanion.FortunesModule
             FortuneProvider provider = _provider;
             if (provider == null) return "✗ The fortune engine isn't loaded.";
             int lines = provider.Count;
-            if (lines == 0) return "✗ " + EmptyPoolReason(AnyPacksInstalled());
+            // The note rides BOTH paths. The empty-pool return used to drop it, on the one path where a
+            // refused pack is the whole cause: a user who had unticked the built-in packs to hear their own,
+            // and whose own pack the loader had just refused, was told to widen the filters (RA-125).
+            FortuneProvider.CustomLoadSkips skips = FortuneProvider.SkippedCustomPackDetail;
+            if (lines == 0) return "✗ " + EmptyPoolReason(AnyPacksInstalled()) + SkippedPacksNote(skips);
 
             int packs = 0, total = 0;
             try
@@ -1461,7 +1516,7 @@ namespace DesktopAICompanion.FortunesModule
             }
             catch { }
 
-            return PoolStatusFor(lines, packs, total) + SkippedPacksNote(FortuneProvider.SkippedCustomPacks);
+            return PoolStatusFor(lines, packs, total) + SkippedPacksNote(skips);
         }
 
         /// <summary>
@@ -1470,13 +1525,43 @@ namespace DesktopAICompanion.FortunesModule
         /// either recited as prose (F130) or dropped with nothing said anywhere, and the pool count beside
         /// this note looked normal both times. Categories and counts live in the diagnostic log; the pane
         /// says how many and where to look.
+        ///
+        /// TWO SENTENCES, because the six categories are two kinds of news. A malformed, unreadable or
+        /// badly named file is the user's to fix; a VALID file the loader had no room for (over the per-file
+        /// or total byte budget, over the row budget, past the file cap) is a budget decision, and telling
+        /// its owner it was "malformed or unreadable" sent them to inspect files that parse fine (R-034).
+        /// Pure, so the wording is asserted.
         /// </summary>
-        internal static string SkippedPacksNote(int skipped)
+        internal static string SkippedPacksNote(FortuneProvider.CustomLoadSkips skips)
         {
+            int skipped = skips == null ? 0 : skips.Total;
             if (skipped <= 0) return "";
-            return " ⚠ " + Invariant(skipped) + " pack file" + (skipped == 1 ? "" : "s") +
-                   " in the fortunes folder " + (skipped == 1 ? "was" : "were") +
-                   " skipped (malformed rows, or a file the loader could not read) — see the diagnostic log.";
+            return " ⚠ " + SkippedPacksSentences(skips) + " See the diagnostic log.";
+        }
+
+        private static string SkippedPacksSentences(FortuneProvider.CustomLoadSkips skips)
+        {
+            int damaged = skips.Damaged;
+            int didNotFit = skips.DidNotFit;
+            var sb = new StringBuilder();
+            if (damaged > 0)
+            {
+                sb.Append(Invariant(damaged)).Append(" pack file").Append(damaged == 1 ? "" : "s")
+                  .Append(" in the fortunes folder ").Append(damaged == 1 ? "was" : "were")
+                  .Append(" skipped (malformed rows, an empty or unreadable file, or an unusable name).");
+            }
+            if (didNotFit > 0)
+            {
+                if (sb.Length > 0) sb.Append(' ');
+                sb.Append(Invariant(didNotFit)).Append(" valid pack file").Append(didNotFit == 1 ? "" : "s")
+                  .Append(" did not fit the loader's budget (")
+                  .Append(Invariant(FortunePackLoadPolicy.MaximumFileBytes / (1024 * 1024))).Append(" MB per file, ")
+                  .Append(Invariant(FortunePackLoadPolicy.MaximumTotalBytes / (1024 * 1024))).Append(" MB and ")
+                  .Append(FortunePackLoadPolicy.MaximumEntries.ToString("N0", System.Globalization.CultureInfo.InvariantCulture))
+                  .Append(" lines in total, ").Append(Invariant(FortunePackLoadPolicy.MaximumFiles))
+                  .Append(" files) — disable or remove some packs.");
+            }
+            return sb.ToString();
         }
 
         /// <summary>
