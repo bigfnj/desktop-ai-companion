@@ -166,6 +166,23 @@ namespace DesktopAICompanion.Ai
             catch { return Task.CompletedTask; }
         }
 
+        /// <summary>
+        /// Make the live brain resolve its OCR engine afresh on its next read, with the path now configured;
+        /// gate-free and best-effort like <see cref="RefreshInventoryAsync"/>. "Test OCR" and "Choose OCR
+        /// engine..." call it: until 2026-09-30 they reset the cache of a throwaway brain and the live one kept
+        /// the engine it had resolved when it was built (R-015).
+        /// </summary>
+        public void ForgetOcrResolution(string configuredTesseractPath)
+        {
+            AiBrain brain = _brain;
+            if (brain == null) return;
+            try { brain.ForgetTesseractResolution(configuredTesseractPath); } catch { }
+        }
+
+        /// <summary>The brain the session holds right now, for the self-test only (it asserts what a pane action
+        /// does to it). A reference read, no gate.</summary>
+        internal AiBrain LiveBrainForDiagnostics { get { return _brain; } }
+
         public async Task<BrainResponse> AskAsync(
             ScreenContext captureContext,
             string petZone,

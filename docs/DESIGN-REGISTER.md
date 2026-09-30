@@ -619,7 +619,9 @@ that fingerprint would have to name every such field and would silently stop an 
 it missed one; the rebuild is cheap (a new HttpClient, a listing) and is kept as the one path every settings
 change takes. What cost 5-11 s was the eviction on retire, and that is now gated on `BackendFingerprint`, which
 names only what decides which model is resident where. Under "unload" the eviction on retire stays, because the
-model is gone after each remark anyway and the unload is free.
+model is gone after each remark anyway and the unload is free. Round 2 (R-011, 2026-09-30): UseVision joined the
+fingerprint, because it decides which of the two models is resident; a vision toggle under "keep" now costs one
+cold reload, which is the eviction it needs.
 
 **The repeat-guard retry keeps its possible second cold load under "unload" residency (F070, 2026-09-29).** The
 audition, a burst of five requests the module itself issues, now holds its model for a minute between samples
@@ -656,6 +658,32 @@ in a warm loop. Under the measurement rule this campaign works to, a warm-loop d
 so neither the code comment nor the disposition carries it. The claim is that no codec pass runs on the ask path,
 which the self-test asserts through two route counters, and that the PNG route survives as the fallback for a copy
 that throws rather than being deleted.
+
+**A model listing is bounded at thirty seconds, and the transition re-list stays on the ask path (R-014,
+2026-09-30).** The F071 re-list put a second network call to a possibly hung cloud primary on the ask path, under
+the chat deadline F105 had just taken off the probe. The listing now runs under its own bound, thirty seconds:
+sized for the 8 MiB listing cap over a slow link rather than for a reply (OpenRouter's 760 KB catalogue lists in
+seconds), and above the 10 s probe bound because a listing is a body, not a handshake. The audit's alternative,
+not awaiting the re-list, was not taken: the inventory it feeds decides the advisory spoken BEFORE the capture
+(F072), and an un-awaited listing would have the first ask after a transition proceed on the old inventory. An
+empty listing, which is what a tripped bound yields, keeps the previous inventory rather than replacing it.
+
+**The ask trusts a reported blind model, the dropdown does not, and the substitute is never a reported-blind
+model (R-020, 2026-09-30).** F102 hardened the ask's gate on a reported `Vision == false` while the dropdown kept
+the union, and the register never reconciled the two with the 2026-09-10 measurement that Ollama's /api/tags
+under-reported Gemma. Re-measured 2026-09-30 on this box (Ollama 0.34.4, /api/tags and /api/show, neither loads
+a model): the two agree for gemma3:4b, gemma4:12b and gemma4:26b, so the under-report belongs to older servers.
+The policies now differ on purpose and say so: the dropdown keeps the union because an older server may still be
+in use and a hidden model is the worse failure; the ask trusts the report because a blind model on the vision
+path fails silently, and a current server reports right. The substitution loop applies the gate's rule, so the
+one inconsistency that was reachable, an advisory naming the model it had just rejected, is gone.
+
+**Substitution is a local courtesy, never a cloud purchase (R-022, 2026-09-30).** BUG-002's first-listed
+substitution was written for a local Ollama, where the first listed model is free. F103 made the composite
+enumerable and so extended it to the default cloud shape, where the substitute is billed on a model the user
+never chose, the outcome F101 had already called a defect for the blank id. The brain now sets the policy from
+its primary slot: local substitutes, cloud does not, and a cloud id the provider lacks ends the turn on an
+advisory naming the host, once. Enumeration stays, because it is what makes that advisory fire at all.
 
 #### fix/fortunes
 

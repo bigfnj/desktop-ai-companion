@@ -43,6 +43,10 @@ EXE = os.path.join(BIN, "DesktopAICompanion.exe")
 FORTUNES_DLL = os.path.join(BIN, "modules", "fortunes", "Fortunes.dll")
 
 HOST_CSPROJ = os.path.join(REPO, "src", "DesktopAICompanion_Portable.csproj")
+# The fixture module --module-host-selftest loads for its rollback and finder checks. Built with the fixed
+# set since 2026-09-30: a merge that changed it (fix/host) left the pre-merge DLL in the build folder and
+# the baseline went red on F344's rollback checks for a defect that was not in the tree.
+TESTMODULE_CSPROJ = os.path.join(REPO, "modules", "TestModule", "TestModule.csproj")
 FORTUNES_CSPROJ = os.path.join(REPO, "modules", "Fortunes", "Fortunes.csproj")
 
 HARD = os.path.join(REPO, "src", "dotNet", "RuntimeHardeningSelfTest.cs")
@@ -1481,6 +1485,81 @@ CASES = (
      "a second audition press while one is running is refused with an explanation"),
 
 
+    # ---- round 2 (2026-09-30, early regression review) ----
+
+    # R-011: a vision toggle no longer changes the fingerprint (the vision model stays resident under "keep").
+    ("aibrain: a vision toggle no longer changes the fingerprint",
+     os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+     b'                s.UseVision ? "vision" : "text",',
+     b'                s.UseVision ? "vision" : "vision",',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a vision toggle changes the fingerprint"),
+
+    # R-014: the cloud listing borrows the chat deadline again.
+    ("aibrain: the cloud listing borrows the chat deadline again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "OpenAiCompatBackend.cs"),
+     b"                        _listingDeadline,\n                        ct,\n                        AiEndpointPolicy.MaximumListingResponseBytes",
+     b"                        _deadline,\n                        ct,\n                        AiEndpointPolicy.MaximumListingResponseBytes",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a cloud listing that hangs is bounded by the listing deadline"),
+
+    # R-014: the local listing borrows the chat deadline again.
+    ("aibrain: the local listing borrows the chat deadline again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "OllamaClient.cs"),
+     b"                        _listingDeadline,\n                        ct,\n                        AiEndpointPolicy.MaximumListingResponseBytes",
+     b"                        _deadline,\n                        ct,\n                        AiEndpointPolicy.MaximumListingResponseBytes",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the local listing is bounded the same way"),
+
+    # R-014: an empty re-list replaces a good inventory again.
+    ("aibrain: an empty re-list replaces a good inventory again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiBrain.cs"),
+     b"                if (listed.Count == 0 && _available != null)",
+     b"                if (listed.Count == 0 && _available != null && _available == null)",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an empty re-list (a bound that tripped) keeps the previous inventory"),
+
+    # R-015: Test OCR no longer reaches the live brain's cache.
+    ("aibrain: Test OCR no longer reaches the live brain's cache",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiSessionManager.cs"),
+     b"            try { brain.ForgetTesseractResolution(configuredTesseractPath); } catch { }",
+     b"            try { if (brain == null) brain.ForgetTesseractResolution(configuredTesseractPath); } catch { }",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the Test OCR button makes the LIVE brain resolve its engine afresh"),
+
+    # R-020: the substitution loop applies the union again and picks a reported-blind model with a marker.
+    ("aibrain: the substitution loop picks a reported-blind model again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiSettings.cs"),
+     b"                if (needVision && (listing.Vision == false || !IsVisionCapable(listing.Id, listing.Vision))) continue;",
+     b"                if (needVision && !IsVisionCapable(listing.Id, listing.Vision)) continue;",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a reported-blind model is never the substitute"),
+
+    # R-022: CreateBrain leaves substitution on for a cloud primary again.
+    ("aibrain: CreateBrain leaves substitution on for a cloud primary again",
+     os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+     b"            brain.SubstituteMissingModel = IsLocalSlot(s);",
+     b"            brain.SubstituteMissingModel = IsLocalSlot(s) || !IsLocalSlot(s);",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "CreateBrain turns substitution off for a cloud primary"),
+
+    # R-022: ChooseModel ignores the substitution policy again.
+    ("aibrain: ChooseModel ignores the substitution policy again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiSettings.cs"),
+     b"            if (!allowSubstitution)",
+     b"            if (!allowSubstitution && allowSubstitution)",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a cloud primary never substitutes"),
+
+
     # ---- lane fix/fortunes ----
 
     # Every case runs the module's own SelfTest through the convention flag, which is where the probe's
@@ -2007,7 +2086,7 @@ def build_all():
     was not, and the next self-test run against that build folder failed on the very assertion the case
     had just proved. Building the union also makes the baseline trustworthy for those flags."""
     fixed = [HOST_CSPROJ, FORTUNES_CSPROJ, BLINKINGLED_CSPROJ, PETSTUDIO_CSPROJ, REMEMBRANCE_CSPROJ,
-             CORETESTS_CSPROJ]
+             CORETESTS_CSPROJ, TESTMODULE_CSPROJ]
     for csproj in fixed + sorted(set(c[4] for c in CASES) - set(fixed)):
         ok, out = build(csproj)
         if not ok:

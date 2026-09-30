@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Threading;
+using System.Threading.Tasks;
 using DesktopAICompanion.Ai;
 
 namespace DesktopAICompanion.AiBrainModule
@@ -26,6 +28,8 @@ namespace DesktopAICompanion.AiBrainModule
             ok &= CheckAnsweredStatusDescriptions(sb);
             ok &= CheckListingResponseCap(sb);
             ok &= CheckFailureLineFields(sb);
+            ok &= CheckListingIsBounded(sb);
+            ok &= CheckCloudPrimaryNeverSubstitutes(sb);
             return ok;
         }
 
@@ -153,6 +157,27 @@ namespace DesktopAICompanion.AiBrainModule
             ok &= Check(sb, "WITNESS a text ask on the same list uses the configured model without a second thought",
                 AiModelPolicy.ChooseModel("acme/seer-9000", v1List, false).Reason == "configured");
 
+            // R-020: the substitution loop applies the gate's own rule, so an advisory can never name the model it
+            // rejected, and a reported-blind model is never the substitute even when its name carries a marker. The
+            // fixture is what an older Ollama's /api/tags reported for Gemma on 2026-09-10 (0.34.4 reports vision).
+            var oldTags = new List<ModelListing>
+            {
+                new ModelListing("gemma3:4b", false),
+                new ModelListing("gemma3:12b", false),
+                new ModelListing("llava:13b", true),
+            };
+            ModelChoice consistent = AiModelPolicy.ChooseModel("gemma3:4b", oldTags, true);
+            ok &= Check(sb, "a reported-blind model is never the substitute, marker or not: the loop applies the gate's rule (R-020)",
+                consistent.Reason == "substituted" && consistent.Model == "llava:13b" &&
+                consistent.Advisory != null && consistent.Advisory.IndexOf("using llava:13b", StringComparison.Ordinal) >= 0);
+            var onlyBlind = new List<ModelListing> { new ModelListing("gemma3:4b", false), new ModelListing("gemma3:12b", false) };
+            ModelChoice noSelf = AiModelPolicy.ChooseModel("gemma3:4b", onlyBlind, true);
+            ok &= Check(sb, "an advisory can never name the model it rejected: with only reported-blind listings the answer is none-usable",
+                !noSelf.Usable && noSelf.Reason == "none-usable");
+            var unreportedMarker = new List<ModelListing> { new ModelListing("gemma3:4b", false), new ModelListing("acme/gemma3-vl", null) };
+            ok &= Check(sb, "WITNESS a marker-matching model with NO report is still the substitute (the union where nothing was reported)",
+                AiModelPolicy.ChooseModel("gemma3:4b", unreportedMarker, true).Model == "acme/gemma3-vl");
+
             // The lone local /v1 model: one file, no marker, nothing else to fall back to. Used, not refused.
             var oneFile = new List<ModelListing> { new ModelListing("Local-Seer-24B-Q4_K_M.gguf", null) };
             ok &= Check(sb, "a lone local /v1 model with no marker is usable for vision rather than refused as none-usable",
@@ -173,6 +198,132 @@ namespace DesktopAICompanion.AiBrainModule
                 blank.Advisory != null && blank.Advisory.IndexOf("Pick one", StringComparison.Ordinal) >= 0);
             ok &= Check(sb, "...and the same with an unknown inventory",
                 AiModelPolicy.ChooseModel("", null, true).Reason == "none-configured");
+            return ok;
+        }
+
+        /// <summary>
+        /// R-014. A model listing runs under its own bound, not the chat deadline, and an empty re-list never replaces
+        /// a good inventory.
+        /// </summary>
+        private static bool CheckListingIsBounded(StringBuilder sb)
+        {
+            bool ok = true;
+            ok &= Check(sb, "the listing bound is its own: above the 10 s probe bound (a listing is a body, not a handshake) and well under a 120 s chat deadline",
+                AiEndpointPolicy.ListingDeadline > AiEndpointPolicy.AvailabilityProbeDeadline &&
+                AiEndpointPolicy.ListingDeadline < TimeSpan.FromSeconds(120));
+            using (var hung = new BlockingHeadersHandler())
+            using (var cloud = new OpenAiCompatBackend("https://openrouter.ai/api/v1", "", TimeSpan.FromSeconds(5), hung, null, TimeSpan.FromMilliseconds(200)))
+            {
+                var clock = Stopwatch.StartNew();
+                IReadOnlyList<ModelListing> listed = cloud.ListModelsAsync(CancellationToken.None).GetAwaiter().GetResult();
+                ok &= Check(sb, "a cloud listing that hangs is bounded by the listing deadline, not by the 5 s chat deadline it used to borrow (R-014)",
+                    listed != null && listed.Count == 0 && clock.Elapsed < TimeSpan.FromSeconds(3));
+            }
+            using (var hung = new BlockingHeadersHandler())
+            using (var ollama = new OllamaClient("http://127.0.0.1:11434", TimeSpan.FromSeconds(5), null, hung,
+                TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(100),
+                delegate { return false; }, TimeSpan.FromMilliseconds(200)))
+            {
+                var clock = Stopwatch.StartNew();
+                IReadOnlyList<ModelListing> listed = ollama.ListModelsAsync(CancellationToken.None).GetAwaiter().GetResult();
+                ok &= Check(sb, "the local listing is bounded the same way",
+                    listed != null && listed.Count == 0 && clock.Elapsed < TimeSpan.FromSeconds(3));
+            }
+            using (var answers = new FixedJsonResponseHandler("{\"data\":[{\"id\":\"openai/gpt-4o-mini\"}]}"))
+            using (var cloud = new OpenAiCompatBackend("https://openrouter.ai/api/v1", "", TimeSpan.FromSeconds(5), answers, null, TimeSpan.FromMilliseconds(200)))
+            {
+                ok &= Check(sb, "WITNESS a listing that answers lists under the same bound",
+                    cloud.ListModelsAsync(CancellationToken.None).GetAwaiter().GetResult().Count == 1);
+            }
+
+            // An empty re-list, which is what a tripped bound yields, keeps what the brain knew.
+            var backend = new RecordingBackend("{\"text\":\"hi\",\"emotion\":\"happy\"}", true);
+            using (var brain = new AiBrain(backend, new AiSettings { TextModel = "gemma3:4b" }))
+            {
+                IReadOnlyList<ModelListing> next = new List<ModelListing> { new ModelListing("gemma3:4b", true) };
+                brain.ModelLister = delegate(CancellationToken ct) { return Task.FromResult(next); };
+                brain.RefreshInventoryAsync(CancellationToken.None).GetAwaiter().GetResult();
+                next = new List<ModelListing>();
+                brain.RefreshInventoryAsync(CancellationToken.None).GetAwaiter().GetResult();
+                ModelChoice choice;
+                BrainResponse advisory;
+                brain.ResolveBeforeCapture(false, out choice, out advisory);
+                ok &= Check(sb, "an empty re-list (a bound that tripped) keeps the previous inventory instead of replacing it",
+                    choice.Reason == "configured");
+            }
+            using (var brain = new AiBrain(backend, new AiSettings { TextModel = "gemma3:4b" }))
+            {
+                brain.ModelLister = delegate(CancellationToken ct)
+                {
+                    return Task.FromResult((IReadOnlyList<ModelListing>)new List<ModelListing>());
+                };
+                brain.RefreshInventoryAsync(CancellationToken.None).GetAwaiter().GetResult();
+                ModelChoice choice;
+                BrainResponse advisory;
+                brain.ResolveBeforeCapture(false, out choice, out advisory);
+                ok &= Check(sb, "WITNESS a first listing that is empty leaves the inventory unknown",
+                    choice.Reason == "model-list-unknown");
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// R-022. Substitution is a local courtesy: on a cloud primary a configured id the provider does not offer ends
+        /// the turn on an advisory naming the host, and nothing the user did not choose is billed.
+        /// </summary>
+        private static bool CheckCloudPrimaryNeverSubstitutes(StringBuilder sb)
+        {
+            bool ok = true;
+            var v1 = new List<ModelListing>
+            {
+                new ModelListing("openai/gpt-4o-mini", null),
+                new ModelListing("anthropic/claude-sonnet-5.5", null),
+            };
+            ModelChoice cloud = AiModelPolicy.ChooseModel("openai/gpt-4.1-mini", v1, false, false, "openrouter.ai->localhost");
+            ok &= Check(sb, "a cloud primary never substitutes: a configured id the provider does not offer is 'none-offered' with an advisory naming the host (R-022)",
+                !cloud.Usable && cloud.Reason == "none-offered" && cloud.Advisory != null &&
+                cloud.Advisory.IndexOf("openrouter.ai", StringComparison.Ordinal) >= 0 &&
+                cloud.Advisory.IndexOf("Pick a model", StringComparison.Ordinal) >= 0);
+            ok &= Check(sb, "WITNESS the same inventory on a local backend substitutes, as BUG-002 intended",
+                AiModelPolicy.ChooseModel("openai/gpt-4.1-mini", v1, false).Reason == "substituted");
+            ok &= Check(sb, "WITNESS a configured id the provider DOES offer is used as configured on a cloud primary",
+                AiModelPolicy.ChooseModel("openai/gpt-4o-mini", v1, false, false, "openrouter.ai").Reason == "configured");
+
+            // The policy is set from the primary slot by the module's own factory (construction touches no network).
+            var settings = new AiSettings
+            {
+                Provider = "openai",
+                OpenAiBaseUrl = "https://api.openai.com/v1",
+                CloudDataConsent = true,
+                CloudTextModel = "gpt-4.1-mini",
+                UseLocalFallback = true,
+            };
+            using (AiBrain composite = AiBrainModule.CreateBrain(settings))
+                ok &= Check(sb, "CreateBrain turns substitution off for a cloud primary with the local fallback", !composite.SubstituteMissingModel);
+            settings.UseLocalFallback = false;
+            using (AiBrain cloudOnly = AiBrainModule.CreateBrain(settings))
+                ok &= Check(sb, "...and for a cloud primary without it", !cloudOnly.SubstituteMissingModel);
+            using (AiBrain local = AiBrainModule.CreateBrain(new AiSettings()))
+                ok &= Check(sb, "WITNESS CreateBrain leaves substitution on for the local slot", local.SubstituteMissingModel);
+
+            // Through the brain: the turn ends on the advisory before any capture, once, and the backend is never asked.
+            var backend = new RecordingBackend("{\"text\":\"hi\",\"emotion\":\"happy\"}", true);
+            using (var brain = new AiBrain(backend, new AiSettings { TextModel = "openai/gpt-4.1-mini" }))
+            {
+                brain.SubstituteMissingModel = false;
+                brain.BackendHostDescription = "openrouter.ai->localhost";
+                brain.ModelLister = delegate(CancellationToken ct) { return Task.FromResult((IReadOnlyList<ModelListing>)v1); };
+                brain.PrepareAsync(CancellationToken.None).GetAwaiter().GetResult();
+                ModelChoice choice;
+                BrainResponse advisory;
+                bool proceed = brain.ResolveBeforeCapture(false, out choice, out advisory);
+                ok &= Check(sb, "on a cloud primary the turn ends on the advisory before any capture, and the backend is never asked",
+                    !proceed && advisory != null && choice.Reason == "none-offered" && backend.ChatCalls == 0 &&
+                    advisory.Text.IndexOf("openrouter.ai", StringComparison.Ordinal) >= 0);
+                bool again = brain.ResolveBeforeCapture(false, out choice, out advisory);
+                ok &= Check(sb, "WITNESS the advisory is spoken once; later asks end silently until the pane is fixed",
+                    !again && advisory == null);
+            }
             return ok;
         }
 

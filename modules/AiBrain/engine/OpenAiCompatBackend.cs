@@ -26,6 +26,8 @@ namespace DesktopAICompanion.Ai
         private readonly TimeSpan _deadline;
         /// <summary>The bound on the reachability probe, shorter than the chat deadline it used to borrow (F105).</summary>
         private readonly TimeSpan _probeDeadline;
+        /// <summary>The bound on a model listing, shorter than the chat deadline it used to borrow (R-014).</summary>
+        private readonly TimeSpan _listingDeadline;
 
         public OpenAiCompatBackend(string baseUrl, string apiKey, TimeSpan timeout)
         {
@@ -33,6 +35,7 @@ namespace DesktopAICompanion.Ai
             _key  = apiKey ?? "";
             _deadline = AiEndpointPolicy.ValidateDeadline(timeout, "timeout");
             _probeDeadline = AiEndpointPolicy.Shorter(_deadline, AiEndpointPolicy.AvailabilityProbeDeadline);
+            _listingDeadline = AiEndpointPolicy.Shorter(_deadline, AiEndpointPolicy.ListingDeadline);
             _http = new HttpClient(AiEndpointPolicy.CreateNoRedirectHandler())
             {
                 Timeout = Timeout.InfiniteTimeSpan
@@ -47,7 +50,8 @@ namespace DesktopAICompanion.Ai
         /// HttpClientHandler, and optionally a probe deadline of its own. Mirrors OllamaClient's diagnostic
         /// constructor.</summary>
         internal OpenAiCompatBackend(
-            string baseUrl, string apiKey, TimeSpan timeout, HttpMessageHandler handler, TimeSpan? probeDeadline = null)
+            string baseUrl, string apiKey, TimeSpan timeout, HttpMessageHandler handler, TimeSpan? probeDeadline = null,
+            TimeSpan? listingDeadline = null)
         {
             if (handler == null) throw new ArgumentNullException("handler");
             _base = AiEndpointPolicy.NormalizeOrThrow(baseUrl, "baseUrl");
@@ -56,6 +60,11 @@ namespace DesktopAICompanion.Ai
             _probeDeadline = probeDeadline.HasValue
                 ? AiEndpointPolicy.ValidateDeadline(probeDeadline.Value, "probeDeadline")
                 : AiEndpointPolicy.Shorter(_deadline, AiEndpointPolicy.AvailabilityProbeDeadline);
+            _listingDeadline = AiEndpointPolicy.Shorter(
+                _deadline,
+                listingDeadline.HasValue
+                    ? AiEndpointPolicy.ValidateDeadline(listingDeadline.Value, "listingDeadline")
+                    : AiEndpointPolicy.ListingDeadline);
             _http = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };
             _http.DefaultRequestHeaders.Add("User-Agent", "DesktopAICompanion");
             _http.DefaultRequestHeaders.Add("HTTP-Referer", "https://github.com/bigfnj/desktop-ai-companion");
@@ -106,10 +115,13 @@ namespace DesktopAICompanion.Ai
                     // The LISTING cap, not the reply cap: a provider's catalogue is a flat list that only grows,
                     // and OpenRouter's stood at 72.5% of the 1 MiB reply cap on 2026-09-29; crossing it would
                     // have turned this into an empty list reported as "No models found" (F078).
+                    // Under the LISTING bound, not the chat deadline: this runs on the ask path on a transition to
+                    // reachable (F071), where a hung cloud primary used to hold the remark for the user's whole
+                    // timeout (R-014).
                     string json = await AiEndpointPolicy.SendAndReadResponseStringAsync(
                         _http,
                         request,
-                        _deadline,
+                        _listingDeadline,
                         ct,
                         AiEndpointPolicy.MaximumListingResponseBytes).ConfigureAwait(false);
                     JsonNode obj = JsonNode.Parse(json);

@@ -54,7 +54,8 @@ namespace DesktopAICompanion.Ai
         public string Advisory { get; private set; }
 
         /// <summary>One of: configured, configured-unverified-vision (listed, no capability report, no name
-        /// marker; used as is), substituted, none-usable, none-configured (no id set at all), model-list-unknown.</summary>
+        /// marker; used as is), substituted, none-usable, none-configured (no id set at all), none-offered (a cloud
+        /// primary lacks the configured id and never substitutes, R-022), model-list-unknown.</summary>
         public string Reason { get; private set; }
 
         public bool Usable { get { return !string.IsNullOrWhiteSpace(Model); } }
