@@ -100,7 +100,11 @@ namespace DesktopAICompanion.AiBrainModule
         {
             Id = "aibrain",
             Name = "AI Brain",
-            Version = "1.1.13",  // 1.1.13: the emotion reaction reached 18/54, 35/54, 8/54, 8/54 and
+            Version = "1.1.14",  // 1.1.14: the 2026-09-29 audit campaign, lane fix/aibrain. Every item is
+                                 //         dispositioned in BACKLOG.md and the decisions are recorded under
+                                 //         `#### fix/aibrain` in docs/DESIGN-REGISTER.md; the changelog
+                                 //         here is extended as each batch lands.
+                                 // 1.1.13: the emotion reaction reached 18/54, 35/54, 8/54, 8/54 and
                                  //         8/54 companions. "thinking" fires on EVERY ask, so on 46 of
                                  //         54 it silently did nothing -- the eSheep-era names it used
                                  //         are absent from the 32 converted shimeji. Original names
