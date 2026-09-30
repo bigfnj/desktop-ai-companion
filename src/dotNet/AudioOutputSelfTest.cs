@@ -9,8 +9,10 @@ namespace DesktopAICompanion
     /// --audio-selftest: the module-audio path, asserted WITHOUT an audio device.
     ///
     /// Everything here is deliberately device-independent, because the interesting parts are the decode seam
-    /// and the barge-in ramp, and CI runners have no playback device. Opening DirectSound is not covered and
-    /// cannot be: that is what the live smoke script is for.
+    /// and the barge-in ramp, and CI runners have no playback device. Playing through a REAL device is not
+    /// covered and cannot be: that is what the live smoke script is for. One case does open DirectSound, on a
+    /// device that does not exist, because that failure is the one DirectSound reports identically on every
+    /// box (see OutputFailureIsObserved).
     ///
     /// Why this exists at all: PlaySound's contract is "false means nothing will be heard", and every caller
     /// is expected to fall back to a bubble on false. That makes the difference between "returned null" and
@@ -29,8 +31,10 @@ namespace DesktopAICompanion
             try
             {
                 ok &= DecodesRealAudio(sb);
+                ok &= DecodesAnMp3(sb);
                 ok &= RejectsRubbish(sb);
                 ok &= FadeEndsTheInput(sb);
+                ok &= OutputFailureIsObserved(sb);
                 ok &= NotificationSoundSettingRoundTrips(sb);
                 ok &= NotificationGatesInOrder(sb);
                 ok &= NotificationPicksAreValidatedAtPickTime(sb);
@@ -78,6 +82,87 @@ namespace DesktopAICompanion
             ok &= Check(sb, "44100 stereo WAV decodes to its own length",
                 decodedStereo != null && Math.Abs(decodedStereo.Length - stereo.Length) <= 4);
 
+            return ok;
+        }
+
+        /// <summary>
+        /// The MP3 branch of DecodeModuleAudio, which no fixture here ever entered: every earlier case was a
+        /// PCM WAV or junk, so the ACM path a Reminder chime takes ran under --audio-selftest exactly never
+        /// (F246). The fixture is the structurally valid MPEG-frame clip SecuritySelfTest already carries;
+        /// what is asserted is that the branch decodes and returns samples at the mixer format, and that the
+        /// decode does not leave the reader's ACM stream to the finalizer -- the latter observed through
+        /// repetition, since a leaked acmStreamOpen per call is invisible to any single-call assertion.
+        /// </summary>
+        private static bool DecodesAnMp3(StringBuilder sb)
+        {
+            bool ok = true;
+            byte[] mp3 = SecuritySelfTest.ValidMp3Fixture();
+            string sniff;
+            ok &= Check(sb, "the MP3 fixture sniffs as an MP3 (frame sync)", Mp3Format.LooksLikeMp3(mp3, out sniff));
+            float[] decoded = AudioOutput.DecodeModuleAudio(mp3);
+            // The fixture is a handful of near-silent frames, so only the shape is claimed: it decoded, and
+            // it came out interleaved stereo (an odd length would mean the upmix did not run).
+            ok &= Check(sb, "an MP3 decodes through the ACM branch (" + (decoded != null ? decoded.Length : -1) + " samples)",
+                decoded != null && decoded.Length > 0 && decoded.Length % 2 == 0);
+            // Twenty decodes in a row. With the reader left undisposed each one held an ACM stream and two
+            // pinned buffers until a collection; a hundred chimes over a day did the same. This cannot see
+            // the handle count directly, but a decode that fails part way through the batch is what an
+            // exhausted or wedged ACM would look like, and the batch is cheap.
+            bool allDecoded = true;
+            for (int i = 0; i < 20 && allDecoded; i++)
+                allDecoded = AudioOutput.DecodeModuleAudio(mp3) != null;
+            ok &= Check(sb, "twenty MP3 decodes in a row all succeed (the reader is disposed per call)", allDecoded);
+            return ok;
+        }
+
+        /// <summary>
+        /// The one device failure DirectSound ever reports arrives asynchronously, through PlaybackStopped,
+        /// after TryStart has already returned true (F245). A nonexistent device GUID is the deterministic way
+        /// to provoke it: DirectSoundCreate answers DSERR_NODRIVER on the playback thread on every box,
+        /// including one with no audio device at all, which is what makes this assertable in a gate. The wait
+        /// is bounded and pumps: NAudio posts the event through the SynchronizationContext the output was
+        /// built on when there is one, and fires it on its playback thread when there is not.
+        /// </summary>
+        private static bool OutputFailureIsObserved(StringBuilder sb)
+        {
+            bool ok = true;
+            using (var output = new AudioOutput())
+            {
+                Guid bogus = Guid.NewGuid();
+                output.SetDevice(bogus.ToString());
+                output.PlayTestTone();
+                // The premise, and the reason a synchronous check could never see this: DirectSound opens
+                // the device on its own thread, so the output either looks started on the bogus device or
+                // has already been torn down by the failure that followed. Both prove the attempt ran.
+                bool attempted = output.RunningDevice == bogus || output.ObservedOutputFailures > 0;
+                ok &= Check(sb, "WITNESS opening a nonexistent output device was attempted", attempted);
+
+                var waited = System.Diagnostics.Stopwatch.StartNew();
+                while (output.ObservedOutputFailures == 0 && waited.ElapsedMilliseconds < 5000)
+                {
+                    try { System.Windows.Forms.Application.DoEvents(); } catch { }
+                    System.Threading.Thread.Sleep(20);
+                }
+                ok &= Check(sb, "a nonexistent output device's asynchronous failure is observed (after "
+                    + waited.ElapsedMilliseconds + " ms)", output.ObservedOutputFailures > 0);
+                ok &= Check(sb, "...the dead output is torn down rather than left 'started'",
+                    !output.IsOutputRunning);
+                ok &= Check(sb, "...and the chosen device is remembered as failed, so the next sound goes to the default",
+                    output.ChosenDeviceFailed);
+
+                // Where the NEXT sound would go. Not played, so the dev box does not beep during the gate;
+                // on a runner with no device the default fails the same asynchronous way and that is fine
+                // too. What must not happen is re-opening the device that just died.
+                output.EnsureStartedForTest();
+                ok &= Check(sb, "the next sound does not re-open the device that just died",
+                    output.RunningDevice != bogus);
+
+                // WITNESS: a device change from Preferences is a fresh chance whatever happened before,
+                // including re-applying the very same device.
+                output.SetDevice(bogus.ToString());
+                ok &= Check(sb, "WITNESS re-applying a device from Preferences clears the failure latch",
+                    !output.ChosenDeviceFailed);
+            }
             return ok;
         }
 

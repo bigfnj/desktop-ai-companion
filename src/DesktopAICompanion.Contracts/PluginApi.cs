@@ -766,6 +766,11 @@ namespace DesktopAICompanion.Modules
         //
         // The motivating case is a local LLM: several GB of VRAM claimed while a game already owns it can take
         // the game down, so a module should decline the work and fall back to something free.
+        //
+        // UI thread, like every service here. "Cached" means cached on the companions' own scan cycle:
+        // when nothing has scanned for two seconds (no companion on screen, or startup) a read RUNS the
+        // scan itself, about 0.6 ms of window enumeration. The host raises FullscreenChanged on the UI
+        // thread even if a caller breaks the thread rule, so a handler never runs on another module's worker.
         bool IsFullscreenActive { get; }
 
         // Raised when IsFullscreenActive changes, with the new value. Lets a module react to a game STARTING

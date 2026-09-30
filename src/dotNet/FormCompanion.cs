@@ -1070,7 +1070,12 @@ namespace DesktopAICompanion
                     gripRect.Right <= gripRect.Left || gripRect.Bottom <= gripRect.Top)
                 {
                     // The window is gone, hidden, or reports a degenerate rect (minimised windows do).
+                    // bNewAnimation with it, as the climbed-off-the-bottom release below already does:
+                    // ReleaseWindowGrip swaps CurrentAnimation to the fall but renders nothing, so without
+                    // it the tick finished showing the old climbing pose for one more step, at the old
+                    // interval, moving by the old velocity (F263).
                     ReleaseWindowGrip(true);
+                    bNewAnimation = true;
                 }
                 else if (windowGrip == WindowGrip.Bottom)
                 {
@@ -1143,8 +1148,9 @@ namespace DesktopAICompanion
                                 // Not anymore on the window. A pet that was STANDING on it simply stops
                                 // tracking it and gravity takes over on the next tick -- but a pet that was
                                 // GRIPPING has no gravity node, so leaving it in that animation strands it
-                                // hanging in mid-air where the window edge used to be.
-                                if (windowGrip != WindowGrip.None) ReleaseWindowGrip(true);
+                                // hanging in mid-air where the window edge used to be. The release starts
+                                // the fall animation, so the tick has to finish as a new animation (F263).
+                                if (windowGrip != WindowGrip.None) { ReleaseWindowGrip(true); bNewAnimation = true; }
                                 else hwndWindow = (IntPtr)0;
                             }
                         }
@@ -1193,8 +1199,9 @@ namespace DesktopAICompanion
                                 // Not anymore on the window. A pet that was STANDING on it simply stops
                                 // tracking it and gravity takes over on the next tick -- but a pet that was
                                 // GRIPPING has no gravity node, so leaving it in that animation strands it
-                                // hanging in mid-air where the window edge used to be.
-                                if (windowGrip != WindowGrip.None) ReleaseWindowGrip(true);
+                                // hanging in mid-air where the window edge used to be. The release starts
+                                // the fall animation, so the tick has to finish as a new animation (F263).
+                                if (windowGrip != WindowGrip.None) { ReleaseWindowGrip(true); bNewAnimation = true; }
                                 else hwndWindow = (IntPtr)0;
                             }
                         }
@@ -1459,7 +1466,14 @@ namespace DesktopAICompanion
                 {
                     if (AnimationStep > 0 && CheckTopWindow(true))
                     {
-                        if (CurrentAnimation.Start.X.Value != 0 && FollowWindow())
+                        // No `Start.X.Value != 0 &&` in front of FollowWindow. That gate came with the fork
+                        // (upstream has since dropped it too) and it meant a pet in a STATIONARY pose --
+                        // sitting, sleeping, the poses a pet spends most of its window time in -- took the
+                        // else branch when its window was dragged, dropped the handle and fell from where
+                        // the window used to be, while a walking pet on the same window rode along (F264).
+                        // FollowWindow already answers "did the window move" on its own, and the else
+                        // branch already handles "covered", so the two cases separate without it.
+                        if (FollowWindow())
                         {
                             PositionX = Left;
                             PositionY = Top - OffsetY;
@@ -1639,19 +1653,20 @@ namespace DesktopAICompanion
                 {
                     StringBuilder sTitle = new StringBuilder(128);
                     NativeMethods.GetWindowText(hWnd, sTitle, 128);
+                    string title = sTitle.ToString();   // once, for the compare and the dictionary (F265)
 
                     // Sheep windows doesn't have a title bar, but we want detect if another pet is present
-                    if (sTitle.ToString() == "Sheep") { }
+                    if (title == "Sheep") { }
                     // If there is no title bar, continue enumerating other windows
                     else if (!NativeMethods.GetTitleBarInfo(hWnd, ref titleBarInfo)) return true;
                     // If title bar is not visible, continue enumerating other windows
                     else if ((titleBarInfo.rgstate[0] & 0x00008000) > 0) // invisible
                         return true;
-                    
+
                         // If window has a title, add this window to list
-                    if (sTitle.Length > 0)
+                    if (title.Length > 0)
                     {
-                        windows[hWnd] = sTitle.ToString();
+                        windows[hWnd] = title;
                     }
                 }
                 return true;
@@ -1674,8 +1689,8 @@ namespace DesktopAICompanion
                             // Pet need to walk over THIS window!
                         hwndWindow = window.Key;
                         currentWindowSize = rct;
-						StringBuilder sTitle = new StringBuilder(128);
-						NativeMethods.GetWindowText(hwndWindow, sTitle, 128);
+                        // (A second GetWindowText into a StringBuilder nothing read sat here; the title
+                        // is already the dictionary's value. Deleted, F265.)
 
 						// If window is not covered by other windows, set this as current window for the pet.
 						if (!CheckTopWindow(false))
@@ -1728,11 +1743,12 @@ namespace DesktopAICompanion
 
                 StringBuilder sTitle = new StringBuilder(128);
                 NativeMethods.GetWindowText(hWnd, sTitle, 128);
-                if (sTitle.ToString() == "Sheep") { }
+                string title = sTitle.ToString();   // once, for the compare and the dictionary (F265)
+                if (title == "Sheep") { }
                 else if (!NativeMethods.GetTitleBarInfo(hWnd, ref titleBarInfo)) return true;
                 else if ((titleBarInfo.rgstate[0] & 0x00008000) > 0) return true;   // invisible title bar
 
-                if (sTitle.Length > 0) windows[hWnd] = sTitle.ToString();
+                if (title.Length > 0) windows[hWnd] = title;
                 return true;
             }, (IntPtr)0);
 
@@ -1939,14 +1955,7 @@ namespace DesktopAICompanion
             if (!anyBlocked || !blocked[current])
             {
                 // Monitor is clear again: undo any hide/suppression and resume normal top-most.
-                if (_fullscreenHidden) { _fullscreenHidden = false; if (!Visible) Visible = true; }
-                if (hwndFullscreenWindow != IntPtr.Zero)
-                {
-                    hwndFullscreenWindow = IntPtr.Zero;
-                    if (!TopMost) TopMost = true;
-                    if (_speech != null && !_speech.IsDisposed)
-                        _speech.SetFullscreenSuppressed(false);
-                }
+                if (_fullscreenHidden || hwndFullscreenWindow != IntPtr.Zero) ClearFullscreenStandDown();
                 return;
             }
 
@@ -1995,6 +2004,26 @@ namespace DesktopAICompanion
             }
         }
 
+        /// <summary>
+        /// Undo the stand-down: show the window again, allow top-most, let the bubble be top-most, and say
+        /// the line that was deferred while the monitor was blocked. ONE method for both exits from the
+        /// blocked state (CheckFullScreen's clear branch and RelocateToDisplay), because the two drifted:
+        /// relocation cleared the marker but never un-suppressed the bubble, and the clear branch that would
+        /// have done so was gated on the very marker relocation had just cleared, so a pet that relocated
+        /// mid-sentence kept a non-TopMost bubble behind the windows on its new monitor (F268).
+        /// </summary>
+        private void ClearFullscreenStandDown()
+        {
+            if (_fullscreenHidden) { _fullscreenHidden = false; if (!Visible) Visible = true; }
+            if (hwndFullscreenWindow != IntPtr.Zero)
+            {
+                hwndFullscreenWindow = IntPtr.Zero;
+                if (!TopMost) TopMost = true;
+            }
+            if (_speech != null && !_speech.IsDisposed) _speech.SetFullscreenSuppressed(false);
+            ReplayDeferredSpeech();
+        }
+
         /// <summary>Move the pet to <paramref name="target"/> and re-spawn there (a natural fall-in).</summary>
         private void RelocateToDisplay(int target)
         {
@@ -2002,9 +2031,14 @@ namespace DesktopAICompanion
             if (target < 0 || target >= Screen.AllScreens.Length) return;
             _fullscreenHidden = false;
             hwndFullscreenWindow = IntPtr.Zero;     // the target monitor is free; allow top-most again
+            // The bubble too (F268): SetFullscreenSuppressed(true) ran in the blocked branch that queued
+            // this relocation, and nothing else would run the matching false now that the marker is clear.
+            if (_speech != null && !_speech.IsDisposed) _speech.SetFullscreenSuppressed(false);
             DisplayIndex = target;
             _forcedDisplayIndex = target;           // keep Play() from re-randomising under multiscreen
             Play(false);
+            // Play() re-decides against the TARGET monitor; only if it came up visible is the deferred line due.
+            if (!_fullscreenHidden) ReplayDeferredSpeech();
         }
 
         private bool FollowWindow()
@@ -2107,9 +2141,19 @@ namespace DesktopAICompanion
                         // If window has a title bar
                         if (sTitle.Length > 0 && NativeMethods.GetTitleBarInfo(hwnd2, ref titleBarInfo))
                         {
-                            // If window has a title name and a valid size and is not fullscreen
+                            // If window has a title name and a valid size and is not fullscreen.
+                            //
+                            // `Bottom >= Top`, NOT `Bottom >= 0`. TITLEBARINFO.rcTitleBar is in SCREEN
+                            // coordinates, so on a monitor arranged ABOVE the primary (negative Y) every
+                            // real title bar has a negative Bottom and the old test rejected every genuine
+                            // occluder there: FallDetect landed pets on windows hidden behind a maximised
+                            // one, and a standing pet never dropped when a window slid over its surface
+                            // (F270). What the test is FOR is telling a real title bar (a non-empty rect)
+                            // from none; that is a rect-shape question, not a screen-position one. A pet
+                            // window reports GetTitleBarInfo TRUE with an all-zero rect, so it still passes
+                            // through `0 >= 0` exactly as before and other pets keep counting as occluders.
                             if (NativeMethods.GetWindowRect(new HandleRef(this, hwnd2), out NativeMethods.RECT rct) &&
-                                (titleBarInfo.rcTitleBar.Bottom >= 0 || sTitle.ToString() == "sheep"))
+                                (titleBarInfo.rcTitleBar.Bottom >= titleBarInfo.rcTitleBar.Top || sTitle.ToString() == "sheep"))
                             {
                                 //Debug.WriteLine("   -->  Pos:" + rct.Top + "," + rct.Left + " - Size:" + (rct.Right - rct.Left).ToString() + "," + (rct.Bottom - rct.Top).ToString());
                                 if (rct.Top < rctO.Top && rct.Bottom > rctO.Top)
@@ -2462,6 +2506,26 @@ namespace DesktopAICompanion
         {
             if (!Program.MyData.GetSpeechEnabled()) return;
 
+            // A companion stood down for a fullscreen window does not open a bubble NOW. The bubble is its
+            // own top-level window: SetFullscreenSuppressed only drops its TopMost, and a window created
+            // at this moment lands above a borderless game in the z-order regardless -- "something
+            // visible over a fullscreen game" with the pet itself already hidden. Found while completing
+            // the scan's exclusion set (F278): nothing between DefaultSpeaker, CompanionHost.Say and here
+            // asked whether the pet was stood down. The LATEST line is kept and said when the monitor
+            // clears (ClearFullscreenStandDown), so a reminder that fires mid-game is late rather than lost;
+            // an earlier deferred line is replaced, because two stale announcements in a row read as a bug.
+            // Ahead of the repeat guard on purpose: recording the line as "said" here would make its own
+            // replay a duplicate.
+            if (hwndFullscreenWindow != IntPtr.Zero || _fullscreenHidden)
+            {
+                _deferredSpeechText = text;
+                _deferredSpeechDwell = dwellSeconds;
+                _deferredSpeechStyle = style;
+                StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info,
+                    "speech deferred: this companion is stood down for a fullscreen window");
+                return;
+            }
+
             // Only track/compare lines with real content, so a transient "…" thinking cue between two remarks
             // doesn't reset the guard (which would let quip / … / quip slip through as "not back-to-back").
             // This matters more per-pet than it did globally: the AI's cue and its answer land on the SAME pet.
@@ -2489,6 +2553,22 @@ namespace DesktopAICompanion
                 AnimationRuntimeLimits.ClampFormCoordinate(anchor.Top),
                 AnimationRuntimeLimits.ClampFormCoordinate(anchor.Bottom),
                 dwellSeconds > 0 ? dwellSeconds : Program.MyData.GetSpeechDuration(), IsMovingLeft, style);
+        }
+
+        // The one line held back while this companion was stood down for a fullscreen window; see SayWithDwell.
+        private string _deferredSpeechText;
+        private int _deferredSpeechDwell;
+        private DesktopAICompanion.Modules.SpeechStyle _deferredSpeechStyle;
+
+        private void ReplayDeferredSpeech()
+        {
+            string text = _deferredSpeechText;
+            if (text == null) return;
+            int dwell = _deferredSpeechDwell;
+            DesktopAICompanion.Modules.SpeechStyle style = _deferredSpeechStyle;
+            _deferredSpeechText = null;
+            _deferredSpeechStyle = null;
+            SayWithDwell(text, dwell, style);
         }
 
         internal bool PaintSpeechForResourceChurn()
@@ -2735,6 +2815,26 @@ namespace DesktopAICompanion
                 }
                 child.ReleaseChildOwnership();
             }
+        }
+
+        /// <summary>
+        /// Every window this companion owns -- itself, each live child (recursively, since a child can spawn
+        /// children of its own) and its speech bubble when one exists -- for the fullscreen scan's exclusion
+        /// set. StartUp.SheepHandles used to add only the ROOT pet's handle, so a TopMost child (the UFO) or a
+        /// bubble that happened to contain a monitor's centre pixel was enumerated ahead of the game and
+        /// decided that monitor as clear, keeping the whole family visible over it for as long as the overlap
+        /// lasted (F278). FullscreenScan's class doc promised to ignore "the pet's own windows"; this is what
+        /// makes that true. No pruning here: a module's IsFullscreenActive can reach this off the UI thread,
+        /// so the child list is only read, from a snapshot, and disposed entries are skipped.
+        /// </summary>
+        internal void CollectOwnedHandles(HashSet<IntPtr> into)
+        {
+            if (into == null) return;
+            if (!IsDisposed && IsHandleCreated) into.Add(Handle);
+            foreach (FormCompanion child in childs.ToArray())
+                if (child != null && !child.IsDisposed) child.CollectOwnedHandles(into);
+            FormSpeech bubble = _speech;
+            if (bubble != null && !bubble.IsDisposed && bubble.IsHandleCreated) into.Add(bubble.Handle);
         }
 
         private void ReleaseChildOwnership()

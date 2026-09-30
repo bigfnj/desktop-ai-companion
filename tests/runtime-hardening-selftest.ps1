@@ -1971,6 +1971,118 @@ Assert-True (
 # ---- lane fix/host ----
 # (invariants added by lane fix/host go directly below this line)
 
+# The fullscreen scan's exclusion set is EVERY window a companion owns, not just the root form (F278). A
+# TopMost child (the UFO) or a speech bubble that covered a monitor's centre pixel was enumerated ahead of
+# the game and decided that monitor as clear, so the whole family stayed visible over it for as long as the
+# overlap lasted. The runtime suites cannot see this (a child and a bubble need a live desktop), so the
+# two methods are sliced and the DELEGATION is asserted, with the old root-only shape asserted absent.
+$formPetCodeHost = Remove-LineComments $formPetSource
+$startUpCodeHost = Remove-LineComments $startUpSource
+$sheepHandlesBody = Get-MethodBody $startUpCodeHost 'public HashSet<IntPtr> SheepHandles()' `
+    @("`n        public ", "`n        internal ", "`n        private ")
+$ownedHandlesBody = Get-MethodBody $formPetCodeHost 'internal void CollectOwnedHandles(HashSet<IntPtr> into)' `
+    @("`n        internal ", "`n        private ", "`n        public ")
+Assert-True ($sheepHandlesBody.Length -gt 0 -and $ownedHandlesBody.Length -gt 0) (
+    'SheepHandles and CollectOwnedHandles were both located')
+Assert-True (
+    $sheepHandlesBody -cmatch 'sheep\.CollectOwnedHandles\(handles\)' -and
+    $sheepHandlesBody -cnotmatch 'handles\.Add\(sheep\.Handle\)'
+) 'the fullscreen scan excludes every window a companion OWNS, through CollectOwnedHandles, not only the root handle'
+Assert-True (
+    $ownedHandlesBody -cmatch 'child\.CollectOwnedHandles\(into\)' -and
+    $ownedHandlesBody -cmatch 'into\.Add\(bubble\.Handle\)'
+) 'CollectOwnedHandles gathers the children recursively AND the speech bubble'
+
+# CheckTopWindow decides "is this window a real occluder" from the title bar's RECT SHAPE, not from its
+# screen position (F270). TITLEBARINFO.rcTitleBar is in screen coordinates, so `Bottom >= 0` rejected every
+# genuine title bar on a monitor arranged ABOVE the primary and coverage detection was simply off there.
+$checkTopBody = Get-MethodBody $formPetCodeHost 'private bool CheckTopWindow(bool bCheck)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($checkTopBody.Length -gt 0) 'CheckTopWindow was located'
+Assert-True (
+    $checkTopBody -cmatch 'rcTitleBar\.Bottom >= titleBarInfo\.rcTitleBar\.Top' -and
+    $checkTopBody -cnotmatch 'rcTitleBar\.Bottom >= 0'
+) 'CheckTopWindow accepts an occluder by its title bar having a shape, not by its title bar lying below screen y=0'
+
+# Leaving the stand-down has ONE implementation (F268). RelocateToDisplay cleared the marker on its own and
+# left the bubble suppressed, while the clear branch that would have un-suppressed it was gated on the very
+# marker relocation had just cleared. Both exits must reach the bubble, and inside RelocateToDisplay the
+# ORDER matters: un-suppress before the Play() that re-shows the pet.
+$clearBody = Get-MethodBody $formPetCodeHost 'private void ClearFullscreenStandDown()' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+$relocateBody = Get-MethodBody $formPetCodeHost 'private void RelocateToDisplay(int target)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+$checkFsBodyHost = Get-MethodBody $formPetCodeHost 'private void CheckFullScreen()' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($clearBody.Length -gt 0 -and $relocateBody.Length -gt 0 -and $checkFsBodyHost.Length -gt 0) (
+    'the three fullscreen stand-down methods were located')
+Assert-True (
+    $checkFsBodyHost -cmatch 'ClearFullscreenStandDown\(\)' -and
+    $clearBody -cmatch '_speech\.SetFullscreenSuppressed\(false\)' -and
+    $relocateBody -cmatch '_speech\.SetFullscreenSuppressed\(false\)'
+) 'both exits from the fullscreen stand-down un-suppress the speech bubble'
+Assert-True (
+    $relocateBody.IndexOf('SetFullscreenSuppressed(false)') -lt $relocateBody.IndexOf('Play(false)')
+) 'RelocateToDisplay un-suppresses the bubble BEFORE the respawn that shows the pet'
+
+# A stood-down companion DEFERS its line rather than opening a bubble over the game (found while fixing
+# F278; a bubble is its own window and a new one lands above a borderless game whatever its TopMost). The
+# stand-down test sits ahead of the bubble's construction AND ahead of the repeat guard -- recording the
+# line as said would make its own replay a duplicate -- and the clear path is what replays it.
+$sayBody = Get-MethodBody $formPetCodeHost 'internal void SayWithDwell(' `
+    @("`n        internal ", "`n        private ", "`n        public ")
+Assert-True ($sayBody.Length -gt 0) 'SayWithDwell was located'
+$standDownTest = $sayBody.IndexOf('hwndFullscreenWindow != IntPtr.Zero || _fullscreenHidden')
+Assert-True (
+    $standDownTest -ge 0 -and
+    $standDownTest -lt $sayBody.IndexOf('_lastSaid') -and
+    $standDownTest -lt $sayBody.IndexOf('new FormSpeech()') -and
+    $clearBody -cmatch 'ReplayDeferredSpeech\(\)'
+) 'a stood-down companion defers its line before the repeat guard and before any bubble exists, and the clear path replays it'
+
+# Every grip release inside NextStep finishes the tick as a NEW animation (F263). ReleaseWindowGrip swaps
+# CurrentAnimation to the fall but renders nothing, so a release without bNewAnimation showed the old
+# climbing pose for one more step at the old interval and ran the y-detectors against the fall. Counted
+# as a ratio rather than listed, so a fifth site added later is held to the same rule.
+$nextStepBody = Get-MethodBody $formPetCodeHost 'private void NextStep()' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+$gripReleases = ([regex]::Matches($nextStepBody, 'ReleaseWindowGrip\(true\);')).Count
+$gripRestarts = ([regex]::Matches($nextStepBody, 'ReleaseWindowGrip\(true\);\s*\}?\s*bNewAnimation = true;')).Count
+Assert-True ($nextStepBody.Length -gt 0 -and $gripReleases -ge 4) (
+    "NextStep was located and releases the window grip at its sites (found $gripReleases)")
+Assert-True ($gripRestarts -eq $gripReleases) (
+    "every grip release in NextStep is followed by bNewAnimation = true ($gripRestarts of $gripReleases)")
+
+# A stationary pose rides a moving window (F264). The fork's `Start.X.Value != 0 &&` gate in front of
+# FollowWindow sent a sitting or sleeping pet down the "covered" branch whenever its window was dragged.
+Assert-True (
+    $nextStepBody -cmatch 'if \(FollowWindow\(\)\)' -and
+    $nextStepBody -cnotmatch 'Start\.X\.Value != 0 && FollowWindow\(\)'
+) 'a stationary pose rides a moving window: FollowWindow is not gated on horizontal velocity'
+
+# The FullscreenChanged raise lands on the UI thread whichever thread scanned (F309, F331). The getter can
+# scan from a module's worker; the ORDER is what is asserted -- thread test, then Post, then the inline
+# raise -- because a mutation that drops the marshalling leaves the inline raise standing and a presence
+# check would still match it.
+$noteScanBody = Get-MethodBody $startUpCodeHost 'internal void NoteFullscreenScan(bool[] blocked)' `
+    @("`n        internal ", "`n        private ", "`n        public ")
+Assert-True ($noteScanBody.Length -gt 0) 'NoteFullscreenScan was located'
+$threadTest = $noteScanBody.IndexOf('Thread.CurrentThread.ManagedThreadId != uiThreadId')
+$uiPost = $noteScanBody.IndexOf('uiContext.Post(')
+$inlineRaise = $noteScanBody.LastIndexOf('Host.RaiseFullscreenChanged(any)')
+Assert-True ($threadTest -ge 0 -and $uiPost -gt $threadTest -and $inlineRaise -gt $uiPost) (
+    'a fullscreen scan on a worker thread posts its FullscreenChanged raise to the UI thread before the inline raise is reached')
+
+# IsFullscreenActive stamps the ATTEMPT before it scans (F310), the way BlockedMonitorsForStandDown does,
+# so the two entry points to the one scan share one design.
+$fullscreenGetterBody = Get-MethodBody $startUpCodeHost 'internal bool IsFullscreenActive' `
+    @("`n        internal ", "`n        private ", "`n        public ")
+Assert-True (
+    $fullscreenGetterBody.Length -gt 0 -and
+    $fullscreenGetterBody.IndexOf('_fullscreenScanUtc = DateTime.UtcNow;') -ge 0 -and
+    $fullscreenGetterBody.IndexOf('_fullscreenScanUtc = DateTime.UtcNow;') -lt $fullscreenGetterBody.IndexOf('FullscreenScan.BlockedMonitors(')
+) 'the module-facing fullscreen getter stamps the attempt before it walks the desktop'
+
 
 
 # ---- lane fix/tools ----

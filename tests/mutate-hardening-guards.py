@@ -235,6 +235,90 @@ CASES = (
 
     # ---- lane fix/host ----
 
+    # F278: the exclusion set drops the speech bubble again -- a TopMost window that decides a monitor as clear.
+    (
+        "the fullscreen exclusion set forgets the speech bubble",
+        FORMPET,
+        b"            if (bubble != null && !bubble.IsDisposed && bubble.IsHandleCreated) into.Add(bubble.Handle);\n",
+        b"",
+        "gathers the children recursively AND the speech bubble",
+    ),
+    # F270: the screen-position test comes back in place of the rect-shape test.
+    (
+        "CheckTopWindow rejects title bars above screen y=0 again",
+        FORMPET,
+        b"(titleBarInfo.rcTitleBar.Bottom >= titleBarInfo.rcTitleBar.Top || sTitle.ToString() == \"sheep\"))",
+        b"(titleBarInfo.rcTitleBar.Bottom >= 0 || sTitle.ToString() == \"sheep\"))",
+        "by its title bar having a shape",
+    ),
+    # F268: relocation stops un-suppressing the bubble, which is the code as it shipped.
+    (
+        "RelocateToDisplay leaves the bubble suppressed",
+        FORMPET,
+        b"            if (_speech != null && !_speech.IsDisposed) _speech.SetFullscreenSuppressed(false);\n"
+        b"            DisplayIndex = target;",
+        b"            DisplayIndex = target;",
+        "both exits from the fullscreen stand-down un-suppress",
+    ),
+    # The stood-down bubble: the guard weakens to the hidden flag alone, so a stood-down but visible
+    # (relocating) companion opens a bubble over the game again.
+    (
+        "SayWithDwell stops testing the fullscreen marker",
+        FORMPET,
+        b"            if (hwndFullscreenWindow != IntPtr.Zero || _fullscreenHidden)\n"
+        b"            {\n"
+        b"                _deferredSpeechText = text;",
+        b"            if (_fullscreenHidden)\n"
+        b"            {\n"
+        b"                _deferredSpeechText = text;",
+        "defers its line before the repeat guard",
+    ),
+    # F263: the degenerate-rect release loses its bNewAnimation, so one of the sites finishes the tick in
+    # the old pose again.
+    (
+        "the degenerate-rect grip release skips bNewAnimation",
+        FORMPET,
+        b"                    ReleaseWindowGrip(true);\n"
+        b"                    bNewAnimation = true;\n"
+        b"                }\n"
+        b"                else if (windowGrip == WindowGrip.Bottom)",
+        b"                    ReleaseWindowGrip(true);\n"
+        b"                }\n"
+        b"                else if (windowGrip == WindowGrip.Bottom)",
+        "every grip release in NextStep is followed by bNewAnimation",
+    ),
+    # F264: the fork's horizontal-velocity gate returns in front of FollowWindow.
+    (
+        "FollowWindow is gated on horizontal velocity again",
+        FORMPET,
+        b"                        if (FollowWindow())\n                        {",
+        b"                        if (CurrentAnimation.Start.X.Value != 0 && FollowWindow())\n                        {",
+        "rides a moving window",
+    ),
+    # F309/F331: the worker-thread post is removed; the inline raise still stands, which is exactly why the
+    # invariant asserts the ORDER and not the presence of a raise.
+    (
+        "NoteFullscreenScan raises FullscreenChanged on whatever thread scanned",
+        STARTUP,
+        b"            if (uiContext != null && Thread.CurrentThread.ManagedThreadId != uiThreadId)\n"
+        b"            {\n"
+        b"                bool posted = any;\n"
+        b"                uiContext.Post(delegate { if (!disposed && Host != null) Host.RaiseFullscreenChanged(posted); }, null);\n"
+        b"                return;\n"
+        b"            }\n",
+        b"",
+        "posts its FullscreenChanged raise to the UI thread",
+    ),
+    # F310: the module-facing getter stops stamping the attempt.
+    (
+        "IsFullscreenActive stops stamping the scan attempt",
+        STARTUP,
+        b"                _fullscreenScanUtc = DateTime.UtcNow;   // the ATTEMPT, stamped as the stand-down does (F310)\n"
+        b"                try { NoteFullscreenScan(FullscreenScan.BlockedMonitors(SheepHandles())); }",
+        b"                try { NoteFullscreenScan(FullscreenScan.BlockedMonitors(SheepHandles())); }",
+        "stamps the attempt before it walks the desktop",
+    ),
+
 
     # ---- lane fix/settings ----
 

@@ -478,6 +478,16 @@ CASES = (
 
     # ---- lane fix/host ----
 
+    # F245: the one place a device failure is visible is PlaybackStopped. Drop the subscription and the
+    # output stays 'started' on a device that does not exist, which is the code as it shipped.
+    ("AudioOutput stops observing PlaybackStopped",
+     os.path.join(REPO, "src", "dotNet", "AudioOutput.cs"),
+     b"                output.PlaybackStopped += OnPlaybackStopped;\n",
+     b"",
+     HOST_CSPROJ, EXE,
+     "--audio-selftest", "dp-audio-selftest.txt",
+     "asynchronous failure is observed"),
+
 
     # ---- lane fix/tools ----
 
@@ -512,6 +522,7 @@ BASELINES = (
     ("--fortunes-engine-selftest", "dp-fortunes-engine-selftest.txt"),
     ("--petstudio-selftest", "dp-petstudio-selftest.txt"),
     ("--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt"),
+    ("--audio-selftest", "dp-audio-selftest.txt"),
     (CORETESTS, None),
 )
 

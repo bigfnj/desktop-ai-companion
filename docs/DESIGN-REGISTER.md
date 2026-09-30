@@ -269,7 +269,22 @@ print RESULT=PASS with a new "GUI resource counters readable" PASS line per segm
 
 #### fix/host
 
-(none yet)
+**A borderless window that spans the whole virtual screen IS fullscreen on every monitor it covers, whatever
+program owns it (2026-09-29, N-host-01).** MatrixDesktop's "Matrix Digital Rain", a WinForms form sized to
+`SystemInformation.VirtualScreen`, launched at 15 minutes of idle and closed by the first keystroke, hid every
+companion, and the report read it as a wallpaper behind the desktop icons. It is not: its source has no
+SetParent, WorkerW or HWND_BOTTOM, so it sits in front of the desktop the way a screensaver does, and a TopMost
+companion would draw over it. `FullscreenScan` decides by geometry (`DesktopGeometry.IsFullscreenOnMonitor`),
+not by what a window is for, and that stays: an idle animation shaped like a screensaver is exactly the kind of
+window the companions must not sit on. They return within one 300 ms scan cycle of it closing.
+
+**A companion stood down for a fullscreen window defers its latest line and says it when its monitor clears
+(2026-09-29, N-host-02).** Dropping the line loses a reminder that fired mid-game; queueing replays several
+stale announcements in a row when the game ends. One line, the most recent, replaces any earlier one.
+
+**F265's per-tick detector walk stays declined (0.60 ms per walk, measured; BACKLOG record). F267's per-child
+spawn scan stays as the recorded un-cached spawn check: shipped content spawns at most two children per
+animation, so at most three walks per spawn event, never per tick.**
 
 #### fix/tools
 

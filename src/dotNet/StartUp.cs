@@ -176,6 +176,8 @@ namespace DesktopAICompanion
         public StartUp(ProcessIcon processIcon)
         {
             pi = processIcon ?? throw new ArgumentNullException("processIcon");
+            uiContext = SynchronizationContext.Current;
+            uiThreadId = Thread.CurrentThread.ManagedThreadId;
 
                 // If SHIFT key was pressed, open Debug window
             Keys ks = Control.ModifierKeys;
@@ -760,6 +762,11 @@ namespace DesktopAICompanion
         private bool _fullscreenActive;
         private DateTime _fullscreenSeenUtc = DateTime.MinValue;
         private DateTime _fullscreenScanUtc = DateTime.MinValue;
+        // The UI thread's identity and context, captured in the constructor (which runs there, after the tray
+        // icon's controls have installed the WinForms context), so a scan that happens on another thread can
+        // hand its FullscreenChanged raise back. Null in the headless self-tests, where nothing pumps.
+        private readonly SynchronizationContext uiContext;
+        private readonly int uiThreadId;
         private static readonly TimeSpan FullscreenCacheLife = TimeSpan.FromSeconds(2);
         internal static readonly TimeSpan FullscreenScanInterval = TimeSpan.FromMilliseconds(300);
 
@@ -768,6 +775,15 @@ namespace DesktopAICompanion
         /// answer flips. Every scan lands here, wherever it came from -- the shared cycle below, or the
         /// deliberately un-cached spawn-time check in <c>FormCompanion.MonitorIsBlockedNow</c> -- so a
         /// companion appearing refreshes the picture for everybody, including the next cycle.
+        ///
+        /// The raise lands ON THE UI THREAD whichever thread scanned. <see cref="IsFullscreenActive"/> can
+        /// run a scan from a module's worker thread (a contract violation its own comment tolerates for the
+        /// bool[] handoff), and the EVENT was inheriting that thread: every other module's FullscreenChanged
+        /// handler, written to the ABI's "events fire on the UI thread", then ran on a pool thread (F309,
+        /// F331). Posted back through the context captured in the constructor when the caller is elsewhere;
+        /// inline otherwise, so the companions' own 300 ms cycle keeps its ordering and the headless
+        /// self-tests (no context) are unchanged. The posted delegate re-checks disposal, because a post can
+        /// land after teardown.
         /// </summary>
         internal void NoteFullscreenScan(bool[] blocked)
         {
@@ -779,7 +795,15 @@ namespace DesktopAICompanion
             _fullscreenScanUtc = _fullscreenSeenUtc;
             if (any == _fullscreenActive) return;
             _fullscreenActive = any;
-            if (Host != null) Host.RaiseFullscreenChanged(any);
+            if (Host == null) return;
+            // On the UI thread whichever thread scanned; see the summary (F309, F331).
+            if (uiContext != null && Thread.CurrentThread.ManagedThreadId != uiThreadId)
+            {
+                bool posted = any;
+                uiContext.Post(delegate { if (!disposed && Host != null) Host.RaiseFullscreenChanged(posted); }, null);
+                return;
+            }
+            Host.RaiseFullscreenChanged(any);
         }
 
         /// <summary>
@@ -814,13 +838,17 @@ namespace DesktopAICompanion
         /// <summary>
         /// Whether a fullscreen window exists on any monitor. Answers from the shared scan while that is
         /// fresh, and scans on demand when it is not -- otherwise a module asking with no pets on screen (or
-        /// during startup, before the first scan) would get a stale "no".
+        /// during startup, before the first scan) would get a stale "no". The attempt is stamped before the
+        /// walk, as <see cref="BlockedMonitorsForStandDown"/> stamps its own, so a scan that throws is not
+        /// retried on the very next read (F310): inert today, since BlockedMonitors swallows its own
+        /// failures, and kept symmetric so the two entry points to the one scan stay one design.
         /// </summary>
         internal bool IsFullscreenActive
         {
             get
             {
                 if (DateTime.UtcNow - _fullscreenSeenUtc <= FullscreenCacheLife) return _fullscreenActive;
+                _fullscreenScanUtc = DateTime.UtcNow;   // the ATTEMPT, stamped as the stand-down does (F310)
                 try { NoteFullscreenScan(FullscreenScan.BlockedMonitors(SheepHandles())); }
                 catch { }
                 return _fullscreenActive;
@@ -1200,6 +1228,8 @@ namespace DesktopAICompanion
         /// <summary>
         /// Handles of every live sheep window, so the fullscreen scan can ignore the pets themselves
         /// (a sheep sitting on top of a borderless game must not be mistaken for the top window there).
+        /// EVERY window a pet owns, not just the root: children and speech bubbles are separate TopMost
+        /// windows and were deciding monitors as clear whenever one covered the centre pixel (F278).
         /// </summary>
         public HashSet<IntPtr> SheepHandles()
         {
@@ -1207,8 +1237,7 @@ namespace DesktopAICompanion
             for (int i = 0; i < iSheeps; i++)
             {
                 FormCompanion sheep = sheeps[i];
-                if (sheep != null && !sheep.IsDisposed && sheep.IsHandleCreated)
-                    handles.Add(sheep.Handle);
+                if (sheep != null && !sheep.IsDisposed) sheep.CollectOwnedHandles(handles);
             }
             return handles;
         }
