@@ -30,7 +30,8 @@ namespace DesktopAICompanion.Ai
         private readonly string _textModel;
         private readonly string _visionModel;
         private readonly bool _useVision;
-        private readonly string _tesseractPath;
+        // Not readonly since 2026-09-30: ForgetTesseractResolution takes the path the user has just chosen (R-015).
+        private string _tesseractPath;
 
         /// <summary>
         /// The resolved Tesseract executable, or null, once <see cref="_tesseractResolved"/>. Resolving walks a
@@ -167,6 +168,15 @@ namespace DesktopAICompanion.Ai
         /// AiBrainModule.CreateBrain sets it to the cloud host, or "cloudHost->localHost" for the composite.
         /// </summary>
         internal string BackendHostDescription { get; set; }
+
+        /// <summary>
+        /// Whether a configured model the backend does not offer is replaced by the first usable listing (BUG-002's
+        /// substitution). True for a local backend, where the first listed model costs nothing; false for a cloud
+        /// primary, where it would bill a model the user never chose, which F101 already called a defect for the
+        /// blank id. Set by AiBrainModule.CreateBrain from the primary slot (R-022); true by default for the
+        /// local-only constructions the self-test builds.
+        /// </summary>
+        internal bool SubstituteMissingModel { get; set; } = true;
 
         /// <summary>
         /// The failure line's fields, from the path actually TAKEN: the model that was sent (a substitute, or
@@ -940,6 +950,14 @@ namespace DesktopAICompanion.Ai
                     Log("model inventory: the backend cannot enumerate models, so the configured id is not re-validated");
                     return;
                 }
+                if (listed.Count == 0 && _available != null)
+                {
+                    // A listing whose bound tripped comes back empty, as does a backend with nothing pulled. An
+                    // empty list already reads as "unknown" downstream, but it used to REPLACE a good inventory, so
+                    // a re-list on a transition that timed out threw away what the previous one knew (R-014).
+                    Log("model inventory: an empty listing keeps the previous " + _available.Count + " model(s)");
+                    return;
+                }
                 _available = listed;
                 Log("model inventory: " + listed.Count + " model(s) reported by " + BackendHostDescription);
             }
@@ -1146,7 +1164,9 @@ namespace DesktopAICompanion.Ai
             choice = AiModelPolicy.ChooseModel(
                 useVisionPath ? _visionModel : _textModel,
                 _available,
-                useVisionPath);
+                useVisionPath,
+                SubstituteMissingModel,
+                BackendHostDescription);
             Log("model resolve: " + choice.Reason +
                 " configured=" + (useVisionPath ? _visionModel : _textModel) +
                 " using=" + (choice.Model ?? "(none)") +
@@ -1787,6 +1807,25 @@ namespace DesktopAICompanion.Ai
             return _resolvedTesseract;
         }
 
+        /// <summary>
+        /// Drop the cached resolution and take the path now configured, so the next read resolves afresh. Reached
+        /// through AiSessionManager.ForgetOcrResolution from "Test OCR" and "Choose OCR engine...": until 2026-09-30
+        /// those reset the cache of the throwaway brain they test with, and the LIVE brain kept the engine it had
+        /// resolved when it was built, so an install made mid-session never reached a remark (R-015). A plain
+        /// write from the pane thread while an ask may read on a pool thread: at worst one extra resolution.
+        /// </summary>
+        internal void ForgetTesseractResolution(string configuredTesseractPath)
+        {
+            _tesseractPath = configuredTesseractPath;
+            _tesseractResolved = false;
+        }
+
+        /// <summary>The per-brain resolution, for the self-test, which counts the walks.</summary>
+        internal string ResolveTesseractForDiagnostics()
+        {
+            return ResolveTesseractOnce();
+        }
+
         private string ResolveTesseract()
         {
             if (!string.IsNullOrWhiteSpace(_tesseractPath))
@@ -1820,8 +1859,9 @@ namespace DesktopAICompanion.Ai
         internal async Task<string> SelfTestOcrAsync(CancellationToken ct)
         {
             string exe;
-            // Afresh, not from the cache: the button is pressed right after an install, and the answer it gives
-            // becomes the one the cache holds for this brain's remaining asks (F077).
+            // Afresh, not from the cache: the button is pressed right after an install (F077). This runs on the
+            // throwaway brain TestOcrAsync builds; the LIVE brain's cache is reset by the module through the session
+            // (AiSessionManager.ForgetOcrResolution), which until 2026-09-30 nothing did (R-015).
             try { _tesseractResolved = false; exe = ResolveTesseractOnce(); }
             catch { exe = null; }
             bool usingTesseract = !string.IsNullOrWhiteSpace(exe);

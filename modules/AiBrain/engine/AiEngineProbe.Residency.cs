@@ -95,9 +95,12 @@ namespace DesktopAICompanion.AiBrainModule
             b.UserName = "Someone";
             b.Disposition = "pirate";
             b.Hotkey = "Ctrl+Shift+F9";
-            b.UseVision = true;
-            ok &= Check(sb, "a persona, hotkey, name or vision edit leaves the backend fingerprint unchanged (the brain is rebuilt; the model stays)",
+            ok &= Check(sb, "a persona, hotkey or name edit leaves the backend fingerprint unchanged (the brain is rebuilt; the model stays)",
                 AiBrainModule.BackendFingerprint(a) == AiBrainModule.BackendFingerprint(b));
+            // UseVision decides which of the two models is resident, so it is IN the fingerprint: until 2026-09-30 a
+            // vision toggle under "keep" retired without evicting and left the vision model resident for nothing (R-011).
+            ok &= Check(sb, "a vision toggle changes the fingerprint: it decides which model is resident, so under 'keep' it must evict (R-011)",
+                AiBrainModule.BackendFingerprint(a) != AiBrainModule.BackendFingerprint(new AiSettings { UseVision = true }));
             b.TextModel = "other:1b";
             ok &= Check(sb, "a model change changes the fingerprint",
                 AiBrainModule.BackendFingerprint(a) != AiBrainModule.BackendFingerprint(b));

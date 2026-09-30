@@ -38,6 +38,15 @@ namespace DesktopAICompanion.Ai
         /// </summary>
         public static readonly TimeSpan AvailabilityProbeDeadline = TimeSpan.FromSeconds(10);
 
+        /// <summary>
+        /// The bound on a MODEL LISTING (GET /models, GET /api/tags), sized for the 8 MiB listing cap over a slow
+        /// link rather than for a reply: OpenRouter's 760 KB catalogue lists in seconds. Until 2026-09-30 a listing
+        /// ran under the chat deadline, and the transition re-list F071 put on the ask path then waited out a hung
+        /// cloud primary for the user's whole timeout (120 s by default) before the remark went on (R-014). A bound
+        /// that trips yields an empty list, which the brain reads as "unknown" and never lets replace a good inventory.
+        /// </summary>
+        public static readonly TimeSpan ListingDeadline = TimeSpan.FromSeconds(30);
+
         public static TimeSpan Shorter(TimeSpan a, TimeSpan b)
         {
             return a < b ? a : b;

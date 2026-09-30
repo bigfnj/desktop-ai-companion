@@ -187,11 +187,13 @@ namespace DesktopAICompanion.AiBrainModule
                 string normModel;
                 ok &= Check(sb, "model policy normalizes a valid id", AiModelPolicy.TryNormalize("gemma3:4b", out normModel) && normModel == "gemma3:4b");
 
-                // --- vision capability: an INCOMPLETE backend report must not hide a working model ---
-                // The three cases are the real /api/tags vs /api/show disagreement measured on this
-                // machine. The first is the bug: tags said ["completion"] for gemma3:4b, so a
-                // report-wins fallback excluded the recommended vision model from its own dropdown.
-                ok &= Check(sb, "vision: a name-known model survives an incomplete report",
+                // --- vision capability (the DROPDOWN union): an INCOMPLETE backend report must not hide a working model ---
+                // The three cases are the /api/tags vs /api/show disagreement measured on this machine on 2026-09-10
+                // with an older Ollama: tags said ["completion"] for gemma3:4b, so a report-wins fallback excluded
+                // the recommended vision model from its own dropdown. Re-measured 2026-09-30 on Ollama 0.34.4 the two
+                // agree; the union stays for the dropdown because an older server may still be in use, while the ASK
+                // trusts a reported false (R-020, AiEngineProbe.Backends.cs).
+                ok &= Check(sb, "vision (dropdown union): a name-known model survives a report that omits vision, as an older Ollama's did for Gemma",
                     AiModelPolicy.IsVisionCapable("gemma3:4b", false));
                 ok &= Check(sb, "vision: a reported vision model is offered",
                     AiModelPolicy.IsVisionCapable("mistral-small3.2:24b", true));

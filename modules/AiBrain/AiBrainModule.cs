@@ -28,6 +28,9 @@ namespace DesktopAICompanion.AiBrainModule
         private IHost _host;
         private SynchronizationContext _ui;                 // captured on the UI thread in Init
         private readonly AiSessionManager _session = new AiSessionManager();
+        /// <summary>The session, for the module self-test only: it asserts what a pane action does to the LIVE
+        /// brain (R-015).</summary>
+        internal AiSessionManager SessionForDiagnostics { get { return _session; } }
         private AiSettings _settings;
         private CancellationTokenSource _lifetime = new CancellationTokenSource();
         private IDisposable _dropResponder;
@@ -133,6 +136,13 @@ namespace DesktopAICompanion.AiBrainModule
                                  //         PNG round trip; the audition guard is interlocked. Every item is
                                  //         dispositioned in BACKLOG.md; decisions under `#### fix/aibrain`
                                  //         in docs/DESIGN-REGISTER.md.
+                                 //         Round 2 (2026-09-30, the early regression review): UseVision joined
+                                 //         the backend fingerprint; model listings run under their own 30 s
+                                 //         bound and an empty re-list keeps the previous inventory; "Test
+                                 //         OCR" and "Choose OCR engine" reset the LIVE brain's Tesseract
+                                 //         cache; the substitution loop excludes a reported-blind model as
+                                 //         the gate does; a cloud primary never substitutes a missing model
+                                 //         (R-011, R-014, R-015, R-020, R-022).
                                  // 1.1.13: the emotion reaction reached 18/54, 35/54, 8/54, 8/54 and
                                  //         8/54 companions. "thinking" fires on EVERY ask, so on 46 of
                                  //         54 it silently did nothing -- the eSheep-era names it used
@@ -731,13 +741,21 @@ namespace DesktopAICompanion.AiBrainModule
 
         /// <summary>"Test OCR" action: run the OCR self-test (resolve tesseract + read a known image) so a
         /// missing/broken engine surfaces as a red status instead of silently making remarks screen-blind.</summary>
-        private async Task<string> TestOcrAsync()
+        // internal, not private: the module self-test presses it and asserts what it does to the LIVE brain (R-015).
+        internal async Task<string> TestOcrAsync()
         {
             AiSettings s = _settings ?? new AiSettings();
             try
             {
+                string verdict;
                 using (var probe = new AiBrain(null, s))
-                    return await probe.SelfTestOcrAsync(CancellationToken.None).ConfigureAwait(false);
+                    verdict = await probe.SelfTestOcrAsync(CancellationToken.None).ConfigureAwait(false);
+                // The probe above is a throwaway. The brain that reads screens lives in the session and cached its
+                // own resolution when it was built, so until 2026-09-30 this button went green after an install while
+                // every remark kept the engine the live brain had resolved at build time (R-015). Forget that cache,
+                // with the path the user may just have chosen: "Choose OCR engine..." saves it and lands here.
+                _session.ForgetOcrResolution(s.TesseractPath);
+                return verdict;
             }
             catch (Exception ex) { return "✗ OCR test failed: " + ex.Message; }
         }
@@ -1020,6 +1038,11 @@ namespace DesktopAICompanion.AiBrainModule
                     // null, and `??` treated an incomplete report as authoritative -- which hid the
                     // RECOMMENDED vision model from its own dropdown, while the "gemma3" name marker that
                     // exists for precisely this case was never consulted.
+                    //
+                    // Re-measured 2026-09-30 on Ollama 0.34.4: /api/tags and /api/show AGREE for gemma3:4b,
+                    // gemma4:12b and gemma4:26b, so the under-report belongs to older servers. The union stays
+                    // here because such a server may still be in use and a hidden model is the worse failure;
+                    // the ASK trusts a reported false (AiModelPolicy.ChooseModel, F102 and R-020).
                     //
                     // The asymmetry decides the direction: a false positive is visible and recoverable
                     // (the user picks a model that cannot see, and changes it), while a false negative
@@ -1429,10 +1452,13 @@ namespace DesktopAICompanion.AiBrainModule
 
         /// <summary>
         /// Every setting that decides which model is resident where: the local slot's endpoint, protocol and two
-        /// models, the cloud selector with its endpoint and models, the fallback switch, the residency and the
-        /// executable path. Persona fields are deliberately absent: the brain is rebuilt on every Apply regardless,
-        /// and this decides only whether its retirement EVICTS (F095). Internal so the self-test can pin what is
-        /// and is not in it.
+        /// models, the cloud selector with its endpoint and models, the fallback switch, the residency, the
+        /// executable path, and whether vision is on. UseVision joined on 2026-09-30 (R-011): it decides which of the
+        /// two models the warm-up and every ask load, so under "keep" a vision toggle left the vision model resident
+        /// for nothing until shutdown; the cost is one cold reload on that toggle, which is the eviction the residency
+        /// otherwise never gets. Persona fields are deliberately absent: the brain is rebuilt on every Apply
+        /// regardless, and this decides only whether its retirement EVICTS (F095). Internal so the self-test can pin
+        /// what is and is not in it.
         /// </summary>
         internal static string BackendFingerprint(AiSettings s)
         {
@@ -1441,6 +1467,7 @@ namespace DesktopAICompanion.AiBrainModule
                 s.Endpoint ?? "", s.LocalBackendKind ?? "", s.TextModel ?? "", s.VisionModel ?? "",
                 s.Provider ?? "", s.OpenAiBaseUrl ?? "", s.CloudTextModel ?? "", s.CloudVisionModel ?? "",
                 s.UseLocalFallback ? "fallback" : "no-fallback", s.ModelResidency ?? "", s.OllamaPath ?? "",
+                s.UseVision ? "vision" : "text",
             });
         }
 
@@ -1515,6 +1542,10 @@ namespace DesktopAICompanion.AiBrainModule
             }
             AiBrain brain = new AiBrain(backend, s.ActiveSlotSnapshot());
             brain.BackendHostDescription = backendHosts;
+            // Substitution (BUG-002: a configured model the backend lacks is replaced by the first usable listing) is a
+            // courtesy for a local backend, where the first listing is free. A cloud primary bills every request, so a
+            // model the user never chose is not sent there: the ask ends on an advisory naming the host (R-022).
+            brain.SubstituteMissingModel = IsLocalSlot(s);
             // Let the brain re-validate its configured model against what the backend actually offers
             // (BUG-002). Uses the SAME listing call the Options pane uses, so the two can never disagree
             // about what is installed. Captures the backend the brain owns, not a fresh one.

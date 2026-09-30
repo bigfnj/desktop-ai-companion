@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.ExceptionServices;
 using System.Text;
@@ -25,6 +26,7 @@ namespace DesktopAICompanion.AiBrainModule
             ok &= CheckInventoryFollowsReachability(sb);
             ok &= CheckOcrResolution(sb);
             ok &= CheckAuditionGuard(sb);
+            ok &= CheckTestOcrReachesLiveBrain(sb);
             return ok;
         }
 
@@ -204,10 +206,98 @@ namespace DesktopAICompanion.AiBrainModule
 
             using (var brain = new AiBrain(new RecordingBackend("", true), new AiSettings()))
             {
-                brain.DescribeOcrEngine();
-                brain.DescribeOcrEngine();
+                brain.ResolveTesseractForDiagnostics();
+                brain.ResolveTesseractForDiagnostics();
                 ok &= Check(sb, "the OCR engine is resolved once per brain, not once per ask",
                     brain.TesseractResolutionsForDiagnostics == 1);
+                // R-015: forgetting the resolution with a newly chosen path makes the next read resolve afresh, and
+                // to that path. A fake tesseract.exe in a scratch directory stands in for the one the user picked.
+                string chosenDir = Path.Combine(Path.GetTempPath(), "dp-aibrain-chosen-" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(chosenDir);
+                    string chosen = Path.Combine(chosenDir, "tesseract.exe");
+                    File.WriteAllBytes(chosen, new byte[] { 0 });
+                    brain.ForgetTesseractResolution(chosen);
+                    string resolved = brain.ResolveTesseractForDiagnostics();
+                    ok &= Check(sb, "forgetting the resolution with a newly chosen path makes the next read resolve afresh, to that path (R-015)",
+                        brain.TesseractResolutionsForDiagnostics == 2 &&
+                        string.Equals(resolved, chosen, StringComparison.OrdinalIgnoreCase));
+                }
+                finally
+                {
+                    try { if (Directory.Exists(chosenDir)) Directory.Delete(chosenDir, true); }
+                    catch { ok &= Check(sb, "chosen OCR engine scratch cleanup", false); }
+                }
+            }
+            return ok;
+        }
+
+        /// <summary>The settings every module instance in this file starts from: the brain on, auto-start off, the
+        /// local slot on the OpenAI-compatible protocol at a loopback port nothing listens on. Written BEFORE Init, so
+        /// the one-time migrator finds a file and copies nothing real in.</summary>
+        private static void SeedOfflineModuleSettings(TempModuleStorage storage)
+        {
+            File.WriteAllText(
+                Path.Combine(storage.DataDirectory, "ai-settings.json"),
+                "{ \"SchemaVersion\": " + AiSettings.CurrentSchemaVersion + ", \"AiBrainEnabled\": true, " +
+                "\"AutoStartServer\": false, \"LocalBackendKind\": \"openai-compat\", \"Endpoint\": \"http://127.0.0.1:9\" }",
+                new UTF8Encoding(false));
+        }
+
+        /// <summary>R-015. The "Test OCR" button resets the LIVE brain's Tesseract cache, not only the throwaway it
+        /// tests with, so an install made mid-session reaches the next remark.</summary>
+        private static bool CheckTestOcrReachesLiveBrain(StringBuilder sb)
+        {
+            bool ok = true;
+            Action<string> previousSink = AiBrain.LogSink;
+            string previousRoot = AiPaths.CurrentRootForDiagnostics;
+            AiBrainModule module = null;
+            TempModuleStorage storage = null;
+            try
+            {
+                storage = new TempModuleStorage("aibrain-test-ocr");
+                SeedOfflineModuleSettings(storage);
+                var host = new RecordingHost();
+                host.UseStorage("aibrain", storage);
+                module = new AiBrainModule();
+                host.Declared = module.Info.Permissions;
+                module.Init(host);
+
+                // Init's ApplyState builds the brain on a pool thread (no PrepareAsync: auto-start is off and the
+                // residency is "unload"); wait for it, briefly.
+                AiBrain live = null;
+                var wait = Stopwatch.StartNew();
+                while (live == null && wait.Elapsed < TimeSpan.FromSeconds(5))
+                {
+                    live = module.SessionForDiagnostics.LiveBrainForDiagnostics;
+                    if (live == null) Thread.Sleep(20);
+                }
+                ok &= Check(sb, "the module built a live brain to test the OCR button against", live != null);
+                if (live != null)
+                {
+                    live.ResolveTesseractForDiagnostics();
+                    live.ResolveTesseractForDiagnostics();
+                    int before = live.TesseractResolutionsForDiagnostics;
+                    string verdict = module.TestOcrAsync().GetAwaiter().GetResult();
+                    live.ResolveTesseractForDiagnostics();
+                    ok &= Check(sb, "the Test OCR button makes the LIVE brain resolve its engine afresh, not only the throwaway it tests with (R-015)",
+                        before == 1 && live.TesseractResolutionsForDiagnostics == 2 && verdict != null);
+                    live.ResolveTesseractForDiagnostics();
+                    ok &= Check(sb, "WITNESS with no button press the live brain keeps its resolution",
+                        live.TesseractResolutionsForDiagnostics == 2);
+                }
+            }
+            catch (Exception ex)
+            {
+                ok &= Check(sb, "Test OCR probe threw " + ex.GetType().Name + ": " + ex.Message, false);
+            }
+            finally
+            {
+                try { if (module != null) module.Shutdown(); } catch { }
+                AiBrain.LogSink = previousSink;
+                AiPaths.SwapRoot(previousRoot);
+                if (storage != null) storage.Dispose();
             }
             return ok;
         }
@@ -227,11 +317,7 @@ namespace DesktopAICompanion.AiBrainModule
                 // nothing listens on: the guard is what is under test, and should it ever fail to refuse, the
                 // audition it lets through must fail fast against a refused connection rather than reach the
                 // Ollama this machine may be running.
-                File.WriteAllText(
-                    Path.Combine(storage.DataDirectory, "ai-settings.json"),
-                    "{ \"SchemaVersion\": " + AiSettings.CurrentSchemaVersion + ", \"AiBrainEnabled\": true, " +
-                    "\"AutoStartServer\": false, \"LocalBackendKind\": \"openai-compat\", \"Endpoint\": \"http://127.0.0.1:9\" }",
-                    new UTF8Encoding(false));
+                SeedOfflineModuleSettings(storage);
                 var host = new RecordingHost();
                 host.UseStorage("aibrain", storage);
                 module = new AiBrainModule();

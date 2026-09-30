@@ -1673,11 +1673,15 @@ namespace DesktopAICompanion.Ai
         /// name heuristic, never one overriding the other.
         ///
         /// A fallback (report first, heuristic only when the report is absent) looks more principled
-        /// and is wrong, because a report can be present AND incomplete. Ollama's /api/tags does
-        /// exactly that for the Gemma family: measured 2026-09-10, gemma3:4b and gemma4:26b both omit
-        /// "vision" there while /api/show lists it for the same models, and mistral-small3.2:24b
-        /// reports it correctly in both. Trusting the incomplete report hid the recommended vision
-        /// model from its own dropdown.
+        /// and is wrong, because a report can be present AND incomplete. Ollama's /api/tags did
+        /// exactly that for the Gemma family: measured 2026-09-10, gemma3:4b and gemma4:26b both omitted
+        /// "vision" there while /api/show listed it for the same models, and mistral-small3.2:24b
+        /// reported it correctly in both. Trusting the incomplete report hid the recommended vision
+        /// model from its own dropdown. Re-measured 2026-09-30 on Ollama 0.34.4: /api/tags and /api/show
+        /// agree (gemma3:4b, gemma4:12b and gemma4:26b all report vision), so the under-report belongs to
+        /// older servers. The union stays for the DROPDOWN, which this decides, because an older server
+        /// may still be in use and a hidden model is the worse failure; the ASK trusts a reported false
+        /// (<see cref="ChooseModel"/>, F102 and R-020), and its substitute is never a reported-blind model.
         ///
         /// The asymmetry decides the direction: a false positive is visible and recoverable, a false
         /// negative hides a working model with no way to discover it.
@@ -1723,10 +1727,15 @@ namespace DesktopAICompanion.Ai
         /// <param name="configured">The id from settings (already normalized).</param>
         /// <param name="available">What the backend reports, or null/empty when unknown.</param>
         /// <param name="needVision">True when this ask needs image input.</param>
+        /// <param name="allowSubstitution">False for a cloud primary: a model the user did not choose is never sent
+        /// where it would be billed; the turn ends on an advisory naming the host instead (R-022).</param>
+        /// <param name="backendDescription">The host(s) named in that advisory.</param>
         internal static ModelChoice ChooseModel(
             string configured,
             System.Collections.Generic.IReadOnlyList<ModelListing> available,
-            bool needVision)
+            bool needVision,
+            bool allowSubstitution = true,
+            string backendDescription = null)
         {
             // No id at all is not "unknown inventory": nothing can be sent, and the fix is in the pane. An
             // empty id used to reach here only because the constructor had filled it with the local default
@@ -1766,10 +1775,29 @@ namespace DesktopAICompanion.Ai
                 return new ModelChoice(listing.Id, null, "configured");
             }
 
+            if (!allowSubstitution)
+            {
+                // A cloud primary: every request is billed, so a model the user did not choose is never sent. The
+                // turn ends on an advisory naming the host, spoken once (AdvisoryOnce), until the pane is fixed. On
+                // a local backend the first usable listing is free and BUG-002's substitution stands (R-022).
+                string host = string.IsNullOrWhiteSpace(backendDescription) ? "this provider" : backendDescription;
+                return new ModelChoice(
+                    null,
+                    listedButCannotSee
+                        ? Describe(configured) + " can't see images, and I don't switch models on " + host +
+                          ". Pick a vision model in AI Brain settings."
+                        : Describe(configured) + " isn't offered by " + host + ". Pick a model in AI Brain settings.",
+                    "none-offered");
+            }
+
             foreach (ModelListing listing in available)
             {
                 if (listing == null || string.IsNullOrWhiteSpace(listing.Id)) continue;
-                if (needVision && !IsVisionCapable(listing.Id, listing.Vision)) continue;
+                // The gate's own rule, applied to the substitute: a listing the backend REPORTS as blind is never
+                // picked, marker or not, so the advisory can never name the model it just rejected ("gemma3:4b
+                // can't see images, so I'm using gemma3:4b instead" was reachable through the union here, R-020).
+                // A listing with no report falls back to the name marker, as the dropdown does.
+                if (needVision && (listing.Vision == false || !IsVisionCapable(listing.Id, listing.Vision))) continue;
                 return new ModelChoice(
                     listing.Id,
                     Describe(configured) + (listedButCannotSee ? " can't see images" : " isn't available") +

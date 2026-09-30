@@ -35,6 +35,8 @@ namespace DesktopAICompanion.Ai
         private readonly Func<CancellationToken, bool> _serverStarter;
         /// <summary>The bound on the PUBLIC reachability probe (F105); the startup poll keeps its own, shorter one.</summary>
         private readonly TimeSpan _availabilityDeadline;
+        /// <summary>The bound on GET /api/tags read as a listing, shorter than the chat deadline it used to borrow (R-014).</summary>
+        private readonly TimeSpan _listingDeadline;
 
         public OllamaClient(string endpoint, TimeSpan timeout, string exePath)
         {
@@ -47,6 +49,7 @@ namespace DesktopAICompanion.Ai
             _probeDeadline = DefaultProbeDeadline;
             _pollInterval = DefaultPollInterval;
             _availabilityDeadline = AiEndpointPolicy.Shorter(_deadline, AiEndpointPolicy.AvailabilityProbeDeadline);
+            _listingDeadline = AiEndpointPolicy.Shorter(_deadline, AiEndpointPolicy.ListingDeadline);
             _http = new HttpClient(AiEndpointPolicy.CreateNoRedirectHandler())
             {
                 Timeout = Timeout.InfiniteTimeSpan
@@ -62,7 +65,8 @@ namespace DesktopAICompanion.Ai
             TimeSpan startupDeadline,
             TimeSpan probeDeadline,
             TimeSpan pollInterval,
-            Func<CancellationToken, bool> serverStarter)
+            Func<CancellationToken, bool> serverStarter,
+            TimeSpan? listingDeadline = null)
         {
             if (handler == null) throw new ArgumentNullException("handler");
             if (serverStarter == null)
@@ -84,6 +88,11 @@ namespace DesktopAICompanion.Ai
                 "pollInterval");
             // One knob bounds every probe under test, the startup poll and the public availability probe alike.
             _availabilityDeadline = _probeDeadline;
+            _listingDeadline = AiEndpointPolicy.Shorter(
+                _deadline,
+                listingDeadline.HasValue
+                    ? AiEndpointPolicy.ValidateDeadline(listingDeadline.Value, "listingDeadline")
+                    : AiEndpointPolicy.ListingDeadline);
             _http = new HttpClient(handler)
             {
                 Timeout = Timeout.InfiniteTimeSpan
@@ -140,10 +149,11 @@ namespace DesktopAICompanion.Ai
             {
                 using (var request = new HttpRequestMessage(HttpMethod.Get, _endpoint + "/api/tags"))
                 {
+                    // Under the LISTING bound, not the chat deadline (R-014; see OpenAiCompatBackend.ListModelsAsync).
                     string json = await AiEndpointPolicy.SendAndReadResponseStringAsync(
                         _http,
                         request,
-                        _deadline,
+                        _listingDeadline,
                         ct,
                         AiEndpointPolicy.MaximumListingResponseBytes).ConfigureAwait(false);
                     JsonNode obj = JsonNode.Parse(json);
