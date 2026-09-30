@@ -83,7 +83,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
 
         /// <summary>
         /// Guards the three static fields this class carries across one conversion (`HubSpokes`,
-        /// `CollapsedSources`, `ExpandedSetPieces`). Zero when no conversion is running.
+        /// `CollapsedInto`, `ExpandedSetPieces`). Zero when no conversion is running.
         ///
         /// The single-threaded assumption was DOCUMENTED and not enforced: the comment on HubSpokes
         /// says "Single-threaded emit, so a static is safe and keeps the signatures clean", and
@@ -112,7 +112,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             {
                 throw new InvalidOperationException(
                     "PetEmitter.Emit is not re-entrant: it carries per-conversion state in static " +
-                    "fields (HubSpokes, CollapsedSources, ExpandedSetPieces), so a second concurrent " +
+                    "fields (HubSpokes, CollapsedInto, ExpandedSetPieces), so a second concurrent " +
                     "conversion would corrupt both. Serialise the callers.");
             }
             try { return EmitCore(config, sheet, load, skinName, loadSound); }
@@ -125,7 +125,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 // the pixels: bitmaps are disposed by the compositor and the sheet belongs to the result.
                 // Bounded and small, but there is nothing to keep it for.
                 HubSpokes = new List<Emitted>();
-                CollapsedSources = new HashSet<string>(StringComparer.Ordinal);
+                CollapsedInto = new Dictionary<string, Emitted>(StringComparer.Ordinal);
                 ExpandedSetPieces = new HashSet<string>(StringComparer.Ordinal);
                 System.Threading.Interlocked.Exchange(ref _emitInFlight, 0);
             }
@@ -136,13 +136,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         /// without making the fields themselves visible.</summary>
         internal static int RetainedConversionState
         {
-            get { return HubSpokes.Count + CollapsedSources.Count + ExpandedSetPieces.Count; }
+            get { return HubSpokes.Count + CollapsedInto.Count + ExpandedSetPieces.Count; }
         }
 
         private static ConversionResult EmitCore(ShimejiConfig config, SpriteSheet sheet, Func<string, Bitmap> load, string skinName, Func<string, byte[]> loadSound = null)
         {
             var result = new ConversionResult { Residue = new ResidueReport() };
-            CollapsedSources = new HashSet<string>(StringComparer.Ordinal);   // per-conversion, not per-process
+            CollapsedInto = new Dictionary<string, Emitted>(StringComparer.Ordinal);   // per-conversion, not per-process
             skinName = string.IsNullOrWhiteSpace(skinName) ? "Shimeji" : skinName.Trim();
 
             // --- gather sprite-bearing primitives and the magic sources ---
@@ -653,14 +653,38 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             return false;
         }
 
-        /// <summary>Source actions merged away by <see cref="CollapseDirectionPairs"/> as duplicates or
-        /// left/right mirrors. Converted, just not under their own name, and the accounting needs to say so
-        /// rather than report them as unexplained.</summary>
-        private static HashSet<string> CollapsedSources = new HashSet<string>(StringComparer.Ordinal);
+        /// <summary>
+        /// Source actions merged away by <see cref="CollapseDirectionPairs"/> as duplicates or left/right
+        /// mirrors, each mapped to the sibling that SURVIVED it. Converted, just not under their own name,
+        /// and the accounting needs to say so rather than report them as unexplained; and a set-piece that
+        /// names a merged member must play the survivor's poses, not the member's own, because the survivor
+        /// is the variant whose velocity matches the unmirrored art (N-tools-01). A name set alone could
+        /// answer the first question and not the second.
+        /// </summary>
+        private static Dictionary<string, Emitted> CollapsedInto = new Dictionary<string, Emitted>(StringComparer.Ordinal);
 
-        private static void RecordCollapsed(Emitted e)
+        private static void RecordCollapsed(Emitted loser, Emitted survivor)
         {
-            if (e != null && e.Source != null && e.Source.Name != null) CollapsedSources.Add(e.Source.Name);
+            if (loser == null || loser.Source == null || loser.Source.Name == null) return;
+            CollapsedInto[loser.Source.Name] = survivor;
+            // A survivor that is itself replaced takes its earlier losers with it: with A(+2) kept first,
+            // B(+2) merged into A, then C(-2) replacing A as the leftward variant, B must point at C, or
+            // a chain naming B would be built from an Emitted that is no longer in the spoke list.
+            foreach (string name in new List<string>(CollapsedInto.Keys))
+                if (ReferenceEquals(CollapsedInto[name], loser)) CollapsedInto[name] = survivor;
+        }
+
+        /// <summary>
+        /// The action whose poses a set-piece step for <paramref name="member"/> is built from: the sibling
+        /// it was collapsed into, when it was, else itself. Same frames either way, by the collapse rule.
+        /// </summary>
+        private static ShimejiAction SurvivorOf(ShimejiAction member)
+        {
+            Emitted survivor;
+            if (member != null && member.Name != null && CollapsedInto.TryGetValue(member.Name, out survivor)
+                && survivor != null && survivor.Source != null)
+                return survivor.Source;
+            return member;
         }
 
         private static List<Emitted> CollapseDirectionPairs(List<Emitted> candidates)
@@ -679,10 +703,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 // identical sibling, and the residue must be able to say that rather than leave it silent.
                 if (FirstVelX(e) < 0 && FirstVelX(kept[existing]) >= 0)
                 {
-                    RecordCollapsed(kept[existing]);
+                    RecordCollapsed(kept[existing], e);
                     kept[existing] = e;
                 }
-                else RecordCollapsed(e);
+                else RecordCollapsed(e, kept[existing]);
             }
             return kept;
         }
@@ -2328,7 +2352,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             // took a floor share of the hub the design says structure alone must not take, and the residue
             // counted the member as emitted instead of merged (F431). All three collapse passes have run
             // by the time this method is called, so the set is complete here.
-            alreadyEmitted.UnionWith(CollapsedSources);
+            alreadyEmitted.UnionWith(CollapsedInto.Keys);
 
             HashSet<string> played = BehaviourReferencedSequences(config);
 
@@ -2376,12 +2400,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                 string baseName = SanitizeName(seq.Name);
                 var steps = new List<Emitted>();
                 for (int i = 0; i < members.Count; i++)
+                {
+                    // A member CollapseDirectionPairs merged away plays under its SURVIVOR: the survivor is
+                    // the leftward variant, whose velocity matches the unmirrored, left-facing art, and the
+                    // loser's poses carry the mirror of it. Building the step from the loser's own poses ran
+                    // a rightward leg over left-facing frames, a moonwalk inside the run (N-tools-01). Same
+                    // frames by the collapse rule, so only the poses move; the step keeps the member's
+                    // declared name, which is what the sequence and the residue name.
+                    ShimejiAction source = SurvivorOf(members[i]);
                     steps.Add(new Emitted
                     {
                         Name = baseName + "_" + (i + 1) + "_" + SanitizeName(members[i].Name),
-                        Source = members[i],
-                        Frames = FramesOf(members[i], sheet),
+                        Source = source,
+                        Frames = FramesOf(source, sheet),
                     });
+                }
                 for (int i = 0; i < steps.Count - 1; i++) steps[i].ChainNext = steps[i + 1];
                 steps[steps.Count - 1].ChainNext = hub;
                 // The entry carries the SEQUENCE's weight, not its first member's. ResolveSpokes stops at a
@@ -2684,7 +2717,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
                     nAbsorbed++;
                     absorbedNames.Add(n);
                 }
-                else if (a.Name != null && CollapsedSources.Contains(a.Name))
+                else if (a.Name != null && CollapsedInto.ContainsKey(a.Name))
                 {
                     nCollapsed++;
                     collapsedNames.Add(a.Name);

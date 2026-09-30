@@ -788,6 +788,25 @@ a `Save()`, and those seeds would never reach a module's handle. The residue is 
 holding one handle across a failed write keeps its own edits under the shipped host, which the fake cannot
 show at the same time as the disk; both current `FailSaves` users (BlinkingLed, Fortunes) re-fetch.
 
+**AgentFlow's reveal button asks for its own settings file, and the pane names the log's path (2026-09-30,
+N-host-03).** The host's rule that an owned pane reveals only inside the module's own storage stands
+(F376's narrowing, its recorded intent being to stop reveals in the app's own settings folder), so the
+module side moved. Three alternatives were declined: a second permitted root for the app's top-level log
+(the host lane's call, and against that intent); a new `IHost` verb for the app's log (an ABI member for one
+button); and removing the button (it is the only shipped `RevealsPath` consumer, so the containment
+machinery would have no user, and a module's data folder is worth a click for support). What the old button
+was really for, the log's location, is stated as an Info row in the same section through the two-levels-up
+arithmetic the module already asserted; the walk step H15 in `SMOKETEST.md` presses the real reveal, which
+no automated check does.
+
+**A chain step for a collapsed member plays the survivor's poses under the member's own name (2026-09-30,
+N-tools-01).** Only the poses move: the step keeps `<seq>_<n>_<member>` with the member the sequence declared,
+because that name is what the residue's chain accounting and a reader of the emitted XML look for, and the
+survivor's frames are the member's by the collapse rule. Renaming the step after the survivor was rejected
+as making two members of one run read as the same animation. The converter gained no format-ladder rung
+for this, for the reason `#### fix/tools` gives for F431: a chain step's provenance is not recoverable from
+emitted XML, and no shipped pet carries a chain step at all.
+
 **`ModulePaths` degrades to "no root" rather than throwing from `FromStorage` or falling back to `%TEMP%`
 (2026-09-30, N-aibrain-02).** Three shapes were on the table. The old one, a stable `%TEMP%\DesktopAICompanion.<id>`
 folder, wrote into a directory nobody owned or swept on every headless self-test run (the N-gates-02 leak).

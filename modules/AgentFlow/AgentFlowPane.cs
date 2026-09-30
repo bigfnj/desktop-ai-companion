@@ -57,8 +57,8 @@ namespace DesktopAICompanion.AgentFlow
                 {
                     new PaneAction
                     {
-                        Label = "Open the log",
-                        InvokeAsync = OpenLogAsync,
+                        Label = "Show this module's data folder",
+                        InvokeAsync = ShowDataFolderAsync,
                         RevealsPath = true,
                         Group = GroupApprovals,
                     },
@@ -116,6 +116,16 @@ namespace DesktopAICompanion.AgentFlow
                     Group = GroupApprovals,
                     PinTop = true,
                     FullWidth = true,
+                },
+                // Where the full record lives. The button beneath used to try to reveal the log itself and
+                // was refused by the host on every machine (N-host-03), so the path is STATED here, through
+                // LogLocationLine, and the button shows this module's own folder instead.
+                new SettingField
+                {
+                    Id = "aboutLog",
+                    Label = "The log",
+                    Kind = SettingKind.Info,
+                    Group = GroupApprovals,
                 },
 
                 // ---- what it does about a waiting prompt -------------------------------------
@@ -638,6 +648,7 @@ namespace DesktopAICompanion.AgentFlow
                 // whatever was true when Init ran.
                 { FieldApprovals, _approvalFeed.Render() },
                 { "aboutSetup", SetupStatusLine() },
+                { "aboutLog", LogLocationLine() },
                 { "hdrReads", "It reads the transcript files your coding agent already writes, to "
                               + "see which tool call is waiting. Nothing is sent anywhere, and no "
                               + "command, path or prompt text is ever written to the diagnostic log "
@@ -677,40 +688,79 @@ namespace DesktopAICompanion.AgentFlow
         }
 
         /// <summary>
-        /// Hand the host the diagnostic log to reveal.
+        /// Hand the host a file in this module's OWN folder to reveal, so Explorer opens on that folder.
         ///
-        /// The path is the host's, not ours, and the host refuses anything outside its own data
-        /// root -- so this is a request rather than an instruction, which is the point of the
-        /// RevealsPath contract.
+        /// This button used to ask for the app's diagnostics log, two levels up from the module's
+        /// storage, and the host refused it on every machine from the day PermittedRevealRoot
+        /// narrowed an owned pane's reveal to the module's own storage (N-host-03). The containment
+        /// rule is right: a module reveals its own files, not the app's and not another module's,
+        /// and widening it for one button was declined. So the button asks for something inside the
+        /// rule -- the settings file the host writes into the folder it handed out -- and the pane
+        /// STATES where the log is (aboutLog, above this button), which is what the button was for.
+        /// There is no IHost verb for the app's log, and inventing one for a single button is worse
+        /// than a sentence. The path is a request, not an instruction: the host still checks it.
         /// </summary>
-        private System.Threading.Tasks.Task<string> OpenLogAsync()
+        private System.Threading.Tasks.Task<string> ShowDataFolderAsync()
         {
-            // DERIVED from this module's own storage directory, never from a guess at where
-            // the app keeps its data. The first version hardcoded %LOCALAPPDATA%\DesktopAICompanion
-            // and the host refused it -- correctly -- because a PORTABLE build keeps its data
-            // in a `data` folder beside the exe, so the path was genuinely outside the root
-            // it was being asked to reveal from. The containment check was right and the
-            // module was wrong, which is the good version of that argument.
-            //
-            // GetStorage hands back <dataRoot>\modules\<id>, so the log is two levels up. There is
-            // no ABI for "where is the log", and inventing one for a single button is worse
-            // than deriving it from a directory the host already gave us.
-            string path = LogPathFrom(_host != null ? _host.GetStorage(Info.Id) : null);
+            string path = RevealPathFrom(_host != null ? _host.GetStorage(Info.Id) : null);
             if (path == null)
                 return System.Threading.Tasks.Task.FromResult(
-                    "\u2717 Cannot work out where the log lives.");
+                    "\u2717 This host gave the module no data folder.");
             if (!System.IO.File.Exists(path))
                 return System.Threading.Tasks.Task.FromResult(
-                    "✗ No diagnostic log yet. Turn logging on in Preferences first.");
+                    "✗ Nothing is saved in this module's folder yet. Press Apply once, then try again.");
             return System.Threading.Tasks.Task.FromResult(path);
         }
 
         /// <summary>
-        /// The host's diagnostic log, from the module's own storage directory.
+        /// The file this module asks the host to reveal: its own settings file, which the host writes
+        /// into the storage directory it handed out (CompanionHost.GetSettings), so it is inside the
+        /// root the host permits an owned pane. Pure and internal so the self-test can assert the
+        /// containment without a host.
+        /// </summary>
+        internal static string RevealPathFrom(IModuleStorage storage)
+        {
+            if (storage == null || string.IsNullOrEmpty(storage.DataDirectory)) return null;
+            return System.IO.Path.Combine(storage.DataDirectory, "settings.json");
+        }
+
+        /// <summary>
+        /// The containment rule the host applies to an owned pane's reveal (OptionsWindow.RevealRootFor:
+        /// the module's own storage directory), mirrored so the self-test can ask it of RevealPathFrom's
+        /// answer and of the old answer. Full paths against a separator-terminated root, as the host's
+        /// IsUnder compares; the host resolves reparse points on top, which needs a real filesystem.
+        /// </summary>
+        internal static bool IsInsideStorage(string path, IModuleStorage storage)
+        {
+            if (path == null || storage == null || string.IsNullOrEmpty(storage.DataDirectory)) return false;
+            try
+            {
+                string root = System.IO.Path.GetFullPath(storage.DataDirectory)
+                    .TrimEnd(System.IO.Path.DirectorySeparatorChar) + System.IO.Path.DirectorySeparatorChar;
+                string full = System.IO.Path.GetFullPath(path);
+                return full.Length > root.Length && full.StartsWith(root, StringComparison.OrdinalIgnoreCase);
+            }
+            catch (Exception) { return false; }
+        }
+
+        /// <summary>The Approvals section's note on where the log is, since the pane can no longer reveal
+        /// it: the path a support request needs (SUPPORT.md names the same two locations).</summary>
+        private string LogLocationLine()
+        {
+            string log = LogPathFrom(_host != null ? _host.GetStorage(Info.Id) : null);
+            return "Every press and refusal is recorded in the app's diagnostic log"
+                   + (log != null ? " at " + log : " (SUPPORT.md says where it lives)")
+                   + ". The host lets a module reveal only files in its own folder, so the button below "
+                   + "shows this module's folder; the log is two levels up from it.";
+        }
+
+        /// <summary>
+        /// The host's diagnostic log, from the module's own storage directory, for the pane's note.
         ///
         /// Pure and internal so the self-test can assert the arithmetic without a host: the
-        /// bug this replaces was a path that looked right on the machine it was written on
-        /// and was wrong everywhere else.
+        /// bug this replaced was a path that looked right on the machine it was written on
+        /// and was wrong everywhere else. GetStorage hands back <dataRoot>\modules\<id>, so the
+        /// log is two levels up; there is no ABI for "where is the log".
         /// </summary>
         internal static string LogPathFrom(IModuleStorage storage)
         {

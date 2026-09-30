@@ -110,6 +110,18 @@ APPPATHS = os.path.join(REPO, "src", "Portable", "AppPaths.cs")
 # The pseudo-flag a case names to run CoreTests instead of the host exe. Its marker is None.
 CORETESTS = "CORETESTS"
 
+# The Shimeji converter is a third runner: the gate's last two steps build tools\ShimejiConvert and run its
+# `verify` and `selftest` verbs, and the emitter under test (tools\ShimejiConvert.Engine) is also
+# source-linked into PetStudio. The engine DLL as copied into the CLI's output by its ProjectReference is
+# the artefact: an engine edit recompiles the engine, not the CLI, so ShimejiConvert.exe's timestamp does
+# not move and only that copy proves the mutated code is what the run loaded (lane fix/followups).
+SHIMEJI_CSPROJ = os.path.join(REPO, "tools", "ShimejiConvert", "ShimejiConvert.csproj")
+SHIMEJI_EXE = os.path.join(REPO, "tools", "ShimejiConvert", "bin", "Release", "ShimejiConvert.exe")
+SHIMEJI_ENGINE_DLL = os.path.join(REPO, "tools", "ShimejiConvert", "bin", "Release", "ShimejiConvert.Engine.dll")
+PET_EMITTER = os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "PetEmitter.cs")
+# The pseudo-flag a case names to run the converter's selftest verb. Its marker is None.
+SHIMEJI = "SHIMEJI"
+
 TEMP = os.environ.get("TEMP", ".")
 # One private TEMP per harness run, created in main() and handed to every child through its environment
 # (Path.GetTempPath() reads TMP, then TEMP). Deleted at the end: the SelfTestScratch sweep inside the child
@@ -2063,6 +2075,16 @@ CASES = (
      "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
      "the Agenda tray click with no companion on screen speaks nothing"),
 
+    # N-tools-01: a PLAYED sequence's chain step is built from a direction-collapsed member's own poses
+    # again, the shipped shape: a rightward leg over the unmirrored left-facing art, a moonwalk inside the
+    # run. EmitterSelfTest's StrollBackPlayed fixture compares the step's velocity with its survivor's.
+    ("followups: tools: a played chain step plays a collapsed member's own mirrored poses again",
+     PET_EMITTER,
+     b"                    ShimejiAction source = SurvivorOf(members[i]);",
+     b"                    ShimejiAction source = members[i];",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "moonwalks over the left-facing art"),
+
 
     # ---- lane fix/deadcode ----
 )
@@ -2082,6 +2104,8 @@ BASELINES = (
     ("--module-selftest=aibrain", "dp-module-aibrain-selftest.txt"),
     ("--audio-selftest", "dp-audio-selftest.txt"),
     (CORETESTS, None),
+    # Lane fix/followups' emitter case runs the converter's selftest; a red converter is refused, not scored.
+    (SHIMEJI, None),
 )
 
 
@@ -2125,6 +2149,8 @@ def selftest(flag, marker):
     """
     if flag == CORETESTS:
         return coretests()
+    if flag == SHIMEJI:
+        return shimeji_selftest()
     path = os.path.join(RUN_TEMP, marker)
     try:
         os.remove(path)
@@ -2177,6 +2203,27 @@ def coretests():
             lines.append(line)
     lines.append("RESULT=PASS" if proc.returncode == 0 else "RESULT=FAIL")
     return "\n".join(lines) + "\n", proc.returncode
+
+
+def shimeji_selftest():
+    """The converter's `selftest` verb (the gate's last step) in the marker vocabulary the ladder grades.
+
+    EngineSelfTest.RunAll prints every sub-test's detail, a failing sub-test's failures as indented
+    `FAIL <why>` lines, and then SELFTEST PASS or SELFTEST FAIL with exit 0 or 1. The indented FAIL
+    lines already read as failure lines here (the ladder strips and looks for a FAIL prefix), so a
+    case names its failure text as the expected fragment; the exit code becomes the column-0 RESULT=
+    line, which is the verb's real verdict.
+    """
+    if not os.path.isfile(SHIMEJI_EXE):
+        return None, "ShimejiConvert exe is missing: " + SHIMEJI_EXE
+    try:
+        proc = subprocess.run([SHIMEJI_EXE, "selftest"], capture_output=True, text=True, timeout=1800,
+                              env=CHILD_ENV)
+    except subprocess.TimeoutExpired:
+        return None, "ShimejiConvert selftest did not exit in 1800s"
+    report = (proc.stdout or "") + (proc.stderr or "")
+    report += "\nRESULT=PASS\n" if proc.returncode == 0 else "\nRESULT=FAIL\n"
+    return report, proc.returncode
 
 
 def line_ending_variant(base, old, new):

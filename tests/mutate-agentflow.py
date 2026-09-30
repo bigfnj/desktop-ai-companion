@@ -1078,6 +1078,17 @@ CASES = (
         "            return FetchInstalledPets();",
         "one pane build asks for the installed pets ONCE",
     ),
+    # ---- lane fix/followups ----
+    (
+        # N-host-03: the data-folder button asks for the app's log two levels up again, the shape the host's
+        # PermittedRevealRoot refused on every machine. The self-check pins containment in the module's
+        # own storage, so the old answer fails it.
+        "the data-folder button asks for the app's log two levels up again",
+        PANE,
+        '            return System.IO.Path.Combine(storage.DataDirectory, "settings.json");',
+        '            return LogPathFrom(storage);',
+        "the reveal path stays inside this module's own storage",
+    ),
 )
 
 

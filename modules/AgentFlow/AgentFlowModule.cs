@@ -168,6 +168,10 @@ namespace DesktopAICompanion.AgentFlow
                                  //         fetches /json/list once; a CDP session owns one receive
                                  //         buffer; a permission string is normalised once per verdict
                                  //         and never cached; the cursor folds bytes without a string.
+                                 //         "Open the log" asked the host for the app's diagnostics.log,
+                                 //         which sits outside the folder the host lets a module reveal,
+                                 //         so it was refused on every machine; the button now shows this
+                                 //         module's own folder and the pane names the log's path (N-host-03).
                                  // 1.4.11: the options pane no longer probes VS Code's setup on the UI
                                  //         thread. The doc said the cold path was only between Init and
                                  //         the first tick, but OnTick returns before the probe when the
@@ -2821,7 +2825,7 @@ namespace DesktopAICompanion.AgentFlow
                         SelfCheckApprovalFeed,
                         SelfCheckPetAnimations,
                         SelfCheckNotifyChannels,
-                        SelfCheckLogPath,
+                        SelfCheckRevealPath,
                         SelfCheckAllProjects,
                         SelfCheckCodexOptions,
                         SelfCheckCodexMode,
@@ -5469,32 +5473,64 @@ namespace DesktopAICompanion.AgentFlow
             return true;
         }
         /// <summary>
-        /// Where the "Open the log" button points.
+        /// Where the "Show this module's data folder" button points, and why it points there.
         ///
-        /// Asserted because the first version hardcoded %LOCALAPPDATA%\\DesktopAICompanion and
-        /// the host refused it -- correctly. A PORTABLE build keeps its data beside the exe, so
-        /// the path was genuinely outside the root it asked to reveal from. That is the worst
-        /// shape of bug: right on the machine it was written on, wrong everywhere else, and
-        /// invisible until someone ran the other build.
+        /// The first version hardcoded %LOCALAPPDATA%\\DesktopAICompanion and the host refused it,
+        /// correctly: a PORTABLE build keeps its data beside the exe. The second derived the app's
+        /// log two levels up from the module's storage, and the host refused that too on every
+        /// machine once it narrowed an owned pane's reveal to the module's own storage (N-host-03).
+        /// So the button asks for a file INSIDE that root, and this pins the CONTAINMENT rather than
+        /// a spelling: the answer is under the storage directory in both layouts, and the old answer,
+        /// the log two levels up, is not, which is why the button no longer asks for it. The pane
+        /// still names the log's path, through LogPathFrom, so that arithmetic stays asserted too.
         /// </summary>
-        private static bool SelfCheckLogPath(SelfTestProbe probe)
+        private static bool SelfCheckRevealPath(SelfTestProbe probe)
         {
-            // WITNESS: the log sits beside the modules folder, whatever the root is. Both
-            // shapes are checked, because getting this right for one and wrong for the other
-            // is exactly what happened.
-            probe.Check("WITNESS the log is found under an INSTALLED data root",
-                LogPathFrom(new FakeStorage(
-                    @"C:\Users\x\AppData\Local\DesktopAICompanion\modules\agentflow"))
-                == @"C:\Users\x\AppData\Local\DesktopAICompanion\diagnostics.log");
-            probe.Check("WITNESS ...and under a PORTABLE one beside the exe, which is what broke",
-                LogPathFrom(new FakeStorage(@"D:\build\x64\data\modules\agentflow"))
-                == @"D:\build\x64\data\diagnostics.log");
+            var installed = new FakeStorage(@"C:\Users\x\AppData\Local\DesktopAICompanion\modules\agentflow");
+            var portable = new FakeStorage(@"D:\build\x64\data\modules\agentflow");
+            probe.Check("the reveal path stays inside this module's own storage, under an INSTALLED data root",
+                IsInsideStorage(RevealPathFrom(installed), installed));
+            probe.Check("...and under a PORTABLE data root beside the exe",
+                IsInsideStorage(RevealPathFrom(portable), portable));
+            probe.Check("a trailing separator on the storage does not move the answer out of the folder",
+                IsInsideStorage(RevealPathFrom(new FakeStorage(@"D:\data\modules\agentflow\")),
+                    new FakeStorage(@"D:\data\modules\agentflow")));
+            probe.Check("no storage means no path to ask for",
+                RevealPathFrom(null) == null && RevealPathFrom(new FakeStorage("")) == null);
 
-            probe.Check("a trailing separator does not shift the answer up a level",
-                LogPathFrom(new FakeStorage(@"D:\data\modules\agentflow\"))
-                == @"D:\data\diagnostics.log");
-            probe.Check("no storage means no guess",
-                LogPathFrom(null) == null && LogPathFrom(new FakeStorage("")) == null);
+            // WITNESS: the log two levels up, which the button used to ask for, is OUTSIDE the root
+            // the host permits, so the containment lines above are not satisfied by any path.
+            probe.Check("WITNESS the app's log two levels up is outside this module's storage, which is why the button no longer asks for it",
+                LogPathFrom(installed) == @"C:\Users\x\AppData\Local\DesktopAICompanion\diagnostics.log"
+                && !IsInsideStorage(LogPathFrom(installed), installed));
+            probe.Check("WITNESS ...and under the PORTABLE layout too",
+                LogPathFrom(portable) == @"D:\build\x64\data\diagnostics.log"
+                && !IsInsideStorage(LogPathFrom(portable), portable));
+            probe.Check("a trailing separator does not shift the log up a level",
+                LogPathFrom(new FakeStorage(@"D:\data\modules\agentflow\")) == @"D:\data\diagnostics.log"
+                && LogPathFrom(null) == null && LogPathFrom(new FakeStorage("")) == null);
+
+            // The action itself, against a real storage: nothing saved yet is said, a saved file is handed
+            // over, and the pane's note names the log.
+            using (var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-reveal"))
+            {
+                var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+                host.UseStorage("agentflow", storage);
+                host.SettingsFor("agentflow").Set(SettingMode, AgentMode.Off);
+                var module = new AgentFlowModule();
+                host.Declared = module.Info.Permissions;
+                module.Init(host);
+                string before = module.ShowDataFolderAsync().GetAwaiter().GetResult();
+                probe.Check("with nothing saved yet the button says so instead of handing over a missing file",
+                    before.StartsWith("\u2717", StringComparison.Ordinal) && before.Contains("Apply"));
+                System.IO.File.WriteAllText(System.IO.Path.Combine(storage.DataDirectory, "settings.json"), "{}");
+                string after = module.ShowDataFolderAsync().GetAwaiter().GetResult();
+                probe.Check("WITNESS once the module's settings file exists the button hands it over, inside the storage",
+                    after == RevealPathFrom(storage) && IsInsideStorage(after, storage));
+                probe.Check("the pane's note names the app's log two levels up",
+                    module.LogLocationLine().Contains(LogPathFrom(storage)));
+                module.Shutdown();
+            }
             return true;
         }
 
