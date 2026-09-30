@@ -151,7 +151,9 @@ namespace DesktopAICompanion.AiBrainModule
 
         protected override Task<Stream> CreateContentReadStreamAsync()
         {
-            // .NET Framework exposes no cancellation token for this operation.
+            // The parameterless override is the one that runs: the engine reads through the parameterless
+            // content.ReadAsStreamAsync() (AiEndpointPolicy), and the token overload's default delegates here.
+            // That call shape is what this double pins, not a runtime-era quirk (F090).
             return _pending.Task;
         }
 
@@ -214,8 +216,10 @@ namespace DesktopAICompanion.AiBrainModule
             int count,
             CancellationToken cancellationToken)
         {
-            // Deliberately ignore cancellation to reproduce .NET Framework transport streams
-            // that leave ReadAsync pending after the supplied token has been canceled.
+            // Deliberately ignores cancellation, standing in for a transport (a third-party or misbehaving
+            // HttpMessageHandler) whose ReadAsync stays pending after the token is cancelled: the WhenAny races
+            // and late-disposal helpers in AiEndpointPolicy exist for exactly that transport, whatever runtime
+            // the process runs on (F090).
             return _pending.Task;
         }
 

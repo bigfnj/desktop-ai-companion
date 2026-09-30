@@ -548,8 +548,13 @@ namespace DesktopAICompanion.Ai
                 var messages = new List<ChatMessage>
                 {
                     ChatMessage.System(system),
+                    // A live-VISION scene already ends in the real turn's own instruction ("Look at my screen
+                    // and react.", PrepareLiveSceneAsync), so the canned/OCR instruction is not stacked on it:
+                    // until 2026-09-30 a live-vision audition prompt carried both (F064).
                     ChatMessage.User(
-                        scene.Context + "\n" + DispositionScenes.Instruction + DescribeAlreadySaid(alreadySaid),
+                        scene.Context
+                            + (scene.ImageBase64 == null ? "\n" + DispositionScenes.Instruction : "")
+                            + DescribeAlreadySaid(alreadySaid),
                         scene.ImageBase64 == null ? null : new[] { scene.ImageBase64 }),
                 };
                 using (var perSample = CancellationTokenSource.CreateLinkedTokenSource(ct))
@@ -719,7 +724,7 @@ namespace DesktopAICompanion.Ai
                     " uniform=" + UniformityPercent(shot) + "%");
                 if (useVisionPath)
                 {
-                    string b64 = ToBase64PngScaled(shot, VisionMaxWidth);
+                    string b64 = ToBase64Png(shot);   // already captured at VisionMaxWidth (F075)
                     return new PreparedScene(
                         "your screen", ctx + "Look at my screen and react.", b64);
                 }
@@ -803,7 +808,9 @@ namespace DesktopAICompanion.Ai
 
         /// <summary>
         /// Launch-time preparation (fire-and-forget): optionally start the backend server, then
-        /// preload the active model so the first ask doesn't pay the cold-start cost. Never throws.
+        /// preload the active model so the first ask doesn't pay the cold-start cost. Never throws except for
+        /// the caller's own cancellation, which is rethrown (AiSessionManager catches it); every other failure
+        /// is recorded through NoteBackendAvailability and answered with false (F064).
         /// Returns true when the backend is reachable (used to drive the "AI ready" hint).
         /// </summary>
         /// <param name="warmUp">False for a throwaway brain that will run its own requests straight away (the
@@ -1076,7 +1083,7 @@ namespace DesktopAICompanion.Ai
                     string[] images = null;
                     if (useVisionPath)
                     {
-                        string b64 = ToBase64PngScaled(shot, VisionMaxWidth);
+                        string b64 = ToBase64Png(shot);   // already captured at VisionMaxWidth (F075)
                         // What the vision model is actually being sent. The Readme's accuracy table is
                         // keyed on capture WIDTH, so the only way to tell whether a disappointing remark
                         // came from a degraded input is to know the width and payload that produced it.
@@ -1451,25 +1458,10 @@ namespace DesktopAICompanion.Ai
             }
         }
 
-        /// <summary>
-        /// Base64 PNG of the bitmap, first downscaled to <paramref name="maxWidth"/> so a vision
-        /// model doesn't choke on a full-screen frame. Returns the unscaled PNG if already small.
-        /// </summary>
-        private static string ToBase64PngScaled(Bitmap bmp, int maxWidth)
-        {
-            if (bmp.Width <= maxWidth) return ToBase64Png(bmp);
-
-            int h = (int)(bmp.Height * (maxWidth / (double)bmp.Width));
-            using (Bitmap scaled = new Bitmap(maxWidth, h, PixelFormat.Format24bppRgb))
-            {
-                using (Graphics g = Graphics.FromImage(scaled))
-                {
-                    g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                    g.DrawImage(bmp, 0, 0, maxWidth, h);
-                }
-                return ToBase64Png(scaled);
-            }
-        }
+        // ToBase64PngScaled(bmp, maxWidth) was here. Both vision callers capture at the target width first
+        // (CaptureScreen(bounds, VisionMaxWidth) bounds the shot to 896 px), so its resample branch could never
+        // run, and the helper read as if the vision path still downscaled twice, which the single-resample note
+        // in AskAboutScreenAsync records as the bug being fixed (F075). ComputeSignature still needs Drawing2D.
 
         private static byte[] ComputeSignature(Rectangle captureBounds)
         {
@@ -1519,24 +1511,21 @@ namespace DesktopAICompanion.Ai
         // ---- OCR: tesseract when present, else Windows' built-in engine ----
 
         /// <summary>
-        /// Which engine screen reading will actually use, as a display name — "tesseract.exe (path)",
-        /// <see cref="WindowsOcr.DisplayName"/>, or null when neither is available. Surfaced by the
-        /// "Test OCR" status so the user can tell WHICH engine produced their results, and therefore
-        /// whether installing Tesseract would be an upgrade.
+        /// Probe seam (F077): resolve the OCR engine through the same once-per-brain cache RunOcrAsync uses, so
+        /// the probe can count resolutions without running an OCR pass. Until 2026-09-30 this was
+        /// DescribeOcrEngine, whose summary said the "Test OCR" status surfaced its display name; nothing did
+        /// (SelfTestOcrAsync words the engine name itself), and the probe was its only caller (F076).
         /// </summary>
-        internal string DescribeOcrEngine()
+        internal string ResolveOcrEngineForDiagnostics()
         {
-            string exe = null;
-            try { exe = ResolveTesseractOnce(); } catch { }
-            if (!string.IsNullOrEmpty(exe)) return Path.GetFileName(exe) + " (" + exe + ")";
-            return WindowsOcr.IsAvailable ? WindowsOcr.DisplayName : null;
+            try { return ResolveTesseractOnce(); } catch { return null; }
         }
 
         private async Task<string> RunOcrAsync(Bitmap bmp, CancellationToken ct)
         {
             // WHICH engine read the screen, recorded before it runs. ResolveTesseract walks a configured
             // path, two install locations and PATH, and every one of its failure modes was invisible:
-            // DescribeOcrEngine wraps it in `catch { }` and SelfTestOcrAsync only runs when a user presses
+            // the probe seam above swallows the exception and SelfTestOcrAsync only runs when a user presses
             // a button. A companion reading the screen through Windows OCR when the user believes they
             // installed Tesseract is a silent downgrade in accuracy, not an error.
             // File NAME only, never the resolved path: the path contains the Windows user name.
@@ -1597,8 +1586,8 @@ namespace DesktopAICompanion.Ai
                         {
                             if (job != null) job.Terminate();
                             KillProcessTree(p);
-                            ObserveFailure(stdout);
-                            ObserveFailure(stderr);
+                            AiEndpointPolicy.ObserveTaskFailure(stdout);
+                            AiEndpointPolicy.ObserveTaskFailure(stderr);
                             ct.ThrowIfCancellationRequested();
                             Log("ocr result: engine=tesseract chars=0 reason=timeout-8s");
                             return "";
@@ -1613,7 +1602,7 @@ namespace DesktopAICompanion.Ai
                         {
                             if (job != null) job.Terminate();
                             KillProcessTree(p);
-                            ObserveFailure(drain);
+                            AiEndpointPolicy.ObserveTaskFailure(drain);
                             ct.ThrowIfCancellationRequested();
                             Log("ocr result: engine=tesseract chars=0 reason=output-drain-timeout-2s");
                             return "";
@@ -1761,21 +1750,6 @@ namespace DesktopAICompanion.Ai
             }
         }
 
-        private static void ObserveFailure(Task task)
-        {
-            if (task == null) return;
-            task.ContinueWith(
-                delegate(Task failed)
-                {
-                    if (failed.Exception != null)
-                        failed.Exception.Handle(delegate(Exception ignored) { return true; });
-                },
-                CancellationToken.None,
-                TaskContinuationOptions.OnlyOnFaulted |
-                TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default);
-        }
-
         /// <summary><see cref="ResolveTesseract"/> once per brain (F077). A resolution that throws is not cached,
         /// so the next ask tries again and logs again.</summary>
         private string ResolveTesseractOnce()
@@ -1789,28 +1763,17 @@ namespace DesktopAICompanion.Ai
 
         private string ResolveTesseract()
         {
-            if (!string.IsNullOrWhiteSpace(_tesseractPath))
-                return AiExecutablePolicy.ResolveConfigured(
-                    _tesseractPath,
-                    "tesseract.exe");
-
-            string[] candidates =
-            {
-                Environment.ExpandEnvironmentVariables(
-                    @"%ProgramFiles%\Tesseract-OCR\tesseract.exe"),
-                Environment.ExpandEnvironmentVariables(
-                    @"%LOCALAPPDATA%\Programs\Tesseract-OCR\tesseract.exe")
-            };
-            foreach (string candidate in candidates)
-            {
-                string resolved = AiExecutablePolicy.ResolveConfigured(
-                    candidate,
-                    "tesseract.exe");
-                if (resolved != null) return resolved;
-            }
-
-            return AiExecutablePolicy.ResolveFromPath(
-                Environment.GetEnvironmentVariable("PATH"),
+            // The ladder itself lives in AiExecutablePolicy.Resolve, shared with OllamaClient (F087); only the
+            // literals are this executable's.
+            return AiExecutablePolicy.Resolve(
+                _tesseractPath,
+                new[]
+                {
+                    Environment.ExpandEnvironmentVariables(
+                        @"%ProgramFiles%\Tesseract-OCR\tesseract.exe"),
+                    Environment.ExpandEnvironmentVariables(
+                        @"%LOCALAPPDATA%\Programs\Tesseract-OCR\tesseract.exe")
+                },
                 "tesseract.exe");
         }
 

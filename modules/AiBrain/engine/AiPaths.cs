@@ -7,9 +7,11 @@ namespace DesktopAICompanion.Ai
     /// Module-side replacement for the base <c>AppPaths</c> AI files. The module points this at its own
     /// storage (<c>host.GetStorage("aibrain")</c>) when it initialises, and the self-tests point it at
     /// throwaway roots of their own. Member names mirror the base <c>AppPaths</c> so the copied
-    /// DesktopAICompanion.Ai code (AiSettings) rebinds by a simple AppPaths->AiPaths rename. Legacy %APPDATA%
-    /// migration is deliberately OFF here: importing an existing ai-settings.json (with the DPAPI keys) is
-    /// the S4b migrator's job, not the dormant module's.
+    /// DesktopAICompanion.Ai code (AiSettings) rebinds by a simple AppPaths->AiPaths rename. The one-time import
+    /// of an existing base ai-settings.json (DPAPI keys included) is AiBrainModule.MigrateFromBaseIfNeeded, run
+    /// at Init before Load; nothing in here reads a legacy root. (A LegacyMigrationEnabled hard-coded false and
+    /// a LegacyRoamingDataRoot that was this Root sat here until 2026-09-30, feeding a Load branch that could
+    /// never run, F088.)
     ///
     /// There is NO temp fallback for an unset root any more. Until 2026-09-29 an unset root resolved to
     /// %TEMP%\DesktopAICompanion.AiBrain, which is where `--module-selftest=aibrain` left an ai-settings.json
@@ -61,7 +63,5 @@ namespace DesktopAICompanion.Ai
         }
 
         public static string AiSettingsFile { get { return Path.Combine(Root, "ai-settings.json"); } }
-        public static bool LegacyMigrationEnabled { get { return false; } }
-        public static string LegacyRoamingDataRoot { get { return Root; } }
     }
 }

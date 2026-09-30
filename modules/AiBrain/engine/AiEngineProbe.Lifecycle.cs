@@ -39,18 +39,19 @@ namespace DesktopAICompanion.AiBrainModule
                 CloudDataConsent = true,
                 CloudTextModel = "gpt-4o-mini",
             };
-            live.DisabledSources.Add("fixture-source");
+            // The extension data is the collection fixture (the two Fortunes-era lists this used went with F093):
+            // an unknown key an older file carried has to survive the copy too, or SaveMerged would drop it.
+            live.ExtensionData["fixture-key"] = System.Text.Json.JsonDocument.Parse("\"kept\"").RootElement;
             string keyError;
             bool keyStored = live.TrySetApiKey("clone-fixture-key-not-a-real-key", out keyError);
             AiSettings copy = live.CloneForBrain();
             ok &= Check(sb, "the brain's settings copy owns its credential dictionary and its collections",
                 copy.ApiKeysEnc != null && !ReferenceEquals(copy.ApiKeysEnc, live.ApiKeysEnc) &&
-                !ReferenceEquals(copy.DisabledSources, live.DisabledSources) &&
-                !ReferenceEquals(copy.DisabledGenres, live.DisabledGenres) &&
-                !ReferenceEquals(copy.ExtensionData, live.ExtensionData));
+                copy.ExtensionData != null && !ReferenceEquals(copy.ExtensionData, live.ExtensionData));
             ok &= Check(sb, "WITNESS the copy carries the fields the factory reads",
                 copy.Provider == "openai" && copy.CloudDataConsent && copy.CloudTextModel == "gpt-4o-mini" &&
-                copy.DisabledSources.Count == 1 && copy.DisabledSources[0] == "fixture-source");
+                copy.ExtensionData.ContainsKey("fixture-key") &&
+                copy.ExtensionData["fixture-key"].GetString() == "kept");
             if (keyStored)
             {
                 // The window F068 and F100 describe: the pane rotates the key after the hand-off and before the
@@ -65,7 +66,7 @@ namespace DesktopAICompanion.AiBrainModule
                 sb.AppendLine("SKIP: DPAPI unavailable (" + keyError + "), so the copy's key isolation is not asserted");
             }
             ok &= Check(sb, "the brain's settings copy can never write the settings file",
-                !copy.Save());
+                !copy.SaveWithin(AiSettings.ProcessLockTimeoutMilliseconds));
 
             // A factory that throws: the reconfigure completes false and the log says why, instead of a discarded
             // task faulting silently with the brain left null until the next Apply.
@@ -204,8 +205,8 @@ namespace DesktopAICompanion.AiBrainModule
 
             using (var brain = new AiBrain(new RecordingBackend("", true), new AiSettings()))
             {
-                brain.DescribeOcrEngine();
-                brain.DescribeOcrEngine();
+                brain.ResolveOcrEngineForDiagnostics();
+                brain.ResolveOcrEngineForDiagnostics();
                 ok &= Check(sb, "the OCR engine is resolved once per brain, not once per ask",
                     brain.TesseractResolutionsForDiagnostics == 1);
             }

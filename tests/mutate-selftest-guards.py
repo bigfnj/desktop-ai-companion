@@ -114,6 +114,9 @@ SECURITY_SELFTEST = os.path.join(REPO, "src", "dotNet", "SecuritySelfTest.cs")
 ANIMATIONS = os.path.join(REPO, "src", "dotNet", "Animations.cs")
 XML_CS = os.path.join(REPO, "src", "dotNet", "Xml.cs")
 RUNTIME_GEOMETRY = os.path.join(REPO, "src", "dotNet", "RuntimeGeometry.cs")
+AISETTINGS = os.path.join(REPO, "modules", "AiBrain", "engine", "AiSettings.cs")
+AIBRAIN_MODULE = os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs")
+AIENGINE_SECURITY = os.path.join(REPO, "modules", "AiBrain", "engine", "AiEngineProbe.Security.cs")
 
 TEMP = os.environ.get("TEMP", ".")
 # One private TEMP per harness run, created in main() and handed to every child through its environment
@@ -2010,6 +2013,56 @@ CASES = (
      b"            if (smaller > 0 && (double)smaller * f < 0.0) f = 1.0 / smaller;",
      CORETESTS_CSPROJ, CORETESTS_DLL,
      CORETESTS, None, "A frame that would shrink below one pixel was not floored."),
+
+    # F108: an unknown provider id must change nothing. The old shape answered it with the first preset
+    # (then the local Ollama row); restoring a first-row fallback is the trap coming back.
+    ("deadcode: an unknown provider id falls back to the first preset again",
+     AISETTINGS,
+     b"            if (!AiProviders.TryGet(provider, out preset)) return OpenAiBaseUrl;",
+     b"            if (!AiProviders.TryGet(provider, out preset)) preset = AiProviders.All[0];",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an unknown provider id leaves the selector and both endpoints untouched"),
+
+    # F082: an emotion that maps to nothing is a FAIL line, not an IndexOutOfRangeException out of Run.
+    # Before FirstOrEmpty this same mutation was one EXC line and no verdict, which the ladder grades as
+    # BROKEN, never as a firing.
+    ("deadcode: 'happy' maps to no animation",
+     AIBRAIN_MODULE,
+     b'                case "happy":    return new string[] { "flower", "jump", "boing", "bounce", "run", "walk" };',
+     b'                case "happy":    return new string[0];',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "WITNESS 'happy' still leads with flower"),
+
+    # F082: the reflected field is renamed. The after-retire checks now create their manager inside the try,
+    # so the MissingFieldException is a FAIL line naming the check; before, it escaped to Run's outer catch.
+    ("deadcode: AiSessionManager._operation is renamed under the probe",
+     AIENGINE_SECURITY,
+     b"            FieldInfo field = typeof(AiSessionManager).GetField(\n"
+     b"                \"_operation\",\n",
+     b"            FieldInfo field = typeof(AiSessionManager).GetField(\n"
+     b"                \"_operationX\",\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "MissingFieldException"),
+
+    # F090: a pre-check in the retry helper refuses the cancelled token before the backend is entered; the
+    # cancel still surfaces as cancellation, so only the new ChatCalls check can tell the two apart.
+    ("deadcode: the retry helper refuses a cancelled token before calling the backend",
+     AIBRAIN_ENGINE,
+     b"            string firstError = null;\n"
+     b"            try\n"
+     b"            {\n"
+     b"                string reply = await backend.ChatAsync(model, messages, true, ct).ConfigureAwait(false);\n",
+     b"            string firstError = null;\n"
+     b"            try\n"
+     b"            {\n"
+     b"                ct.ThrowIfCancellationRequested();\n"
+     b"                string reply = await backend.ChatAsync(model, messages, true, ct).ConfigureAwait(false);\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "ChatAsync was entered exactly once"),
 )
 
 BASELINES = (

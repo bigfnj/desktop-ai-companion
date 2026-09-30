@@ -88,7 +88,32 @@ namespace DesktopAICompanion.Ai
             return null;
         }
 
-        internal static bool IsLocalAbsolutePath(string value)
+        /// <summary>
+        /// The resolve ladder both executables share: a configured path is authoritative and fails closed (a
+        /// relative, malformed or missing path, or a different file name, resolves to null rather than falling
+        /// through), then the well-known install locations, then PATH. One copy: until 2026-09-30
+        /// OllamaClient.ResolveOllamaExe and AiBrain.ResolveTesseract each carried the three rungs with their own
+        /// literals, so a fix to one rung reached one executable (F087).
+        /// </summary>
+        public static string Resolve(string configuredPath, string[] candidates, string expectedFileName)
+        {
+            if (!string.IsNullOrWhiteSpace(configuredPath))
+                return ResolveConfigured(configuredPath, expectedFileName);
+            if (candidates != null)
+                foreach (string candidate in candidates)
+                {
+                    string resolved = ResolveConfigured(candidate, expectedFileName);
+                    if (resolved != null) return resolved;
+                }
+            return ResolveFromPath(Environment.GetEnvironmentVariable("PATH"), expectedFileName);
+        }
+
+        // ---- probe seams ----
+        // Reached only by AiEngineProbe.CheckAiExecutablePathPolicy, which needs the canonicalization step
+        // observable WITHOUT a file probe ("rejected before probing"). They stay here because they wrap private
+        // members, and carry the ...ForDiagnostics suffix the file already uses for that role (F087).
+
+        internal static bool IsLocalAbsolutePathForDiagnostics(string value)
         {
             try
             {
@@ -103,7 +128,7 @@ namespace DesktopAICompanion.Ai
             }
         }
 
-        internal static bool IsReparseFreeLocalFile(string value)
+        internal static bool IsReparseFreeLocalFileForDiagnostics(string value)
         {
             try
             {

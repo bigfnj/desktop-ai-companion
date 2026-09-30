@@ -130,9 +130,17 @@ namespace DesktopAICompanion.AiBrainModule
                                  //         when it comes back, and the pane's Refresh reaches the live
                                  //         brain; the OCR engine resolves once per brain and the PATH walk
                                  //         throws nothing; Windows OCR is fed the capture's pixels, not a
-                                 //         PNG round trip; the audition guard is interlocked. Every item is
+                                 //         PNG round trip; the audition guard is interlocked. Lane
+                                 //         fix/deadcode (same version, zip not yet republished): the seven
+                                 //         Fortunes-era settings fields, the local provider presets and the
+                                 //         "ollama" branches behind them, the legacy-root read that could
+                                 //         never run, the second downscale and the OCR display name nothing
+                                 //         showed are gone; an unknown provider id changes nothing; the
+                                 //         audition pane shows each sample's latency; a live-vision audition
+                                 //         carries one instruction; the probe names a throwing group and
+                                 //         survives a renamed reflected field. Every item is
                                  //         dispositioned in BACKLOG.md; decisions under `#### fix/aibrain`
-                                 //         in docs/DESIGN-REGISTER.md.
+                                 //         and `#### fix/deadcode` in docs/DESIGN-REGISTER.md.
                                  // 1.1.13: the emotion reaction reached 18/54, 35/54, 8/54, 8/54 and
                                  //         8/54 companions. "thinking" fires on EVERY ask, so on 46 of
                                  //         54 it silently did nothing -- the eSheep-era names it used
@@ -607,6 +615,12 @@ namespace DesktopAICompanion.AiBrainModule
                 {
                     sb.Append("✗ ").Append(sample.Error);
                 }
+                // The sample's own latency, so "the provider is too slow" (the timeout message's guess) can be
+                // read off the pane: one cold-load count followed by four warm sub-second ones is the residency
+                // story in a line. The diagnostic log carried this per request; the pane threw it away (F076).
+                sb.Append(" · ")
+                  .Append((sample.ElapsedMs / 1000.0).ToString("0.0", CultureInfo.InvariantCulture))
+                  .Append(" s");
             }
             if (ok == 0)
                 sb.Append("\n\nNothing came back. The diagnostic log records why, under Modules.");
@@ -756,11 +770,12 @@ namespace DesktopAICompanion.AiBrainModule
                 // OpenAI-compatible /v1 server such as llama.cpp/LM Studio).
                 d["localBackendKind"] = LocalBackendKindLabelForId(s.LocalBackendKind);
                 d["endpoint"] = s.Endpoint ?? "";
-                // SNAPSHOT under the lock, FORMAT outside it. Wrapping the whole span instead would
-                // put VramStatusLine's blocking model query -- up to a couple of seconds against a local
-                // Ollama -- inside the critical section, so a pane open would stall both refresh actions.
-                // Copying two short lists costs nothing and gives the four label reads below a consistent
-                // view even if a refresh replaces a list midway.
+                // SNAPSHOT under the lock, FORMAT outside it. The lock guards the two list copies and
+                // nothing else: the label formatting below and VramStatusLine stay outside it. (This used
+                // to cite VramStatusLine's "blocking model query -- up to a couple of seconds" as the thing
+                // kept out of the critical section; that line has been a cached string plus a pool-thread
+                // probe since 1.1.11, F064.) Copying two short lists costs nothing and gives the four label
+                // reads below a consistent view even if a refresh replaces a list midway.
                 ModelListing[] localSnapshot, cloudSnapshot;
                 lock (_modelsLock)
                 {
@@ -1371,7 +1386,8 @@ namespace DesktopAICompanion.AiBrainModule
 
         // ---- state application (mirrors ApplyAiBrainState + ApplyAiTriggers) ----------------------
 
-        /// <summary>Build/retire the backend and (re)arm the hotkey + idle loop from the current settings.</summary>
+        /// <summary>Build/retire the backend and (re)arm the hotkey from the current settings. (The idle loop this
+        /// used to name went in 1.2.3, F064.)</summary>
         private void ApplyState()
         {
             AiSettings s = _settings ?? new AiSettings();
@@ -1812,8 +1828,10 @@ namespace DesktopAICompanion.AiBrainModule
 
         /// <summary>One-time, non-destructive migration: if the module has no settings yet but the base
         /// ai-settings.json exists, copy it (including the DPAPI-encrypted keys, decryptable by the same
-        /// Windows user) into the module store. The base file is left intact — the base still reads its
-        /// fortune fields from it, and the copied fortune fields are simply unused by this module.</summary>
+        /// Windows user) into the module store. The base file is left intact: the host reads it once more for
+        /// the random-drop bridge (LocalData.MigrateRandomDropIfAbsent). Any Fortunes-era keys it carries land
+        /// in this module's ExtensionData, inert (F093; the base has not read them since the Fortunes module
+        /// took its own settings).</summary>
         private static void MigrateFromBaseIfNeeded(string moduleDir)
         {
             try

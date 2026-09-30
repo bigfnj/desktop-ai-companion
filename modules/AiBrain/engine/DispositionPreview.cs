@@ -79,9 +79,13 @@ namespace DesktopAICompanion.Ai
         };
 
         /// <summary>
-        /// The user-facing instruction appended to a scene. Mirrors the live OCR path's phrasing ("Here
-        /// is the text currently visible on my screen") closely enough that the model is doing the same
-        /// job, while being honest that this is a described screen rather than a captured one.
+        /// The instruction appended to a scene whose context ENDS IN CONTENT and needs telling what to do
+        /// with it: a canned scene (a described screen) or a live-OCR scene (whose context ends in the text
+        /// read off the screen). NOT appended to a live-vision scene, whose context already ends in the real
+        /// turn's own instruction, "Look at my screen and react."; until 2026-09-30 the audition appended this
+        /// on top of that, so a live-vision prompt carried two instructions (F064). Honest that a canned scene
+        /// is described rather than captured, which is why it does not borrow the OCR path's "Here is the
+        /// text currently visible on my screen" wording either.
         /// </summary>
         internal const string Instruction = "React to what is on my screen.";
     }

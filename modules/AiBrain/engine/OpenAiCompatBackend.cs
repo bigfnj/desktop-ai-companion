@@ -192,25 +192,31 @@ namespace DesktopAICompanion.Ai
         public void Dispose() { _http.Dispose(); }
     }
 
-    /// <summary>Provider presets for the "One Interface" — base URL + whether a key/host is needed.</summary>
+    /// <summary>
+    /// The CLOUD provider presets: the id AiSettings.Provider stores and the base URL prefilled on selection.
+    /// Cloud only since schema v2, where Provider is the cloud selector and the local slot is
+    /// Endpoint/LocalBackendKind. Until 2026-09-30 this table also carried ollama/lmstudio/llamacpp rows and
+    /// Name/NeedsKey/IsLocal fields nothing read, and Get() answered an unknown id with the Ollama row, which
+    /// SelectProviderEndpoint would have written over the local Endpoint (F108).
+    /// </summary>
     internal static class AiProviders
     {
-        public struct Preset { public string Id, Name, BaseUrl; public bool NeedsKey, IsLocal; }
+        public struct Preset { public string Id, BaseUrl; }
 
         public static readonly Preset[] All =
         {
-            new Preset { Id="ollama",    Name="Ollama (local)",         BaseUrl="http://localhost:11434", NeedsKey=false, IsLocal=true  },
-            new Preset { Id="lmstudio",  Name="LM Studio (local)",      BaseUrl="http://localhost:1234/v1", NeedsKey=false, IsLocal=true },
-            new Preset { Id="llamacpp",  Name="llama.cpp (local)",      BaseUrl="http://localhost:8080/v1", NeedsKey=false, IsLocal=true },
-            new Preset { Id="openrouter",Name="OpenRouter (cloud)",     BaseUrl="https://openrouter.ai/api/v1", NeedsKey=true, IsLocal=false },
-            new Preset { Id="openai",    Name="OpenAI (cloud)",         BaseUrl="https://api.openai.com/v1", NeedsKey=true, IsLocal=false },
-            new Preset { Id="custom",    Name="Custom (OpenAI-compat)", BaseUrl="", NeedsKey=false, IsLocal=false },
+            new Preset { Id="openrouter", BaseUrl="https://openrouter.ai/api/v1" },
+            new Preset { Id="openai",     BaseUrl="https://api.openai.com/v1" },
+            new Preset { Id="custom",     BaseUrl="" },
         };
 
-        public static Preset Get(string id)
+        /// <summary>False, with a default preset, for an id no row carries. Never a fallback row.</summary>
+        public static bool TryGet(string id, out Preset preset)
         {
-            foreach (var p in All) if (string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase)) return p;
-            return All[0];
+            foreach (var p in All)
+                if (string.Equals(p.Id, id, StringComparison.OrdinalIgnoreCase)) { preset = p; return true; }
+            preset = default(Preset);
+            return false;
         }
     }
 }

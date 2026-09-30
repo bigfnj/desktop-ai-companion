@@ -751,7 +751,7 @@ add both shapes to the shared corpus. The first three steps are outside this mod
 #### fix/deadcode
 
 **A member whose only reader is a test is not dead, and what the test pins decides what happens to it
-(2026-09-30; applied to F289, F296, F357).** The 2026-09-27 refutation ("NOT dead because CoreTests read
+(2026-09-30; applied to F289, F296, F357; kept and named as seams: F076, F087).** The 2026-09-27 refutation ("NOT dead because CoreTests read
 them") stands as a rule of evidence: a test reader is a reader, and nothing a test names is deleted on the
 strength of a grep. The lane then asks what the test pins. When the member is a shape production has
 abandoned (the integer ScalePolicy helpers behind the fractional path, the commit-pinned URL validator behind
@@ -769,6 +769,16 @@ and Program exits `Run() ? 0 : 1`, so until this campaign no security assertion 
 The channel reshapes that stdout into the `FAIL:` / `RESULT=` vocabulary the ladder already grades, the way
 the CORETESTS pseudo-flag does, and an unhandled exception (the shape F298 removed) grades as BROKEN (no
 verdict), never as a firing. Two cases ride it; the baseline runs it with the rest.
+
+**On the AI path the consent IS the disposition: no profanity switch may ever gate a persona the user chose
+by name (2026-09-30, F093; the decision predates the campaign, this is where it now lives).** Nobody flips a
+profanity switch: they pick Jules Winnfield, or Jeff Ross, or the Drill Sergeant, from a list that says exactly
+who those characters are, and that choice is the acceptance. Gating it behind a second toggle would hand a user
+who chose a foul-mouthed character a sanitised one with no idea why, the same mistake in reverse as a model
+self-censoring to "f***". Fortunes needs its NoProfanity filter because its content arrives unchosen from 158
+packs; a persona is chosen by name. This paragraph used to sit on a dead `NoProfanity` field in AiSettings,
+one of seven Fortunes-era fields that class persisted and nothing in the module read; the fields went, the
+decision stays here.
 
 **The hardening self-test keeps its runtime limits as literals (2026-09-30, F292, ACCEPTED-RECORDED).**
 `spriteCount <= 1024`, the 16 MiB pixel bound and the two loops of 32 mirror SpriteFrameStore.MaximumFrames /
