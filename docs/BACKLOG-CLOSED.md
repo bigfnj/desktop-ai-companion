@@ -9,7 +9,11 @@ They are kept rather than deleted because each one records HOW something was set
 the measurement that settled it. Nothing here is open. If you are looking for work, you are in the wrong
 file — read [`../BACKLOG.md`](../BACKLOG.md).
 
-Moved out of BACKLOG.md on 2026-09-24, verbatim.
+Moved out of BACKLOG.md on 2026-09-24, verbatim. Each closing narrative is followed by the entry as it was
+filed, glyph included, so a 📌 under a "Closed" heading in this file is the original filing quoted, not open
+work; where a closure has since been re-verified against the code the entry starts with ✅ and the citation
+and keeps its original text after "Original entry:", the shape the 2026-09-22 closures below already use.
+`tests/Test-BacklogClosingCriteria.ps1` reads `BACKLOG.md` only.
 
 ---
 
@@ -302,12 +306,12 @@ own convention is that they should not still have been sitting in it.
   a tautology reading as "the suite ran"; it is replaced by a reflection tripwire that fails
   when a SelfCheck group is declared and never wired. Original entry:
   **The audit reported four self-test assertions that cannot fail; one was found and fixed, three
-  CLOSES-WHEN: grep-present modules/AgentFlow/AgentFlowModule.cs "DeclaredSelfCheckMethods"
   are unlocated.** The fixed one asserted `candidates.Count > 1` twice in a row, the second time as
   though it were checking something else. The other three were not named in a form that survived the
   audit, and hunting them blind costs more than it returns; the right tool is a pass over every
   `probe.Check` in the module asking what input makes it false. Filed rather than guessed at,
   because a check that cannot fail is worse than no check: it reads as coverage.
+  CLOSES-WHEN: grep-present modules/AgentFlow/AgentFlowModule.cs "DeclaredSelfCheckMethodNames"
 
 - ✅ **DONE. `MinHostVersion` is `1.2.0`** (raised past 1.1.5 during the options-ABI cycle; the module has since published 1.1.6 and 1.1.7 against it, so the consent line names every permission bit it uses). Original entry below for the reasoning. It was published on
   2026-09-17 still declaring `1.0.0`, deliberately: raising it would have made the module
@@ -583,11 +587,15 @@ module publish, not a module publish.
 
 Both added; they are not equally live, and the enum says so rather than leaving a reader to find out.
 
-`LaunchProcess` has three holders RIGHT NOW and no flag had ever said so — AiBrain spawns the ollama
-runtime, Remembrance spawns whisper.cpp and its installer probe, PetStudio spawns ffmpeg/ffprobe
-through the conversion engine. That is the same finding that produced `InputSynthesis`: a shipped
-module doing something the consent screen never mentioned, beside a pane that prints "wants: Speech,
-Storage" as an affirmative claim. Shell-opening a path or URL the user asked for (Fortunes revealing
+`LaunchProcess` had three holders the day it was added and, until 2026-09-30, no declarer: AiBrain
+spawns the ollama runtime, Remembrance spawns whisper.cpp and its installer probe, PetStudio spawns
+ffmpeg/ffprobe through the conversion engine (and the bundled dwebp), and none of the three declared
+the flag, so the pane went on printing "wants: Speech, Storage" until the 2026-09-29 audit filed it
+as F226. All three declare it now, each under a comment naming the executables:
+`modules/AiBrain/AiBrainModule.cs:266`, `modules/Remembrance/RemembranceModule.cs:208`,
+`modules/PetStudio/PetStudioModule.cs:317`, each pinned by its module self-test. That is the same
+finding that produced `InputSynthesis`: a shipped module doing something the consent screen never
+mentioned, beside a pane that prints "wants: Speech, Storage" as an affirmative claim. Shell-opening a path or URL the user asked for (Fortunes revealing
 its packs folder, Reminder opening an event URL) is deliberately EXCLUDED — that is the user's own
 action taking effect, and folding it in would put the flag on seven of eight modules and make it
 mean nothing.
@@ -596,7 +604,12 @@ mean nothing.
 `GetKeyState`, `SetWindowsHookEx`, `GetLastInputInfo` and the raw-input registrations: zero hits. It
 exists for `docs/BLOCKED.md` T58.
 
-- 📌 **`ModulePermissions` cannot disclose input MONITORING or process launch.**
+- ✅ **CLOSED 2026-09-30 (records).** Its `CLOSES-WHEN` holds (`InputMonitoring` is declared at
+  `src/DesktopAICompanion.Contracts/PluginApi.cs:119`, `LaunchProcess` at `:146`), and the disclosure it
+  asked for is as complete as its holders allow: `LaunchProcess` is declared by every module that spawns
+  a process (the paragraph above; F226), and `InputMonitoring` has no holder by measurement and waits
+  for `docs/BLOCKED.md` T58, as the enum's own comment says (`PluginApi.cs:113-118`). Original entry:
+  **`ModulePermissions` cannot disclose input MONITORING or process launch.**
   CLOSES-WHEN: grep-present src/DesktopAICompanion.Contracts/PluginApi.cs "InputMonitoring"
   The `InputSynthesis` half of this entry is DONE and the under-disclosure it described is gone:
   the flag is declared at `src/DesktopAICompanion.Contracts/PluginApi.cs:104`, BlinkingLed declares it
@@ -969,7 +982,23 @@ failed to load looked exactly like one that was working. The build now logs when
 AND when it is not. Verified in the real app: "smart picker ready (3214 lines indexed)" lands 91 ms
 after the engine line, off the UI thread.
 
-- 📌 **Fortunes rebuilds its vector cache synchronously on the UI thread, on start and every Apply.**
+[Re-read 2026-09-30 by lane fix/records: that line no longer exists. fortunes 1.0.12 (F145) renamed
+the publish-time line to "smart picker constructed, warming N lines in the background"
+(`modules/Fortunes/FortunesModule.cs:462`, logged from `BuildSmartPicker` at `:439`) and reports
+completion on its own as "smart index complete: N of M lines indexed"
+(`modules/Fortunes/engine/SmartFortunes.cs:513`), because "ready" at publish time claimed a warm that
+had not run yet (`FortunesModule.cs:437-438`). The 91 ms stands as the 2026-09-25 measurement of the
+construction's hand-off off the UI thread, not of a ready index.]
+
+- ✅ **CLOSED 2026-09-25 (the narrative above); re-verified 2026-09-30 against fortunes 1.0.12.** The
+  picker, and the `VectorCache` its constructor loads, are built on a pool thread: `ScheduleSmartPicker`
+  hands the build to `Task.Run` (`modules/Fortunes/FortunesModule.cs:406`) and `BuildSmartPicker`
+  (`:411-419`) disposes the superseded picker, constructs `new SmartFortunes()` and warms it there,
+  publishing under the generation lock (`:421-428`); a picker replaced later is disposed off-thread too
+  (`:467-471`, F143). What stays on the calling thread, by decision, is the corpus PARSE at Init and
+  Apply (F127, `#### fix/fortunes` in `DESIGN-REGISTER.md`), a different cost from this entry's.
+  Original entry: **Fortunes rebuilds its vector cache synchronously on the UI thread, on start and
+  every Apply.**
   `modules/Fortunes/FortunesModule.cs:156` backgrounds only `Warm`; the `SmartFortunes` constructor is
   synchronous and its `VectorCache` ctor ends in `Load(...)`, which takes a Global mutex plus a
   `.lock` lease and then deserialises `cache.bin` with one `ReadSingle` per float and a

@@ -21,7 +21,7 @@ fix was attempted and had to be reverted.
 | propose a design that looks obviously missing | [Settled decisions](#settled-decisions--do-not-re-propose) |
 | write "a module cannot do X, so the ABI needs a verb" | [Known ABI gaps](#known-abi-gaps), then grep `PluginApi.cs` for the verb |
 | file a converted companion's look as a bug | [Decisions that read as defects](#decisions-that-read-as-defects) |
-| cite a bug number, or file a new one | [Known bugs (post-1.0.0)](#known-bugs-post-100) — the next number filed is BUG-009 |
+| cite a bug number, or file a new one | [Known bugs (post-1.0.0)](#known-bugs-post-100), which names the next number to use (the gate holds it to the post-mortems) |
 | write a count into a document | [Numbers in documentation](#numbers-in-documentation) |
 | explain why a warning did not fire, or trust a warning count | [Measurements that corrected an explanation](#measurements-that-corrected-an-explanation) |
 
@@ -1274,7 +1274,9 @@ that had to be reverted.
 
 ## Known bugs (post-1.0.0)
 
-**Four open: BUG-009 to BUG-012, filed 2026-09-29 by the full audit, each closing with its lane's fix in the campaign recorded in `../BACKLOG.md`.** The full post-mortems —
+**None open.** BUG-009 to BUG-012 were filed on 2026-09-29 by the full audit and closed by the campaign lanes
+(remembrance 1.0.17, blinkingled 1.0.6, aibrain 1.1.14, petstudio 1.1.18; the dispositions are the F168,
+F116/F115, F066 and F155 lines in `../BACKLOG.md`). The full post-mortems —
 diagnosis, the wrong turns, the fix, and how each was verified — are in
 [`ISSUES-post-1.0.0.md`](ISSUES-post-1.0.0.md). Bugs are numbered `BUG-00N` and the number is never
 reused, so a commit, a test or a code comment can cite one; `modules/AiBrain/`,
@@ -1283,6 +1285,10 @@ today. **The next one filed is BUG-013**, and it is filed in [`../BACKLOG.md`](.
 
 | bug | | fixed |
 |---|---|---|
+| BUG-012 | Companion Studio decoded and tiled the whole sprite sheet on the UI thread on every analyse, against a record that said it did not | petstudio 1.1.18, 2026-09-29 (F155): the analyser adopts the validator's parse and the analysis runs on a pool thread |
+| BUG-011 | the Scroll Lock blinker's belief about the LED drifted from the LED: a refused keypress still flipped the flag, and enabling zeroed it against a lit key | blinkingled 1.0.6, 2026-09-29 (F116, F115): the flag moves only with the key; since 2026-09-30 `Start()` adopts the key (N-blinkingled-01) |
+| BUG-010 | an unprompted remark was a vision turn while the label said vision was for explicit asks | aibrain 1.1.14, 2026-09-29 (F066): an owner decision, not a code change; the label and comments changed and the module self-test pins the drop's routing |
+| BUG-009 | Remembrance stopped recording by waiting on an event posted to the thread doing the waiting: 10 s per source, and a killed exit lost the recording | remembrance 1.0.17, 2026-09-29 (F168): every capture is constructed with no SynchronizationContext current |
 | BUG-006 | auto-approve could not see most Codex prompts: the reader anchored on a control Codex only sometimes renders | agentflow 1.4.2, 2026-09-23; verified by pressing the still-open prompt that found it. Its second defect — a missed selector being silent — fixed in 1.4.3 |
 | BUG-007 | nine of the fourteen prompt shapes logged as "an unrecognised prompt", including the commonest one | agentflow 1.4.3, 2026-09-23; table re-derived from bundle 2.1.280 |
 | BUG-008 | the option table went stale against bundle 2.1.280 and the audit was blind to it, so a refusal blamed the screen capture instead of naming the real reason | agentflow 1.4.4, 2026-09-23 — the only one here found by a gate rather than by the maintainer |
@@ -1292,9 +1298,11 @@ today. **The next one filed is BUG-013**, and it is filed in [`../BACKLOG.md`](.
 | BUG-003 | screen capture returns the wallpaper, and follows the wrong monitor | (b) fixed 2026-09-10; (a) resolved — the suspected cause was refuted by measurement |
 | BUG-004 | the leak soak's verdict was a coin flip, and it is the only gate that can catch a leak | 2026-09-10 — there is no leak, and the gate now measures that |
 
-Three of the four were found by the maintainer running a real install, and none by a gate. That is
-why [`../SMOKETEST.md`](../SMOKETEST.md) exists, and why the A-E walk is tracked as open work in
-[`../BACKLOG.md`](../BACKLOG.md) rather than dropped.
+Three of the first four were found by the maintainer running a real install, and none by a gate; of
+the eight since, BUG-008 is the one a gate found and BUG-009 to BUG-012 came from reading the code.
+That is why [`../SMOKETEST.md`](../SMOKETEST.md) exists, and why its walk log records each completed
+pass against the build it was walked on (the A-E walk used to be tracked as open work in
+[`../BACKLOG.md`](../BACKLOG.md); the log replaced that on 2026-09-18).
 
 ---
 

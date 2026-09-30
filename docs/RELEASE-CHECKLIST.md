@@ -89,8 +89,11 @@ Desktop AI Companion ships **unsigned** Windows x64 builds. To cut a release:
    watermark while a sprite sheet decodes. Record these numbers too.
 5. **Re-run the mutation harnesses if any assertion or guard changed since the last release.** They are
    the only thing that distinguishes a passing gate from a gate that cannot fail, and none of them runs
-   in CI (each rebuilds the tree several times and edits source in place, so a shared runner is the wrong
-   place for them):
+   in CI (each edits source in place and rebuilds what its cases touch, several times per run:
+   `mutate-diagnostics.py` builds the host csproj alone (F402), `mutate-agentflow.py` the module's csproj,
+   `mutate-selftest-guards.py` the csproj each case names and the whole fixed set afterwards, and
+   `mutate-hardening-guards.py` builds nothing and runs the invariant script under `powershell.exe`; a
+   shared runner is the wrong place for them):
 
    | harness | proves | expect |
    |---|---|---|
@@ -99,6 +102,8 @@ Desktop AI Companion ships **unsigned** Windows x64 builds. To cut a release:
    | [`tests/mutate-hardening-guards.py`](../tests/mutate-hardening-guards.py) | the source invariants in `runtime-hardening-selftest.ps1` | exit 0 |
    | [`tests/mutate-diagnostics.py`](../tests/mutate-diagnostics.py) | the diagnostic-log guards | exit 0 |
    | [`tests/difftest-prompt-options.py`](../tests/difftest-prompt-options.py) | the C# prompt-option classifier still agrees with the Python reference | `no disagreements` |
+   | [`docs/agentflow/agentflow_join.py --selftest`](../docs/agentflow/agentflow_join.py) | the research harness's own splitter, matcher (`WebFetch(domain:...)` included) and privacy cases, and the shipped-semantics `fires()` predicate behind its recall figure | exit 0 |
+   | [`docs/agentflow/agentflow_join.py --difftest`](../docs/agentflow/agentflow_join.py) | the Python splitter agrees with the JS original (`ai-acolyte`'s `auto-learn.js`) on every labelled and harvested command; it needs node and that checkout, and prints DEGRADED rather than passing without them | `all N agree with the JS original`, exit 0 |
    | [`docs/agentflow/agentflow_classifier.py --audit`](../docs/agentflow/agentflow_classifier.py) | the option table still covers the INSTALLED Claude Code bundle | `audit OK` |
    | [`docs/agentflow/agentflow_headers.py --audit`](../docs/agentflow/agentflow_headers.py) | the prompt-HEADER table still covers the INSTALLED bundle, so the log names what it pressed | `audit OK` |
    | [`docs/agentflow/agentflow_headers.py --selftest`](../docs/agentflow/agentflow_headers.py) | that audit's bundle extractor works, with no bundle installed | exit 0 |
@@ -130,7 +135,7 @@ Desktop AI Companion ships **unsigned** Windows x64 builds. To cut a release:
    moved a call site. Re-point them at the current source and confirm each one FIRES; a
    re-targeted case that still does not fire is a real gap.
 
-   The last two are not mutation suites and are cheap, but they belong in the same step: the
+   The two `--audit` rows are not mutation suites and are cheap, but they belong in the same step: the
    classifier is what decides whether AgentFlow presses a button, its table is transcribed BY HAND
    from a bundle that auto-updates underneath us, and `--audit` is the only thing that notices a new
    option string. An unclassified option is not a cosmetic gap -- one of them refuses the whole

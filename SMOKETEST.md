@@ -14,6 +14,14 @@ and a bare `grep -c 'Assert-True'` overshoots both, counting the helper's own de
 comment mentioning it. `tests/DesktopAICompanion.CoreTests/Program.cs:87` is the in-repo model for
 this whole class of problem: it counts its groups rather than hardcoding them.)*
 
+*(Two GUI smokes are automated and deliberately not wired into the gate: `tests/tray-menu-smoke.ps1` and
+`tests/debug-menu-smoke.ps1`. Both need an interactive desktop session. The second holds SHIFT with
+`keybd_event` across the launch and asserts that the debug window appeared, so a run from an agent or
+service session, where synthetic SHIFT does not reach the app, ends in `SMOKE FAIL: SHIFT did not reach
+the app` whatever the build: measured 2026-09-30 by the coordinator on the campaign build (master
+`30f99c3`) and on the pre-campaign build alike. A FAIL from an unattended run is a verdict on the session,
+not on the build; run it from the desktop you are sitting at.)*
+
 **Why it exists.** Five of the eleven releases v1.9.4 through v1.9.14 shipped a bug that the full automated
 suite passed straight over, and every one of those bugs was visible in the first thirty seconds of use:
 

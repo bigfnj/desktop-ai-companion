@@ -1,7 +1,7 @@
 # Bug post-mortems from v1.0.0 on
 
-The four numbered bugs found after the v1.0.0 rebase, extracted from `BACKLOG.md` so that file can
-hold only open work. **All four are fixed**, so nothing here is a work item —
+The numbered bugs found after the v1.0.0 rebase, extracted from `BACKLOG.md` so that file can
+hold only open work. **Every one of them is fixed**, so nothing here is a work item —
 [`../BACKLOG.md`](../BACKLOG.md) is the backlog. The one-line "none open" summary and the
 fixed-in table live in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md), which is where a reader goes to
 check whether a bug number is taken; the post-mortems themselves stay here. The pre-1.0.0 equivalent
@@ -25,18 +25,20 @@ the next bug filed in `BACKLOG.md` is BUG-013 (BUG-009 to BUG-012 were filed on 
 
 | | |
 |---|---|
-| Bugs | BUG-001 to BUG-004 |
-| Found | 2026-09-10 — BUG-001 to BUG-003 by the maintainer using the shipped build, BUG-004 by the release checklist's own leak soak |
-| All fixed by | the v1.1.0 tag (2026-09-10); BUG-001 took host 1.1.1 → 1.1.3 |
+| Bugs | BUG-001 to BUG-012. The gate counts the `BUG-nnn` headings below and holds the register's "next one filed" to the highest of them (`tests/runtime-hardening-selftest.ps1`, the next-bug block), so this row describes rather than counts |
+| Found | BUG-001 to BUG-003 on 2026-09-10 by the maintainer using the shipped build, BUG-004 by the release checklist's own leak soak; BUG-005 (2026-09-22), BUG-006 and BUG-007 (2026-09-23) by the maintainer using the shipped build; BUG-008 (2026-09-23) by `agentflow_classifier.py --audit`; BUG-009 to BUG-012 (2026-09-29) by the full code audit |
+| All fixed by | BUG-001 to BUG-004: the v1.1.0 tag (2026-09-10; BUG-001 took host 1.1.1 → 1.1.3). BUG-005 to BUG-008: by 2026-09-23 (the emitter change plus the `reloop` migration; agentflow 1.4.2 to 1.4.4). BUG-009 to BUG-012: the 2026-09-29 campaign lanes, remembrance 1.0.17, blinkingled 1.0.6, aibrain 1.1.14 (a decision pinned by a test) and petstudio 1.1.18 |
 
 ---
 
 ## 🐞 Known bugs (post-1.0.0)
 
 Numbered so they can be cited. BUG-001 to BUG-003 were found by the maintainer using the shipped build,
-not by a gate; BUG-004 was found by the release checklist's own leak soak.
+not by a gate; BUG-004 was found by the release checklist's own leak soak. The entries below run newest
+first, except that BUG-006 sits ahead of the four 2026-09-29 entries (the campaign scaffolding pre-filed
+them below it, commit 40b0734).
 
-**All four were fixed before the v1.1.0 tag (2026-09-10).** The diagnosis text is kept in full below,
+**All four of those were fixed before the v1.1.0 tag (2026-09-10).** The diagnosis text is kept in full below,
 including the parts that turned out to be WRONG, because two of them were wrong in instructive ways: the
 suspected cause of BUG-003(a) was refuted by measurement, and BUG-001's mechanism was mis-attributed once
 before being traced properly. Each entry ends with what was actually changed and how it was verified.
@@ -215,7 +217,7 @@ census unchanged by this half of the release (the classifier change is F150's, a
 |---|---|
 | Bugs | BUG-011 a refused SendInput still flips _phaseOn (finding F116), and Start() zeroes it against a key BlinkOnce() lit (F115); after an odd refusal the cadence runs inverted and Stop()'s corrective toggle no longer fires when the LED is lit |
 | Found | 2026-09-29, by the full code audit |
-| Fixed by | blinkingled 1.0.6 -- `Toggle()` reports whether Windows accepted the keypress and every writer of `_phaseOn` (`BlinkOnce`, the cadence tick, `Stop`, `Start`) moves it only with the key; the module self-test drives acceptance and refusal through a keypress seam, on any machine |
+| Fixed by | blinkingled 1.0.6 -- `Toggle()` reports whether Windows accepted the keypress and every writer of `_phaseOn` (`BlinkOnce`, the cadence tick, `Stop`, `Start`) moves it only with the key; the module self-test drives acceptance and refusal through a keypress seam, on any machine. On 2026-09-30 `Start()` moved from reconciling the belief to adopting the key (N-blinkingled-01, variant C, lane fix/followups, still 1.0.6); the bracketed notes below say where |
 
 **Found by reading, and it could only have been found by reading.** `_phaseOn` is the blinker's one record of
 whether the Scroll Lock LED is lit, and nothing ever re-read the hardware into it. Four places wrote it, and
@@ -253,16 +255,30 @@ key reads dark or the clearing toggle was accepted; after a refused one the beli
 `Stop()` or `Start()` retries. `Start()` reconciles instead of zeroing: `_phaseOn = _phaseOn && reader()`,
 with the first interval taken from the phase, so the blink the user just made becomes the first lit phase
 of the cadence (the two alternatives, clearing the key first and adopting whatever the key reads, are
-weighed under `#### fix/blinkingled` in `docs/DESIGN-REGISTER.md`).
+weighed under `#### fix/blinkingled` in `docs/DESIGN-REGISTER.md`). *[Superseded on 2026-09-30: the
+coordinator chose the adopting alternative (variant C, N-blinkingled-01, lane fix/followups). `Start()`
+now reads the key into the belief, `_phaseOn = ScrollLockReader()` (`engine/ScrollLockBlinker.cs:200`),
+so a Scroll Lock the user had lit before enabling runs the cadence from its lit phase instead of
+inverted, and `Stop()` then clears it (`ScrollLockBlinker.cs:232-238`), which is what makes the Readme's
+"stopping always leaves the light off" hold for a key the module did not light. A key the user lit is
+still left alone while the blinker was never started. The decision is recorded under
+`#### fix/blinkingled` in `docs/DESIGN-REGISTER.md`.]*
 
 **How it was verified.** The module self-test constructs blinkers whose keypress is a fixed acceptance or a
 fixed refusal and whose key reader is a fixed answer, so every branch runs on any machine: a refused
 blink-once and a refused cadence tick leave the phase where it was (WITNESS: accepted ones move it and arm
 the lit interval); `Start()` after a blink-once keeps the belief, arms the LIT interval and presses nothing
-(WITNESS: a key that no longer reads lit is dropped; a lit key never lit is not adopted); a refused
+(WITNESS: a key that no longer reads lit is dropped; a lit key never lit is not adopted) *[since
+2026-09-30 that last WITNESS reads the other way: `Start() adopts a lit key it never lit, and arms the
+LIT interval` (`BlinkingLedModule.cs:1007`), WITNESS a dark key it never lit adopts dark and arms the
+dark gap (`:1021`), WITNESS a key the module lit is still cleared by `Stop()` (`:1040`)]*; a refused
 corrective toggle keeps the belief and the retry clears it. Ten mutation cases in
 `tests/mutate-selftest-guards.py`, eight new under `# ---- lane fix/blinkingled ----` and the two F114 cases
 re-pointed at the new `Stop()`, each put one shipped shape back and each FIRED naming its own assertion.
+*[2026-09-30: two of the eight were re-pointed at the adopting `Start()`
+(`tests/mutate-selftest-guards.py:1046-1074`, one of them inverted into "Start() stops adopting a lit key
+it never lit (the 1.0.6 first cut)"), and lane fix/followups added "Start() adopts the inverse of what the
+key reads" under its own anchor (`:2297-2299`).]*
 Measured on this box as well: the 1.0.5 suite left Scroll Lock ON from OFF and ON from ON (F113); the
 1.0.6 suite makes two real keypresses, asserts they are paired, and leaves the key OFF from OFF.
 
@@ -314,7 +330,8 @@ entry; `OnDrop` says at the call why its `true` is deliberate; the owner's decis
 campaign section in [`DESIGN-REGISTER.md`](DESIGN-REGISTER.md), with the poke exception under `#### fix/aibrain`.
 `PRIVACY.md` needed no change: it already says an image of the screen is sent "for supported requests" without
 naming a trigger. The one sentence outside this lane's boundary, "routed hotkey-only" at
-`HISTORY-post-1.0.0.md:45`, is a dated record of what Phase 6 did and is left as history.
+`HISTORY-post-1.0.0.md:45`, is a dated record of what Phase 6 did and is left as history *[with a
+bracketed pointer to this entry beside it since 2026-09-30]*.
 
 **How it is pinned.** `--module-selftest=aibrain` now drives a real `AiBrainModule` through ModuleKit's
 `RecordingHost` (`engine/AiEngineProbe.Module.cs`). A one-field seam, `AskSinkForDiagnostics`, receives a started
