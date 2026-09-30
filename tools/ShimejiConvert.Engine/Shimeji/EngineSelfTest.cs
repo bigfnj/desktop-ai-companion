@@ -38,6 +38,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             if (!SoundResolveSelfTest.Run(out d)) ok = false;
             sb.AppendLine(d);
 
+            if (!PetGraphSelfTest.Run(out d)) ok = false;
+            sb.AppendLine(d);
+
             detail = sb.ToString().TrimEnd();
             return ok;
         }

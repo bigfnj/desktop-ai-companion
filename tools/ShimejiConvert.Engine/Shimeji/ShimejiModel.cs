@@ -32,9 +32,12 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
         /// <summary>Floor / Wall / Ceiling, or null.</summary>
         public string BorderType;
 
-        /// <summary>Every attribute value in this action's subtree (itself and all descendants), concatenated.
-        /// The classifier scans this for the state references (activeIE, cursor, mascot.anchor, totalCount)
-        /// that decide whether an action needs host state a converted pet cannot express today.</summary>
+        /// <summary>The EXPRESSION text in this action's subtree (itself and all descendants): every Condition
+        /// value and every scripted (${...} / #{...}) attribute value, concatenated. Not names, image paths or
+        /// sound paths, which an earlier version included and which made a sprite called cursor*.png read as a
+        /// cursor condition (F441). The classifier scans this for the state references (activeIE, cursor,
+        /// mascot.anchor, totalCount) that decide whether an action needs host state a converted pet cannot
+        /// express today.</summary>
         public string SubtreeBlob;
 
         /// <summary>Result of classification (see <see cref="ActionClassifier"/>).</summary>

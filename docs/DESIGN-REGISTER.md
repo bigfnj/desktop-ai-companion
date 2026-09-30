@@ -305,6 +305,24 @@ PNG decode on this side no longer run. The audit measured 7-10 ms per cartoon sp
 the dwebp half alone (fresh processes, 30 runs in rotation); that figure is the record's, not re-measured cold here,
 so nothing is claimed for the converter as a whole.
 
+**RoundTrips on emitted output is a fixed-point check, not a second validation (2026-09-29, F427).** The other option,
+`RoundTrips = Valid`, was rejected: the CLI's convert verbs print the field and `Accepted` reads it, and a value that
+cannot differ from `Valid` claims a check that did not happen. Determinism can fail on its own (a DTO member that
+does not round-trip; an element the text omits that the DTO reads back as its default and writes out) and the
+mutation that stripped `<offsety>0</offsety>` from the text showed the check naming the offset. `ShimejiEngine.RoundTrips`
+(serialize, then validate again) keeps its meaning for hand-authored pets in the `verify` verb.
+
+**PetGraph mirrors the host's magic-name resolution rather than sharing it (2026-09-29, F440).** The runtime's copy
+lives on a staged `Animations` the graph pass does not build, so the rules are restated in `PetGraph` and
+`PetGraphSelfTest` pins each one. Scope: the CLI's verify and migration verbs and the emitter's own acceptance
+verdict. PetStudio's map runs `AnimationReachability` over the real loader and never had the defect.
+
+**F451 declined on a measurement (2026-09-29).** `EmitterSelfTest.TileIsPainted` decodes the fixture sheet once per
+frame reference. The whole `selftest` verb, nine sub-tests after this campaign's fixtures, takes 1.45 s wall-clock on
+this box (Measure-Command around the Release exe, one fresh process; 1.49 s before the campaign), so there is nothing
+to recover. Not a cold interleaved comparison, and none is claimed: the number is the cost of the whole verb, stated
+as the reason not to spend on it.
+
 #### fix/remembrance
 
 (none yet)

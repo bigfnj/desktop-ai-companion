@@ -324,12 +324,31 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             return dot >= 0 ? fullClass.Substring(dot + 1) : fullClass;
         }
 
+        /// <summary>
+        /// The EXPRESSION text in an action's subtree: every Condition value, plus any other attribute value
+        /// that carries a script (${...} / #{...}). Names, image paths, sound paths and enum values are left
+        /// out on purpose.
+        ///
+        /// It used to be every attribute value, and ActionClassifier tests the blob for the bare token
+        /// "cursor" -- so an action whose IMAGE was named cursor*.png was graded Group2 as "branches on cursor
+        /// position" and, being stationary, emitted as a faceCursor gaze on the strength of a filename; a
+        /// moving one would have been dropped from the floor graph outright. Not hypothetical: alan becker's
+        /// Victim skin ships `CursorHate`, a plain Stay with no Condition over /cursorsetup01.png, in seven
+        /// copies across the corpus (F441). PetEmitter.IsGazeAction reads the same blob for the same token,
+        /// so both halves narrow together, which is what the 1.1.7 fix that aligned their case sensitivity
+        /// asked for. Every token the classifier looks for -- cursor, activeIE, totalCount, mascot.anchor,
+        /// TargetX/TargetY -- is Shimeji expression vocabulary, so nothing that classified before stops
+        /// classifying; BundledConfSelfTest pins the 91-action census to prove it.
+        /// </summary>
         private static string SubtreeBlob(XElement el)
         {
             var values = new List<string>();
             foreach (XElement e in el.DescendantsAndSelf())
                 foreach (XAttribute a in e.Attributes())
-                    values.Add(a.Value);
+                {
+                    if (string.Equals(Canon(a.Name.LocalName), "Condition", StringComparison.Ordinal) || IsScript(a.Value))
+                        values.Add(a.Value);
+                }
             return string.Join(" || ", values);
         }
     }

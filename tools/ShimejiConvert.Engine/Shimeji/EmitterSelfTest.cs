@@ -37,6 +37,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 // one. Its own art, so a direction collapse cannot merge it into a neighbour and hide the
                 // answer.
                 { "/nc.png", Solid(40, 60, Color.FromArgb(255, 90, 160, 110)) },
+                // For the action whose sprite FILE is named after the cursor (the Victim skin's shape). Its
+                // own art, like /nc.png, so a collapse cannot hide the answer.
+                { "/cursorsetup01.png", Solid(40, 60, Color.FromArgb(255, 80, 150, 100)) },
                 { "/t.png", Solid(40, 60, Color.FromArgb(255, 255, 120, 120)) },
                 { "/c1.png", Solid(40, 60, Color.FromArgb(255, 120, 255, 255)) },
                 { "/c2.png", Solid(40, 60, Color.FromArgb(255, 100, 235, 235)) },
@@ -1066,6 +1069,24 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 {
                     failures.Add("an action was tagged faceCursor for having \"Cursor\" in its NAME, with no cursor condition anywhere");
                 }
+
+                // A FILENAME IS NOT EVIDENCE EITHER. The blob both Has() helpers read used to hold every
+                // attribute value, so a plain Stay whose sprite is /cursorsetup01.png -- the Victim skin's
+                // CursorHate, seven copies in the corpus, no Condition at all -- was Group2 "branches on cursor
+                // position" and emitted as a faceCursor gaze on the strength of its art's name (F441). The blob
+                // is expression text now (Conditions and scripted values), so this must be a plain Group1 rest:
+                // emitted, untagged, and in no residue bucket.
+                XmlData.AnimationNode cursorArt = FindAnimationNamed(r, "CursorHate");
+                if (cursorArt == null)
+                    failures.Add("the action whose sprite is named cursor*.png emitted nothing, so the case below is untested");
+                else if (cursorArt.Sequence != null
+                         && string.Equals(cursorArt.Sequence.Action, "faceCursor", StringComparison.Ordinal))
+                    failures.Add("an action was tagged faceCursor for having \"cursor\" in its sprite FILENAME, with no cursor condition anywhere");
+                if (ResidueHas(r.Residue.Degraded, "CursorHate"))
+                    failures.Add("an action was filed as degraded (cursor state) because its sprite file is named cursor*.png");
+                foreach (ShimejiAction act in config.Actions)
+                    if (string.Equals(act.Name, "CursorHate", StringComparison.Ordinal) && act.Group != FidelityGroup.Group1)
+                        failures.Add("the classifier graded 'CursorHate' " + act.Group + " (" + act.Reason + ") on the strength of a sprite filename");
 
                 // The gaze whose art nothing else uses. Its only route into the sheet is the gaze arm of
                 // PosesToComposite, so this is the assertion that fails when gaze poses stop being composited.
@@ -2187,6 +2208,13 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
          Capital C on purpose: that is the character the two Has() helpers disagreed about. -->
     <Action Name=""RestNearCursor"" Type=""Stay"" BorderType=""Floor"">
       <Animation><Pose Image=""/nc.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""250"" /></Animation>
+    </Action>
+    <!-- And one whose SPRITE FILE is named after the cursor while nothing else is: alan becker's Victim skin
+         ships exactly this (CursorHate over /cursorsetup01.png, a Stay with no Condition). The classifier's
+         blob used to hold every attribute value, so this was Group2 and a gaze on the strength of a filename;
+         it must convert as a plain Group1 rest (F441). -->
+    <Action Name=""CursorHate"" Type=""Stay"" BorderType=""Floor"">
+      <Animation><Pose Image=""/cursorsetup01.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""250"" /></Animation>
     </Action>
     <Action Name=""ThrowIe"" Type=""Embedded"" Class=""com.group_finity.mascot.action.ThrowIE"" InitialVX=""32"">
       <Animation><Pose Image=""/t.png"" ImageAnchor=""20,60"" Velocity=""0,0"" Duration=""40"" /></Animation>

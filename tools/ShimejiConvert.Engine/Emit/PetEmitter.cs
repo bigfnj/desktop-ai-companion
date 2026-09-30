@@ -16,7 +16,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
         public ResidueReport Residue;
         public GraphReport Graph;
         public bool Valid;         // the app's own validator accepted the emitted XML
-        public bool RoundTrips;    // survives serialize -> re-validate
+        // The emitted text is a FIXED POINT of parse -> serialize: what the app reads back serializes to the
+        // same bytes. Not "parses again": for text this serializer just wrote, a second parse could only ever
+        // repeat the first's verdict (F427).
+        public bool RoundTrips;
         public string Error;       // validator/emit error, if any
 
         /// <summary>The machine-checkable acceptance bar: validates, round-trips, and every animation is
@@ -460,9 +463,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             if (result.Valid)
             {
                 result.Graph = ShimejiEngine.Analyze(reparsed);
-                string rtError;
-                result.RoundTrips = ShimejiEngine.RoundTrips(reparsed, out rtError);
-                if (!result.RoundTrips && string.IsNullOrEmpty(result.Error)) result.Error = rtError;
+                // A FIXED-POINT check, not a second validation. ShimejiEngine.RoundTrips (serialize, then
+                // validate again) is the right oracle for the CLI's verify verb on HAND-AUTHORED pets, where
+                // whether the DTOs can express a file someone typed is a real question. Here the input is text
+                // this same serializer wrote from these same DTOs, so a second TryParse could only repeat the
+                // first's verdict -- at the price of a second XSD compile, deserialize, base64 decode and full
+                // PNG decode of a sheet up to 12 MiB, plus every sound's sniff, per conversion (F427). What CAN
+                // fail independently is determinism: what the app reads back must serialize to the very bytes
+                // that were written. A DTO member that does not round-trip, or an element the text omits that
+                // the DTO reads back as its default and writes out again, shows up here as a first-difference
+                // offset rather than passing in silence. One extra Serialize of the reparsed tree, no decode.
+                string again = ShimejiEngine.Serialize(reparsed);
+                result.RoundTrips = string.Equals(again, result.EmittedXml, StringComparison.Ordinal);
+                if (!result.RoundTrips && string.IsNullOrEmpty(result.Error))
+                    result.Error = "the emitted XML is not a fixed point of parse -> serialize: "
+                        + FirstDifference(result.EmittedXml, again);
             }
             else
             {
@@ -2871,6 +2886,21 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
             foreach (ShimejiPose p in PosesOf(a))
                 if (p != null && !string.IsNullOrWhiteSpace(p.Sound)) return p.Sound;
             return null;
+        }
+
+        /// <summary>Where two documents first disagree, with a short window of each, for the round-trip error.</summary>
+        private static string FirstDifference(string emitted, string reserialized)
+        {
+            string a = emitted ?? "", b = reserialized ?? "";
+            int n = Math.Min(a.Length, b.Length);
+            int at = 0;
+            while (at < n && a[at] == b[at]) at++;
+            if (at == n && a.Length == b.Length) return "no difference found (lengths " + a.Length + ")";
+            const int Window = 48;
+            string wa = a.Substring(at, Math.Min(Window, a.Length - at)).Replace("\r", "\\r").Replace("\n", "\\n");
+            string wb = b.Substring(at, Math.Min(Window, b.Length - at)).Replace("\r", "\\r").Replace("\n", "\\n");
+            return "at offset " + at + " of " + a.Length + "/" + b.Length + " chars, emitted '" + wa
+                + "' vs re-serialized '" + wb + "'";
         }
 
         /// <summary>Markup one &lt;sound&gt; node adds around its base64 -- the element, id, probability and
