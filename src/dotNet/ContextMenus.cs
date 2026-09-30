@@ -266,8 +266,11 @@ namespace DesktopAICompanion
             item = new ToolStripMenuItem { Text = "&Test Speech" };
             item.Image = Resources.speechbubble;
             item.Click += (s, ev) =>
-                Program.Mainthread.SayAll(
-                    "Hello! I'm your desktop companion. Right-click the tray icon for options.");
+            {
+                StartUp main = Program.Mainthread;   // guarded like its neighbours (F282)
+                if (main == null) return;
+                main.SayAll("Hello! I'm your desktop companion. Right-click the tray icon for options.");
+            };
             item.Visible = Program.MyData.GetSpeechEnabled();
             testSpeechMenuItem = item;
             menu.Items.Add(item);
@@ -603,9 +606,11 @@ namespace DesktopAICompanion
             /// <param name="e">The <see cref="System.EventArgs"/> instance containing the event data.</param>
         void Exit_Click(object sender, EventArgs e)
         {
-            // Quit without further ado.
-            //Application.Exit();
-            Program.Mainthread.KillSheeps();
+            // Exit is never a silent no-op (F282): with no StartUp to close the pets, quit outright rather
+            // than throw out of the handler and leave the process running behind a tray icon.
+            StartUp main = Program.Mainthread;
+            if (main != null) main.KillSheeps();
+            else Application.Exit();
         }
 
 

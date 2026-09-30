@@ -95,15 +95,21 @@ namespace DesktopAICompanion
 
         public static async Task<RemoteCatalog> FetchAsync(CancellationToken cancellationToken)
         {
+            byte[] bytes = await FetchBytesAsync(cancellationToken).ConfigureAwait(false);
+            return Parse(SecureDownload.DecodeUtf8(bytes));
+        }
+
+        /// <summary>One download of catalog.json, URL-validated, bounded, uncached.</summary>
+        private static async Task<byte[]> FetchBytesAsync(CancellationToken cancellationToken)
+        {
             Uri uri;
             string urlError;
             if (!SecureDownload.TryValidateBranchRawGitHubUrl(
                     CatalogUrl, Owner, Repository, out uri, out urlError))
                 throw new InvalidDataException("Catalog URL is invalid: " + urlError);
 
-            byte[] bytes = await SecureDownload.DownloadBytesAsync(
+            return await SecureDownload.DownloadBytesAsync(
                 uri, MaximumCatalogBytes, cancellationToken).ConfigureAwait(false);
-            return Parse(SecureDownload.DecodeUtf8(bytes));
         }
 
         // ---- short-lived shared copy ---------------------------------------------------------------------
@@ -114,17 +120,44 @@ namespace DesktopAICompanion
         // Deliberately in memory and short-lived rather than a file cache. This only has to span a few
         // seconds of one user clicking through panes; persisting it would add a TTL, a corrupt-file path and
         // a stale-across-sessions failure mode to save a fetch nobody is waiting on.
+        //
+        // The copy is the RAW BYTES, with the parse hung off them (F286). The launch's three due checks --
+        // the app version, the pet freshness, the module scan -- fire within seconds of each other and each
+        // downloaded the file for itself, and the app-version check must keep parsing ONLY its block (a pet
+        // entry gaining a field must not break it), so it is the bytes the three can share, not the parse.
         private static readonly object SharedLock = new object();
+        private static byte[] sharedBytes;
         private static RemoteCatalog sharedCatalog;
         private static DateTimeOffset sharedFetchedUtc = DateTimeOffset.MinValue;
 
         internal static readonly TimeSpan SharedLifetime = TimeSpan.FromSeconds(90);
 
+        /// <summary>The raw catalog.json, reusing bytes fetched in the last <see cref="SharedLifetime"/>.
+        /// Two callers arriving at once may both fetch; that is accepted rather than locked around the
+        /// await, because holding a lock across a network call to save one redundant request is the
+        /// worse trade.</summary>
+        private static async Task<byte[]> FetchSharedBytesAsync(CancellationToken cancellationToken)
+        {
+            lock (SharedLock)
+            {
+                if (sharedBytes != null &&
+                    DateTimeOffset.UtcNow - sharedFetchedUtc < SharedLifetime)
+                    return sharedBytes;
+            }
+            byte[] fetched = await FetchBytesAsync(cancellationToken).ConfigureAwait(false);
+            lock (SharedLock)
+            {
+                sharedBytes = fetched;
+                sharedCatalog = null;   // parsed on first demand, from these bytes
+                sharedFetchedUtc = DateTimeOffset.UtcNow;
+            }
+            return fetched;
+        }
+
         /// <summary>
         /// The catalog, reusing a copy fetched in the last <see cref="SharedLifetime"/> if there is one.
-        ///
-        /// Two panes opening at once may both fetch; that is accepted rather than locked around the await,
-        /// because holding a lock across a network call to save one redundant request is the worse trade.
+        /// On a warm cache this returns from inside the lock with no await executed, and the panes are
+        /// written for exactly that (they fetch from Loaded, never from a constructor).
         /// </summary>
         public static async Task<RemoteCatalog> FetchSharedAsync(CancellationToken cancellationToken)
         {
@@ -134,20 +167,32 @@ namespace DesktopAICompanion
                     DateTimeOffset.UtcNow - sharedFetchedUtc < SharedLifetime)
                     return sharedCatalog;
             }
-            RemoteCatalog fetched = await FetchAsync(cancellationToken).ConfigureAwait(false);
+            byte[] bytes = await FetchSharedBytesAsync(cancellationToken).ConfigureAwait(false);
+            RemoteCatalog parsed = Parse(SecureDownload.DecodeUtf8(bytes));
             lock (SharedLock)
             {
-                sharedCatalog = fetched;
-                sharedFetchedUtc = DateTimeOffset.UtcNow;
+                // Only if these are still the bytes on hand: a refresh that landed meanwhile owns the slot.
+                if (ReferenceEquals(sharedBytes, bytes)) sharedCatalog = parsed;
             }
-            return fetched;
+            return parsed;
+        }
+
+        /// <summary>
+        /// A user-initiated "check now": drop the shared copy AND refill it with what the check finds, so the
+        /// other pane and the launch checks reuse the answer instead of fetching again (F286). Invalidating
+        /// alone made the button honest and the next pane redundant.
+        /// </summary>
+        public static async Task<RemoteCatalog> RefreshSharedAsync(CancellationToken cancellationToken)
+        {
+            InvalidateShared();
+            return await FetchSharedAsync(cancellationToken).ConfigureAwait(false);
         }
 
         /// <summary>Drop the shared copy, so the next caller fetches. For a user-initiated "check now",
         /// where reusing a cached answer would make the button look broken.</summary>
         internal static void InvalidateShared()
         {
-            lock (SharedLock) { sharedCatalog = null; sharedFetchedUtc = DateTimeOffset.MinValue; }
+            lock (SharedLock) { sharedBytes = null; sharedCatalog = null; sharedFetchedUtc = DateTimeOffset.MinValue; }
         }
 
         /// <summary>
@@ -166,8 +211,9 @@ namespace DesktopAICompanion
                     CatalogUrl, Owner, Repository, out uri, out urlError))
                 return "";
 
-            byte[] bytes = await SecureDownload.DownloadBytesAsync(
-                uri, MaximumCatalogBytes, cancellationToken).ConfigureAwait(false);
+            // The SHARED bytes (F286), parsed here for the one block this check understands: the other two
+            // launch checks read the same download, and neither this nor they fetch twice within the window.
+            byte[] bytes = await FetchSharedBytesAsync(cancellationToken).ConfigureAwait(false);
             return ParseAppVersion(SecureDownload.DecodeUtf8(bytes));
         }
 

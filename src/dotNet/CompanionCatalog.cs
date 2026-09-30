@@ -117,16 +117,29 @@ namespace DesktopAICompanion
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
-        /// Drop the cached display name for one pet, because its animations.xml has just been rewritten.
+        /// Drop the cached display name for one pet, because its animations.xml has just been rewritten or
+        /// removed, and tell every other per-id cache to do the same through <see cref="Forgotten"/>.
         ///
-        /// Call this from wherever a pet file is replaced, NOT from wherever a pet is re-rendered: the whole
-        /// point of the cache is that rendering is frequent and replacement is rare.
+        /// Call this from wherever a pet file is replaced or deleted, NOT from wherever a pet is re-rendered:
+        /// the whole point of the cache is that rendering is frequent and replacement is rare. The writers
+        /// are the pane's download, the pane's uninstall, and Companion Studio's install and uninstall
+        /// through the companion manager (F249, F336); the download was the only one calling this for a
+        /// while, so a Studio install over an existing id kept serving the old name, icon and counts.
         /// </summary>
         internal static void Forget(string id)
         {
             if (string.IsNullOrEmpty(id)) return;
             lock (HeaderNameCache) HeaderNameCache.Remove(id);
+            Action<string> listeners = Forgotten;
+            if (listeners != null) { try { listeners(id); } catch { } }
         }
+
+        /// <summary>
+        /// Raised by <see cref="Forget"/> with the id whose file changed. The Companions pane keeps its own
+        /// per-id caches (stats, icon) in a WPF class this catalog must not reference, so it subscribes here
+        /// instead of every writer having to know about it (F336).
+        /// </summary>
+        internal static event Action<string> Forgotten;
 
         /// <summary>The pet's own header name, located the same way <see cref="TryReadPetXml"/> locates its
         /// xml (library root first, then bundled), or null when the pet is not on disk.</summary>
@@ -163,20 +176,77 @@ namespace DesktopAICompanion
         /// always precedes the multi-MB base64 sprite sheet, so a bounded read is enough and we never load the
         /// whole file just to label a card. Prefers &lt;petname&gt;, then &lt;title&gt; minus a trailing
         /// " (converted)"; returns null when neither is present (caller falls back to the folder id).
+        ///
+        /// CACHED PER FILE (F251), keyed by the file's write time and length, so a rewrite is a miss and a
+        /// re-render is a hit: the tray's "Add a companion" submenu, the Companions pane and InstalledTypes
+        /// each re-read every installed pet's header on the UI thread on every open (54 pets on this box).
+        /// The saving is stated as avoided I/O -- one read per file per change instead of per open -- not
+        /// as a timing. Keyed by the PATH rather than the id, so the bundled-vs-library precedence the two
+        /// callers disagree about is untouched.
         /// </summary>
-        private static string ReadHeaderName(string xmlPath)
+        internal static string ReadHeaderName(string xmlPath)
         {
             try
             {
+                var info = new FileInfo(xmlPath);
+                DateTime writtenUtc = info.LastWriteTimeUtc;
+                long length = info.Length;
+                lock (HeaderByPath)
+                {
+                    CachedHeader hit;
+                    if (HeaderByPath.TryGetValue(xmlPath, out hit) && hit.WrittenUtc == writtenUtc && hit.Length == length)
+                        return hit.Name;
+                }
+                string name = ReadHeaderNameUncached(xmlPath);
+                lock (HeaderByPath)
+                    HeaderByPath[xmlPath] = new CachedHeader { WrittenUtc = writtenUtc, Length = length, Name = name };
+                return name;
+            }
+            catch { return null; }
+        }
+
+        private sealed class CachedHeader { public DateTime WrittenUtc; public long Length; public string Name; }
+        private static readonly Dictionary<string, CachedHeader> HeaderByPath =
+            new Dictionary<string, CachedHeader>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>How many times a header was actually read from disk: the self-test seam for the cache.</summary>
+        internal static int HeaderFileReads;
+
+        /// <summary>
+        /// How far into the file the header read may go before giving up (F250): a header may carry an icon
+        /// of up to MaximumIconBytes as base64 plus its text, and the old fixed 32K-character read missed the
+        /// petname of any hand-authored header whose icon or info ran past it.
+        /// </summary>
+        internal const int HeaderReadBoundChars = CompanionXmlValidator.MaximumIconBytes * 4 / 3 + 70 * 1024;
+
+        private static string ReadHeaderNameUncached(string xmlPath)
+        {
+            try
+            {
+                HeaderFileReads++;
+                // Read in 32K blocks until </header> has arrived or the bound is reached. The close tag is
+                // looked for only in the newest block plus a tag's width before it, so a tag split across
+                // two blocks is still seen and the search stays linear.
+                const string headerClose = "</header>";
+                var head = new StringBuilder();
                 var buf = new char[32 * 1024];
-                int read;
                 using (var reader = new StreamReader(xmlPath, Encoding.UTF8, true))
-                    read = reader.ReadBlock(buf, 0, buf.Length);
-                string head = new string(buf, 0, Math.Max(0, read));
-                string name = Between(head, "<petname>", "</petname>");
+                {
+                    while (head.Length < HeaderReadBoundChars)
+                    {
+                        int read = reader.ReadBlock(buf, 0, buf.Length);
+                        if (read <= 0) break;
+                        int searchFrom = Math.Max(0, head.Length - headerClose.Length);
+                        head.Append(buf, 0, read);
+                        if (head.ToString(searchFrom, head.Length - searchFrom).IndexOf(headerClose, StringComparison.Ordinal) >= 0)
+                            break;
+                    }
+                }
+                string text = head.ToString();
+                string name = Between(text, "<petname>", "</petname>");
                 if (string.IsNullOrWhiteSpace(name))
                 {
-                    name = Between(head, "<title>", "</title>");
+                    name = Between(text, "<title>", "</title>");
                     // LEGACY. The converter no longer appends this -- it decorated a title the Author line
                     // already explained, and stripping it here to get a usable label is what proved it was
                     // noise. Kept because a skin someone converted with an older Companion Studio still

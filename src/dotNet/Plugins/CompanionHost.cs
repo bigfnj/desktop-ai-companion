@@ -1226,6 +1226,18 @@ namespace DesktopAICompanion.Plugins
                 string directory = SafeLibraryDir(typeId);
                 Directory.CreateDirectory(directory);
                 SecureDownload.WriteAllBytesAtomic(Path.Combine(directory, "animations.xml"), bytes);
+                // The file under this id is now a DIFFERENT pet (F249, F336): the name the tray shows and
+                // the icon and counts the Companions pane shows are cached per id for the process lifetime,
+                // and Companion Studio suggests the opened pet's own folder as the install id, so editing
+                // an installed pet and pressing Install kept every surface on the old one. Forget reaches
+                // all three caches. Then the copies on screen are swapped onto the new definition, as the
+                // pane's download already does; Deferred and NeedsRestart are not failures of the install.
+                CompanionCatalog.Forget(typeId);
+                if (_startUp != null)
+                {
+                    int reloaded; string reloadError;
+                    try { _startUp.ReloadPetType(typeId, out reloaded, out reloadError); } catch { }
+                }
                 return true;
             }
             catch (Exception ex) { error = ex.Message; return false; }
@@ -1240,6 +1252,7 @@ namespace DesktopAICompanion.Plugins
                 { error = "Unsafe pet id."; return false; }
                 string directory = SafeLibraryDir(typeId);
                 if (Directory.Exists(directory)) Directory.Delete(directory, true);
+                CompanionCatalog.Forget(typeId);   // the caches hold a pet that no longer exists (F249)
                 return true;
             }
             catch (Exception ex) { error = ex.Message; return false; }

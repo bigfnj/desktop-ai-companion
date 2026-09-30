@@ -433,10 +433,9 @@ namespace DesktopAICompanion.Wpf
             {
                 if (_netCts != null) { _netCts.Cancel(); _netCts.Dispose(); }
                 _netCts = new CancellationTokenSource();
-                // Pressing the button is an explicit "check NOW", so drop the shared copy first:
-                // reusing an answer from seconds ago would make the button look like it did nothing.
-                RemoteCatalogClient.InvalidateShared();
-                _lastCatalog = await RemoteCatalogClient.FetchAsync(_netCts.Token);
+                // Pressing the button is an explicit "check NOW", so the shared copy is dropped and
+                // REFILLED (F286): see the Companions pane's Check for why both halves matter.
+                _lastCatalog = await RemoteCatalogClient.RefreshSharedAsync(_netCts.Token);
                 if (!IsLoaded) return;
                 List<CatalogModule> available = DiffNew();
                 RenderAvailable(available);

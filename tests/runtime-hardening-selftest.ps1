@@ -1201,7 +1201,9 @@ foreach ($pane in @('CompanionsPaneControl', 'ModulesPaneControl')) {
         $paneSource -match 'private async void RefreshCatalogOnOpen\(\)'
     ) "$pane refreshes itself when it opens rather than waiting for a button"
     # A user-initiated check must not be served the shared copy, or the button appears to do nothing.
-    Assert-True ($paneSource -match 'RemoteCatalogClient\.InvalidateShared\(\);') (
+    # Since F286 the pane calls RefreshSharedAsync, which drops the copy and REFILLS it with what the
+    # check finds; the lane's own invariant below asserts the refill, this one keeps asserting the drop.
+    Assert-True ($paneSource -match 'RemoteCatalogClient\.(InvalidateShared\(\);|RefreshSharedAsync\()') (
         "$pane drops the shared catalog when the user asks to check now")
 }
 
@@ -2323,6 +2325,147 @@ Assert-True (
     $startUpCodeHost -cmatch 'IReadOnlyList<string> stillRemoving = DesktopAICompanion\.Plugins\.PendingModuleRemovals\.ProcessPending\(' -and
     $startUpCodeHost -cmatch 'moduleHost\.LoadFrom\(modulesDir, Host, [^;]*, stillRemoving\);'
 ) 'the launch hands the loader the removals that could not finish, so it skips rather than re-locks them'
+
+# A kill mid-RELOAD does not persist the shrinking transient mix (F308): ReloadPetType closes N pets and
+# respawns N, then persists once, so the CONDITION on the KillSheep persist is what is asserted, not the
+# presence of PersistMix, which the reverted code also calls.
+$killSheepBody = Get-MethodBody $startUpCodeHost 'public bool KillSheep(FormCompanion sheep)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($killSheepBody.Length -gt 0) 'KillSheep was located'
+Assert-True (
+    $killSheepBody -cmatch 'if \(bSheepRemoved && !wasTransient && !reloadInProgress\) PersistMix\(\);' -and
+    $killSheepBody -cnotmatch 'if \(bSheepRemoved && !wasTransient\) PersistMix\(\);'
+) 'a pet closed by a reload does not persist the mix; the reload persists once at its end'
+
+# Nothing spawns, restages or persists behind the exit (F312). KillSheeps sets the flag FIRST -- before the
+# tray icon is disposed -- and closes the modal settings window; each entry point declines on it. The tray
+# icon's SetIcon is a no-op once disposed, so a restage that raced the exit can no longer throw from inside
+# its caller's catch and abandon the pending Application.Exit.
+$killSheepsBody = Get-MethodBody $startUpCodeHost 'public void KillSheeps()' @("`n        private ", "`n        internal ", "`n        public ")
+$loadNewBody = Get-MethodBody $startUpCodeHost 'public bool LoadNewXMLFromString(string strXml)' @("`n        private ", "`n        internal ", "`n        public ")
+$addCoreBody = Get-MethodBody $startUpCodeHost 'private FormCompanion AddSheepCore(Xml petXml, Animations petAnimations, CompanionTypeRegistry.Entry entry)' @("`n        private ", "`n        internal ", "`n        public ")
+$persistMixBody = Get-MethodBody $startUpCodeHost 'private void PersistMix()' @("`n        private ", "`n        internal ", "`n        public ")
+$reloadTypeBody = Get-MethodBody $startUpCodeHost 'internal CompanionReloadOutcome ReloadPetType(string id, out int reloaded, out string error)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True (
+    $killSheepsBody.Length -gt 0 -and $loadNewBody.Length -gt 0 -and $addCoreBody.Length -gt 0 -and
+    $persistMixBody.Length -gt 0 -and $reloadTypeBody.Length -gt 0
+) 'KillSheeps, LoadNewXMLFromString, AddSheepCore, PersistMix and ReloadPetType were located'
+$flagSet = $killSheepsBody.IndexOf('shuttingDown = true;')
+$iconDisposed = $killSheepsBody.IndexOf('pi.Dispose();')
+Assert-True (
+    $flagSet -ge 0 -and $iconDisposed -gt $flagSet -and $killSheepsBody -cmatch 'OptionsShell\.CloseOpenWindow\(\)'
+) 'KillSheeps raises the shutting-down flag before it disposes the tray icon, and closes the settings window'
+Assert-True (
+    $loadNewBody -cmatch 'if \(disposed \|\| shuttingDown\) return false;' -and
+    $addCoreBody.IndexOf('if (shuttingDown)') -ge 0 -and
+    $addCoreBody.IndexOf('if (shuttingDown)') -lt $addCoreBody.IndexOf('iSheeps >= MAX_SHEEPS') -and
+    $persistMixBody -cmatch 'if \(disposed \|\| shuttingDown\) return;' -and
+    $reloadTypeBody.IndexOf('if (shuttingDown)') -ge 0 -and
+    $reloadTypeBody.IndexOf('if (shuttingDown)') -lt $reloadTypeBody.IndexOf('reloadInProgress = true;')
+) 'every spawn, restage and persist entry point declines while the app is shutting down'
+$processIconCodeHost = Remove-LineComments $processIconSource
+$setIconBody = Get-MethodBody $processIconCodeHost 'public void SetIcon(System.IO.MemoryStream icon, string petName, string aboutAuthor, string aboutTitle, string aboutVersion, string aboutInfo)' `
+    @("`n        private ", "`n        internal ", "`n        public ", "`n            /// ")
+Assert-True (
+    $setIconBody.Length -gt 0 -and
+    $setIconBody.IndexOf('if (ni == null) return;') -ge 0 -and
+    $setIconBody.IndexOf('if (ni == null) return;') -lt $setIconBody.IndexOf('bool success = true;')
+) 'SetIcon is a no-op once the tray icon is disposed, before it touches anything'
+
+# The built-in that runs after a rejected configured pet is keyed as the built-in (F305), and the rejected
+# XML is left in settings rather than re-persisted under the built-in's key. ORDER: the rekey precedes the
+# PetTypeId assignment, and the persist is conditional on not having fallen back.
+$startUpCtorBody = Get-MethodBody $startUpCodeHost 'public StartUp(ProcessIcon processIcon)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($startUpCtorBody.Length -gt 0) 'the StartUp constructor was located'
+$rekey = $startUpCtorBody.IndexOf('activeId = CompanionCatalog.BuiltInPetId;')
+$keyed = $startUpCtorBody.IndexOf('animations.PetTypeId = activeId;')
+Assert-True (
+    $rekey -ge 0 -and $keyed -gt $rekey -and
+    $startUpCtorBody -cmatch 'if \(!fellBackToBuiltIn && !Program\.MyData\.SetXml\(candidate\)\)'
+) 'a rejected configured pet leaves the built-in keyed as the built-in and the rejected XML unpersisted'
+
+# The preview registry entry goes on the THROW path too (F307), not only on the null return.
+$spawnPreviewBody = Get-MethodBody $startUpCodeHost 'internal FormCompanion SpawnPreviewPet(string animationsXml, out string error)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($spawnPreviewBody.Length -gt 0) 'SpawnPreviewPet was located'
+Assert-True (
+    $spawnPreviewBody -cmatch 'catch \{ registry\.DropIfUnused\(entry\); throw; \}'
+) 'a preview spawn that throws drops its registry entry on the way out'
+
+# The tray handlers never dereference a Program.Mainthread that is not there yet (F282), and Exit is never a
+# silent no-op.
+$mouseClickBody = Get-MethodBody $processIconCodeHost 'void Ni_MouseClick(object sender, MouseEventArgs e)' @("`n        void ", "`n        private ", "`n        internal ", "`n        public ", "`n            /// ")
+$mouseDoubleBody = Get-MethodBody $processIconCodeHost 'void Ni_MouseDoubleClick(object sender, MouseEventArgs e)' @("`n        void ", "`n        private ", "`n        internal ", "`n        public ", "`n        /// ")
+$contextMenusCodeHost = Remove-LineComments $contextMenusSource
+$exitClickBody = Get-MethodBody $contextMenusCodeHost 'void Exit_Click(object sender, EventArgs e)' @("`n        void ", "`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($mouseClickBody.Length -gt 0 -and $mouseDoubleBody.Length -gt 0 -and $exitClickBody.Length -gt 0) (
+    'the tray click, double-click and Exit handlers were located')
+Assert-True (
+    $mouseClickBody -cmatch 'if \(main == null\) return;' -and $mouseClickBody -cnotmatch 'Program\.Mainthread\.TopMostSheeps' -and
+    $mouseDoubleBody -cmatch 'if \(main == null\) return;' -and $mouseDoubleBody -cnotmatch 'Program\.Mainthread\.AddSheep' -and
+    $contextMenusCodeHost -cnotmatch 'Program\.Mainthread\.SayAll\('
+) 'the tray click, double-click and Test Speech handlers guard the main thread before using it'
+Assert-True (
+    $exitClickBody -cmatch 'else Application\.Exit\(\);' -and $exitClickBody -cnotmatch 'Program\.Mainthread\.KillSheeps\(\);'
+) 'Exit quits outright when there is no StartUp to close the pets, never a silent no-op'
+
+# One catalog.json per launch window (F286): the three due checks share the bytes, the app-version check
+# parses only its block from them, and a pane's "check now" refills the shared copy it drops.
+$remoteCatalogCodeHost = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\RemoteCatalog.cs') -Raw)
+$appVersionBody = Get-MethodBody $remoteCatalogCodeHost 'public static async Task<string> FetchAppVersionAsync(CancellationToken cancellationToken)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($appVersionBody.Length -gt 0) 'FetchAppVersionAsync was located'
+Assert-True (
+    $appVersionBody -cmatch 'FetchSharedBytesAsync\(cancellationToken\)' -and
+    $appVersionBody -cnotmatch 'SecureDownload\.DownloadBytesAsync\(' -and
+    $appVersionBody -cmatch 'ParseAppVersion\('
+) 'the app-version check reads the shared catalog bytes and still parses only its own block'
+$petCheckBody = Get-MethodBody $startUpCodeHost 'private async System.Threading.Tasks.Task RunPetUpdateCheckAsync()' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True (
+    $petCheckBody.Length -gt 0 -and
+    $petCheckBody -cmatch 'RemoteCatalogClient\s*\.FetchSharedAsync\(' -and
+    $startUpCodeHost -cnotmatch 'RemoteCatalogClient\s*\.FetchAsync\('
+) 'the launch checks read the shared catalog copy, never a private download'
+$companionsCheckBody = Get-MethodBody $companionsPaneCodeHost 'private async void CheckButton_Click(object sender, RoutedEventArgs e)' @("`n        private ", "`n        internal ", "`n        public ")
+$modulesCheckBody = Get-MethodBody $modulesPaneCodeHost 'private async void CheckButton_Click(object sender, RoutedEventArgs e)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True (
+    $companionsCheckBody.Length -gt 0 -and $modulesCheckBody.Length -gt 0 -and
+    $companionsCheckBody -cmatch 'RemoteCatalogClient\.RefreshSharedAsync\(' -and $companionsCheckBody -cnotmatch 'InvalidateShared\(\)' -and
+    $modulesCheckBody -cmatch 'RemoteCatalogClient\.RefreshSharedAsync\(' -and $modulesCheckBody -cnotmatch 'InvalidateShared\(\)'
+) "both panes' check-now buttons refill the shared catalog copy rather than dropping it for the next pane to fetch again"
+
+# Every writer of a pet file invalidates the per-id caches through the one call (F249, F336): Companion
+# Studio's install and uninstall through the host, and the pane's uninstall, beside the download that
+# already did. The install also swaps the on-screen copies onto the new definition.
+$installTypeBody = Get-MethodBody $petHostCodeHost 'public bool InstallType(string typeId, string animationsXml, out string error)' @("`n        private ", "`n        internal ", "`n        public ")
+$uninstallTypeBody = Get-MethodBody $petHostCodeHost 'public bool UninstallType(string typeId, out string error)' @("`n        private ", "`n        internal ", "`n        public ")
+$uninstallPetBody = Get-MethodBody $companionsPaneCodeHost 'private void UninstallPet(string id, string name, int onScreen)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($installTypeBody.Length -gt 0 -and $uninstallTypeBody.Length -gt 0 -and $uninstallPetBody.Length -gt 0) (
+    'InstallType, UninstallType and UninstallPet were located')
+Assert-True (
+    $installTypeBody -cmatch 'CompanionCatalog\.Forget\(typeId\)' -and
+    $installTypeBody -cmatch '_startUp\.ReloadPetType\(typeId' -and
+    $uninstallTypeBody -cmatch 'CompanionCatalog\.Forget\(typeId\)'
+) 'a Companion Studio install forgets the cached name and reloads the on-screen copies, and its uninstall forgets too'
+Assert-True (
+    $uninstallPetBody.IndexOf('Directory.Delete(dir, true)') -ge 0 -and
+    $uninstallPetBody.IndexOf('CompanionCatalog.Forget(id)') -gt $uninstallPetBody.IndexOf('Directory.Delete(dir, true)') -and
+    $companionsPaneCodeHost -cmatch 'CompanionCatalog\.Forgotten \+= ForgetStats;'
+) "the pane's uninstall forgets the deleted pet's caches, and the pane's own caches follow the catalog's Forget"
+
+# The Preferences Apply and the reset are ONE durable write each (F361): the setters run inside a batch and
+# the batch's Commit is the write whose result reaches the user; what reads the store back runs after it.
+$prefsSaveBatch = $prefsSaveBody.IndexOf('using (LocalData.Batch batch = data.BeginBatch())')
+$prefsFirstSet = $prefsSaveBody.IndexOf('data.Set')
+$prefsCommit = $prefsSaveBody.IndexOf('ok &= batch.Commit();')
+$prefsConfigure = $prefsSaveBody.IndexOf('DiagnosticLog.Configure(')
+Assert-True (
+    $prefsSaveBatch -ge 0 -and $prefsFirstSet -gt $prefsSaveBatch -and $prefsCommit -gt $prefsFirstSet -and
+    $prefsCommit -gt $prefsSaveBody.LastIndexOf('data.Set') -and $prefsConfigure -gt $prefsCommit
+) 'the Preferences Apply opens a batch before its first setter, commits it once after the last, and configures the logger from the committed store'
+Assert-True (
+    $resetBodyHost -cmatch 'using \(LocalData\.Batch batch = data\.BeginBatch\(\)\)' -and
+    $resetBodyHost -cmatch 'if \(!batch\.Commit\(\)\)' -and
+    $resetBodyHost -cmatch 'Reset failed: the settings could not be saved'
+) 'the reset is one committed batch whose failure is reported instead of a rebuilt pane over unmoved values'
 
 
 

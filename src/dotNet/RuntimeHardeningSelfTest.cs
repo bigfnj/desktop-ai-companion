@@ -375,6 +375,7 @@ namespace DesktopAICompanion
             const BindingFlags PubInstance = BindingFlags.Public | BindingFlags.Instance;
             const BindingFlags NpStatic = BindingFlags.NonPublic | BindingFlags.Static;
             const BindingFlags NpInstance = BindingFlags.NonPublic | BindingFlags.Instance;
+            Type[] TryReadXmlSignature = new[] { typeof(string), typeof(string).MakeByRefType() };
 
             try
             {
@@ -479,7 +480,8 @@ namespace DesktopAICompanion
                 object scaledXml = Activator.CreateInstance(xmlT, new object[] { 4 });
                 try
                 {
-                    MethodInfo tryRead = xmlT.GetMethod("TryReadXml", PubInstance);
+                    // By parameter list: an unqualified lookup is ambiguous the moment a second overload exists.
+                    MethodInfo tryRead = xmlT.GetMethod("TryReadXml", PubInstance, null, TryReadXmlSignature, null);
                     Check("bundled pet decodes at requested 4x scale", (bool)tryRead.Invoke(scaledXml, new object[] { bundledXml, null }));
                     PropertyInfo spriteCountP = xmlT.GetProperty("SpriteCount", BindingFlags.Instance | BindingFlags.NonPublic);
                     int spriteCount = (int)spriteCountP.GetValue(scaledXml, new object[0]);
@@ -504,7 +506,7 @@ namespace DesktopAICompanion
                 object halfXml = Activator.CreateInstance(xmlT, new object[] { 0.5 });
                 try
                 {
-                    MethodInfo tryRead2 = xmlT.GetMethod("TryReadXml", PubInstance);
+                    MethodInfo tryRead2 = xmlT.GetMethod("TryReadXml", PubInstance, null, TryReadXmlSignature, null);
                     tryRead2.Invoke(oneXxml, new object[] { bundledXml, null });
                     tryRead2.Invoke(halfXml, new object[] { bundledXml, null });
                     long w1 = Convert.ToInt64(MemberValue(xmlT, oneXxml, "spriteWidth"));
@@ -978,6 +980,98 @@ namespace DesktopAICompanion
                     CompanionCatalog.DisplayName("shimeji-abc123", "Monkey D. Luffy") == "Monkey D. Luffy");
                 Check("name: ...and supplying null is exactly what loses it",
                     CompanionCatalog.DisplayName("shimeji-abc123", null) == "Shimeji Abc123");
+
+                // Forget reaches every per-id cache through one call (F249, F336): the pane's stats and icon
+                // caches subscribe to Forgotten, so a writer that calls Forget invalidates all three. A
+                // writer that forgot to call it is what the source invariants pin; this pins the raise.
+                string forgotten = null;
+                Action<string> listener = delegate(string id) { forgotten = id; };
+                CompanionCatalog.Forgotten += listener;
+                try
+                {
+                    CompanionCatalog.Forget("dp_selftest_rewritten_pet");
+                    Check("name: Forget raises Forgotten with the id, so the pane's caches follow",
+                        forgotten == "dp_selftest_rewritten_pet");
+                    forgotten = null;
+                    CompanionCatalog.Forget(null);
+                    Check("name: WITNESS Forget of nothing raises nothing", forgotten == null);
+                }
+                finally { CompanionCatalog.Forgotten -= listener; }
+
+                // The header read runs to </header> (F250) and is cached per file (F251). The old fixed 32K
+                // read missed a petname behind a long <info> or a large icon; the old uncached read reopened
+                // every installed pet's file on every tray open.
+                string headerDir = Path.Combine(Path.GetTempPath(), "dp-headerprobe-selftest-" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(headerDir);
+                    string headerXml = Path.Combine(headerDir, "animations.xml");
+                    string longInfo = new string('a', 40 * 1024);   // past the old 32K read, inside the new bound
+                    File.WriteAllText(headerXml,
+                        "<?xml version=\"1.0\"?><animations><header><author>x</author><title>t</title><info>" +
+                        longInfo + "</info><petname>Deep Name</petname></header><image></image></animations>");
+                    int readsBefore = CompanionCatalog.HeaderFileReads;
+                    Check("header: a petname past the old 32K read is still found",
+                        CompanionCatalog.ReadHeaderName(headerXml) == "Deep Name");
+                    Check("header: WITNESS the first look read the file", CompanionCatalog.HeaderFileReads == readsBefore + 1);
+                    CompanionCatalog.ReadHeaderName(headerXml);
+                    CompanionCatalog.ReadHeaderName(headerXml);
+                    Check("header: repeat looks at an unchanged file do not read it again",
+                        CompanionCatalog.HeaderFileReads == readsBefore + 1);
+                    // A rewrite is a MISS: the key is the file's write time and length, so the same path
+                    // with new content is read again, and the new name comes back.
+                    File.WriteAllText(headerXml,
+                        "<?xml version=\"1.0\"?><animations><header><petname>Renamed</petname></header></animations>");
+                    File.SetLastWriteTimeUtc(headerXml, File.GetLastWriteTimeUtc(headerXml).AddMinutes(1));
+                    Check("header: a rewritten file is read again and its new name comes back",
+                        CompanionCatalog.ReadHeaderName(headerXml) == "Renamed" &&
+                        CompanionCatalog.HeaderFileReads == readsBefore + 2);
+                    Check("header: WITNESS the read bound admits the largest icon a header may carry",
+                        CompanionCatalog.HeaderReadBoundChars > CompanionXmlValidator.MaximumIconBytes * 4 / 3);
+                }
+                finally { try { Directory.Delete(headerDir, true); } catch { } }
+
+                // Settings writes coalesce inside a batch (F361): N setters, ONE durable write, and a
+                // failed commit rolls every one of them back. Stated as a COUNT of writes through the
+                // store's own counter, never as a timing.
+                string batchDir = Path.Combine(Path.GetTempPath(), "dp-batchprobe-selftest-" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(batchDir);
+                    var store = new AppSettingsStore(Path.Combine(batchDir, "settings.json"), new string[0]);
+                    var data = new LocalData(store);
+                    int writesBefore = store.DurableWrites;
+                    data.SetVolume(0.4); data.SetMultiscreen(true); data.SetSpeechDuration(9);
+                    Check("batch: WITNESS three setters outside a batch are three durable writes",
+                        store.DurableWrites == writesBefore + 3);
+                    writesBefore = store.DurableWrites;
+                    bool committed;
+                    using (LocalData.Batch batch = data.BeginBatch())
+                    {
+                        data.SetVolume(0.5); data.SetMultiscreen(false); data.SetSpeechDuration(11); data.SetSuppressRepeats(false);
+                        Check("batch: setters inside a batch write nothing yet", store.DurableWrites == writesBefore);
+                        committed = batch.Commit();
+                    }
+                    Check("batch: Commit is ONE durable write for every setter in the batch",
+                        committed && store.DurableWrites == writesBefore + 1);
+                    Check("batch: ...and the values are what was set",
+                        Math.Abs(data.GetVolume() - 0.5f) < 0.001f && !data.GetMultiscreen() && data.GetSpeechDuration() == 11);
+                    // Abandoned without Commit: nothing written, every setter rolled back.
+                    writesBefore = store.DurableWrites;
+                    using (data.BeginBatch()) { data.SetSpeechDuration(20); }
+                    Check("batch: a batch disposed without Commit writes nothing and rolls its setters back",
+                        store.DurableWrites == writesBefore && data.GetSpeechDuration() == 11);
+                    // A commit the store refuses rolls back too: the file is held open with no sharing, so
+                    // the atomic replace cannot land.
+                    using (new FileStream(Path.Combine(batchDir, "settings.json"), FileMode.Open, FileAccess.Read, FileShare.None))
+                    using (LocalData.Batch batch = data.BeginBatch())
+                    {
+                        data.SetSpeechDuration(25);
+                        Check("batch: a Commit the store cannot complete answers false and rolls back",
+                            !batch.Commit() && data.GetSpeechDuration() == 11 && store.DurableWrites == writesBefore);
+                    }
+                }
+                finally { try { Directory.Delete(batchDir, true); } catch { } }
 
                 // ---- FACTORY RESET ----
                 // The installer's "clear all settings and modules" empties directories. The only failure

@@ -610,10 +610,10 @@ namespace DesktopAICompanion.Wpf
             {
                 if (_netCts != null) { _netCts.Cancel(); _netCts.Dispose(); }
                 _netCts = new CancellationTokenSource();
-                // Pressing the button is an explicit "check NOW", so drop the shared copy first:
-                // reusing an answer from seconds ago would make the button look like it did nothing.
-                RemoteCatalogClient.InvalidateShared();
-                _lastCatalog = await RemoteCatalogClient.FetchAsync(_netCts.Token);
+                // Pressing the button is an explicit "check NOW", so the shared copy is dropped and
+                // REFILLED (F286): reusing an answer from seconds ago would make the button look like it
+                // did nothing, and dropping it without refilling made the next pane fetch again.
+                _lastCatalog = await RemoteCatalogClient.RefreshSharedAsync(_netCts.Token);
                 if (!IsLoaded) return;
                 List<CatalogCompanion> newPets = DiffNew();
                 // Off the UI thread, for the reason RefreshCatalogOnOpen gives: this SHA-256s every
@@ -985,6 +985,14 @@ namespace DesktopAICompanion.Wpf
         /// </summary>
         private static readonly Dictionary<string, ImageSource> _iconCache = new Dictionary<string, ImageSource>(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>The pane's caches follow the catalog's Forget: any writer that rewrites or deletes a pet
+        /// file calls CompanionCatalog.Forget, and this is what makes that one call reach the stats and icon
+        /// caches too, without src/dotNet having to know about a WPF class (F336).</summary>
+        static CompanionsPaneControl()
+        {
+            CompanionCatalog.Forgotten += ForgetStats;
+        }
+
         /// <summary>
         /// Forget one pet's cached counts, because its animations.xml has just been rewritten. Paired with
         /// <see cref="CompanionCatalog.Forget"/>: both caches are process-lifetime and keyed by id, so an in-process
@@ -1136,6 +1144,9 @@ namespace DesktopAICompanion.Wpf
                 for (int i = 0; i < onScreen; i++)
                     try { if (Program.Mainthread != null) Program.Mainthread.RemoveOnePet(id); } catch { }
                 if (Directory.Exists(dir)) Directory.Delete(dir, true);
+                // The file is gone, so the name, icon and counts cached under this id are for a pet that no
+                // longer exists; a later reinstall under the same id would have shown the old ones (F249).
+                CompanionCatalog.Forget(id);
                 _status.Text = "Uninstalled " + name + ".";
             }
             catch (Exception ex) { _status.Text = "Couldn't uninstall: " + ex.Message; }

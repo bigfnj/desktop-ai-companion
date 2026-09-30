@@ -1078,6 +1078,11 @@ namespace DesktopAICompanion
             }
         }
 
+        /// <summary>How many durable writes this store has completed. A self-test seam for the write
+        /// coalescing in LocalData (F361): the saving is stated as a COUNT of writes, which this makes
+        /// checkable, rather than as a timing.</summary>
+        public int DurableWrites { get; private set; }
+
         private bool SaveCore(AppSettingsDocument settings)
         {
             try
@@ -1085,7 +1090,9 @@ namespace DesktopAICompanion
                 string json = JsonSerializer.Serialize(settings, JsonOptions);
                 if (StrictUtf8.GetByteCount(json) > MaximumSettingsFileBytes)
                     return false;
-                return AtomicFile.TryWriteAllText(_filePath, json, _backupPath);
+                bool written = AtomicFile.TryWriteAllText(_filePath, json, _backupPath);
+                if (written) DurableWrites++;
+                return written;
             }
             catch
             {

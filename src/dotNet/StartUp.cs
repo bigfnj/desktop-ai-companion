@@ -141,6 +141,10 @@ namespace DesktopAICompanion
         EventHandler moduleUpdateTimerHandler;
         bool moduleUpdateCheckRunning;
 
+        /// <summary>Set as the first act of <see cref="KillSheeps"/> and never cleared: the app is on its way
+        /// out, and nothing may spawn, restage or persist behind the exit (F312).</summary>
+        private bool shuttingDown;
+
         /// <summary>Set while <see cref="ReloadPetType"/> is swapping one type's pets, so the respawns are
         /// not announced to modules as new arrivals. See the note in AddSheepCore.</summary>
         bool reloadInProgress;
@@ -206,16 +210,25 @@ namespace DesktopAICompanion
             // the actual pet, not the "" active-slot placeholder. Defaults to the built-in pet.
             string activeId = Program.MyData != null ? Program.MyData.GetActivePetId() : CompanionCatalog.BuiltInPetId;
             double activeFactor = Program.MyData.GetEffectivePetScaleFactorD(activeId);
+            bool fellBackToBuiltIn = false;
             if (!TryStageRuntime(candidate, activeFactor, out xml, out animations, out error))
             {
                 AddDebugInfo(DEBUG_TYPE.warning, "Configured pet rejected: " + error);
+                // The BUILT-IN is what runs now, so it is keyed and scaled as the built-in (F305): the
+                // rejected pet's id used to stay on PetTypeId, so its per-pet size, mute and speech routing
+                // applied to a sheep, and its XML was then re-persisted under that id. The rejected XML is
+                // left in settings untouched instead, so a host that later accepts it brings it back, which
+                // is the promise the persist-failure warning below already makes.
+                fellBackToBuiltIn = true;
+                activeId = CompanionCatalog.BuiltInPetId;
+                activeFactor = Program.MyData.GetEffectivePetScaleFactorD(activeId);
                 candidate = Properties.Resources.animations;
                 if (!TryStageRuntime(candidate, activeFactor, out xml, out animations, out error))
                     throw new InvalidDataException("The built-in pet failed validation: " + error);
             }
             animations.PetTypeId = activeId;
             animations.Activate();
-            if (!Program.MyData.SetXml(candidate))
+            if (!fellBackToBuiltIn && !Program.MyData.SetXml(candidate))
                 AddDebugInfo(
                     DEBUG_TYPE.warning,
                     "The active pet could not be persisted; the previous pet will return next launch.");
@@ -523,6 +536,11 @@ namespace DesktopAICompanion
         // the module that asked for it, which already holds the handle it needs.
         private FormCompanion AddSheepCore(Xml petXml, Animations petAnimations, CompanionTypeRegistry.Entry entry)
         {
+            if (shuttingDown)
+            {
+                AddDebugInfo(DEBUG_TYPE.warning, "spawn refused: the app is shutting down");
+                return null;
+            }
             if (iSheeps >= MAX_SHEEPS)
             {
                 AddDebugInfo(DEBUG_TYPE.warning, "max PETs reached");
@@ -606,11 +624,18 @@ namespace DesktopAICompanion
             stagedAnimations.PetTypeId = previewId;
             CompanionTypeRegistry.Entry entry = registry.Add(previewId, stagedXml, stagedAnimations, true);
 
-            FormCompanion spawned = AddSheepCore(entry.Xml, entry.Animations, entry);
+            FormCompanion spawned;
+            // The registry entry goes on BOTH failure paths (F307): the null return was handled, a throw out
+            // of the spawn was not, and left a guid-keyed pair (Xml, sprite frames, Animations) in the
+            // registry that nothing would ever release. CompanionHost.SpawnPreview turns the rethrow into
+            // the error string the module sees; DisposePair is idempotent, so the form's own disposal
+            // having already run is not a double free.
+            try { spawned = AddSheepCore(entry.Xml, entry.Animations, entry); }
+            catch { registry.DropIfUnused(entry); throw; }
             if (spawned == null)
             {
                 registry.DropIfUnused(entry);
-                error = "The pet could not be shown.";
+                error = shuttingDown ? "The app is shutting down." : "The pet could not be shown.";
                 return null;
             }
             AddDebugInfo(DEBUG_TYPE.info, "preview pet spawned (" + previewId + ")");
@@ -715,6 +740,11 @@ namespace DesktopAICompanion
             // FormClosed releases it; DisposeEntry removes by identity, so that release cannot evict this one.
             CompanionTypeRegistry.Entry fresh = registry.Add(target, stagedXml, stagedAnimations);
 
+            if (shuttingDown)
+            {
+                error = "The app is shutting down.";
+                return CompanionReloadOutcome.Deferred;
+            }
             reloadInProgress = true;
             try
             {
@@ -1135,7 +1165,9 @@ namespace DesktopAICompanion
         // restore itself.
         private void PersistMix()
         {
-            if (disposed) return;
+            // Not while shutting down (F312): the pets are dying in their kill animations, and the mix
+            // they leave behind is not the desktop the user wants back next launch.
+            if (disposed || shuttingDown) return;
             try { Program.MyData.SetPetMix(OnScreenMix()); } catch { }
         }
 
@@ -1197,6 +1229,14 @@ namespace DesktopAICompanion
         public void KillSheeps()
         {
             AddDebugInfo(DEBUG_TYPE.info, "Killing all sheeps");
+            // FIRST, before anything is torn down (F312). The exit is two steps -- kill animations, then a
+            // timer1 tick that calls Application.Exit -- and during that 1.1 s window a "use this pet" or a
+            // tray Add could still arrive: LoadNewXMLFromString stopped timer1 and then threw from
+            // ApplyTrayIcon on the disposed tray icon, so the pending exit was abandoned and the process
+            // sat alive with no icon to reach it by; an Add persisted a mix of pets that were dying.
+            // Every entry point that spawns, restages or persists checks this flag and declines.
+            shuttingDown = true;
+            DesktopAICompanion.Wpf.OptionsShell.CloseOpenWindow();   // a modal cannot outlive the exit request
             timer1.Tag = "0";
             pi.Dispose();
 
@@ -1299,7 +1339,11 @@ namespace DesktopAICompanion
                 }
             }
 
-            if (bSheepRemoved && !wasTransient) PersistMix();   // remember the reduced on-screen mix for next launch
+            // Remember the reduced on-screen mix for next launch -- except mid-RELOAD (F308). ReloadPetType
+            // closes N pets and respawns N, then persists once; each close persisting a shrinking
+            // transient mix was N extra full-document writes (~130 ms each) for one reload, all of them
+            // describing a desktop the user never saw.
+            if (bSheepRemoved && !wasTransient && !reloadInProgress) PersistMix();
 
             /*
              * This will close application if all Sheeps are removed. But Maybe the user want see the try icon to add a sheep later.
@@ -1369,7 +1413,7 @@ namespace DesktopAICompanion
         public bool LoadNewXMLFromString(string strXml)
         {
             AddDebugInfo(DEBUG_TYPE.info, "load new XML string");
-            if (disposed) return false;
+            if (disposed || shuttingDown) return false;   // shuttingDown: see KillSheeps (F312)
 
             FormCompanion marshal = iSheeps > 0
                 ? sheeps[0]
@@ -1749,8 +1793,10 @@ namespace DesktopAICompanion
         {
             try
             {
+                // The SHARED copy (F286): the app version check, this and the module scan all fire within
+                // seconds of launch when due, and each downloaded catalog.json for itself.
                 RemoteCatalog catalog = await RemoteCatalogClient
-                    .FetchAsync(System.Threading.CancellationToken.None).ConfigureAwait(false);
+                    .FetchSharedAsync(System.Threading.CancellationToken.None).ConfigureAwait(false);
                 if (disposed) return;
                 // Hash off the UI thread. StaleInstalledIds reads and digests every installed catalog pet.
                 List<string> stale = await System.Threading.Tasks.Task
@@ -1830,7 +1876,8 @@ namespace DesktopAICompanion
             try
             {
                 // RemoteCatalogClient bounds its own deadline, so this cannot hang the timer indefinitely.
-                RemoteCatalog catalog = await RemoteCatalogClient.FetchAsync(System.Threading.CancellationToken.None)
+                // The shared copy, for the same reason as the pet check above (F286).
+                RemoteCatalog catalog = await RemoteCatalogClient.FetchSharedAsync(System.Threading.CancellationToken.None)
                     .ConfigureAwait(true);
                 if (disposed) return;
                 var offers = DesktopAICompanion.Plugins.ModuleUpdateScan.FindUpdates(catalog, modules);

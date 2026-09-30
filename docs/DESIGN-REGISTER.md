@@ -343,6 +343,21 @@ and now said at the site: the sweep runs only under a self-test flag on develope
 longer prefix would re-couple cleanup to a naming convention across some twenty creators, which is the
 orphan failure the sweep fixed.
 
+**Settings writes coalesce per user action, and the setters' results stay durable (2026-09-29, F361, F308).**
+`LocalData.BeginBatch` lets one Apply or one Reset be one write instead of twenty-two; a setter outside a
+batch still writes at once, and a setter's `true` still means "on disk". A debounced background writer was
+declined because those bools are shown to the user as saved-or-not. What this does NOT fix is the per-write
+COST: settings.json embeds the active pet's XML (1.17 MB for the default pet, ~12 MB at the validator's
+cap), so every write is a full-document rewrite. Moving the payload to a sibling file keyed by id and hash
+is a schema change with a LoadCore migration and belongs to a host release of its own; the on-disk format
+did not move in this lane, and an installed 1.2.6 reads what 1.2.7 writes.
+
+**Four unmeasured performance items stay as they are (2026-09-29, F262, F269, F276, F297).** Each finding's
+own first step was a cold measurement in fresh interleaved processes against a variant with the change
+removed, and this lane made none; a saving that is not measured that way has been wrong every time it was
+believed in this repo. The alpha-pet push-skip, the CheckTopWindow throttle, the bubble DPI cache and the
+pooled HttpClient are recorded here so the next reader starts from the measurement, not the idea.
+
 #### fix/tools
 
 (none yet)

@@ -514,6 +514,104 @@ CASES = (
         b"msg => AddDebugInfo(DEBUG_TYPE.info, \"[module] \" + msg));",
         "removals that could not finish",
     ),
+    # F308: a kill mid-reload persists the shrinking mix again.
+    (
+        "a pet closed by a reload persists the mix again",
+        STARTUP,
+        b"            if (bSheepRemoved && !wasTransient && !reloadInProgress) PersistMix();",
+        b"            if (bSheepRemoved && !wasTransient) PersistMix();",
+        "does not persist the mix; the reload persists once",
+    ),
+    # F312: the flag is never raised.
+    (
+        "KillSheeps stops raising the shutting-down flag",
+        STARTUP,
+        b"            shuttingDown = true;\n",
+        b"",
+        "raises the shutting-down flag before it disposes the tray icon",
+    ),
+    # F312: SetIcon dereferences the disposed icon again.
+    (
+        "SetIcon touches the disposed tray icon again",
+        os.path.join(REPO, "src", "dotNet", "ProcessIcon.cs"),
+        b"            if (ni == null) return;\n",
+        b"",
+        "no-op once the tray icon is disposed",
+    ),
+    # F305: the fallback keeps the rejected pet's key.
+    (
+        "the built-in fallback keeps the rejected pet's id",
+        STARTUP,
+        b"                activeId = CompanionCatalog.BuiltInPetId;\n",
+        b"",
+        "leaves the built-in keyed as the built-in",
+    ),
+    # F307: the preview spawn's throw path leaks the entry again.
+    (
+        "a throwing preview spawn leaks its registry entry again",
+        STARTUP,
+        b"            try { spawned = AddSheepCore(entry.Xml, entry.Animations, entry); }\n"
+        b"            catch { registry.DropIfUnused(entry); throw; }\n",
+        b"            spawned = AddSheepCore(entry.Xml, entry.Animations, entry);\n",
+        "drops its registry entry on the way out",
+    ),
+    # F282: the tray click dereferences Program.Mainthread bare again.
+    (
+        "the tray click dereferences the main thread unguarded again",
+        os.path.join(REPO, "src", "dotNet", "ProcessIcon.cs"),
+        b"                StartUp main = Program.Mainthread;\n"
+        b"                if (main == null) return;\n"
+        b"                main.TopMostSheeps();",
+        b"                Program.Mainthread.TopMostSheeps();",
+        "guard the main thread before using it",
+    ),
+    # F286: the app-version check downloads for itself again.
+    (
+        "the app-version check downloads the catalog for itself again",
+        os.path.join(REPO, "src", "dotNet", "RemoteCatalog.cs"),
+        b"            byte[] bytes = await FetchSharedBytesAsync(cancellationToken).ConfigureAwait(false);\n"
+        b"            return ParseAppVersion(",
+        b"            byte[] bytes = await SecureDownload.DownloadBytesAsync(uri, MaximumCatalogBytes, cancellationToken).ConfigureAwait(false);\n"
+        b"            return ParseAppVersion(",
+        "reads the shared catalog bytes",
+    ),
+    # F286: the Companions pane's check drops the shared copy without refilling it again.
+    (
+        "the Companions check-now drops the shared catalog without refilling it",
+        PETSPANE,
+        b"                _lastCatalog = await RemoteCatalogClient.RefreshSharedAsync(_netCts.Token);",
+        b"                RemoteCatalogClient.InvalidateShared();\n"
+        b"                _lastCatalog = await RemoteCatalogClient.FetchAsync(_netCts.Token);",
+        "refill the shared catalog copy",
+    ),
+    # F249: the Studio uninstall stops forgetting the caches.
+    (
+        "a Studio uninstall leaves the per-id caches serving a deleted pet",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+        b"                CompanionCatalog.Forget(typeId);   // the caches hold a pet that no longer exists (F249)\n",
+        b"",
+        "its uninstall forgets too",
+    ),
+    # F336: the Studio install stops reloading the on-screen copies.
+    (
+        "a Studio install leaves the on-screen copies on the old definition",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+        b"                if (_startUp != null)\n"
+        b"                {\n"
+        b"                    int reloaded; string reloadError;\n"
+        b"                    try { _startUp.ReloadPetType(typeId, out reloaded, out reloadError); } catch { }\n"
+        b"                }\n",
+        b"",
+        "reloads the on-screen copies",
+    ),
+    # F361: the Preferences Apply discards the batch's durable result.
+    (
+        "the Preferences Apply discards its batch commit's result",
+        os.path.join(REPO, "src", "Portable", "Wpf", "OptionsShell.cs"),
+        b"                    ok &= batch.Commit();\n",
+        b"                    batch.Commit();\n",
+        "commits it once after the last",
+    ),
 
 
     # ---- lane fix/settings ----

@@ -581,6 +581,51 @@ CASES = (
      HOST_CSPROJ, EXE,
      "--petstudio-selftest", "dp-petstudio-selftest.txt", "carries the module's subfolders"),
 
+    # F249/F336: Forget stops telling the pane's caches, so a Studio install keeps the old icon and counts.
+    # The raise is gated on a condition the early return above it makes impossible, rather than deleted:
+    # an event that is declared and never raised is CS0067, and warnings are errors, so the deletion
+    # would not compile and the case would prove nothing.
+    ("CompanionCatalog.Forget stops raising Forgotten",
+     os.path.join(REPO, "src", "dotNet", "CompanionCatalog.cs"),
+     b"            if (listeners != null) { try { listeners(id); } catch { } }\n",
+     b"            if (listeners != null && id.Length == 0) { try { listeners(id); } catch { } }\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "Forget raises Forgotten"),
+
+    # F250: the header read stops at the old 32K again.
+    ("the header read stops at 32K again",
+     os.path.join(REPO, "src", "dotNet", "CompanionCatalog.cs"),
+     b"        internal const int HeaderReadBoundChars = CompanionXmlValidator.MaximumIconBytes * 4 / 3 + 70 * 1024;",
+     b"        internal const int HeaderReadBoundChars = 32 * 1024;",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "past the old 32K read"),
+
+    # F251: the header cache stops keying on the file's write time and length, so a rewrite is a hit.
+    ("the header cache ignores a rewritten file",
+     os.path.join(REPO, "src", "dotNet", "CompanionCatalog.cs"),
+     b"                    if (HeaderByPath.TryGetValue(xmlPath, out hit) && hit.WrittenUtc == writtenUtc && hit.Length == length)",
+     b"                    if (HeaderByPath.TryGetValue(xmlPath, out hit))",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "a rewritten file is read again"),
+
+    # F251: nothing is ever found in the cache, so every look reads the file (the code as it shipped). The
+    # entry is stored under a key no lookup uses rather than not stored at all: deleting the store leaves
+    # CachedHeader's fields never assigned, which is CS0649, and warnings are errors.
+    ("the header read is uncached again",
+     os.path.join(REPO, "src", "dotNet", "CompanionCatalog.cs"),
+     b"                    HeaderByPath[xmlPath] = new CachedHeader { WrittenUtc = writtenUtc, Length = length, Name = name };",
+     b"                    HeaderByPath[xmlPath + \"#never-found\"] = new CachedHeader { WrittenUtc = writtenUtc, Length = length, Name = name };",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "do not read it again"),
+
+    # F361: a batched setter never marks the batch dirty, so Commit writes nothing.
+    ("a batch commit writes nothing",
+     os.path.join(REPO, "src", "Portable", "LocalData.cs"),
+     b"                    _batchDirty = true;\n                    return true;",
+     b"                    return true;",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "Commit is ONE durable write"),
+
     # F245: the one place a device failure is visible is PlaybackStopped. Drop the subscription and the
     # output stays 'started' on a device that does not exist, which is the code as it shipped.
     ("AudioOutput stops observing PlaybackStopped",
