@@ -289,7 +289,18 @@ print RESULT=PASS with a new "GUI resource counters readable" PASS line per segm
 
 #### fix/fortunes
 
-(none yet)
+**Apply keeps a smart index whose pool did not change; "Rebuild smart index" always rebuilds one that is
+not complete (2026-09-29, fortunes 1.0.12).** F147 asked for the keep-or-rebuild decision to live in
+RebuildEngine, and F149 (fixed by lane fix/gates) made the button's own "already built" guard compare
+against a freshly built pool. The two compose like this: every rebuild computes the new pool's signature
+(text AND topic, since Pick's route bonus reads the topic and dedupe can swap which same-text entry
+survives) and keeps the current picker, built or still building, when smart is still on, the signature is
+unchanged and the build did not fail; the button passes `force`, so a picker that stood down or is mid-warm
+is rebuilt on request, and only a COMPLETE index over an unchanged pool answers "already built". A failed
+Save no longer rebuilds at all: the persisted settings did not change. Rejected: deriving "smart enabled"
+for the status from `LoadFortuneSettings(_host)` per press (F148's alternative), which re-reads the
+settings file to learn a value RebuildEngine already had in hand; the setting is recorded in a field when
+the engine is rebuilt.
 
 #### fix/petstudio
 

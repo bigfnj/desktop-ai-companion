@@ -31,6 +31,10 @@ namespace DesktopAICompanion.Ai
             }
         }
 
+        /// <summary>Diagnostics: the root in effect, so a self-test that re-points the engine at a
+        /// throwaway root can put the previous one back.</summary>
+        internal static string RootForDiagnostics { get { return Root; } }
+
         /// <summary>The user's writable fortune-pack folder (created on access).</summary>
         public static string FortunesDir { get { return Ensure(Path.Combine(Root, "fortunes")); } }
 

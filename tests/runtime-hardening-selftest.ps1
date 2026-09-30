@@ -1996,6 +1996,31 @@ Assert-True (
 # ---- lane fix/fortunes ----
 # (invariants added by lane fix/fortunes go directly below this line)
 
+# The smart picker's supersession and its publish take ONE lock (F144). The generation check and the
+# publish were two unlocked steps in the build's worker, and the bump and the clear two unlocked steps in
+# RebuildEngine, so a build that had just passed its check could publish after the field was cleared and
+# the generation moved on: a superseded picker went live and the next build overwrote it without disposing
+# it. A two-thread interleaving no self-test can force, so the SHAPE is asserted: each pair sits inside a
+# `lock (_smartLock)` block, check before publish and bump before clear. Sliced to the two methods' own
+# bodies and matched as a single-depth block, so a statement moved past the block's closing brace fails
+# it; -cmatch, so a renamed lock fails rather than matching prose. The ORDER-only line further up (the
+# check precedes the publish) stays: it is the half a lock does not give.
+$fortunesModuleCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'modules\Fortunes\FortunesModule.cs') -Raw)
+$smartBuildBody = Get-MethodBody $fortunesModuleCode `
+    'private void BuildSmartPicker(int generation, SmartFortunes old, List<FortuneEntry> pool)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+$smartScheduleBody = Get-MethodBody $fortunesModuleCode `
+    'private void ScheduleSmartPicker(bool wanted, List<FortuneEntry> pool, bool force)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($smartBuildBody.Length -gt 0 -and $smartScheduleBody.Length -gt 0) 'BuildSmartPicker and ScheduleSmartPicker exist and could be sliced out for inspection'
+Assert-True (
+    $smartBuildBody -cmatch 'lock \(_smartLock\)\s*\{[^}]*Volatile\.Read\(ref _smartGeneration\) != generation;[^}]*_smart = built;[^}]*\}'
+) "the smart picker's generation check and its publish sit inside one lock (_smartLock), check first"
+Assert-True (
+    $smartScheduleBody -cmatch 'lock \(_smartLock\)\s*\{[^}]*Interlocked\.Increment\(ref _smartGeneration\);[^}]*_smart = null;[^}]*\}'
+) 'a rebuild bumps the smart generation and clears the picker inside the same lock, bump first'
+
 
 
 # ---- lane fix/petstudio ----

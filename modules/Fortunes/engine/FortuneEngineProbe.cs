@@ -263,7 +263,8 @@ namespace DesktopAICompanion.FortunesModule
                 // Smart-index status. Warm() runs in the background and leaves ready=false / total=0 until
                 // its first batch publishes, so a status read from the index's own counters told everyone
                 // "No fortunes yet" every time they pressed Rebuild, however full the pool was.
-                string building = FortunesModule.SmartStatusFor(true, 12345, true, false, false, false, 0, 0);
+                const SmartStandDownReason up = SmartStandDownReason.None;
+                string building = FortunesModule.SmartStatusFor(true, 12345, true, up, null, false, false, 0, 0);
                 // Formatted the way the MODULE formats it rather than pinned to "12,345". FortunesModule.Count
                 // uses "N0" with CurrentCulture, so on a de-DE or tr-TR machine the real string is "12.345"
                 // and an Ordinal match on the comma failed the whole gate for a reason that has nothing to do
@@ -273,24 +274,57 @@ namespace DesktopAICompanion.FortunesModule
                 ok &= Check(sb, "a just-started warm reports indexing, not an empty pool",
                     building.IndexOf(buildingCount, StringComparison.Ordinal) >= 0 &&
                     building.IndexOf("No fortunes", StringComparison.Ordinal) < 0);
+                // The F148 state: smart ON, no picker object yet (the build is in flight). The status is
+                // derived from the setting, so this reads as indexing rather than "off".
+                ok &= Check(sb, "smart picks on with the picker still being built reports indexing, not off",
+                    building.IndexOf("Indexing", StringComparison.Ordinal) >= 0 &&
+                    building.IndexOf("off", StringComparison.Ordinal) < 0);
                 ok &= Check(sb, "a finished index reports what it indexed",
-                    FortunesModule.SmartStatusFor(true, 900, true, false, true, true, 900, 900)
+                    FortunesModule.SmartStatusFor(true, 900, true, up, null, true, true, 900, 900)
                         .IndexOf("ready", StringComparison.Ordinal) >= 0);
                 ok &= Check(sb, "a partly-warm index says it is usable now",
-                    FortunesModule.SmartStatusFor(true, 900, true, false, true, false, 100, 900)
+                    FortunesModule.SmartStatusFor(true, 900, true, up, null, true, false, 100, 900)
                         .IndexOf("usable now", StringComparison.Ordinal) >= 0);
                 ok &= Check(sb, "smart picks off is reported as off, not as an empty pool",
-                    FortunesModule.SmartStatusFor(false, 0, false, false, false, false, 0, 0)
+                    FortunesModule.SmartStatusFor(false, 0, false, up, null, false, false, 0, 0)
                         .IndexOf("off", StringComparison.Ordinal) >= 0);
                 // A STAND-DOWN IS NOT PROGRESS. When the embedder never becomes ready, ready and complete
                 // are both false, so before this branch existed the status fell through to "Indexing N
                 // fortunes in the background" and stayed there for ever -- on a machine where nothing was
                 // being indexed and nothing ever would be. Asserted against BOTH halves: it must say what
-                // is wrong, and it must not claim work is happening.
-                string down = FortunesModule.SmartStatusFor(true, 900, true, true, false, false, 0, 900);
+                // is wrong, and it must not claim work is happening. And it names the asset (F118).
+                string down = FortunesModule.SmartStatusFor(true, 900, true,
+                    SmartStandDownReason.EmbedderNotReady, "model: OnnxRuntimeException", false, false, 0, 900);
                 ok &= Check(sb, "a stood-down smart index says so instead of claiming to be indexing",
                     down.IndexOf("unavailable", StringComparison.Ordinal) >= 0 &&
                     down.IndexOf("Indexing", StringComparison.Ordinal) < 0);
+                ok &= Check(sb, "...and names the asset that failed",
+                    down.IndexOf("model: OnnxRuntimeException", StringComparison.Ordinal) >= 0);
+                // ONE SENTENCE PER REASON (F137): each names the action that fixes it, and none claims
+                // work is happening.
+                string tooLarge = FortunesModule.SmartStatusFor(true, 100001, true,
+                    SmartStandDownReason.PoolTooLarge, null, false, false, 0, 0);
+                ok &= Check(sb, "an oversized pool is reported as such, with the cap and the way out",
+                    tooLarge.IndexOf("more than the smart index can hold", StringComparison.Ordinal) >= 0 &&
+                    tooLarge.IndexOf("Disable some packs", StringComparison.Ordinal) >= 0 &&
+                    tooLarge.IndexOf("Indexing", StringComparison.Ordinal) < 0);
+                string absent = FortunesModule.SmartStatusFor(true, 900, true,
+                    SmartStandDownReason.ModelAbsent, null, false, false, 0, 0);
+                ok &= Check(sb, "a missing model asset is reported as such, with the reinstall",
+                    absent.IndexOf("missing", StringComparison.Ordinal) >= 0 &&
+                    absent.IndexOf("Reinstall", StringComparison.Ordinal) >= 0 &&
+                    absent.IndexOf("Indexing", StringComparison.Ordinal) < 0);
+                ok &= Check(sb, "a picker whose construction threw is reported as unavailable, not as indexing",
+                    FortunesModule.SmartStatusFor(true, 900, true, SmartStandDownReason.ConstructionFailed, null, false, false, 0, 0)
+                        .IndexOf("unavailable", StringComparison.Ordinal) >= 0);
+                // The line logged at publish time says what is true THEN (F145).
+                string constructed = FortunesModule.DescribeSmartBuild(3214);
+                ok &= Check(sb, "the publish-time log line says constructed and warming, never ready or indexed",
+                    constructed.IndexOf("constructed", StringComparison.Ordinal) >= 0 &&
+                    constructed.IndexOf("warming", StringComparison.Ordinal) >= 0 &&
+                    constructed.IndexOf("3214", StringComparison.Ordinal) >= 0 &&
+                    constructed.IndexOf("ready", StringComparison.Ordinal) < 0 &&
+                    constructed.IndexOf("indexed", StringComparison.Ordinal) < 0);
 
                 // An empty pool with packs installed is a filter problem; "add a pack" would send a user
                 // with 129 of them entirely the wrong way.
@@ -311,6 +345,12 @@ namespace DesktopAICompanion.FortunesModule
                 poolC[0] = new FortuneEntry { Source = "probe", Topic = "life", Genre = "quip", Level = "general", Text = "A different line." };
                 ok &= Check(sb, "signature: swapping a line of the same count changes it",
                     FortunesModule.PoolSignature(poolA) != FortunesModule.PoolSignature(poolC));
+                // Same texts, one topic different: the route bonus reads the topic, so this is a different
+                // index and an Apply that produced it must rebuild (F147).
+                var poolD = new List<FortuneEntry>(entries);
+                poolD[0] = new FortuneEntry { Source = "probe", Topic = "tech", Genre = "quip", Level = "general", Text = poolD[0].Text };
+                ok &= Check(sb, "signature: the same texts under a different topic fingerprint differently",
+                    FortunesModule.PoolSignature(poolA) != FortunesModule.PoolSignature(poolD));
 
                 // Diagnostics: the module reached IHost.Log at all, and the lines say the bad outcome.
                 ok &= DiagnosticsAreWired(sb);
@@ -335,6 +375,7 @@ namespace DesktopAICompanion.FortunesModule
                     // store the module's own Init was warming the whole corpus into that same file at the
                     // same moment, each Save pruning it to its own pool (F121).
                     ok &= SmartLayerChecks(sb, entries);
+                    ok &= SmartLifecycleChecks(sb);
 
                     // SmartFortunes' own suite over a 128-line sample of the built-in corpus: contextual
                     // picks land, and a STABLE context still rotates through 12+ distinct lines out of 40
@@ -680,6 +721,114 @@ namespace DesktopAICompanion.FortunesModule
                 SmartFortunes.LogSink = previousSink;
                 try { if (Directory.Exists(scratch)) Directory.Delete(scratch, true); }
                 catch (Exception ex) { ok = false; sb.AppendLine("FAIL: the smart-layer scratch directory could not be removed -- " + ex.GetType().Name); }
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// The module's own smart-picker lifecycle against a recording host with smart picks ON: the status
+        /// the button shows while a build is in flight, what an Apply keeps and what it rebuilds, where a
+        /// superseded picker is disposed, and what the log says at publish time. Needs the model, because
+        /// Init starts a real build; each build's warm over the embedded corpus is cancelled by the next
+        /// rebuild and the last by Shutdown, so it costs session loads, not an embed.
+        /// </summary>
+        private static bool SmartLifecycleChecks(StringBuilder sb)
+        {
+            bool ok = true;
+            string previousRoot = FortunePaths.RootForDiagnostics;
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            var module = new FortunesModule();
+            using (var storage = new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("fortunes-lifecycle"))
+            {
+                host.UseStorage("fortunes", storage);
+                DesktopAICompanion.ModuleKit.Testing.FakeModuleSettings settings = host.SettingsFor("fortunes");
+                settings.Set("smartFortunes", "true");
+                try
+                {
+                    module.Init(host);
+                    int testThread = Environment.CurrentManagedThreadId;
+
+                    // F148: the build is in flight or just published; the status must never say "off".
+                    string status = module.SmartStatusTextForDiagnostics();
+                    ok &= Check(sb, "with smart picks ON and a build in flight, the button's status says indexing (or ready), never off",
+                        status.IndexOf("off", StringComparison.Ordinal) < 0 &&
+                        (status.IndexOf("Indexing", StringComparison.Ordinal) >= 0 ||
+                         status.IndexOf("Smart index", StringComparison.Ordinal) >= 0));
+
+                    // The first picker publishes once constructed (its warm is not awaited here).
+                    SmartFortunes first = null;
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    while ((first = module.SmartPickerForDiagnostics) == null && sw.ElapsedMilliseconds < 20000)
+                        System.Threading.Thread.Sleep(20);
+                    ok &= Check(sb, "the picker is published once constructed", first != null);
+                    ok &= Check(sb, "publishing logs that the picker was constructed and is warming, and never that it is ready",
+                        host.LoggedLines.Exists(delegate(string l) { return l.IndexOf("smart picker constructed, warming", StringComparison.Ordinal) >= 0; }) &&
+                        !host.LoggedLines.Exists(delegate(string l) { return l.IndexOf("smart picker ready", StringComparison.Ordinal) >= 0; }));
+
+                    OptionsPane pane = host.OptionsPanes.Count > 0 ? host.OptionsPanes[0] : null;
+                    ok &= Check(sb, "the module contributed its options pane", pane != null && pane.Load != null && pane.Save != null);
+                    if (pane != null && pane.Load != null && pane.Save != null)
+                    {
+                        var values = new Dictionary<string, string>(StringComparer.Ordinal);
+                        foreach (KeyValuePair<string, string> kv in pane.Load()) values[kv.Key] = kv.Value;
+                        int generation = module.SmartGenerationForDiagnostics;
+                        int rebuilds = module.EngineRebuildsForDiagnostics;
+
+                        // F147: an Apply that changes nothing about the pool keeps the picker.
+                        bool savedSame = pane.Save(values);
+                        ok &= Check(sb, "an Apply that changes nothing about the pool keeps the smart picker instead of rebuilding it",
+                            savedSame && module.EngineRebuildsForDiagnostics == rebuilds + 1 &&
+                            module.SmartGenerationForDiagnostics == generation &&
+                            ReferenceEquals(module.SmartPickerForDiagnostics, first));
+
+                        // F147: an Apply whose Save failed rebuilds nothing at all.
+                        settings.FailSaves = true;
+                        values["contentLevel"] = "Everything (incl. NSFW)";
+                        bool savedFailed = pane.Save(values);
+                        settings.FailSaves = false;
+                        ok &= Check(sb, "an Apply whose Save failed rebuilds nothing (the persisted settings did not change)",
+                            !savedFailed && module.EngineRebuildsForDiagnostics == rebuilds + 1 &&
+                            module.SmartGenerationForDiagnostics == generation);
+
+                        // F143, F144: a changed pool supersedes the picker, under the lock, and the old
+                        // one is disposed on a pool thread, never the thread that applied.
+                        bool savedChanged = pane.Save(values);
+                        ok &= Check(sb, "an Apply that widens the pool supersedes the picker (a new generation)",
+                            savedChanged && module.SmartGenerationForDiagnostics == generation + 1);
+                        sw.Restart();
+                        while (first != null && first.DisposeThreadForDiagnostics == 0 && sw.ElapsedMilliseconds < 20000)
+                            System.Threading.Thread.Sleep(20);
+                        ok &= Check(sb, "the superseded picker is disposed on a pool thread, not the thread that applied",
+                            first != null && first.DisposeThreadForDiagnostics != 0 &&
+                            first.DisposeThreadForDiagnostics != testThread);
+
+                        // F148 through the button itself: pressed while a build is in flight it must not
+                        // answer "off" -- which is what it did on every press that actually rebuilt.
+                        PaneAction rebuild = null;
+                        if (pane.Actions != null)
+                            foreach (PaneAction a in pane.Actions)
+                                if (a != null && string.Equals(a.Label, "Rebuild smart index", StringComparison.Ordinal)) rebuild = a;
+                        string pressed = rebuild != null && rebuild.InvokeAsync != null
+                            ? (rebuild.InvokeAsync().GetAwaiter().GetResult() ?? "")
+                            : "";
+                        ok &= Check(sb, "'Rebuild smart index' pressed while a build is in flight answers indexing (or ready), never off",
+                            rebuild != null && pressed.IndexOf("off", StringComparison.Ordinal) < 0 &&
+                            (pressed.IndexOf("Indexing", StringComparison.Ordinal) >= 0 ||
+                             pressed.IndexOf("Smart index", StringComparison.Ordinal) >= 0));
+                        sb.AppendLine("    rebuild said: " + pressed);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    ok &= Check(sb, "the smart lifecycle scenario ran (" + ex.GetType().Name + ": " + ex.Message + ")", false);
+                }
+                finally
+                {
+                    try { module.Shutdown(); } catch { }
+                    // Init pointed the engine's static root at the temp storage; put the previous one back
+                    // so what runs after this (the convention SelfTest's own scratch root) is unaffected.
+                    FortunePaths.SetRoot(previousRoot);
+                }
             }
             return ok;
         }

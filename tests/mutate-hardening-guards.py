@@ -233,6 +233,35 @@ CASES = (
     ),
 
 
+    # ---- lane fix/fortunes ----
+
+    # F144: the smart picker's check-and-publish and its bump-and-clear each move to a DIFFERENT lock,
+    # which is the unlocked race in a compiling disguise (a lock on another object orders nothing
+    # against the other pair). One case per pair.
+    (
+        "the smart picker's publish takes a different lock from its supersession",
+        FORTUNES_MODULE,
+        b"                lock (_smartLock)\n"
+        b"                {\n"
+        b"                    // CHECK AND PUBLISH UNDER THE ONE LOCK",
+        b"                lock (_stagedDisabled)\n"
+        b"                {\n"
+        b"                    // CHECK AND PUBLISH UNDER THE ONE LOCK",
+        "sit inside one lock (_smartLock), check first",
+    ),
+    (
+        "a rebuild bumps the smart generation under a different lock",
+        FORTUNES_MODULE,
+        b"            lock (_smartLock)\n"
+        b"            {\n"
+        b"                bool current =",
+        b"            lock (_stagedDisabled)\n"
+        b"            {\n"
+        b"                bool current =",
+        "clears the picker inside the same lock",
+    ),
+
+
     # ---- lane fix/host ----
 
 

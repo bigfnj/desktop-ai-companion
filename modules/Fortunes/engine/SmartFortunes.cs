@@ -878,6 +878,7 @@ namespace DesktopAICompanion.Ai
                     }
                     warm = _warmTask;
                     owner = true;
+                    _disposeThread = Environment.CurrentManagedThreadId;
                 }
                 else
                 {
@@ -944,6 +945,14 @@ namespace DesktopAICompanion.Ai
                 if (entered) Monitor.Exit(_embedLock);
             }
         }
+
+        /// <summary>Diagnostics: the managed thread that owned this picker's Dispose, 0 until disposed.
+        /// The module disposes a superseded picker on a pool thread, never the one that applied (F143).</summary>
+        internal int DisposeThreadForDiagnostics
+        {
+            get { lock (_stateLock) return _disposeThread; }
+        }
+        private int _disposeThread;
 
         /// <summary>Diagnostics: the embedder-disposal latch flipped exactly once (F139).</summary>
         internal bool EmbedderDisposedOnceForDiagnostics

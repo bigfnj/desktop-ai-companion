@@ -643,6 +643,68 @@ CASES = (
      "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
      "a failed vector-cache save is reported, not swallowed"),
 
+    # F148: the status derives "enabled" from the picker object again, which is null while a build is in
+    # flight. The button press is the deterministic observer: RebuildEngine has just cleared the field.
+    ("fortunes: the status derives 'enabled' from the picker object again",
+     FORTUNES_MODULE,
+     b"            return SmartStatusFor(_smartWanted, provider.Count, AnyPacksInstalled(), reason, detail,",
+     b"            return SmartStatusFor(sm != null, provider.Count, AnyPacksInstalled(), reason, detail,",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "'Rebuild smart index' pressed while a build is in flight answers indexing"),
+
+    # F147: an unchanged pool rebuilds the picker again (`&& force` makes the keep decision always false).
+    ("fortunes: an unchanged pool rebuilds the smart picker again",
+     FORTUNES_MODULE,
+     b"                bool current = wanted && !force && _smartBuilding && !_smartBuildFailed &&\n"
+     b"                               string.Equals(signature, _indexedSignature, StringComparison.Ordinal);",
+     b"                bool current = wanted && !force && _smartBuilding && !_smartBuildFailed &&\n"
+     b"                               string.Equals(signature, _indexedSignature, StringComparison.Ordinal) && force;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "keeps the smart picker instead of rebuilding it"),
+
+    # F147: a failed Save rebuilds the engine anyway, from the settings that did not change.
+    ("fortunes: a failed Save rebuilds the engine anyway",
+     FORTUNES_MODULE,
+     b"                return false;\n"
+     b"            }\n"
+     b"            _stagedDisabled.Clear();",
+     b"                RebuildEngine();\n"
+     b"            }\n"
+     b"            _stagedDisabled.Clear();",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "an Apply whose Save failed rebuilds nothing"),
+
+    # F143: the superseded picker is disposed on the applying thread again, before the worker starts.
+    ("fortunes: the superseded picker is disposed on the applying thread again",
+     FORTUNES_MODULE,
+     b"            System.Threading.Tasks.Task.Run(delegate { BuildSmartPicker(generation, old, pool); });",
+     b"            if (old != null) { try { old.Dispose(); } catch { } }\n"
+     b"            System.Threading.Tasks.Task.Run(delegate { BuildSmartPicker(generation, null, pool); });",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "disposed on a pool thread, not the thread that applied"),
+
+    # F145: the publish-time line claims readiness again.
+    ("fortunes: the publish-time line claims the picker is ready again",
+     FORTUNES_MODULE,
+     b"            return \"smart picker constructed, warming \" + Invariant(lines) + \" lines in the background\";",
+     b"            return \"smart picker ready (\" + Invariant(lines) + \" lines indexed)\";",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "says constructed and warming, never ready or indexed"),
+
+    # F147: the pool signature ignores the topic again.
+    ("fortunes: the pool signature ignores the topic again",
+     FORTUNES_MODULE,
+     b"                    for (int i = 0; i < topic.Length; i++) { hash ^= topic[i]; hash *= 1099511628211UL; }",
+     b"                    for (int i = 0; i < 0; i++) { hash ^= topic[i]; hash *= 1099511628211UL; }",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "the same texts under a different topic fingerprint differently"),
+
 
     # ---- lane fix/petstudio ----
 
