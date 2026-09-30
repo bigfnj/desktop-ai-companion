@@ -119,10 +119,19 @@ $codeOnly = ($sourceText -split "`n" | ForEach-Object { $_ -replace '//.*$', '' 
 # run of `ModulePermissions.<Name>` joined by `|`, and every name is checked against the enum in the
 # Contracts source, because the host's forward-compatibility rule means the catalog will never reject
 # an invented name on its own. The validation is the load-bearing half.
-$permissionsMatch = [regex]::Match($codeOnly, 'Permissions\s*=\s*((?:ModulePermissions\.[A-Za-z_][A-Za-z0-9_]*\s*(?:\|\s*)?)+)')
+#
+# AND THE RUN MUST END AT THE INITIALISER BOUNDARY (`,`, `;` or `}`). Without the lookahead a piece
+# spelled any other way -- a local `const ModulePermissions OcrPermissions = ...`, another enum's
+# member -- was not an unknown token to this parser but the END of the match: the tokens before it were
+# published as the whole declaration, the enum validation saw only those, and the read-back agreed
+# with itself, so the catalog understated the consent screen by every flag from that piece onwards
+# (RA-187). Now such a run fails the match and the refusal below fires.
+$permissionsMatch = [regex]::Match($codeOnly, 'Permissions\s*=\s*((?:ModulePermissions\.[A-Za-z_][A-Za-z0-9_]*\s*(?:\|\s*)?)+)(?=\s*[,;}])')
 if (-not $permissionsMatch.Success) {
-    throw "Could not read ModuleInfo.Permissions from $($moduleSource.Name). Refusing to publish a" +
-          " catalog entry that would silently keep the previous permission list."
+    throw "Could not read ModuleInfo.Permissions from $($moduleSource.Name) as a run of ModulePermissions.<Name>" +
+          " tokens ending at the initialiser boundary: every |-separated piece must be spelled" +
+          " ModulePermissions.<Name>, because this parser cannot resolve a const or another enum's member." +
+          " Refusing to publish a catalog entry that would silently keep, or understate, the permission list."
 }
 $permissionEnumSource = Get-Content -LiteralPath (Join-Path $repoRoot 'src\DesktopAICompanion.Contracts\PluginApi.cs') -Raw
 $permissionEnumBody = [regex]::Match($permissionEnumSource, '(?s)enum ModulePermissions\s*\{(.*?)\r?\n    \}')
@@ -247,6 +256,14 @@ if ($existing) {
             $existing | Add-Member -NotePropertyName 'minHostVersion' -NotePropertyValue $minHostVersion
         }
     }
+    elseif ($existing.PSObject.Properties.Name -contains 'minHostVersion') {
+        # The one legal transition the assignment above could not make: a module that STOPS declaring a
+        # floor (MinHostVersion is optional in the ABI; New-ContentCatalog.ps1 catalogues an absent one as
+        # ''). Left in place, the old value failed the read-back below on every publish, before the commit,
+        # until modules.json was hand-edited (RA-188). Removing the property makes the writer omit the key.
+        Write-Host ("  minHostVersion {0} -> (none declared)" -f $existing.minHostVersion)
+        $existing.PSObject.Properties.Remove('minHostVersion')
+    }
     if ($Name) { $existing.name = $Name }
     if ($Description) { $existing.desc = $Description }
 } else {
@@ -352,10 +369,19 @@ try {
         # no content change can be attributed to the runtime: System.IO.Compression's deflate output
         # differs between .NET 8, 9 and 10, i.e. between pwsh 7.4, 7.5 and 7.6 (F213). The subject keeps
         # its shape; nothing parses it, but the history reads the same as before.
+        #
+        # The concatenation is PARENTHESISED before -f, as the read-back message above does it: -f binds
+        # tighter than +, so formatting the second fragment alone left the literal '{0}' in the body this
+        # line exists to stamp, and the F213 record said the version was recorded when it was not
+        # (RA-189). The placeholder check is the net for the same mistake coming back.
+        $publishBody = (("Zipped under PowerShell {0}. The deflate bytes differ per .NET major, so a hash " +
+                         "churn on a republish with no content change is the runtime, not the content.") -f
+                        $PSVersionTable.PSVersion)
+        if ($publishBody -match '\{\d+\}') {
+            throw "The publish commit body still carries a format placeholder, so the PowerShell version would not be recorded: $publishBody"
+        }
         Invoke-Git @('commit', '-q', '-m', ("chore(modules): publish {0} {1}" -f $moduleId, $version),
-                     '-m', ("Zipped under PowerShell {0}. The deflate bytes differ per .NET major, so a hash " +
-                            "churn on a republish with no content change is the runtime, not the content." -f
-                            $PSVersionTable.PSVersion)) 'git commit'
+                     '-m', $publishBody) 'git commit'
         Write-Host '  committed.'
     }
 

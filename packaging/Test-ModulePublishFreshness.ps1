@@ -360,7 +360,9 @@ foreach ($id in $ids) {
         # Attribute the staleness to the specific watched path(s), so the fix is obvious. Only done on the
         # failure path, so the common case stays one git call per module.
         $culprits = New-Object 'Collections.Generic.List[string]'
-        foreach ($candidate in (@(, $modulePathspec) + @($watch.External | ForEach-Object { , @($_) }))) {
+        # Per pathspec GROUP (a watched directory travels with its Markdown exclusions, RA-181), so a
+        # README commit under ModuleKit is not counted against ModuleKit here either.
+        foreach ($candidate in (@(, $modulePathspec) + @($watch.ExternalPathspecGroups))) {
             $hits = @(& git -C $RepoRoot log --format='%h' "$zipCommit..HEAD" -- @candidate)
             if ($hits.Count -gt 0) { $culprits.Add("$($candidate[0]) ($($hits.Count))") }
         }
@@ -536,23 +538,43 @@ Write-Host ("fortunes.zip embeds all $($expectedPairs.Count) current pack-to-col
 # NO SHIPPED DLL MAY CARRY AN ABSOLUTE BUILD PATH.
 #
 # An embedded PDB path names the machine, the account and the directory layout of whoever built the
-# assembly. DebugType=embedded is what keeps it out, set in ModuleKit.csproj and Contracts.csproj with
-# a comment on each warning against re-adding IncludeSymbols (which fails dotnet pack with NU5017).
-# The setting was fixed and the zips rebuilt on 2026-09-17; what did not exist until now is anything
-# that would NOTICE it being reverted, so the fix had no regression net.
+# assembly. DebugType=embedded is what keeps the CodeView path out, set in ModuleKit.csproj and
+# Contracts.csproj with a comment on each warning against re-adding IncludeSymbols (which fails dotnet
+# pack with NU5017). The setting was fixed and the zips rebuilt on 2026-09-17; what did not exist until
+# now is anything that would NOTICE it being reverted, so the fix had no regression net.
 #
-# A path reaches a DLL through the CodeView entry of the debug directory, which stores it as a plain
-# NUL-terminated string in the image -- so a byte scan finds it and no PE parser is needed.
+# TWO VECTORS, and the check used to see one. A path reaches a DLL through the CodeView entry of the
+# debug directory, stored as a plain NUL-terminated string in the image, which the byte scan below
+# finds. DebugType=embedded keeps that one bare (the file name alone) and then ships the WHOLE PDB,
+# deflate-compressed inside an EmbeddedPortablePdb debug entry, whose Document table holds every source
+# file's absolute path -- as shared PARTS joined by a separator, invisible to any regex over the image
+# or over the inflated blob. Every ModuleKit.dll in every committed zip carried fifteen D:\ paths that
+# way while this section printed "no embedded build paths in 14 of our own published DLL(s)" (RA-197;
+# measured with PEReader on 2026-09-30, 13,892-byte entry inflating to 24,056). EmbeddedPortablePdb.ps1
+# parses the PE debug directory, inflates the entry and reads the Document names, and an absolute one
+# is an offender like a CodeView path. The BUILD-side cure is DeterministicSourcePaths (or a PathMap)
+# in the projects that embed symbols, so document names become /_/...; a project without it fails here.
 #
 # EVERY DLL IN EVERY ZIP, deliberately, not the two files that were once wrong. The failure this
 # guards is a NEW assembly arriving without the setting, and a check scoped to where the problem
 # already was is exactly the kind that cannot fail.
+. (Join-Path $PSScriptRoot 'EmbeddedPortablePdb.ps1')
 $buildPathZips = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'modules-dist') -Filter '*.zip' -ErrorAction SilentlyContinue)
 if ($buildPathZips.Count -eq 0) { throw 'No modules-dist/*.zip to scan for embedded build paths.' }
 
 $buildPathPattern = [regex] '[A-Za-z]:\\[^\x00<>|]{0,200}?\.pdb'
+# A drive-rooted or UNC document name. Mapped names are rooted at /_/ (the SourceLink convention) and
+# carry no drive.
+$absoluteDocumentPattern = [regex] '^(?:[A-Za-z]:[\\/]|\\\\)'
 $buildPathOffenders = [System.Collections.Generic.List[string]]::new()
 $buildPathDlls = 0
+$embeddedPdbCount = 0
+$embeddedDocumentCount = 0
+# WITNESS for the reader: DesktopAICompanion.ModuleKit.csproj embeds its symbols (DebugType embedded, a
+# recorded decision with its own comment there), so every ModuleKit.dll in every zip carries an
+# EmbeddedPortablePdb entry. A ModuleKit.dll in which the reader finds none means the reader is blind
+# to the entry or the payload was built without it, and either is a red, not a clean scan.
+$moduleKitWithoutEmbeddedPdb = [System.Collections.Generic.List[string]]::new()
 
 # SCOPED TO ASSEMBLIES THIS REPO BUILDS, and derived from the .csproj files rather than a hardcoded
 # list -- so a NEW project of ours arriving without the setting is caught automatically, which is the
@@ -595,7 +617,19 @@ foreach ($bpZip in $buildPathZips) {
         # and a path could slip through the gap.
         $bpText = [Text.Encoding]::GetEncoding(28591).GetString($bpDll.Bytes)
         foreach ($bpMatch in $buildPathPattern.Matches($bpText)) {
-            $buildPathOffenders.Add($bpZip.Name + " -> " + $bpDll.Name + " : " + $bpMatch.Value)
+            $buildPathOffenders.Add($bpZip.Name + " -> " + $bpDll.Name + " : CodeView " + $bpMatch.Value)
+        }
+        # The second vector: the Document table of an embedded portable PDB, parsed rather than grepped.
+        $embeddedInfo = Get-EmbeddedPortablePdbDocumentNames -Image $bpDll.Bytes
+        $embeddedPdbCount += $embeddedInfo.EmbeddedPdbCount
+        if ($bpDll.Name -ieq 'DesktopAICompanion.ModuleKit.dll' -and $embeddedInfo.EmbeddedPdbCount -eq 0) {
+            $moduleKitWithoutEmbeddedPdb.Add($bpZip.Name)
+        }
+        foreach ($documentName in $embeddedInfo.DocumentNames) {
+            $embeddedDocumentCount++
+            if ($absoluteDocumentPattern.IsMatch($documentName)) {
+                $buildPathOffenders.Add($bpZip.Name + " -> " + $bpDll.Name + " : embedded PDB document " + $documentName)
+            }
         }
     }
 }
@@ -606,13 +640,23 @@ if ($buildPathOffenders.Count -gt 0) {
         Write-Host "  embedded build path: $bpO"
     }
     throw ("$($buildPathOffenders.Count) embedded build path(s) found in published DLLs, which names the " +
-           "machine, account and directory of whoever built them. Set <DebugType>embedded</DebugType> in " +
-           "the offending project -- and do NOT add IncludeSymbols, which fails dotnet pack with NU5017 -- " +
-           "then rebuild, re-zip, COMMIT the zip and regenerate the catalog.")
+           "machine, account and directory of whoever built them. For a CodeView path set " +
+           "<DebugType>embedded</DebugType> in the offending project -- and do NOT add IncludeSymbols, which " +
+           "fails dotnet pack with NU5017. For an embedded PDB document, set " +
+           "<DeterministicSourcePaths>true</DeterministicSourcePaths> (or a <PathMap>) in that project so the " +
+           "document names are rooted at /_/ instead of the build machine. Then rebuild, re-zip, COMMIT the " +
+           "zip and regenerate the catalog.")
 }
 if ($buildPathDlls -eq 0) {
     throw ('The build-path scan examined ZERO DLLs, so it proved nothing. Either the zips contain none ' +
            'of this repo''s own assemblies, or the .csproj-derived name set stopped matching what is ' +
            'shipped. Fix the scope rather than accepting a silent pass.')
 }
-Write-Host "no embedded build paths in $buildPathDlls of our own published DLL(s) across $($buildPathZips.Count) zip(s)." 
+if ($moduleKitWithoutEmbeddedPdb.Count -gt 0) {
+    throw ("WITNESS failed: DesktopAICompanion.ModuleKit.dll in " + ($moduleKitWithoutEmbeddedPdb -join ', ') +
+           " carries no embedded portable PDB, yet DesktopAICompanion.ModuleKit.csproj embeds its symbols. " +
+           "Either the embedded-PDB reader has gone blind to the entry (then every document check above was " +
+           "vacuous) or the payload was built without the setting; fix the one or record the other.")
+}
+Write-Host ("no embedded build paths in $buildPathDlls of our own published DLL(s) across $($buildPathZips.Count) zip(s): " +
+            "CodeView records scanned, $embeddedPdbCount embedded PDB(s) parsed with $embeddedDocumentCount document name(s) inspected.") 

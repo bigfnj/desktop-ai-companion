@@ -943,6 +943,62 @@ no storage on purpose as the gate's exercise of every module's null tolerance (F
 every path member throwing that warning, which is AiBrain's N-gates-02 shape (defaults, nothing persisted,
 said once in the log) generalised. The template shows the check; the only in-tree caller was the template.
 
+#### burn/scripts-pack
+
+**Markdown under a watched directory outside the module is excluded from the watch pathspecs the way the
+module's own Markdown is, and a `None` item without `CopyToOutputDirectory` is not watched at all (RA-181,
+2026-09-30).** The rule was already written beside `Get-ModuleWatchPathspecs` ("Markdown ... never reaches
+the assembly") and applied to `modules/<Name>` only; the bundled ModuleKit directory sat in every module's
+watch set with its packed README.md, so a README-only ModuleKit commit staled all seven zips and, once
+F215 made the same set the publish guard, an uncommitted README edit refused every publish. The exclusion
+now travels in the pathspec GROUP of the directory it belongs to (`ExternalPathspecGroups`), so the
+freshness check's per-path culprit attribution excludes it too. Keyed on the copy setting rather than on
+`Pack`, so a file that is both packed and copied stays watched. Measured against a scratch clone at HEAD:
+an uncommitted ModuleKit README edit is seen by the old pathspecs and not by the new, and an edit to
+ModulePaths.cs beside it is still seen.
+
+**Module zips sort their entries ordinally, the same rule the portable zip has always used (RA-186,
+2026-09-30).** `Sort-Object FullName` compared with the current culture's case-insensitive rules, so the
+entry order, the zip bytes and the catalog hash depended on the publishing machine's culture: on a
+nine-entry synthetic payload the ordinal order puts `Module.dll` and `ONNXRUNTIME_THIRD_PARTY_NOTICES.txt`
+before the lowercase names where en-US `Sort-Object` interleaves them, and the fortunes payload already
+sorted differently under tr-TR. The committed zips are in en-US order and reorder once at the republish
+R-052 already requires; the F213 commit-body note still attributes a churn to the runtime, which after
+this date is the only remaining source.
+
+**Windows PowerShell writes a UTF-8 BOM into a redirected child's stdin when the console code page is
+65001, and the catalog asset reader absorbs it (N-scripts-pack-01, 2026-09-30).** .NET Framework's
+`Process.Start` wraps a redirected stdin in a `StreamWriter` over `Console.InputEncoding` and sets
+`AutoFlush`, whose setter flushes at once and writes the encoding's preamble, so `git cat-file --batch`
+received `EF BB BF` before this code wrote a byte (reply bytes `EF BB BF 48 45 41 44 3A`, measured
+2026-09-30 under 5.1.26100 from a pwsh-hosted session; pwsh's own runtime strips the preamble). git read
+the first request as `<BOM>HEAD:<path>`, answered `missing` for a committed file, and F209's refusal of an
+unexpected reply failed the verifier and the generator on their first asset. The F208 measurements passed
+under 5.1 because that console ran a legacy code page, whose encoding has no preamble; the defect is real
+in every UTF-8 console. Chosen: the bytes are already on the pipe and cannot be unsent, so the reader
+closes them off as a request of their own (one LF) and consumes the reply git owes for exactly those
+bytes, `<BOM> missing`, refusing anything else. Rejected: setting `[Console]::InputEncoding` to a
+preamble-free encoding before `Process.Start`, which changes the host console for the whole gate process
+to fix one child. The substituted stall child is exempt: it is not git and exists to stall or die.
+
+**The published-DLL build-path scan reads the embedded portable PDB's Document table, and the cure for what
+it finds there is `DeterministicSourcePaths` in the projects that embed symbols (RA-197, 2026-09-30).**
+`DebugType=embedded` keeps the CodeView record bare and ships the whole PDB inside the DLL, and every
+ModuleKit.dll in every committed zip carried fifteen absolute `D:\...` source paths in that PDB's Document
+table while the gate reported "no embedded build paths": the names are stored as shared parts joined by a
+separator, so no regex over the image or the inflated blob can see them. `packaging/EmbeddedPortablePdb.ps1`
+parses the PE debug directory, inflates the entry and reads the table by hand (Windows PowerShell 5.1 has no
+System.Reflection.Metadata), and the scan refuses a drive-rooted or UNC document name the way it refuses a
+CodeView path. Two guards keep the reader honest: an embedded PDB that parses to zero documents is refused,
+and a ModuleKit.dll with no embedded PDB is refused because its csproj embeds symbols on purpose (the WITNESS
+that turned the one mutation the scan could not see, a reader blind to the entry, into a red). Measured:
+the committed zips at the audit commit refuse with 105 offenders; a ModuleKit built with
+`-p:DeterministicSourcePaths=true` yields 15 documents rooted at `/_/src/...` and none. The build-side
+half, that property in `src/DesktopAICompanion.ModuleKit/DesktopAICompanion.ModuleKit.csproj` (and in
+Contracts', which embeds symbols for its nupkg), sits outside lane burn/scripts-pack and is handed to the
+coordinator: without it the republish that R-052 requires turns this section red naming the paths, which is
+what those payloads carry.
+
 #### fix/deadcode
 
 **A member whose only reader is a test is not dead, and what the test pins decides what happens to it

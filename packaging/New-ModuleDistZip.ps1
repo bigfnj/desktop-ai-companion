@@ -15,6 +15,9 @@
 # so byte-identical output needs the same pwsh major.minor, not merely 7+. Correctness is unaffected
 # (the catalog hashes whatever blob is committed), and New-ModulePublish.ps1 records the publishing
 # PowerShell version in the commit body so a hash churn can be attributed to the runtime.
+#
+# Entry ORDER is ordinal since 2026-09-30 (RA-186), so it no longer depends on the publisher's culture
+# either; a zip published before that date is in en-US Sort-Object order and reorders once on republish.
 #requires -Version 7
 <#
     Zips one module's build output into packaging/modules-dist/<id>.zip -- the exact shape
@@ -61,12 +64,28 @@ if (-not (Test-Path -LiteralPath $destinationParent -PathType Container)) {
 
 $files = @(
     Get-ChildItem -LiteralPath $sourceFull -File -Recurse |
-        Where-Object { $ExcludeExtensions -notcontains $_.Extension } |
-        Sort-Object FullName
+        Where-Object { $ExcludeExtensions -notcontains $_.Extension }
 )
 if ($files.Count -eq 0) {
     throw "Module '$ModuleId' contributes no files to package (after exclusions)."
 }
+
+# ORDINAL entry order, the way New-DeterministicPortableZip.ps1 sorts its entries. This was
+# `Sort-Object FullName`, which compares with the CURRENT CULTURE's case-insensitive rules, so the
+# entry order -- and with it the zip bytes and the catalog hash -- depended on the publisher's culture
+# and not on the payload alone: the eleven fortunes entries already sort differently under tr-TR than
+# under en-US, and a churn from that source would have been attributed to the runtime by the publish
+# commit body (RA-186). The committed zips were in en-US order; the republish that lands this reorders
+# them once, and ordinal order is the one every machine agrees on. Sorted on the ENTRY NAME (forward
+# slashes, relative to the payload root), which is what goes into the archive.
+$filesByEntryName = New-Object 'Collections.Generic.Dictionary[string,object]' ([StringComparer]::Ordinal)
+foreach ($file in $files) {
+    $relative = $file.FullName.Substring($sourceFull.Length).TrimStart(
+        [IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+    $filesByEntryName.Add(($relative -replace '\\', '/'), $file)
+}
+$entryNames = [string[]]@($filesByEntryName.Keys)
+[Array]::Sort($entryNames, [StringComparer]::Ordinal)
 
 $temporaryPath = $destinationFull + '.tmp'
 if (Test-Path -LiteralPath $temporaryPath) { Remove-Item -LiteralPath $temporaryPath -Force }
@@ -78,10 +97,8 @@ try {
     $archive = New-Object IO.Compression.ZipArchive(
         $output, [IO.Compression.ZipArchiveMode]::Create, $true)
     try {
-        foreach ($file in $files) {
-            $relative = $file.FullName.Substring($sourceFull.Length).TrimStart(
-                [IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
-            $entryName = ($relative -replace '\\', '/')
+        foreach ($entryName in $entryNames) {
+            $file = $filesByEntryName[$entryName]
             $entry = $archive.CreateEntry($entryName, [IO.Compression.CompressionLevel]::Optimal)
             $entry.LastWriteTime = $normalizedTimestamp
             $entry.ExternalAttributes = 0
