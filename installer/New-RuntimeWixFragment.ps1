@@ -142,10 +142,10 @@ foreach ($file in $files) {
     if ($file -eq 'DesktopAICompanion.exe') {
         [void]$builder.AppendLine('        <File Id="DesktopAICompanionExe" Source="DesktopAICompanion.exe" KeyPath="no">')
         [void]$builder.AppendLine('          <Shortcut Id="StartMenuShortcut" Directory="AppMenuFolder" Name="$(var.ProductName)"')
-        [void]$builder.AppendLine('                    Description="A desktop pet with offline smart fortunes and an optional AI brain"')
+        [void]$builder.AppendLine('                    Description="$(var.ProductDescription)"')
         [void]$builder.AppendLine('                    WorkingDirectory="INSTALLFOLDER" />')
         [void]$builder.AppendLine('          <Shortcut Id="DesktopShortcut" Directory="DesktopFolder" Name="$(var.ProductName)"')
-        [void]$builder.AppendLine('                    Description="A desktop pet with offline smart fortunes and an optional AI brain"')
+        [void]$builder.AppendLine('                    Description="$(var.ProductDescription)"')
         [void]$builder.AppendLine('                    WorkingDirectory="INSTALLFOLDER" />')
         [void]$builder.AppendLine('        </File>')
     }

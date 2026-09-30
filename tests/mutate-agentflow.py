@@ -70,7 +70,6 @@ MODE = os.path.join(MODULE_DIR, "AgentMode.cs")
 QUIPS = os.path.join(MODULE_DIR, "Quips.cs")
 FEED = os.path.join(MODULE_DIR, "ApprovalFeed.cs")
 PETANIM = os.path.join(MODULE_DIR, "PetAnimations.cs")
-PANE = os.path.join(MODULE_DIR, "AgentFlowPane.cs")
 VSCODE = os.path.join(MODULE_DIR, "VsCodeSetup.cs")
 RULELOADER = os.path.join(MODULE_DIR, "RuleLoader.cs")
 CURSOR = os.path.join(MODULE_DIR, "TranscriptCursor.cs")
@@ -263,12 +262,15 @@ CASES = (
     # This is the half an approval module owes the user: what it LET THROUGH. The privacy case is
     # the one that matters, because this line goes to a log SUPPORT.md tells users to attach to a
     # public issue tracker.
+    # ONE mutant, TWO fragments, both required (F400): this case and "the command reaches the tally the log is
+    # built from" compiled and ran the same BlockedDetector mutant twice to check two labels; the tuple asks
+    # for both in one run, and the grader requires EVERY fragment, so deleting either assertion still fires.
     (
-        "the approval line carries the whole command",
+        "the approval line carries the whole command, and the tally too",
         DETECTOR,
         "                string root = RootExecutable(call);",
         "                string root = call.Command ?? RootExecutable(call);",
-        "approval line carries no command text",
+        ("approval line carries no command text", "the tally the log is built from carries no command text"),
     ),
     (
         "an executable given by an absolute path keeps the path",
@@ -626,13 +628,6 @@ CASES = (
         '            return flat.Length <= Max ? flat : flat.Substring(0, Max - 1) + "\u2026";',
         "            return flat;",
         "a very long command is capped",
-    ),
-    (
-        "the command reaches the tally the log is built from",
-        DETECTOR,
-        "                string root = RootExecutable(call);",
-        "                string root = call.Command ?? RootExecutable(call);",
-        "the tally the log is built from carries no command text",
     ),
     # Reading a pet's own animations. The last case is the defect this replaces.
     (
@@ -1093,6 +1088,40 @@ CASES = (
         '            return LogPathFrom(storage);',
         "the reveal path stays inside this module's own storage",
     ),
+    # ---- lane fix/deadcode ----
+    # F047: the detailed split's separators were produced and read by nothing; the splitter self-test
+    # now pins them. F048: FakeCdpServer serves connections concurrently, so the WIRE press case runs
+    # Decide -> Click over a second connection inside the sweep. F052: the U+001F signature separator
+    # is spelled as an escape and asserted to be a control character. F054: RuleLoader's home override
+    # goes through TranscriptReader.FullyQualifiedOverride, and a drive-relative value is refused.
+    (
+        "deadcode: the splitter stops recording separators",
+        SPLITTER,
+        "                    segments.Add(new CommandSegment { Value = value, Separator = separator });",
+        "                    segments.Add(new CommandSegment { Value = value, Separator = null });",
+        "detailed split records each segment's leading separator",
+    ),
+    (
+        "deadcode: Click stops reporting the outcome of the evaluated template",
+        CDP,
+        "                        string result = session.Evaluate(sessionId, expression);\n                        return string.IsNullOrEmpty(result) ? \"gone\" : result;",
+        "                        string result = session.Evaluate(sessionId, expression);\n                        return \"gone\";",
+        "WIRE the production callback presses through a second connection",
+    ),
+    (
+        "deadcode: the signature separator becomes a visible character",
+        BUDGETPRESS,
+        "text.Append('\\u001F');",
+        "text.Append('|');",
+        "the signature separator is a control character",
+    ),
+    (
+        "deadcode: the home override honours a drive-relative path again",
+        RULELOADER,
+        "            string over = TranscriptReader.FullyQualifiedOverride(HomeVariable);",
+        "            string over = Environment.GetEnvironmentVariable(HomeVariable);",
+        "a drive-relative AGENTFLOW_CLAUDE_HOME is ignored",
+    ),
 )
 
 
@@ -1314,14 +1343,21 @@ def score():
                 continue
 
             lines = failing_lines(report)
-            hit = [line for line in lines if expected in line]
-            if hit:
+            # `expected` may be a tuple of fragments; EVERY one must appear among the failing lines. An
+            # any-match would let a merged case pass with one of its assertions deleted, which is exactly
+            # the coverage loss this harness exists to catch (F400).
+            fragments = expected if isinstance(expected, tuple) else (expected,)
+            hit = [line for line in lines if any(fragment in line for fragment in fragments)]
+            missing = [fragment for fragment in fragments if not any(fragment in line for line in lines)]
+            if hit and not missing:
                 fired += 1
                 extra = (" (+%d other failures)" % (len(lines) - len(hit))) if len(lines) > len(hit) else ""
                 print("  %-52s FIRED%s" % (name, extra))
                 print("        %s" % hit[0])
             else:
                 print("  %-52s WRONG -- failed on something else:" % name)
+                for fragment in missing:
+                    print("        missing: %s" % fragment)
                 for line in lines[:3]:
                     print("        %s" % line)
     finally:

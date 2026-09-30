@@ -365,11 +365,9 @@ namespace DesktopAICompanion
 
         public static bool TryParse(string xml, out XmlData.RootNode root, out string error)
         {
-            return TryParse(
-                xml,
-                out root,
-                out error,
-                CancellationToken.None);
+            byte[] spriteBytes;
+            byte[] iconBytes;
+            return TryParse(xml, out root, out spriteBytes, out iconBytes, out error, CancellationToken.None);
         }
 
         /// <summary>
@@ -389,17 +387,11 @@ namespace DesktopAICompanion
             return TryParse(xml, out root, out spriteBytes, out iconBytes, out error, CancellationToken.None);
         }
 
-        public static bool TryParse(
-            string xml,
-            out XmlData.RootNode root,
-            out string error,
-            CancellationToken cancellationToken)
-        {
-            byte[] spriteBytes;
-            byte[] iconBytes;
-            return TryParse(xml, out root, out spriteBytes, out iconBytes, out error, cancellationToken);
-        }
-
+        // No public token-taking TryParse. Every caller in the tree (the loader, the catalog, the pane, the
+        // converter, the self-tests) reaches the private parse below through the overloads above, which pass
+        // CancellationToken.None, and the one caller holding a live token parses synchronously on the UI thread,
+        // where nothing could cancel it (F253). The token still threads through the private validation as the
+        // seam for a parse that runs off the UI thread one day; today it is None from every entry point.
         private static bool TryParse(
             string xml,
             out XmlData.RootNode root,

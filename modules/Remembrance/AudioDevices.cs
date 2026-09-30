@@ -4,17 +4,19 @@ using NAudio.CoreAudioApi;
 
 namespace DesktopAICompanion.RemembranceModule
 {
-    /// <summary>One selectable audio endpoint for the options dropdowns: a stable id + a friendly name.
-    /// An empty id means "the system default", resolved live at record time.</summary>
+    /// <summary>One selectable audio endpoint for the options dropdowns, by the friendly name the dropdown shows
+    /// and the settings store. The default entry's name is a label ("System default output"), resolved live at
+    /// record time. An endpoint id used to travel beside the name and nothing read it (F167): the design began
+    /// with stable ids and shipped with names, which is also why two endpoints sharing one friendly name share
+    /// one row.</summary>
     internal sealed class AudioDevice
     {
-        public string Id;
         public string Name;
     }
 
     /// <summary>Enumerates WASAPI render (for system/loopback capture) and capture (microphone) endpoints, and
-    /// resolves a saved id back to a device. All best-effort: enumeration never throws, and a missing id falls
-    /// back to the system default.</summary>
+    /// resolves a saved friendly name back to a device. All best-effort: enumeration never throws, and a name
+    /// no longer present falls back to the system default.</summary>
     internal static class AudioDevices
     {
         public static List<AudioDevice> RenderDevices() { return Cached(DataFlow.Render, "System default output"); }
@@ -88,7 +90,7 @@ namespace DesktopAICompanion.RemembranceModule
         private static List<AudioDevice> Enumerate(DataFlow flow, string defaultLabel)
         {
             System.Threading.Interlocked.Increment(ref _enumerations);
-            var list = new List<AudioDevice> { new AudioDevice { Id = "", Name = defaultLabel } };
+            var list = new List<AudioDevice> { new AudioDevice { Name = defaultLabel } };
             try
             {
                 // The COLLECTION is disposable too, not just the devices in it. This runs on every options-pane
@@ -99,7 +101,7 @@ namespace DesktopAICompanion.RemembranceModule
                 {
                     foreach (MMDevice d in endpoints)
                     {
-                        try { list.Add(new AudioDevice { Id = d.ID, Name = d.FriendlyName }); }
+                        try { list.Add(new AudioDevice { Name = d.FriendlyName }); }
                         catch { }
                         finally { try { d.Dispose(); } catch { } }
                     }

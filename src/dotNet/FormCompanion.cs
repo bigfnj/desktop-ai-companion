@@ -1639,7 +1639,10 @@ namespace DesktopAICompanion
             /// <returns>An explicit hit plus the virtual-screen Y coordinate of the window top.</returns>
         private WindowTopHit FallDetect(double y)
         {
-            Dictionary<IntPtr, string> windows = new Dictionary<IntPtr, string>();
+            // Handles only. The title decides membership (the "Sheep" exemption and the has-a-title test)
+            // and nothing reads it afterwards; both detectors used to keep it as a dictionary value, one
+            // string per visible window per tick for no reader (F266).
+            List<IntPtr> windows = new List<IntPtr>();
             NativeMethods.TITLEBARINFO titleBarInfo = new NativeMethods.TITLEBARINFO();
             titleBarInfo.cbSize = Marshal.SizeOf(titleBarInfo);
 
@@ -1666,17 +1669,17 @@ namespace DesktopAICompanion
                         // If window has a title, add this window to list
                     if (title.Length > 0)
                     {
-                        windows[hWnd] = title;
+                        windows.Add(hWnd);
                     }
                 }
                 return true;
             }, (IntPtr)0);
 
                 // For each valid window found:
-            foreach (KeyValuePair<IntPtr, string> window in windows)
+            foreach (IntPtr window in windows)
             {
                     // Get size and position of window
-                if (NativeMethods.GetWindowRect(new HandleRef(this, window.Key), out NativeMethods.RECT rct))
+                if (NativeMethods.GetWindowRect(new HandleRef(this, window), out NativeMethods.RECT rct))
                 {
                         // If vertical position is in the falling range and pet is over window and window is at least 20 pixels under the screen border
                     if (DesktopGeometry.CrossesDescendingBoundary(
@@ -1687,10 +1690,10 @@ namespace DesktopAICompanion
 						PositionY > 20 + ScreenArea.Y)
                     {
                             // Pet need to walk over THIS window!
-                        hwndWindow = window.Key;
+                        hwndWindow = window;
                         currentWindowSize = rct;
-                        // (A second GetWindowText into a StringBuilder nothing read sat here; the title
-                        // is already the dictionary's value. Deleted, F265.)
+                        // (A second GetWindowText into a StringBuilder nothing read sat here; the
+                        // enumerator above had already read the title for its compare. Deleted, F265.)
 
 						// If window is not covered by other windows, set this as current window for the pet.
 						if (!CheckTopWindow(false))
@@ -1698,8 +1701,8 @@ namespace DesktopAICompanion
 								// Only if the option is set (this is an invasive functionality)
 							if (Program.MyData.GetWindowForeground())
 							{
-								NativeMethods.ShowWindow(window.Key, 5);        // show window again
-								NativeMethods.SetForegroundWindow(window.Key);  // set focus to window
+								NativeMethods.ShowWindow(window, 5);        // show window again
+								NativeMethods.SetForegroundWindow(window);  // set focus to window
 							}
                             return WindowTopHit.At(rct.Top);               // return the position for the pet
                         }
@@ -1732,7 +1735,7 @@ namespace DesktopAICompanion
         {
             if (y >= 0) return WindowTopHit.None;
 
-            var windows = new Dictionary<IntPtr, string>();
+            var windows = new List<IntPtr>();   // handles only; see FallDetect (F266)
             NativeMethods.TITLEBARINFO titleBarInfo = new NativeMethods.TITLEBARINFO();
             titleBarInfo.cbSize = Marshal.SizeOf(titleBarInfo);
 
@@ -1748,15 +1751,15 @@ namespace DesktopAICompanion
                 else if (!NativeMethods.GetTitleBarInfo(hWnd, ref titleBarInfo)) return true;
                 else if ((titleBarInfo.rgstate[0] & 0x00008000) > 0) return true;   // invisible title bar
 
-                if (title.Length > 0) windows[hWnd] = title;
+                if (title.Length > 0) windows.Add(hWnd);
                 return true;
             }, (IntPtr)0);
 
             double headY = PositionY + ins.Top;
-            foreach (KeyValuePair<IntPtr, string> window in windows)
+            foreach (IntPtr window in windows)
             {
                 NativeMethods.RECT rct;
-                if (!NativeMethods.GetWindowRect(new HandleRef(this, window.Key), out rct)) continue;
+                if (!NativeMethods.GetWindowRect(new HandleRef(this, window), out rct)) continue;
                 if (rct.Right <= rct.Left || rct.Bottom <= rct.Top) continue;   // minimised
 
                 // A maximised window's bottom edge sits on the work area, i.e. right on top of a pet
@@ -1768,7 +1771,7 @@ namespace DesktopAICompanion
                 if (PositionX + ins.Left < rct.Left) continue;
                 if (PositionX + ins.Left + ins.Width > rct.Right) continue;
 
-                hwndWindow = window.Key;
+                hwndWindow = window;
                 currentWindowSize = rct;
                 return WindowTopHit.At(rct.Bottom);
             }

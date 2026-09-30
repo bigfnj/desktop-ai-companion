@@ -444,27 +444,16 @@ namespace DesktopAICompanion.Ai
 
         private string ResolveOllamaExe()
         {
-            if (!string.IsNullOrWhiteSpace(_exePath))
-                return AiExecutablePolicy.ResolveConfigured(
-                    _exePath,
-                    "ollama.exe");
-
-            string[] candidates =
-            {
-                Environment.ExpandEnvironmentVariables(@"%LOCALAPPDATA%\Programs\Ollama\ollama.exe"),
-                Environment.ExpandEnvironmentVariables(@"%ProgramFiles%\Ollama\ollama.exe"),
-                Environment.ExpandEnvironmentVariables(@"%ProgramW6432%\Ollama\ollama.exe")
-            };
-            foreach (string c in candidates)
-            {
-                string resolved = AiExecutablePolicy.ResolveConfigured(
-                    c,
-                    "ollama.exe");
-                if (resolved != null) return resolved;
-            }
-
-            return AiExecutablePolicy.ResolveFromPath(
-                Environment.GetEnvironmentVariable("PATH"),
+            // The ladder itself lives in AiExecutablePolicy.Resolve, shared with the tesseract resolver (F087);
+            // only the literals are this executable's.
+            return AiExecutablePolicy.Resolve(
+                _exePath,
+                new[]
+                {
+                    Environment.ExpandEnvironmentVariables(@"%LOCALAPPDATA%\Programs\Ollama\ollama.exe"),
+                    Environment.ExpandEnvironmentVariables(@"%ProgramFiles%\Ollama\ollama.exe"),
+                    Environment.ExpandEnvironmentVariables(@"%ProgramW6432%\Ollama\ollama.exe")
+                },
                 "ollama.exe");
         }
 

@@ -90,6 +90,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert
         /// Full pipeline: parse a Shimeji conf dir, composite the skin's sprites from its img dir, and emit a
         /// desktopPet pet. Returns null with <paramref name="error"/> set if parsing or compositing fails;
         /// otherwise the result carries the pet, the residue report, and the acceptance verdict.
+        /// <paramref name="alpha"/> is true for every product caller (the CLI verbs and PetStudio pass four
+        /// arguments); the keyed path it can select is reached only by the dev `composite` verb and the emitter
+        /// self-tests, so a magenta-keyed CONVERSION has no producer (F434).
         /// </summary>
         public static ConversionResult ConvertSkin(string confDir, string imgDir, string skinName, out string error, bool alpha = true)
         {

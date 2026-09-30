@@ -7,7 +7,8 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Emit
     public sealed class ResidueItem
     {
         public string Name;    // the Shimeji action / behaviour name
-        public string Kind;    // "dropped" (Group3) or "degraded" (Group2)
+        // No Kind: which list an item sits in (Dropped or Degraded) IS the kind, and the copy that travelled
+        // on the item was written by the emitter and read by nothing (F433).
         public string Detail;  // why, in plain language
     }
 

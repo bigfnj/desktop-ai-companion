@@ -115,8 +115,6 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             }
         }
 
-        private static string Local(XElement e) { return e.Name.LocalName; }
-
         // Shimeji XML ships in three vocabularies: English (Pose/Image/...), British (Behaviour...), and the
         // official Japanese schema (ポーズ/画像/基準座標/...). The parser is namespace-blind; this makes it
         // vocabulary-blind too, canonicalising every element name, attribute name, and the Type/BorderType
@@ -201,8 +199,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 }
             }
 
-            // The complete sprite set, gathered from EVERY <Pose> in the document regardless of how deeply it
-            // is nested, so the compositor cannot miss a frame a skin tucked inside a composite action.
+            // The document-wide pose CENSUS, gathered from EVERY <Pose> regardless of how deeply it is nested.
+            // Nothing composites from it: PosesToComposite walks the actions' own pose lists, so a pose inside a
+            // nested composite action is counted here and never composited (F455). Its readers are the
+            // script-flattening residue note and the parser self-tests.
             foreach (XElement pose in doc.Descendants().Where(e => CanonLocal(e) == "Pose"))
                 config.Poses.Add(ParsePose(pose));
         }
@@ -263,7 +263,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 string cond = Attr(el, "Condition");
                 if (cond == null) continue;
                 string owner = Attr(el, "Name") ?? "<wrapper>";
-                string key = owner + " " + cond;
+                string key = owner + "\0" + cond;
                 if (!seen.Add(key)) continue;
 
                 var bc = new ShimejiBehaviorCondition { Owner = owner, Condition = cond };

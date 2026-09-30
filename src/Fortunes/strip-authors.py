@@ -35,7 +35,6 @@ MAX_ROWS = 2_000_000
 HB = u'―'   # HORIZONTAL BAR  — the reddit-showerthoughts byline marker
 EM = u'—'   # EM DASH
 EN = u'–'   # EN DASH
-CAP = set("ABCDEFGHIJKLMNOPQRSTUVWXYZ\"'" + u'“‘”')
 PARTICLE = {'de','van','von','der','den','la','le','du','di','da','del','della',
             'the','of','and','dos','das','y','ibn','al','st.','st'}
 

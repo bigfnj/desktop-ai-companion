@@ -102,9 +102,10 @@ namespace DesktopAICompanion.RemembranceModule
         }
 
         /// <summary>Start capturing to <paramref name="outputWavPath"/>. At least one source must be enabled.
-        /// Device ids come from <see cref="AudioDevices"/> ("" = system default). Throws on a device-open
+        /// Device NAMES come from <see cref="AudioDevices"/> (the dropdown stores the friendly name; "" = system
+        /// default). Throws on a device-open
         /// failure so the caller can report it and fall back.</summary>
-        public void Start(string outputWavPath, bool captureSystem, string systemDeviceId, bool captureMic, string micDeviceId)
+        public void Start(string outputWavPath, bool captureSystem, string systemDeviceName, bool captureMic, string micDeviceName)
         {
             if (IsRecording) return;
             if (!captureSystem && !captureMic)
@@ -121,9 +122,9 @@ namespace DesktopAICompanion.RemembranceModule
             try
             {
                 if (captureSystem)
-                    AddSource(DeviceResolver(DataFlow.Render, systemDeviceId), true, systemTemp);
+                    AddSource(DeviceResolver(DataFlow.Render, systemDeviceName), true, systemTemp);
                 if (captureMic)
-                    AddSource(DeviceResolver(DataFlow.Capture, micDeviceId), false, micTemp);
+                    AddSource(DeviceResolver(DataFlow.Capture, micDeviceName), false, micTemp);
                 foreach (Source s in _sources) s.Capture.StartRecording();
                 IsRecording = true;
             }

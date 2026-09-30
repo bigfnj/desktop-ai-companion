@@ -945,7 +945,125 @@ said once in the log) generalised. The template shows the check; the only in-tre
 
 #### fix/deadcode
 
-(none yet)
+**A member whose only reader is a test is not dead, and what the test pins decides what happens to it
+(2026-09-30; applied to F289, F296, F357; kept and named as seams: F076, F087).** The 2026-09-27 refutation ("NOT dead because CoreTests read
+them") stands as a rule of evidence: a test reader is a reader, and nothing a test names is deleted on the
+strength of a grep. The lane then asks what the test pins. When the member is a shape production has
+abandoned (the integer ScalePolicy helpers behind the fractional path, the commit-pinned URL validator behind
+the branch-pinned catalog, the roaming-root copy utility behind a module that owns its storage), the pin
+protects nothing shipped, so the test moves onto the production path or goes with the member: F289's
+CoreTests scale pins now hold FitFactorForFrameD and ScaleD, F296's two checks are covered by the catalog
+self-test's bad-host reject case that already exercised the branch validator, and F357's
+TestBoundedDataMigration went with TryMigrateFilesOnce. When the member is a seam a probe needs to observe
+a property it could not otherwise reach, it stays and is named as one, with the `...ForDiagnostics` suffix
+the AiBrain engine already uses.
+
+**`--security-selftest` is graded by `tests/mutate-selftest-guards.py` through the SECURITY pseudo-flag
+(2026-09-30, F298, F300).** The flag writes no marker: SecuritySelfTest.Check prints `[PASS]`/`[FAIL]` lines
+and Program exits `Run() ? 0 : 1`, so until this campaign no security assertion had a mutation case anywhere.
+The channel reshapes that stdout into the `FAIL:` / `RESULT=` vocabulary the ladder already grades, the way
+the CORETESTS pseudo-flag does, and an unhandled exception (the shape F298 removed) grades as BROKEN (no
+verdict), never as a firing. Two cases ride it; the baseline runs it with the rest.
+
+**On the AI path the consent IS the disposition: no profanity switch may ever gate a persona the user chose
+by name (2026-09-30, F093; the decision predates the campaign, this is where it now lives).** Nobody flips a
+profanity switch: they pick Jules Winnfield, or Jeff Ross, or the Drill Sergeant, from a list that says exactly
+who those characters are, and that choice is the acceptance. Gating it behind a second toggle would hand a user
+who chose a foul-mouthed character a sanitised one with no idea why, the same mistake in reverse as a model
+self-censoring to "f***". Fortunes needs its NoProfanity filter because its content arrives unchosen from 158
+packs; a persona is chosen by name. This paragraph used to sit on a dead `NoProfanity` field in AiSettings,
+one of seven Fortunes-era fields that class persisted and nothing in the module read; the fields went, the
+decision stays here.
+
+**The hardening self-test keeps its runtime limits as literals (2026-09-30, F292, ACCEPTED-RECORDED).**
+`spriteCount <= 1024`, the 16 MiB pixel bound and the two loops of 32 mirror SpriteFrameStore.MaximumFrames /
+MaximumOriginalPixels and FormCompanion's per-root and process child caps. Deriving them from those constants
+would make the checks follow a change they exist to flag; the literal is the pin. The defect next to them was
+the WITNESS that compared CompanionXmlValidator.MaximumSpriteTiles to the constant it is defined as (F300),
+which now pins the literal on both sides and names the converter's two literal copies.
+
+**Remembrance keeps friendly names, not endpoint ids, and MeetingContext.Location stays parsed ahead of a
+consumer (2026-09-30, F167, F172).** The `AudioDevice.Id` field was write-only from the day it shipped (the design
+began with stable ids and shipped with names), so it went rather than gaining a display-to-id map in a lane about dead
+code; the collapse of two same-named endpoints onto one row is filed as N-deadcode-01 for the module's owner, who
+decides between ids and names. `MeetingContext.Location` is parsed and read only by the self-test, which is the point:
+modules/Reminder/CALENDAR-FEED.md promises the producer that `.location` is safe to include, and the check keeps the
+consumer side honest until something reads it.
+
+**The Reminder, Fortunes and host migration bridges stay, each with the condition that retires it (2026-09-30,
+F196, ACCEPTED-RECORDED).** `ReminderModule.MigrateLegacy` and the single-lead fallback in `Leads()` go together when the
+module's settings gain a schema version that no pre-slot install can carry (nothing observable today says every install
+has run the `migratedSlots` marker, so by inspection they stay). `FortuneProvider.TryMapLegacyCategory` goes only when
+the tagged parser stops accepting 5-field rows, and the RunParserSelfTest cases that pin the mapping go with it in the
+same commit. `LocalData.MigrateRandomDropIfAbsent` goes when an upgrader's disk can no longer hold a pre-1.0
+`ai-settings.json`, which is a release-support decision, not a code one. `LegacySettingsReader` and its CoreTests are
+one pre-1.0 upgrade-support decision and go together or not at all. The `RegisterDropResponder` /
+`RegisterPokeResponder` pair is frozen ABI surface for out-of-tree modules (see the unexercised-ABI entry), not a
+bridge, and does not belong on this list.
+
+**A downloaded pack is validated by the loader's own validator before it is written, and a refusal is a download
+cause of its own (2026-09-30, F131).** The host verifies URL, hash and size; the CONTENT check is the module's, and it is
+`TryValidateCustomPackBytes`, the validator the folder loader and the importer already use (tagged or plain), never the
+strict tagged oracle the parser self-test keeps. A refusal is `malformed=N` in the one download log line and a failed pack
+in the pane's status, so "Downloaded 1 pack" can no longer be true of a file the loader then skips.
+
+**A folded sub-report line that reports a failure is re-emitted as a `FAIL: ` verdict line (2026-09-30, F120).** The
+Fortunes probe folds three sub-reports into its output so a red run says which case failed. The gate's failure printer
+and tests/mutate-selftest-guards.py read only lines whose stripped form STARTS with FAIL, so a folded `rewarm_supersedes=FAIL`
+or `FILTER FAIL case=3` was visible to a person and to neither tool; the fold prefixes such lines (`name=FAIL`,
+`SUITE FAIL case`, `EXC:`) with `FAIL: `. A sub-report that wants its cases graded writes them in that vocabulary.
+
+**EmitterSelfTest's duplicated hub heuristic stays (2026-09-30, F450, ACCEPTED-RECORDED).** HubSequenceTargets and
+HubId carry the same gravity-plus-fan-out loop and the hub is rediscovered at eight call sites; both copies agree and the
+suite is green. Consolidating them is a refactor of a test with no production property behind it, deferred until the
+fixture changes and the two could disagree.
+
+**The converter's self-test is proven by hand until a harness grades it (2026-09-30, F452, F461).** No mutate-*.py
+covers tools/ShimejiConvert, so the per-suite guard (a throwing suite is a named FAIL line and the rest still run) and
+the csproj's reordered Exists() error were each mutation-tested by hand and the runs recorded in the commit message;
+N-deadcode-05 asks for the harness, N-deadcode-04 for the gate to read the SELFTEST-COUNT sentinel the CLI now prints.
+
+**The six host-side IHost fakes stay until a shared HeadlessHost base is designed (2026-09-30, F340, F349,
+ACCEPTED-RECORDED).** Six private `IHost` implementations and five `FakeCompanion` copies live in src/dotNet/Plugins,
+roughly 600 lines. They are duplication, not dead code, and their deltas are load-bearing: ConventionHost returns null
+storage and exposes `...HasSubs` observers a subclass of ModuleKit's field-like events could not read, AiBrain's fake
+carries `ClickTray`, Fortunes' carries `PaneNamed`, and DESIGN-REGISTER's existing rule keeps host-only observers off
+`ModuleKit.Testing.RecordingHost` (a ModuleKit change stales every published payload). The right shape is an internal
+abstract base in the host with virtual services and a scratch storage default, done in one pass after the storage
+defaults (F338, F341, F351) settle; this lane deleted the fakes' write-only recorders (F350) and wrote the routing
+assertion they were added for, and left the copies.
+
+**The second-tier info items of lane fix/deadcode are recorded, not worked (2026-09-30, ACCEPTED-RECORDED).**
+- F112: the tautological IsKnownRate check inside BlinkingLed's loop is one line whose comment explains itself.
+- F117: the inert LangVersion in modules/Directory.Build.props costs nothing while every module sets its own.
+- F227: three ABI members without a consumer stay as frozen contract surface (register: unexercised ABI).
+- F228: IHost.Log's thread contract is a documentation question for the ABI's owner.
+- F232: ModuleKit RecordingHost's unread observation hooks are out-of-tree surface (register).
+- F257: the triplicated window-walk P/Invokes cross a file fix/host moved this campaign (N-deadcode-07).
+- F259: DiagnosticLog.CurrentPath and the redundant WasNamed condition are two lines in a logger fix/host owns.
+- F261: pictureBox1.Tag and the empty designer click handler are designer residue with no behaviour.
+- F275: the designer placeholder label1 is a gap in a debug toolbar.
+- F277: the second Region dispose is a no-op verified on .NET 10.
+- F280: the WM_CLOSE survival assertion is a property the owner chose to pin.
+- F281: the duplicate RegisterWindowMessageW P/Invoke is one declaration.
+- F303: the HTTP stub comments cite .NET Framework transport behaviour; a comment-only edit in a security self-test the host lane owns.
+- F306: the redundant MyData null-checks and the double IsDisposed test are harmless guards.
+- F320: four staging helpers duplicated across two hand-run corpus scripts.
+- F370: the ProbeBounded comment's kernel-handle claim is wrong and the code is right.
+Each is real and each is below the line this campaign drew: no behaviour, no gate, and in five cases a file another
+lane moved this week. They stay pinned in BACKLOG.md for the next sweep with this paragraph as their reason.
+
+**Tier B of lane fix/deadcode: what stays and why (2026-09-30, F154, F223, F410, F015, ACCEPTED-RECORDED).**
+PetReport.Describe() is asserted by the gate while PetStudioWindow renders its own text (F154): the fix is one
+rendering for both, and it lives in a file fix/petstudio rewrote this week, so it waits. WiX 5.0.2 is a literal at
+six check sites in three packaging scripts beside the lock that names it (F223): one $script:LockedWixVersion in
+WixToolchainPolicy.ps1 is the shape, and Install-LockedWixToolchain.ps1, which carries three of the six, moved under
+fix/scripts. tests/runtime-hardening-selftest.ps1 reads nine source files under different names, 21 Get-Content
+calls, with two comment strippers (F410): a read-once table is right, and it is a merge hazard while three lanes
+append invariants to the file, so the rule meanwhile is that a NEW invariant reads through Remove-LineComments (or
+an existing stripped variable) and never slices a raw copy; the poke-sass check's ad hoc stripper is the one to
+retire first. agentflow_join.py's rule loop and call decomposition exist twice (F015) in a research script that
+grew by 329 lines on master this campaign; recorded for the next pass over that folder.
 
 #### fix/scripts
 

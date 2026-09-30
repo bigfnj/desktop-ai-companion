@@ -37,14 +37,15 @@
   </PropertyGroup>
 
   <!-- Conditioned on Configuration ALONE, deliberately. These groups used to also test $(Platform), which
-       meant a plain `dotnet build` (no -p:Platform=x64) silently lost DefineConstants: without PORTABLE the
-       #if PORTABLE block in Program.cs drops out and the build fails with ~20 unrelated-looking CS errors.
-       The platform dimension carried no information anyway (Platforms, PlatformTarget and RuntimeIdentifier
-       are all pinned to x64 unconditionally above), so dropping it lets a cold clone build the way CI does. -->
+       meant a plain `dotnet build` (no -p:Platform=x64) silently lost DefineConstants. The platform dimension
+       carried no information anyway (Platforms, PlatformTarget and RuntimeIdentifier are all pinned to x64
+       unconditionally above), so dropping it lets a cold clone build the way CI does. PORTABLE is no longer
+       defined: the #if PORTABLE / #else pair in Program.cs went with the Store-build Main it hid, which named
+       types this repository does not have and could never compile (F283), so nothing reads the symbol. -->
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
     <OutputPath>..\build\DesktopAICompanionPortable\bin\Debug\x64\</OutputPath>
     <IntermediateOutputPath>..\build\DesktopAICompanion\obj\Debug\x64\</IntermediateOutputPath>
-    <DefineConstants>TRACE;DEBUG;PORTABLE</DefineConstants>
+    <DefineConstants>TRACE;DEBUG</DefineConstants>
     <DebugType>full</DebugType>
     <DebugSymbols>true</DebugSymbols>
   </PropertyGroup>
@@ -52,7 +53,7 @@
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <OutputPath>..\build\DesktopAICompanionPortable\bin\Release\x64\</OutputPath>
     <IntermediateOutputPath>..\build\DesktopAICompanion\obj\Release\x64\</IntermediateOutputPath>
-    <DefineConstants>TRACE;PORTABLE</DefineConstants>
+    <DefineConstants>TRACE</DefineConstants>
     <Optimize>true</Optimize>
     <!-- Release symbols are not distributed; no PDB keeps the runtime location-independent. -->
     <DebugType>none</DebugType>
@@ -98,6 +99,12 @@
     -->
     <Compile Include="DesktopAICompanion.ModuleKit\SelfTestProbe.cs" Link="Generated\SelfTestProbe.cs" />
     <Compile Include="DesktopAICompanion.ModuleKit\Testing\TrayConventions.cs" Link="Generated\TrayConventions.cs" />
+    <!-- AtomicFile and CrossSessionLock, compiled from ModuleKit's files (F358). The host carried its own copies
+         in AppSettingsStore.cs, the originals ModuleKit lifted on 2026-08-18 "so the next one does not make a
+         third copy", and then kept beside them with nothing holding the pair equal. Same mechanism as the two
+         links above: no ModuleKit.dll beside the exe, and a fix to either helper lands once. -->
+    <Compile Include="DesktopAICompanion.ModuleKit\AtomicFile.cs" Link="Generated\AtomicFile.cs" />
+    <Compile Include="DesktopAICompanion.ModuleKit\CrossSessionLock.cs" Link="Generated\CrossSessionLock.cs" />
     <Compile Include="dotNet\Animations.cs" />
     <Compile Include="dotNet\AnimationReachability.cs" />
     <Compile Include="dotNet\AudioOutput.cs" />
@@ -165,12 +172,6 @@
     </Compile>
     <Compile Include="dotNet\Program.cs" />
     <Compile Include="Properties\AssemblyInfoPortable.cs" />
-    <Compile Include="Properties\Settings1.Designer.cs">
-      <AutoGen>True</AutoGen>
-      <DesignTimeSharedInput>True</DesignTimeSharedInput>
-      <DependentUpon>Settings.settings</DependentUpon>
-    </Compile>
-    <Compile Include="Settings.cs" />
     <Compile Include="Tools\XmlToDot.cs" />
     <Compile Include="dotNet\Xml.cs" />
     <Compile Include="dotNet\CompanionThumbnails.cs" />
@@ -213,28 +214,22 @@
     <None Include="Properties\app.manifest">
       <SubType>Designer</SubType>
     </None>
-    <None Include="Properties\Settings.settings">
-      <SubType>Designer</SubType>
-      <Generator>SettingsSingleFileGenerator</Generator>
-      <LastGenOutput>Settings1.Designer.cs</LastGenOutput>
-    </None>
     <None Include="Resources\animations.xsd">
       <SubType>Designer</SubType>
     </None>
     <None Include="Resources\animations.xml">
       <SubType>Designer</SubType>
     </None>
-    <None Include="Images\install.png" />
     <None Include="Images\option.png" />
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Images\esheep.png, help.png and install.png were embedded as resources here until 2026-09-30 with no
+         reader in the code (F324); the files went with them. esheep.png.ico is a different file and stays. -->
     <Content Include="esheep.png.ico" />
     <Content Include="icon.ico" />
     <Content Include="Images\exit.png" />
-    <Content Include="Images\help.png" />
     <Content Include="Images\about.png" />
-    <Content Include="Images\esheep.png" />
     <!-- The bge-small smart-fortunes model moved to the Fortunes module (S3d), beside Fortunes.dll. -->
     <Content Include="..\LICENSE">
       <Link>LICENSE.txt</Link>

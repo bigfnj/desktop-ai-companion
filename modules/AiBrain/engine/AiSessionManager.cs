@@ -332,7 +332,7 @@ namespace DesktopAICompanion.Ai
                             using (var unloadBudget = new CancellationTokenSource(NotEnteredUnloadBudget))
                             {
                                 Task unload = active.UnloadAsync(unloadBudget.Token);
-                                if (!unload.Wait(NotEnteredUnloadBudget)) ObserveFailure(unload);
+                                if (!unload.Wait(NotEnteredUnloadBudget)) AiEndpointPolicy.ObserveTaskFailure(unload);
                             }
                         }
                         catch { }
@@ -411,7 +411,7 @@ namespace DesktopAICompanion.Ai
                         }
                         else
                         {
-                            ObserveFailure(unload);
+                            AiEndpointPolicy.ObserveTaskFailure(unload);
                         }
                     }
                 }
@@ -473,20 +473,6 @@ namespace DesktopAICompanion.Ai
                 try { action(); }
                 catch { }
             }
-        }
-
-        private static void ObserveFailure(Task task)
-        {
-            task.ContinueWith(
-                delegate(Task failed)
-                {
-                    if (failed.Exception != null)
-                        failed.Exception.Handle(delegate(Exception ignored) { return true; });
-                },
-                CancellationToken.None,
-                TaskContinuationOptions.OnlyOnFaulted |
-                TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default);
         }
 
         private void ThrowIfDisposed()

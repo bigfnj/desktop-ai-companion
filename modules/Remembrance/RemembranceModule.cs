@@ -77,6 +77,10 @@ namespace DesktopAICompanion.RemembranceModule
                                  //         (the ModuleKit fake hands out snapshots now, N-remembrance-01).
                                  //         A download the CALLER cancels (Shutdown mid-install) deletes its
                                  //         .part instead of leaving a stale partial model (N-remembrance-02).
+                                 //         Lane fix/deadcode, same version: AudioDevice carries the name the
+                                 //         dropdown stores and no unread id; the release-LIST parser is what the
+                                 //         self-test's digest check reads; four garbled changelog lines and the
+                                 //         purge summary are repaired (F167, F174, F185, F170).
                                  // 1.0.16: the 72-hour purge may only delete the file SHAPES this module
                                  //         writes. Three of the four branches were looser than that: any
                                  //         snap*.png inside a capture folder, ANY .wav in the root, and
@@ -101,13 +105,15 @@ namespace DesktopAICompanion.RemembranceModule
                                  //         as the dropdowns, so the two can no longer disagree.
                                  // 1.0.12: the Remote Desktop warning no longer tells the user to restart.
                                  //         The device lists have refreshed on every pane open since
-                                 //         RefreshDynamicOptions moved into Load; reopening is enough.  // 1.0.11: closing the app while recording no longer loses the recording. Every
-                                  //         part of Stop ran inside a Task.Run nothing waited for, so the process
-                                  //         exited mid-AudioRecorder.Stop(): no mixed WAV, no transcript, and two
-                                  //         scratch files left with unfinalised RIFF headers that Purge deletes
-                                  //         after 72 hours. The save is synchronous on shutdown now; transcription
-                                  //         is skipped and both the status line and the log say so.
-                                  // 1.0.10: a transcription failure says WHICH failure; whisper's pipes drain
+                                 //         RefreshDynamicOptions moved into Load; reopening is enough.
+                                 // 1.0.11: closing the app while recording no longer loses the recording. Every
+                                 //         part of Stop ran inside a Task.Run nothing waited for, so the process
+                                 //         exited mid-AudioRecorder.Stop(): no mixed WAV, no transcript, and two
+                                 //         scratch files left with unfinalised RIFF headers, which no purge shape
+                                 //         recognised until 1.0.17 (F171). The save is synchronous on shutdown
+                                 //         now; transcription is skipped and both the status line and the log
+                                 //         say so.
+                                 // 1.0.10: a transcription failure says WHICH failure; whisper's pipes drain
                                  //         concurrently so its timeout can fire; and the model-pull
                                  //         continuation no longer writes settings off the UI thread.
                                  // 1.0.9: the hourly purge may now only delete files THIS MODULE wrote.
@@ -123,7 +129,7 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        link follows the dropdown, so what you download is what
                                  //        "Set up Whisper for me" would have fetched rather than
                                  //        one of eleven files in that repository.
-                                 // 1.0.7: a blocked download says what to do instead.   // 1.0.7: a blocked download now says what to do instead.
+                                 // 1.0.7: a blocked download says what to do instead.
                                  //        Diagnosed across two machines: the fetch is terminated
                                  //        by Microsoft Defender Network Protection, which scores
                                  //        the CALLING program and does not recognise an unsigned
@@ -134,12 +140,13 @@ namespace DesktopAICompanion.RemembranceModule
                                  //        so the fix is to stop being a dead end: recognise the
                                  //        local abort, report whether that policy is on, and
                                  //        point at the two Browse buttons that already work.
-                                 // 1.0.6: failures now report the whole exception chain.   // 1.0.6: failures now report the whole exception chain.
+                                 // 1.0.6: failures now report the whole exception chain.
                                  //        .NET renders a TLS fault as "The SSL connection could
                                  //        not be established, see inner exception" -- a message
                                  //        that names the information you need and withholds it --
                                  //        and three catch blocks passed only ex.Message through
-                                 //        to the pane, so the cause was unknowable from the UI.   // 1.0.5: the summary dropdown fills ITSELF on first open, and
+                                 //        to the pane, so the cause was unknowable from the UI.
+                                 // 1.0.5: the summary dropdown fills ITSELF on first open, and
                                  //        preselects. It was only ever filled by the "Find local
                                  //        summary models" button, so until you guessed that a button
                                  //        was a prerequisite rather than a refresh, the control was an
@@ -417,8 +424,9 @@ namespace DesktopAICompanion.RemembranceModule
         /// host, Alc.Unload() ran, and the process exited while the background task was still inside
         /// AudioRecorder.Stop(). No mixed WAV, no transcript, and the two scratch files left with
         /// unfinalised RIFF headers -- because the WaveFileWriter.Dispose() that patches the data-chunk
-        /// length runs only in the RecordingStopped handler and in DisposeSource. CaptureStore.Purge
-        /// then deletes them after 72 hours, so a 45-minute meeting became nothing at all.
+        /// length runs only in the RecordingStopped handler and in DisposeSource. Those scratch files matched
+        /// no purge shape until 1.0.17 (F171), so they sat on disk with broken headers for ever; either way a
+        /// 45-minute meeting became nothing usable.
         ///
         /// What is NOT waited for on shutdown is transcription: Whisper on a long recording takes
         /// minutes, and the audio is the irreplaceable part. It is saved and can be transcribed later;
@@ -1670,13 +1678,14 @@ namespace DesktopAICompanion.RemembranceModule
             check("a non-sha256 digest is ignored", WhisperInstaller.ParseSha256("md5:abc") == null);
             check("a truncated digest is ignored", WhisperInstaller.ParseSha256("sha256:abc") == null);
             check("an absent digest is ignored, not an error", WhisperInstaller.ParseSha256(null) == null);
-            WhisperInstaller.ReleaseAsset release = WhisperInstaller.ParseReleaseJson(
-                "{\"assets\":[{\"name\":\"whisper-bin-x64.zip\",\"browser_download_url\":\"https://example.invalid/w.zip\"," +
-                "\"digest\":\"sha256:" + new string('b', 64) + "\"}]}");
+            // Through the LIST parser, the production path (F185). ParseReleaseJson was the releases/latest era's
+            // entry point and these checks were its only readers, so the suite's one digest assertion witnessed a
+            // path InstallAsync no longer took; its no-assets and garbage cases are the list parser's below.
+            WhisperInstaller.ReleaseAsset release = WhisperInstaller.ParseReleaseListJson(
+                "[{\"assets\":[{\"name\":\"whisper-bin-x64.zip\",\"browser_download_url\":\"https://example.invalid/w.zip\"," +
+                "\"digest\":\"sha256:" + new string('b', 64) + "\"}]}]");
             check("release JSON yields the asset url", release != null && release.Url == "https://example.invalid/w.zip");
-            check("release JSON yields the digest", release != null && release.Digest.StartsWith("sha256:"));
-            check("release JSON with no assets yields null", WhisperInstaller.ParseReleaseJson("{\"assets\":[]}") == null);
-            check("garbage release JSON yields null", WhisperInstaller.ParseReleaseJson("nope") == null);
+            check("release JSON yields the digest", release != null && release.Digest != null && release.Digest.StartsWith("sha256:"));
             // ---- the release LIST, which is what upstream actually publishes to ----
             // Broke in the field on 2026-09-20. whisper.cpp tags asset-less semantic releases
             // (v1.9.4) alongside the bXXXX builds that carry the Windows zips, and GitHub calls the

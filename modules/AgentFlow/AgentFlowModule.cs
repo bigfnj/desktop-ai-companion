@@ -172,13 +172,23 @@ namespace DesktopAICompanion.AgentFlow
                                  //         which sits outside the folder the host lets a module reveal,
                                  //         so it was refused on every machine; the button now shows this
                                  //         module's own folder and the pane names the log's path (N-host-03).
+                                 //         Lane fix/deadcode (same version, zip not yet republished): the
+                                 //         twenty stray doc blocks sit on the members they describe; the
+                                 //         tick predicates lost an `enabled` argument that was always true
+                                 //         and the tray row its no-op timer Start; the five-argument Click
+                                 //         and TranscriptCursor.Path are gone; the splitter's separators,
+                                 //         the signature separator and a drive-relative home override are
+                                 //         asserted; RuleLoader shares TranscriptReader's fully-qualified
+                                 //         test; the fake CDP server serves connections concurrently, so a
+                                 //         real press runs over the wire.
                                  // 1.4.11: the options pane no longer probes VS Code's setup on the UI
                                  //         thread. The doc said the cold path was only between Init and
                                  //         the first tick, but OnTick returns before the probe when the
                                  //         mode is Off -- the default -- so a cold pane open paid
                                  //         273-285ms with the port closed. Also: the tick worker is
                                  //         handed ArgvPath instead of fetching it from the host's
-                                 //         unsynchronised settings dictionary on a pool thread.  // 1.4.10: removes a ...ForSelfTest seam with zero references, including
+                                 //         unsynchronised settings dictionary on a pool thread.
+                                 // 1.4.10: removes a ...ForSelfTest seam with zero references, including
                                  //         from the self-test it was named for. No behaviour change.
                                  // 1.4.9: test coverage, no behaviour change. A loopback fake CDP server now
                                  //        drives Sweep end to end -- target discovery, the attach/evaluate/detach
@@ -590,16 +600,15 @@ namespace DesktopAICompanion.AgentFlow
             bool allProjects = ApproveForAllProjects;
             bool similar = ApproveSimilarCommands;
             int cdpPort = CdpPort;
-            // Snapshot on the UI THREAD with the rest of them. Enabled was the one setting the
-            // worker still went and fetched for itself, which meant reading the settings
-            // Dictionary<string, string> while Apply could be writing it from here. Every other
-            // value on this beat was already copied across the boundary; this one was missed
-            // because it hides behind two predicates instead of being named inline.
-            bool enabledNow = Enabled;
-            // AND ArgvPath, for exactly the reason the paragraph above gives about Enabled. It is the
-            // counter-example to "every other value on this beat was already copied across the
-            // boundary", and it hides the same way: behind a property, so it does not read as a
-            // settings access at the call site. _settings is the host's bare Dictionary<string,string>
+            // No `enabledNow` snapshot (F025). The `if (!Enabled) return;` at the top of this method is the
+            // mode gate: OnTick runs on the UI thread, so a second read of Enabled a few lines later could only
+            // ever be true, and the predicates it fed (ShouldProbePort, MayLookNow) took an `enabled` argument
+            // that no caller, test included, ever passed as false. The 1.4.11 worker-side settings read that the
+            // snapshot fixed stays fixed: the worker reads nothing from _settings, and the early return is what
+            // keeps Off mode from ever reaching it.
+            //
+            // ArgvPath IS snapshotted, here on the UI thread: it hides behind a property, so it does not read as
+            // a settings access at the call site, and _settings is the host's bare Dictionary<string,string>
             // with no lock, written on the UI thread by SavePaneValues on every Apply.
             string argvPathNow = ArgvPath;
 
@@ -656,7 +665,7 @@ namespace DesktopAICompanion.AgentFlow
                 bool answering = false;
                 try
                 {
-                    if (ShouldProbePort(enabledNow))
+                    if (ShouldProbePort())
                     {
                         SetupReport report = VsCodeSetup.Inspect(argvPathNow, 200);
                         // Published as a whole, freshly-built instance. Inspect fills it locally
@@ -678,7 +687,7 @@ namespace DesktopAICompanion.AgentFlow
                 // used to be one condition, so a Notify-mode user got the weak signal (predicting
                 // from permission rules) while the strong one -- the prompt itself, already on
                 // screen and already readable -- went unused.
-                bool mayLook = MayLookNow(answering, enabledNow);
+                bool mayLook = MayLookNow(answering);
                 bool mayPress = ShouldPressNow(autoApprove, answering);
                 // Whether THIS tick's sweep confirmed a click, carried to the UI thread beside the
                 // note so the log can tell a press from a standing refusal (F029).
@@ -893,14 +902,6 @@ namespace DesktopAICompanion.AgentFlow
         }
 
         /// <summary>
-        /// The tool name, reduced to something that cannot carry content.
-        ///
-        /// It is read out of the prompt header, so it is text from the screen even though in
-        /// practice it is always a tool identifier like Bash or Edit. Letters, digits, dash and
-        /// underscore only, truncated -- a name that fails that is reported as unknown rather
-        /// than passed through, because the log is meant to be attachable to a public issue.
-        /// </summary>
-        /// <summary>
         /// The static half of each prompt header this agent renders, and what it is safe to
         /// call it in a log line.
         ///
@@ -1012,14 +1013,6 @@ namespace DesktopAICompanion.AgentFlow
         }
 
         /// <summary>
-        /// An extension, or nothing. Letters and digits only, eight at most.
-        ///
-        /// The filter is not decoration. This value is read off the screen, and the span it
-        /// comes from holds a full absolute path on Windows -- upstream splits on "/" to take
-        /// the leaf, which splits nothing here. Anything that does not look like an extension
-        /// is dropped rather than trimmed, because a half-parsed path is still a path.
-        /// </summary>
-        /// <summary>
         /// Longest matching prefix in <paramref name="table"/>, or null.
         ///
         /// TAKES THE TABLE rather than reading KnownHeaders directly, and that is the whole
@@ -1067,6 +1060,14 @@ namespace DesktopAICompanion.AgentFlow
             return builder.ToString();
         }
 
+        /// <summary>
+        /// An extension, or nothing. Letters and digits only, eight at most.
+        ///
+        /// The filter is not decoration. This value is read off the screen, and the span it
+        /// comes from holds a full absolute path on Windows -- upstream splits on "/" to take
+        /// the leaf, which splits nothing here. Anything that does not look like an extension
+        /// is dropped rather than trimmed, because a half-parsed path is still a path.
+        /// </summary>
         internal static string SafeExtension(string extension)
         {
             if (string.IsNullOrEmpty(extension) || extension.Length > 8) return "";
@@ -1079,6 +1080,14 @@ namespace DesktopAICompanion.AgentFlow
             return extension.ToLowerInvariant();
         }
 
+        /// <summary>
+        /// The tool name, reduced to something that cannot carry content.
+        ///
+        /// It is read out of the prompt header, so it is text from the screen even though in
+        /// practice it is always a tool identifier like Bash or Edit. Letters, digits, dash and
+        /// underscore only, truncated -- a name that fails that is reported as unknown rather
+        /// than passed through, because the log is meant to be attachable to a public issue.
+        /// </summary>
         internal static string SafeToolName(string name)
         {
             if (string.IsNullOrEmpty(name)) return "an unnamed tool";
@@ -1153,13 +1162,6 @@ namespace DesktopAICompanion.AgentFlow
             }
         }
 
-        /// <summary>
-        /// Write what the approver did, and do it once per distinct outcome.
-        ///
-        /// The repeat guard matters more than it looks. A prompt the classifier refuses stays on
-        /// screen until the user answers it, so without this the same refusal would be written
-        /// every ten seconds for as long as they were away from the keyboard.
-        /// </summary>
         /// <summary>Whether a pane id is a display-only row, per the schema the host actually rendered.
         /// Schema-driven because the id-prefix guesses beside the call site were wrong for two of the eight
         /// display-only ids, and a prefix guess is what put them there.</summary>
@@ -1906,7 +1908,6 @@ namespace DesktopAICompanion.AgentFlow
 
         // ---- setting up the approve half -------------------------------------------------
 
-        /// <summary>Where the user pointed us, when the usual places did not have argv.json.</summary>
         /// <summary>
         /// Whether the user has asked for prompts to be approved. OFF by default and it stays off
         /// until asked: this is the one setting in the module that presses a button on the user's
@@ -1914,6 +1915,7 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         private const string SettingAutoApprove = "autoApprove";
 
+        /// <summary>Where the user pointed us, when the usual places did not have argv.json.</summary>
         private const string SettingArgvPath = "argvPath";
         /// <summary>
         /// The port to ask VS Code for.
@@ -1925,8 +1927,9 @@ namespace DesktopAICompanion.AgentFlow
         /// </summary>
         private const string SettingCdpPort = "cdpPort";
 
-        /// <summary>The user's INTENT. Separate from whether the module CAN act, deliberately.</summary>
         /// <summary>
+        /// The user's INTENT. Separate from whether the module CAN act, deliberately.
+        ///
         /// The mode, migrated from the legacy pair when this install predates it.
         ///
         /// Read through AgentMode.Migrate on EVERY read rather than rewritten once at Init.
@@ -1977,15 +1980,6 @@ namespace DesktopAICompanion.AgentFlow
             get { return _settings == null || _settings.GetBool(SettingNotifySpeak, true); }
         }
 
-        /// <summary>
-        /// Whether the debugging port answered at the last poll.
-        ///
-        /// CACHED, and the reason is the tray menu. Tray labels are rebuilt on every menu open, so
-        /// probing the port there would put a blocking TCP connect with a timeout in the path of
-        /// the user's right-click -- on a dead port that is a visible stall every time they open
-        /// the menu. The poll already runs on its own timer, so it refreshes this and the menu
-        /// reads a field.
-        /// </summary>
         /// <summary>
         /// Set FIRST by Shutdown, and read by the worker before it presses anything.
         ///
@@ -2125,10 +2119,14 @@ namespace DesktopAICompanion.AgentFlow
         /// not a predicate anyone could call. What prevents its return is that reintroducing it
         /// now means adding a parameter here, which is a visible change to a documented decision
         /// rather than a word dropped into a condition.
+        ///
+        /// Nor an `enabled` argument, since 2026-09-30 (F025). OnTick returns on !Enabled before it starts
+        /// the worker, on the UI thread, so the argument was true at every call site in the repo, tests
+        /// included, and a reader took the predicate to vary with the mode when it never did.
         /// </summary>
-        internal bool ShouldProbePort(bool enabled)
+        internal bool ShouldProbePort()
         {
-            return enabled && !_shuttingDown && _host != null;
+            return !_shuttingDown && _host != null;
         }
 
         /// <summary>
@@ -2140,9 +2138,9 @@ namespace DesktopAICompanion.AgentFlow
         /// stronger condition. A relationship between two booleans is not visible by reading
         /// either one; it needs an assertion, and an assertion needs something to call.
         /// </summary>
-        internal bool MayLookNow(bool answering, bool enabled)
+        internal bool MayLookNow(bool answering)
         {
-            return answering && !_shuttingDown && _host != null && enabled;
+            return answering && !_shuttingDown && _host != null;   // no `enabled`: see ShouldProbePort (F025)
         }
 
         /// <summary>
@@ -2180,6 +2178,15 @@ namespace DesktopAICompanion.AgentFlow
         /// what re-arms it for the next one.</summary>
         private string _announcedScreenPrompt;
 
+        /// <summary>
+        /// Whether the debugging port answered at the last poll.
+        ///
+        /// CACHED, and the reason is the tray menu. Tray labels are rebuilt on every menu open, so
+        /// probing the port there would put a blocking TCP connect with a timeout in the path of
+        /// the user's right-click -- on a dead port that is a visible stall every time they open
+        /// the menu. The poll already runs on its own timer, so it refreshes this and the menu
+        /// reads a field.
+        /// </summary>
         private volatile bool _portAnswering;
 
         /// <summary>
@@ -2237,14 +2244,12 @@ namespace DesktopAICompanion.AgentFlow
             }
         }
 
-        /// <summary>
-        /// One line for the pane saying whether approving can work, and it is allowed to say NO.
-        ///
-        /// The states are deliberately four and not two. "argv.json asks for the port" and "the
-        /// port answers" are different facts: VS Code applies the key at LAUNCH, so between the
-        /// edit and the restart the first is true and the second is false, and a status that
-        /// collapsed them would report success for a setup that cannot work yet.
-        /// </summary>
+        /// <summary>Seams for the assertions about repeat work. Both targets are private and both
+        /// properties are about NOT doing something, which is only observable by calling.</summary>
+        internal string SetupStatusLineForSelfTest() { return SetupStatusLine(); }
+
+        internal string[] AnimationChoicesForSelfTest(string pet) { return AnimationChoices(pet); }
+
         /// <summary>
         /// The argv.json / port status line, rendered from what the POLL last saw.
         ///
@@ -2258,13 +2263,14 @@ namespace DesktopAICompanion.AgentFlow
         /// socket. Cold only in the window between Init and the first tick completing, which is
         /// under a second; that one case pays for itself synchronously rather than showing a
         /// user a blank where a status line belongs.
+        ///
+        /// One line for the pane saying whether approving can work, and it is allowed to say NO.
+        ///
+        /// The states are deliberately four and not two. "argv.json asks for the port" and "the
+        /// port answers" are different facts: VS Code applies the key at LAUNCH, so between the
+        /// edit and the restart the first is true and the second is false, and a status that
+        /// collapsed them would report success for a setup that cannot work yet.
         /// </summary>
-        /// <summary>Seams for the assertions about repeat work. Both targets are private and both
-        /// properties are about NOT doing something, which is only observable by calling.</summary>
-        internal string SetupStatusLineForSelfTest() { return SetupStatusLine(); }
-
-        internal string[] AnimationChoicesForSelfTest(string pet) { return AnimationChoices(pet); }
-
         private string SetupStatusLine()
         {
             SetupReport report = _setupCache;
@@ -2689,7 +2695,9 @@ namespace DesktopAICompanion.AgentFlow
             Log("watching turned " + (enabled ? "ON" : "OFF") + " from the tray");
             if (enabled)
             {
-                if (_timer != null) _timer.Start();
+                // No _timer.Start() here: the timer runs in every mode from Init to Shutdown (Off mode is
+                // OnTick's early return, not a stopped timer), so the Start was a no-op that read as if the
+                // timer were stopped while off (F025). The immediate tick is what "Watching" turns on.
                 OnTick(null, EventArgs.Empty);
             }
             else
@@ -2704,21 +2712,6 @@ namespace DesktopAICompanion.AgentFlow
         }
 
         // ---- self-test ------------------------------------------------------
-
-        /// <summary>
-        /// Project convention: every tray entry carries its own icon, and no two entries share one.
-        /// </summary>
-        internal static bool EveryTrayEntryHasAUniqueIcon(IEnumerable<TrayItem> items)
-        {
-            var seen = new HashSet<string>(StringComparer.Ordinal);
-            foreach (TrayItem item in items)
-            {
-                if (item == null) return false;
-                if (item.IconPng == null || item.IconPng.Length == 0) return false;
-                if (!seen.Add(Convert.ToBase64String(item.IconPng))) return false;
-            }
-            return true;
-        }
 
         /// <summary>
         /// <c>DesktopAICompanion.exe --module-selftest=agentflow</c>.
@@ -2772,8 +2765,9 @@ namespace DesktopAICompanion.AgentFlow
                     module.Init(host);
 
                     probe.Check("contributes exactly one tray entry", host.TrayItems.Count == 1);
-                    probe.Check("every tray entry has an icon",
-                        EveryTrayEntryHasAUniqueIcon(host.TrayItems));
+                    // ModuleKit's shared check, which names the offending row; the private bare-bool copy
+                    // this used until 2026-09-30 could only say FAIL (F036).
+                    DesktopAICompanion.ModuleKit.Testing.TrayConventions.CheckTrayIcons(probe, host.TrayItems);
                     probe.Check("the tray entry is a pure submenu, not a button with an arrow",
                         host.TrayItems[0].Click == null && host.TrayItems[0].BuildChildren != null);
                     probe.Check("contributes exactly one settings pane", host.OptionsPanes.Count == 1);
@@ -2853,11 +2847,11 @@ namespace DesktopAICompanion.AgentFlow
                         SelfCheckCacheBound,
                     };
                     // Short-circuits on the first false, exactly as the && chain did. The result is
-                    // deliberately NOT asserted: 38 of the 39 groups end in a literal `return true`, while
-                    // a group that threw is caught upstream and never reaches this line -- so
-                    // `probe.Check("every logic group ran", ok)`, which used to sit here, was true by
-                    // construction and asserted nothing. It was the assertion most likely to be read as
-                    // "the suite ran", which is what made it worth removing rather than leaving.
+                    // deliberately NOT asserted: every group ends in a literal `return true` (a hand count
+                    // stood here and had drifted by two, F038), while a group that threw is caught upstream
+                    // and never reaches this line -- so `probe.Check("every logic group ran", ok)`, which
+                    // used to sit here, was true by construction and asserted nothing. It was the assertion
+                    // most likely to be read as "the suite ran", which is what made it worth removing.
                     foreach (Func<SelfTestProbe, bool> group in groups)
                         if (!group(probe)) break;
 
@@ -3086,6 +3080,17 @@ namespace DesktopAICompanion.AgentFlow
                 CommandSplitter.Split("", "bash").Count == 0);
             probe.Check("null input is not a crash",
                 CommandSplitter.Split(null, "bash").Count == 0);
+
+            // The SEPARATORS are output too, and until 2026-09-30 nothing read or asserted them (F047).
+            // Parity with the JS splitSegmentsDetailed is the stated reason the detailed shape exists, so
+            // the separator strings are pinned here rather than the shape collapsed to values only.
+            List<CommandSegment> detailed = CommandSplitter.SplitDetailed("a && b | c ; d", "bash");
+            probe.Check("detailed split records each segment's leading separator",
+                detailed.Count == 4 && detailed[0].Separator == null && detailed[1].Separator == "&&"
+                && detailed[2].Separator == "|" && detailed[3].Separator == ";");
+            List<CommandSegment> lines = CommandSplitter.SplitDetailed("a\r\nb", "bash");
+            probe.Check("a line break between commands is recorded as the newline separator",
+                lines.Count == 2 && lines[1].Separator == "\n");
             return true;
         }
 
@@ -3222,6 +3227,17 @@ namespace DesktopAICompanion.AgentFlow
                     && new List<string>(RuleLoader.ProjectPaths("")).Count == 0
                     && new List<string>(RuleLoader.ProjectPaths("relative\\dir")).Count == 0);
 
+                // F054: the home override honours ONE fully-qualified rule, TranscriptReader's. RuleLoader used
+                // to re-implement it (IsPathRooted plus "colon at index 1", no trimming), which honoured a
+                // drive-relative C:foo and resolved it against the current directory while the transcript
+                // override refused the same value.
+                Environment.SetEnvironmentVariable(RuleLoader.HomeVariable, "C:relative-claude-home");
+                string firstDefault = new List<string>(RuleLoader.DefaultPaths())[0];
+                Environment.SetEnvironmentVariable(RuleLoader.HomeVariable, home);
+                probe.Check("WITNESS a drive-relative AGENTFLOW_CLAUDE_HOME is ignored, not resolved against "
+                            + "the current directory",
+                    firstDefault.IndexOf("relative-claude-home", StringComparison.OrdinalIgnoreCase) < 0);
+
                 // Ten minutes old: inside the 15-minute window, well past the 30 s threshold. One
                 // COMPLETED push per session too, for the approvals audit: only the in-project one
                 // is allowed by any rule, so the tally can only ever be one, and only if project
@@ -3314,14 +3330,6 @@ namespace DesktopAICompanion.AgentFlow
             return true;
         }
 
-        /// <summary>
-        /// The rule-match caches are bounded, and `CacheStats` says of itself that the bound "can
-        /// be asserted rather than assumed". Nothing asserted it until 2026-09-17: the accessor
-        /// existed, the eviction path had never executed once, and a wholesale `.Clear()` of both
-        /// caches is exactly the kind of thing that is either fine or corrupts every later verdict.
-        ///
-        /// Runs last, because filling the cache to its cap empties it for every other caller.
-        /// </summary>
         /// <summary>
         /// The approval audit: what the rules let through, which is the half an approval module
         /// owes the user and did not have until 2026-09-18.
@@ -3994,8 +4002,6 @@ namespace DesktopAICompanion.AgentFlow
             return count;
         }
 
-        /// <summary>Capability lines only: the tray toggle logs its own sentence, and counting
-        /// that as a transition would hide a logger that never fires on its own.</summary>
         /// <summary>How many logged lines contain <paramref name="fragment"/>. Same shape as
         /// CapabilityLines below; a log assertion has to name the WORDS, because counting lines cannot
         /// tell "spoke" from "signalled".</summary>
@@ -4009,6 +4015,8 @@ namespace DesktopAICompanion.AgentFlow
             return n;
         }
 
+        /// <summary>Capability lines only: the tray toggle logs its own sentence, and counting
+        /// that as a transition would hide a logger that never fires on its own.</summary>
         private static int CapabilityLines(DesktopAICompanion.ModuleKit.Testing.RecordingHost host)
         {
             int n = 0;
@@ -4405,6 +4413,37 @@ namespace DesktopAICompanion.AgentFlow
                     server.AttachCount == 1 && server.EvaluateCount == 1);
             }
 
+            // THE PRESS ITSELF, over the wire (F048). Every other WIRE case answers the callback with a canned
+            // string, because the fake used to serve one connection at a time and Click, which the production
+            // callback runs INSIDE the sweep's open session, opens a second one: its GET /json/version sat in
+            // the listener queue until the sweep's session closed, timed out, and read as "gone". The fake now
+            // hands each accepted connection to its own task, so the nested connection, the click template's
+            // execution and the "clicked" parsing all run here, through Decide, the way production runs them.
+            using (var pressable = new FakeCdpServer(new[]
+            {
+                new FakeCdpServer.Target
+                {
+                    Id = "claude-1", Url = claudeUrl, EvaluateResult = PromptJson, ClickResult = "clicked",
+                },
+            }))
+            {
+                bool sawPanelAfterPress;
+                bool wirePressed = false;
+                string pressNote = CdpApprover.Sweep(pressable.Port,
+                    delegate(PromptView v)
+                    {
+                        return Decide(pressable.Port, v, new PressBudget(), false, false, out wirePressed);
+                    },
+                    4000, out sawPanelAfterPress);
+                probe.Check("WIRE the production callback presses through a second connection inside the sweep",
+                    wirePressed);
+                probe.Check("WIRE the press note says clicked",
+                    pressNote != null && pressNote.IndexOf("auto-approve clicked", StringComparison.Ordinal) >= 0);
+                probe.Check("WIRE a pressing sweep attached twice and evaluated twice: once to read, once to click",
+                    pressable.AttachCount == 2 && pressable.EvaluateCount == 2);
+                probe.Check("WIRE sawPanel stays TRUE after a real press", sawPanelAfterPress);
+            }
+
             // An idle editor: reachable, nothing waiting. sawPanel must be true -- the panel WAS
             // read -- while nothing is pressed. Conflating "read it, no prompt" with "could not
             // read it" is BUG-006's whole subject.
@@ -4755,7 +4794,6 @@ namespace DesktopAICompanion.AgentFlow
             return true;
         }
 
-        /// <summary>A prompt whose header names no tool, the way four of the five shapes do.</summary>
         /// <summary>A prompt with a header AND options, for the Decide-level assertions.</summary>
         private static PromptView Header2(string header, string[] options)
         {
@@ -4764,6 +4802,7 @@ namespace DesktopAICompanion.AgentFlow
             return view;
         }
 
+        /// <summary>A prompt whose header names no tool, the way four of the five shapes do.</summary>
         private static PromptView Header(string header, string extension)
         {
             return new PromptView
@@ -4811,6 +4850,12 @@ namespace DesktopAICompanion.AgentFlow
             // ---- the repeat limit, which is the one that catches a broken click ------
             var budget = new PressBudget();
             string same = PressBudget.Signature("Bash", new[] { "Yes", "No" });
+            // The separator between the tool and each option is U+001F, a control character no option label
+            // can carry. Spelled as an escape in Signature since 2026-09-30 (the raw byte read as an EMPTY char
+            // literal in every viewer that hides control characters, F052), and pinned here so a "fix" to a
+            // visible separator that an option could contain fails by name.
+            probe.Check("the signature separator is a control character no option label can carry",
+                same.IndexOf((char)0x1F) == 4 && same.Split((char)0x1F).Length == 3);
             int allowed = 0;
             for (int i = 0; i < PressBudget.MaxIdenticalPresses; i++)
                 if (budget.TryPress(same, t0.AddSeconds(i * 10), out refusal)) allowed++;
@@ -5550,24 +5595,6 @@ namespace DesktopAICompanion.AgentFlow
             public string DataDirectory { get { return _dir; } }
         }
         /// <summary>
-        /// "Yes, allow ... for all projects", and the choice to press it.
-        ///
-        /// The strings here are the REAL ones, read off a live prompt on 2026-09-19, because the
-        /// finished label never appears as a literal in the agent's bundle: it is composed from
-        /// "Yes, allow " + the rules + " for " + a destination, so it could only be transcribed
-        /// from something rendered.
-        /// </summary>
-        /// <summary>
-        /// Codex's prompt vocabulary, and the opt-in for its wider row.
-        ///
-        /// Everything here was read off a LIVE Codex prompt over CDP on 2026-09-21 rather than
-        /// transcribed from a bundle: the button renders "Allow once \u23CE" with the keyboard hint
-        /// inside the label, the deny row renders "Deny Esc", and the dropdown behind the split
-        /// button carries "Allow once" and "Allow similar commands" as menuitems WITHOUT the hint.
-        /// Both spellings therefore have to classify the same way, which is what the stripper is
-        /// for and the first two checks are about.
-        /// </summary>
-        /// <summary>
         /// The Codex transport: which targets it reaches, and two rules about the expressions.
         ///
         /// Source-text checks, because a JS string cannot be executed here. They assert the two
@@ -5643,21 +5670,6 @@ namespace DesktopAICompanion.AgentFlow
             return true;
         }
 
-        /// <summary>
-        /// Codex's permission policy is READ now, and still not acted on.
-        ///
-        /// Phase one of closing the watch gap: the reader learns where Codex keeps the field, so
-        /// the stand-down can say something true. What does NOT change is what fires -- precision
-        /// for Codex is unmeasured, and the allow-list of exactly "default" is the thing standing
-        /// between this module and guessing.
-        /// </summary>
-        /// <summary>
-        /// The teardown rule, and the privacy split that had no reader.
-        ///
-        /// A stale NOTIFY is noise. A stale PRESS is an action taken on someone's behalf after
-        /// they switched the thing off, and stopping the timer does not prevent it: the poll is
-        /// already on a worker and ends in a click.
-        /// </summary>
         /// <summary>What the host would show for this pane: LoadPending with nothing pending.
         ///
         /// The assertions used to call pane.Load(), which the host never calls once a module
@@ -5668,23 +5680,6 @@ namespace DesktopAICompanion.AgentFlow
             return pane.LoadPending(new Dictionary<string, string>(StringComparer.Ordinal));
         }
 
-        /// <summary>
-        /// The watch section says whether it is doing anything, and every Info row it declares
-        /// actually has a value.
-        ///
-        /// An Info field renders its LOAD VALUE, not its Label, so a row declared in the schema
-        /// and missing from Load renders EMPTY -- a blank line in the pane with nothing to explain
-        /// it. That is the failure this whole section was added to prevent, so it would be a poor
-        /// joke to reintroduce it here.
-        /// </summary>
-        /// <summary>
-        /// Telling the user about a prompt that is ON SCREEN and unpressed.
-        ///
-        /// The point of this path is that it is an observation rather than a prediction, so the
-        /// thing worth pinning is that it fires ONCE per prompt and re-arms when the screen goes
-        /// quiet. A notifier that repeats every poll is worse than none: it trains the user to
-        /// ignore it, and this one speaks out loud.
-        /// </summary>
         /// <summary>
         /// Two settings that persisted perfectly and then did nothing, which is worse than not
         /// persisting: the pane shows the saved value back, so there is nothing to notice.
@@ -6404,6 +6399,14 @@ namespace DesktopAICompanion.AgentFlow
             return true;
         }
 
+        /// <summary>
+        /// Telling the user about a prompt that is ON SCREEN and unpressed.
+        ///
+        /// The point of this path is that it is an observation rather than a prediction, so the
+        /// thing worth pinning is that it fires ONCE per prompt and re-arms when the screen goes
+        /// quiet. A notifier that repeats every poll is worse than none: it trains the user to
+        /// ignore it, and this one speaks out loud.
+        /// </summary>
         private static bool SelfCheckScreenPrompt(SelfTestProbe probe)
         {
             var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
@@ -6477,6 +6480,15 @@ namespace DesktopAICompanion.AgentFlow
             return true;
         }
 
+        /// <summary>
+        /// The watch section says whether it is doing anything, and every Info row it declares
+        /// actually has a value.
+        ///
+        /// An Info field renders its LOAD VALUE, not its Label, so a row declared in the schema
+        /// and missing from Load renders EMPTY -- a blank line in the pane with nothing to explain
+        /// it. That is the failure this whole section was added to prevent, so it would be a poor
+        /// joke to reintroduce it here.
+        /// </summary>
         private static bool SelfCheckWatchSection(SelfTestProbe probe)
         {
             probe.Check("WITNESS with every session standing down, it says so plainly",
@@ -6546,30 +6558,6 @@ namespace DesktopAICompanion.AgentFlow
                    + " out=[" + render(outstanding) + "] done=[" + render(completed) + "]";
         }
 
-        /// <summary>
-        /// The incremental fold must agree with a whole-file parse, wherever the stream is cut.
-        ///
-        /// EXHAUSTIVE, not sampled. The fixture is small enough to split at EVERY byte offset,
-        /// which is strictly better than choosing interesting boundaries and hoping the list was
-        /// complete. It therefore covers, by exhaustion rather than by intention: a cut inside a
-        /// JSON string, inside a multi-byte character (the fixture carries a two-byte e-acute and
-        /// a four-byte wrench in both a value and a command), exactly on a newline, on a record
-        /// boundary, and the zero-length read at each end.
-        ///
-        /// Each split gets its OWN path. Reusing one would let Windows file tunnelling hand the
-        /// recreated file its predecessor's creation time, or not, and a cursor that saw a
-        /// changed creation time would reset and re-read the whole file -- passing the assertion
-        /// while testing nothing incremental at all.
-        /// </summary>
-        /// <summary>
-        /// The cursor starts over when the file it was resuming into is no longer that file,
-        /// and says why.
-        ///
-        /// Deliberately separate from the equivalence test, which asserts resets == 0. A reader
-        /// that reset on every tick would pass equivalence perfectly and be exactly the design
-        /// this replaces, so "it recovers" and "it does not over-recover" are different claims
-        /// and need different tests.
-        /// </summary>
         /// <summary>A comparable rendering of a whole Scan: what it detected and what it tallied.
         /// Sorted, because neither list has a meaningful order.</summary>
         private static string CanonicalScan(List<Detection> results, Dictionary<string, int> approved)
@@ -6712,6 +6700,15 @@ namespace DesktopAICompanion.AgentFlow
             return true;
         }
 
+        /// <summary>
+        /// The cursor starts over when the file it was resuming into is no longer that file,
+        /// and says why.
+        ///
+        /// Deliberately separate from the equivalence test, which asserts resets == 0. A reader
+        /// that reset on every tick would pass equivalence perfectly and be exactly the design
+        /// this replaces, so "it recovers" and "it does not over-recover" are different claims
+        /// and need different tests.
+        /// </summary>
         private static bool SelfCheckCursorResets(SelfTestProbe probe)
         {
             var utf8 = new System.Text.UTF8Encoding(false);
@@ -6823,6 +6820,21 @@ namespace DesktopAICompanion.AgentFlow
             return true;
         }
 
+        /// <summary>
+        /// The incremental fold must agree with a whole-file parse, wherever the stream is cut.
+        ///
+        /// EXHAUSTIVE, not sampled. The fixture is small enough to split at EVERY byte offset,
+        /// which is strictly better than choosing interesting boundaries and hoping the list was
+        /// complete. It therefore covers, by exhaustion rather than by intention: a cut inside a
+        /// JSON string, inside a multi-byte character (the fixture carries a two-byte e-acute and
+        /// a four-byte wrench in both a value and a command), exactly on a newline, on a record
+        /// boundary, and the zero-length read at each end.
+        ///
+        /// Each split gets its OWN path. Reusing one would let Windows file tunnelling hand the
+        /// recreated file its predecessor's creation time, or not, and a cursor that saw a
+        /// changed creation time would reset and re-read the whole file -- passing the assertion
+        /// while testing nothing incremental at all.
+        /// </summary>
         private static bool SelfCheckFoldEquivalence(SelfTestProbe probe)
         {
             const string fixture = "{\"type\":\"permission-mode\",\"permissionMode\":\"default\"}\n{\"cwd\":\"C:\\caf\u00e9\\r\ud83d\udd27\"}\n{\"timestamp\":\"2026-09-21T10:00:00Z\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"c1\",\"name\":\"Bash\",\"input\":{\"command\":\"echo \u00e9\"}}]}}\n{\"timestamp\":\"2026-09-21T10:00:01Z\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"c1\"}]}}\n{\"timestamp\":\"2026-09-21T10:00:02Z\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"c2\",\"name\":\"Read\",\"input\":{\"file_path\":\"a.txt\"}}]}}\n";
@@ -6937,6 +6949,13 @@ namespace DesktopAICompanion.AgentFlow
             }
         }
 
+        /// <summary>
+        /// The teardown rule, and the privacy split that had no reader.
+        ///
+        /// A stale NOTIFY is noise. A stale PRESS is an action taken on someone's behalf after
+        /// they switched the thing off, and stopping the timer does not prevent it: the poll is
+        /// already on a worker and ends in a click.
+        /// </summary>
         private static bool SelfCheckTeardown(SelfTestProbe probe)
         {
             var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
@@ -6959,17 +6978,17 @@ namespace DesktopAICompanion.AgentFlow
                 // from the day it shipped. A relationship between two predicates is invisible in
                 // either one of them, so it is asserted here.
                 probe.Check("WITNESS the panel may be READ with auto-approve off",
-                    module.MayLookNow(true, true) && !module.ShouldPressNow(false, true));
+                    module.MayLookNow(true) && !module.ShouldPressNow(false, true));
                 probe.Check("WITNESS ...but nothing may be read with no port answering",
-                    !module.MayLookNow(false, true));
+                    !module.MayLookNow(false));
                 probe.Check("WITNESS a Notify-mode tick still probes the port, which is the "
                             + "value the whole look/press split depends on",
-                    module.ShouldProbePort(true));
-                // The predicates take `enabled` as an argument now, so on its own the line
-                // above would pass even if no real mode ever supplied true. This is the
-                // other half: Notify is a mode that scans.
-                probe.Check("WITNESS ...and Notify really is a mode that scans, so that "
-                            + "argument is not hypothetical",
+                    module.ShouldProbePort());
+                // The predicates no longer take `enabled` (F025): the tick's early return on !Enabled is
+                // the mode gate, so the line above says nothing about modes on its own. This is the other
+                // half: Notify is a mode that scans and Off is not, which is what that early return decides.
+                probe.Check("WITNESS ...and Notify really is a mode that scans, so the "
+                            + "tick's mode gate is not hypothetical",
                     AgentMode.Scans(AgentMode.Notify) && !AgentMode.Scans(AgentMode.Off));
 
                 probe.Check("a live module with the switch on and a port answering may press",
@@ -7028,7 +7047,7 @@ namespace DesktopAICompanion.AgentFlow
                     !module.ShouldPressNow(true, true));
                 probe.Check("WITNESS ...and so is a LOOK, which is the weaker of the two and so "
                             + "the one a shutdown guard is easiest to forget on",
-                    !module.MayLookNow(true, true));
+                    !module.MayLookNow(true));
                 probe.Check("WITNESS ...and so is the in-flight press, at its last look, while the "
                             + "host is still attached",
                     !module.StillArmed());
@@ -7063,15 +7082,6 @@ namespace DesktopAICompanion.AgentFlow
             return true;
         }
 
-        /// <summary>
-        /// A Codex session that asks before it acts CAN now be watched, on a threshold measured
-        /// against a control group rather than borrowed from Claude.
-        ///
-        /// The control is what makes the number meaningful: sessions running approval_policy
-        /// `never` cannot ask a human, so every stall in them is machine-only. Over 18,974 such
-        /// calls the longest gap was 121.2 s and nothing exceeded 180 s. Claude's 30 s would have
-        /// fired on 946 of them.
-        /// </summary>
         /// <summary>
         /// The per-session explanation set is bounded by what is live, not by uptime.
         ///
@@ -7149,6 +7159,15 @@ namespace DesktopAICompanion.AgentFlow
             return CountLoggedContaining(host.LoggedLines, "no tool calls yet in session") == before + 1;
         }
 
+        /// <summary>
+        /// A Codex session that asks before it acts CAN now be watched, on a threshold measured
+        /// against a control group rather than borrowed from Claude.
+        ///
+        /// The control is what makes the number meaningful: sessions running approval_policy
+        /// `never` cannot ask a human, so every stall in them is machine-only. Over 18,974 such
+        /// calls the longest gap was 121.2 s and nothing exceeded 180 s. Claude's 30 s would have
+        /// fired on 946 of them.
+        /// </summary>
         private static bool SelfCheckCodexWatch(SelfTestProbe probe)
         {
             var rules = new RuleSet();
@@ -7225,6 +7244,14 @@ namespace DesktopAICompanion.AgentFlow
             return true;
         }
 
+        /// <summary>
+        /// Codex's permission policy is READ now, and still not acted on.
+        ///
+        /// Phase one of closing the watch gap: the reader learns where Codex keeps the field, so
+        /// the stand-down can say something true. What does NOT change is what fires -- precision
+        /// for Codex is unmeasured, and the allow-list of exactly "default" is the thing standing
+        /// between this module and guessing.
+        /// </summary>
         private static bool SelfCheckCodexMode(SelfTestProbe probe)
         {
             string scratch = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
@@ -7273,6 +7300,16 @@ namespace DesktopAICompanion.AgentFlow
             return true;
         }
 
+        /// <summary>
+        /// Codex's prompt vocabulary, and the opt-in for its wider row.
+        ///
+        /// Everything here was read off a LIVE Codex prompt over CDP on 2026-09-21 rather than
+        /// transcribed from a bundle: the button renders "Allow once \u23CE" with the keyboard hint
+        /// inside the label, the deny row renders "Deny Esc", and the dropdown behind the split
+        /// button carries "Allow once" and "Allow similar commands" as menuitems WITHOUT the hint.
+        /// Both spellings therefore have to classify the same way, which is what the stripper is
+        /// for and the first two checks are about.
+        /// </summary>
         private static bool SelfCheckCodexOptions(SelfTestProbe probe)
         {
             string matched;
@@ -7330,6 +7367,14 @@ namespace DesktopAICompanion.AgentFlow
             return true;
         }
 
+        /// <summary>
+        /// "Yes, allow ... for all projects", and the choice to press it.
+        ///
+        /// The strings here are the REAL ones, read off a live prompt on 2026-09-19, because the
+        /// finished label never appears as a literal in the agent's bundle: it is composed from
+        /// "Yes, allow " + the rules + " for " + a destination, so it could only be transcribed
+        /// from something rendered.
+        /// </summary>
         private static bool SelfCheckAllProjects(SelfTestProbe probe)
         {
             // The exact prompt that exposed this. Both rows used to classify approve-once, so the
@@ -7617,6 +7662,14 @@ namespace DesktopAICompanion.AgentFlow
             { error = null; return false; }
             public bool UninstallType(string typeId, out string error) { error = null; return false; }
         }
+        /// <summary>
+        /// The rule-match caches are bounded, and `CacheStats` says of itself that the bound "can
+        /// be asserted rather than assumed". Nothing asserted it until 2026-09-17: the accessor
+        /// existed, the eviction path had never executed once, and a wholesale `.Clear()` of both
+        /// caches is exactly the kind of thing that is either fine or corrupts every later verdict.
+        ///
+        /// Runs last, because filling the cache to its cap empties it for every other caller.
+        /// </summary>
         private static bool SelfCheckCacheBound(SelfTestProbe probe)
         {
             int normalized, compiled, limit;

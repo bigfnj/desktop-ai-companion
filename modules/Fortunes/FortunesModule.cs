@@ -77,6 +77,11 @@ namespace DesktopAICompanion.FortunesModule
                                  //         refused rather than recited as prose; the vector cache stops
                                  //         re-reading itself at every checkpoint and drops its raw copy once
                                  //         the warm has saved. (The 2026-09-29 audit's Fortunes findings.)
+                                 //         Lane fix/deadcode, same version: a downloaded pack is validated
+                                 //         before it is written and a refusal is its own download cause; the
+                                 //         engine's and the embedder's sub-reports reach the probe output; the
+                                 //         pack policy is compiled from the host's file; a second Warm on one
+                                 //         picker is proven to supersede the first (F120, F124, F131, F136).
                                  // 1.0.11: exposes SelfTest on the module class, so --module-selftest runs
                                  //         FortuneEngineProbe through the convention the gate and CI use.
                                  // 1.0.10: the smart-index status no longer reads "Indexing N fortunes in the
@@ -145,8 +150,10 @@ namespace DesktopAICompanion.FortunesModule
                                  // 1.1.2: helpers come from DesktopAICompanion.ModuleKit instead of local copies
                                  // 1.1.1: Genres filter now applies to downloaded packs (per-source genre)
                                  // 1.1.0: carries the built-in fortune corpus again (it was never embedded here)
-            // 1.5.0 is the host that added the pet-aware responders. Declaring it means an older host refuses
-            // this module with a legible reason instead of loading it and broadcasting every fortune.
+            // The pet-aware responders this module needs shipped in the host before the public renumbering
+            // (pre-release 1.5.0), so every public host has them and 1.0.0 is the floor. Declaring a floor at
+            // all means a host below it refuses the module with a legible reason instead of loading it and
+            // broadcasting every fortune.
             MinHostVersion = "1.0.0",
             Permissions = ModulePermissions.Speech | ModulePermissions.ScreenContext | ModulePermissions.Storage,
         };
@@ -472,9 +479,11 @@ namespace DesktopAICompanion.FortunesModule
         /// fortune text ever: this is the module whose whole payload is content a user chose to install, and
         /// the diagnostic log is what SUPPORT.md tells them they can attach to a public issue.</para>
         ///
-        /// <para><paramref name="disabledSources"/> rather than a total, because the total costs a second
-        /// full corpus load (<c>FortuneProvider.Sources()</c> re-reads every pack) and carries no extra
-        /// information: packs=33 off=157 says what "33 of 190" says. <paramref name="modelPresent"/> is the
+        /// <para><paramref name="disabledSources"/> rather than a total: the two counts carry what "33 of 190"
+        /// carries, and the caller has both without another walk. (This used to cite the cost of
+        /// <c>FortuneProvider.Sources()</c> re-reading every pack; every corpus tier is cached now, the folder
+        /// on a fingerprint, so that reason is gone and the shape stays for the information, F141.)
+        /// <paramref name="modelPresent"/> is the
         /// silent-degradation case — with smart picks ON and the bge-small asset missing from the payload,
         /// <c>SmartFortunes</c> can never become ready and every pick quietly falls back to random. (The
         /// pane used to go on reporting "indexing in the background" in that state; since 1.0.12 it says
@@ -1145,10 +1154,11 @@ namespace DesktopAICompanion.FortunesModule
                     if (item != null && _selectedPacks.Contains(item.Id)) pending.Add(item);
 
                 int installed = 0, failed = 0;
-                // The three failure CAUSES, counted apart. Two of them produce no reason anywhere today:
-                // a refused id and an empty payload both land in the user's "N packs failed" with nothing
-                // after it, because only the exception branch fills lastError. See DescribeDownload.
-                int rejectedId = 0, emptyPayload = 0, threw = 0;
+                // The four failure CAUSES, counted apart. Three of them throw nothing, so a refused id, an
+                // empty payload and a pack the loader would refuse all land in the user's "N packs failed"
+                // with nothing after it (only the exception branch fills lastError); DescribeDownload's log
+                // line is where they are told apart.
+                int rejectedId = 0, emptyPayload = 0, malformed = 0, threw = 0;
                 string lastError = "";
                 string lastCategory = "";
                 foreach (CatalogItem item in pending)
@@ -1162,6 +1172,14 @@ namespace DesktopAICompanion.FortunesModule
                         // IHost.GetSettings, which PluginApi's IHost contract requires on the UI thread.
                         byte[] bytes = await host.DownloadCatalogItemAsync(CatalogKinds.Pack, item.Id);
                         if (bytes == null || bytes.Length == 0) { failed++; emptyPayload++; continue; }
+                        // The host verified the URL, the hash and the byte cap; nothing had checked the CONTENT.
+                        // A pack the folder loader would refuse was written, counted installed and then skipped
+                        // at load with only the skip line to say so, so "Downloaded 1 pack" and "no new source"
+                        // were both true (F131). Same validator the importer uses: tagged OR plain, the loader's
+                        // own limits, and a refusal is its own cause in the log line.
+                        if (!FortuneProvider.TryValidateCustomPackBytes(bytes, item.Id,
+                                FortunePackLoadPolicy.MaximumEntries, out _, out _))
+                        { failed++; malformed++; continue; }
                         // Asynchronous, like the download before it: a synchronous write sat on the UI thread
                         // once per ticked pack (F146; median 23 KB, so the small half of that handler's
                         // stall -- the large half was the re-parse, now off the thread in RebuildEngineAsync).
@@ -1179,7 +1197,7 @@ namespace DesktopAICompanion.FortunesModule
 
                 // Logged BEFORE the rebuild, so this line and the engine line that follows it read in the
                 // order the work happened.
-                Log(DescribeDownload(pending.Count, installed, rejectedId, emptyPayload, threw, lastCategory));
+                Log(DescribeDownload(pending.Count, installed, rejectedId, emptyPayload, malformed, threw, lastCategory));
 
                 await RebuildEngineAsync(false);   // the new packs join the pool (and the smart index) right away
                 // Drop the installed ones from the available list so the card shows what's still missing.
@@ -1203,12 +1221,12 @@ namespace DesktopAICompanion.FortunesModule
         /// What a download batch actually did, per CAUSE rather than as one total. Pure, so the wording is
         /// asserted rather than eyeballed.
         ///
-        /// <para>The reason this is worth a line: the user is told "3 packs failed" and, for two of the
-        /// three ways that happens, nothing else at all. Only the exception branch fills the reason shown
-        /// beside that count, so a catalog id this module refuses to write and a payload the host handed
-        /// back empty (a hash mismatch, a truncated response) are indistinguishable from each other and
-        /// from a disk error — and the status text is gone the moment the pane closes, while the log is
-        /// what goes on the issue.</para>
+        /// <para>The reason this is worth a line: the user is told "3 packs failed" and, for three of the
+        /// four ways that happens, nothing else at all. Only the exception branch fills the reason shown
+        /// beside that count, so a catalog id this module refuses to write, a payload the host handed
+        /// back empty (a hash mismatch, a truncated response) and a pack the loader would refuse (F131)
+        /// are indistinguishable from each other and from a disk error — and the status text is gone the
+        /// moment the pane closes, while the log is what goes on the issue.</para>
         ///
         /// <para>ONE line per batch, not one per pack: selecting all 158 catalog packs is a normal thing to
         /// do, and a per-pack line would make a single click the largest thing in the file. Pack ids are
@@ -1216,15 +1234,16 @@ namespace DesktopAICompanion.FortunesModule
         /// the fault.</para>
         /// </summary>
         internal static string DescribeDownload(int requested, int installed, int rejectedId,
-            int emptyPayload, int threw, string lastCategory)
+            int emptyPayload, int malformed, int threw, string lastCategory)
         {
             string line = "pack download: requested=" + Invariant(requested) +
                           " installed=" + Invariant(installed);
-            int failed = rejectedId + emptyPayload + threw;
+            int failed = rejectedId + emptyPayload + malformed + threw;
             if (failed == 0) return line + " failed=0";
             line += " failed=" + Invariant(failed) +
                     " (rejected-id=" + Invariant(rejectedId) +
                     " empty-payload=" + Invariant(emptyPayload) +
+                    " malformed=" + Invariant(malformed) +
                     " error=" + Invariant(threw) + ")";
             return string.IsNullOrEmpty(lastCategory) ? line : line + " last=" + lastCategory;
         }

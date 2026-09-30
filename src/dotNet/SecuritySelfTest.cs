@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Net;
+using DesktopAICompanion.ModuleKit;   // CrossSessionLock (F358)
 using System.Net.Http;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -38,24 +39,73 @@ namespace DesktopAICompanion
         {
             output = output ?? TextWriter.Null;
             int failures = 0;
+            string defaultXml = Properties.Resources.animations;
 
-            CheckCrossSessionLock(ref failures, output);
+            // Every section runs under Section(), so one that throws is a named [FAIL] line and the sections
+            // after it still run. Until 2026-09-30 Run had no catch at all: an exception a section did not
+            // expect (the four download-deadline sections catch only TimeoutException) escaped Main as an
+            // unhandled exception, so the process died with a stack dump, every later check was skipped and
+            // the summary below never printed. The exit code still failed the gate; the report said nothing
+            // about why (F298).
+            Section("CheckCrossSessionLock", CheckCrossSessionLock, ref failures, output);
+            Section("core checks",
+                delegate(ref int f, TextWriter o) { CoreChecks(defaultXml, ref f, o); },
+                ref failures, output);
+            Section("CheckRetainedLocalXmlAdmission", CheckRetainedLocalXmlAdmission, ref failures, output);
+            Section("CheckIconDirectoryPreflight",
+                delegate(ref int f, TextWriter o) { CheckIconDirectoryPreflight(defaultXml, ref f, o); },
+                ref failures, output);
+            Section("CheckPetXmlResourceLimits",
+                delegate(ref int f, TextWriter o) { CheckPetXmlResourceLimits(defaultXml, ref f, o); },
+                ref failures, output);
+            Section("CheckAnimationReachability",
+                delegate(ref int f, TextWriter o) { CheckAnimationReachability(defaultXml, ref f, o); },
+                ref failures, output);
+            Section("CheckAudioValidation",
+                delegate(ref int f, TextWriter o) { CheckAudioValidation(defaultXml, ref f, o); },
+                ref failures, output);
+            Section("CheckAboutLinkPolicy", CheckAboutLinkPolicy, ref failures, output);
+            Section("CheckSharedSpriteFrameOwnership", CheckSharedSpriteFrameOwnership, ref failures, output);
+            // The smart-fortune lifecycle checks moved to the Fortunes module with the engine (S3d) and run
+            // under --fortunes-engine-selftest; the idle-schedule check that stood beside them went with
+            // GenerationAwareIdleSchedule on 2026-09-27, and its dispose-counting double (DiagnosticOwnedValue)
+            // followed on 2026-09-30 (F302).
+            Section("CheckSecureDownloadDeadline", CheckSecureDownloadDeadline, ref failures, output);
+            Section("CheckRestartLifecycle", CheckRestartLifecycle, ref failures, output);
 
+            output.WriteLine(failures == 0
+                ? "Security self-test: PASS"
+                : "Security self-test: FAIL (" + failures + " checks)");
+            return failures == 0;
+        }
+
+        private delegate void SectionBody(ref int failures, TextWriter output);
+
+        /// <summary>Run one section; an exception it did not expect becomes a [FAIL] line naming the section
+        /// (type and message, no stack: the gate runs the Release build with no symbols, so a trace would carry
+        /// no line numbers) and the remaining sections still run (F298).</summary>
+        private static void Section(string name, SectionBody body, ref int failures, TextWriter output)
+        {
+            try
+            {
+                body(ref failures, output);
+            }
+            catch (Exception ex)
+            {
+                Check(false, name + " threw " + ex.GetType().Name + ": " + ex.Message, ref failures, output);
+            }
+        }
+
+        /// <summary>The checks Run carried inline before every section was guarded: catalog ids, expressions,
+        /// pet XML admission, and the DTD and zero-tile rejections.</summary>
+        private static void CoreChecks(string defaultXml, ref int failures, TextWriter output)
+        {
             Check(SecureDownload.IsSafeId("dadjokes"), "safe catalog id", ref failures, output);
             Check(!SecureDownload.IsSafeId("../escape"), "path traversal id rejected", ref failures, output);
             Check(!SecureDownload.IsSafeId("CON"), "Windows device id rejected", ref failures, output);
-
-            Uri pinned;
-            string uriError;
-            Check(SecureDownload.TryValidatePinnedRawGitHubUrl(
-                    "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/" +
-                    "b52c11d184532364019ffc1756f3f0868ec99997/packs/dadjokes.txt",
-                    "bigfnj", "desktop-ai-companion", out pinned, out uriError),
-                "commit-pinned catalog URL", ref failures, output);
-            Check(!SecureDownload.TryValidatePinnedRawGitHubUrl(
-                    "https://raw.githubusercontent.com/bigfnj/desktop-ai-companion/master/packs/dadjokes.txt",
-                    "bigfnj", "desktop-ai-companion", out pinned, out uriError),
-                "mutable catalog URL rejected", ref failures, output);
+            // Two checks on the commit-pinned URL validator stood here. Production never pinned to a commit
+            // (every catalog URL is branch-pinned, integrity anchored by SHA-256), and the branch validator's
+            // rejections are asserted where it is consumed, by RemoteCatalog.SelfTest's bad-host case (F296).
 
             CheckExpression("1+2*3", 7, ref failures, output);
             CheckExpression("Convert(101/2,System.Int32)%30", 20, ref failures, output);
@@ -90,7 +140,6 @@ namespace DesktopAICompanion
 
             XmlData.RootNode parsed;
             string xmlError;
-            string defaultXml = Properties.Resources.animations;
             Check(CompanionXmlValidator.TryParse(defaultXml, out parsed, out xmlError),
                 "bundled pet XML validates" + FormatError(xmlError), ref failures, output);
             string canonicalPetPath;
@@ -146,23 +195,6 @@ namespace DesktopAICompanion
                 defaultXml, "<tilesx>0</tilesx>", 1);
             Check(!CompanionXmlValidator.TryParse(zeroTiles, out parsed, out xmlError),
                 "zero tile count rejected", ref failures, output);
-
-            CheckRetainedLocalXmlAdmission(ref failures, output);
-            CheckIconDirectoryPreflight(defaultXml, ref failures, output);
-            CheckPetXmlResourceLimits(defaultXml, ref failures, output);
-            CheckAnimationReachability(defaultXml, ref failures, output);
-            CheckAudioValidation(defaultXml, ref failures, output);
-            CheckAboutLinkPolicy(ref failures, output);
-            CheckSharedSpriteFrameOwnership(ref failures, output);
-            // Smart-fortune lifecycle tests moved to the Fortunes module with the engine (S3d);
-            // exercised there via --fortunes-engine-selftest. The idle-schedule test stays (AI-brain).
-            CheckSecureDownloadDeadline(ref failures, output);
-            CheckRestartLifecycle(ref failures, output);
-
-            output.WriteLine(failures == 0
-                ? "Security self-test: PASS"
-                : "Security self-test: FAIL (" + failures + " checks)");
-            return failures == 0;
         }
 
         private static void CheckRetainedLocalXmlAdmission(
@@ -490,10 +522,16 @@ namespace DesktopAICompanion
             ref int failures,
             TextWriter output)
         {
+            // Pinned to the LITERAL on both sides. MaximumSpriteTiles is DEFINED as SpriteFrameStore.MaximumFrames,
+            // so comparing the two to each other could never fail (F300). What can drift is the VALUE against
+            // the converter's two literal copies (tools/ShimejiConvert.Engine: ValidatorResources.cs and
+            // SpriteSheetBuilder.cs, held to Xml.cs by that project's AssertSpriteFrameLimit target), so a
+            // change to the shared constant now fails here and names them.
             Check(
-                CompanionXmlValidator.MaximumSpriteTiles ==
-                SpriteFrameStore.MaximumFrames,
-                "pet validator and runtime share the sprite-tile limit",
+                CompanionXmlValidator.MaximumSpriteTiles == 1024 &&
+                SpriteFrameStore.MaximumFrames == 1024,
+                "pet validator and runtime share the sprite-tile limit (1024, copied literally by the " +
+                    "converter's ValidatorResources.cs and SpriteSheetBuilder.cs)",
                 ref failures,
                 output);
 
@@ -1289,21 +1327,6 @@ namespace DesktopAICompanion
             catch (T)
             {
                 return true;
-            }
-        }
-
-        private sealed class DiagnosticOwnedValue : IDisposable
-        {
-            private int disposeCount;
-
-            internal int DisposeCount
-            {
-                get { return Volatile.Read(ref disposeCount); }
-            }
-
-            public void Dispose()
-            {
-                Interlocked.Increment(ref disposeCount);
             }
         }
 

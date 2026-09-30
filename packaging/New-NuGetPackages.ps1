@@ -91,9 +91,12 @@ try {
     $nuspecEntry = @($zip.Entries | Where-Object { $_.FullName -like '*.nuspec' })[0]
     $reader = New-Object IO.StreamReader($nuspecEntry.Open())
     try { [xml]$nuspec = $reader.ReadToEnd() } finally { $reader.Dispose() }
-    $deps = $nuspec.package.metadata.dependencies
+    # SelectSingleNode, not the .dependencies property: under Set-StrictMode an ABSENT element throws
+    # PropertyNotFoundException at the read, so the null guard could never see that case (F217). Null means
+    # zero dependencies, which is the answer this check wants; the count is relative to the element.
+    $deps = $nuspec.package.metadata.SelectSingleNode('*[local-name()="dependencies"]')
     $depCount = 0
-    if ($deps) { $depCount = @($deps.SelectNodes('//*[local-name()="dependency"]')).Count }
+    if ($null -ne $deps) { $depCount = @($deps.SelectNodes('.//*[local-name()="dependency"]')).Count }
     Write-Host ("  DesktopAICompanion.Contracts dependencies: {0}" -f $depCount)
     if ($depCount -ne 0) { throw 'DesktopAICompanion.Contracts must stay dependency-free.' }
 }

@@ -42,7 +42,6 @@ namespace DesktopAICompanion.Ai
     {
         public const int LegacySchemaVersion = 1;
         public const int CurrentSchemaVersion = 2;
-        public const string TaxonomyVersion = "2026-07-31";
 
         private static readonly HashSet<string> TopicSet = new HashSet<string>(
             new[] { "tech", "science", "work-money", "love", "family", "faith",
@@ -70,43 +69,10 @@ namespace DesktopAICompanion.Ai
         }
     }
 
-    /// <summary>
-    /// Resource bounds shared by custom-file ingestion, trusted-catalog admission, and downloads.
-    /// These limits describe what the runtime can actually load from the fortunes directory; the
-    /// independent tagged-content parser ceiling remains larger for the embedded corpus.
-    /// </summary>
-    internal static class FortunePackLoadPolicy
-    {
-        // Keep in sync with the base copy (src/dotNet/Ai/FortunePackLoadPolicy.cs), which validates catalog
-        // entries while this one governs what actually loads off disk. 512 matches the catalog's per-kind
-        // entry cap so installing every offered pack can't overflow the loader -- at 128 the full 152-pack
-        // catalog silently dropped its last 24 files alphabetically (tv-simpsons among them). The real
-        // memory bounds are the byte/entry caps below, which are unchanged.
-        public const int MaximumFiles = 512;
-        public const int MaximumFileBytes = 4 * 1024 * 1024;
-        public const int MaximumTotalBytes = 16 * 1024 * 1024;
-        public const int MaximumEntries = 100000;
-
-        public static bool TryValidatePackMetadata(
-            int bytes,
-            int entries,
-            out string error)
-        {
-            if (bytes < 1 || bytes > MaximumFileBytes)
-            {
-                error = "pack byte count is outside the runtime per-file limit";
-                return false;
-            }
-            if (entries < 1 || entries > MaximumEntries)
-            {
-                error = "pack row count is outside the runtime entry limit";
-                return false;
-            }
-            error = null;
-            return true;
-        }
-
-    }
+    // FortunePackLoadPolicy (the file, byte, total and entry caps and TryValidatePackMetadata) is compiled into
+    // this module from the host's src/dotNet/Ai/FortunePackLoadPolicy.cs: Fortunes.csproj source-links it, so
+    // the cap that governs LOADING here and the cap the host's catalog self-test reads are one definition. The
+    // copy that sat here was kept equal by a comment and once was not (F124).
 
     /// <summary>
     /// The bundled fortunes (cowsay | fortune, but a sheep). Loads schema-v2 tagged data embedded
@@ -1852,8 +1818,12 @@ namespace DesktopAICompanion.Ai
         }
 
         /// <summary>
-        /// Side-effect-free pack validator for the downloader. An expected row count less than zero
-        /// disables the count check. Successful validation returns schema version 1 or 2.
+        /// The parser self-test's strict TAGGED oracle: a declared pack must parse as v1/v2 under its declared
+        /// schema and, when <paramref name="expectedRowCount"/> is not negative, with exactly that many rows.
+        /// Successful validation returns schema version 1 or 2. Only RunParserSelfTest calls it (kept as the
+        /// test's oracle, 2026-09-25 and F131). The downloader does not: it validates with
+        /// <see cref="TryValidateCustomPackBytes"/>, which mirrors the folder loader (tagged OR plain), so a
+        /// pack this refuses can still be one the loader accepts.
         /// </summary>
         internal static bool TryValidateTaggedPack(string content, int expectedRowCount,
             out int actualRowCount, out int schemaVersion, out string error)
@@ -1895,7 +1865,7 @@ namespace DesktopAICompanion.Ai
             return true;
         }
 
-        /// <summary>Strict UTF-8 byte overload for bounded download pipelines.</summary>
+        /// <summary>Strict UTF-8 byte overload; the parser self-test's invalid-UTF-8 fixture goes through here.</summary>
         internal static bool TryValidateTaggedPack(byte[] bytes, int expectedRowCount,
             out int actualRowCount, out int schemaVersion, out string error)
         {

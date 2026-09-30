@@ -31,9 +31,9 @@ namespace DesktopAICompanion.Ai
         private const int MaximumApiKeyCharacters = 8192;
         private const int MaximumEncryptedApiKeyCharacters = 16384;
         internal const int MaximumApiKeyScopes = 32;
-        private const int MaximumDisabledSources = 128;
-        private const int MaximumSourceCharacters = 128;
-        private const int ProcessLockTimeoutMilliseconds = 10000;
+        /// <summary>The full cross-session lock budget: what a background writer waits for a peer process. Internal
+        /// for the probes, which are the only callers that save with it (the UI uses UiSaveBudgetMilliseconds).</summary>
+        internal const int ProcessLockTimeoutMilliseconds = 10000;
         private static readonly object ProcessLock = new object();
         private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(false, true);
         private static readonly string[] PersistedFieldNames = BuildPersistedFieldNames();
@@ -51,14 +51,14 @@ namespace DesktopAICompanion.Ai
             Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
         };
 
-        [JsonIgnore]
+        // No [JsonIgnore] on these: STJ never serializes a non-public field (nor a static member), so the
+        // attribute was inert here and on FilePath below (F097). The persisted set is the PUBLIC instance fields;
+        // see BuildPersistedFieldNames.
         private bool _writesBlockedByFutureSchema;
 
         /// <summary>True on a copy made by <see cref="CloneForBrain"/>: read by the brain, never saved.</summary>
-        [JsonIgnore]
         private bool _detachedCopy;
 
-        [JsonIgnore]
         private JsonObject _baseline;
 
         /// <summary>Persistence schema for forward migrations.</summary>
@@ -138,66 +138,24 @@ namespace DesktopAICompanion.Ai
         public string Disposition = Dispositions.DefaultId;
 
         /// <summary>
-        /// Explicit consent for sending screen/OCR/window context to a non-loopback provider.
-        /// Endpoint policy enforces this before any cloud request.
+        /// Explicit consent for sending screen/OCR/window context to a non-loopback provider. AiBrainModule
+        /// enforces it before any cloud request, four times over: the audition, TestConnectionAsync, CreateBrain
+        /// and CanUse each refuse a non-loopback provider without it. (AiEndpointPolicy carries no consent
+        /// logic; this comment said it did, F094.)
         /// </summary>
         public bool CloudDataConsent = false;
 
         // ---- fortunes (Phase A) --------------------------------------------
-
-        /// <summary>Include edgier/adult fortunes (see <see cref="SpicyTier"/>) on top of the
-        /// family-friendly ones. Off = general content only.</summary>
-        public bool SpicyFortunes = false;
-
-        /// <summary>
-        /// Which spicy content to include when <see cref="SpicyFortunes"/> is on:
-        /// <c>"edgy"</c> = crude/adult humor + explicit (everything), <c>"nsfw"</c> = explicit only.
-        /// </summary>
-        public string SpicyTier = "edgy";
-
-        /// <summary>
-        /// With <see cref="SpicyFortunes"/> on, pull ONLY the spicy tiers and skip the tame
-        /// (general) ones. Ignored when SpicyFortunes is off.
-        /// </summary>
-        public bool SpicyOnly = false;
-
-        /// <summary>
-        /// Drop any fortune flagged for recognized profanity or explicit sexual content, at every
-        /// level (a conservative hard filter).
-        /// </summary>
-        // DEAD as far as the AI module is concerned: declared and persisted, but read by nothing in
-        // modules/AiBrain. It is a Fortunes concept that ended up on this settings class. Left in place
-        // rather than deleted because removing a persisted field changes the on-disk schema.
-        //
-        // It must STAY dead for the AI path, and the reason is a design decision rather than an
-        // oversight: **the consent is the disposition.** Nobody flips a profanity switch -- they pick
-        // Jules Winnfield, or Jeff Ross, or the Drill Sergeant, from a list that says exactly who those
-        // characters are. That choice IS the acceptance. Gating it behind a second toggle would mean a
-        // user selects a foul-mouthed character, gets a sanitised one, and has no idea why; and it is
-        // the same mistake in reverse as a model self-censoring to "f***". Fortunes needs a filter
-        // because its content arrives unchosen from 158 packs; a persona is chosen by name.
-        public bool NoProfanity = false;
-
-        /// <summary>
-        /// Pick fortunes that fit what's on screen (local bge-small embedder). Fully offline, bundled,
-        /// no keys. Falls back to random automatically if the model is missing or no good match is found.
-        /// </summary>
-        public bool SmartFortunes = true;
-
-        /// <summary>
-        /// Source collections the user has switched OFF in the picker. Empty = all sources enabled
-        /// (so newly-added collections default to on).
-        /// </summary>
-        public System.Collections.Generic.List<string> DisabledSources =
-            new System.Collections.Generic.List<string>();
-
-        /// <summary>
-        /// Delivery genres the user has switched OFF in the picker (e.g. "tv-quote", "insult").
-        /// Empty = all genres enabled (so newly-added genres default to on). Like
-        /// <see cref="DisabledSources"/>, this is a hard preference filter that is never relaxed.
-        /// </summary>
-        public System.Collections.Generic.List<string> DisabledGenres =
-            new System.Collections.Generic.List<string>();
+        // Seven Fortunes-era fields lived here until 2026-09-30 -- SpicyFortunes, SpicyTier, SpicyOnly,
+        // NoProfanity, SmartFortunes, DisabledSources and DisabledGenres -- persisted by this class and read by
+        // nothing in modules/AiBrain (the Fortunes module has its own FortuneSettings). A note kept them by
+        // saying that removing a persisted field changes the on-disk schema; the random-drop paragraph below
+        // already refutes that for this serializer, and it holds here too: STJ routes an unmatched key from an
+        // existing file into ExtensionData, PersistedFieldNames is built by reflection, and SaveMerged re-emits
+        // the extension data, so the old keys round-trip inert and no migration is needed (F093). The decision
+        // the NoProfanity paragraph carried -- on the AI path the consent IS the disposition, so no profanity
+        // switch may ever gate a persona the user chose by name -- is recorded in docs/DESIGN-REGISTER.md
+        // under `#### fix/deadcode`.
 
         // The random-drop trio (RandomDropEnabled / RandomDropMinutes / RandomDropJitterMinutes) lived here
         // and is deleted. Unprompted commentary rides the HOST's global "randomly drop a fortune or insight"
@@ -244,7 +202,8 @@ namespace DesktopAICompanion.Ai
 
         /// <summary>
         /// When a cloud <see cref="Provider"/> is primary, fall back to the LOCAL slot if the cloud backend is
-        /// unavailable. Persisted + surfaced here; the runtime fallback backend is wired in a later change.
+        /// unavailable. The runtime half is FallbackBackend, built by AiBrainModule.CreateBrain whenever a cloud
+        /// provider is selected. (This said the fallback was "wired in a later change" long after it was, F094.)
         /// </summary>
         public bool UseLocalFallback = true;
 
@@ -361,14 +320,15 @@ namespace DesktopAICompanion.Ai
         /// <summary>Full path to ollama.exe. Empty means autodetect (PATH + default install locations).</summary>
         public string OllamaPath = "";
 
-        // System.Text.Json requires the extension-data sink to be a PROPERTY (a field is rejected). Kept
-        // non-null with an Ordinal comparer so deserialization adds unknown fields into this instance,
-        // which is what round-trips a future-same-schema doc's unknown data.
+        // A PROPERTY by choice, not by requirement: STJ accepts a [JsonExtensionData] FIELD too (measured on
+        // .NET 10 with IncludeFields, F097), which is why BuildPersistedFieldNames still tests public fields for
+        // the attribute -- the day the sink moves onto a field, that test is what keeps the sink's own name out
+        // of the persisted set. Kept non-null with an Ordinal comparer so deserialization adds unknown fields
+        // into this instance, which is what round-trips a future-same-schema doc's unknown data.
         [JsonExtensionData]
         public Dictionary<string, JsonElement> ExtensionData { get; set; } =
             new Dictionary<string, JsonElement>(StringComparer.Ordinal);
 
-        [JsonIgnore]
         public static string FilePath
         {
             get { return AiPaths.AiSettingsFile; }
@@ -445,17 +405,12 @@ namespace DesktopAICompanion.Ai
         /// </summary>
         internal const int UiSaveBudgetMilliseconds = 1500;
 
-        /// <summary>Persist settings. Returns false when durable storage is unavailable or blocked.
-        /// Uses the full cross-session budget: NOT for the UI thread -- see
-        /// <see cref="UiSaveBudgetMilliseconds"/>.</summary>
-        public bool Save()
-        {
-            return SaveWithin(ProcessLockTimeoutMilliseconds);
-        }
-
         /// <summary>
-        /// Persist settings within one aggregate lock budget. UI callers use a short budget so a
-        /// hung peer cannot freeze the message thread for the full cross-session timeout.
+        /// Persist settings within one aggregate lock budget. UI callers use <see cref="UiSaveBudgetMilliseconds"/>
+        /// so a hung peer cannot freeze the message thread for the full cross-session timeout; the probes save
+        /// with <see cref="ProcessLockTimeoutMilliseconds"/>. (A parameterless Save() with the full budget stood
+        /// beside this until 2026-09-30, read like production API and was called only by probes, F097.)
+        /// Returns false when durable storage is unavailable or blocked.
         /// </summary>
         internal bool SaveWithin(int timeoutMilliseconds)
         {
@@ -526,35 +481,9 @@ namespace DesktopAICompanion.Ai
                 return loaded;
             }
 
-            if (result == ReadResult.Missing && AiPaths.LegacyMigrationEnabled)
-            {
-                string legacy = Path.Combine(
-                    AiPaths.LegacyRoamingDataRoot,
-                    "ai-settings.json");
-                if (!string.Equals(
-                        Path.GetFullPath(legacy),
-                        Path.GetFullPath(FilePath),
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    string legacyFailure;
-                    ReadResult legacyResult = TryRead(legacy, out loaded, out legacyFailure);
-                    if (legacyResult == ReadResult.Loaded)
-                    {
-                        loaded.Normalize();
-                        loaded.SaveCore();
-                        loaded.CaptureBaseline();
-                        return loaded;
-                    }
-                    if (legacyResult == ReadResult.FutureSchema)
-                    {
-                        loaded._writesBlockedByFutureSchema = true;
-                        loaded.Normalize();
-                        loaded.CaptureBaseline();
-                        return loaded;
-                    }
-                }
-            }
-
+            // No legacy-root read here. A branch behind AiPaths.LegacyMigrationEnabled (hard-coded false, and
+            // its "legacy" path was this store's own file) sat here until 2026-09-30; the import of a base
+            // ai-settings.json is AiBrainModule.MigrateFromBaseIfNeeded, run at Init before this Load (F088).
             AiSettings defaults = new AiSettings();
             defaults.SaveCore();
             defaults.CaptureBaseline();
@@ -775,13 +704,6 @@ namespace DesktopAICompanion.Ai
                 Disposition = Dispositions.DefaultId;
                 changed = true;
             }
-            changed |= NormalizeString(ref SpicyTier, "edgy", 16);
-            if (!string.Equals(SpicyTier, "edgy", StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(SpicyTier, "nsfw", StringComparison.OrdinalIgnoreCase))
-            {
-                SpicyTier = "edgy";
-                changed = true;
-            }
             changed |= NormalizeString(ref Provider, "", 32);
             string normalizedProvider = Provider.ToLowerInvariant();
             if (!string.Equals(Provider, normalizedProvider, StringComparison.Ordinal))
@@ -858,7 +780,6 @@ namespace DesktopAICompanion.Ai
                 changed = true;
             }
             changed |= NormalizeString(ref OllamaPath, "", MaximumPathCharacters);
-            changed |= NormalizeDisabledSources();
             return changed;
         }
 
@@ -996,6 +917,9 @@ namespace DesktopAICompanion.Ai
             foreach (FieldInfo field in typeof(AiSettings).GetFields(
                 BindingFlags.Instance | BindingFlags.Public))
             {
+                // Neither attribute sits on a public field today, so neither branch trips; both are guards for
+                // the field that one day carries one, which would otherwise leak its own name into the merged
+                // save (F097). STJ does accept a field as the extension-data sink, so the second is not dead.
                 if (field.IsDefined(typeof(System.Text.Json.Serialization.JsonIgnoreAttribute), true) ||
                     field.IsDefined(typeof(System.Text.Json.Serialization.JsonExtensionDataAttribute), true))
                     continue;
@@ -1157,15 +1081,11 @@ namespace DesktopAICompanion.Ai
             string provider,
             string endpoint)
         {
-            string normalizedProvider =
-                string.IsNullOrWhiteSpace(provider)
-                    ? "ollama"
-                    : provider.Trim().ToLowerInvariant();
-            if (string.Equals(
-                    normalizedProvider,
-                    "ollama",
-                    StringComparison.Ordinal))
-                return "";
+            // No cloud provider, no scope: the local slot carries no credential. Until 2026-09-30 a blank
+            // provider was first mapped to "ollama" and then tested for it; the legacy local ids stopped being
+            // valid selectors with schema v2 (IsKnownProvider clamps them), so the test is the blank one (F108).
+            if (string.IsNullOrWhiteSpace(provider)) return "";
+            string normalizedProvider = provider.Trim().ToLowerInvariant();
 
             string endpointIdentity = (endpoint ?? "").Trim();
             string normalizedEndpoint;
@@ -1186,14 +1106,12 @@ namespace DesktopAICompanion.Ai
             }
         }
 
+        /// <summary>The endpoint a credential is scoped to: the CLOUD one. Provider is the cloud selector under
+        /// schema v2 and can no longer read "ollama", so the branch that answered with the local Endpoint was
+        /// unreachable (F108).</summary>
         private string SelectedCredentialEndpoint()
         {
-            return string.Equals(
-                    Provider,
-                    "ollama",
-                    StringComparison.OrdinalIgnoreCase)
-                ? Endpoint
-                : OpenAiBaseUrl;
+            return OpenAiBaseUrl;
         }
 
         /// <summary>
@@ -1216,25 +1134,19 @@ namespace DesktopAICompanion.Ai
 
         /// <summary>
         /// A private copy for the brain factory, taken on the UI thread and handed to the pool thread that builds
-        /// the brain. <see cref="ActiveSlotSnapshot"/>'s MemberwiseClone shares <see cref="ApiKeysEnc"/>,
-        /// <see cref="DisabledSources"/>, <see cref="DisabledGenres"/> and <see cref="ExtensionData"/> with the
-        /// live instance, and the factory runs only after the previous brain has retired, up to about two seconds
-        /// later: a pane Save in that window rotates the key or lets Normalize replace those collections under the
-        /// factory's read (F068, F100). The copy owns its collections, so nothing the pane does afterwards reaches
-        /// it, and it can never be persisted: a stray Save through the copy would otherwise overwrite the live file
-        /// with a stale one. The audition (PreviewDispositionAsync) still builds from the live instance, on the UI
-        /// thread and before its first await, where there is nothing to race.
+        /// the brain. <see cref="ActiveSlotSnapshot"/>'s MemberwiseClone shares <see cref="ApiKeysEnc"/> and
+        /// <see cref="ExtensionData"/> with the live instance (the two Fortunes-era lists it also copied went with
+        /// F093), and the factory runs only after the previous brain has retired, up to about two seconds later: a
+        /// pane Save in that window rotates the key or lets Normalize replace those collections under the factory's
+        /// read (F068, F100). The copy owns its collections, so nothing the pane does afterwards reaches it, and it
+        /// can never be persisted: a stray Save through the copy would otherwise overwrite the live file with a
+        /// stale one. The audition (PreviewDispositionAsync) still builds from the live instance, on the UI thread
+        /// and before its first await, where there is nothing to race.
         /// </summary>
         internal AiSettings CloneForBrain()
         {
             AiSettings clone = (AiSettings)MemberwiseClone();
             clone.ApiKeysEnc = ApiKeysEnc == null ? null : new Dictionary<string, string>(ApiKeysEnc, StringComparer.Ordinal);
-            clone.DisabledSources = DisabledSources == null
-                ? null
-                : new System.Collections.Generic.List<string>(DisabledSources);
-            clone.DisabledGenres = DisabledGenres == null
-                ? null
-                : new System.Collections.Generic.List<string>(DisabledGenres);
             clone.ExtensionData = ExtensionData == null
                 ? null
                 : new Dictionary<string, JsonElement>(ExtensionData, StringComparer.Ordinal);
@@ -1243,28 +1155,22 @@ namespace DesktopAICompanion.Ai
         }
 
         /// <summary>
-        /// Select a provider and return the endpoint its UI should display. Preset providers may
-        /// replace the shared active endpoint; Custom always restores its remembered endpoint.
+        /// Select a cloud provider and return the endpoint its UI should display. Preset providers may replace
+        /// the shared cloud endpoint; Custom always restores its remembered endpoint. An id no preset knows
+        /// changes NOTHING and answers with the current cloud endpoint. Until 2026-09-30 AiProviders answered an
+        /// unknown id with its FIRST preset, the local Ollama one, so this wrote Provider = "ollama" and, with
+        /// prefill, the preset URL over the LOCAL Endpoint; no caller passed such an id (the pane maps labels
+        /// through CloudProviderIdForLabel), which is the only reason the trap never fired (F108). The probe pins
+        /// the untouched case.
         /// </summary>
         internal string SelectProviderEndpoint(
             string provider,
             bool prefillPreset)
         {
+            AiProviders.Preset preset;
+            if (!AiProviders.TryGet(provider, out preset)) return OpenAiBaseUrl;
             RememberSelectedCustomEndpoint();
-            AiProviders.Preset preset = AiProviders.Get(provider);
             Provider = preset.Id;
-
-            if (string.Equals(
-                    Provider,
-                    "ollama",
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                string endpoint = Endpoint;
-                if (prefillPreset || string.IsNullOrWhiteSpace(endpoint))
-                    endpoint = preset.BaseUrl;
-                Endpoint = (endpoint ?? "").Trim();
-                return Endpoint;
-            }
 
             if (string.Equals(
                     Provider,
@@ -1282,18 +1188,11 @@ namespace DesktopAICompanion.Ai
             return OpenAiBaseUrl;
         }
 
+        /// <summary>The CLOUD endpoint only: Provider is the cloud selector under schema v2, so the branch that
+        /// wrote the local Endpoint for an "ollama" provider was unreachable (F108).</summary>
         internal void UpdateSelectedProviderEndpoint(string endpoint)
         {
             endpoint = (endpoint ?? "").Trim();
-            if (string.Equals(
-                    Provider,
-                    "ollama",
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                Endpoint = endpoint;
-                return;
-            }
-
             OpenAiBaseUrl = endpoint;
             if (string.Equals(
                     Provider,
@@ -1405,22 +1304,8 @@ namespace DesktopAICompanion.Ai
                     normalized.Add(scope, encrypted);
                 }
             }
-            if (!changed && normalized.Count == ApiKeysEnc.Count)
-            {
-                foreach (KeyValuePair<string, string> item in normalized)
-                {
-                    string existing;
-                    if (!ApiKeysEnc.TryGetValue(item.Key, out existing) ||
-                        !string.Equals(
-                            existing,
-                            item.Value,
-                            StringComparison.Ordinal))
-                    {
-                        changed = true;
-                        break;
-                    }
-                }
-            }
+            // No re-comparison of `normalized` against ApiKeysEnc here: under !changed every entry was copied
+            // verbatim from ApiKeysEnc's own keys, so no input could make such a loop flip `changed` (F097).
             ApiKeysEnc = normalized;
             return changed;
         }
@@ -1514,49 +1399,6 @@ namespace DesktopAICompanion.Ai
                         "x2",
                         CultureInfo.InvariantCulture));
             return result.ToString();
-        }
-
-        private bool NormalizeDisabledSources()
-        {
-            bool changed = DisabledSources == null;
-            var normalized = new List<string>();
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            if (DisabledSources != null)
-            {
-                foreach (string sourceValue in DisabledSources)
-                {
-                    if (normalized.Count >= MaximumDisabledSources)
-                    {
-                        changed = true;
-                        break;
-                    }
-                    string source = sourceValue;
-                    changed |= NormalizeString(
-                        ref source,
-                        "",
-                        MaximumSourceCharacters);
-                    if (string.IsNullOrWhiteSpace(source) || !seen.Add(source))
-                    {
-                        changed = true;
-                        continue;
-                    }
-                    normalized.Add(source);
-                }
-            }
-            if (!changed && DisabledSources.Count == normalized.Count)
-            {
-                for (int i = 0; i < normalized.Count; i++)
-                    if (!string.Equals(
-                            DisabledSources[i],
-                            normalized[i],
-                            StringComparison.Ordinal))
-                    {
-                        changed = true;
-                        break;
-                    }
-            }
-            DisabledSources = normalized;
-            return changed;
         }
 
         // Schema v2: the LOCAL slot is fixed (Endpoint/TextModel/VisionModel = Ollama), so Provider is now the

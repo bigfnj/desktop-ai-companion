@@ -298,7 +298,7 @@ namespace DesktopAICompanion
         /// deliberately outside the module try/catch above: a launch must not be delayed, and a network
         /// failure here must not look like a module problem.
         ///
-        /// The throttle lives in AppUpdateCheck.ShouldCheck (at most once a day), so calling this on every
+        /// The throttle lives in AppUpdateCheck.ShouldCheck (at most once a week, CheckInterval), so calling this on every
         /// launch is cheap. Notify-only: the outcome is a cached version string the Preferences footer may
         /// render as a link.
         /// </summary>
@@ -1407,25 +1407,18 @@ namespace DesktopAICompanion
         }
         
             /// <summary>
-            /// Load new XML (from XML string).
+            /// Load new XML (from XML string): "use this companion". UI thread only, like the rest of this
+            /// class; both callers (the pet form's drag-drop and the Companions pane's Use button) are UI
+            /// events. Until 2026-09-30 an InvokeRequired block here marshalled through the first pet window:
+            /// it could never fire (both callers are UI-thread), it returned true before the pet had been
+            /// accepted (defeating the pane's put-the-old-id-back logic), and with no pet on screen it fell
+            /// straight through to the timer, tray and registry mutations, so it guarded nothing (F311).
             /// </summary>
             /// <param name="strXml">A string with the xml content.</param>
         public bool LoadNewXMLFromString(string strXml)
         {
             AddDebugInfo(DEBUG_TYPE.info, "load new XML string");
             if (disposed || shuttingDown) return false;   // shuttingDown: see KillSheeps (F312)
-
-            FormCompanion marshal = iSheeps > 0
-                ? sheeps[0]
-                : retiringPets.FirstOrDefault();
-            if (marshal != null && marshal.InvokeRequired)
-            {
-                marshal.BeginInvoke(new MethodInvoker(delegate
-                {
-                    LoadNewXMLFromString(strXml);
-                }));
-                return true;
-            }
 
             Xml stagedXml;
             Animations stagedAnimations;

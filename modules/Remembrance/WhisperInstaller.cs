@@ -613,19 +613,9 @@ namespace DesktopAICompanion.RemembranceModule
             return null;
         }
 
-        /// <summary>Split out from the fetch so the selection logic is self-testable without a network.</summary>
-        public static ReleaseAsset ParseReleaseJson(string json)
-        {
-            if (string.IsNullOrWhiteSpace(json)) return null;
-            try
-            {
-                using (JsonDocument document = JsonDocument.Parse(json))
-                {
-                    return AssetFrom(document.RootElement);
-                }
-            }
-            catch { return null; }
-        }
+        // No single-release parser. ParseReleaseJson was the releases/latest era's entry point and, once the fetch
+        // moved to the release LIST, only the self-test read it, so the suite's one digest assertion witnessed a
+        // path production had left (F185). The list parser is the one path and the one the self-test reads.
 
         /// <summary>The Windows x64 asset of ONE release object, or null if it carries none.</summary>
         private static ReleaseAsset AssetFrom(JsonElement release)

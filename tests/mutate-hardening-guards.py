@@ -27,6 +27,9 @@ STARTUP = os.path.join(REPO, "src", "dotNet", "StartUp.cs")
 BUILDPS1 = os.path.join(REPO, "build.ps1")
 FORTUNE_PROVIDER = os.path.join(REPO, "modules", "Fortunes", "engine", "FortuneProvider.cs")
 FORTUNES_MODULE = os.path.join(REPO, "modules", "Fortunes", "FortunesModule.cs")
+FORTUNES_CSPROJ = os.path.join(REPO, "modules", "Fortunes", "Fortunes.csproj")
+PETGRAPH_CS = os.path.join(REPO, "tools", "ShimejiConvert.Engine", "PetGraph.cs")
+LOADER_XML_CS = os.path.join(REPO, "src", "dotNet", "Xml.cs")
 WEBLINKS = os.path.join(REPO, "src", "Portable", "WebLinks.cs")
 RELEASE_YML = os.path.join(REPO, ".github", "workflows", "release.yml")
 DEBUG_SMOKE = os.path.join(REPO, "tests", "debug-menu-smoke.ps1")
@@ -203,14 +206,16 @@ CASES = (
     # branches do not touch the same lines. Comments inside the literal are fine for Python.
     # ---- lane fix/gates ----
 
-    # F287: the Fortunes module's pack file cap drifts below the catalog entry cap (the exact 128-vs-512
-    # regression the --catalog-selftest check describes and cannot see, because it reads the host copy).
+    # F287: the pack file cap drifts below the catalog entry cap (the exact 128-vs-512 regression the
+    # --catalog-selftest check describes and cannot see). Repointed by lane fix/deadcode (F124): the module now
+    # compiles the HOST's FortunePackLoadPolicy.cs, so the one cap lives there and the invariant compares it
+    # with the catalog entry cap directly.
     (
-        "the Fortunes module's pack file cap drops to 128",
-        FORTUNE_PROVIDER,
+        "the pack file cap drops to 128",
+        os.path.join(REPO, "src", "dotNet", "Ai", "FortunePackLoadPolicy.cs"),
         b"        public const int MaximumFiles = 512;",
         b"        public const int MaximumFiles = 128;",
-        "equals the host copy",
+        "covers every pack the catalog may list",
     ),
     # F149: the 'Rebuild smart index' guard compares the indexed pool with itself again.
     (
@@ -649,13 +654,19 @@ CASES = (
         b"                    if (_target != null && _target.InvokeRequired) _target.BeginInvoke(draw);\n",
         "posted to the UI thread before the targeted-only marshal",
     ),
-    # F335: the volatile goes.
+    # F334 (replacing F335's volatile case, whose field is gone): the browse verb fetches its own copy again.
     (
-        "the shared catalog cache loses its volatile",
+        "the browse verb bypasses RemoteCatalogClient's shared copy",
         os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
-        b"        private volatile RemoteCatalog _catalogCache;",
-        b"        private RemoteCatalog _catalogCache;",
-        "volatile publish",
+        b"        public async System.Threading.Tasks.Task<IReadOnlyList<CatalogItem>> FetchCatalogItemsAsync(string kind)\n"
+        b"        {\n"
+        b"            RemoteCatalog catalog = await RemoteCatalogClient\n"
+        b"                .FetchSharedAsync(System.Threading.CancellationToken.None)\n",
+        b"        public async System.Threading.Tasks.Task<IReadOnlyList<CatalogItem>> FetchCatalogItemsAsync(string kind)\n"
+        b"        {\n"
+        b"            RemoteCatalog catalog = await RemoteCatalogClient\n"
+        b"                .FetchAsync(System.Threading.CancellationToken.None)\n",
+        "read RemoteCatalogClient's shared copy",
     ),
     # F329: the third foreground read is the answer again.
     (
@@ -993,6 +1004,41 @@ CASES = (
 
 
     # ---- lane fix/deadcode ----
+
+    # F124: the Fortunes module compiles the host's FortunePackLoadPolicy.cs instead of carrying a copy kept
+    # equal by a comment. Both directions: the link dropped from the project, and a copy growing back.
+    (
+        "the Fortunes project stops compiling the host's pack policy",
+        FORTUNES_CSPROJ,
+        b'    <Compile Include="..\\..\\src\\dotNet\\Ai\\FortunePackLoadPolicy.cs" Link="engine\\FortunePackLoadPolicy.cs" />\n',
+        b'',
+        "compiles the host's FortunePackLoadPolicy.cs",
+    ),
+    (
+        "a second FortunePackLoadPolicy grows back inside the Fortunes module",
+        FORTUNE_PROVIDER,
+        b"    internal sealed class FortuneProvider\n",
+        b"    internal static class FortunePackLoadPolicy { }\n    internal sealed class FortuneProvider\n",
+        "compiles the host's FortunePackLoadPolicy.cs",
+    ),
+
+    # F432: the reserved-name array and the loader's switch are compared as sets. Both directions: an element
+    # dropped from the array, and a fifth entry point added to the loader.
+    (
+        "the reserved-name array loses an entry point",
+        PETGRAPH_CS,
+        b'        internal static readonly string[] ReservedEntryPointNames = { "fall", "drag", "kill", "sync" };',
+        b'        internal static readonly string[] ReservedEntryPointNames = { "fall", "drag", "kill" };',
+        "names exactly the animation names Xml.cs binds",
+    ),
+    (
+        "the loader gains a fifth entry point the array does not know",
+        LOADER_XML_CS,
+        b'                    case "sync": animations.AnimationSync = node.Id; break;\n',
+        b'                    case "sync": animations.AnimationSync = node.Id; break;\n'
+        b'                    case "wave": animations.AnimationSync = node.Id; break;\n',
+        "names exactly the animation names Xml.cs binds",
+    ),
 )
 
 

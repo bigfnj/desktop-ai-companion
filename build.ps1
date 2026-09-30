@@ -265,6 +265,23 @@ if ($missingModuleProjects.Count -gt 0) {
            ". A module that cannot be found is a module that will not be built, and a build that " +
            "skips it and exits 0 is how a stale DLL keeps the gate green.")
 }
+# ...and the OTHER direction: every module project on disk must be DECLARED. A modules\<Name>\*.csproj absent
+# from the list above is compiled by no gate at all: Test-ModulePublishFreshness.ps1 routes an unlisted module
+# id into its $deliberatelyUnpublished list, and Test-ModuleSelfTests.ps1 and Invoke-SelfTests.ps1 read the
+# BUILD OUTPUT and their own hand lists, so a folder that never built is invisible to all three (F225). The
+# TemplateCheck scaffold is deliberately not allowlisted: Test-ModuleTemplate.ps1 removes it in its finally,
+# so a leftover from a crashed run is meant to be loud here too.
+$declaredModuleProjects = @($moduleProjects | ForEach-Object { [System.IO.Path]::GetFullPath($_).ToLowerInvariant() })
+$undeclaredModuleProjects = @(Get-ChildItem -LiteralPath (Join-Path $repoRoot 'modules') -Filter '*.csproj' -Recurse -File |
+    Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' } |
+    Where-Object { $declaredModuleProjects -notcontains $_.FullName.ToLowerInvariant() } |
+    ForEach-Object { $_.FullName })
+if ($undeclaredModuleProjects.Count -gt 0) {
+    throw ("module project(s) on disk but not declared in build.ps1: " + ($undeclaredModuleProjects -join '; ') +
+           ". Add each to `$moduleProjects here, to `$RequiredModules in tests\Invoke-SelfTests.ps1 and to " +
+           "`$Covered or `$Uncovered in tests\Test-ModuleSelfTests.ps1; an in-tree module no gate compiles is a " +
+           "module whose first compile error surfaces weeks later, by hand.")
+}
 foreach ($moduleProject in $moduleProjects) {
     Write-Host "Building plugin module: $([System.IO.Path]::GetFileNameWithoutExtension($moduleProject))..." -ForegroundColor Cyan
     & $dotnet build $moduleProject -c $configuration '--nologo' '-v:minimal'

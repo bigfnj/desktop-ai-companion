@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using DesktopAICompanion.Ai;
-using DesktopAICompanion.ModuleKit;   // AtomicFile / CrossSessionLock / UnicodeTextProgress
 using DesktopAICompanion.ModuleKit.Testing;   // TrayConventions
 using DesktopAICompanion.Modules;    // ABI ScreenContext / ScreenWindow / PixelRect
 
@@ -52,7 +51,7 @@ namespace DesktopAICompanion.AiBrainModule
                 {
                     AiSettings unrooted = AiSettings.Load();
                     ok &= Check(sb, "no storage root: Load yields defaults and blocks every write",
-                        unrooted != null && !unrooted.Save() && unrooted.TimeoutSeconds == new AiSettings().TimeoutSeconds);
+                        unrooted != null && !unrooted.SaveWithin(AiSettings.ProcessLockTimeoutMilliseconds) && unrooted.TimeoutSeconds == new AiSettings().TimeoutSeconds);
                     ok &= Check(sb, "no storage root: the load says so instead of failing silently",
                         unrooted != null && !string.IsNullOrEmpty(unrooted.LoadWarning) &&
                         unrooted.LoadWarning.IndexOf("storage", StringComparison.Ordinal) >= 0);
@@ -113,16 +112,18 @@ namespace DesktopAICompanion.AiBrainModule
                 // the 46 of 54 companions that silently did nothing; it must not change what the ones
                 // that already worked play. A reorder is the edit this catches, and it is a plausible
                 // one, because sorting the list by corpus frequency would look like an improvement.
+                // FirstOrEmpty, not [0]: an emotion that maps to nothing must be a FAIL line here, not an
+                // IndexOutOfRangeException that ends Run and hides every later group (F082).
                 ok &= Check(sb, "WITNESS 'happy' still leads with flower",
-                    AiBrainModule.EmotionAnimationsForSelfTest("happy")[0] == "flower");
+                    FirstOrEmpty(AiBrainModule.EmotionAnimationsForSelfTest("happy")) == "flower");
                 ok &= Check(sb, "WITNESS 'excited' still leads with run",
-                    AiBrainModule.EmotionAnimationsForSelfTest("excited")[0] == "run");
+                    FirstOrEmpty(AiBrainModule.EmotionAnimationsForSelfTest("excited")) == "run");
                 ok &= Check(sb, "WITNESS 'sad' still leads with sleep1a",
-                    AiBrainModule.EmotionAnimationsForSelfTest("sad")[0] == "sleep1a");
+                    FirstOrEmpty(AiBrainModule.EmotionAnimationsForSelfTest("sad")) == "sleep1a");
                 ok &= Check(sb, "WITNESS 'thinking' still leads with sleep1a",
-                    AiBrainModule.EmotionAnimationsForSelfTest("thinking")[0] == "sleep1a");
+                    FirstOrEmpty(AiBrainModule.EmotionAnimationsForSelfTest("thinking")) == "sleep1a");
                 ok &= Check(sb, "WITNESS 'confused' still leads with rotate1a",
-                    AiBrainModule.EmotionAnimationsForSelfTest("confused")[0] == "rotate1a");
+                    FirstOrEmpty(AiBrainModule.EmotionAnimationsForSelfTest("confused")) == "rotate1a");
                 ok &= Check(sb, "an unmapped emotion forces no animation",
                     AiBrainModule.EmotionAnimationsForSelfTest("elated").Length == 0);
                 ok &= Check(sb, "a blank emotion forces no animation",
@@ -516,7 +517,7 @@ namespace DesktopAICompanion.AiBrainModule
                 // "sk-..." literal in a public repo is the one string here that trips a secret scanner
                 // and makes a human stop and check whether a key leaked.
                 bool keyStored = s.TrySetApiKey("DPAPI-ROUNDTRIP-FIXTURE-not-a-real-key", out setError);
-                bool saved = s.Save();
+                bool saved = s.SaveWithin(AiSettings.ProcessLockTimeoutMilliseconds);
                 ok &= Check(sb, "settings save (atomic write + cross-session lock) succeeds", saved);
 
                 AiSettings reloaded = AiSettings.Load();
@@ -585,20 +586,23 @@ namespace DesktopAICompanion.AiBrainModule
                 // --- relocated AI SECURITY assertions (ported ~verbatim from the base SecuritySelfTest;
                 // see AiEngineProbe.Security.cs). They exercise the SHIPPING module engine so no coverage
                 // is lost when the base's dead Ai/* copy is deleted in a later phase. ---
-                ok &= RunSecurity(sb);
+                // Each group under its own catch (Guarded): one group throwing is a named FAIL line and the
+                // groups after it still run and still print, where the outer catch below made it one EXC line
+                // and silence for the rest (F082).
+                ok &= Guarded(sb, "security", RunSecurity);
 
                 // --- the cloud slot, the composite, and how HTTP answers are described (AiEngineProbe.Backends.cs) ---
-                ok &= RunBackends(sb);
+                ok &= Guarded(sb, "backends", RunBackends);
 
                 // --- residency: probe bounds, retirement, the audition's own keep_alive (AiEngineProbe.Residency.cs) ---
-                ok &= RunResidency(sb);
+                ok &= Guarded(sb, "residency", RunResidency);
 
                 // --- lifecycle: the factory's settings copy, when the inventory is taken, OCR resolution, the audition
                 // guard (AiEngineProbe.Lifecycle.cs) ---
-                ok &= RunLifecycle(sb);
+                ok &= Guarded(sb, "lifecycle", RunLifecycle);
 
                 // --- the MODULE's own entry points, through ModuleKit's RecordingHost (AiEngineProbe.Module.cs) ---
-                ok &= RunModule(sb);
+                ok &= Guarded(sb, "module", RunModule);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
             finally
@@ -634,6 +638,26 @@ namespace DesktopAICompanion.AiBrainModule
                 return string.Join(";", entries.ToArray());
             }
             catch (Exception ex) { return "(unreadable: " + ex.GetType().Name + ")"; }
+        }
+
+        /// <summary>The first candidate, or "" for an empty or null list. The WITNESS checks on the emotion map
+        /// used to index [0] directly, so an emotion mapping to nothing threw IndexOutOfRangeException out of Run:
+        /// one EXC line and every later check, the whole security suite included, skipped (F082).</summary>
+        private static string FirstOrEmpty(string[] values)
+        {
+            return values != null && values.Length > 0 ? values[0] : "";
+        }
+
+        /// <summary>Run one check group under its own catch, so a group that throws is a named FAIL line and the
+        /// groups after it still run (F082). Run's outer catch stays as the last resort for the groups above.</summary>
+        private static bool Guarded(StringBuilder sb, string group, Func<StringBuilder, bool> run)
+        {
+            try { return run(sb); }
+            catch (Exception ex)
+            {
+                sb.AppendLine("FAIL: " + group + " group threw: " + ex.GetType().Name + ": " + ex.Message);
+                return false;
+            }
         }
     }
 }

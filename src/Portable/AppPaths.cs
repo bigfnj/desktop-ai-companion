@@ -53,24 +53,21 @@ namespace DesktopAICompanion
         public static string ExecutableDirectory { get { return Current.ExecutableDirectory; } }
         public static string DataRoot { get { return Current.DataRoot; } }
         public static bool IsInstalled { get { return Current.IsInstalled; } }
-        public static bool IsPortable { get { return Current.IsPortable; } }
         public static bool IsDataRootOverridden { get { return Current.IsDataRootOverridden; } }
         public static bool LegacyMigrationEnabled { get { return !IsDataRootOverridden; } }
 
         public static string SettingsFile { get { return Path.Combine(DataRoot, "settings.json"); } }
+        /// <summary>The base ai-settings.json. Read by LocalData's one-time random-drop bridge and copied once
+        /// into the AiBrain module's store by AiBrainModule.MigrateFromBaseIfNeeded; nothing in the host
+        /// writes it any more.</summary>
         public static string AiSettingsFile { get { return Path.Combine(DataRoot, "ai-settings.json"); } }
-        public static string ChatHistoryFile { get { return Path.Combine(DataRoot, "chat-history.json"); } }
-        public static string FortunesDirectory { get { return Path.Combine(DataRoot, "fortunes"); } }
-        public static string CatalogCacheDirectory { get { return Path.Combine(DataRoot, "catalog-cache"); } }
 
         /// <summary>
-        /// Read-only content shipped beside the executable (portable zip only). These directories are
-        /// absent in the lean MSI install, so every consumer must tolerate their non-existence. Bundled
-        /// pets are still run through <see cref="CompanionXmlValidator"/> before use; bundled fortune files are
-        /// loaded read-only in addition to the user's writable <see cref="FortunesDirectory"/>.
+        /// Read-only content shipped beside the executable (portable zip only). The directory is absent in
+        /// the lean MSI install, so every consumer must tolerate its non-existence. Bundled pets are still
+        /// run through <see cref="CompanionXmlValidator"/> before use.
         /// </summary>
         public static string BundledPetsDirectory { get { return Path.Combine(ExecutableDirectory, "companions"); } }
-        public static string BundledFortunesDirectory { get { return Path.Combine(ExecutableDirectory, "fortunes"); } }
 
         /// <summary>Writable pet library under the data root: where pets downloaded from the
         /// runtime catalog are installed, alongside the read-only bundled pets beside the exe.</summary>
@@ -93,179 +90,17 @@ namespace DesktopAICompanion
             }
         }
 
-        /// <summary>Old roaming root used by the AI settings/history/fortune files.</summary>
-        public static string LegacyRoamingDataRoot
-        {
-            get
-            {
-                return Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    "DesktopPet");
-            }
-        }
-
-        public static string LegacyFortunesDirectory
-        {
-            get { return Path.Combine(LegacyRoamingDataRoot, "fortunes"); }
-        }
-
-
-        /// <summary>
-        /// Return the canonical fortunes directory after one bounded, non-destructive migration
-        /// attempt from the historical roaming location.
-        /// </summary>
-        public static string PrepareFortunesDirectory()
-        {
-            TryMigrateFilesOnce(
-                FortunesDirectory,
-                LegacyFortunesDirectory,
-                "*.txt",
-                128,
-                4L * 1024L * 1024L,
-                16L * 1024L * 1024L,
-                LegacyMigrationEnabled);
-            return FortunesDirectory;
-        }
-
-        // The vector-cache cluster was here: VectorCacheDirectory, LegacyVectorCacheDirectory and
-        // PrepareVectorCacheDirectory. Nothing called any of them. The Fortunes module owns this storage
-        // now -- FortunePaths.cs calls itself "module-side replacement for the base AppPaths
-        // fortune/vector directories" and points at host.GetStorage("fortunes") -- so the base
-        // migration could never run for anyone, whatever it claimed to do. The fortunes pair above is
-        // deliberately NOT removed with it: that one still has callers.
-
-        /// <summary>
-        /// Copy a bounded set of top-level legacy files into a new data directory exactly once.
-        /// Existing destination files are never overwritten and the legacy source is never changed.
-        /// A data-root override disables production migrations so isolated tests cannot read a real
-        /// user profile.
-        /// </summary>
-        internal static bool TryMigrateFilesOnce(
-            string destinationDirectory,
-            string legacyDirectory,
-            string searchPattern,
-            int maximumFiles,
-            long maximumFileBytes,
-            long maximumTotalBytes,
-            bool enabled)
-        {
-            if (!enabled) return false;
-            if (string.IsNullOrWhiteSpace(destinationDirectory) ||
-                string.IsNullOrWhiteSpace(legacyDirectory) ||
-                string.IsNullOrWhiteSpace(searchPattern) ||
-                maximumFiles < 1 ||
-                maximumFileBytes < 1 ||
-                maximumTotalBytes < 1)
-                return false;
-
-            string destination;
-            string legacy;
-            try
-            {
-                destination = NormalizeDirectory(destinationDirectory);
-                legacy = NormalizeDirectory(legacyDirectory);
-            }
-            catch
-            {
-                return false;
-            }
-
-            if (SameDirectory(destination, legacy)) return true;
-
-            const string markerName = ".legacy-migration-v1.complete";
-            const string lockName = ".legacy-migration-v1.lock";
-            string markerPath = Path.Combine(destination, markerName);
-            string lockPath = Path.Combine(destination, lockName);
-            FileStream migrationLock = null;
-            try
-            {
-                Directory.CreateDirectory(destination);
-                migrationLock = new FileStream(
-                    lockPath,
-                    FileMode.OpenOrCreate,
-                    FileAccess.ReadWrite,
-                    FileShare.None,
-                    1,
-                    FileOptions.WriteThrough);
-
-                if (File.Exists(markerPath)) return true;
-
-                if (Directory.Exists(legacy))
-                {
-                    var candidates = new List<string>();
-                    foreach (string sourcePath in Directory.EnumerateFiles(
-                        legacy,
-                        searchPattern,
-                        SearchOption.TopDirectoryOnly))
-                    {
-                        if (candidates.Count >= maximumFiles)
-                            return false;
-                        candidates.Add(sourcePath);
-                    }
-                    candidates.Sort(StringComparer.OrdinalIgnoreCase);
-
-                    long copiedBytes = 0;
-                    foreach (string sourcePath in candidates)
-                    {
-                        FileInfo source;
-                        try
-                        {
-                            source = new FileInfo(sourcePath);
-                            if ((source.Attributes & FileAttributes.ReparsePoint) != 0 ||
-                                source.Length < 0 ||
-                                source.Length > maximumFileBytes ||
-                                source.Length > maximumTotalBytes - copiedBytes)
-                                continue;
-                        }
-                        catch
-                        {
-                            continue;
-                        }
-
-                        string fileName = Path.GetFileName(source.FullName);
-                        if (string.IsNullOrEmpty(fileName)) continue;
-                        string destinationPath = Path.Combine(destination, fileName);
-                        if (File.Exists(destinationPath)) continue;
-
-                        long copied;
-                        if (!TryCopyFileAtomic(
-                                source.FullName,
-                                destinationPath,
-                                maximumFileBytes,
-                                maximumTotalBytes - copiedBytes,
-                                out copied))
-                            return false;
-                        copiedBytes += copied;
-                    }
-                }
-
-                try
-                {
-                    using (var marker = new FileStream(
-                        markerPath,
-                        FileMode.CreateNew,
-                        FileAccess.Write,
-                        FileShare.Read,
-                        1,
-                        FileOptions.WriteThrough))
-                        marker.Flush(true);
-                }
-                catch (IOException)
-                {
-                    if (!File.Exists(markerPath)) throw;
-                }
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
-            finally
-            {
-                if (migrationLock != null) migrationLock.Dispose();
-                TryDelete(lockPath);
-            }
-        }
+        // The pre-1.0 roaming-root migration cluster was here: LegacyRoamingDataRoot, LegacyFortunesDirectory,
+        // PrepareFortunesDirectory and the bounded, lock-and-marker TryMigrateFilesOnce / TryCopyFileAtomic /
+        // TryDelete it drove, plus the ChatHistoryFile, FortunesDirectory, CatalogCacheDirectory and
+        // BundledFortunesDirectory paths and a static IsPortable. The vector-cache half went on 2026-09-27
+        // with a note that "the fortunes pair above is deliberately NOT removed with it: that one still has
+        // callers"; it had none. The Fortunes module owns fortune storage (FortunePaths.cs, over
+        // host.GetStorage("fortunes")), the catalog cache is RemoteCatalogClient's, and the chat history is
+        // the AiBrain module's, so PrepareFortunesDirectory was reachable from nothing in the product and
+        // the ~200 lines of copy logic behind it were kept green by a CoreTests group and by nothing the
+        // app does. Both went together (F357). LegacyMigrationEnabled and LegacySettingsFiles above are the
+        // live remainder: the settings-file import still runs on a fresh data root.
 
         /// <summary>
         /// Resolve a path layout using only supplied values. This is the single product-mode rule
@@ -397,89 +232,6 @@ namespace DesktopAICompanion
                     return;
             }
             paths.Add(full);
-        }
-
-        private static bool TryCopyFileAtomic(
-            string sourcePath,
-            string destinationPath,
-            long maximumFileBytes,
-            long maximumRemainingBytes,
-            out long copiedBytes)
-        {
-            copiedBytes = 0;
-            string temporary = null;
-            try
-            {
-                string destinationDirectory =
-                    Path.GetDirectoryName(Path.GetFullPath(destinationPath));
-                temporary = Path.Combine(
-                    destinationDirectory,
-                    "." + Path.GetFileName(destinationPath) + "." +
-                    Guid.NewGuid().ToString("N") + ".tmp");
-
-                using (var source = new FileStream(
-                    sourcePath,
-                    FileMode.Open,
-                    FileAccess.Read,
-                    FileShare.Read,
-                    8192,
-                    FileOptions.SequentialScan))
-                using (var target = new FileStream(
-                    temporary,
-                    FileMode.CreateNew,
-                    FileAccess.Write,
-                    FileShare.None,
-                    8192,
-                    FileOptions.WriteThrough))
-                {
-                    if (source.Length > maximumFileBytes ||
-                        source.Length > maximumRemainingBytes)
-                        return true;
-
-                    byte[] buffer = new byte[8192];
-                    int read;
-                    while ((read = source.Read(buffer, 0, buffer.Length)) > 0)
-                    {
-                        copiedBytes = checked(copiedBytes + read);
-                        if (copiedBytes > maximumFileBytes ||
-                            copiedBytes > maximumRemainingBytes)
-                            return false;
-                        target.Write(buffer, 0, read);
-                    }
-                    target.Flush(true);
-                }
-
-                try
-                {
-                    File.Move(temporary, destinationPath);
-                    temporary = null;
-                    return true;
-                }
-                catch (IOException)
-                {
-                    if (File.Exists(destinationPath)) return true;
-                    throw;
-                }
-            }
-            catch
-            {
-                copiedBytes = 0;
-                return false;
-            }
-            finally
-            {
-                TryDelete(temporary);
-            }
-        }
-
-        private static void TryDelete(string path)
-        {
-            try
-            {
-                if (!string.IsNullOrEmpty(path) && File.Exists(path))
-                    File.Delete(path);
-            }
-            catch { }
         }
     }
 }

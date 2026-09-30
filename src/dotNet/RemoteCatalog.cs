@@ -442,7 +442,7 @@ namespace DesktopAICompanion
                     url, Owner, Repository, out uri, out error))
                 return false;
             string[] p = uri.AbsolutePath.Trim('/').Split('/');
-            // owner / repo / <ref> / Pets / <id> / animations.xml
+            // owner / repo / <ref> / Companions / <id> / animations.xml  (the folder was Pets before the 1.0.0 rename)
             return p.Length >= 6 &&
                 string.Equals(p[p.Length - 3], "Companions", StringComparison.Ordinal) &&
                 string.Equals(p[p.Length - 2], id, StringComparison.OrdinalIgnoreCase) &&

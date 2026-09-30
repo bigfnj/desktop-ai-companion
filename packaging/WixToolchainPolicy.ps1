@@ -439,9 +439,13 @@ function Open-DesktopAICompanionLockedWixExecutable {
                 'locked executable.')
         }
 
-        # Re-enumerate after every expected file has been pinned. This closes
-        # the validation window for an injected file that appeared while the
-        # retained input set was being opened.
+        # Re-enumerate after every expected file has been hashed. NOTHING IS PINNED: the
+        # validated-input handle holds no stream (StagingPathSafety.ps1 is a plain-file port
+        # of the native lease design), so a file replaced between this check and the wix
+        # invocation is not detected and is accepted. What the second inventory proves is
+        # that the file SET was unchanged at this instant, which catches a file added while
+        # the inputs were being opened (F224). The Inputs the callers retain and dispose are
+        # lifetime anchors and nothing more.
         $observedFiles =
             Get-DesktopAICompanionInstalledWixPayloadInventory `
                 -PayloadRoot $payloadRoot `

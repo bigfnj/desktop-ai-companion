@@ -425,6 +425,9 @@ namespace DesktopAICompanion.FortunesModule
                 // The engine's full self-test suite, running in the module's context.
                 bool filter = FortuneProvider.FilterSelfTest();
                 ok &= Check(sb, "engine FilterSelfTest (dedup/classifier/parser/ingestion/importer/embedded-taxonomy)", filter);
+                // Its per-case lines used to go to a temp file nothing read, so a failing sub-suite reached the
+                // gate as this one verdict and nothing else (F120). Folded in the way the smart reports are.
+                AppendReport(sb, "dp-filter-selftest.txt");
 
                 // --- smart layer: proves ONNX loads + runs inside the module's own load context ---
                 ok &= Check(sb, "bge-small model present beside the module", Embedder.ModelPresent);
@@ -434,6 +437,7 @@ namespace DesktopAICompanion.FortunesModule
                     // cos(code,code) > cos(code,weather) - the definitive proof that native onnxruntime.dll
                     // resolved and ran in the module's AssemblyLoadContext.
                     ok &= Check(sb, "Embedder loads ONNX + embeds in the module ALC", Embedder.SelfTest());
+                    AppendReport(sb, "dp-embed-selftest.txt");
 
                     // SmartFortunes warm/pick over the injected pool exercises the rebinds: VectorCache
                     // (AtomicFile) + CrossSessionLock, all in-module. In its OWN scratch cache directory:
@@ -444,10 +448,12 @@ namespace DesktopAICompanion.FortunesModule
                     ok &= SmartLayerChecks(sb, entries);
                     ok &= SmartLifecycleChecks(sb);
 
-                    // SmartFortunes' own suite over a 128-line sample of the built-in corpus: contextual
-                    // picks land, and a STABLE context still rotates through 12+ distinct lines out of 40
-                    // (the reported bug it guards was ~3 distinct lines out of thousands). It has had no
-                    // caller since the engine moved into this module, so that regression went unwatched.
+                    // SmartFortunes' own suite over DiagnosticPool, a sample of the built-in corpus (its size
+                    // is the diagnostic_pool= figure in the folded report): contextual picks land, a STABLE
+                    // context shows nine tenths of its relevance band before any line repeats and never the
+                    // same line twice running, and a second Warm supersedes the first. (The reported bug it
+                    // guards was ~3 distinct lines out of thousands.) It had had no caller since the engine
+                    // moved into this module, so that regression went unwatched.
                     ok &= Check(sb, "SmartFortunes.SelfTest (contextual picks + pick variety)", SmartFortunes.SelfTest());
                     AppendReport(sb, "dp-smart-selftest.txt");
                 }
@@ -557,28 +563,39 @@ namespace DesktopAICompanion.FortunesModule
                 FortunesModule.DescribeEngine(900, 4, 0, ContentLevels.Everything, false, false)
                     .IndexOf("model=", StringComparison.Ordinal) < 0);
 
-            // The download line's whole reason for existing: two of the three ways a pack fails produce no
+            // The download line's whole reason for existing: three of the four ways a pack fails produce no
             // reason anywhere else, so they must be told apart here.
             ok &= Check(sb, "a clean download batch says so",
-                FortunesModule.DescribeDownload(4, 4, 0, 0, 0, "").IndexOf("failed=0", StringComparison.Ordinal) >= 0);
-            string mixed = FortunesModule.DescribeDownload(4, 1, 1, 1, 1, "io");
-            ok &= Check(sb, "a failed download batch separates the three causes",
+                FortunesModule.DescribeDownload(4, 4, 0, 0, 0, 0, "").IndexOf("failed=0", StringComparison.Ordinal) >= 0);
+            string mixed = FortunesModule.DescribeDownload(5, 1, 1, 1, 1, 1, "io");
+            ok &= Check(sb, "a failed download batch separates the four causes",
                 mixed.IndexOf("installed=1", StringComparison.Ordinal) >= 0 &&
-                mixed.IndexOf("failed=3", StringComparison.Ordinal) >= 0 &&
+                mixed.IndexOf("failed=4", StringComparison.Ordinal) >= 0 &&
                 mixed.IndexOf("rejected-id=1", StringComparison.Ordinal) >= 0 &&
                 mixed.IndexOf("empty-payload=1", StringComparison.Ordinal) >= 0 &&
+                mixed.IndexOf("malformed=1", StringComparison.Ordinal) >= 0 &&
                 mixed.IndexOf("error=1", StringComparison.Ordinal) >= 0 &&
                 mixed.IndexOf("last=io", StringComparison.Ordinal) >= 0);
-            // A rejected id or an empty payload throws nothing, so there is no category to report -- and an
-            // empty "last=" would read as one having been lost.
+            // A pack the loader would refuse is refused at download and is its own cause, never an installed
+            // pack (F131); the pane's status says "failed" and this line says why.
+            ok &= Check(sb, "a refused pack is a download cause of its own, not an installed pack",
+                FortunesModule.DescribeDownload(1, 0, 0, 0, 1, 0, "")
+                    .IndexOf("installed=0 failed=1 (rejected-id=0 empty-payload=0 malformed=1 error=0)", StringComparison.Ordinal) >= 0);
+            // A rejected id, an empty payload or a refused pack throws nothing, so there is no category to
+            // report -- and an empty "last=" would read as one having been lost.
             ok &= Check(sb, "no category is invented when nothing threw",
-                FortunesModule.DescribeDownload(2, 0, 1, 1, 0, "")
+                FortunesModule.DescribeDownload(3, 0, 1, 1, 1, 0, "")
                     .IndexOf("last=", StringComparison.Ordinal) < 0);
             return ok;
         }
 
-        /// <summary>Fold a sub-test's own report file into this probe's output, so the console shows why it
-        /// failed instead of just that it did.</summary>
+        /// <summary>
+        /// Fold a sub-test's own report file into this probe's output, so the console shows why it failed
+        /// instead of just that it did. A line that reports a failure in the sub-reports' own vocabulary
+        /// (<c>name=FAIL</c>, <c>SUITE FAIL case</c>, <c>EXC:</c>) is re-emitted as a <c>FAIL: </c> verdict
+        /// line: the gate's failure printer and tests/mutate-selftest-guards.py read only lines that START
+        /// with FAIL, so without the prefix the folded case was visible to a person and to neither tool (F120).
+        /// </summary>
         private static void AppendReport(StringBuilder sb, string fileName)
         {
             try
@@ -586,9 +603,20 @@ namespace DesktopAICompanion.FortunesModule
                 string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), fileName);
                 if (!System.IO.File.Exists(path)) return;
                 foreach (string line in System.IO.File.ReadAllText(path).Replace("\r", "").Split('\n'))
-                    if (line.Length > 0) sb.AppendLine("      " + line);
+                {
+                    if (line.Length == 0) continue;
+                    sb.AppendLine((IsSubReportFailure(line) ? "      FAIL: " : "      ") + line);
+                }
             }
             catch { }
+        }
+
+        private static bool IsSubReportFailure(string line)
+        {
+            string trimmed = line.Trim();
+            if (trimmed.StartsWith("EXC", StringComparison.Ordinal)) return true;
+            if (trimmed.IndexOf("=FAIL", StringComparison.Ordinal) >= 0) return true;
+            return System.Text.RegularExpressions.Regex.IsMatch(trimmed, "^[A-Z][A-Z ]* FAIL( |$)");
         }
 
         /// <summary>

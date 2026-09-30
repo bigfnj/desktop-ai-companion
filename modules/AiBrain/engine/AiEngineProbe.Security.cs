@@ -470,16 +470,22 @@ namespace DesktopAICompanion.AiBrainModule
                 {
                     cancelled.Cancel();
                     bool threwCancel = false;
+                    var honouring = new CancellationHonouringBackend();
                     try
                     {
                         AiBrain.ChatWithRetryForDiagnosticsAsync(
-                            new CancellationHonouringBackend(), "probe-model", messages, cancelled.Token)
+                            honouring, "probe-model", messages, cancelled.Token)
                             .GetAwaiter().GetResult();
                     }
                     catch (OperationCanceledException) { threwCancel = true; }
                     catch (Exception) { threwCancel = false; }
                     joined = string.Join("\n", lines.ToArray());
                     ok &= Check(sb, "a cancelled AI request surfaces as cancellation", threwCancel);
+                    // WHERE the cancel came from: the backend was entered and threw, rather than a pre-check in
+                    // the retry helper refusing before it. The double recorded ChatCalls for exactly this and
+                    // nothing read it (F090).
+                    ok &= Check(sb, "the cancel came from the backend: ChatAsync was entered exactly once",
+                        honouring.ChatCalls == 1);
                     ok &= Check(
                         sb,
                         "a cancelled AI request is not logged as a request failure",
@@ -908,9 +914,9 @@ namespace DesktopAICompanion.AiBrainModule
                 AiSettings first = AiSettings.Load();
                 AiSettings second = AiSettings.Load();
                 first.TimeoutSeconds = 77;
-                bool firstSaved = first.Save();
+                bool firstSaved = first.SaveWithin(AiSettings.ProcessLockTimeoutMilliseconds);
                 second.UseVision = true;
-                bool secondSaved = second.Save();
+                bool secondSaved = second.SaveWithin(AiSettings.ProcessLockTimeoutMilliseconds);
                 JsonObject merged = JsonNode.Parse(File.ReadAllText(path, Encoding.UTF8)).AsObject();
                 ok &= Check(
                     sb,
@@ -929,8 +935,8 @@ namespace DesktopAICompanion.AiBrainModule
                 keyWriterB.Provider = "openrouter";
                 keyWriterB.OpenAiBaseUrl = "https://openrouter.ai/api/v1";
                 keyWriterB.ApiKey = "stale-writer-router-key";
-                bool keyWriterASaved = keyWriterA.Save();
-                bool keyWriterBSaved = keyWriterB.Save();
+                bool keyWriterASaved = keyWriterA.SaveWithin(AiSettings.ProcessLockTimeoutMilliseconds);
+                bool keyWriterBSaved = keyWriterB.SaveWithin(AiSettings.ProcessLockTimeoutMilliseconds);
                 AiSettings mergedKeys = AiSettings.Load();
                 bool routerKeyPreserved =
                     mergedKeys.ApiKey == "stale-writer-router-key";
@@ -956,7 +962,7 @@ namespace DesktopAICompanion.AiBrainModule
                     customSettings.SelectProviderEndpoint("openai", true);
                 string restoredCustomEndpoint =
                     customSettings.SelectProviderEndpoint("custom", true);
-                bool customSaved = customSettings.Save();
+                bool customSaved = customSettings.SaveWithin(AiSettings.ProcessLockTimeoutMilliseconds);
                 AiSettings customReloaded = AiSettings.Load();
                 ok &= Check(
                     sb,
@@ -1146,7 +1152,7 @@ namespace DesktopAICompanion.AiBrainModule
                     Directory.GetFiles(directory, "ai-settings.corrupt-*").Length == 1);
                 // The store writes UTF-8 with no BOM, so the next ordinary save leaves no trace of either encoding.
                 utf16Loaded.TimeoutSeconds = 126;
-                bool rewrote = utf16Loaded.Save();
+                bool rewrote = utf16Loaded.SaveWithin(AiSettings.ProcessLockTimeoutMilliseconds);
                 byte[] rewritten = File.ReadAllBytes(path);
                 ok &= Check(
                     sb,
@@ -1178,7 +1184,7 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(
                     sb,
                     "...and that instance keeps every write blocked, so it cannot overwrite a file it never read",
-                    timedOut != null && !timedOut.Save());
+                    timedOut != null && !timedOut.SaveWithin(AiSettings.ProcessLockTimeoutMilliseconds));
 
                 string future =
                     "{\n  \"SchemaVersion\": 99,\n" +
@@ -1188,7 +1194,7 @@ namespace DesktopAICompanion.AiBrainModule
                 byte[] before = File.ReadAllBytes(path);
                 AiSettings futureSettings = AiSettings.Load();
                 futureSettings.TimeoutSeconds = 50;
-                bool blocked = !futureSettings.Save();
+                bool blocked = !futureSettings.SaveWithin(AiSettings.ProcessLockTimeoutMilliseconds);
                 byte[] after = File.ReadAllBytes(path);
                 ok &= Check(
                     sb,
@@ -1266,6 +1272,23 @@ namespace DesktopAICompanion.AiBrainModule
                     openAiRestored &&
                     customRestored &&
                     routerRestored);
+
+                // F108. An id no preset knows leaves everything as it was: the selector, the LOCAL endpoint and
+                // the cloud endpoint. Until 2026-09-30 AiProviders.Get answered an unknown id with its FIRST
+                // preset, the local Ollama row, and SelectProviderEndpoint then wrote Provider = "ollama" and,
+                // with prefill, the preset URL over the local Endpoint. No caller passes such an id today, which
+                // is why the trap never fired, and why it is pinned here rather than left for the first that does.
+                settings.SelectProviderEndpoint("openai", true);
+                settings.Endpoint = "http://127.0.0.1:11434";
+                string providerBefore = settings.Provider;
+                string cloudEndpointBefore = settings.OpenAiBaseUrl;
+                settings.SelectProviderEndpoint("not-a-provider", true);
+                ok &= Check(
+                    sb,
+                    "an unknown provider id leaves the selector and both endpoints untouched",
+                    settings.Provider == providerBefore &&
+                    settings.Endpoint == "http://127.0.0.1:11434" &&
+                    settings.OpenAiBaseUrl == cloudEndpointBefore);
 
                 var credentialA = new AiSettings
                 {
@@ -1357,11 +1380,8 @@ namespace DesktopAICompanion.AiBrainModule
                 Disposition = "NOT-A-DISPOSITION",
                 Provider = "NOT-A-PROVIDER",
                 LocalBackendKind = "NOT-A-KIND",
-                TimeoutSeconds = int.MaxValue,
-                DisabledSources = new List<string>()
+                TimeoutSeconds = int.MaxValue
             };
-            for (int i = 0; i < 300; i++)
-                settings.DisabledSources.Add(" source-" + i + " ");
             settings.Normalize();
 
             ok &= Check(sb, "AI settings schema normalized",
@@ -1388,8 +1408,8 @@ namespace DesktopAICompanion.AiBrainModule
             floorSettings.Normalize();
             ok &= Check(sb, "AI timeout clamped at its lower bound as well as its upper",
                 floorSettings.TimeoutSeconds == 10);
-            ok &= Check(sb, "AI disabled-source list bounded",
-                settings.DisabledSources.Count == 128);
+            // (An "AI disabled-source list bounded" check stood here; it went with the Fortunes-era field it
+            // bounded, which nothing in this module read, F093.)
 
             string normalizedModel;
             ok &= Check(
@@ -1501,7 +1521,7 @@ namespace DesktopAICompanion.AiBrainModule
                 writer.CloudTextModel = "cloud-text-model";
                 writer.CloudVisionModel = "cloud-vision-model";
                 writer.UseLocalFallback = false;
-                bool cloudSaved = writer.Save();
+                bool cloudSaved = writer.SaveWithin(AiSettings.ProcessLockTimeoutMilliseconds);
                 AiSettings cloudReloaded = AiSettings.Load();
                 ok &= Check(
                     sb,
@@ -1636,7 +1656,7 @@ namespace DesktopAICompanion.AiBrainModule
 
                 AiSettings writer = AiSettings.Load();
                 writer.LocalBackendKind = "openai-compat";
-                bool saved = writer.Save();
+                bool saved = writer.SaveWithin(AiSettings.ProcessLockTimeoutMilliseconds);
                 AiSettings reloaded = AiSettings.Load();
                 ok &= Check(
                     sb,
@@ -1700,19 +1720,19 @@ namespace DesktopAICompanion.AiBrainModule
                             "ollama.exe"),
                         canonical,
                         StringComparison.OrdinalIgnoreCase) &&
-                    AiExecutablePolicy.IsReparseFreeLocalFile(
+                    AiExecutablePolicy.IsReparseFreeLocalFileForDiagnostics(
                         executable));
 
                 ok &= Check(
                     sb,
                     "UNC and device AI executable paths rejected before probing",
-                    !AiExecutablePolicy.IsLocalAbsolutePath(
+                    !AiExecutablePolicy.IsLocalAbsolutePathForDiagnostics(
                         @"\\server.invalid\share\ollama.exe") &&
-                    !AiExecutablePolicy.IsLocalAbsolutePath(
+                    !AiExecutablePolicy.IsLocalAbsolutePathForDiagnostics(
                         @"\\?\C:\Apps\Ollama\ollama.exe") &&
-                    !AiExecutablePolicy.IsLocalAbsolutePath(
+                    !AiExecutablePolicy.IsLocalAbsolutePathForDiagnostics(
                         @"\\.\C:\Apps\Ollama\ollama.exe") &&
-                    !AiExecutablePolicy.IsLocalAbsolutePath(
+                    !AiExecutablePolicy.IsLocalAbsolutePathForDiagnostics(
                         @"\??\C:\Apps\Ollama\ollama.exe") &&
                     AiExecutablePolicy.ResolveConfigured(
                         @"\\server.invalid\share\ollama.exe",
@@ -2257,7 +2277,7 @@ namespace DesktopAICompanion.AiBrainModule
             }
             finally
             {
-                manager.Dispose();
+                if (manager != null) manager.Dispose();
             }
             return ok;
         }
@@ -2314,7 +2334,7 @@ namespace DesktopAICompanion.AiBrainModule
                 if (reconfigure != null)
                     try { reconfigure.Wait(TimeSpan.FromSeconds(2)); }
                     catch { }
-                manager.Dispose();
+                if (manager != null) manager.Dispose();
                 release.Dispose();
                 admitted.Dispose();
             }
@@ -2334,12 +2354,19 @@ namespace DesktopAICompanion.AiBrainModule
         private static bool CheckAiAfterRetireSupersession(StringBuilder sb)
         {
             bool ok = true;
-            RetirementTrackingBackend backend;
-            AiSessionManager manager = CreateRetirementTestManager(out backend);
-            SemaphoreSlim operation = GetManagerOperation(manager);
+            RetirementTrackingBackend backend = null;
+            AiSessionManager manager = null;
+            SemaphoreSlim operation = null;
             bool held = false;
             try
             {
+                // Created INSIDE the try (F082): GetManagerOperation throws MissingFieldException when the
+                // reflected _operation field is renamed, and created outside it that throw left Run's outer
+                // catch as the only handler -- one EXC line, no FAIL naming this check, the two check groups
+                // after the after-retire checks never run, and the manager never disposed. The three sibling
+                // checks below follow the same shape.
+                manager = CreateRetirementTestManager(out backend);
+                operation = GetManagerOperation(manager);
                 operation.Wait();
                 held = true;
                 int callbackCount = 0;
@@ -2387,7 +2414,7 @@ namespace DesktopAICompanion.AiBrainModule
             finally
             {
                 if (held) operation.Release();
-                manager.Dispose();
+                if (manager != null) manager.Dispose();
             }
             return ok;
         }
@@ -2395,11 +2422,13 @@ namespace DesktopAICompanion.AiBrainModule
         private static bool CheckAiAfterRetireMultipleSupersessions(StringBuilder sb)
         {
             bool ok = true;
-            var manager = new AiSessionManager();
-            SemaphoreSlim operation = GetManagerOperation(manager);
+            AiSessionManager manager = null;
+            SemaphoreSlim operation = null;
             bool held = false;
             try
             {
+                manager = new AiSessionManager();   // inside the try: see CheckAiAfterRetireSupersession (F082)
+                operation = GetManagerOperation(manager);
                 operation.Wait();
                 held = true;
                 int firstCount = 0;
@@ -2465,7 +2494,7 @@ namespace DesktopAICompanion.AiBrainModule
             finally
             {
                 if (held) operation.Release();
-                manager.Dispose();
+                if (manager != null) manager.Dispose();
             }
             return ok;
         }
@@ -2473,12 +2502,14 @@ namespace DesktopAICompanion.AiBrainModule
         private static bool CheckAiAfterRetireNormalDispose(StringBuilder sb)
         {
             bool ok = true;
-            RetirementTrackingBackend backend;
-            AiSessionManager manager = CreateRetirementTestManager(out backend);
-            SemaphoreSlim operation = GetManagerOperation(manager);
+            RetirementTrackingBackend backend = null;
+            AiSessionManager manager = null;
+            SemaphoreSlim operation = null;
             bool held = false;
             try
             {
+                manager = CreateRetirementTestManager(out backend);   // inside the try (F082)
+                operation = GetManagerOperation(manager);
                 operation.Wait();
                 held = true;
                 int callbackCount = 0;
@@ -2508,7 +2539,7 @@ namespace DesktopAICompanion.AiBrainModule
                     // Exercise the production disposal budget here. A zero diagnostic
                     // budget intentionally skips the optional unload wait and only
                     // disposes the backend, so it cannot prove normal retirement.
-                    manager.Dispose();
+                    if (manager != null) manager.Dispose();
 
                     ok &= Check(
                         sb,
@@ -2529,7 +2560,7 @@ namespace DesktopAICompanion.AiBrainModule
             finally
             {
                 if (held) operation.Release();
-                manager.Dispose();
+                if (manager != null) manager.Dispose();
             }
             return ok;
         }
@@ -2537,14 +2568,16 @@ namespace DesktopAICompanion.AiBrainModule
         private static bool CheckAiAfterRetireDeferredDispose(StringBuilder sb)
         {
             bool ok = true;
-            RetirementTrackingBackend backend;
-            AiSessionManager manager = CreateRetirementTestManager(out backend);
-            SemaphoreSlim operation = GetManagerOperation(manager);
+            RetirementTrackingBackend backend = null;
+            AiSessionManager manager = null;
+            SemaphoreSlim operation = null;
             bool held = false;
             using (var completed = new ManualResetEventSlim(false))
             {
                 try
                 {
+                    manager = CreateRetirementTestManager(out backend);   // inside the try (F082)
+                    operation = GetManagerOperation(manager);
                     operation.Wait();
                     held = true;
                     int callbackCount = 0;
@@ -2607,7 +2640,7 @@ namespace DesktopAICompanion.AiBrainModule
                 finally
                 {
                     if (held) operation.Release();
-                    manager.Dispose();
+                    if (manager != null) manager.Dispose();
                 }
             }
             return ok;

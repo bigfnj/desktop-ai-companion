@@ -7,20 +7,18 @@ using System.Text.RegularExpressions;
 
 namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
 {
-    /// <summary>Metadata read from an Android-Shimeji bundle's manifest.json (name/author/license plus the
-    /// sprite sheet layout the pose mapping needs). Defaults match the sample bundle so a manifest that omits
-    /// a field still resolves.</summary>
+    /// <summary>Metadata read from an Android-Shimeji bundle's manifest.json: the name plus the sprite sheet
+    /// layout the pose mapping needs. Defaults match the sample bundle so a manifest that omits a field still
+    /// resolves. (The author, licence, sprite count and default animation the manifest also carries were parsed
+    /// and read by nothing, F443; the emitted header names the converter, and a bad sprite index already fails
+    /// by file name in WebPLoader.)</summary>
     public sealed class BundleInfo
     {
         public string Name;
-        public string Author;
-        public string License;
         public string SpritesBasePath = "sprites/";
         public string FilePattern = "%04d.webp";
-        public int SpriteCount;
         public int SpriteWidth = 512;
         public int SpriteHeight = 512;
-        public string DefaultAnimation;
     }
 
     /// <summary>
@@ -65,26 +63,11 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 JsonElement root = doc.RootElement;
                 info.Name = GetString(root, "name") ?? info.Name;
 
-                JsonElement author;
-                if (root.TryGetProperty("author", out author))
-                {
-                    if (author.ValueKind == JsonValueKind.Object) info.Author = GetString(author, "name");
-                    else if (author.ValueKind == JsonValueKind.String) info.Author = author.GetString();
-                }
-
-                JsonElement license;
-                if (root.TryGetProperty("license", out license))
-                {
-                    if (license.ValueKind == JsonValueKind.Object) info.License = GetString(license, "type");
-                    else if (license.ValueKind == JsonValueKind.String) info.License = license.GetString();
-                }
-
                 JsonElement sprites;
                 if (root.TryGetProperty("sprites", out sprites) && sprites.ValueKind == JsonValueKind.Object)
                 {
                     info.SpritesBasePath = GetString(sprites, "basePath") ?? info.SpritesBasePath;
                     info.FilePattern = GetString(sprites, "filePattern") ?? info.FilePattern;
-                    info.SpriteCount = GetInt(sprites, "spriteCount", 0);
 
                     JsonElement size;
                     if (sprites.TryGetProperty("size", out size) && size.ValueKind == JsonValueKind.Array
@@ -103,7 +86,6 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
             using (JsonDocument doc = JsonDocument.Parse(json))
             {
                 JsonElement root = doc.RootElement;
-                info.DefaultAnimation = GetString(root, "default_animation") ?? info.DefaultAnimation;
 
                 JsonElement anims;
                 if (!root.TryGetProperty("animations", out anims) || anims.ValueKind != JsonValueKind.Array)
@@ -145,7 +127,7 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                                 AnchorFollowsSprite = true,
                             };
                             animation.Poses.Add(pose);
-                            config.Poses.Add(pose);   // complete sprite set, exactly as ShimejiParser gathers it
+                            config.Poses.Add(pose);   // the document-wide pose census (ShimejiConfig.Poses), as ShimejiParser gathers it
                         }
                     }
                     action.Animations.Add(animation);

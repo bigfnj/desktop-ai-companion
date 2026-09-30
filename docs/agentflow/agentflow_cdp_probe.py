@@ -205,7 +205,7 @@ class Browser(object):
         raw = urllib.request.urlopen("http://127.0.0.1:%d/json/version" % port, timeout=5).read()
         self.ws = websocket.create_connection(
             json.loads(raw)["webSocketDebuggerUrl"], timeout=timeout,
-            suppress_origin=True, max_size=None)
+            suppress_origin=True)   # websocket-client has no frame-size cap; max_size= was the other library's (F006)
         self.next_id = 1
 
     def send(self, method, params=None, session=None):

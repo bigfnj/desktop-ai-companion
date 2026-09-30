@@ -141,6 +141,7 @@ $productName = Get-ProductProperty $productProps 'DesktopAICompanionProductName'
 $manufacturer = Get-ProductProperty $productProps 'DesktopAICompanionPublisher'
 $productVersion = Get-ProductProperty $productProps 'DesktopAICompanionVersion'
 $repositoryUrl = Get-ProductProperty $productProps 'DesktopAICompanionRepositoryUrl'
+$productDescription = Get-ProductProperty $productProps 'DesktopAICompanionDescription'
 # New for v1.0.0, and it HAS to be new. 1.0.0 is a lower ProductVersion than the 1.9.16 that shipped under
 # the old UpgradeCode 'DBF8DDB3-C4AB-498C-9E55-4193A734C573', so reusing it makes every install a downgrade
 # and MSI refuses it outright. A distinct code makes Desktop AI Companion a separate product, which is
@@ -260,7 +261,6 @@ $generatedFragmentInput = Open-DesktopAICompanionValidatedInputFile `
 $retainedInputs.Add($generatedFragmentInput)
 
 $msiPath = Join-Path $distributionDirectory "$artifactBaseName.msi"
-$wixPdbPath = Join-Path $distributionDirectory "$artifactBaseName.wixpdb"
 $msiDestinationExists = $false
 $msiDestinationSha256 = $null
 if (Test-Path -LiteralPath $msiPath -PathType Leaf) {
@@ -318,6 +318,7 @@ $wixArguments = @(
     '-d', "Manufacturer=$manufacturer",
     '-d', "ProductVersion=$productVersion",
     '-d', "RepositoryUrl=$repositoryUrl",
+    '-d', "ProductDescription=$productDescription",
     '-d', "UpgradeCode=$upgradeCode",
     '-d', "RegistryRoot=$registryRoot",
     '-d', "InstallFolderStateComponentGuid=$installFolderStateComponentGuid",
@@ -460,25 +461,8 @@ $msiPath = Assert-DesktopAICompanionOutputFileSafe `
         $artifactStagingDirectory,
         $installerRoot
     )
-$wixPdbPath = Assert-DesktopAICompanionOutputFileSafe `
-    -Path $wixPdbPath `
-    -TrustedRoot $distributionDirectory `
-    -ProtectedPaths @(
-        $productPropsPath,
-        $runtimeManifestPath,
-        $generatedFragment,
-        $stagedMsiPath
-    ) `
-    -ProtectedDirectories @(
-        $outputDirectory,
-        $stagingDirectory,
-        $artifactStagingDirectory,
-        $installerRoot
-    )
-Remove-DesktopAICompanionSafeFile `
-    -Path $wixPdbPath `
-    -AllowedRoot $distributionDirectory `
-    -TrustedRoot $repoRoot
+# No .wixpdb handling: the build passes -pdbtype none, and a pdb would land beside the staged MSI, never in
+# dist, so the assert-and-remove that sat here could never see a file (F022).
 $publishMsiParameters = @{
     TemporaryPath = $stagedMsiPath
     DestinationPath = $msiPath

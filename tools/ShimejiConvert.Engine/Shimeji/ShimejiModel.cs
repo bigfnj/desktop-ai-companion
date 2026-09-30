@@ -121,8 +121,10 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
     }
 
     /// <summary>A parsed Shimeji configuration: its top-level actions, its behaviour-selection conditions,
-    /// and every pose in the document (the complete sprite set, gathered independently of action nesting so
-    /// the compositor never misses a frame).</summary>
+    /// and a CENSUS of every pose in the document, gathered independently of action nesting. The census is
+    /// read by the script-flattening residue note and the parser self-tests; the compositor walks the
+    /// actions' own pose lists (PetEmitter.PosesToComposite), so a pose nested inside a composite action is
+    /// counted here and never composited (F455).</summary>
     public sealed class ShimejiConfig
     {
         public readonly List<ShimejiAction> Actions = new List<ShimejiAction>();

@@ -182,7 +182,11 @@ namespace DesktopAICompanion
 
             // More than two channels: rejected explicitly, so the caller gets false and can show a bubble,
             // rather than the mixer throwing into a silent catch.
-            ok &= Check(sb, "a 3-channel WAV is rejected", AudioOutput.DecodeModuleAudio(ThreeChannelWav()) == null);
+            // PcmWav with channels = 3 writes the same bytes a dedicated three-channel builder did (the
+            // channel count, byte rate and block align are all derived from the argument), so the fixture
+            // is the shared writer rather than a second WAV layout that could drift from it (F248).
+            ok &= Check(sb, "a 3-channel WAV is rejected",
+                AudioOutput.DecodeModuleAudio(PcmWav(new float[64 * 3], 44100, 3)) == null);
 
             // Over the encoded cap. Built as a bare oversized RIFF header so the test does not allocate 16 MB
             // of samples just to be told no.
@@ -562,33 +566,6 @@ namespace DesktopAICompanion
                 for (int c = 0; c < channels; c++) buf[f * channels + c] = s;
             }
             return buf;
-        }
-
-        /// <summary>A structurally valid 3-channel PCM WAV, which WavAudio deliberately will not build.</summary>
-        private static byte[] ThreeChannelWav()
-        {
-            const int channels = 3, rate = 44100, frames = 64;
-            int dataBytes = frames * channels * 2;
-            using (var ms = new MemoryStream())
-            using (var w = new BinaryWriter(ms))
-            {
-                w.Write(new[] { 'R', 'I', 'F', 'F' });
-                w.Write(36 + dataBytes);
-                w.Write(new[] { 'W', 'A', 'V', 'E' });
-                w.Write(new[] { 'f', 'm', 't', ' ' });
-                w.Write(16);
-                w.Write((short)1);
-                w.Write((short)channels);
-                w.Write(rate);
-                w.Write(rate * channels * 2);
-                w.Write((short)(channels * 2));
-                w.Write((short)16);
-                w.Write(new[] { 'd', 'a', 't', 'a' });
-                w.Write(dataBytes);
-                for (int i = 0; i < frames * channels; i++) w.Write((short)0);
-                w.Flush();
-                return ms.ToArray();
-            }
         }
 
         private static bool Check(StringBuilder sb, string what, bool condition)

@@ -128,7 +128,8 @@ namespace DesktopAICompanion
         }
 
         /// <summary>Whether launch should go to the network at all: the setting is on AND the stored answer is
-        /// older than the interval. Split out as a pure decision so "at most once a day" is testable.</summary>
+        /// older than the interval. Split out as a pure decision so "at most once per <see cref="CheckInterval"/>"
+        /// (a week) is testable.</summary>
         internal static bool ShouldCheck(bool enabled, DateTimeOffset lastCheckUtc, DateTimeOffset nowUtc)
         {
             return ShouldCheck(enabled, lastCheckUtc, nowUtc, CheckInterval);
@@ -149,8 +150,8 @@ namespace DesktopAICompanion
         /// Run the check if it is due, and record the outcome. Fire-and-forget from startup: every failure is
         /// swallowed, because "could not reach GitHub" is not something to interrupt a pet app over.
         ///
-        /// The stamp is written even when the answer is "nothing newer", so an offline machine backs off for a
-        /// day instead of retrying on every launch.
+        /// The stamp is written even when the answer is "nothing newer", so an offline machine backs off for the
+        /// whole <see cref="CheckInterval"/> (a week) instead of retrying on every launch.
         /// </summary>
         internal static Task MaybeCheckAsync(LocalData data, string currentVersion, CancellationToken token)
         {

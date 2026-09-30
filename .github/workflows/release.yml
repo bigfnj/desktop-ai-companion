@@ -71,12 +71,12 @@ jobs:
           persist-credentials: false
 
       - name: Set up the .NET 10 SDK
-        # Matches global.json's exact pin (rollForward "disable"). The old 10.0.201 pin existed because
-        # 10.0.302 misreported the legacy net48 project's framework in `dotnet list package` -- there is no
-        # net48 project and no list-package gate any more, so the reason is gone.
+        # The pin is read from global.json (exact version, rollForward "disable"); see build.yml (F001). The
+        # old 10.0.201 literal existed because 10.0.302 misreported the legacy net48 project's framework in
+        # `dotnet list package` -- there is no net48 project and no list-package gate any more.
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68
         with:
-          dotnet-version: '10.0.302'
+          global-json-file: global.json
 
       - name: Confirm the tag matches ProductVersion.props
         # A tag that disagrees with the product version ships artifacts whose file versions contradict the

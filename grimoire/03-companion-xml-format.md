@@ -182,7 +182,7 @@ not hundreds of frames.
 - `<next>` — a transition taken when the sequence **finishes** (see [§6](#6-next-the-transitions)).
 
 Total steps played = `Frames.Count + (Frames.Count - repeatfrom) * repeat`
-(`TSequence.CalculateTotalSteps`). So `repeat="20" repeatfrom="0"` on a 2-frame walk plays 42 steps
+(`AnimationRuntimeLimits.CalculateTotalSteps`, applied by `TAnimation.UpdateValues`). So `repeat="20" repeatfrom="0"` on a 2-frame walk plays 42 steps
 before the sequence-finished `<next>` fires.
 
 ```xml

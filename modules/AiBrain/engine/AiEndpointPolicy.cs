@@ -540,7 +540,10 @@ namespace DesktopAICompanion.Ai
                 TaskScheduler.Default);
         }
 
-        private static void ObserveTaskFailure(Task task)
+        /// <summary>Observe a task's fault so an abandoned task never surfaces as an unobserved-task exception.
+        /// Shared: AiBrain (the tesseract pipe reads) and AiSessionManager (a timed-out unload) each carried a
+        /// private copy of this continuation until 2026-09-30 (F064).</summary>
+        internal static void ObserveTaskFailure(Task task)
         {
             if (task == null) return;
             task.ContinueWith(

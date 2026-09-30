@@ -134,8 +134,9 @@ namespace DesktopAICompanion.Ai
         /// The rotation target for a pool of <paramref name="poolSize"/> lines.
         ///
         /// The target sets how often a NARROW band is allowed to fire, and therefore how often its few
-        /// lines come round. A flat 128 is right for a real corpus and wrong for a small one: measured
-        /// on the 131-line diagnostic pool it drove contextual_picks to 0/3, because every band was tiny
+        /// lines come round. A flat 128 is right for a real corpus and wrong for a small one: measured at
+        /// the time on a 131-line diagnostic pool (the sample has since grown; the report's diagnostic_pool=
+        /// figure is its size) it drove contextual_picks to 0/3, because every band was tiny
         /// relative to the target and the gate declined essentially always. A user with a few hundred
         /// custom fortunes would have watched the smart picker switch itself off and never be told.
         ///
@@ -164,8 +165,9 @@ namespace DesktopAICompanion.Ai
         // number the margin actually controls, and drives a real assertion in the self-test.
         //
         // Asserting on it instead of deleting it was considered and rejected. The only invariants
-        // available are <= MaximumCandidates (512) and <= LastBandCount, and the self-test pool is 131
-        // lines, so the cap never applies and neither could fail. That is the kind of check this repo
+        // available are <= MaximumCandidates (512) and <= LastBandCount, and the self-test pool is a small
+        // sample of the corpus (its size is the diagnostic_pool= figure the report prints), so the cap never
+        // applies and neither could fail. That is the kind of check this repo
         // keeps having to remove.
         private const int DisposeWaitMilliseconds = 3000;
         // bge-small-en-v1.5 is asymmetric: the query gets this instruction, passages stay plain.
@@ -186,11 +188,6 @@ namespace DesktopAICompanion.Ai
             : this(diagnosticCacheDirectory, CancellationToken.None)
         {
             _modelAbsentForDiagnostics = modelAbsentForDiagnostics;
-        }
-
-        internal SmartFortunes(CancellationToken cancellationToken)
-            : this(null, cancellationToken)
-        {
         }
 
         /// <summary>Diagnostics: a picker over a caller-supplied embedder (one pointed at a throwaway
@@ -286,15 +283,24 @@ namespace DesktopAICompanion.Ai
             }
         }
 
-        /// <summary>Embed the given pool in the background (idempotent; supersedes any prior warm).</summary>
+        /// <summary>
+        /// Embed the given pool in the background. A second call on the same picker SUPERSEDES the first: the
+        /// earlier warm is cancelled, the new one is chained behind it, and only the newest warm may publish
+        /// (the ReferenceEquals guards on the cancellation source). Production warms each picker once, so the
+        /// self-test's rewarm case is what keeps that contract honest (F136).
+        /// </summary>
         public void Warm(List<FortuneEntry> pool)
         {
             Warm(pool, CancellationToken.None);
         }
 
-        internal void Warm(
-            List<FortuneEntry> pool,
-            CancellationToken cancellationToken)
+        /// <summary>
+        /// Diagnostics seam: the same warm, linked to a caller's token. Production passes None; the module's
+        /// probe hands a pre-cancelled token in as the stand-in for an Apply that supersedes the warm before
+        /// it starts, which is how "a cancelled warm says so through the sink" (F145) is driven without a
+        /// race. Kept for that reader (F136); the token-only constructor that sat beside it had none and went.
+        /// </summary>
+        internal void Warm(List<FortuneEntry> pool, CancellationToken cancellationToken)
         {
             List<FortuneEntry> snapshot =
                 pool == null ? null : new List<FortuneEntry>(pool);
@@ -338,9 +344,7 @@ namespace DesktopAICompanion.Ai
                 }
 
                 Task previous = _warmTask;
-                var cancellation =
-                    CancellationTokenSource.CreateLinkedTokenSource(
-                        cancellationToken);
+                var cancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 _warmCancellation = cancellation;
                 var next = new Task(
                     delegate
@@ -563,8 +567,9 @@ namespace DesktopAICompanion.Ai
         /// <summary>
         /// A fortune that fits <paramref name="context"/> (the screen/window text), or null to signal
         /// "no good match — use a random fortune". Topic routing is derived from <paramref name="context"/>
-        /// via nearest topic prototype (see RouteByContext); <paramref name="app"/> is retained for
-        /// callers/telemetry but no longer drives routing.
+        /// via nearest topic prototype (see RouteByContext); <paramref name="app"/> (the foreground process
+        /// name) is kept for the callers' signature and is not read: routing moved to the context text, and
+        /// there is no telemetry (F141).
         /// </summary>
         public string Pick(string context, string app)
         {
@@ -688,7 +693,7 @@ namespace DesktopAICompanion.Ai
                     // A narrow band can recycle down to the line just spoken, and handing it straight
                     // back is the most visible possible repeat. Decline instead: the caller falls
                     // through to the whole-corpus shuffle-bag, which is a better answer than saying the
-                    // same thing twice running. Measured on the 131-line diagnostic pool, where a band
+                    // same thing twice running. Measured at the time on a 131-line diagnostic pool, where a band
                     // of one produced 16 back-to-back repeats in 200 picks.
                     if (choices.Count == 1 && _lastPicked != null &&
                         string.Equals(pool[choices[0]].Text, _lastPicked, StringComparison.Ordinal))
@@ -1078,16 +1083,17 @@ namespace DesktopAICompanion.Ai
 
                 // THIS SUITE PROVES ROUTING, NOT VARIETY, and the margin is widened so it can.
                 //
-                // DiagnosticPool is 131 lines, chosen to keep the gate fast. At the shipped margin that
-                // pool admits a band of ONE -- measured -- because 131 sparse lines do not contain a
-                // spread of things relevant to "writing C# code". The picker then correctly declines
-                // nearly every pick and the contextual assertions below have nothing to observe, which
-                // is how this suite went red the first time the band replaced the fixed top-K.
+                // DiagnosticPool is a SAMPLE of the corpus (MaximumSampleEntries plus the anchors; the report
+                // prints its size as diagnostic_pool=), chosen to keep the gate fast. When the sample was 131
+                // lines the shipped margin admitted a band of ONE, measured, because that few sparse lines do
+                // not contain a spread of things relevant to "writing C# code"; the picker then correctly
+                // declined nearly every pick and the contextual assertions below had nothing to observe,
+                // which is how this suite went red the first time the band replaced the fixed top-K.
                 //
                 // Widening the margin here restores a band to route within. The variety question this
                 // pool CANNOT answer -- "does a person see the same line three times in a day" -- is
                 // answered against a 1500-line pool by simulated_day in ProgressiveSelfTest. Splitting
-                // them is the point: a 131-line corpus repeats whatever the picker does, so a variety
+                // them is the point: a sample this size repeats whatever the picker does, so a variety
                 // assertion here would be measuring the fixture rather than the code.
                 float selfTestSpread = CandidateSpread;
                 CandidateSpread = 0.50f;
@@ -1170,7 +1176,7 @@ namespace DesktopAICompanion.Ai
                     // reason a user would recognise. Asserting against the band makes it fail the moment
                     // the picker starts favouring a subset of what it judged relevant.
                     //
-                    // Corpus-size variety is NOT assertable here: this pool is 131 lines, so the honest
+                    // Corpus-size variety is NOT assertable here: this pool is a sample of the corpus, so the honest
                     // measure of "does a person see repeats" needs a real corpus and lives in
                     // ProgressiveSelfTest's simulated_day, which fails at worst_repeat > 2.
                     // Nine tenths of the band, not all of it: the margin sweep above consumes a few
@@ -1199,6 +1205,54 @@ namespace DesktopAICompanion.Ai
                 }
                 finally { CandidateSpread = selfTestSpread; }
 
+                // SUPERSESSION, forced. Warm advertises "a second call supersedes the first", and every picker
+                // in production and in this suite was warmed exactly once on a fresh object, so the cancel-the-
+                // previous, chain-behind-it and only-the-newest-publishes arms of Warm ran for nobody (F136).
+                // Two DIFFERENTLY SIZED slices of the pool (equal sizes would leave the count blind): the
+                // second Warm lands before the first can finish, and the picker must end up holding the
+                // second pool, its progress must total the second pool, and no pick may come from the first.
+                {
+                    int firstSize = Math.Min(24, pool.Count / 2);
+                    int secondSize = Math.Min(16, pool.Count - firstSize);
+                    List<FortuneEntry> firstPool = pool.GetRange(0, firstSize);
+                    List<FortuneEntry> secondPool = pool.GetRange(firstSize, secondSize);
+                    bool rewarmOk = false;
+                    string rewarmDetail = " (pool too small to slice)";
+                    if (firstSize > 1 && secondSize > 1 && firstSize != secondSize)
+                    {
+                        using (var rewarm = new SmartFortunes(Path.Combine(cacheDir, "rewarm")))
+                        {
+                            rewarm.Warm(firstPool);
+                            rewarm.Warm(secondPool);
+                            bool rwReady = false, rwComplete = false;
+                            int rwIndexed = 0, rwTotal = 0;
+                            var rewarmWatch = System.Diagnostics.Stopwatch.StartNew();
+                            while (!rwComplete && rewarmWatch.ElapsedMilliseconds < 120000)
+                            {
+                                rewarm.WarmProgress(out rwReady, out rwComplete, out rwIndexed, out rwTotal);
+                                if (!rwComplete) Thread.Sleep(50);
+                            }
+                            var secondTexts = new HashSet<string>(StringComparer.Ordinal);
+                            foreach (FortuneEntry second in secondPool) secondTexts.Add(second.Text);
+                            int rewarmPicks = 0, strays = 0;
+                            for (int pick = 0; pick < 40; pick++)
+                            {
+                                string picked = rewarm.Pick("Program.cs - Visual Studio - writing C# code", "devenv");
+                                if (picked == null) continue;
+                                rewarmPicks++;
+                                if (!secondTexts.Contains(picked)) strays++;
+                            }
+                            rewarmOk = rwComplete && rewarm.Ready && rwTotal == secondPool.Count &&
+                                rewarm.PoolCount == secondPool.Count && strays == 0;
+                            rewarmDetail = " total=" + rwTotal + " pool_count=" + rewarm.PoolCount +
+                                " expected=" + secondPool.Count + " first_pool=" + firstPool.Count +
+                                " indexed=" + rwIndexed + " ready=" + rwReady +
+                                " picks=" + rewarmPicks + " strays=" + strays + " ms=" + rewarmWatch.ElapsedMilliseconds;
+                        }
+                    }
+                    sb.AppendLine("rewarm_supersedes=" + (rewarmOk ? "PASS" : "FAIL") + rewarmDetail);
+                    if (!rewarmOk) ok = false;
+                }
 
                 // Dispose racing a warm that has just been kicked off. What this can prove: Dispose returns
                 // within its budget, the embedder is disposed EXACTLY once whichever path (owner, or the
@@ -1328,7 +1382,7 @@ namespace DesktopAICompanion.Ai
                     sw.Stop();
 
                     // ---- how wide is the relevance band, really? ----
-                    // The variety regression in SelfTest() runs against DiagnosticPool's 131 lines, so it
+                    // The variety regression in SelfTest() runs against DiagnosticPool's sample, so it
                     // can say nothing about a real corpus: it reported distinct=64/200 purely because the
                     // old TopK was 64. This runs against 1500 and prints what each margin admits, so
                     // CandidateSpread is chosen from a measurement instead of from taste.

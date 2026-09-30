@@ -72,6 +72,12 @@ REMINDER_CSPROJ = os.path.join(REPO, "modules", "Reminder", "Reminder.csproj")
 REMINDER_DLL = os.path.join(BIN, "modules", "reminder", "Reminder.dll")
 REMINDER_PARSER = os.path.join(REPO, "modules", "Reminder", "PersonalReminderParser.cs")
 CACHING_CALENDAR_SOURCE = os.path.join(REPO, "modules", "Reminder", "CachingCalendarSource.cs")
+REMINDER_MODULE = os.path.join(REPO, "modules", "Reminder", "ReminderModule.cs")
+TESTMODULE_CS = os.path.join(REPO, "modules", "TestModule", "TestModule.cs")
+TESTMODULE_CSPROJ = os.path.join(REPO, "modules", "TestModule", "TestModule.csproj")
+TESTMODULE_DLL = os.path.join(BIN, "modules", "testmodule", "TestModule.dll")
+REMINDER_QUIET_HOURS = os.path.join(REPO, "modules", "Reminder", "QuietHours.cs")
+REMINDER_ICS = os.path.join(REPO, "modules", "Reminder", "IcsUrlSource.cs")
 AIBRAIN_CSPROJ = os.path.join(REPO, "modules", "AiBrain", "AiBrain.csproj")
 AIBRAIN_DLL = os.path.join(BIN, "modules", "aibrain", "AiBrain.dll")
 AIBRAIN_ENGINE = os.path.join(REPO, "modules", "AiBrain", "engine", "AiBrain.cs")
@@ -116,6 +122,21 @@ APPSETTINGS_STORE = os.path.join(REPO, "src", "Portable", "AppSettingsStore.cs")
 APPPATHS = os.path.join(REPO, "src", "Portable", "AppPaths.cs")
 # The pseudo-flag a case names to run CoreTests instead of the host exe. Its marker is None.
 CORETESTS = "CORETESTS"
+CORETESTS_PROGRAM = os.path.join(REPO, "tests", "DesktopAICompanion.CoreTests", "Program.cs")
+
+# --security-selftest writes no marker either: SecuritySelfTest.Check prints "[PASS] x" / "[FAIL] x" to
+# stdout and Program exits Run() ? 0 : 1 (tests/Invoke-SelfTests.ps1 registers it with a $null marker for
+# the same reason). This pseudo-flag reshapes that stdout into the marker vocabulary the ladder grades, the
+# way CORETESTS does. Until 2026-09-30 nothing in this file could grade a security assertion at all, so the
+# checks lane fix/deadcode repaired there (F298, F300) had nowhere to prove they fire.
+SECURITY = "SECURITY"
+SECURITY_SELFTEST = os.path.join(REPO, "src", "dotNet", "SecuritySelfTest.cs")
+ANIMATIONS = os.path.join(REPO, "src", "dotNet", "Animations.cs")
+XML_CS = os.path.join(REPO, "src", "dotNet", "Xml.cs")
+RUNTIME_GEOMETRY = os.path.join(REPO, "src", "dotNet", "RuntimeGeometry.cs")
+AISETTINGS = os.path.join(REPO, "modules", "AiBrain", "engine", "AiSettings.cs")
+AIBRAIN_MODULE = os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs")
+AIENGINE_SECURITY = os.path.join(REPO, "modules", "AiBrain", "engine", "AiEngineProbe.Security.cs")
 
 # The Shimeji converter is a third runner: the gate's last two steps build tools\ShimejiConvert and run its
 # `verify` and `selftest` verbs, and the emitter under test (tools\ShimejiConvert.Engine) is also
@@ -412,7 +433,7 @@ CASES = (
      b"            else if (headLower == \"at\")\n"
      b"            {\n"
      b"                string tok = FirstWord(rest, out string text);\n"
-     b"                if (!TryHhmm(tok, out hhmm)) { error = \"After 'at', give a time like 15:00. \" + Help; return false; }\n"
+     b"                if (!QuietHours.TryParseTimeOfDay(tok, out hhmm)) { error = \"After 'at', give a time like 15:00. \" + Help; return false; }\n"
      b"                r.Kind = PersonalReminder.KindOnce; r.When = TodayOrTomorrowAt(now, hhmm); r.Text = text;\n"
      b"            }\n",
      b"",
@@ -2314,6 +2335,202 @@ CASES = (
 
 
     # ---- lane fix/deadcode ----
+    # F291: the slot that duplicated "second absolute clipping cut" now pins the Ceiling on a fractional
+    # amount, the one ClipCut behaviour nothing else asserted. Every other ClipCut case uses an integral
+    # amount, so rounding down instead fails exactly this one.
+    ("deadcode: ClipCut rounds a fractional amount DOWN",
+     ANIMATIONS,
+     b"            return Math.Min(fullExtent, (int)Math.Ceiling(amount));",
+     b"            return Math.Min(fullExtent, (int)Math.Floor(amount));",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "fractional clipping amount rounds up"),
+
+    # F300: the sprite-tile WITNESS compared MaximumSpriteTiles to the constant it is DEFINED as, so no
+    # change of the shared value could fail it. It now pins the literal on both sides; moving the runtime's
+    # value is what has to fire it.
+    ("deadcode: the shared sprite-tile limit moves away from 1024",
+     XML_CS,
+     b"        internal const int MaximumFrames = 1024;",
+     b"        internal const int MaximumFrames = 2048;",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "share the sprite-tile limit"),
+
+    # F298: a section that throws is a named FAIL line and the sections after it still run. Before the
+    # per-section guard the same throw killed the process with a stack dump and no summary, which this
+    # ladder reads as BROKEN (no verdict), never as a firing.
+    ("deadcode: a security self-test section throws",
+     SECURITY_SELFTEST,
+     b"        private static void CheckRestartLifecycle(\n"
+     b"            ref int failures,\n"
+     b"            TextWriter output)\n"
+     b"        {\n"
+     b"            var events = new List<string>();\n",
+     b"        private static void CheckRestartLifecycle(\n"
+     b"            ref int failures,\n"
+     b"            TextWriter output)\n"
+     b"        {\n"
+     b"            var events = new List<string>();\n"
+     b"            if (events.Count == 0) throw new InvalidOperationException(\"mutation: the section throws\");\n",
+     HOST_CSPROJ, EXE,
+     SECURITY, None, "CheckRestartLifecycle threw InvalidOperationException"),
+
+    # F289: the CoreTests scale pins moved from the deleted integer API onto the fractional path the product
+    # uses; the one-pixel floor in FitFactorForFrameD is the branch the old pins never reached.
+    ("deadcode: FitFactorForFrameD loses its one-pixel floor",
+     RUNTIME_GEOMETRY,
+     b"            if (smaller > 0 && (double)smaller * f < 1.0) f = 1.0 / smaller;",
+     b"            if (smaller > 0 && (double)smaller * f < 0.0) f = 1.0 / smaller;",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "A frame that would shrink below one pixel was not floored."),
+
+    # F108: an unknown provider id must change nothing. The old shape answered it with the first preset
+    # (then the local Ollama row); restoring a first-row fallback is the trap coming back.
+    ("deadcode: an unknown provider id falls back to the first preset again",
+     AISETTINGS,
+     b"            if (!AiProviders.TryGet(provider, out preset)) return OpenAiBaseUrl;",
+     b"            if (!AiProviders.TryGet(provider, out preset)) preset = AiProviders.All[0];",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an unknown provider id leaves the selector and both endpoints untouched"),
+
+    # F082: an emotion that maps to nothing is a FAIL line, not an IndexOutOfRangeException out of Run.
+    # Before FirstOrEmpty this same mutation was one EXC line and no verdict, which the ladder grades as
+    # BROKEN, never as a firing.
+    ("deadcode: 'happy' maps to no animation",
+     AIBRAIN_MODULE,
+     b'                case "happy":    return new string[] { "flower", "jump", "boing", "bounce", "run", "walk" };',
+     b'                case "happy":    return new string[0];',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "WITNESS 'happy' still leads with flower"),
+
+    # F082: the reflected field is renamed. The after-retire checks now create their manager inside the try,
+    # so the MissingFieldException is a FAIL line naming the check; before, it escaped to Run's outer catch.
+    ("deadcode: AiSessionManager._operation is renamed under the probe",
+     AIENGINE_SECURITY,
+     b"            FieldInfo field = typeof(AiSessionManager).GetField(\n"
+     b"                \"_operation\",\n",
+     b"            FieldInfo field = typeof(AiSessionManager).GetField(\n"
+     b"                \"_operationX\",\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "MissingFieldException"),
+
+    # F090: a pre-check in the retry helper refuses the cancelled token before the backend is entered; the
+    # cancel still surfaces as cancellation, so only the new ChatCalls check can tell the two apart.
+    ("deadcode: the retry helper refuses a cancelled token before calling the backend",
+     AIBRAIN_ENGINE,
+     b"            string firstError = null;\n"
+     b"            try\n"
+     b"            {\n"
+     b"                string reply = await backend.ChatAsync(model, messages, true, ct).ConfigureAwait(false);\n",
+     b"            string firstError = null;\n"
+     b"            try\n"
+     b"            {\n"
+     b"                ct.ThrowIfCancellationRequested();\n"
+     b"                string reply = await backend.ChatAsync(model, messages, true, ct).ConfigureAwait(false);\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "ChatAsync was entered exactly once"),
+
+    # F131: a downloaded pack is validated before it is written, and a refusal is its own download cause.
+    # Dropping the refusal writes the invalid bytes and counts them installed, which is the shape this fixed.
+    ("deadcode: the downloader writes a malformed catalog payload again",
+     FORTUNES_MODULE,
+     b"                        { failed++; malformed++; continue; }",
+     b"                        { }",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--fortunes-selftest", "dp-fortunes-selftest.txt",
+     "a malformed catalog payload is refused, not installed"),
+
+    # F136: a second Warm on the same picker supersedes the first. Dropping the second call (the first warm
+    # then runs to completion and publishes its own pool) is what the rewarm case has to see.
+    ("deadcode: a second Warm on the same picker is dropped instead of superseding the first",
+     SMART_FORTUNES,
+     b"                if (_warmCancellation != null)\n"
+     b"                {\n"
+     b"                    try { _warmCancellation.Cancel(); } catch { }\n"
+     b"                }\n"
+     b"                if (snapshot == null || snapshot.Count == 0)",
+     b"                if (_warmCancellation != null)\n"
+     b"                {\n"
+     b"                    return;\n"
+     b"                }\n"
+     b"                if (snapshot == null || snapshot.Count == 0)",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "rewarm_supersedes=FAIL"),
+
+    # F120: FilterSelfTest's per-case lines reach the probe output. A sub-case made to fail must show its OWN
+    # line in the module marker, not only the one-line verdict above it; an empty pool picking null is the
+    # smallest production change that fails exactly one of them.
+    ("deadcode: an empty pool picks null and the filter sub-report names the case",
+     FORTUNE_PROVIDER,
+     b"            if (n == 0) return \"\";\n            if (n == 1) return _poolE[0].Text;",
+     b"            if (n == 0) return null;\n            if (n == 1) return _poolE[0].Text;",
+     FORTUNES_CSPROJ, FORTUNES_DLL,
+     "--module-selftest=fortunes", "dp-module-fortunes-selftest.txt",
+     "FILTER FAIL impossible constraints did not stay empty"),
+
+    # F185: the self-test's digest check reads the release-LIST parser, the path InstallAsync takes; a list
+    # parser that loses the digest has to fail it.
+    ("deadcode: the release-list parser drops the asset digest",
+     WHISPER_INSTALLER,
+     b"                        digestElement.ValueKind == JsonValueKind.String) digest = digestElement.GetString();",
+     b"                        digestElement.ValueKind == JsonValueKind.String) digest = null;",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "release JSON yields the digest"),
+
+    # F190: the ICS parser's id scheme is uid@startUtc, pinned by IcsUrlSource.SelfCheck; an id of the bare
+    # uid collapses a recurring series onto one fired id.
+    ("deadcode: an ICS occurrence id loses its start",
+     REMINDER_ICS,
+     b"                    string id = uid + \"@\" + startUtc.ToString(\"o\");",
+     b"                    string id = uid + \"@\";",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "an occurrence id is uid@startUtc"),
+
+    # F198: the one slot lookup stops one short, so the last slot reads as the default.
+    ("deadcode: the slot lookup stops one slot short",
+     REMINDER_MODULE,
+     b"            for (int i = 1; i <= MaxSlots; i++)\n"
+     b"                if (string.Equals(SlotId(i), sourceId, StringComparison.Ordinal)) return i;",
+     b"            for (int i = 1; i < MaxSlots; i++)\n"
+     b"                if (string.Equals(SlotId(i), sourceId, StringComparison.Ordinal)) return i;",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "every slot id maps to its index"),
+
+    # F203: the shared HH:mm parser loosens to NumberStyles.Integer again, which is what the two deleted copies
+    # did; the sign case fires in QuietHours' own check and through the typed-reminder and briefing callers.
+    ("deadcode: the shared HH:mm parser accepts a signed hour again",
+     REMINDER_QUIET_HOURS,
+     b"            if (!int.TryParse(hh, NumberStyles.None, CultureInfo.InvariantCulture, out h)) return false;",
+     b"            if (!int.TryParse(hh, NumberStyles.Integer, CultureInfo.InvariantCulture, out h)) return false;",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "a signed hour is refused"),
+
+    # F350: the module-host self-test asserts the poke ROUTING (to the poked pet, not a broadcast), the property
+    # the Say/SayAll split was added for and never asserted. The test module broadcasting again is what fails it.
+    ("deadcode: the test module broadcasts a poke instead of answering the poked pet",
+     TESTMODULE_CS,
+     b"            if (info.Pet != null) _host.Say(info.Pet, \"poked!\"); else _host.SayAll(\"poked!\");",
+     b"            _host.SayAll(\"poked!\");",
+     TESTMODULE_CSPROJ, TESTMODULE_DLL,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "the poke was routed to the poked pet, not broadcast"),
+
+    # F385: the pet-mix merge fixture's seed has to BIND. The pre-rename "pets" key rode along as extension data
+    # for three weeks while the mix under test started empty; the fixture now asserts the seeded mix was read.
+    ("deadcode: the merge fixture seeds the pre-rename pets key again",
+     CORETESTS_PROGRAM,
+     b"                \"  \\\"companions\\\": [ { \\\"id\\\": \\\"pingus\\\", \\\"count\\\": 1 } ],\\n\" +",
+     b"                \"  \\\"pets\\\": [ { \\\"id\\\": \\\"pingus\\\", \\\"count\\\": 1 } ],\\n\" +",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "Merge fixture's seeded mix was not read"),
 )
 
 # DERIVED from the cases, never typed. Every (flag, marker) a case will grade runs once, unmutated,
@@ -2368,6 +2585,8 @@ def selftest(flag, marker):
         return coretests()
     if flag == SHIMEJI:
         return shimeji_selftest()
+    if flag == SECURITY:
+        return security()
     path = os.path.join(RUN_TEMP, marker)
     try:
         os.remove(path)
@@ -2441,6 +2660,33 @@ def shimeji_selftest():
     report = (proc.stdout or "") + (proc.stderr or "")
     report += "\nRESULT=PASS\n" if proc.returncode == 0 else "\nRESULT=FAIL\n"
     return report, proc.returncode
+
+
+def security():
+    """--security-selftest reshaped into the marker vocabulary the ladder grades.
+
+    SecuritySelfTest.Check writes '[PASS] x' / '[FAIL] x' per assertion and a 'Security self-test: PASS'
+    or 'FAIL (n checks)' summary; each bracketed line becomes 'PASS: x' / 'FAIL: x' and a column-0 RESULT=
+    line carries the exit code. An unhandled exception (the shape F298 removed) leaves no FAIL line and a
+    non-zero exit, which the ladder reads as BROKEN (no verdict): the truth about such a run, and never a
+    firing.
+    """
+    try:
+        proc = subprocess.run([EXE, "--security-selftest"], capture_output=True, text=True, timeout=1800,
+                              env=CHILD_ENV)
+    except subprocess.TimeoutExpired:
+        return None, "--security-selftest did not exit in 1800s"
+    lines = []
+    for line in (proc.stdout or "").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[FAIL] "):
+            lines.append("FAIL: " + stripped[len("[FAIL] "):])
+        elif stripped.startswith("[PASS] "):
+            lines.append("PASS: " + stripped[len("[PASS] "):])
+        else:
+            lines.append(line)
+    lines.append("RESULT=PASS" if proc.returncode == 0 else "RESULT=FAIL")
+    return "\n".join(lines) + "\n", proc.returncode
 
 
 def line_ending_variant(base, old, new):

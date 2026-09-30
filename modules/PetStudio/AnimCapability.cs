@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using DesktopAICompanion.Tools.ShimejiConvert;   // PetGraph.ReservedEntryPointNames, the one reserved-name array
 
 namespace DesktopAICompanion.PetStudioModule
 {
@@ -38,7 +39,8 @@ namespace DesktopAICompanion.PetStudioModule
     /// </summary>
     internal static class AnimCapabilities
     {
-        private static readonly string[] MagicNames = { "fall", "drag", "kill", "sync" };
+        // The reserved names come from PetGraph.ReservedEntryPointNames, compiled into this module with PetGraph.cs;
+        // a private copy sat here beside two more in the converter, kept equal by hand (F432).
 
         /// <summary>Which surface a pose holds. A wall admits travel up or down and nothing sideways; a ceiling
         /// admits travel sideways and nothing up or down. A pose that travels across its surface's normal is
@@ -208,7 +210,7 @@ namespace DesktopAICompanion.PetStudioModule
 
         private static bool IsEngineOwned(AnimNode node)
         {
-            foreach (string magic in MagicNames)
+            foreach (string magic in PetGraph.ReservedEntryPointNames)
                 if (string.Equals(node.Name, magic, StringComparison.OrdinalIgnoreCase)) return true;
             // `turn` is identified by its ACTION, not its name: the converter renames it on a collision, so a
             // pet can legitimately carry "turn2".

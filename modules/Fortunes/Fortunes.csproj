@@ -36,6 +36,13 @@
     <!-- ModuleKit is deliberately NOT Private="false" like the contract: the host shares one contract, but
          the support library ships inside this module's folder so each load context carries its own copy. -->
     <ProjectReference Include="..\..\src\DesktopAICompanion.ModuleKit\DesktopAICompanion.ModuleKit.csproj" />
+    <!-- The pack-load policy is COMPILED FROM THE HOST'S FILE rather than copied. This module carried its own
+         FortunePackLoadPolicy, kept equal to the host's by a comment, and the one recorded drift (the module
+         cap at 128 files while the catalog listed 152 packs) silently dropped the alphabetical tail of a full
+         install (F124). Same source-link pattern the host uses for two ModuleKit files: one definition, no
+         assembly dependency. tests/runtime-hardening-selftest.ps1 asserts the link is here and that no copy
+         has grown back. -->
+    <Compile Include="..\..\src\dotNet\Ai\FortunePackLoadPolicy.cs" Link="engine\FortunePackLoadPolicy.cs" />
     <!-- The smart engine's ONNX runtime - the module's own dependency (like NAudio for the Sound module).
          The managed Microsoft.ML.OnnxRuntime.dll + native onnxruntime.dll land beside/under the module and
          are recorded in Fortunes.deps.json; the module's AssemblyLoadContext resolves both.

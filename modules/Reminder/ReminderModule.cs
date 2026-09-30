@@ -75,6 +75,11 @@ namespace DesktopAICompanion.ReminderModule
                                 //        previous calendar's events.
                                 //        "Test this reminder" and the Agenda tray click say so when no
                                 //        companion is on screen instead of reporting a send nobody saw.
+                                //        Lane fix/deadcode, same version: one HH:mm parser (QuietHours') serves
+                                //        quiet hours, the briefing time and typed reminders; the chime size cap
+                                //        is one constant; one slot lookup serves the four per-slot settings; the
+                                //        ICS parser has a self-check; the path-less Chime.Play and QuietHours'
+                                //        unused instance API are gone (F187, F190, F195, F198, F202, F203).
                                 // 1.0.6: "Make the companion react" reached 35 of 54 companions, and
                                 //        reactOn defaults to true, so 19 users had a feature switched
                                 //        on that did nothing. The eSheep-era names it used are absent
@@ -441,31 +446,34 @@ namespace DesktopAICompanion.ReminderModule
             return map;
         }
 
+        // ONE mapping from a slot's source id to its index (0 for null, blank or unknown), read by the four
+        // per-slot lookups. Each used to walk 1..MaxSlots itself, four copies of one loop that a fifth per-slot
+        // setting would have made five (F198). A SourceId is always SlotId(i): AggregateCalendarSource hands
+        // each slot the id BuildSource gave it. Internal for the self-test.
+        internal static int SlotIndex(string sourceId)
+        {
+            if (string.IsNullOrEmpty(sourceId)) return 0;
+            for (int i = 1; i <= MaxSlots; i++)
+                if (string.Equals(SlotId(i), sourceId, StringComparison.Ordinal)) return i;
+            return 0;
+        }
+
         private string SlotLabel(string sourceId)
         {
-            if (string.IsNullOrEmpty(sourceId)) return "";
-            for (int i = 1; i <= MaxSlots; i++)
-                if (string.Equals(SlotId(i), sourceId, StringComparison.Ordinal))
-                    return _settings.Get(SlotKey(i, "label"), "");
-            return "";
+            int slot = SlotIndex(sourceId);
+            return slot == 0 ? "" : _settings.Get(SlotKey(slot, "label"), "");
         }
 
         private string SlotChimePath(string sourceId)
         {
-            if (string.IsNullOrEmpty(sourceId)) return "";
-            for (int i = 1; i <= MaxSlots; i++)
-                if (string.Equals(SlotId(i), sourceId, StringComparison.Ordinal))
-                    return _settings.Get(SlotKey(i, "chime"), "");
-            return "";
+            int slot = SlotIndex(sourceId);
+            return slot == 0 ? "" : _settings.Get(SlotKey(slot, "chime"), "");
         }
 
         private bool SlotChimeOn(string sourceId)
         {
-            if (string.IsNullOrEmpty(sourceId)) return true;
-            for (int i = 1; i <= MaxSlots; i++)
-                if (string.Equals(SlotId(i), sourceId, StringComparison.Ordinal))
-                    return _settings.GetBool(SlotKey(i, "chimeOn"), true);
-            return true;
+            int slot = SlotIndex(sourceId);
+            return slot == 0 || _settings.GetBool(SlotKey(slot, "chimeOn"), true);
         }
 
         // --- the pet's physical reaction -------------------------------------------------------------
@@ -615,10 +623,8 @@ namespace DesktopAICompanion.ReminderModule
         /// <summary>The pet type id stored for a calendar, or "" for no preference.</summary>
         private string SlotSpeaker(string slotId)
         {
-            for (int i = 1; i <= MaxSlots; i++)
-                if (string.Equals(SlotId(i), slotId ?? "", StringComparison.Ordinal))
-                    return _settings.Get(SlotKey(i, "companion"), "");
-            return "";
+            int slot = SlotIndex(slotId);
+            return slot == 0 ? "" : _settings.Get(SlotKey(slot, "companion"), "");
         }
 
         /// <summary>
@@ -950,8 +956,9 @@ namespace DesktopAICompanion.ReminderModule
         }
 
         // Open a file picker and, on OK, persist the chosen sound as a chime. Best-effort: a cancel or any error
-        // just leaves the current setting. The host accepts WAV or MP3 up to 16 MiB; reject a larger pick here
-        // with a clear message rather than a silent no-sound at reminder time.
+        // just leaves the current setting. The pick is refused above Chime.MaximumCustomBytes, the MODULE's cap
+        // (8 MiB, half the host's 16 MiB MaximumModuleAudioBytes; see Chime), with a clear message rather than a
+        // silent fall-back to the default chime at reminder time (F202).
         private string BrowseChime(int slot)
         {
             return BrowseChimeInto(SlotKey(slot, "chime"), "Choose a chime sound (Calendar " + slot.ToString(CultureInfo.InvariantCulture) + ")");
@@ -986,8 +993,10 @@ namespace DesktopAICompanion.ReminderModule
                     string path = (dlg.FileName ?? "").Trim();
                     long len;
                     try { len = new System.IO.FileInfo(path).Length; } catch { len = 0; }
-                    if (len > 8 * 1024 * 1024)
-                        return "✗ that file is over 8 MiB; pick a short chime.";
+                    if (len > Chime.MaximumCustomBytes)
+                        return "✗ that file is over " +
+                               (Chime.MaximumCustomBytes / (1024 * 1024)).ToString(CultureInfo.InvariantCulture) +
+                               " MiB; pick a short chime.";
                     _settings.Set(settingKey, path);
                     _settings.Save();
                     return "✓ chime set: " + System.IO.Path.GetFileName(path);
@@ -1236,28 +1245,13 @@ namespace DesktopAICompanion.ReminderModule
             todayKey = null;
             if (!_settings.GetBool("briefingOn", false)) return false;
             int mins;
-            if (!TryParseHhmm(_settings.Get("briefingTime", "08:00"), out mins)) return false;
+            // QuietHours' parser, the module's one HH:mm reader since F203: this had its own copy, which
+            // accepted "+8:00" and "9: 5" while the quiet-hours fields beside it refused them.
+            if (!QuietHours.TryParseTimeOfDay(_settings.Get("briefingTime", "08:00"), out mins)) return false;
             DateTimeOffset todayAt = new DateTimeOffset(now.Year, now.Month, now.Day, 0, 0, 0, now.Offset).AddMinutes(mins);
             if (now < todayAt) return false;
             todayKey = now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
             return !string.Equals(_settings.Get("briefingLast", ""), todayKey, StringComparison.Ordinal);
-        }
-
-        private static bool TryParseHhmm(string s, out int minutes)
-        {
-            minutes = 0;
-            if (string.IsNullOrWhiteSpace(s)) return false;
-            string[] parts = s.Trim().Split(':');
-            int h, m;
-            if (parts.Length == 2 &&
-                int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out h) &&
-                int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out m) &&
-                h >= 0 && h < 24 && m >= 0 && m < 60)
-            {
-                minutes = h * 60 + m;
-                return true;
-            }
-            return false;
         }
 
         // --- typed personal reminders (independent of any calendar) -----------------------------------
@@ -1541,16 +1535,17 @@ namespace DesktopAICompanion.ReminderModule
         /// gate runs them on every change.
         ///
         /// Covers pure logic, the caching sources through test doubles, the module's own tick through
-        /// ModuleKit's RecordingHost, and the .ics download's bounds against a loopback server. The WinForms
-        /// timer's firing, the Outlook COM path and a real network are not reachable here: they need a message
-        /// loop, a running Outlook and a feed host respectively.
+        /// ModuleKit's RecordingHost, the .ics download's bounds against a loopback server and the .ics PARSE
+        /// against an embedded feed (IcsUrlSource.SelfCheck, F190). The WinForms timer's firing, the Outlook
+        /// COM path and a real network are not reachable here: they need a message loop, a running Outlook and
+        /// a feed host respectively.
         /// </summary>
         public static bool SelfTest(out string detail)
         {
             var sb = new System.Text.StringBuilder();
             bool ok = true;
 
-            // The six helpers that already had checks nothing invoked.
+            // The pure helpers' own checks: six that existed and were never run, plus the ICS parser's (F190).
             var suites = new[]
             {
                 new { Name = "QuietHours", Run = (SelfCheckDelegate)QuietHours.SelfCheck },
@@ -1559,6 +1554,7 @@ namespace DesktopAICompanion.ReminderModule
                 new { Name = "MeetingLinkDetector", Run = (SelfCheckDelegate)MeetingLinkDetector.SelfCheck },
                 new { Name = "PersonalReminder", Run = (SelfCheckDelegate)PersonalReminder.SelfCheck },
                 new { Name = "PersonalReminderParser", Run = (SelfCheckDelegate)PersonalReminderParser.SelfCheck },
+                new { Name = "IcsUrlSource", Run = (SelfCheckDelegate)IcsUrlSource.SelfCheck },
             };
 
             foreach (var suite in suites)
@@ -1580,6 +1576,16 @@ namespace DesktopAICompanion.ReminderModule
                 sb.AppendLine((condition ? "PASS: " : "FAIL: ") + name);
                 if (!condition) ok = false;
             };
+
+            // The one slot lookup the four per-slot helpers share (F198): every slot id maps to its index, and
+            // null, blank, an out-of-range slot, a foreign id and a case variant all map to 0, which the helpers
+            // read as "the default".
+            bool slotMap = true;
+            for (int slotNumber = 1; slotNumber <= MaxSlots; slotNumber++)
+                slotMap &= SlotIndex(SlotId(slotNumber)) == slotNumber;
+            check("every slot id maps to its index and nothing else maps at all",
+                slotMap && SlotIndex(null) == 0 && SlotIndex("") == 0 &&
+                SlotIndex(SlotId(MaxSlots + 1)) == 0 && SlotIndex("foo") == 0 && SlotIndex("CAL1") == 0);
 
             // ---- A RESTART MUST NOT RE-NAG ----
             // The fired set used to be pruned against the feed unconditionally, before any look at
@@ -1935,6 +1941,29 @@ namespace DesktopAICompanion.ReminderModule
             finally
             {
                 checkModule.Shutdown();
+            }
+
+            // ---- the briefing time reads through the shared HH:mm parser (F203) ----
+            // "+8:00" was a valid briefing time (NumberStyles.Integer) while the quiet-hours fields beside it
+            // refused it. Both through the module's own BriefingDue, on a RecordingHost.
+            var briefingHost = new RecordingHost();
+            var briefingModule = new ReminderModule();
+            FakeModuleSettings briefingSettings = briefingHost.SettingsFor(Id);
+            briefingSettings.Set("briefingOn", "true");
+            briefingSettings.Set("briefingTime", "+8:00");
+            briefingModule.Init(briefingHost);
+            try
+            {
+                var noonUtc = new DateTimeOffset(2026, 3, 10, 12, 0, 0, TimeSpan.Zero);
+                string dayKey;
+                bool signedDue = briefingModule.BriefingDue(noonUtc, out dayKey);
+                briefingSettings.Set("briefingTime", "08:00");
+                bool plainDue = briefingModule.BriefingDue(noonUtc, out dayKey);
+                check("a signed briefing time is refused by the shared parser while a plain one is due", !signedDue && plainDue);
+            }
+            finally
+            {
+                briefingModule.Shutdown();
             }
 
             // ---- a reminder due while no companion is on screen is held, not spent (F199) ----

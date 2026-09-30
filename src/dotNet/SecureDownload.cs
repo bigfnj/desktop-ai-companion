@@ -16,57 +16,16 @@ namespace DesktopAICompanion
             new Regex(@"\A[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?\z",
                 RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
-        private static readonly Regex CommitPattern =
-            new Regex(@"\A[0-9a-f]{40}\z", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
-
         private static readonly Regex RefPattern =
             new Regex(@"\A[A-Za-z0-9][A-Za-z0-9._-]{0,99}\z", RegexOptions.CultureInvariant);
 
         private static readonly UTF8Encoding StrictUtf8 = new UTF8Encoding(false, true);
         private static readonly TimeSpan DownloadDeadline = TimeSpan.FromSeconds(60);
 
-        public static bool TryValidatePinnedRawGitHubUrl(
-            string value,
-            string owner,
-            string repository,
-            out Uri uri,
-            out string error)
-        {
-            uri = null;
-            error = null;
-
-            Uri candidate;
-            if (string.IsNullOrWhiteSpace(value) ||
-                !Uri.TryCreate(value.Trim(), UriKind.Absolute, out candidate))
-            {
-                error = "Catalog URL is not an absolute URI.";
-                return false;
-            }
-
-            if (!string.Equals(candidate.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
-                !string.Equals(candidate.Host, "raw.githubusercontent.com", StringComparison.OrdinalIgnoreCase) ||
-                !candidate.IsDefaultPort ||
-                !string.IsNullOrEmpty(candidate.UserInfo) ||
-                !string.IsNullOrEmpty(candidate.Query) ||
-                !string.IsNullOrEmpty(candidate.Fragment))
-            {
-                error = "Catalog assets must use a direct HTTPS raw.githubusercontent.com URL.";
-                return false;
-            }
-
-            string[] parts = candidate.AbsolutePath.Trim('/').Split('/');
-            if (parts.Length < 4 ||
-                !string.Equals(parts[0], owner, StringComparison.OrdinalIgnoreCase) ||
-                !string.Equals(parts[1], repository, StringComparison.OrdinalIgnoreCase) ||
-                !CommitPattern.IsMatch(parts[2]))
-            {
-                error = "Catalog assets must be pinned to a full 40-character commit.";
-                return false;
-            }
-
-            uri = candidate;
-            return true;
-        }
+        // TryValidatePinnedRawGitHubUrl and its 40-hex CommitPattern were here: the validator for the
+        // pre-1.0 embedded, commit-pinned packs.json. Nothing in production has checked a URL against it
+        // since the catalog moved to branch-pinned URLs anchored by SHA-256 (below); only two
+        // SecuritySelfTest assertions still reached it, and they went with it (F296).
 
         /// <summary>
         /// Validate a direct raw.githubusercontent.com URL whose ref is a branch or tag (or a commit)
@@ -168,13 +127,12 @@ namespace DesktopAICompanion
         // through a per-id DIRECTORY, not the flat root\<id><ext> this built, and each of the three
         // call paths does its own IsSafeId -> GetFullPath -> StartsWith(root) -> throw:
         //
-        //     CompanionHost.SafeLibraryDir          (pet installs)
-        //     CompanionsPaneControl.SafeLibraryDir  (pet downloads from the pane)
-        //     ModulesPaneControl.SafeModuleDir      (module installs)
+        //     CompanionProvenance.SafeLibraryDirectory  (pet installs from CompanionHost and downloads from
+        //                                               the pane; one helper since F337, two copies before)
+        //     ModulesPaneControl.SafeModuleDir         (module installs)
         //
         // Wiring this in at those sites would have been a strictly WEAKER check anyway, since the
-        // filename there is a hardcoded literal containing no id. Those three copies are a fair
-        // candidate for one shared helper, which is a different change with its own review.
+        // filename there is a hardcoded literal containing no id.
 
         public static async Task<byte[]> DownloadBytesAsync(Uri uri, int maximumBytes, CancellationToken ct)
         {

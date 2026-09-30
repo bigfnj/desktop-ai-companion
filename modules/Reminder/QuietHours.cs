@@ -33,42 +33,11 @@ namespace DesktopAICompanion.ReminderModule
     /// LOCAL time-of-day of the supplied instant (now.ToLocalTime().TimeOfDay), so the result matches the
     /// user's wall clock regardless of the offset carried by <paramref name="now"/>.
     /// </summary>
-    public sealed class QuietHours
+    public static class QuietHours
     {
-        private readonly bool _enabled;
-        private readonly int _fromMinutes;   // minutes since local midnight, 0..1439 (only when _enabled)
-        private readonly int _toMinutes;
-
-        /// <summary>
-        /// Build an instance from the two saved "HH:mm" strings. Blank, unparseable, out-of-range, or equal
-        /// endpoints all yield a DISABLED instance whose <see cref="IsQuiet(DateTimeOffset)"/> is always false.
-        /// </summary>
-        public QuietHours(string quietFrom, string quietTo)
-        {
-            int from, to;
-            if (TryParseTimeOfDay(quietFrom, out from) && TryParseTimeOfDay(quietTo, out to) && from != to)
-            {
-                _enabled = true;
-                _fromMinutes = from;
-                _toMinutes = to;
-            }
-            else
-            {
-                _enabled = false;
-                _fromMinutes = -1;
-                _toMinutes = -1;
-            }
-        }
-
-        /// <summary>True when this instance holds a usable window (both endpoints valid and not equal).</summary>
-        public bool Enabled { get { return _enabled; } }
-
-        /// <summary>True when <paramref name="now"/>'s LOCAL time-of-day falls inside the window [from, to).</summary>
-        public bool IsQuiet(DateTimeOffset now)
-        {
-            if (!_enabled) return false;
-            return InWindow(LocalMinuteOfDay(now), _fromMinutes, _toMinutes);
-        }
+        // No instance form. A constructor, Enabled and an instance IsQuiet mirrored the static path below and
+        // were constructed by this class's own SelfCheck alone (F195): production reads its two settings and
+        // asks the static question, so the mirror and its five assertions pinned a path nothing took.
 
         /// <summary>
         /// Stateless one-shot: does <paramref name="now"/> fall inside the window described by the two "HH:mm"
@@ -102,9 +71,14 @@ namespace DesktopAICompanion.ReminderModule
             return minute >= from || minute < to;                  // overnight wrap window
         }
 
-        // Parse "HH:mm" 24-hour into minutes-since-midnight. Requires exactly one ':', digits only (no sign,
-        // no whitespace, no seconds), hours 0..23 and minutes 0..59. Anything else => false, never throws.
-        private static bool TryParseTimeOfDay(string text, out int minutes)
+        /// <summary>
+        /// Parse "HH:mm" 24-hour into minutes-since-midnight (-1 on failure). Requires exactly one ':', digits
+        /// only (no sign, no whitespace, no seconds), hours 0..23 and minutes 0..59. Anything else => false,
+        /// never throws. THE module's one HH:mm parser: the briefing time and the typed personal reminders read
+        /// through it too since F203, when their two copies went (NumberStyles.Integer, so "+8:00" and "9: 5"
+        /// were times for them and not for the quiet-hours fields beside them).
+        /// </summary>
+        internal static bool TryParseTimeOfDay(string text, out int minutes)
         {
             minutes = -1;
             if (string.IsNullOrWhiteSpace(text)) return false;
@@ -171,14 +145,13 @@ namespace DesktopAICompanion.ReminderModule
             ok &= Check(sb, "minute out of range is off", !QuietHours.IsQuiet(at(23, 30), "22:70", "07:00"));
             ok &= Check(sb, "extra colon is off", !QuietHours.IsQuiet(at(23, 30), "22:00:00", "07:00"));
 
-            // Instance path mirrors the static path.
-            var q = new QuietHours("22:00", "07:00");
-            ok &= Check(sb, "instance built from strings is enabled", q.Enabled);
-            ok &= Check(sb, "instance 23:30 is quiet", q.IsQuiet(at(23, 30)));
-            ok &= Check(sb, "instance 07:00 is NOT quiet", !q.IsQuiet(at(7, 0)));
-            var off = new QuietHours("", "");
-            ok &= Check(sb, "instance from blanks is disabled", !off.Enabled);
-            ok &= Check(sb, "disabled instance is never quiet", !off.IsQuiet(at(23, 30)));
+            // The shared parser's strictness, pinned here because three callers depend on it (F203): a sign or
+            // whitespace beside the colon is refused, as the "HH:mm, 24h" labels promise.
+            int parsed;
+            ok &= Check(sb, "a plain HH:mm parses to minutes", TryParseTimeOfDay("08:05", out parsed) && parsed == 485);
+            ok &= Check(sb, "a signed hour is refused", !TryParseTimeOfDay("+8:00", out parsed));
+            ok &= Check(sb, "whitespace beside the colon is refused", !TryParseTimeOfDay("9: 5", out parsed));
+            ok &= Check(sb, "a bare hour is refused", !TryParseTimeOfDay("8", out parsed));
 
             sb.AppendLine(ok ? "QuietHours self-test PASSED" : "QuietHours self-test FAILED");
             detail = sb.ToString();

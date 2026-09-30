@@ -36,9 +36,8 @@ namespace DesktopAICompanion.ModuleKit
             if (maximumCodeUnits <= 0) return "";
             if (text.Length <= maximumCodeUnits) return text;
 
-            int length = maximumCodeUnits;
-            if (length > 0 &&
-                char.IsHighSurrogate(text[length - 1]) &&
+            int length = maximumCodeUnits;   // > 0: the cap returned above (F236)
+            if (char.IsHighSurrogate(text[length - 1]) &&
                 length < text.Length &&
                 char.IsLowSurrogate(text[length]))
                 length--;

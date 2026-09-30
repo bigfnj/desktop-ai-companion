@@ -172,8 +172,7 @@ namespace DesktopAICompanion.Plugins
             public bool IsDarkTheme { get { return false; } }
             public void Log(string moduleId, string message) { }
             public IReadOnlyList<string> PickFilesToOpen(string title, string fileKindLabel, IReadOnlyList<string> extensions) { return PickedFiles; }
-            public string OpenedLink;
-            public bool OpenLink(string moduleId, string httpsUrl) { OpenedLink = httpsUrl; return true; }
+            public bool OpenLink(string moduleId, string httpsUrl) { return true; }
             public List<string> PickedFiles = new List<string>();
             public void AddTrayItems(IEnumerable<TrayItem> items) { }
             public void AddOptionsPane(OptionsPane pane) { }

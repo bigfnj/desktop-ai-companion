@@ -186,7 +186,7 @@ namespace DesktopAICompanion.Wpf
                     case StartUp.CompanionReloadOutcome.Deferred:
                         return string.IsNullOrEmpty(reloadError)
                             ? " Companions on screen keep the old version until they respawn."
-                            : " Companions on screen keep the old version for now: " + Short(reloadError);
+                            : " Companions on screen keep the old version for now: " + PaneText.Short(reloadError);
                     default:
                         return "";
                 }
@@ -195,7 +195,7 @@ namespace DesktopAICompanion.Wpf
             {
                 // A failed reload must never turn a SUCCESSFUL download into an error: the file is written,
                 // the pet is updated on disk, and the worst case is that it takes effect on the next spawn.
-                return " Companions on screen keep the old version for now: " + Short(ex.Message);
+                return " Companions on screen keep the old version for now: " + PaneText.Short(ex.Message);
             }
         }
 
@@ -323,7 +323,7 @@ namespace DesktopAICompanion.Wpf
             // Uninstall: delete an INSTALLED library pet (downloaded / converted / authored). Never offered
             // for the built-in eSheep or the active pet; only when the pet actually lives in the writable
             // library folder. "Remove" above just despawns one instance -- this deletes it for good.
-            if (!row.IsActive && !row.IsBuiltIn && LibraryFolderExists(addId))
+            if (!row.IsActive && !row.IsBuiltIn && CompanionProvenance.IsInLibrary(addId))
             {
                 var uninstall = new Button { Content = "Uninstall", Width = 78, Margin = new Thickness(5, 0, 0, 0) };
                 string display = row.DisplayName ?? row.Id;
@@ -639,7 +639,7 @@ namespace DesktopAICompanion.Wpf
                     : "Every companion you have is up to date, and you already have all of them.";
             }
             catch (OperationCanceledException) { }
-            catch (Exception ex) { if (IsLoaded) _status.Text = "Couldn't reach the catalog: " + Short(ex.Message); }
+            catch (Exception ex) { if (IsLoaded) _status.Text = "Couldn't reach the catalog: " + PaneText.Short(ex.Message); }
             finally { if (IsLoaded) _checkButton.IsEnabled = true; }
         }
 
@@ -790,11 +790,11 @@ namespace DesktopAICompanion.Wpf
                 string validationError;
                 if (!CompanionXmlValidator.TryParse(xml, out parsed, out validationError))
                 {
-                    _status.Text = display + " failed validation: " + Short(validationError);
+                    _status.Text = display + " failed validation: " + PaneText.Short(validationError);
                     return;
                 }
 
-                string directory = SafeLibraryDir(pet.Id);
+                string directory = CompanionProvenance.SafeLibraryDirectory(pet.Id);
                 Directory.CreateDirectory(directory);
                 SecureDownload.WriteAllBytesAtomic(Path.Combine(directory, "animations.xml"), bytes);
                 // Record what was installed, so a LATER catalog change can be told apart from a local edit.
@@ -831,7 +831,7 @@ namespace DesktopAICompanion.Wpf
             {
                 if (IsLoaded) _status.Text = "Stopped " + (isUpdate ? "updating " : "downloading ") + display + ".";
             }
-            catch (Exception ex) { if (IsLoaded) _status.Text = "Couldn't " + (isUpdate ? "update " : "download ") + display + ": " + Short(ex.Message); }
+            catch (Exception ex) { if (IsLoaded) _status.Text = "Couldn't " + (isUpdate ? "update " : "download ") + display + ": " + PaneText.Short(ex.Message); }
             finally { if (IsLoaded && trigger != null) trigger.IsEnabled = true; }
         }
 
@@ -946,24 +946,9 @@ namespace DesktopAICompanion.Wpf
             return ids;
         }
 
-        private static string SafeLibraryDir(string id)
-        {
-            if (!SecureDownload.IsSafeId(id)) throw new InvalidDataException("Unsafe companion id.");
-            string root = Path.GetFullPath(AppPaths.LibraryPetsDirectory)
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) +
-                Path.DirectorySeparatorChar;
-            string directory = Path.GetFullPath(Path.Combine(root, id));
-            if (!directory.StartsWith(root, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException("Companion path escapes the library.");
-            return directory;
-        }
-
-        private static string Short(string message)
-        {
-            if (string.IsNullOrEmpty(message)) return "";
-            message = message.Trim();
-            return message.Length > 200 ? message.Substring(0, 200) + "…" : message;
-        }
+        // SafeLibraryDir and Short used to sit here. The containment check is CompanionProvenance.SafeLibraryDirectory
+        // (one copy for this pane and CompanionHost) and the status-text trim is PaneText.Short, shared with the
+        // Modules pane (F337).
 
         // Animation + sound counts read from the pet's XML, cached per id (the sheep XMLs are large).
         private sealed class CompanionStats { public int Animations; public int Sounds; }
@@ -1028,8 +1013,8 @@ namespace DesktopAICompanion.Wpf
         private static ImageSource LoadThumb(string id)
         {
             if (string.IsNullOrWhiteSpace(id)) return null;
-            // CACHED HERE, not one level down. The first version of this cache sat on
-            // LoadPetHeaderIcon, which is only the MISS path -- so the common case, a bundled
+            // CACHED HERE, not one level down. The first version of this cache sat on the header-icon
+            // read (ReadPetHeaderIcon), which is only the MISS path -- so the common case, a bundled
             // thumbnail out of the zip, still cloned up to 256 KB of PNG bytes and ran a full
             // BitmapImage decode per card, per rebuild, on the UI thread. That is once per installed
             // companion (56 of them ship) every time the pane is selected and after every Use, Add,
@@ -1057,26 +1042,17 @@ namespace DesktopAICompanion.Wpf
                 if (png != null) return FromPng(png);
                 // No bundled thumbnail: installed / converted / authored pets aren't in the zip. Fall back to
                 // the pet's OWN header icon so its gallery card isn't blank (every animations.xml carries one).
-                return LoadPetHeaderIcon(id);
+                // Called directly: a LoadPetHeaderIcon pass-through sat between the two until 2026-09-30,
+                // repeating LoadThumb's null check under a comment explaining that it did nothing (F374).
+                return ReadPetHeaderIcon(id);
             }
             catch { return null; }
         }
 
         /// <summary>Decode the &lt;header&gt;&lt;icon&gt; ICO from an installed or bundled pet's animations.xml.
         /// WPF's decoder handles the PNG-in-ICO the Shimeji importer emits as well as ordinary icons; returns
-        /// null when there is no such pet folder or no icon.</summary>
-        private static ImageSource LoadPetHeaderIcon(string id)
-        {
-            // NO CACHE LOOKUP HERE, and that is not an omission. LoadThumb owns the cache: it has
-            // already taken it and MISSED on this key before calling down, on the same WPF UI thread,
-            // so a second lookup could never hit and the store it did was immediately overwritten by
-            // LoadThumb with the same reference. Residue of moving the cache up one level, which the
-            // doc on LoadThumb states ("CACHED HERE, not one level down").
-            if (string.IsNullOrWhiteSpace(id)) return null;
-            return ReadPetHeaderIcon(id);
-        }
-
-        /// <summary>The uncached read. Separated so the caching above has exactly one thing to cache.</summary>
+        /// null when there is no such pet folder or no icon. Uncached: LoadThumb owns the cache and has already
+        /// missed on this id before calling down.</summary>
         private static ImageSource ReadPetHeaderIcon(string id)
         {
             string xmlPath = FindPetXml(id);
@@ -1118,12 +1094,7 @@ namespace DesktopAICompanion.Wpf
         }
 
         // Only a pet that actually lives in the writable library can be uninstalled (deleted). Built-in and
-        // bundled pets ship with the app and are not the user's to remove.
-        private static bool LibraryFolderExists(string id)
-        {
-            try { return !string.IsNullOrEmpty(id) && File.Exists(Path.Combine(AppPaths.LibraryPetsDirectory, id, "animations.xml")); }
-            catch { return false; }
-        }
+        // bundled pets ship with the app and are not the user's to remove. The test is CompanionProvenance.IsInLibrary.
 
         private void UninstallPet(string id, string name, int onScreen)
         {

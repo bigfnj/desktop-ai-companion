@@ -40,6 +40,9 @@ namespace DesktopAICompanion.PetStudioModule
                                  //         dropped-step note reaches the status bar, FindBundleRoot walks
                                  //         past a folder it cannot list, and LaunchProcess is declared
                                  //         for the bundled dwebp and the optional ffmpeg.
+                                 //         Lane fix/deadcode, same version: the capability map reads the
+                                 //         reserved entry-point names from PetGraph, one array shared by
+                                 //         the emitter, the graph and the studio (merged 2026-09-30).
                                  // 1.1.17: no change in this module's OWN code. It source-links
                                  //         src/dotNet/RuntimeGeometry.cs (PetStudio.csproj:63), and
                                  //         ScalePolicy.ScaleVelocity there stopped scaling velocity
