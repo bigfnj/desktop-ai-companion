@@ -543,12 +543,15 @@ namespace DesktopAICompanion.AiBrainModule
                 // --- Windows built-in OCR (the zero-install fallback when Tesseract is absent) ---
                 // This runs INSIDE the module's own collectible AssemblyLoadContext, so it is also the
                 // standing proof that the WinRT projection resolves there — the one risk the spike flagged.
-                // Skip-passes where the OS has no recognizer for the user's languages (a CI runner with no
-                // language pack), exactly like the DPAPI check above: absence is an environment fact, not
-                // an engine defect.
+                // A FAIL, not a SKIP, where the OS has no recognizer for the profile's languages (F083's rule,
+                // applied here on 2026-09-30, RA-069/RA-070): both runners (Invoke-SelfTests.ps1 for
+                // --aibrain-selftest, Test-ModuleSelfTests.ps1 for the COVERED module) grade a SKIP: line as a
+                // failure of the whole run, so the "skip-pass" this comment used to promise never existed, and the
+                // DPAPI branch it cited as its model had already become a FAIL. The line names the check that could
+                // not run and why; a source invariant keeps every SKIP: literal out of this probe.
                 if (!WindowsOcr.IsAvailable)
                 {
-                    sb.AppendLine("SKIP: no Windows OCR recognizer for this machine's languages");
+                    ok &= Check(sb, "Windows OCR recognizer available for this machine's languages, so the in-context read can be asserted", false);
                 }
                 else
                 {
@@ -656,6 +659,21 @@ namespace DesktopAICompanion.AiBrainModule
             catch (Exception ex)
             {
                 sb.AppendLine("FAIL: " + group + " group threw: " + ex.GetType().Name + ": " + ex.Message);
+                return false;
+            }
+        }
+
+        /// <summary>Run one CHECK under its own catch (RA-074): a check that throws is a FAIL line naming it, and the
+        /// checks after it in the group still run and still print. <see cref="Guarded"/> did this per GROUP only
+        /// (F082), so one throw hid every later check of its group behind a line naming the group and the
+        /// exception: 7 of RunSecurity's 18 checks, all of RunBackends' and RunResidency's and two of RunLifecycle's
+        /// had no catch of their own. Method groups convert to the Func, so each call site names the check once.</summary>
+        private static bool GuardedCheck(StringBuilder sb, string check, Func<StringBuilder, bool> run)
+        {
+            try { return run(sb); }
+            catch (Exception ex)
+            {
+                sb.AppendLine("FAIL: " + check + " threw: " + ex.GetType().Name + ": " + ex.Message);
                 return false;
             }
         }

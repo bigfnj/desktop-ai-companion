@@ -16,11 +16,32 @@ namespace DesktopAICompanion.Ai
     {
         private readonly object _stateLock = new object();
         private readonly SemaphoreSlim _operation = new SemaphoreSlim(1, 1);
+        /// <summary>
+        /// A SEAM, not a production feature (RA-078): the actions queued through ReconfigureAsync's
+        /// afterRetireForDiagnostics parameter run once the retiring brain is gone, under the operation gate. The
+        /// one production caller passes none; the four after-retire checks (F089, F091) observe retire order and
+        /// serialization through it, a property they could not otherwise reach, which is why it stays under the
+        /// register's rule for test-only members and is named for what it is.
+        /// </summary>
         private readonly Queue<Action> _pendingAfterRetire = new Queue<Action>();
 
         private CancellationTokenSource _generationCancellation = new CancellationTokenSource();
         private Func<AiBrain> _factory;
+        /// <summary>What the current <see cref="_factory"/> builds for: the fingerprint (AiBrainModule.BackendFingerprint)
+        /// and whether the residency keeps the model across an Apply. Copied to <see cref="_liveFingerprint"/> when a
+        /// brain is actually built from the factory, and read by a superseded build to decide its own retirement.</summary>
+        private string _factoryFingerprint;
+        private bool _factoryKeepResident;
         private AiBrain _brain;
+        /// <summary>
+        /// The fingerprint of the brain in <see cref="_brain"/>, or null when there is none. Owned HERE, beside the
+        /// brain, and written when a brain is BUILT, never when an Apply is issued: the module used to record the
+        /// fingerprint of the brain the session WOULD build, so an Apply cancelled while queued behind an ask left
+        /// its fingerprint behind and the next same-fingerprint Apply retired the OLDER brain without eviction;
+        /// under "keep" that model carried keep_alive -1 and outlived the process (R-012, RA-061). The eviction
+        /// decision is taken at retire time against this field (<see cref="ReconfigureCoreAsync"/>).
+        /// </summary>
+        private string _liveFingerprint;
         private int _generation;
         private int _askActive;
         private int _cleanupStarted;
@@ -43,15 +64,59 @@ namespace DesktopAICompanion.Ai
             get { return Volatile.Read(ref _askActive) != 0; }
         }
 
+        /// <summary>
+        /// Replace the brain, or retire it when <paramref name="enabled"/> is false or the factory is null. The
+        /// eviction on retire is decided by <paramref name="releaseModel"/> alone. The production entry point is
+        /// <see cref="ReconfigureForBackendAsync"/>, which decides it from the fingerprints; this overload serves the
+        /// probes, whose retirement checks pin both outcomes without a fingerprint and whose after-retire checks
+        /// observe the retire order through the callback (a seam, RA-078; see <see cref="_pendingAfterRetire"/>).
+        /// </summary>
+        /// <param name="afterRetireForDiagnostics">Run once the retiring brain is gone, under the gate. Null in
+        /// production (RA-078).</param>
         /// <param name="releaseModel">False when the caller knows the replacement targets the same backend and
         /// models: the retiring brain is still disposed, but its model is not evicted (F095). Default true.</param>
-        public async Task<bool> ReconfigureAsync(
+        public Task<bool> ReconfigureAsync(
             Func<AiBrain> factory,
             bool enabled,
             bool prepare,
             CancellationToken externalCancellation,
-            Action afterRetire = null,
+            Action afterRetireForDiagnostics = null,
             bool releaseModel = true)
+        {
+            return ReconfigureCoreAsync(
+                factory, enabled, prepare, externalCancellation, afterRetireForDiagnostics, null, false, releaseModel);
+        }
+
+        /// <summary>
+        /// The production reconfigure (AiBrainModule.ApplyState). <paramref name="backendFingerprint"/> names what
+        /// decides which model is resident where (AiBrainModule.BackendFingerprint; null when disabled) and
+        /// <paramref name="keepResident"/> whether the residency keeps the model across an Apply ("keep" or
+        /// "server"). Whether retiring the live brain EVICTS its model is decided here, at retire time, by comparing
+        /// the new fingerprint with the one the live brain was BUILT for: the same backend under a residency that
+        /// keeps means dispose without eviction (F095), anything else evicts. Decided at issue time by the module,
+        /// it modelled the brain the session WOULD build rather than the one it HAD (R-012).
+        /// </summary>
+        public Task<bool> ReconfigureForBackendAsync(
+            Func<AiBrain> factory,
+            bool enabled,
+            bool prepare,
+            CancellationToken externalCancellation,
+            string backendFingerprint,
+            bool keepResident)
+        {
+            return ReconfigureCoreAsync(
+                factory, enabled, prepare, externalCancellation, null, backendFingerprint, keepResident, null);
+        }
+
+        private async Task<bool> ReconfigureCoreAsync(
+            Func<AiBrain> factory,
+            bool enabled,
+            bool prepare,
+            CancellationToken externalCancellation,
+            Action afterRetire,
+            string backendFingerprint,
+            bool keepResident,
+            bool? releaseModelOverride)
         {
             int generation;
             CancellationTokenSource previous;
@@ -66,6 +131,8 @@ namespace DesktopAICompanion.Ai
                 _generationCancellation = new CancellationTokenSource();
                 generation = ++_generation;
                 _factory = factory;
+                _factoryFingerprint = backendFingerprint;
+                _factoryKeepResident = keepResident;
                 _enabled = enabled;
                 linked = CancellationTokenSource.CreateLinkedTokenSource(
                     _generationCancellation.Token,
@@ -96,8 +163,17 @@ namespace DesktopAICompanion.Ai
                 {
                     if (!IsCurrent(generation, enabled)) return false;
 
+                    // Retire WITHOUT evicting when the replacement targets the same backend and models under a
+                    // residency that keeps them resident (F095); decided against the brain that is live NOW, under
+                    // the gate, so an Apply cancelled while queued never leaves a fingerprint behind for the next one
+                    // to match (R-012). Under "unload" the model is gone after each remark anyway, so the eviction on
+                    // retire stays (it is free there). Disable and shutdown keep the eviction: no fingerprint.
+                    bool releaseModel = releaseModelOverride ??
+                        !(keepResident && backendFingerprint != null &&
+                          string.Equals(backendFingerprint, _liveFingerprint, StringComparison.Ordinal));
                     await RetireBrainAsync(_brain, releaseModel).ConfigureAwait(false);
                     _brain = null;
+                    _liveFingerprint = null;
                     RunPendingAfterRetire();
 
                     if (!IsCurrent(generation, enabled)) return false;
@@ -112,10 +188,27 @@ namespace DesktopAICompanion.Ai
                         AiBrain.LogBuildFailure(ex);
                         return false;
                     }
+                    _liveFingerprint = backendFingerprint;
                     if (!IsCurrent(generation, true))
                     {
-                        await RetireBrainAsync(_brain).ConfigureAwait(false);
+                        // Superseded between the factory and this check. Nothing was awaited in between, so the fresh
+                        // brain has sent no request and loaded nothing of its own; what may be resident is the model
+                        // the previous brain kept under the same fingerprint. So this retirement is decided the way
+                        // every other one is, against what comes NEXT: the superseding generation's fingerprint and
+                        // residency. Through the default overload it evicted unconditionally, which cost a same-
+                        // fingerprint "keep" Apply the cold reload F095 had just removed (RA-079).
+                        string nextFingerprint;
+                        bool nextKeeps;
+                        lock (_stateLock)
+                        {
+                            nextFingerprint = _factoryFingerprint;
+                            nextKeeps = _factoryKeepResident;
+                        }
+                        bool keptForNext = nextKeeps && nextFingerprint != null &&
+                            string.Equals(nextFingerprint, backendFingerprint, StringComparison.Ordinal);
+                        await RetireBrainAsync(_brain, releaseModelOverride ?? !keptForNext).ConfigureAwait(false);
                         _brain = null;
+                        _liveFingerprint = null;
                         return false;
                     }
                     if (!prepare) return true;
@@ -225,7 +318,12 @@ namespace DesktopAICompanion.Ai
                         if (_brain == null)
                         {
                             Func<AiBrain> factory;
-                            lock (_stateLock) factory = _factory;
+                            string fingerprint;
+                            lock (_stateLock)
+                            {
+                                factory = _factory;
+                                fingerprint = _factoryFingerprint;
+                            }
                             if (factory == null) return null;
                             try { _brain = factory(); }
                             catch (Exception ex) when (!(ex is OperationCanceledException))
@@ -233,6 +331,7 @@ namespace DesktopAICompanion.Ai
                                 AiBrain.LogBuildFailure(ex);   // as in ReconfigureAsync (F100)
                                 return null;
                             }
+                            _liveFingerprint = fingerprint;   // the lazy build is a build (R-012)
                         }
 
                         BrainResponse response = await _brain.AskAboutScreenAsync(
@@ -263,7 +362,8 @@ namespace DesktopAICompanion.Ai
         // drop responder must answer SYNCHRONOUSLY (it returns whether it handled the tick, so Fortunes can
         // take it otherwise), which an async screen comparison cannot do without a background sampler. The
         // underlying primitive, AiBrain.ScreenChanged, is deliberately kept: it is what a future "only speak
-        // when something on screen actually changed" option would be built on.
+        // when something on screen actually changed" option would be built on. The keep is recorded in
+        // docs/DESIGN-REGISTER.md under `#### burn/aibrain` (RA-066).
 
         public void Dispose()
         {

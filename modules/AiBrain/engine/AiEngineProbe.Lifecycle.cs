@@ -22,11 +22,12 @@ namespace DesktopAICompanion.AiBrainModule
         internal static bool RunLifecycle(StringBuilder sb)
         {
             bool ok = true;
-            ok &= CheckCloneForBrain(sb);
-            ok &= CheckInventoryFollowsReachability(sb);
-            ok &= CheckOcrResolution(sb);
-            ok &= CheckAuditionGuard(sb);
-            ok &= CheckTestOcrReachesLiveBrain(sb);
+            // Each check under its own catch (RA-074): one that throws is a FAIL naming it, and the rest still run.
+            ok &= GuardedCheck(sb, "CheckCloneForBrain", CheckCloneForBrain);
+            ok &= GuardedCheck(sb, "CheckInventoryFollowsReachability", CheckInventoryFollowsReachability);
+            ok &= GuardedCheck(sb, "CheckOcrResolution", CheckOcrResolution);
+            ok &= GuardedCheck(sb, "CheckAuditionGuard", CheckAuditionGuard);
+            ok &= GuardedCheck(sb, "CheckTestOcrReachesLiveBrain", CheckTestOcrReachesLiveBrain);
             return ok;
         }
 
@@ -65,7 +66,10 @@ namespace DesktopAICompanion.AiBrainModule
             }
             else
             {
-                sb.AppendLine("SKIP: DPAPI unavailable (" + keyError + "), so the copy's key isolation is not asserted");
+                // A FAIL naming the check, as F083 made the DPAPI round-trip in Run: both runners grade a SKIP: line as
+                // a failure of the whole run, so the SKIP this wrote until 2026-09-30 added nothing they could act on
+                // and read as a tolerated gap (R-017).
+                ok &= Check(sb, "DPAPI key store available, so the clone's key isolation can be asserted (" + keyError + ")", false);
             }
             ok &= Check(sb, "the brain's settings copy can never write the settings file",
                 !copy.SaveWithin(AiSettings.ProcessLockTimeoutMilliseconds));
@@ -230,19 +234,58 @@ namespace DesktopAICompanion.AiBrainModule
                     try { if (Directory.Exists(chosenDir)) Directory.Delete(chosenDir, true); }
                     catch { ok &= Check(sb, "chosen OCR engine scratch cleanup", false); }
                 }
+
+                // RA-067: a Forget that lands between the walk and the cache write (both on pool threads: an ask's OCR
+                // and the pane's Forget) must not be cached over. The seam runs Forget with a NEW path at exactly that
+                // point; the next read has to walk again and resolve to the new path, where a plain cache write
+                // published the old walk and lost the user's choice until the next Apply.
+                string racedDir = Path.Combine(Path.GetTempPath(), "dp-aibrain-raced-" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(racedDir);
+                    string raced = Path.Combine(racedDir, "tesseract.exe");
+                    File.WriteAllBytes(raced, new byte[] { 0 });
+                    brain.ForgetTesseractResolution("");   // back to auto-detect: the walk below starts from the OLD path
+                    int walksBefore = brain.TesseractResolutionsForDiagnostics;
+                    brain.BeforeTesseractCacheForDiagnostics = delegate { brain.ForgetTesseractResolution(raced); };
+                    brain.ResolveTesseractForDiagnostics();   // walks the old path; the seam re-points it mid-walk
+                    brain.BeforeTesseractCacheForDiagnostics = null;
+                    string afterRace = brain.ResolveTesseractForDiagnostics();
+                    ok &= Check(sb, "a path chosen while a resolution is walking is not lost: the next read walks again and resolves to it (RA-067)",
+                        brain.TesseractResolutionsForDiagnostics == walksBefore + 2 &&
+                        string.Equals(afterRace, raced, StringComparison.OrdinalIgnoreCase));
+                    ok &= Check(sb, "WITNESS the re-walked resolution is then cached like any other",
+                        string.Equals(brain.ResolveTesseractForDiagnostics(), afterRace, StringComparison.OrdinalIgnoreCase) &&
+                        brain.TesseractResolutionsForDiagnostics == walksBefore + 2);
+                }
+                finally
+                {
+                    brain.BeforeTesseractCacheForDiagnostics = null;
+                    try { if (Directory.Exists(racedDir)) Directory.Delete(racedDir, true); }
+                    catch { ok &= Check(sb, "raced OCR engine scratch cleanup", false); }
+                }
             }
             return ok;
         }
 
-        /// <summary>The settings every module instance in this file starts from: the brain on, auto-start off, the
+        /// <summary>The settings every module instance in this probe starts from: the brain on, auto-start off, the
         /// local slot on the OpenAI-compatible protocol at a loopback port nothing listens on. Written BEFORE Init, so
         /// the one-time migrator finds a file and copies nothing real in.</summary>
         private static void SeedOfflineModuleSettings(TempModuleStorage storage)
         {
+            SeedOfflineModuleSettings(storage, "");
+        }
+
+        /// <param name="extraFields">Further JSON members for the seed, each led by a comma (<c>, "UseVision": true</c>),
+        /// so a check that needs one more setting still gets the port pin: CheckModuleEntryPoints wrote a seed of its
+        /// own without it and aimed its module's local slot at the machine's Ollama (RA-072).</param>
+        private static void SeedOfflineModuleSettings(TempModuleStorage storage, string extraFields)
+        {
             File.WriteAllText(
                 Path.Combine(storage.DataDirectory, "ai-settings.json"),
                 "{ \"SchemaVersion\": " + AiSettings.CurrentSchemaVersion + ", \"AiBrainEnabled\": true, " +
-                "\"AutoStartServer\": false, \"LocalBackendKind\": \"openai-compat\", \"Endpoint\": \"http://127.0.0.1:9\" }",
+                "\"AutoStartServer\": false, \"LocalBackendKind\": \"openai-compat\", \"Endpoint\": \"http://127.0.0.1:9\"" +
+                (extraFields ?? "") + " }",
                 new UTF8Encoding(false));
         }
 
@@ -280,10 +323,17 @@ namespace DesktopAICompanion.AiBrainModule
                     live.ResolveTesseractForDiagnostics();
                     live.ResolveTesseractForDiagnostics();
                     int before = live.TesseractResolutionsForDiagnostics;
+                    // This press runs the machine's REAL OCR engine on a probe image (tesseract.exe under its 8 s bound
+                    // when one is on PATH, Windows OCR otherwise): the button's own cost, and what proves the throwaway
+                    // brain ran (RA-071).
                     string verdict = module.TestOcrAsync().GetAwaiter().GetResult();
                     live.ResolveTesseractForDiagnostics();
                     ok &= Check(sb, "the Test OCR button makes the LIVE brain resolve its engine afresh, not only the throwaway it tests with (R-015)",
-                        before == 1 && live.TesseractResolutionsForDiagnostics == 2 && verdict != null);
+                        before == 1 && live.TesseractResolutionsForDiagnostics == 2);
+                    // A pane status line, a tick or a cross first. `verdict != null` stood here and could not fail:
+                    // every TestOcrAsync path returns a string literal (RA-071).
+                    ok &= Check(sb, "the Test OCR verdict is a pane status line: a tick or a cross first (RA-071)",
+                        !string.IsNullOrEmpty(verdict) && (verdict[0] == '✓' || verdict[0] == '✗'));
                     live.ResolveTesseractForDiagnostics();
                     ok &= Check(sb, "WITNESS with no button press the live brain keeps its resolution",
                         live.TesseractResolutionsForDiagnostics == 2);

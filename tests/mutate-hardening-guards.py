@@ -35,6 +35,8 @@ RELEASE_YML = os.path.join(REPO, ".github", "workflows", "release.yml")
 DEBUG_SMOKE = os.path.join(REPO, "tests", "debug-menu-smoke.ps1")
 TRAY_SMOKE = os.path.join(REPO, "tests", "tray-menu-smoke.ps1")
 PETSTUDIO_WINDOW = os.path.join(REPO, "modules", "PetStudio", "PetStudioWindow.cs")
+AIBRAIN_PROBE = os.path.join(REPO, "modules", "AiBrain", "engine", "AiEngineProbe.cs")
+AIBRAIN_FALLBACK = os.path.join(REPO, "modules", "AiBrain", "engine", "FallbackBackend.cs")
 
 
 def read(p):
@@ -1001,6 +1003,35 @@ CASES = (
     ),
 
     # ---- lane fix/followups ----
+
+
+    # ---- lane burn/aibrain ----
+
+    # RA-069, RA-070, R-017: the aibrain probe writes no SKIP: line. A SKIP put back beside the recognizer check
+    # (ADDED, not substituted, so the positive control that the FAIL-naming check exists still passes and the
+    # negative is what fires) is the shape both runners grade as a failure of the whole run.
+    (
+        "the aibrain probe skip-passes an absent OCR recognizer again",
+        AIBRAIN_PROBE,
+        b'                    ok &= Check(sb, "Windows OCR recognizer available for this machine\'s languages, so the in-context read can be asserted", false);\n',
+        b'                    ok &= Check(sb, "Windows OCR recognizer available for this machine\'s languages, so the in-context read can be asserted", false);\n'
+        b'                    sb.AppendLine("SKIP: no Windows OCR recognizer for this machine\'s languages");\n',
+        "writes no SKIP: line",
+    ),
+
+    # RA-086: a private observe-fault continuation grows back beside AiEndpointPolicy.ObserveTaskFailure.
+    (
+        "a second observe-fault continuation grows back in the AiBrain engine",
+        AIBRAIN_FALLBACK,
+        b"        private static bool HasImage(IList<ChatMessage> messages)\n",
+        b"        private static void ObserveOutcome(Task task)\n"
+        b"        {\n"
+        b"            task.ContinueWith(delegate(Task finished) { var ignored = finished.Exception; }, CancellationToken.None,\n"
+        b"                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);\n"
+        b"        }\n\n"
+        b"        private static bool HasImage(IList<ChatMessage> messages)\n",
+        "one observe-fault continuation",
+    ),
 
 
     # ---- lane fix/deadcode ----

@@ -228,7 +228,13 @@ namespace DesktopAICompanion.Ai
         {
             bool wasUp = _lastBackendUp == true;
             NoteBackendAvailability(up, up ? null : downReason);
-            if (up && !wasUp) await RefreshInventoryAsync(ct).ConfigureAwait(false);
+            // On the transition to up, and while the inventory is still UNKNOWN. The composite is up through its
+            // local leg while its cloud primary is away, so the primary's return is never a transition of the whole
+            // and the configured cloud id was not re-validated until the next Apply (RA-062). While nothing is
+            // known the cost is one listing per check; the composite answers null, without a request, while its
+            // primary's own probe last said down, and an empty listing never becomes the inventory (below), so
+            // "unknown" stays unknown until a listing answers. A known inventory is still never re-listed per ask.
+            if (up && (!wasUp || _available == null)) await RefreshInventoryAsync(ct).ConfigureAwait(false);
         }
 
         /// <summary>The reachability check, for the self-test: it drives the transition record and the inventory
@@ -278,7 +284,10 @@ namespace DesktopAICompanion.Ai
             catch { return "(unparseable)"; }
         }
 
-        private byte[] _lastFrameSignature;   // change-detection gate (used by the idle loop, phase 3)
+        // The last 16x16 luma signature ScreenChanged compared against. ScreenChanged has had no caller since the
+        // module's idle loop went in aibrain 1.2.3; the keep is deliberate and recorded (its own summary, and
+        // docs/DESIGN-REGISTER.md `#### burn/aibrain`). This used to say "used by the idle loop" (RA-054, RA-066).
+        private byte[] _lastFrameSignature;
         private int _disposeStarted;
 
         // Width a vision image is downscaled to before sending.
@@ -498,8 +507,13 @@ namespace DesktopAICompanion.Ai
             // normally graded against the text model -- auditioning a persona on a 12B vision model would
             // take minutes and measure the wrong thing.
             bool useVisionPath = live && _useVision;
+            // The SAME policy the live ask applies (ResolveBeforeCapture): a cloud primary never substitutes, so an
+            // audition of a retired cloud id ends on one "(not run)" sample carrying the advisory instead of five
+            // billed requests to whatever the provider lists first. Until 2026-09-30 this call took the overload
+            // that defaults allowSubstitution to true, which R-022 had reached only on the ask path (RA-063).
             ModelChoice choice = AiModelPolicy.ChooseModel(
-                useVisionPath ? _visionModel : _textModel, _available, useVisionPath);
+                useVisionPath ? _visionModel : _textModel, _available, useVisionPath,
+                SubstituteMissingModel, BackendHostDescription);
             int sampleCount = DispositionScenes.All.Length;
             Log("persona audition: disposition=" + (dispositionId ?? "(saved)") +
                 " source=" + (live ? (useVisionPath ? "live-vision" : "live-ocr") : "canned") +
@@ -516,6 +530,7 @@ namespace DesktopAICompanion.Ai
                     "(not run)", null, choice.Advisory ?? "no usable model", 0));
                 return new DispositionAudition(samples, null, choice.Advisory);
             }
+            RememberSent(useVisionPath, choice.Model);
 
             // Read the screen ONCE, before the loop, so five samples cost one capture and one OCR pass
             // rather than five of each.
@@ -748,13 +763,6 @@ namespace DesktopAICompanion.Ai
             }
         }
 
-        /// <summary>
-        /// The "you already said this" clause. Empty for the first sample, so a single ask is unchanged.
-        ///
-        /// Bounded to the last few remarks and to a per-remark length: the point is to rule out repeats,
-        /// and a growing verbatim transcript would eventually cost more prefill than the remark it is
-        /// trying to vary. Trimmed rather than summarised, because a summary needs another inference.
-        /// </summary>
         /// <summary>Test seam for <see cref="DescribeAlreadySaid"/>: the audition drives exactly five
         /// scenes, one more than the quoted count, so the ageing rule has to be asserted on the builder
         /// itself with more remarks than it quotes (F084).</summary>
@@ -763,6 +771,14 @@ namespace DesktopAICompanion.Ai
             return DescribeAlreadySaid(alreadySaid);
         }
 
+        /// <summary>
+        /// The "you already said this" clause. Empty for the first sample, so a single ask is unchanged.
+        ///
+        /// Bounded to the last few remarks and to a per-remark length: the point is to rule out repeats,
+        /// and a growing verbatim transcript would eventually cost more prefill than the remark it is
+        /// trying to vary. Trimmed rather than summarised, because a summary needs another inference.
+        /// (This summary sat above the seam's, leaving the builder itself undocumented, RA-064.)
+        /// </summary>
         private static string DescribeAlreadySaid(IList<string> alreadySaid)
         {
             if (alreadySaid == null || alreadySaid.Count == 0) return "";
@@ -774,7 +790,10 @@ namespace DesktopAICompanion.Ai
             for (int i = from; i < alreadySaid.Count; i++)
             {
                 string said = (alreadySaid[i] ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
-                if (said.Length > PerRemark) said = said.Substring(0, PerRemark) + "…";
+                // At a code-point boundary: a remark is model text and can end in an emoji, and a plain Substring
+                // at a UTF-16 index split the pair and quoted a lone surrogate back to the model (RA-057). The same
+                // helper the OCR text goes through.
+                if (said.Length > PerRemark) said = UnicodeTextProgress.TruncateAtCodePointBoundary(said, PerRemark) + "…";
                 sb.Append("\n- ").Append(said);
             }
             return sb.ToString();
@@ -849,8 +868,11 @@ namespace DesktopAICompanion.Ai
                 // mode, a saved id the backend no longer offers, is visible) is taken by ObserveReachabilityAsync on
                 // the way through: on this first sight of the backend, and again whenever it comes back (F071).
 
+                // The PATH goes with the id: with one cloud id in both slots the composite cannot tell from the id
+                // which local model a fallover will run, and warmed the local vision model for a text session
+                // (RA-087). Single-model backends ignore the role.
                 if (up && warmUp && _settings.WarmUpDesired)
-                    await _backend.WarmUpAsync(_useVision ? _visionModel : _textModel, ct).ConfigureAwait(false);
+                    await _backend.WarmUpAsync(_useVision ? _visionModel : _textModel, _useVision, ct).ConfigureAwait(false);
 
                 return up;
             }
@@ -957,12 +979,16 @@ namespace DesktopAICompanion.Ai
                     Log("model inventory: the backend cannot enumerate models, so the configured id is not re-validated");
                     return;
                 }
-                if (listed.Count == 0 && _available != null)
+                if (listed.Count == 0)
                 {
-                    // A listing whose bound tripped comes back empty, as does a backend with nothing pulled. An
-                    // empty list already reads as "unknown" downstream, but it used to REPLACE a good inventory, so
-                    // a re-list on a transition that timed out threw away what the previous one knew (R-014).
-                    Log("model inventory: an empty listing keeps the previous " + _available.Count + " model(s)");
+                    // A listing whose bound tripped comes back empty, as does a refused key and a backend with nothing
+                    // pulled. An empty list already reads as "unknown" downstream, but it used to REPLACE a good
+                    // inventory, so a re-list on a transition that timed out threw away what the previous one knew
+                    // (R-014); and stored as the FIRST inventory it made "unknown" look known, which ended the
+                    // re-listing ObserveReachabilityAsync does while nothing is known (RA-062). Never stored.
+                    Log(_available == null
+                        ? "model inventory: an empty listing leaves the inventory unknown"
+                        : "model inventory: an empty listing keeps the previous " + _available.Count + " model(s)");
                     return;
                 }
                 _available = listed;
@@ -988,24 +1014,42 @@ namespace DesktopAICompanion.Ai
         }
 
         /// <summary>
-        /// Ask the backend to unload this pet's text and vision models. Ollama evicts its
-        /// keep-alive models; generic OpenAI-compatible providers intentionally do nothing.
-        /// Best-effort.
+        /// The model most recently SENT on each path when a turn settled on one: the configured id, or BUG-002's
+        /// substitute. <see cref="UnloadAsync"/> (the fullscreen stand-down, retire, shutdown) and the launch
+        /// warm-up used to name only the CONFIGURED ids, so under "keep" a substituted local model carried
+        /// keep_alive -1, was never evicted, and outlived the process (RA-065). Written where a turn's model is
+        /// settled and about to be sent (<see cref="ResolveBeforeCapture"/>, <see cref="SampleDispositionAsync"/>),
+        /// read by the release. Two fields because the text and the vision path can each be substituted in one
+        /// session; FallbackBackend keeps the same record for its local leg (F104).
+        /// </summary>
+        private volatile string _sentTextModel;
+        private volatile string _sentVisionModel;
+
+        private void RememberSent(bool visionPath, string model)
+        {
+            if (string.IsNullOrEmpty(model)) return;
+            if (visionPath) _sentVisionModel = model;
+            else _sentTextModel = model;
+        }
+
+        /// <summary>
+        /// Ask the backend to unload every model this brain may have loaded: the configured text and vision
+        /// ids, and the substitute each path actually sent when that differs (RA-065). Ollama evicts its
+        /// keep-alive models; generic OpenAI-compatible providers intentionally do nothing. Best-effort.
+        /// De-duplicated the way Ollama compares ids, so one id in both slots is released once.
         /// </summary>
         public async Task UnloadAsync(CancellationToken ct = default(CancellationToken))
         {
-            try
+            var released = new List<string>();
+            foreach (string model in new[] { _textModel, _visionModel, _sentTextModel, _sentVisionModel })
             {
-                await _backend.UnloadAsync(_textModel, ct).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) { throw; }
-            catch { }
-
-            if (!string.Equals(_visionModel, _textModel, StringComparison.OrdinalIgnoreCase))
-            {
+                if (string.IsNullOrEmpty(model)) continue;
+                if (released.Exists(delegate(string done) { return string.Equals(done, model, StringComparison.OrdinalIgnoreCase); }))
+                    continue;
+                released.Add(model);
                 try
                 {
-                    await _backend.UnloadAsync(_visionModel, ct).ConfigureAwait(false);
+                    await _backend.UnloadAsync(model, ct).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) { throw; }
                 catch { }
@@ -1188,6 +1232,8 @@ namespace DesktopAICompanion.Ai
                 advisory = AdvisoryOnce(choice.Advisory);
                 if (advisory != null) return false;
             }
+            // Settled and about to be sent: the release has to know this id too when it is a substitute (RA-065).
+            RememberSent(useVisionPath, choice.Model);
             return true;
         }
 
@@ -1760,27 +1806,52 @@ namespace DesktopAICompanion.Ai
             }
         }
 
+        /// <summary>
+        /// Generation of the configured Tesseract path: bumped by <see cref="ForgetTesseractResolution"/>, read
+        /// around each walk by <see cref="ResolveTesseractOnce"/>, so a walk that was already running when the
+        /// path changed is not cached over the new path (RA-067).
+        /// </summary>
+        private int _tesseractGeneration;
+
+        /// <summary>Test seam: runs between the walk and the cache write, the window in which
+        /// <see cref="ForgetTesseractResolution"/> can land from another pool thread. Null in the shipped module.</summary>
+        internal Action BeforeTesseractCacheForDiagnostics;
+
         /// <summary><see cref="ResolveTesseract"/> once per brain (F077). A resolution that throws is not cached,
         /// so the next ask tries again and logs again.</summary>
         private string ResolveTesseractOnce()
         {
             if (_tesseractResolved) return _resolvedTesseract;
+            int generation = Volatile.Read(ref _tesseractGeneration);
             TesseractResolutionsForDiagnostics++;
-            _resolvedTesseract = ResolveTesseract();
-            _tesseractResolved = true;
-            return _resolvedTesseract;
+            string resolved = ResolveTesseract();
+            Action seam = BeforeTesseractCacheForDiagnostics;
+            if (seam != null) seam();
+            // Cache only if nothing re-pointed the path while this walk ran. Both sides are pool threads (an ask's
+            // OCR under AskAboutScreenAsync, the pane's Forget after its ConfigureAwait(false)), and a plain write
+            // here could publish a walk of the OLD path as the resolution of the NEW one: the user's chosen engine
+            // lost until the next Apply, not "one extra resolution" as this used to say (RA-067). The answer is
+            // still returned for this read; the next read walks again, with the new path.
+            if (Volatile.Read(ref _tesseractGeneration) == generation)
+            {
+                _resolvedTesseract = resolved;
+                _tesseractResolved = true;
+            }
+            return resolved;
         }
 
         /// <summary>
         /// Drop the cached resolution and take the path now configured, so the next read resolves afresh. Reached
         /// through AiSessionManager.ForgetOcrResolution from "Test OCR" and "Choose OCR engine...": until 2026-09-30
         /// those reset the cache of the throwaway brain they test with, and the LIVE brain kept the engine it had
-        /// resolved when it was built, so an install made mid-session never reached a remark (R-015). A plain
-        /// write from the pane thread while an ask may read on a pool thread: at worst one extra resolution.
+        /// resolved when it was built, so an install made mid-session never reached a remark (R-015). The path is
+        /// written first and the generation bumped after it, so a walk that read the generation before this call
+        /// and the path after it still fails the compare and walks again (RA-067).
         /// </summary>
         internal void ForgetTesseractResolution(string configuredTesseractPath)
         {
             _tesseractPath = configuredTesseractPath;
+            Interlocked.Increment(ref _tesseractGeneration);
             _tesseractResolved = false;
         }
 

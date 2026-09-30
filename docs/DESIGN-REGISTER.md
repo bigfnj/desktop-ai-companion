@@ -943,6 +943,133 @@ no storage on purpose as the gate's exercise of every module's null tolerance (F
 every path member throwing that warning, which is AiBrain's N-gates-02 shape (defaults, nothing persisted,
 said once in the log) generalised. The template shows the check; the only in-tree caller was the template.
 
+#### burn/aibrain
+
+**The pane's actions read what is on screen, and the module's floor is host 1.2.5 for it (RA-055, 2026-09-30).**
+"Show me 5 examples", "5 about my screen", "Test OCR" and "Test connection" set `PaneAction.InvokeWithPendingAsync`,
+the member host 1.2.5 added and F227 recorded as having no adopter; the host prefers it when set, so the audition
+is of the disposition in the dropdown, not of the last Apply, and the header says "as shown in the pane, not yet
+applied". The values reach the action as a detached copy of the live settings (CloneForBrain) with the pane's own
+Save mapping applied (`ApplyPaneValues`), so an action can neither save nor see a stale instance; Test OCR resets the
+live brain's Tesseract cache with the SAVED path only, because a typed path is a proposal until Apply. The cost is
+`MinHostVersion = "1.2.5"`, which the lane rules allow when a module starts calling a member a newer host introduced;
+the shipping host is 1.2.6, so the sequencing rule (never offer a module its host refuses) already holds. The
+saved-values delegates stay set beside the pending ones as the documented fallback shape.
+
+**A key that cannot be stored refuses the whole save (RA-058, 2026-09-30).** `TrySetApiKey` answers false with a
+reason for a key typed with no cloud provider or endpoint to scope it to and for a DPAPI refusal, and Save used to
+discard both and report success while the pane's "set" hint described a key that did not exist. Now nothing is
+saved and nothing is applied, the host says the pane could not be saved (true: the file was not touched), and the
+reason goes to the log, the only channel the pane's bool has. The alternative, saving the other fields and returning
+false, was rejected because the host's message would then be untrue for the fields it did save. What this leaves: the
+live `AiSettings` was written through before the key was judged, so it carries the pane's other typed values,
+unsaved and unapplied, until the next Apply or restart; the pane keeps showing what was typed and the brain runs the
+saved configuration (N-burn-aibrain-02 records the torn state and the copy-and-swap shape that would remove it).
+
+**The brain says whether it started, on the pane and in the tray (R-013, 2026-09-30).** CanUse's refusal (an invalid
+endpoint, consent missing, a cloud slot with no model) reached the user only as a diagnostic-log line while Save
+reported success and the tray offered an inert "Ask about my screen". The pane has a "Status" Info row
+(`BrainStatusLine`: Off / Not started: <reason> / On), read from the settings rather than the session so it is right
+the moment the pane reloads after Apply, and the tray row's Visible is `_session.Enabled`, the brain's actual state,
+not the stored switch; the toggle row keeps reading the switch it flips. Save still answers true: the file was saved.
+
+**Every refusal on the explicit path is logged; the responders stay quiet (RA-060, 2026-09-30).** F067 logged one of
+`Ask`'s early returns, the fullscreen stand-down, with a rationale that applies to every other one on the hotkey and
+tray path: nothing speaks in a declined hotkey's place, so a refusal that is not logged is silent to the user and to
+the file SUPPORT.md asks for. All five say their category now (`ask declined: brain off | speech off | busy |
+no companion | capture failed | fullscreen stand-down`), gated on the path having no subject, because a declined drop
+or poke falls through to Fortunes and the user hears a fortune, which is the log line.
+
+**The inventory follows reachability, and is re-listed while it is unknown; the composite cannot enumerate while its
+primary is down (RA-062, 2026-09-30; amends F071).** F071's rule, no periodic re-list, stands for a KNOWN inventory.
+Its gap was the cloud+local composite: reachability is the OR of two legs, so a cloud primary that comes back while
+local Ollama stayed up is never a transition of the whole, and a retired cloud id then failed every turn with
+http-400 (deterministic, no fallover) until the next Apply or pane Refresh. Three changes close it: the composite
+remembers its primary's own probe answer and answers "cannot enumerate" (null, no request) while that was "down";
+the brain re-lists on the transition to up and while its inventory is still unknown; and an empty listing is never
+stored, so unknown stays unknown until a listing answers. The cost, named: while nothing is known, one listing per
+reachability check, which against a down primary is no request at all and against a local Ollama with nothing
+pulled is one GET /api/tags per ask (a configuration whose asks fail anyway). A known inventory is still never
+re-listed per ask, and the pane's Refresh still reaches the live brain.
+
+**The session owns the backend fingerprint and decides the eviction at retire time (R-012, RA-061, RA-079,
+2026-09-30; extends F065/F095).** The module recorded the fingerprint when it ISSUED an Apply, so it described the
+brain the session would build, not the one it had: an Apply cancelled while queued behind an ask (the whole
+in-flight remark or "keep" warm-up, not a sub-second window) left its fingerprint behind, the next same-fingerprint
+Apply retired the OLDER brain without eviction, and under "keep" that model carried keep_alive -1 and outlived the
+process. `AiSessionManager.ReconfigureForBackendAsync` takes the fingerprint and whether the residency keeps;
+`_liveFingerprint` is written when a brain is built (the reconfigure and the lazy build), cleared when one is
+retired, and compared under the gate at retire time. A fresh brain superseded between its factory and the currency
+check has loaded nothing of its own, so it is retired against what comes next, the superseding generation's
+fingerprint and residency, rather than evicted unconditionally (RA-079); the same fingerprint under "keep" keeps
+the model the previous brain left resident, a different one evicts it.
+
+**A settings file held open by another process is not corruption (R-018, 2026-09-30; extends F098).** A sharing
+violation or an access denial on the read says nothing about the document, yet `TryRead` filed both as Unreadable
+and the recovery copied the intact file aside as `ai-settings.corrupt-*.json`, restored the backup over it (which
+failed on the held file) and blocked writes for the session with a warning that asserted two things that had not
+happened. The read now answers `Locked`: defaults for the session, every write blocked so a file this process never
+read is not overwritten blind, and a warning naming the holder; the next launch reads the file as it was. The
+"held" verdict is for `IOException` other than the path kinds (FileNotFound, DirectoryNotFound, PathTooLong) and
+for `UnauthorizedAccessException`; a JsonException, a decoder fault and an oversize file stay corruption. Beside
+it, `PreserveCorruptPrimary` splits the copy from the delete: a copy that succeeded is kept whether or not the
+primary could be removed, and the warning says which.
+
+**The audition applies the ask's rules and is bounded like a retirement (RA-063, RA-056, RA-065, RA-073, 2026-09-30).**
+The persona audition is a brain the module builds and throws away, and three of the ask path's decisions had not
+reached it: a cloud primary never substitutes (R-022) now holds for the audition too, so a retired cloud id is one
+"(not run)" sample with the advisory and nothing billed; the substitute a turn does send is remembered on the brain,
+per path, and released with the configured ids, so the fullscreen stand-down, a retirement and shutdown evict it
+under "keep"; and the audition-end eviction runs under the same 2 s bound a retirement's does (a chosen figure,
+RetireBrainAsync's, not a measured one), because on a cloud composite it round-trips to local Ollama for a model
+the canned samples never loaded and used to hold the pane for the chat deadline. The three call sites the audition
+decides at (the keep_alive window, no warm-up, the eviction) are pinned through a factory seam on the module,
+`AuditionBrainFactoryForDiagnostics`, the shape of AskSinkForDiagnostics.
+
+**The composite warms the local model for the PATH, and the backend interface gained a default member for it
+(RA-087, R-021, 2026-09-30; extends F104).** F104 made the fallover choose the local model from the request (an
+image means vision) because with one cloud id in both slots the id says nothing; the warm-up still went through the
+id mapping, so a "keep" launch with vision OFF pinned the local VISION model (keep_alive -1) that no text fallover
+would use, and the text model then loaded beside it on the first fallover. `ICompanionBrainBackend.WarmUpAsync(model,
+visionPath, ct)` is a default interface member (modules compile with LangVersion latest) that forwards to the id-only
+warm-up; only `FallbackBackend` overrides it, warming the local model for the path and remembering what it warmed so
+the release covers it. A default member rather than a second optional interface, because the brain already holds
+the backend as this type, and every double keeps compiling untouched.
+
+**One observe-fault continuation in the engine, and an invariant counts it (RA-086, 2026-09-30; extends F064).**
+F064's "one helper" was true of the two copies it named; FallbackBackend and OllamaClient carried two more,
+byte-equivalent. Both call `AiEndpointPolicy.ObserveTaskFailure` now, and `tests/runtime-hardening-selftest.ps1`
+requires the OnlyOnFaulted continuation in `AiEndpointPolicy.cs` alone over the comment-stripped engine sources,
+with the qualified call count as its positive control, so the next private copy fails the gate by name.
+
+**The probe skips nothing, guards every check, and pins its own seed (RA-069, RA-070, R-017, RA-074, RA-072, RA-071,
+RA-076, RA-077, 2026-09-30).** Both runners grade a SKIP: line as a failure of the whole run, so the "skip-pass" the
+OCR recognizer branch promised (and CheckCloneForBrain's DPAPI SKIP repeated) never existed; both are FAIL lines
+naming the check, F083's shape, and an invariant keeps every `"SKIP:` literal out of the probe. `GuardedCheck` wraps
+each check in every group, so one throw is a FAIL naming the check and the group's later checks still run, where the
+group guard (F082) hid them. Every module instance the probe builds seeds through one function with the
+`127.0.0.1:9` pin, and CheckModuleEntryPoints, which wrote its own seed without it, asserts the pin. The Test OCR
+verdict's tautological `!= null` is a shape check; the UI save-budget ceiling is derived from the constant with the
+product ceiling (under two seconds) stated once as its own check; the two write-only counters on the doubles are
+read where they pin a request count.
+
+**`AiBrain.ScreenChanged`, `ComputeSignature` and `_lastFrameSignature` stay, unused (RA-066, 2026-09-30,
+ACCEPTED-RECORDED).** The module's own idle timer was their one caller and went in aibrain 1.2.3, when unprompted
+commentary moved onto the host's global drop schedule (HISTORY-post-1.0.0.md, and the comment in AiSessionManager
+where the generation-guarded wrapper used to be). They are kept as the primitive a future "only speak when
+something on screen actually changed" option would be built on: self-contained, a 16x16 luma signature and a
+threshold, and the capture path they sit beside is the one that would feed them. No test reads them, so they can
+drift from that path unnoticed; the day the option is built, the first thing it needs is a check that they still
+agree with CaptureScreen. Deleting them and re-deriving later was the alternative; the recorded choice since 1.2.3
+has been to keep them, and this entry is where that choice now lives.
+
+**The after-retire callback is a seam, named as one (RA-078, 2026-09-30, ACCEPTED-RECORDED).** ReconfigureAsync's
+callback parameter and the `_pendingAfterRetire` queue are reached only by the four F089/F091 checks, which observe
+retire order and serialization through them, a property nothing else can reach. Under the rule above (a member
+whose only reader is a test is not dead, and what the test pins decides) they stay, as `afterRetireForDiagnostics`
+with the queue's summary saying what it is; the production entry point (`ReconfigureForBackendAsync`) has no such
+parameter, so no production caller passes a null for it any more.
+
 #### fix/deadcode
 
 **A member whose only reader is a test is not dead, and what the test pins decides what happens to it

@@ -14,14 +14,15 @@ using DesktopAICompanion.ModuleKit;   // EmbeddedResources
 namespace DesktopAICompanion.AiBrainModule
 {
     /// <summary>
-    /// The AI-brain module (S4): the optional, off-by-default screen-commentary LLM, now LIVE (S4b). It owns
-    /// the "ask about my screen" flow — a global hotkey, the arbitrated periodic drop (outranking Fortunes),
-    /// and an opt-in idle-commentary loop — plus the emotion->animation reaction, all through host services
-    /// (CaptureScreenContext, RegisterHotkey, RegisterDropResponder, SayAll, PlayAnimationAll). The brain
-    /// lifecycle (generation/supersede, prepare/retire) is the relocated AiSessionManager; settings + chat
-    /// history are the module's own DPAPI-scoped store. It is OFF by default (its own AiBrainEnabled), so a
-    /// fresh install does nothing until enabled. There is no tray/Options UI yet (accept-the-gap): the
-    /// enable + config UI is rebuilt from module contributions in S5; until then it reads its settings file.
+    /// The AI-brain module: the optional, off-by-default screen-commentary LLM. It owns the "ask about my screen"
+    /// flow through host services: a drop responder at priority 10 that outranks Fortunes on the host's global
+    /// drop schedule (the module's own idle loop went in 1.2.3), a poke responder (the text path, the one exception
+    /// to vision-for-every-remark), a global hotkey, two tray rows and the "AI Brain" options pane, plus the
+    /// emotion->animation reaction. The brain lifecycle (generation/supersede, prepare/retire) is
+    /// <see cref="AiSessionManager"/>; settings and the DPAPI-scoped keys are the module's own store
+    /// (engine/AiSettings). OFF by default (its own AiBrainEnabled), so a fresh install does nothing until enabled
+    /// from the tray or the pane. (This summary described an idle-commentary loop and "no tray/Options UI yet" long
+    /// after both had changed, RA-054.)
     /// </summary>
     public sealed class AiBrainModule : IModule
     {
@@ -151,6 +152,25 @@ namespace DesktopAICompanion.AiBrainModule
                                  //         cache; the substitution loop excludes a reported-blind model as
                                  //         the gate does; a cloud primary never substitutes a missing model
                                  //         (R-011, R-014, R-015, R-020, R-022).
+                                 //         Phase 8 burn-down (2026-09-30, lane burn/aibrain, same version): the
+                                 //         audition, Test OCR and Test connection read the pane's PENDING values
+                                 //         through PaneAction.InvokeWithPendingAsync, a member host 1.2.5 added,
+                                 //         so MinHostVersion is RAISED from 1.1.0 to 1.2.5 in this version (the
+                                 //         publish round must carry it into the catalog entry); a typed
+                                 //         key that cannot be stored refuses the save and says why; the pane shows
+                                 //         whether the brain started and the tray row hides while it has not;
+                                 //         every explicit-ask refusal is logged; a model refresh names an answered
+                                 //         401; the audition applies the cloud no-substitution rule, evicts within
+                                 //         2 s and cuts samples at code points; the release names the substitute a
+                                 //         turn sent and the local model the composite warmed by PATH; the composite
+                                 //         cannot enumerate while its primary is down and an unknown inventory is
+                                 //         re-listed; the session owns the backend fingerprint; a chosen OCR path
+                                 //         survives a walk in flight; a held settings file is not corruption, the
+                                 //         load warning names the backup's fate and a failed default write, a save
+                                 //         over a missing file keeps unknown keys, the residency token is clamped
+                                 //         and the active-slot snapshot cannot be saved; the probe has no SKIP line
+                                 //         and guards every check (RA-054 to RA-087, R-012, R-013, R-016 to R-019,
+                                 //         R-021, R-023).
                                  // 1.1.13: the emotion reaction reached 18/54, 35/54, 8/54, 8/54 and
                                  //         8/54 companions. "thinking" fires on EVERY ask, so on 46 of
                                  //         54 it silently did nothing -- the eSheep-era names it used
@@ -254,7 +274,10 @@ namespace DesktopAICompanion.AiBrainModule
             // first module to raise its floor since the 1.0.0 rebase flattened every one of them, so it is
             // also the first to exercise the sequencing rule: do NOT publish this to the catalog until host
             // 1.1.0 has shipped, or the catalog offers users a module their host correctly refuses.
-            MinHostVersion = "1.1.0",
+            // Raised to 1.2.5 on 2026-09-30 (RA-055): the three pane actions set PaneAction.InvokeWithPendingAsync,
+            // which host 1.2.5 introduced, and an older host would fail at the missing member while running Init.
+            // The shipping host is 1.2.6, so the sequencing rule above is already satisfied.
+            MinHostVersion = "1.2.5",
             // LaunchProcess: this module starts `ollama serve` (engine\OllamaClient.TryStartServer) and runs
             // tesseract.exe as a child for OCR (engine\AiBrain.RunOcrAsync), and no flag had ever said so on
             // the consent screen (F226: the flag shipped in host 1.2.5 naming this module as a holder, and no
@@ -332,7 +355,11 @@ namespace DesktopAICompanion.AiBrainModule
                 new TrayItem
                 {
                     Label = "Ask about my screen", Group = 50, Order = 1,
-                    Visible = delegate { return _settings != null && _settings.AiBrainEnabled; },
+                    // Offered only while the brain is actually STARTED. On the stored switch alone the row stayed
+                    // visible, and inert, after CanUse had refused the configuration (a cloud slot with no model,
+                    // consent missing, a bad endpoint): the one signal was a log line (R-013). The toggle above keeps
+                    // reading the switch, because the switch is what it flips; the pane's Status row says why.
+                    Visible = delegate { return _session.Enabled; },
                     Click = delegate { Ask(null, true); },
                     IconPng = LoadIconResource("monitor.png"),
                 },
@@ -357,6 +384,9 @@ namespace DesktopAICompanion.AiBrainModule
                 Schema = new[]
                 {
                     new SettingField { Id = "enabled", Label = "Enable AI brain", Kind = SettingKind.Bool, Group = "AI brain" },
+                    // Whether the brain STARTED, and why not when it did not: CanUse's refusal used to live in the
+                    // diagnostic log alone while Save reported success (R-013). See BrainStatusLine.
+                    new SettingField { Id = "brainStatus", Label = "Status", Kind = SettingKind.Info, Group = "AI brain" },
                     new SettingField { Id = "companionName", Label = "Companion name", Kind = SettingKind.Text, Group = "Persona" },
                     new SettingField { Id = "userName", Label = "Your name (optional)", Kind = SettingKind.Text, Group = "Persona" },
                     new SettingField { Id = "disposition", Label = "Disposition", Kind = SettingKind.Enum, Options = DispositionNames(), Group = "Persona" },
@@ -405,7 +435,8 @@ namespace DesktopAICompanion.AiBrainModule
                     _cloudTextModelField,
                     _cloudVisionModelField,
                     new SettingField { Id = "cloudConsent", Label = "Allow cloud data sharing", Kind = SettingKind.Bool, Group = "Cloud provider" },
-                    // Fallback (persisted here; the runtime fallback backend is a later change).
+                    // Fallback: the runtime half is FallbackBackend, built by CreateBrain whenever a cloud provider is
+                    // primary and this is on (F094; this line said "a later change" long after it shipped, RA-054).
                     new SettingField { Id = "useLocalFallback", Label = "Use local provider as fallback", Kind = SettingKind.Bool, Group = "Fallback" },
                     // Unprompted commentary has no controls here on purpose: it rides the host's global
                     // "Randomly drop a fortune / insight" schedule in Preferences via OnDrop. The hotkey is
@@ -416,19 +447,24 @@ namespace DesktopAICompanion.AiBrainModule
                 Save = SavePaneValues,
                 Actions = new[]
                 {
-                    // Two actions rather than one action plus a mode switch, and deliberately. A saved
-                    // "which screen" setting would have to be APPLIED before the button could see it
-                    // (PaneAction.InvokeAsync takes no arguments), so ticking a box and pressing the
-                    // button would audition the OTHER source and look broken. Pressing one of two
-                    // buttons is inherently exclusive and needs no Apply.
-                    new PaneAction { Label = "Show me 5 examples", InvokeAsync = PreviewDispositionAsync, Group = "Persona" },
-                    new PaneAction { Label = "5 about my screen", InvokeAsync = PreviewDispositionLiveAsync, Group = "Persona" },
+                    // Two actions rather than one action plus a mode switch, and deliberately: pressing one of two
+                    // buttons is inherently exclusive and needs no Apply, and the "which screen" choice is not a
+                    // setting worth persisting. (The pending-values reason this used to give went with RA-055: the
+                    // actions below now DO see what is on screen.)
+                    //
+                    // Both delegates on the three actions that read settings. InvokeWithPendingAsync (host 1.2.5)
+                    // is handed the pane as it stands and wins when set, so the audition, Test OCR and Test
+                    // connection answer about what the user is looking at rather than about the last Apply; the
+                    // saved-values delegate stays as the documented fallback shape (RA-055, adopting the member
+                    // F227 recorded as having no adopter). MinHostVersion is 1.2.5 for this.
+                    new PaneAction { Label = "Show me 5 examples", InvokeAsync = PreviewDispositionAsync, InvokeWithPendingAsync = PreviewDispositionPendingAsync, Group = "Persona" },
+                    new PaneAction { Label = "5 about my screen", InvokeAsync = PreviewDispositionLiveAsync, InvokeWithPendingAsync = PreviewDispositionLivePendingAsync, Group = "Persona" },
                     new PaneAction { Label = "Refresh local models", InvokeAsync = RefreshLocalModelsAsync, Group = "Local provider", ReloadPaneAfter = true },
-                    new PaneAction { Label = "Test connection", InvokeAsync = TestConnectionAsync, Group = "Cloud provider" },
+                    new PaneAction { Label = "Test connection", InvokeAsync = TestConnectionAsync, InvokeWithPendingAsync = TestConnectionPendingAsync, Group = "Cloud provider" },
                     new PaneAction { Label = "Refresh cloud models", InvokeAsync = RefreshCloudModelsAsync, Group = "Cloud provider", ReloadPaneAfter = true },
                     new PaneAction { Label = "Choose OCR engine…", InvokeAsync = ChooseOcrEngineAsync, Group = "Screen reading", ReloadPaneAfter = true },
                     new PaneAction { Label = "Get Tesseract…", InvokeAsync = GetTesseractAsync, Group = "Screen reading" },
-                    new PaneAction { Label = "Test OCR", InvokeAsync = TestOcrAsync, Group = "Screen reading" },
+                    new PaneAction { Label = "Test OCR", InvokeAsync = TestOcrAsync, InvokeWithPendingAsync = TestOcrPendingAsync, Group = "Screen reading" },
                 },
             });
 
@@ -463,17 +499,22 @@ namespace DesktopAICompanion.AiBrainModule
         /// "Show me 5 examples" for the Persona card: generate one remark per canned scene so a
         /// disposition can be judged by how it SOUNDS rather than by its name.
         ///
-        /// Reads the SAVED disposition, not the unapplied dropdown, and says so in the header. That is a
-        /// real limitation rather than a choice: <c>PaneAction.InvokeAsync</c> is a
-        /// <c>Func&lt;Task&lt;string&gt;&gt;</c>, so a module cannot see a pending field value, and
-        /// previewing the old persona WITHOUT saying so is what would look broken. Naming the persona in
-        /// the output makes the mismatch self-evident and tells the user what to do about it. Matches the
-        /// Fortunes preview, whose own comment records the same rule for the same reason. Lifting it
-        /// needs an additive ABI member; filed in BACKLOG rather than worked around here.
+        /// Two entry points per button. <c>PaneAction.InvokeAsync</c> reads the SAVED settings and says so in
+        /// the header; <c>PaneAction.InvokeWithPendingAsync</c> (host 1.2.5) is handed the pane as it stands and
+        /// auditions THAT, so the user hears the disposition they just picked in the dropdown before committing
+        /// to it. The rule this comment used to record, "a module cannot see a pending field value", was true
+        /// until host 1.2.5 added the member; F227 noted it had no adopter, and this is the adoption (RA-055). The
+        /// host prefers the pending-aware delegate when both are set. The pending copy is detached (CloneForBrain),
+        /// so nothing an audition does with it can reach the settings file.
         /// </summary>
         private Task<string> PreviewDispositionAsync()
         {
             return PreviewDispositionAsync(false);
+        }
+
+        private Task<string> PreviewDispositionPendingAsync(IReadOnlyDictionary<string, string> pending)
+        {
+            return PreviewDispositionAsync(false, pending);
         }
 
         /// <summary>
@@ -490,18 +531,47 @@ namespace DesktopAICompanion.AiBrainModule
             return PreviewDispositionAsync(true);
         }
 
+        private Task<string> PreviewDispositionLivePendingAsync(IReadOnlyDictionary<string, string> pending)
+        {
+            return PreviewDispositionAsync(true, pending);
+        }
+
         // internal, not private: the module self-test presses it with the slot held (F062).
-        internal async Task<string> PreviewDispositionAsync(bool live)
+        internal Task<string> PreviewDispositionAsync(bool live)
+        {
+            return PreviewDispositionAsync(live, null);
+        }
+
+        /// <param name="pending">The pane's on-screen values, or null to audition the saved settings (RA-055).</param>
+        internal async Task<string> PreviewDispositionAsync(bool live, IReadOnlyDictionary<string, string> pending)
         {
             if (!TryBeginAudition()) return "⏳ Already generating examples — give it a moment.";
-            try { return await RunAuditionAsync(live).ConfigureAwait(false); }
+            try { return await RunAuditionAsync(live, pending).ConfigureAwait(false); }
             finally { EndAudition(); }
         }
 
-        private async Task<string> RunAuditionAsync(bool live)
+        /// <summary>
+        /// The settings as the pane shows them right now: a detached copy of the live instance with the on-screen
+        /// values applied through the same mapping Save uses, so an action asked about "what is on screen" answers
+        /// about exactly what Apply would store. It cannot be saved (CloneForBrain marks it), so nothing an action
+        /// does with it reaches the file. Null, with the reason, when a typed key could not be stored on the copy
+        /// (no provider or endpoint to scope it to, or DPAPI refused): the action would otherwise run on a key
+        /// other than the one typed (RA-055).
+        /// </summary>
+        private AiSettings PendingSettings(AiSettings live, IReadOnlyDictionary<string, string> values, out string error)
         {
-            AiSettings s = _settings;
-            if (s == null) return "✗ No settings.";
+            AiSettings pending = live.CloneForBrain();
+            if (!ApplyPaneValues(pending, values, out error)) return null;
+            return pending;
+        }
+
+        private async Task<string> RunAuditionAsync(bool live, IReadOnlyDictionary<string, string> pending)
+        {
+            AiSettings saved = _settings;
+            if (saved == null) return "✗ No settings.";
+            string pendingError = null;
+            AiSettings s = pending == null ? saved : PendingSettings(saved, pending, out pendingError);
+            if (s == null) return "✗ " + pendingError;
 
             string dispositionName = DispositionNameForId(s.Disposition);
 
@@ -550,8 +620,13 @@ namespace DesktopAICompanion.AiBrainModule
                 AiBrain brain;
                 // A short positive keep_alive for the audition's Ollama client under "unload" residency: five
                 // back-to-back samples with keep_alive:0 raced Ollama's eviction and could pay up to four extra
-                // cold loads (F070). Evicted explicitly when the run ends, below.
-                try { brain = CreateBrain(s, AuditionKeepAliveSeconds(s)); }
+                // cold loads (F070). Evicted explicitly when the run ends, below. Built through the seam when the
+                // self-test set one, so the three decisions this method makes (the keep_alive window, no warm-up,
+                // the eviction at the end) are pinned where they are MADE and not only on the helpers they call
+                // (RA-073).
+                int? keepAlive = AuditionKeepAliveSeconds(s);
+                Func<AiSettings, int?, AiBrain> factory = AuditionBrainFactoryForDiagnostics;
+                try { brain = factory != null ? factory(s, keepAlive) : CreateBrain(s, keepAlive); }
                 catch (Exception ex) { return "✗ " + ex.Message; }
 
                 using (brain)
@@ -569,10 +644,13 @@ namespace DesktopAICompanion.AiBrainModule
                             s.Disposition, liveContext, petZone, perSample, run.Token)
                             .ConfigureAwait(false);
                     // The VRAM back now, under "unload": the samples held the model for a minute between them, and
-                    // the residency's promise is that it is gone after the remark.
+                    // the residency's promise is that it is gone after the remark. Bounded like a retirement's
+                    // eviction (RA-056): on a cloud composite this round-trips to local Ollama for a model the canned
+                    // samples never loaded, about 4 s per request against nothing listening on localhost, and it
+                    // used to run under the chat deadline (120 s by default) with the pane waiting on it.
                     if (string.Equals(s.ModelResidency, AiSettings.ResidencyUnload, StringComparison.OrdinalIgnoreCase))
-                        await brain.UnloadAsync(run.Token).ConfigureAwait(false);
-                    return FormatAudition(dispositionName, audition, cloud, live);
+                        await UnloadWithinAsync(brain, AuditionUnloadBudget, run.Token).ConfigureAwait(false);
+                    return FormatAudition(dispositionName, audition, cloud, live, pending != null);
                 }
             }
             catch (OperationCanceledException)
@@ -588,18 +666,22 @@ namespace DesktopAICompanion.AiBrainModule
         /// reports failures per sample rather than collapsing the run into one error.
         /// </summary>
         private static string FormatAudition(
-            string dispositionName, DispositionAudition audition, bool cloud, bool live)
+            string dispositionName, DispositionAudition audition, bool cloud, bool live, bool pendingValues)
         {
             IReadOnlyList<DispositionSample> samples = audition == null ? null : audition.Samples;
             if (samples == null || samples.Count == 0)
                 return "✗ No examples were produced.";
 
             var sb = new StringBuilder();
-            sb.Append(dispositionName).Append(" — as currently saved");
+            // Which settings this is an audition OF. The pending-aware press names the dropdown's choice, unsaved;
+            // the saved-values press says so, as it always has (RA-055).
+            sb.Append(dispositionName).Append(pendingValues ? " — as shown in the pane, not yet applied" : " — as currently saved");
             if (!string.IsNullOrEmpty(audition.ModelUsed)) sb.Append(" · ").Append(audition.ModelUsed);
             sb.Append(live ? " · your real screen" : " · made-up scenes");
             if (cloud) sb.Append(" · ").Append(samples.Count).Append(" cloud requests");
-            sb.Append("\nChange the dropdown and hit Apply to audition a different one.");
+            sb.Append(pendingValues
+                ? "\nHit Apply to keep it, or pick another and press again."
+                : "\nChange the dropdown and hit Apply to audition a different one.");
             // A substituted model has to be said out loud here. ChooseModel swaps in whatever is
             // available when the configured id is missing, and a user auditioning personas on a model
             // they never picked would blame the character for the model's output.
@@ -637,17 +719,35 @@ namespace DesktopAICompanion.AiBrainModule
             return sb.ToString();
         }
 
-        private static string Ellipsize(string value, int maximum)
+        // internal, not private: the module self-test cuts a sample that ends in an emoji through it (RA-057).
+        internal static string Ellipsize(string value, int maximum)
         {
             string one = (value ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
-            return one.Length > maximum ? one.Substring(0, maximum) + "…" : one;
+            // At a code-point boundary, the helper the OCR text goes through two lines from the other cut: a sample
+            // is model text and can end in an emoji, and a plain Substring at a UTF-16 index split the pair and put a
+            // lone surrogate (U+FFFD on screen) in the pane (RA-057).
+            return one.Length > maximum ? UnicodeTextProgress.TruncateAtCodePointBoundary(one, maximum) + "…" : one;
         }
 
-        /// <summary>Test-connection action for the WPF pane: build a backend from the current settings, probe
-        /// availability + a tiny chat, and report a status line. Async so the pane stays responsive.</summary>
-        private async Task<string> TestConnectionAsync()
+        /// <summary>Test-connection action for the WPF pane: build a backend from the settings, probe availability +
+        /// a tiny chat, and report a status line. Async so the pane stays responsive. Saved and pending entry points,
+        /// as for the audition (RA-055): the pending one tests the provider, endpoint, key and model on screen.</summary>
+        private Task<string> TestConnectionAsync()
         {
-            AiSettings s = _settings;
+            return TestConnectionAsync(_settings);
+        }
+
+        private Task<string> TestConnectionPendingAsync(IReadOnlyDictionary<string, string> pending)
+        {
+            AiSettings saved = _settings;
+            if (saved == null) return Task.FromResult("No settings.");
+            string error;
+            AiSettings s = PendingSettings(saved, pending, out error);
+            return s == null ? Task.FromResult("✗ " + error) : TestConnectionAsync(s);
+        }
+
+        private async Task<string> TestConnectionAsync(AiSettings s)
+        {
             if (s == null) return "No settings.";
             string endpoint = SelectedEndpoint(s);
             string normalized, err;
@@ -754,11 +854,24 @@ namespace DesktopAICompanion.AiBrainModule
         }
 
         /// <summary>"Test OCR" action: run the OCR self-test (resolve tesseract + read a known image) so a
-        /// missing/broken engine surfaces as a red status instead of silently making remarks screen-blind.</summary>
+        /// missing/broken engine surfaces as a red status instead of silently making remarks screen-blind. Saved and
+        /// pending entry points (RA-055): the pending one tests the path typed in the pane, applied or not.</summary>
         // internal, not private: the module self-test presses it and asserts what it does to the LIVE brain (R-015).
-        internal async Task<string> TestOcrAsync()
+        internal Task<string> TestOcrAsync()
         {
-            AiSettings s = _settings ?? new AiSettings();
+            return TestOcrAsync(_settings ?? new AiSettings());
+        }
+
+        private Task<string> TestOcrPendingAsync(IReadOnlyDictionary<string, string> pending)
+        {
+            AiSettings saved = _settings ?? new AiSettings();
+            string error;
+            AiSettings s = PendingSettings(saved, pending, out error);
+            return s == null ? Task.FromResult("✗ " + error) : TestOcrAsync(s);
+        }
+
+        private async Task<string> TestOcrAsync(AiSettings s)
+        {
             try
             {
                 string verdict;
@@ -767,8 +880,11 @@ namespace DesktopAICompanion.AiBrainModule
                 // The probe above is a throwaway. The brain that reads screens lives in the session and cached its
                 // own resolution when it was built, so until 2026-09-30 this button went green after an install while
                 // every remark kept the engine the live brain had resolved at build time (R-015). Forget that cache,
-                // with the path the user may just have chosen: "Choose OCR engine..." saves it and lands here.
-                _session.ForgetOcrResolution(s.TesseractPath);
+                // with the path the SAVED settings name: "Choose OCR engine..." saves the chosen path and lands here,
+                // while a path typed but not applied is tested on the throwaway above and must not re-point the live
+                // brain at an engine the settings do not name yet (Apply rebuilds the brain anyway, RA-055).
+                AiSettings live = _settings;
+                _session.ForgetOcrResolution(live != null ? live.TesseractPath : s.TesseractPath);
                 return verdict;
             }
             catch (Exception ex) { return "✗ OCR test failed: " + ex.Message; }
@@ -781,6 +897,7 @@ namespace DesktopAICompanion.AiBrainModule
             if (s != null)
             {
                 d["enabled"] = s.AiBrainEnabled ? "true" : "false";
+                d["brainStatus"] = BrainStatusLine(s);
                 d["companionName"] = s.CompanionName ?? "";
                 d["userName"] = s.UserName ?? "";
                 d["disposition"] = DispositionNameForId(s.Disposition);
@@ -825,6 +942,34 @@ namespace DesktopAICompanion.AiBrainModule
         {
             AiSettings s = _settings;
             if (s == null || values == null) return false;
+            string keyError;
+            if (!ApplyPaneValues(s, values, out keyError))
+            {
+                // A key was typed and NOT stored: no cloud provider or endpoint to scope it to, or DPAPI refused.
+                // Persisting the rest and answering true made the host report a saved pane with the key silently
+                // dropped, and the pane's "set" hint then described a key that did not exist (RA-058). Nothing is
+                // saved or applied: the host says these settings could not be saved, the typed values stay on
+                // screen for the user to fix and press again, and the running brain keeps the saved configuration.
+                // The reason goes to the log, the channel the pane's bool cannot carry.
+                try { if (_host != null) _host.Log(Info.Id, "api key not stored: " + keyError); } catch { }
+                return false;
+            }
+            bool ok = s.SaveWithin(AiSettings.UiSaveBudgetMilliseconds);
+            ApplyState();   // re-apply triggers/backend to reflect the new config
+            return ok;
+        }
+
+        /// <summary>
+        /// Write the pane's values onto <paramref name="s"/>: every field the schema declares, in the order the
+        /// cloud key needs (provider and endpoint before the key that is scoped to them). Shared by Save (onto the
+        /// live instance) and by the pending-aware actions (onto a detached copy), so an action asked about "what is
+        /// on screen" maps the pane exactly as Apply would (RA-055). False, with the reason, when a typed key could
+        /// not be stored; every other field is applied regardless.
+        /// </summary>
+        private bool ApplyPaneValues(AiSettings s, IReadOnlyDictionary<string, string> values, out string keyError)
+        {
+            keyError = null;
+            bool keyStored = true;
             string v;
             bool b;
             if (values.TryGetValue("enabled", out v) && bool.TryParse(v, out b)) s.AiBrainEnabled = b;
@@ -866,14 +1011,13 @@ namespace DesktopAICompanion.AiBrainModule
             if (values.TryGetValue("cloudVisionModel", out v)) s.CloudVisionModel = ResolveModelId((v ?? "").Trim());
             if (values.TryGetValue("cloudConsent", out v) && bool.TryParse(v, out b)) s.CloudDataConsent = b;
             // Secret: only present when the user typed a new key; scoped to the CURRENT cloud provider +
-            // endpoint (set just above), so it must run after the provider/endpoint fields. Best-effort.
-            if (values.TryGetValue("apiKey", out v) && !string.IsNullOrEmpty(v)) { string err; s.TrySetApiKey(v, out err); }
+            // endpoint (set just above), so it must run after the provider/endpoint fields. Its answer is the
+            // method's: a false here and its reason used to be discarded (RA-058).
+            if (values.TryGetValue("apiKey", out v) && !string.IsNullOrEmpty(v)) keyStored = s.TrySetApiKey(v, out keyError);
             // ---- Fallback + triggers ----
             if (values.TryGetValue("useLocalFallback", out v) && bool.TryParse(v, out b)) s.UseLocalFallback = b;
             if (values.TryGetValue("hotkey", out v) && !string.IsNullOrWhiteSpace(v)) s.Hotkey = v.Trim();
-            bool ok = s.SaveWithin(AiSettings.UiSaveBudgetMilliseconds);
-            ApplyState();   // re-apply triggers/backend to reflect the new config
-            return ok;
+            return keyStored;
         }
 
         // Disposition enum: the pane shows the friendly Name, the setting stores the Id. The catalog itself
@@ -1124,9 +1268,24 @@ namespace DesktopAICompanion.AiBrainModule
             return count;
         }
 
-        private static string ModelListStatus(IReadOnlyList<ModelListing> models, string unreachableTarget)
+        /// <summary>
+        /// The status line of a "Refresh ... models" press. An empty list is named for its CAUSE (RA-059): both
+        /// ListModelsAsync implementations fold every failure into an empty list by contract, because the brain
+        /// reads empty as "unknown, do not complain", so an answered 401 read here as "No models found at <url>"
+        /// and sent the user to check the URL rather than the key. An answered status gets F107's wording, the
+        /// line "Test connection" gives for the same answer; a transport failure says not reachable; only a
+        /// listing that answered and was empty says no models.
+        /// </summary>
+        internal static string ModelListStatus(IReadOnlyList<ModelListing> models, string target, Exception listingFailure)
         {
-            if (models == null || models.Count == 0) return "✗ No models found at " + unreachableTarget;
+            if (models == null || models.Count == 0)
+            {
+                AiBackendHttpException answered = listingFailure as AiBackendHttpException;
+                if (answered != null) return DescribeHttpFailure(answered, target);
+                if (listingFailure != null)
+                    return "✗ Not reachable at " + target + " (" + AiBrain.DescribeError(listingFailure) + ")";
+                return "✗ No models found at " + target;
+            }
             int uncensoredCount = CountUncensored(models);
             return "✓ " + models.Count.ToString(CultureInfo.InvariantCulture) + " model(s) found" +
                 (uncensoredCount > 0
@@ -1148,9 +1307,14 @@ namespace DesktopAICompanion.AiBrainModule
             try
             {
                 IReadOnlyList<ModelListing> models;
+                Exception listingFailure = null;
                 using (ICompanionBrainBackend backend = BuildLocalBackend(s, normalized, timeout))
+                {
                     models = await ListBackendModelsAsync(backend, CancellationToken.None).ConfigureAwait(false)
                              ?? (IReadOnlyList<ModelListing>)new List<ModelListing>();
+                    IModelListingStatus status = backend as IModelListingStatus;
+                    if (status != null) listingFailure = status.LastListingFailure;   // RA-059
+                }
                 // One critical section: swapping the list and rebuilding the dropdowns from it is a
                 // single logical update, so a concurrent cloud refresh cannot read a half-replaced list.
                 lock (_modelsLock)
@@ -1162,7 +1326,7 @@ namespace DesktopAICompanion.AiBrainModule
                 // The live brain re-lists its own backend too, so the pane and the brain agree about what is
                 // installed: a model pulled mid-session stayed "missing" to the brain until the next Apply (F071).
                 _ = _session.RefreshInventoryAsync(_lifetime.Token);
-                return ModelListStatus(models, normalized);
+                return ModelListStatus(models, normalized, listingFailure);
             }
             catch (Exception ex) { return "✗ " + ex.Message; }
         }
@@ -1181,8 +1345,12 @@ namespace DesktopAICompanion.AiBrainModule
             try
             {
                 IReadOnlyList<ModelListing> models;
+                Exception listingFailure;
                 using (var backend = new OpenAiCompatBackend(normalized, s.ApiKey, timeout))
+                {
                     models = await backend.ListModelsAsync(CancellationToken.None).ConfigureAwait(false);
+                    listingFailure = backend.LastListingFailure;   // RA-059
+                }
                 lock (_modelsLock)
                 {
                     _cloudModels.Clear();
@@ -1190,7 +1358,7 @@ namespace DesktopAICompanion.AiBrainModule
                     RefreshModelFieldOptions();
                 }
                 _ = _session.RefreshInventoryAsync(_lifetime.Token);   // as above (F071)
-                return ModelListStatus(models, normalized);
+                return ModelListStatus(models, normalized, listingFailure);
             }
             catch (Exception ex) { return "✗ " + ex.Message; }
         }
@@ -1300,12 +1468,11 @@ namespace DesktopAICompanion.AiBrainModule
         // ---- the ask flow (mirrors the old StartUp.AskAboutScreen) --------------------------------
 
         /// <summary>
-        /// Kick off one screen-commentary turn for a specific pet. Call on the UI thread (drop/poke/hotkey/
-        /// idle tick). <paramref name="subject"/> is the pet this turn belongs to; the hotkey and the idle
-        /// loop have no natural one, so they pass null and fall back to the last pet seen.
-        /// </summary>
-        /// <summary>
-        /// Returns TRUE only when a turn was actually STARTED.
+        /// Kick off one screen-commentary turn for a specific pet, on the UI thread (the drop, the poke, the
+        /// hotkey, the tray row). <paramref name="subject"/> is the pet this turn belongs to; the hotkey and the
+        /// tray row have no natural one, so they pass null and fall back to the last pet seen. Returns TRUE only
+        /// when a turn was actually STARTED. (Two summaries sat here, the first naming an idle tick that went in
+        /// 1.2.3, RA-054.)
         ///
         /// The drop and poke responders forward this as their "handled" answer. The chain runs highest
         /// priority first until one handler returns true and this module registers at 10 to outrank
@@ -1314,36 +1481,43 @@ namespace DesktopAICompanion.AiBrainModule
         /// "handled" for all four of the early returns below -- most often RequestInProgress, i.e. exactly
         /// while a slow vision load is already running and a second poke arrives.
         ///
-        /// The two hotkey/tray callers use this as a statement and ignore the result, which is correct:
-        /// there is no responder chain behind them to fall through to.
+        /// The two hotkey/tray callers use this as a statement and ignore the result, which is correct: there is
+        /// no responder chain behind them to fall through to. That is also why THEIR refusals are logged and the
+        /// responders' are not (RA-060, extending F067's one line to every early return): a declined drop falls
+        /// through to a fortune the user hears, while a dropped hotkey press is silent to the user and, until
+        /// 2026-09-30, to the log SUPPORT.md asks for.
         /// </summary>
         private bool Ask(ICompanion subject, bool allowVision)
         {
             IHost host = _host;
             AiSessionManager session = _session;
-            if (host == null || !session.Enabled || !host.SpeechEnabled) return false;
+            bool explicitPath = subject == null;
+            if (host == null) return false;
+            if (!session.Enabled) return Declined(host, explicitPath, "brain off");
+            if (!host.SpeechEnabled) return Declined(host, explicitPath, "speech off");
             // One in-flight ask at a time, so at most one pending subject. Per-pet concurrency (two pets
             // asked at once) is BACKLOG #16(a) and deliberately not attempted here.
-            if (session.RequestInProgress) return false;
+            if (session.RequestInProgress) return Declined(host, explicitPath, "busy");
             // The stand-down applies to EVERY entry point, not only the two responders. A global hotkey is
             // delivered while a game has focus, and the explicit path allows vision, so a press during a game
             // used to load the vision model beside the game the setting exists to protect and deliver the
             // answer to a companion the fullscreen logic had hidden (F067). The responders keep their own call
             // in front of this one: declining THERE is what lets the chain fall through to Fortunes, and the
             // source invariant asserts it there. The explicit path has no chain behind it, so a refusal here
-            // would be silent to the user and to the log SUPPORT.md asks for; hence the line.
+            // would be silent to the user and to the log SUPPORT.md asks for; hence the line, for every caller
+            // that reaches it.
             if (FullscreenBlocked())
             {
-                try { host.Log(Info.Id, "ask declined: fullscreen stand-down"); } catch { }
+                LogDeclined(host, "fullscreen stand-down");
                 return false;
             }
             ICompanion pet = subject ?? _lastPet;
-            if (pet == null || !host.IsCompanionAlive(pet)) return false;
+            if (pet == null || !host.IsCompanionAlive(pet)) return Declined(host, explicitPath, "no companion");
 
             _lastInteractionUtc = DateTime.UtcNow;
             ScreenContext ctx;
             try { ctx = host.CaptureScreenContext(pet); } catch { ctx = null; }
-            if (ctx == null) return false;
+            if (ctx == null) return Declined(host, explicitPath, "capture failed");
 
             // A "pondering" cue while the model responds (we are on the UI thread here). It belongs to the pet
             // being asked: PlayAnimationAll + SayAll made EVERY pet ponder a question only one of them was
@@ -1355,6 +1529,20 @@ namespace DesktopAICompanion.AiBrainModule
                 ? sink(ctx, ctx.WindowUnderCompanion, allowVision, pet)
                 : AskCoreAsync(session, ctx, ctx.WindowUnderCompanion, allowVision, pet);
             return true;
+        }
+
+        /// <summary>A refusal on the explicit path (the hotkey, the tray row) is said in the log with its category;
+        /// a responder's is not, because the chain falls through to Fortunes and the user hears a fortune (RA-060).
+        /// Always false: the turn was not started.</summary>
+        private bool Declined(IHost host, bool explicitPath, string reason)
+        {
+            if (explicitPath) LogDeclined(host, reason);
+            return false;
+        }
+
+        private void LogDeclined(IHost host, string reason)
+        {
+            try { host.Log(Info.Id, "ask declined: " + reason); } catch { }
         }
 
         /// <summary>
@@ -1437,22 +1625,20 @@ namespace DesktopAICompanion.AiBrainModule
             // brain reads), but under "keep" or "server" residency the old brain's retirement also evicted a model
             // the user asked to keep resident, so a hotkey edit cost a cold reload (F095, F065). The fingerprint
             // names every field that decides WHICH model is resident WHERE and nothing else; under "unload" the
-            // model is gone after each remark anyway, so the eviction on retire stays (it is free there).
-            string fingerprint = allowed ? BackendFingerprint(s) : null;
-            bool sameBackend = fingerprint != null &&
-                string.Equals(fingerprint, _liveBackendFingerprint, StringComparison.Ordinal);
-            bool releaseModel = !(sameBackend &&
-                !string.Equals(s.ModelResidency, AiSettings.ResidencyUnload, StringComparison.OrdinalIgnoreCase));
-            _liveBackendFingerprint = fingerprint;
+            // model is gone after each remark anyway, so the eviction on retire stays (it is free there). The
+            // COMPARISON is the session's, made at retire time against the brain it actually has: recorded here,
+            // when the Apply was issued, the fingerprint described the brain the session WOULD build, and an Apply
+            // cancelled while queued behind an ask left its fingerprint behind for the next one to match (R-012).
+            bool keepResident = !string.Equals(s.ModelResidency, AiSettings.ResidencyUnload, StringComparison.OrdinalIgnoreCase);
 
             // Fire-and-forget: the session serializes generations, so a stale config can never apply.
-            _ = _session.ReconfigureAsync(
+            _ = _session.ReconfigureForBackendAsync(
                 allowed ? (Func<AiBrain>)delegate { return CreateBrain(forBrain); } : null,
                 allowed,
                 prepare,
                 _lifetime.Token,
-                null,
-                releaseModel);
+                allowed ? BackendFingerprint(s) : null,
+                keepResident);
 
             if (_hotkey != null) { try { _hotkey.Dispose(); } catch { } _hotkey = null; }
             if (allowed && s.HotkeyEnabled && _host != null)
@@ -1462,10 +1648,6 @@ namespace DesktopAICompanion.AiBrainModule
 
         // ---- brain construction (mirrors StartUp.CreateBrain / CanUseAiConfiguration) -------------
 
-        /// <summary>The fingerprint of the brain the live session was last built for, or null when it was
-        /// disabled. Compared by ApplyState to decide whether retiring the old brain must evict its model.</summary>
-        private string _liveBackendFingerprint;
-
         /// <summary>
         /// Every setting that decides which model is resident where: the local slot's endpoint, protocol and two
         /// models, the cloud selector with its endpoint and models, the fallback switch, the residency, the
@@ -1473,8 +1655,9 @@ namespace DesktopAICompanion.AiBrainModule
         /// two models the warm-up and every ask load, so under "keep" a vision toggle left the vision model resident
         /// for nothing until shutdown; the cost is one cold reload on that toggle, which is the eviction the residency
         /// otherwise never gets. Persona fields are deliberately absent: the brain is rebuilt on every Apply
-        /// regardless, and this decides only whether its retirement EVICTS (F095). Internal so the self-test can pin
-        /// what is and is not in it.
+        /// regardless, and this decides only whether its retirement EVICTS (F095). Handed to the session, which owns
+        /// the live brain's fingerprint and compares at retire time (R-012). Internal so the self-test can pin what
+        /// is and is not in it.
         /// </summary>
         internal static string BackendFingerprint(AiSettings s)
         {
@@ -1504,6 +1687,65 @@ namespace DesktopAICompanion.AiBrainModule
         }
 
         private const int AuditionKeepAliveWindowSeconds = 60;
+
+        /// <summary>The live settings, for the module self-test only: it reads the seeded endpoint (RA-072) and
+        /// flips the residency between audition presses (RA-073).</summary>
+        internal AiSettings SettingsForDiagnostics { get { return _settings; } }
+
+        /// <summary>
+        /// Test seam: builds the audition's brain in place of <see cref="CreateBrain(AiSettings, int?)"/>, handed
+        /// the settings and the keep_alive the audition decided on. Null in the shipped module. It exists because
+        /// the audition's three decisions (the keep_alive window, no warm-up, the eviction at the end) are made in
+        /// RunAuditionAsync and were asserted only on the helpers they call, so reverting any of the three call
+        /// sites compiled and left both self-test flags green (RA-073). Same shape as AskSinkForDiagnostics.
+        /// </summary>
+        internal Func<AiSettings, int?, AiBrain> AuditionBrainFactoryForDiagnostics;
+
+        /// <summary>How long the audition waits for its end-of-run eviction before handing the pane its text:
+        /// RetireBrainAsync's own bound, for the same reason (RA-056).</summary>
+        private static readonly TimeSpan AuditionUnloadBudget = TimeSpan.FromSeconds(2);
+
+        /// <summary>Evict the brain's models within a budget. An unload still pending afterwards is observed and
+        /// left to the brain's disposal, which follows at once in the caller's using block and aborts it (RA-056).
+        /// Internal so the self-test can drive it against a backend whose unload never completes.</summary>
+        internal static async Task UnloadWithinAsync(AiBrain brain, TimeSpan budget, CancellationToken ct)
+        {
+            using (var bounded = CancellationTokenSource.CreateLinkedTokenSource(ct))
+            {
+                bounded.CancelAfter(budget);
+                Task unload;
+                try { unload = brain.UnloadAsync(bounded.Token); }
+                catch { return; }
+                Task completed = await Task.WhenAny(unload, Task.Delay(budget, ct)).ConfigureAwait(false);
+                if (completed == unload)
+                {
+                    try { await unload.ConfigureAwait(false); }
+                    catch (OperationCanceledException) { }
+                    catch { }
+                }
+                else
+                {
+                    AiEndpointPolicy.ObserveTaskFailure(unload);
+                }
+            }
+        }
+
+        /// <summary>
+        /// The "Status" row of the pane: whether the brain is off, started, or NOT started and why. CanUse's refusal
+        /// (an invalid endpoint, consent missing, a cloud slot with no model: the two F101 gates) had no channel
+        /// but the diagnostic log: Save reported success, the tray offered an inert "Ask about my screen" (hidden
+        /// now: the row is gated on the session, not on the stored switch) and nothing on the pane said why remarks
+        /// never came (R-013). Read from the SETTINGS rather than the session, so it is right the moment the pane
+        /// reloads after Apply and needs no wait on the pool thread that builds the brain.
+        /// </summary>
+        internal static string BrainStatusLine(AiSettings s)
+        {
+            if (s == null) return "No settings.";
+            if (!s.AiBrainEnabled) return "Off. Tick \"Enable AI brain\" and Apply to start it.";
+            string why;
+            if (!CanUse(s, out why)) return "Not started: " + why;
+            return "On.";
+        }
 
         // internal, not private: the self-test builds a cloud-primary brain from settings alone (no network is
         // touched by construction) to assert what the failure line will name as its endpoint (F073).

@@ -16,7 +16,7 @@ namespace DesktopAICompanion.Ai
     /// Non-streaming; the request JSON is built by hand so we control the vision "images" array.
     /// A single <see cref="HttpClient"/> is reused for the client's lifetime.
     /// </summary>
-    internal sealed class OllamaClient : ICompanionBrainBackend, IModelLister
+    internal sealed class OllamaClient : ICompanionBrainBackend, IModelLister, IModelListingStatus
     {
         private static readonly TimeSpan DefaultStartupDeadline =
             TimeSpan.FromSeconds(20);
@@ -100,6 +100,12 @@ namespace DesktopAICompanion.Ai
             _serverStarter = serverStarter;
         }
 
+        /// <summary>The bound the PUBLIC constructor wired for the reachability probe, for the self-test: the F105
+        /// check builds its client through the diagnostic constructor, whose bound is a different assignment, so
+        /// the shipped wiring (the shorter of the chat deadline and the 10 s probe deadline) was asserted by nothing
+        /// and a regression to the chat deadline left every check green (R-023).</summary>
+        internal TimeSpan AvailabilityDeadlineForDiagnostics { get { return _availabilityDeadline; } }
+
         /// <summary>Reachability, bounded by the probe deadline rather than the chat deadline it used to borrow:
         /// a refused loopback connection burns its whole deadline before failing (measured 2026-09-27), so this
         /// probe ran before every ask with a two-minute worst case (F105).</summary>
@@ -140,11 +146,12 @@ namespace DesktopAICompanion.Ai
         /// signal, present on current Ollama servers); left null (unknown) on an older server that omits it,
         /// so the caller falls back to a name heuristic. Size is the response's own <c>"size"</c> field (the
         /// on-disk/weight footprint in bytes) when present. Never throws; an unreachable server or a
-        /// malformed response yields an empty list.
+        /// malformed response yields an empty list, and <see cref="LastListingFailure"/> says why (RA-059).
         /// </summary>
         public async Task<IReadOnlyList<ModelListing>> ListModelsAsync(CancellationToken ct)
         {
             var result = new List<ModelListing>();
+            LastListingFailure = null;
             try
             {
                 using (var request = new HttpRequestMessage(HttpMethod.Get, _endpoint + "/api/tags"))
@@ -172,9 +179,12 @@ namespace DesktopAICompanion.Ai
                 }
             }
             catch (OperationCanceledException) { throw; }
-            catch { }
+            catch (Exception ex) { LastListingFailure = ex; }
             return result;
         }
+
+        /// <summary>Why the last listing came back empty, or null when it answered (RA-059, <see cref="IModelListingStatus"/>).</summary>
+        public Exception LastListingFailure { get; private set; }
 
         // The response's "capabilities" array (e.g. ["completion","vision"]) when present -> a real true/
         // false signal; absent/malformed -> null (unknown, caller applies the name heuristic instead).
@@ -269,24 +279,12 @@ namespace DesktopAICompanion.Ai
                 if (completed == starterTask)
                     return await starterTask.ConfigureAwait(false);
 
-                ObserveLateStarterFailure(starterTask);
+                // The engine's one observe-fault helper (F064); a byte-equivalent private copy sat here from 1.0.0
+                // until 2026-09-30 (RA-086).
+                AiEndpointPolicy.ObserveTaskFailure(starterTask);
                 cancellationToken.ThrowIfCancellationRequested();
                 throw new OperationCanceledException(cancellationToken);
             }
-        }
-
-        private static void ObserveLateStarterFailure(Task starterTask)
-        {
-            if (starterTask == null) return;
-            starterTask.ContinueWith(
-                completed =>
-                {
-                    var ignored = completed.Exception;
-                },
-                CancellationToken.None,
-                TaskContinuationOptions.OnlyOnFaulted |
-                TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default);
         }
 
         private bool TryStartServer(CancellationToken cancellationToken)

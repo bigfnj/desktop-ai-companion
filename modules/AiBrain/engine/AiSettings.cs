@@ -446,7 +446,12 @@ namespace DesktopAICompanion.Ai
                 loaded._writesBlockedByFutureSchema =
                     result == ReadResult.FutureSchema;
                 bool changed = loaded.Normalize();
-                if (changed && result == ReadResult.Loaded) loaded.SaveCore();
+                // Said when the corrected file could not be written (RA-080): the values in memory are the
+                // normalized ones, the file still holds what it held, and the next successful save rewrites it.
+                if (changed && result == ReadResult.Loaded && !loaded.SaveCore())
+                    loaded.LoadWarning =
+                        "ai-settings.json needed normalizing and the corrected file could not be written; " +
+                        "running on the corrected values until a save succeeds";
                 if (result == ReadResult.FutureSchema)
                     loaded.LoadWarning =
                         "ai-settings.json was written by a newer version (schema " +
@@ -457,13 +462,27 @@ namespace DesktopAICompanion.Ai
                 return loaded;
             }
 
+            // The primary is HELD, not broken: a sharing violation or an access denial says nothing about the
+            // document, so it is neither copied aside as corrupt nor restored over from the backup (R-018).
+            // Defaults for this session, every write blocked so a file this process never read is not overwritten
+            // blind, and the reason said once; the next launch reads the file as it was.
+            if (result == ReadResult.Locked)
+            {
+                var held = new AiSettings { _writesBlockedByFutureSchema = true };
+                held.LoadWarning =
+                    "ai-settings.json is held open by another process (" + (failure ?? "IOException") +
+                    "); running on defaults, and nothing will be saved this session so the file is not overwritten blind";
+                return held;
+            }
+
             // The primary exists and could not be read. Keep it beside the store BEFORE anything overwrites it.
             // The recovery below restores the backup over the primary with no rotation (so the good .bak is not
             // itself rotated over), which until 2026-09-29 meant the rejected document, and with it the last
             // save and whatever edit broke it, was destroyed with nothing logged (F098). The host's own settings
             // store has kept its corrupt primary as `<name>.corrupt-<stamp>-<guid>.json` since before 1.0.0;
             // this is the same shape, and the copy is what makes a "corrupt" verdict checkable afterwards.
-            string preserved = result == ReadResult.Unreadable ? PreserveCorruptPrimary() : null;
+            bool primaryRemoved = true;
+            string preserved = result == ReadResult.Unreadable ? PreserveCorruptPrimary(out primaryRemoved) : null;
 
             string backupFailure;
             ReadResult backupResult = TryRead(FilePath + ".bak", out loaded, out backupFailure);
@@ -476,7 +495,8 @@ namespace DesktopAICompanion.Ai
                 if (backupResult == ReadResult.Loaded)
                     loaded._writesBlockedByFutureSchema =
                         !loaded.RestorePrimaryWithoutRotatingBackup();
-                loaded.LoadWarning = DescribeRecovery(result, failure, "recovered from the backup", preserved);
+                loaded.LoadWarning = DescribeRecovery(
+                    result, failure, "recovered from the backup", preserved, primaryRemoved, null);
                 loaded.CaptureBaseline();
                 return loaded;
             }
@@ -485,15 +505,24 @@ namespace DesktopAICompanion.Ai
             // its "legacy" path was this store's own file) sat here until 2026-09-30; the import of a base
             // ai-settings.json is AiBrainModule.MigrateFromBaseIfNeeded, run at Init before this Load (F088).
             AiSettings defaults = new AiSettings();
-            defaults.SaveCore();
+            // Its result used to be discarded (RA-080): a first run on a read-only or full disk produced defaults,
+            // no file, and nothing in the log, and the brain then ran on defaults with every save failing quietly.
+            bool defaultsWritten = defaults.SaveCore();
             defaults.CaptureBaseline();
             if (result != ReadResult.Missing)
-                defaults.LoadWarning = DescribeRecovery(result, failure, "reset to defaults", preserved);
+                defaults.LoadWarning =
+                    DescribeRecovery(result, failure, "reset to defaults", preserved, primaryRemoved, backupFailure) +
+                    (defaultsWritten ? "" : "; the default file could not be written either");
+            else if (!defaultsWritten)
+                defaults.LoadWarning =
+                    "ai-settings.json was missing and the default file could not be written; running on defaults until a save succeeds";
             return defaults;
         }
 
-        /// <summary>The LoadWarning for a recovery: what was wrong, what was done, where the rejected file went.</summary>
-        private static string DescribeRecovery(ReadResult primary, string failure, string action, string preserved)
+        /// <summary>The LoadWarning for a recovery: what was wrong, what was done, where the rejected file went, and
+        /// why the backup did not serve when it did not.</summary>
+        private static string DescribeRecovery(
+            ReadResult primary, string failure, string action, string preserved, bool primaryRemoved, string backupFailure)
         {
             string why = primary == ReadResult.Missing
                 ? "ai-settings.json was missing"
@@ -501,36 +530,57 @@ namespace DesktopAICompanion.Ai
             string kept = primary != ReadResult.Unreadable
                 ? ""
                 : preserved != null
-                    ? "; the rejected file is kept beside the store as " + Path.GetFileName(preserved)
+                    ? "; the rejected file is kept beside the store as " + Path.GetFileName(preserved) +
+                      // Copy succeeded, Delete did not (a handle without delete sharing): the copy is real and the
+                      // primary stays where it is, overwritten in place. This used to read as "could not be kept and
+                      // was overwritten" while the copy sat on disk (R-018).
+                      (primaryRemoved ? "" : ", and the primary could not be removed, so it is overwritten in place")
                     : "; the rejected file could not be kept and was overwritten";
-            return why + "; " + action + kept;
+            // Only a missing or an unreadable .bak reaches the reset-to-defaults branch, and the two ask different
+            // things of the user; TryRead's answer for it used to be dropped (RA-081).
+            string backup = backupFailure == null
+                ? ""
+                : backupFailure == "missing"
+                    ? "; there was no ai-settings.json.bak to recover from"
+                    : "; ai-settings.json.bak could not be read either (" + backupFailure + ")";
+            return why + "; " + action + kept + backup;
         }
 
         /// <summary>
         /// Copy the unreadable primary aside as <c>ai-settings.corrupt-&lt;utc stamp&gt;-&lt;guid&gt;.json</c> and
         /// remove it, so the recovery writes a fresh primary and never rotates the rejected bytes into the
         /// backup. Returns the copy's path, or null when it could not be kept (the primary is then left in place
-        /// and overwritten as before, and the warning says so).
+        /// and overwritten as before, and the warning says so). <paramref name="primaryRemoved"/> is false when the
+        /// copy exists but the primary could not be deleted: Copy needs only read sharing while Delete needs
+        /// delete sharing, so a primary another process holds open passes the first and fails the second, and one
+        /// try around both answered null with the copy already on disk (R-018).
         /// </summary>
-        private static string PreserveCorruptPrimary()
+        private static string PreserveCorruptPrimary(out bool primaryRemoved)
         {
+            primaryRemoved = false;
+            string primary = FilePath;
+            string recovery;
             try
             {
-                string primary = FilePath;
                 string directory = Path.GetDirectoryName(primary);
-                string recovery = Path.Combine(
+                recovery = Path.Combine(
                     directory,
                     Path.GetFileNameWithoutExtension(primary) + ".corrupt-" +
                     DateTime.UtcNow.ToString("yyyyMMdd-HHmmssfff", CultureInfo.InvariantCulture) + "-" +
                     Guid.NewGuid().ToString("N") + Path.GetExtension(primary));
                 File.Copy(primary, recovery, false);
-                File.Delete(primary);
-                return recovery;
             }
             catch
             {
                 return null;
             }
+            try
+            {
+                File.Delete(primary);
+                primaryRemoved = true;
+            }
+            catch { }
+            return recovery;
         }
 
         private bool SaveMerged()
@@ -559,7 +609,11 @@ namespace DesktopAICompanion.Ai
             }
             else
             {
-                target = new JsonObject();
+                // The file is missing, held or unreadable at save time, so the document to write is THIS instance's,
+                // extension data included. An empty seed copied only the declared fields, so the unknown keys the
+                // read had routed into ExtensionData (a newer same-schema build's, F093) fell off the disk on the
+                // first save after the file went away and were never written again (RA-082).
+                target = (JsonObject)current.DeepClone();
             }
 
             foreach (string fieldName in PersistedFieldNames)
@@ -678,6 +732,22 @@ namespace DesktopAICompanion.Ai
             if (!IsKnownLocalBackendKind(LocalBackendKind))
             {
                 LocalBackendKind = "ollama";
+                changed = true;
+            }
+            // The residency token, held to the three values its consumers compare against (RA-083): a hand-edited
+            // "keep " kept its space in the file and read as "unload" everywhere (KeepAliveForRequests' fallback for
+            // an unrecognised value) while the pane showed the unload label, and the file healed only on the next
+            // Apply. Same shape as the LocalBackendKind clamp above.
+            changed |= NormalizeString(ref ModelResidency, ResidencyUnload, 16);
+            string normalizedResidency = ModelResidency.ToLowerInvariant();
+            if (!string.Equals(ModelResidency, normalizedResidency, StringComparison.Ordinal))
+            {
+                ModelResidency = normalizedResidency;
+                changed = true;
+            }
+            if (!IsKnownResidency(ModelResidency))
+            {
+                ModelResidency = ResidencyUnload;
                 changed = true;
             }
             // Keep this fallback in step with the TextModel field default above: it is a SECOND
@@ -877,11 +947,9 @@ namespace DesktopAICompanion.Ai
             _baseline = (JsonObject)JsonSerializer.SerializeToNode(this, JsonOptions);
         }
 
-        private static T WithFileLock<T>(Func<T> action)
-        {
-            return WithFileLock(action, ProcessLockTimeoutMilliseconds);
-        }
-
+        // Every caller passes its own budget (LoadWithin its lock budget, SaveWithin what remains of its). A
+        // one-argument overload defaulting to ProcessLockTimeoutMilliseconds stood here until 2026-09-30 with no
+        // caller since F096 made Load pass its budget explicitly (R-019, RA-084).
         private static T WithFileLock<T>(
             Func<T> action,
             int timeoutMilliseconds)
@@ -952,6 +1020,25 @@ namespace DesktopAICompanion.Ai
                 return settings.SchemaVersion > CurrentSchemaVersion
                     ? ReadResult.FutureSchema
                     : ReadResult.Loaded;
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                // HELD, not broken (R-018): a denied open says nothing about the document, so LoadCore neither
+                // copies it aside as corrupt nor restores the backup over it.
+                failure = ex.GetType().Name;
+                settings = null;
+                return ReadResult.Locked;
+            }
+            catch (IOException ex) when (!(ex is FileNotFoundException) &&
+                                         !(ex is DirectoryNotFoundException) &&
+                                         !(ex is PathTooLongException))
+            {
+                // A sharing violation: a sync client, a scanner or an editor holding the file open without read
+                // sharing. The same verdict as an access denial, for the same reason. The three excluded kinds are
+                // about the path, not a holder, and keep their old classification.
+                failure = ex.GetType().Name;
+                settings = null;
+                return ReadResult.Locked;
             }
             catch (Exception ex)
             {
@@ -1119,11 +1206,14 @@ namespace DesktopAICompanion.Ai
         /// instance except that, when a cloud <see cref="Provider"/> is selected, the cloud models are
         /// promoted into <see cref="TextModel"/>/<see cref="VisionModel"/> so the brain's model-selection
         /// path uses the active slot's models. Local-only returns an equivalent copy. Read-only — callers
-        /// must not persist it (it shares the credential/collection references with this instance).
+        /// must not persist it (it shares the credential/collection references with this instance), and since
+        /// 2026-09-30 they cannot: the copy is marked detached, so SaveWithin refuses it the way it refuses
+        /// CloneForBrain's; the audition brain's snapshot of the live instance was saveable before (RA-085).
         /// </summary>
         internal AiSettings ActiveSlotSnapshot()
         {
             AiSettings clone = (AiSettings)MemberwiseClone();
+            clone._detachedCopy = true;
             if (!string.IsNullOrEmpty(Provider))
             {
                 clone.TextModel = CloudTextModel ?? "";
@@ -1431,12 +1521,28 @@ namespace DesktopAICompanion.Ai
             }
         }
 
+        // The three residency tokens (see ModelResidency's doc comment); anything else normalizes to unload (RA-083).
+        private static bool IsKnownResidency(string residency)
+        {
+            switch (residency)
+            {
+                case ResidencyUnload:
+                case ResidencyKeep:
+                case ResidencyServer:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         private enum ReadResult
         {
             Missing,
             Loaded,
             Unreadable,
-            FutureSchema
+            FutureSchema,
+            /// <summary>The file is there and another process holds it: neither corrupt nor readable (R-018).</summary>
+            Locked
         }
     }
 

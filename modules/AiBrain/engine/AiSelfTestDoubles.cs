@@ -531,6 +531,9 @@ namespace DesktopAICompanion.AiBrainModule
         public int ChatCalls { get; private set; }
         public string LastModel { get; private set; }
         public int WarmUpCalls { get; private set; }
+        /// <summary>The model the most recent WarmUpAsync named, so a check can say WHICH local model a composite
+        /// pinned, not only that it pinned one (RA-087).</summary>
+        public string LastWarmUpModel { get; private set; }
         private int _ensureServerCalls;
         /// <summary>How many times EnsureServerAsync was asked; read from another thread by the F105 check.</summary>
         public int EnsureServerCalls { get { return Volatile.Read(ref _ensureServerCalls); } }
@@ -548,7 +551,7 @@ namespace DesktopAICompanion.AiBrainModule
             Interlocked.Increment(ref _ensureServerCalls);
             return Task.FromResult(_available);
         }
-        public Task WarmUpAsync(string model, CancellationToken ct) { WarmUpCalls++; return Task.CompletedTask; }
+        public Task WarmUpAsync(string model, CancellationToken ct) { WarmUpCalls++; LastWarmUpModel = model; return Task.CompletedTask; }
         public Task UnloadAsync(string model, CancellationToken ct) { UnloadedModels.Add(model ?? ""); return Task.CompletedTask; }
         public void Dispose() { }
     }

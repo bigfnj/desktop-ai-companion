@@ -22,14 +22,21 @@ namespace DesktopAICompanion.AiBrainModule
         internal static bool RunBackends(StringBuilder sb)
         {
             bool ok = true;
-            ok &= CheckCloudSlotNeedsAModel(sb);
-            ok &= CheckCompositeEnumerates(sb);
-            ok &= CheckVisionGateOnUnreportedBackends(sb);
-            ok &= CheckAnsweredStatusDescriptions(sb);
-            ok &= CheckListingResponseCap(sb);
-            ok &= CheckFailureLineFields(sb);
-            ok &= CheckListingIsBounded(sb);
-            ok &= CheckCloudPrimaryNeverSubstitutes(sb);
+            // Each check under its own catch (RA-074): one that throws is a FAIL naming it, and the rest still run.
+            ok &= GuardedCheck(sb, "CheckCloudSlotNeedsAModel", CheckCloudSlotNeedsAModel);
+            ok &= GuardedCheck(sb, "CheckCompositeEnumerates", CheckCompositeEnumerates);
+            ok &= GuardedCheck(sb, "CheckVisionGateOnUnreportedBackends", CheckVisionGateOnUnreportedBackends);
+            ok &= GuardedCheck(sb, "CheckAnsweredStatusDescriptions", CheckAnsweredStatusDescriptions);
+            ok &= GuardedCheck(sb, "CheckListingResponseCap", CheckListingResponseCap);
+            ok &= GuardedCheck(sb, "CheckFailureLineFields", CheckFailureLineFields);
+            ok &= GuardedCheck(sb, "CheckListingIsBounded", CheckListingIsBounded);
+            ok &= GuardedCheck(sb, "CheckCloudPrimaryNeverSubstitutes", CheckCloudPrimaryNeverSubstitutes);
+            ok &= GuardedCheck(sb, "CheckProductionTransportPolicy", CheckProductionTransportPolicy);
+            ok &= GuardedCheck(sb, "CheckRefreshStatusNamesTheCause", CheckRefreshStatusNamesTheCause);
+            ok &= GuardedCheck(sb, "CheckAuditionNeverSubstitutesOnCloud", CheckAuditionNeverSubstitutesOnCloud);
+            ok &= GuardedCheck(sb, "CheckReleaseNamesTheSubstitute", CheckReleaseNamesTheSubstitute);
+            ok &= GuardedCheck(sb, "CheckCompositeWarmsByPath", CheckCompositeWarmsByPath);
+            ok &= GuardedCheck(sb, "CheckInventoryWhilePrimaryDown", CheckInventoryWhilePrimaryDown);
             return ok;
         }
 
@@ -347,6 +354,10 @@ namespace DesktopAICompanion.AiBrainModule
             {
                 ok &= Check(sb, "an answered 401 is reachable: the server said the key is wrong, not that it is down",
                     backend.IsAvailableAsync(CancellationToken.None).GetAwaiter().GetResult());
+                // The double's request counter, read at last (RA-077): a probe that retried or followed something
+                // behind a reachability answer would make two requests where one was answered.
+                ok &= Check(sb, "the answered-401 probe made exactly one request: nothing is retried behind a reachability answer (RA-077)",
+                    handler.Requests == 1);
 
                 AiBackendHttpException caught = null;
                 try
@@ -376,6 +387,8 @@ namespace DesktopAICompanion.AiBrainModule
             {
                 ok &= Check(sb, "WITNESS a redirect is still not reachable (credentials never follow one)",
                     !backend.IsAvailableAsync(CancellationToken.None).GetAwaiter().GetResult());
+                ok &= Check(sb, "...and the redirect was not followed: one request reached the double (RA-077)",
+                    handler.Requests == 1);
             }
 
             // The message extraction on both provider shapes, and its bounds.
@@ -529,6 +542,264 @@ namespace DesktopAICompanion.AiBrainModule
                 bool proceedBlindAgain = blind.ResolveBeforeCapture(true, out unusable, out advisory);
                 ok &= Check(sb, "WITNESS ...and stays ended on the next ask, silently, rather than proceeding with no model",
                     !proceedBlindAgain && advisory == null);
+            }
+            return ok;
+        }
+
+        /// <summary>RA-068 and R-023. The transport the PUBLIC constructors build on, and the probe bound they wire,
+        /// asserted on the shipped objects rather than through doubles that bypass both: every earlier redirect
+        /// check injected a handler, so flipping AllowAutoRedirect left the whole probe green. Construction touches
+        /// no network.</summary>
+        private static bool CheckProductionTransportPolicy(StringBuilder sb)
+        {
+            bool ok = true;
+            using (HttpClientHandler production = AiEndpointPolicy.CreateNoRedirectHandler())
+            using (var runtimeDefault = new HttpClientHandler())
+            {
+                ok &= Check(sb, "the production handler follows no redirect and keeps no cookies: a credential is never forwarded to a host the provider pointed at (RA-068)",
+                    !production.AllowAutoRedirect && !production.UseCookies);
+                ok &= Check(sb, "WITNESS the runtime's default handler DOES follow redirects, which is what the factory overrides",
+                    runtimeDefault.AllowAutoRedirect && runtimeDefault.UseCookies);
+            }
+            using (var local = new OllamaClient("http://127.0.0.1:9", TimeSpan.FromSeconds(600), ""))
+            using (var cloud = new OpenAiCompatBackend("https://api.openai.com/v1", "", TimeSpan.FromSeconds(600)))
+            {
+                ok &= Check(sb, "the shipped Ollama client's reachability probe is bounded by the probe deadline, not by a 600 s chat deadline (R-023)",
+                    local.AvailabilityDeadlineForDiagnostics == AiEndpointPolicy.AvailabilityProbeDeadline);
+                ok &= Check(sb, "the shipped cloud backend's reachability probe is bounded the same way (R-023)",
+                    cloud.ProbeDeadlineForDiagnostics == AiEndpointPolicy.AvailabilityProbeDeadline);
+            }
+            using (var local = new OllamaClient("http://127.0.0.1:9", TimeSpan.FromSeconds(5), ""))
+            using (var cloud = new OpenAiCompatBackend("https://api.openai.com/v1", "", TimeSpan.FromSeconds(5)))
+            {
+                ok &= Check(sb, "WITNESS a chat deadline shorter than the probe deadline bounds the probe instead: the shorter of the two",
+                    local.AvailabilityDeadlineForDiagnostics == TimeSpan.FromSeconds(5) &&
+                    cloud.ProbeDeadlineForDiagnostics == TimeSpan.FromSeconds(5));
+            }
+            return ok;
+        }
+
+        /// <summary>RA-059. A model refresh names the CAUSE of an empty list: an answered refusal in F107's words, a
+        /// transport failure as not reachable, and only a listing that answered and was empty as "no models".</summary>
+        private static bool CheckRefreshStatusNamesTheCause(StringBuilder sb)
+        {
+            bool ok = true;
+            using (var handler = new FixedStatusHandler(
+                HttpStatusCode.Unauthorized, "{\"error\":{\"message\":\"Incorrect API key provided\",\"type\":\"invalid_request_error\"}}"))
+            using (var backend = new OpenAiCompatBackend("https://api.openai.com/v1", "not-a-real-key-fixture", TimeSpan.FromSeconds(5), handler))
+            {
+                IReadOnlyList<ModelListing> listed = backend.ListModelsAsync(CancellationToken.None).GetAwaiter().GetResult();
+                var answered = backend.LastListingFailure as AiBackendHttpException;
+                ok &= Check(sb, "an answered 401 on a model listing is an empty list for the brain AND a recorded refusal for the pane (RA-059)",
+                    listed != null && listed.Count == 0 && answered != null && answered.StatusCode == 401);
+                string line = AiBrainModule.ModelListStatus(listed, "https://api.openai.com/v1", backend.LastListingFailure);
+                ok &= Check(sb, "a model refresh names an answered refusal as F107 does: the status, the host and the key, not 'No models found' (RA-059)",
+                    line.IndexOf("HTTP 401", StringComparison.Ordinal) >= 0 &&
+                    line.IndexOf("api.openai.com", StringComparison.Ordinal) >= 0 &&
+                    line.IndexOf("API key", StringComparison.Ordinal) >= 0 &&
+                    line.IndexOf("No models found", StringComparison.Ordinal) < 0);
+            }
+            using (var handler = new RefusingHandler())
+            using (var backend = new OpenAiCompatBackend("https://api.openai.com/v1", "", TimeSpan.FromSeconds(5), handler))
+            {
+                IReadOnlyList<ModelListing> listed = backend.ListModelsAsync(CancellationToken.None).GetAwaiter().GetResult();
+                string line = AiBrainModule.ModelListStatus(listed, "https://api.openai.com/v1", backend.LastListingFailure);
+                ok &= Check(sb, "a model refresh that could not reach the provider says not reachable, with the category",
+                    listed.Count == 0 &&
+                    line.IndexOf("Not reachable", StringComparison.Ordinal) >= 0 &&
+                    line.IndexOf("backend-unreachable", StringComparison.Ordinal) >= 0);
+            }
+            using (var handler = new FixedJsonResponseHandler("{\"data\":[]}"))
+            using (var backend = new OpenAiCompatBackend("https://api.openai.com/v1", "", TimeSpan.FromSeconds(5), handler))
+            {
+                IReadOnlyList<ModelListing> listed = backend.ListModelsAsync(CancellationToken.None).GetAwaiter().GetResult();
+                ok &= Check(sb, "WITNESS a listing that answered and was empty records no failure and still says no models were found",
+                    listed.Count == 0 && backend.LastListingFailure == null &&
+                    AiBrainModule.ModelListStatus(listed, "https://api.openai.com/v1", backend.LastListingFailure)
+                        .IndexOf("No models found", StringComparison.Ordinal) >= 0);
+            }
+            // The local slot's Ollama client records the same way; the local refresh reaches it through the seam.
+            using (var handler = new FixedStatusHandler(HttpStatusCode.NotFound, ""))
+            using (var ollama = new OllamaClient("http://127.0.0.1:11434", TimeSpan.FromSeconds(5), "", handler,
+                TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(10),
+                delegate(CancellationToken ignored) { return false; }))
+            {
+                ollama.ListModelsAsync(CancellationToken.None).GetAwaiter().GetResult();
+                var answered = ((IModelListingStatus)ollama).LastListingFailure as AiBackendHttpException;
+                ok &= Check(sb, "the local Ollama client records an answered status on its listing too, through the same seam (RA-059)",
+                    answered != null && answered.StatusCode == 404);
+            }
+            return ok;
+        }
+
+        /// <summary>RA-063. The audition applies the ask's substitution policy: a cloud primary never substitutes, so a
+        /// retired cloud id is one "(not run)" sample with the advisory and no billed request.</summary>
+        private static bool CheckAuditionNeverSubstitutesOnCloud(StringBuilder sb)
+        {
+            bool ok = true;
+            var v1 = new List<ModelListing> { new ModelListing("openai/gpt-4o-mini", null) };
+            var billed = new RecordingBackend("{\"text\":\"hi\",\"emotion\":\"happy\"}", true);
+            using (var brain = new AiBrain(billed, new AiSettings { TextModel = "openai/gpt-4.1-mini" }))
+            {
+                brain.SubstituteMissingModel = false;
+                brain.BackendHostDescription = "openrouter.ai";
+                brain.ModelLister = delegate(CancellationToken ct) { return Task.FromResult((IReadOnlyList<ModelListing>)v1); };
+                brain.PrepareAsync(CancellationToken.None, false).GetAwaiter().GetResult();
+                DispositionAudition audition = brain.SampleDispositionAsync(
+                    "pirate", TimeSpan.FromSeconds(5), CancellationToken.None).GetAwaiter().GetResult();
+                ok &= Check(sb, "the audition never substitutes on a cloud primary: a retired cloud id is one '(not run)' sample carrying the advisory, and nothing is billed (RA-063)",
+                    billed.ChatCalls == 0 && audition.Samples.Count == 1 && !audition.Samples[0].Ok &&
+                    audition.Advisory != null && audition.Advisory.IndexOf("openrouter.ai", StringComparison.Ordinal) >= 0);
+            }
+            var local = new RecordingBackend("{\"text\":\"hi\",\"emotion\":\"happy\"}", true);
+            using (var brain = new AiBrain(local, new AiSettings { TextModel = "openai/gpt-4.1-mini" }))
+            {
+                brain.ModelLister = delegate(CancellationToken ct) { return Task.FromResult((IReadOnlyList<ModelListing>)v1); };
+                brain.PrepareAsync(CancellationToken.None, false).GetAwaiter().GetResult();
+                DispositionAudition audition = brain.SampleDispositionAsync(
+                    "pirate", TimeSpan.FromSeconds(5), CancellationToken.None).GetAwaiter().GetResult();
+                ok &= Check(sb, "WITNESS the same audition on a local backend substitutes and runs every scene, as BUG-002 intended",
+                    local.ChatCalls == DispositionScenes.All.Length && audition.ModelUsed == "openai/gpt-4o-mini" && audition.Advisory != null);
+            }
+            return ok;
+        }
+
+        /// <summary>RA-065. The release names the substitute a turn actually sent, not only the configured ids, so a
+        /// substituted local model under "keep" is evicted with the rest.</summary>
+        private static bool CheckReleaseNamesTheSubstitute(StringBuilder sb)
+        {
+            bool ok = true;
+            var inventory = new List<ModelListing> { new ModelListing("gemma3:4b", true) };
+            var absent = new AiSettings { TextModel = "a-model-nobody-has:1b", VisionModel = "a-model-nobody-has:1b" };
+            var backend = new RecordingBackend("{\"text\":\"hi\",\"emotion\":\"happy\"}", true);
+            using (var brain = new AiBrain(backend, absent))
+            {
+                brain.ModelLister = delegate(CancellationToken ct) { return Task.FromResult((IReadOnlyList<ModelListing>)inventory); };
+                brain.PrepareAsync(CancellationToken.None, false).GetAwaiter().GetResult();
+                ModelChoice choice;
+                BrainResponse advisory;
+                brain.ResolveBeforeCapture(false, out choice, out advisory);              // the turn that speaks the advisory
+                bool proceeded = brain.ResolveBeforeCapture(false, out choice, out advisory);   // the turn that sends the substitute
+                brain.UnloadAsync(CancellationToken.None).GetAwaiter().GetResult();
+                ok &= Check(sb, "the release names the substitute a turn sent, not only the configured id (RA-065)",
+                    proceeded && choice.Model == "gemma3:4b" &&
+                    backend.UnloadedModels.Contains("gemma3:4b") && backend.UnloadedModels.Contains("a-model-nobody-has:1b"));
+            }
+            var configured = new RecordingBackend("", true);
+            using (var brain = new AiBrain(configured, new AiSettings()))
+            {
+                brain.UnloadAsync(CancellationToken.None).GetAwaiter().GetResult();
+                ok &= Check(sb, "WITNESS with nothing substituted and one id in both slots the release names that id once",
+                    configured.UnloadedModels.Count == 1 && configured.UnloadedModels[0] == "gemma3:4b");
+            }
+            var auditioned = new RecordingBackend("{\"text\":\"hi\",\"emotion\":\"happy\"}", true);
+            using (var brain = new AiBrain(auditioned, absent))
+            {
+                brain.ModelLister = delegate(CancellationToken ct) { return Task.FromResult((IReadOnlyList<ModelListing>)inventory); };
+                brain.PrepareAsync(CancellationToken.None, false).GetAwaiter().GetResult();
+                brain.SampleDispositionAsync("pirate", TimeSpan.FromSeconds(5), CancellationToken.None).GetAwaiter().GetResult();
+                brain.UnloadAsync(CancellationToken.None).GetAwaiter().GetResult();
+                ok &= Check(sb, "the audition's substitute is released with the run's eviction too (RA-065)",
+                    auditioned.UnloadedModels.Contains("gemma3:4b"));
+            }
+            return ok;
+        }
+
+        /// <summary>RA-087. With one cloud id in both slots the composite warms the local model for the PATH, and the
+        /// release covers what the warm-up loaded.</summary>
+        private static bool CheckCompositeWarmsByPath(StringBuilder sb)
+        {
+            bool ok = true;
+            using (var primary = new RecordingBackend("", true))
+            using (var local = new RecordingBackend("", true))
+            using (var composite = new FallbackBackend(primary, local, "same-cloud-model", "local-text", "local-vision"))
+            {
+                composite.WarmUpAsync("same-cloud-model", false, CancellationToken.None).GetAwaiter().GetResult();
+                ok &= Check(sb, "the composite warms the local model for the PATH: a text session warms the local text model, whatever the id maps to (RA-087)",
+                    local.LastWarmUpModel == "local-text" && primary.LastWarmUpModel == "same-cloud-model");
+                composite.UnloadAsync("same-cloud-model", CancellationToken.None).GetAwaiter().GetResult();
+                ok &= Check(sb, "the release covers the model the warm-up loaded, not only the id mapping's (RA-087)",
+                    local.UnloadedModels.Contains("local-text"));
+            }
+            using (var primary = new RecordingBackend("", true))
+            using (var local = new RecordingBackend("", true))
+            using (var composite = new FallbackBackend(primary, local, "same-cloud-model", "local-text", "local-vision"))
+            {
+                composite.WarmUpAsync("same-cloud-model", true, CancellationToken.None).GetAwaiter().GetResult();
+                ok &= Check(sb, "WITNESS a vision session warms the local vision model", local.LastWarmUpModel == "local-vision");
+            }
+            // Through the brain: a "keep" cloud snapshot with vision OFF and one cloud id in both slots pins local TEXT.
+            var cloud = new AiSettings
+            {
+                Provider = "openai",
+                OpenAiBaseUrl = "https://api.openai.com/v1",
+                CloudDataConsent = true,
+                CloudTextModel = "gpt-4o",
+                CloudVisionModel = "gpt-4o",
+                TextModel = "gemma3:4b",
+                VisionModel = "llava:13b",
+                ModelResidency = AiSettings.ResidencyKeep,
+                UseVision = false,
+                AutoStartServer = false,
+            };
+            using (var primary = new RecordingBackend("", true))
+            using (var local = new RecordingBackend("", true))
+            using (var composite = new FallbackBackend(primary, local, cloud.CloudVisionModel, cloud.TextModel, cloud.VisionModel))
+            using (var brain = new AiBrain(composite, cloud.ActiveSlotSnapshot()))
+            {
+                brain.PrepareAsync(CancellationToken.None).GetAwaiter().GetResult();
+                ok &= Check(sb, "the brain's 'keep' warm-up names the path, so a cloud text session pins the local TEXT model (RA-087)",
+                    local.WarmUpCalls == 1 && local.LastWarmUpModel == "gemma3:4b");
+            }
+            return ok;
+        }
+
+        /// <summary>RA-062. A composite whose primary's own probe failed cannot enumerate (null, no request), and the
+        /// brain re-lists an UNKNOWN inventory on the next check although the backend stayed up, so a cloud primary
+        /// that comes back while local Ollama stayed up is re-validated without a transition of the whole.</summary>
+        private static bool CheckInventoryWhilePrimaryDown(StringBuilder sb)
+        {
+            bool ok = true;
+            using (var refusing = new RefusingHandler())
+            using (var down = new OpenAiCompatBackend("https://api.openai.com/v1", "", TimeSpan.FromSeconds(5), refusing))
+            using (var local = new RecordingBackend("", true))
+            using (var composite = new FallbackBackend(down, local, "", "local-text", "local-vision"))
+            {
+                bool up = composite.IsAvailableAsync(CancellationToken.None).GetAwaiter().GetResult();
+                composite.PrimaryProbeRecordedForDiagnostics.Wait(TimeSpan.FromSeconds(5));
+                IReadOnlyList<ModelListing> listed = AiBrainModule.ListBackendModelsAsync(composite, CancellationToken.None).GetAwaiter().GetResult();
+                ok &= Check(sb, "the composite cannot enumerate while its primary is down: up through the local leg, null from the listing (RA-062)",
+                    up && listed == null);
+            }
+            using (var answers = new FixedJsonResponseHandler("{\"data\":[{\"id\":\"openai/gpt-4o-mini\"}]}"))
+            using (var back = new OpenAiCompatBackend("https://openrouter.ai/api/v1", "", TimeSpan.FromSeconds(5), answers))
+            using (var local = new RecordingBackend("", true))
+            using (var composite = new FallbackBackend(back, local, "", "local-text", "local-vision"))
+            {
+                composite.IsAvailableAsync(CancellationToken.None).GetAwaiter().GetResult();
+                composite.PrimaryProbeRecordedForDiagnostics.Wait(TimeSpan.FromSeconds(5));
+                IReadOnlyList<ModelListing> listed = AiBrainModule.ListBackendModelsAsync(composite, CancellationToken.None).GetAwaiter().GetResult();
+                ok &= Check(sb, "WITNESS a primary whose probe answered lists as before", listed != null && listed.Count == 1);
+            }
+
+            var backend = new RecordingBackend("{\"text\":\"hi\",\"emotion\":\"happy\"}", true);
+            int listings = 0;
+            IReadOnlyList<ModelListing> answer = null;   // null: cannot enumerate (the composite while its primary is down)
+            using (var brain = new AiBrain(backend, new AiSettings { TextModel = "a-model-nobody-has:1b" }))
+            {
+                brain.ModelLister = delegate(CancellationToken ct) { listings++; return Task.FromResult(answer); };
+                brain.CheckBackendAvailableForDiagnosticsAsync(CancellationToken.None).GetAwaiter().GetResult();
+                answer = new List<ModelListing>();   // an empty listing: a tripped bound, a refused key
+                brain.CheckBackendAvailableForDiagnosticsAsync(CancellationToken.None).GetAwaiter().GetResult();
+                answer = new List<ModelListing> { new ModelListing("gemma3:4b", true) };
+                brain.CheckBackendAvailableForDiagnosticsAsync(CancellationToken.None).GetAwaiter().GetResult();
+                ModelChoice choice;
+                BrainResponse advisory;
+                brain.ResolveBeforeCapture(false, out choice, out advisory);
+                ok &= Check(sb, "an unknown inventory is re-listed on the next check while the backend stays up, and an empty listing leaves it unknown, so the primary's return is caught without a transition (RA-062)",
+                    listings == 3 && choice.Reason == "substituted");
+                brain.CheckBackendAvailableForDiagnosticsAsync(CancellationToken.None).GetAwaiter().GetResult();
+                ok &= Check(sb, "WITNESS once the inventory is known a backend that stays up is not re-listed (F071)", listings == 3);
             }
             return ok;
         }

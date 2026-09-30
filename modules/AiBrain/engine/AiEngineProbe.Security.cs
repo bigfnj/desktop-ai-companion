@@ -50,24 +50,28 @@ namespace DesktopAICompanion.AiBrainModule
             ok &= CheckEndpoint(sb, "https://user:password@example.com/v1", false);
             ok &= CheckEndpoint(sb, "https://example.com/v1?token=secret", false);
 
-            ok &= CheckAiSettingsPersistence(sb);
-            ok &= CheckAiCredentialScoping(sb);
-            ok &= CheckAiNormalization(sb);
-            ok &= CheckAiSchemaMigration(sb);
-            ok &= CheckDispositionMigration(sb);
-            ok &= CheckLocalBackendKind(sb);
-            ok &= CheckAiResponseBounds(sb);
-            ok &= CheckAiResponseDeadline(sb);
-            ok &= CheckOllamaStartupDeadline(sb);
-            ok &= CheckAiHttpStatusPolicy(sb);
-            ok &= CheckFallbackBackend(sb);
-            ok &= CheckModelListing(sb);
-            ok &= CheckKeepAliveAndResidency(sb);
-            ok &= CheckAiRetirementBound(sb);
-            ok &= CheckAiReconfigureDisposeRace(sb);
-            ok &= CheckAiAfterRetireDurability(sb);
-            ok &= CheckRequestOutcomeInstrumentation(sb);
-            ok &= CheckDispositionAudition(sb);
+            // Each check under its own catch (RA-074): one that throws is a FAIL naming it, and the rest still run.
+            // Run's Guarded wrapper covered the GROUP only (F082), so one throw hid every later check here behind a
+            // single line naming the group. The seven CheckEndpoint calls above cannot throw (TryNormalize does not).
+            ok &= GuardedCheck(sb, "CheckAiSettingsPersistence", CheckAiSettingsPersistence);
+            ok &= GuardedCheck(sb, "CheckSettingsRecoveryWording", CheckSettingsRecoveryWording);
+            ok &= GuardedCheck(sb, "CheckAiCredentialScoping", CheckAiCredentialScoping);
+            ok &= GuardedCheck(sb, "CheckAiNormalization", CheckAiNormalization);
+            ok &= GuardedCheck(sb, "CheckAiSchemaMigration", CheckAiSchemaMigration);
+            ok &= GuardedCheck(sb, "CheckDispositionMigration", CheckDispositionMigration);
+            ok &= GuardedCheck(sb, "CheckLocalBackendKind", CheckLocalBackendKind);
+            ok &= GuardedCheck(sb, "CheckAiResponseBounds", CheckAiResponseBounds);
+            ok &= GuardedCheck(sb, "CheckAiResponseDeadline", CheckAiResponseDeadline);
+            ok &= GuardedCheck(sb, "CheckOllamaStartupDeadline", CheckOllamaStartupDeadline);
+            ok &= GuardedCheck(sb, "CheckAiHttpStatusPolicy", CheckAiHttpStatusPolicy);
+            ok &= GuardedCheck(sb, "CheckFallbackBackend", CheckFallbackBackend);
+            ok &= GuardedCheck(sb, "CheckModelListing", CheckModelListing);
+            ok &= GuardedCheck(sb, "CheckKeepAliveAndResidency", CheckKeepAliveAndResidency);
+            ok &= GuardedCheck(sb, "CheckAiRetirementBound", CheckAiRetirementBound);
+            ok &= GuardedCheck(sb, "CheckAiReconfigureDisposeRace", CheckAiReconfigureDisposeRace);
+            ok &= GuardedCheck(sb, "CheckAiAfterRetireDurability", CheckAiAfterRetireDurability);
+            ok &= GuardedCheck(sb, "CheckRequestOutcomeInstrumentation", CheckRequestOutcomeInstrumentation);
+            ok &= GuardedCheck(sb, "CheckDispositionAudition", CheckDispositionAudition);
 
             return ok;
         }
@@ -595,13 +599,6 @@ namespace DesktopAICompanion.AiBrainModule
             return ok;
         }
 
-        // ListModelsAsync (model-picker dropdowns): offline via FixedJsonResponseHandler, proving (1)
-        // Ollama's /api/tags real "capabilities" array is honored for both the has-vision and
-        // explicitly-no-vision cases, (2) a response with no "capabilities" key (an older server) yields
-        // Vision=null (unknown -> the caller's LooksVisionCapable heuristic applies, not a false claim),
-        // (3) the "size" field (the VRAM/weight-footprint proxy shown in the model-picker label) parses as a
-        // real byte count well past Int32 range, and (4) the generic OpenAI-compatible /models response (no
-        // capability or size metadata at all) parses ids with Vision=null and SizeBytes=null for every entry.
         /// <summary>
         /// The VRAM settings: keep_alive on the chat request, and reading live residency from /api/ps.
         ///
@@ -722,10 +719,6 @@ namespace DesktopAICompanion.AiBrainModule
                         running[0].ExpiresAt.HasValue);
                 }
 
-                // The stored DEFAULT, asserted separately from the client's. Flipping this to 0 would make
-                // every existing user pay a cold reload per remark on upgrade -- a performance change nobody
-                // asked for -- and the payload checks above cannot see it, because they set the property
-                // directly. Mutation testing reported this silent.
                 // The stored DEFAULT must be "unload": this module holds VRAM only for a remark it has
                 // already made, so holding after the answer is the thing there is no reason for. Asserted
                 // separately from the payload checks above, which set the client property directly and so
@@ -798,6 +791,16 @@ namespace DesktopAICompanion.AiBrainModule
             return ok;
         }
 
+        /// <summary>
+        /// ListModelsAsync (model-picker dropdowns): offline via FixedJsonResponseHandler, proving (1) Ollama's
+        /// /api/tags real "capabilities" array is honored for both the has-vision and explicitly-no-vision cases,
+        /// (2) a response with no "capabilities" key (an older server) yields Vision=null (unknown -> the caller's
+        /// LooksVisionCapable heuristic applies, not a false claim), (3) the "size" field (the VRAM/weight-footprint
+        /// proxy shown in the model-picker label) parses as a real byte count well past Int32 range, and (4) the
+        /// generic OpenAI-compatible /models response (no capability or size metadata at all) parses ids with
+        /// Vision=null and SizeBytes=null for every entry. (This description sat above CheckKeepAliveAndResidency,
+        /// the wrong method, from 1.0.0 until 2026-09-30, RA-075.)
+        /// </summary>
         private static bool CheckModelListing(StringBuilder sb)
         {
             bool ok = true;
@@ -1030,7 +1033,15 @@ namespace DesktopAICompanion.AiBrainModule
                 ok &= Check(
                     sb,
                     "the UI save budget gives up fast enough to keep the settings window responsive",
-                    uiBudgetRejected && uiWait.Elapsed < TimeSpan.FromSeconds(5));
+                    uiBudgetRejected && uiWait.Elapsed < TimeSpan.FromMilliseconds(2 * AiSettings.UiSaveBudgetMilliseconds));
+                // The product ceiling, stated ONCE as its own check (RA-076): the wait above is now measured against
+                // a slack of the constant, so it follows the constant wherever it goes, and the 5 s literal that
+                // stood there let a budget raised to 4 s pass while the settings window froze for four seconds on a
+                // held lock.
+                ok &= Check(
+                    sb,
+                    "the UI save budget stays under two seconds: a held lock costs the settings window less than that (RA-076)",
+                    AiSettings.UiSaveBudgetMilliseconds < 2000);
 
                 string undecryptable =
                     Convert.ToBase64String(new byte[] { 1, 3, 3, 7, 9, 11, 13, 17 });
@@ -1455,6 +1466,21 @@ namespace DesktopAICompanion.AiBrainModule
             customSelectors.Normalize();
             ok &= Check(sb, "WITNESS a valid non-default endpoint and hotkey survive normalization unchanged",
                 customSelectors.Endpoint == "http://127.0.0.1:8080" && customSelectors.Hotkey == "Ctrl+Shift+F9");
+
+            // RA-083: the residency token is clamped like every other selector. A hand-edited "Keep " kept its space
+            // and read as "unload" everywhere while the pane showed the unload label.
+            var paddedResidency = new AiSettings { ModelResidency = "Keep " };
+            paddedResidency.Normalize();
+            ok &= Check(sb, "a residency token with a stray space or capital normalizes to its value instead of behaving as unload (RA-083)",
+                paddedResidency.ModelResidency == AiSettings.ResidencyKeep && paddedResidency.KeepAliveForRequests == -1);
+            var unknownResidency = new AiSettings { ModelResidency = "forever" };
+            unknownResidency.Normalize();
+            ok &= Check(sb, "an unknown residency token normalizes to unload, the safe choice",
+                unknownResidency.ModelResidency == AiSettings.ResidencyUnload);
+            var serverResidency = new AiSettings { ModelResidency = AiSettings.ResidencyServer };
+            serverResidency.Normalize();
+            ok &= Check(sb, "WITNESS a valid residency token survives normalization unchanged",
+                serverResidency.ModelResidency == AiSettings.ResidencyServer);
             return ok;
         }
 
@@ -1789,6 +1815,21 @@ namespace DesktopAICompanion.AiBrainModule
                 exact.Length == 512 &&
                 IsWellFormedUtf16(boundary) &&
                 IsWellFormedUtf16(exact));
+
+            // RA-057: the two hand-rolled cuts (the audition pane at 220, the already-said clause at 160) end at a
+            // code point too. A sample that reaches the cap with an emoji straddling it.
+            string paneCut = AiBrainModule.Ellipsize(new string('x', 219) + astral + "tail", 220);
+            ok &= Check(
+                sb,
+                "the audition pane cuts a sample at a code point boundary: an emoji straddling the cap is dropped whole, not split (RA-057)",
+                paneCut.Length == 220 && IsWellFormedUtf16(paneCut) && paneCut.EndsWith("…", StringComparison.Ordinal));
+            string saidCut = AiBrain.DescribeAlreadySaidForDiagnostics(new List<string> { new string('y', 159) + astral + "tail" });
+            ok &= Check(
+                sb,
+                "the already-said clause quotes a remark cut at a code point boundary (RA-057)",
+                IsWellFormedUtf16(saidCut) &&
+                saidCut.IndexOf(astral, StringComparison.Ordinal) < 0 &&
+                saidCut.IndexOf("…", StringComparison.Ordinal) >= 0);
 
             // ---- the runaway-emoji guard -------------------------------------------------------------
             //
@@ -2182,10 +2223,14 @@ namespace DesktopAICompanion.AiBrainModule
         private static bool CheckAiHttpStatusPolicy(StringBuilder sb)
         {
             bool ok = true;
+            // Through EnsureSuccessAsync, the classifier every production path runs (SendAndEnsureSuccessAsync,
+            // SendAndReadResponseStringAsync). Until 2026-09-30 these three drove a synchronous twin nothing in
+            // production reached, so a regression in the shipped classification could not fail here (R-016). The
+            // fixtures carry no Content: the body read answers "" for null content.
             using (var badRequest = new HttpResponseMessage(HttpStatusCode.BadRequest))
             {
                 bool deterministic = false;
-                try { AiEndpointPolicy.EnsureSuccess(badRequest); }
+                try { AiEndpointPolicy.EnsureSuccessAsync(badRequest, CancellationToken.None).GetAwaiter().GetResult(); }
                 catch (AiBackendHttpException ex)
                 {
                     deterministic = ex.StatusCode == 400 && !ex.IsTransient;
@@ -2196,7 +2241,7 @@ namespace DesktopAICompanion.AiBrainModule
             using (var throttled = new HttpResponseMessage((HttpStatusCode)429))
             {
                 bool transient = false;
-                try { AiEndpointPolicy.EnsureSuccess(throttled); }
+                try { AiEndpointPolicy.EnsureSuccessAsync(throttled, CancellationToken.None).GetAwaiter().GetResult(); }
                 catch (AiBackendHttpException ex)
                 {
                     transient = ex.StatusCode == 429 && ex.IsTransient;
@@ -2207,7 +2252,7 @@ namespace DesktopAICompanion.AiBrainModule
             using (var redirect = new HttpResponseMessage(HttpStatusCode.Redirect))
             {
                 bool deterministicRedirect = false;
-                try { AiEndpointPolicy.EnsureSuccess(redirect); }
+                try { AiEndpointPolicy.EnsureSuccessAsync(redirect, CancellationToken.None).GetAwaiter().GetResult(); }
                 catch (AiBackendHttpException ex)
                 {
                     deterministicRedirect = ex.StatusCode == 302 && !ex.IsTransient;
@@ -2666,6 +2711,183 @@ namespace DesktopAICompanion.AiBrainModule
                 CancellationToken.None).GetAwaiter().GetResult();
             backend = createdBackend;
             return manager;
+        }
+
+        /// <summary>As above, through the PRODUCTION entry point, so the brain carries a fingerprint the next
+        /// reconfigure is compared against (R-012).</summary>
+        private static AiSessionManager CreateRetirementTestManager(
+            out RetirementTrackingBackend backend, string fingerprint, bool keepResident)
+        {
+            var manager = new AiSessionManager();
+            var createdBackend = new RetirementTrackingBackend();
+            var settings = new AiSettings
+            {
+                TextModel = "retirement-model",
+                VisionModel = "retirement-model"
+            };
+            manager.ReconfigureForBackendAsync(
+                delegate
+                {
+                    return new AiBrain(createdBackend, settings);
+                },
+                true,
+                false,
+                CancellationToken.None,
+                fingerprint,
+                keepResident).GetAwaiter().GetResult();
+            backend = createdBackend;
+            return manager;
+        }
+
+        /// <summary>
+        /// R-018, RA-080, RA-081, RA-082 and RA-085. What the load SAYS when the file is held, when the backup was
+        /// missing or unreadable and when a write failed; what a save keeps when the file is gone; and that the
+        /// active-slot snapshot cannot be saved. Under a throwaway root, restored in the finally (F086). Every "held"
+        /// below is a FileStream in this process, under the same sharing rules a sync client or a scanner imposes.
+        /// </summary>
+        private static bool CheckSettingsRecoveryWording(StringBuilder sb)
+        {
+            bool ok = true;
+            string directory = Path.Combine(
+                Path.GetTempPath(),
+                "DesktopAICompanion-ai-recovery-selftest-" + Guid.NewGuid().ToString("N"));
+            string borrowedRoot = AiPaths.CurrentRootForDiagnostics;
+            try
+            {
+                Directory.CreateDirectory(directory);
+                AiPaths.SwapRoot(directory);
+                string path = AiSettings.FilePath;
+
+                // --- R-018 (a): a primary HELD by another process is not corruption ---
+                AiSettings seeded = AiSettings.Load();   // writes the default file
+                seeded.TimeoutSeconds = 77;
+                ok &= Check(sb, "the recovery fixture saved", seeded.SaveWithin(AiSettings.ProcessLockTimeoutMilliseconds));
+                byte[] heldBytes = File.ReadAllBytes(path);
+                AiSettings whileHeld;
+                using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                {
+                    whileHeld = AiSettings.Load();
+                }
+                ok &= Check(sb, "a settings file held open by another process is not corruption: defaults for the session, the warning names the holder, no .corrupt copy, the file untouched (R-018)",
+                    whileHeld.LoadWarning != null &&
+                    whileHeld.LoadWarning.IndexOf("held open", StringComparison.Ordinal) >= 0 &&
+                    Directory.GetFiles(directory, "ai-settings.corrupt-*").Length == 0 &&
+                    ByteArraysEqual(heldBytes, File.ReadAllBytes(path)) &&
+                    whileHeld.TimeoutSeconds == new AiSettings().TimeoutSeconds);
+                ok &= Check(sb, "...and that instance keeps every write blocked, so it cannot overwrite the file it never read",
+                    !whileHeld.SaveWithin(AiSettings.ProcessLockTimeoutMilliseconds));
+                ok &= Check(sb, "WITNESS once the holder is gone the file loads as it was",
+                    AiSettings.Load().TimeoutSeconds == 77);
+
+                // --- RA-080 (a): a normalization that could not be written back is said ---
+                // A primary that needs clamping, held with READ sharing: the read succeeds, the rewrite cannot replace
+                // the held file.
+                File.WriteAllText(path,
+                    "{ \"SchemaVersion\": " + AiSettings.CurrentSchemaVersion + ", \"TimeoutSeconds\": 1 }",
+                    new UTF8Encoding(false));
+                AiSettings clampedUnwritten;
+                using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    clampedUnwritten = AiSettings.Load();
+                }
+                ok &= Check(sb, "a normalization the store could not write back is said, and the corrected value is still what runs (RA-080)",
+                    clampedUnwritten.TimeoutSeconds == 10 && clampedUnwritten.LoadWarning != null &&
+                    clampedUnwritten.LoadWarning.IndexOf("corrected file could not be written", StringComparison.Ordinal) >= 0);
+                ok &= Check(sb, "WITNESS the same normalization with the file free rewrites it and warns of nothing",
+                    string.IsNullOrEmpty(AiSettings.Load().LoadWarning) &&
+                    File.ReadAllText(path, Encoding.UTF8).IndexOf("\"TimeoutSeconds\": 10", StringComparison.Ordinal) >= 0);
+
+                // --- R-018 (b): a corrupt primary whose copy succeeds and whose delete fails is still kept ---
+                File.WriteAllText(path, "{ corrupt primary", new UTF8Encoding(false));
+                AiSettings keptNotRemoved;
+                using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                {
+                    keptNotRemoved = AiSettings.Load();
+                }
+                string[] copies = Directory.GetFiles(directory, "ai-settings.corrupt-*");
+                ok &= Check(sb, "a rejected primary that could not be removed is still kept beside the store, and the warning says which (R-018)",
+                    copies.Length == 1 && keptNotRemoved.LoadWarning != null &&
+                    keptNotRemoved.LoadWarning.IndexOf(Path.GetFileName(copies[0]), StringComparison.Ordinal) >= 0 &&
+                    keptNotRemoved.LoadWarning.IndexOf("could not be removed", StringComparison.Ordinal) >= 0 &&
+                    keptNotRemoved.LoadWarning.IndexOf("could not be kept", StringComparison.Ordinal) < 0);
+                foreach (string copy in copies) File.Delete(copy);
+
+                // --- RA-081: the reset-to-defaults warning says why the backup did not serve ---
+                File.Delete(path);
+                File.Delete(path + ".bak");
+                File.WriteAllText(path, "{ corrupt primary", new UTF8Encoding(false));
+                AiSettings noBackup = AiSettings.Load();
+                ok &= Check(sb, "the reset-to-defaults warning says there was no backup to recover from (RA-081)",
+                    noBackup.LoadWarning != null &&
+                    noBackup.LoadWarning.IndexOf("reset to defaults", StringComparison.Ordinal) >= 0 &&
+                    noBackup.LoadWarning.IndexOf("no ai-settings.json.bak", StringComparison.Ordinal) >= 0);
+                foreach (string copy in Directory.GetFiles(directory, "ai-settings.corrupt-*")) File.Delete(copy);
+                File.WriteAllText(path, "{ corrupt primary", new UTF8Encoding(false));
+                File.WriteAllText(path + ".bak", "{ corrupt backup", new UTF8Encoding(false));
+                AiSettings badBackup = AiSettings.Load();
+                ok &= Check(sb, "...and names the backup's own failure when it was unreadable (RA-081)",
+                    badBackup.LoadWarning != null &&
+                    badBackup.LoadWarning.IndexOf("ai-settings.json.bak could not be read", StringComparison.Ordinal) >= 0 &&
+                    badBackup.LoadWarning.IndexOf("JsonException", StringComparison.Ordinal) >= 0);
+                foreach (string copy in Directory.GetFiles(directory, "ai-settings.corrupt-*")) File.Delete(copy);
+
+                // --- RA-080 (b): a default file that could not be written is said ---
+                // A DIRECTORY at the primary's path: File.Exists is false (missing), and the atomic write cannot move
+                // its temp file over a directory.
+                File.Delete(path);
+                File.Delete(path + ".bak");
+                Directory.CreateDirectory(path);
+                AiSettings unwritable = AiSettings.Load();
+                Directory.Delete(path);
+                ok &= Check(sb, "a default file that could not be written is said in the load warning instead of nothing (RA-080)",
+                    unwritable.LoadWarning != null &&
+                    unwritable.LoadWarning.IndexOf("default file could not be written", StringComparison.Ordinal) >= 0);
+                ok &= Check(sb, "WITNESS an ordinary first run writes its default file and warns of nothing",
+                    string.IsNullOrEmpty(AiSettings.Load().LoadWarning) && File.Exists(path));
+
+                // --- RA-082: a save over a missing file keeps the unknown keys ExtensionData carries ---
+                File.WriteAllText(path,
+                    "{ \"SchemaVersion\": " + AiSettings.CurrentSchemaVersion +
+                    ", \"TimeoutSeconds\": 44, \"newerBuildKey\": { \"keep\": 1 } }",
+                    new UTF8Encoding(false));
+                AiSettings carrying = AiSettings.Load();
+                File.Delete(path);
+                File.Delete(path + ".bak");
+                carrying.TimeoutSeconds = 45;
+                bool savedOverMissing = carrying.SaveWithin(AiSettings.ProcessLockTimeoutMilliseconds);
+                JsonObject rewritten = JsonNode.Parse(File.ReadAllText(path, Encoding.UTF8)).AsObject();
+                ok &= Check(sb, "a save over a missing file keeps the unknown keys the read had routed into ExtensionData (RA-082)",
+                    savedOverMissing && rewritten.ContainsKey("newerBuildKey") &&
+                    (int)rewritten["newerBuildKey"]["keep"] == 1 && (int)rewritten["TimeoutSeconds"] == 45);
+
+                // --- RA-085: the active-slot snapshot cannot write the file; the live instance can ---
+                AiSettings liveInstance = AiSettings.Load();
+                ok &= Check(sb, "the active-slot snapshot can never write the settings file (RA-085)",
+                    !liveInstance.ActiveSlotSnapshot().SaveWithin(AiSettings.ProcessLockTimeoutMilliseconds));
+                ok &= Check(sb, "WITNESS the live instance it was taken from still saves",
+                    liveInstance.SaveWithin(AiSettings.ProcessLockTimeoutMilliseconds));
+            }
+            catch (Exception ex)
+            {
+                ok &= Check(
+                    sb,
+                    "settings recovery wording self-test threw " + ex.GetType().Name + ": " + ex.Message,
+                    false);
+            }
+            finally
+            {
+                AiPaths.SwapRoot(borrowedRoot);
+                try
+                {
+                    if (Directory.Exists(directory))
+                        Directory.Delete(directory, true);
+                }
+                catch
+                {
+                    ok &= Check(sb, "settings recovery wording self-test cleanup", false);
+                }
+            }
+            return ok;
         }
 
         private static SemaphoreSlim GetManagerOperation(

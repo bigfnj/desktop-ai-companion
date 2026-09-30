@@ -1153,14 +1153,15 @@ CASES = (
     # F067: the stand-down guard inside Ask, which the hotkey and the tray row reach with no responder in
     # front of them. The mutation leaves the call in place and makes it unreachable, the shape a source regex
     # for the call's presence cannot see.
+    # (Re-pointed by lane burn/aibrain, RA-060: the log line moved into LogDeclined.)
     ("aibrain: the explicit ask ignores the fullscreen stand-down again",
      os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
      b"            if (FullscreenBlocked())\n"
      b"            {\n"
-     b'                try { host.Log(Info.Id, "ask declined: fullscreen stand-down"); } catch { }',
+     b'                LogDeclined(host, "fullscreen stand-down");',
      b"            if (FullscreenBlocked() && host == null)\n"
      b"            {\n"
-     b'                try { host.Log(Info.Id, "ask declined: fullscreen stand-down"); } catch { }',
+     b'                LogDeclined(host, "fullscreen stand-down");',
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "the tray ask is DECLINED while a fullscreen app runs"),
@@ -1580,11 +1581,17 @@ CASES = (
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "the local listing is bounded the same way"),
 
-    # R-014: an empty re-list replaces a good inventory again.
+    # R-014: an empty re-list replaces a good inventory again. Re-pointed by lane burn/aibrain (RA-062): the
+    # branch no longer tests _available, because an empty listing is never stored; the mutant confines it to
+    # the unknown-inventory case, so a re-list that comes back empty overwrites a known one again.
     ("aibrain: an empty re-list replaces a good inventory again",
      os.path.join(REPO, "modules", "AiBrain", "engine", "AiBrain.cs"),
-     b"                if (listed.Count == 0 && _available != null)",
-     b"                if (listed.Count == 0 && _available != null && _available == null)",
+     b"                if (listed.Count == 0)\n"
+     b"                {\n"
+     b"                    // A listing whose bound tripped comes back empty",
+     b"                if (listed.Count == 0 && _available == null)\n"
+     b"                {\n"
+     b"                    // A listing whose bound tripped comes back empty",
      AIBRAIN_CSPROJ, AIBRAIN_DLL,
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "an empty re-list (a bound that tripped) keeps the previous inventory"),
@@ -2326,6 +2333,372 @@ CASES = (
      b"                    ShimejiAction source = members[i];",
      SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
      SHIMEJI, None, "moonwalks over the left-facing art"),
+
+
+    # ---- lane burn/aibrain ----
+    # The Phase 8 burn-down of the aibrain lane (RA-054 to RA-087, R-012, R-013, R-016 to R-019, R-021, R-023).
+    # Every case runs --module-selftest=aibrain, whose module instances aim their local slot at 127.0.0.1:9 and
+    # whose backends are doubles; nothing here loads a model or contacts a provider. Names carry the
+    # "burn-aibrain:" prefix so `--only=burn-aibrain` runs the lane.
+
+    # RA-063: the audition takes the overload that defaults allowSubstitution to true again, so a cloud primary's
+    # audition bills five requests to whatever the provider lists first.
+    ("burn-aibrain: the audition substitutes on a cloud primary again",
+     AIBRAIN_ENGINE,
+     b"                SubstituteMissingModel, BackendHostDescription);",
+     b"                true, BackendHostDescription);",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the audition never substitutes on a cloud primary"),
+
+    # RA-065: the release names the configured ids only, so the substitute a turn sent stays resident.
+    ("burn-aibrain: the release forgets the substitute it sent again",
+     AIBRAIN_ENGINE,
+     b"            foreach (string model in new[] { _textModel, _visionModel, _sentTextModel, _sentVisionModel })",
+     b"            foreach (string model in new[] { _textModel, _visionModel })",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the release names the substitute a turn sent"),
+
+    # RA-058: a typed key that could not be stored no longer refuses the save.
+    ("burn-aibrain: a typed key that is not stored still reports a saved pane",
+     AIBRAIN_MODULE,
+     b"            if (!ApplyPaneValues(s, values, out keyError))",
+     b"            if (!ApplyPaneValues(s, values, out keyError) && keyError == null)",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a key typed with no provider selected is not stored"),
+
+    # RA-055: the pending-aware press auditions the saved settings again.
+    ("burn-aibrain: the audition ignores the pending disposition again",
+     AIBRAIN_MODULE,
+     b"            AiSettings s = pending == null ? saved : PendingSettings(saved, pending, out pendingError);",
+     b"            AiSettings s = pending == null || pending != null ? saved : PendingSettings(saved, pending, out pendingError);",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the audition reads the pending disposition"),
+
+    # RA-056: the audition-end eviction runs under the chat deadline again (unbounded against a hung unload).
+    ("burn-aibrain: the audition-end unload is unbounded again",
+     AIBRAIN_MODULE,
+     b"                        await UnloadWithinAsync(brain, AuditionUnloadBudget, run.Token).ConfigureAwait(false);",
+     b"                        await brain.UnloadAsync(run.Token).ConfigureAwait(false);",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the audition-end unload is bounded"),
+
+    # RA-057, both cuts: a UTF-16 index again.
+    ("burn-aibrain: the audition pane splits a surrogate pair again",
+     AIBRAIN_MODULE,
+     b'            return one.Length > maximum ? UnicodeTextProgress.TruncateAtCodePointBoundary(one, maximum) + "\xe2\x80\xa6" : one;',
+     b'            return one.Length > maximum ? one.Substring(0, maximum) + "\xe2\x80\xa6" : one;',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the audition pane cuts a sample at a code point boundary"),
+    ("burn-aibrain: the already-said clause splits a surrogate pair again",
+     AIBRAIN_ENGINE,
+     b'                if (said.Length > PerRemark) said = UnicodeTextProgress.TruncateAtCodePointBoundary(said, PerRemark) + "\xe2\x80\xa6";',
+     b'                if (said.Length > PerRemark) said = said.Substring(0, PerRemark) + "\xe2\x80\xa6";',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the already-said clause quotes a remark cut at a code point boundary"),
+
+    # RA-059: the cloud listing drops the failure it folds into an empty list again.
+    ("burn-aibrain: an answered 401 on a model refresh reads as no models again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "OpenAiCompatBackend.cs"),
+     b"            catch (Exception ex) { LastListingFailure = ex; }",
+     b"            catch (Exception ex) { LastListingFailure = ex == null ? ex : null; }",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a model refresh names an answered refusal"),
+
+    # RA-060: two of the explicit path's refusals go quiet again.
+    ("burn-aibrain: the tray ask declines with no companion silently again",
+     AIBRAIN_MODULE,
+     b'            if (pet == null || !host.IsCompanionAlive(pet)) return Declined(host, explicitPath, "no companion");',
+     b'            if (pet == null || !host.IsCompanionAlive(pet)) return Declined(host, false, "no companion");',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an explicit ask with no companion says so in the log"),
+    ("burn-aibrain: the tray ask declines with speech off silently again",
+     AIBRAIN_MODULE,
+     b'            if (!host.SpeechEnabled) return Declined(host, explicitPath, "speech off");',
+     b'            if (!host.SpeechEnabled) return Declined(host, false, "speech off");',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an explicit ask with speech off says so in the log"),
+
+    # R-013: the tray row reads the stored switch again, and the status row says On whatever CanUse said.
+    ("burn-aibrain: the inert tray row is offered again",
+     AIBRAIN_MODULE,
+     b"                    Visible = delegate { return _session.Enabled; },",
+     b"                    Visible = delegate { return _settings != null && _settings.AiBrainEnabled; },",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the tray row is hidden while the brain is not started"),
+    ("burn-aibrain: the status row says on while the brain is not started",
+     AIBRAIN_MODULE,
+     b'            if (!CanUse(s, out why)) return "Not started: " + why;',
+     b'            if (!CanUse(s, out why) && why == null) return "Not started: " + why;',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the pane's status names the reason the brain is not started"),
+
+    # RA-062, both halves: the composite lists a primary its probe saw down, and the brain stops re-listing an
+    # unknown inventory.
+    ("burn-aibrain: the composite enumerates a primary its probe saw down again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "FallbackBackend.cs"),
+     b"            if (lister == null || _primaryProbe == PrimaryDown)",
+     b"            if (lister == null)",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the composite cannot enumerate while its primary is down"),
+    ("burn-aibrain: an unknown inventory is never re-listed again",
+     AIBRAIN_ENGINE,
+     b"            if (up && (!wasUp || _available == null)) await RefreshInventoryAsync(ct).ConfigureAwait(false);",
+     b"            if (up && !wasUp) await RefreshInventoryAsync(ct).ConfigureAwait(false);",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an unknown inventory is re-listed on the next check"),
+
+    # RA-067: the generation compare is made vacuous, so a Forget that lands mid-walk is cached over.
+    ("burn-aibrain: a forget during a resolution walk is lost again",
+     AIBRAIN_ENGINE,
+     b"            if (Volatile.Read(ref _tesseractGeneration) == generation)",
+     b"            if (Volatile.Read(ref _tesseractGeneration) >= generation)",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a path chosen while a resolution is walking is not lost"),
+
+    # RA-068: the production transport follows redirects again; every earlier probe injected its own handler.
+    ("burn-aibrain: the production handler follows redirects again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiEndpointPolicy.cs"),
+     b"                AllowAutoRedirect = false,",
+     b"                AllowAutoRedirect = true,",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the production handler follows no redirect"),
+
+    # RA-072: the shared seed loses its loopback pin, so every module instance's local slot resolves to the
+    # machine's Ollama. No instance in this probe makes a request either way; the pin is asserted so a future
+    # check that does cannot reach a live server by accident.
+    ("burn-aibrain: the module probe's seed loses the loopback pin",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiEngineProbe.Lifecycle.cs"),
+     b'\\"Endpoint\\": \\"http://127.0.0.1:9\\"',
+     b'\\"Endpoint\\": \\"http://localhost:11434\\"',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the module instance's local slot is pinned to a loopback port"),
+
+    # RA-073, the three call sites: the audition brain built with the live residency's keep_alive, prepared with
+    # a warm-up, and left resident after the run.
+    ("burn-aibrain: the audition brain is built with the live keep_alive again",
+     AIBRAIN_MODULE,
+     b"                int? keepAlive = AuditionKeepAliveSeconds(s);",
+     b"                int? keepAlive = s.KeepAliveForRequests;",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the audition builds its brain with the audition window"),
+    ("burn-aibrain: the audition's preparation warms the model again (call site)",
+     AIBRAIN_MODULE,
+     b"                    if (!await brain.PrepareAsync(run.Token, false).ConfigureAwait(false))",
+     b"                    if (!await brain.PrepareAsync(run.Token).ConfigureAwait(false))",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "under 'keep' the audition still prepares without a warm-up"),
+    ("burn-aibrain: the audition keeps its model after the run again",
+     AIBRAIN_MODULE,
+     b"                    if (string.Equals(s.ModelResidency, AiSettings.ResidencyUnload, StringComparison.OrdinalIgnoreCase))\n"
+     b"                        await UnloadWithinAsync(brain, AuditionUnloadBudget, run.Token).ConfigureAwait(false);",
+     b"                    if (s == null && string.Equals(s.ModelResidency, AiSettings.ResidencyUnload, StringComparison.OrdinalIgnoreCase))\n"
+     b"                        await UnloadWithinAsync(brain, AuditionUnloadBudget, run.Token).ConfigureAwait(false);",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the audition evicts when the run ends under 'unload' (call site)"),
+
+    # RA-074: one check throws. With the per-check guard the report carries a FAIL naming THAT check and the
+    # group's later checks still run; with the group guard alone the line named the group.
+    ("burn-aibrain: one throwing check hides its group again",
+     AIENGINE_SECURITY,
+     b"        private static bool CheckAiHttpStatusPolicy(StringBuilder sb)\n"
+     b"        {\n"
+     b"            bool ok = true;\n",
+     b"        private static bool CheckAiHttpStatusPolicy(StringBuilder sb)\n"
+     b"        {\n"
+     b"            bool ok = true;\n"
+     b"            if (ok) throw new InvalidOperationException(\"mutation: the check throws\");\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "CheckAiHttpStatusPolicy threw"),
+
+    # RA-079: a brain superseded during its build is retired with the eviction whatever comes next.
+    ("burn-aibrain: a superseded fresh brain evicts the kept model again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiSessionManager.cs"),
+     b"                        await RetireBrainAsync(_brain, releaseModelOverride ?? !keptForNext).ConfigureAwait(false);",
+     b"                        await RetireBrainAsync(_brain, releaseModelOverride ?? (keptForNext || !keptForNext)).ConfigureAwait(false);",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a brain superseded during its build by the same fingerprint under 'keep' is retired without eviction"),
+
+    # R-012: the fingerprint is recorded when the Apply is ISSUED again (the module's old shape, inside the
+    # session), so a queued Apply that never builds leaves it behind for the next one to match.
+    ("burn-aibrain: the fingerprint is recorded when the Apply is issued again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiSessionManager.cs"),
+     b"                _factoryFingerprint = backendFingerprint;\n",
+     b"                _factoryFingerprint = backendFingerprint;\n"
+     b"                _liveFingerprint = backendFingerprint;\n",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an Apply cancelled while queued never becomes the fingerprint"),
+
+    # RA-080, both writes: the default write's result discarded again, and the normalization rewrite's.
+    ("burn-aibrain: a failed default write is silent again",
+     AISETTINGS,
+     b"            bool defaultsWritten = defaults.SaveCore();",
+     b"            bool defaultsWritten = defaults.SaveCore() || true;",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a default file that could not be written is said"),
+    ("burn-aibrain: a failed normalization rewrite is silent again",
+     AISETTINGS,
+     b"                if (changed && result == ReadResult.Loaded && !loaded.SaveCore())",
+     b"                if (changed && result == ReadResult.Loaded && !loaded.SaveCore() && loaded == null)",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a normalization the store could not write back is said"),
+
+    # RA-081: the backup's fate drops out of the recovery warning again.
+    ("burn-aibrain: the recovery warning drops the backup's fate again",
+     AISETTINGS,
+     b"            string backup = backupFailure == null",
+     b"            string backup = backupFailure == null || backupFailure != null",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the reset-to-defaults warning says there was no backup"),
+
+    # RA-082: the save over a missing file seeds an empty target again.
+    ("burn-aibrain: a save over a missing file drops the unknown keys again",
+     AISETTINGS,
+     b"                target = (JsonObject)current.DeepClone();",
+     b"                target = new JsonObject();",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a save over a missing file keeps the unknown keys"),
+
+    # RA-083: the residency token is not trimmed again (the lowercase and known-value clamps then read the
+    # padded token as unknown and fall back to unload).
+    ("burn-aibrain: a padded residency token survives normalization again",
+     AISETTINGS,
+     b"            changed |= NormalizeString(ref ModelResidency, ResidencyUnload, 16);",
+     b"            changed |= false;",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a residency token with a stray space or capital normalizes to its value"),
+
+    # RA-085: the active-slot snapshot is saveable again.
+    ("burn-aibrain: the active-slot snapshot is saveable again",
+     AISETTINGS,
+     b"            AiSettings clone = (AiSettings)MemberwiseClone();\n"
+     b"            clone._detachedCopy = true;\n"
+     b"            if (!string.IsNullOrEmpty(Provider))",
+     b"            AiSettings clone = (AiSettings)MemberwiseClone();\n"
+     b"            clone._detachedCopy = _detachedCopy;\n"
+     b"            if (!string.IsNullOrEmpty(Provider))",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the active-slot snapshot can never write the settings file"),
+
+    # R-018, both halves: a sharing violation is corruption again, and a copy whose delete failed answers null.
+    ("burn-aibrain: a held settings file is corruption again",
+     AISETTINGS,
+     b"            catch (IOException ex) when (!(ex is FileNotFoundException) &&",
+     b"            catch (IOException ex) when (ex is FileNotFoundException &&",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a settings file held open by another process is not corruption"),
+    ("burn-aibrain: a kept copy whose primary could not be removed reads as overwritten again",
+     AISETTINGS,
+     b"                primaryRemoved = true;\n"
+     b"            }\n"
+     b"            catch { }\n"
+     b"            return recovery;",
+     b"                primaryRemoved = true;\n"
+     b"            }\n"
+     b"            catch { return null; }\n"
+     b"            return recovery;",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a rejected primary that could not be removed is still kept"),
+
+    # R-016: the classification the probe asserts is the one production runs; a 429 classed deterministic in
+    # EnsureSuccessAsync now fails the probe by name.
+    ("burn-aibrain: the production classifier files 429 as deterministic",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiEndpointPolicy.cs"),
+     b"            throw new AiBackendHttpException(statusCode, IsTransientStatus(statusCode), ExtractProviderErrorMessage(body));",
+     b"            throw new AiBackendHttpException(statusCode, false, ExtractProviderErrorMessage(body));",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "HTTP 429 is retryable"),
+
+    # R-023: the PUBLIC constructors' probe bound borrows the chat deadline again.
+    ("burn-aibrain: the local probe's public wiring borrows the chat deadline again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "OllamaClient.cs"),
+     b"            _availabilityDeadline = AiEndpointPolicy.Shorter(_deadline, AiEndpointPolicy.AvailabilityProbeDeadline);",
+     b"            _availabilityDeadline = _deadline;",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the shipped Ollama client's reachability probe is bounded by the probe deadline"),
+    ("burn-aibrain: the cloud probe's public wiring borrows the chat deadline again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "OpenAiCompatBackend.cs"),
+     b"            _probeDeadline = AiEndpointPolicy.Shorter(_deadline, AiEndpointPolicy.AvailabilityProbeDeadline);",
+     b"            _probeDeadline = _deadline;",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the shipped cloud backend's reachability probe is bounded the same way"),
+
+    # RA-087, three legs: the composite maps the warm-up by id again, forgets the model it warmed, and the brain
+    # names the wrong path.
+    ("burn-aibrain: the composite warms the local model by id again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "FallbackBackend.cs"),
+     b"            return WarmLocalAsync(model, visionPath ? _localVisionModel : _localTextModel, ct);",
+     b"            return WarmLocalAsync(model, LocalModelFor(model), ct);",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the composite warms the local model for the PATH"),
+    ("burn-aibrain: the composite forgets the model it warmed again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "FallbackBackend.cs"),
+     b"            _lastLocalModel = localModel;\n"
+     b"            try { await _local.WarmUpAsync(localModel, ct).ConfigureAwait(false); } catch { }",
+     b"            if (localModel == null) _lastLocalModel = localModel;\n"
+     b"            try { await _local.WarmUpAsync(localModel, ct).ConfigureAwait(false); } catch { }",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the release covers the model the warm-up loaded"),
+    ("burn-aibrain: the brain's warm-up names the wrong path",
+     AIBRAIN_ENGINE,
+     b"                    await _backend.WarmUpAsync(_useVision ? _visionModel : _textModel, _useVision, ct).ConfigureAwait(false);",
+     b"                    await _backend.WarmUpAsync(_useVision ? _visionModel : _textModel, !_useVision, ct).ConfigureAwait(false);",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the brain's 'keep' warm-up names the path"),
+
+    # RA-076: the UI save budget grows past the ceiling the pane can bear.
+    ("burn-aibrain: the UI save budget grows past two seconds",
+     AISETTINGS,
+     b"        internal const int UiSaveBudgetMilliseconds = 1500;",
+     b"        internal const int UiSaveBudgetMilliseconds = 4000;",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the UI save budget stays under two seconds"),
+
+    # RA-071: the Test OCR verdict stops being a pane status line.
+    ("burn-aibrain: the Test OCR verdict is blank",
+     AIBRAIN_MODULE,
+     b"                return verdict;",
+     b'                return "";',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the Test OCR verdict is a pane status line"),
 
 
     # ---- lane fix/deadcode ----
