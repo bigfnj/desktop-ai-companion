@@ -9,6 +9,25 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+# WINDOWS POWERSHELL MUST NOT AUTOLOAD PWSH'S MODULES. A powershell.exe descended from a pwsh 7 process
+# inherits pwsh's PSModulePath with the PowerShell 7 module folders FIRST, and the 5.1 engine then autoloads
+# Get-FileHash from the 7-only Microsoft.PowerShell.Utility manifest it cannot run: this script died with
+# `The term 'Get-FileHash' is not recognized` inside the gate when the gate was launched through a shell
+# pwsh had started (2026-09-30; the N-fortunes-01 trap, which the mutation harnesses already fence off for
+# their powershell.exe children). Under the Desktop edition the process keeps only the WindowsPowerShell
+# entries it inherited and is guaranteed the two system defaults; under pwsh this does nothing. The same
+# block sits at the top of tests/run-gate.ps1, which runs this file in-process.
+if ($PSVersionTable.PSEdition -eq 'Desktop') {
+    $windowsModulePaths = @(($env:PSModulePath -split ';') | Where-Object { $_ -and $_ -match '(?i)windowspowershell' })
+    foreach ($defaultModulePath in @((Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules'),
+                                     (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\Modules'))) {
+        if (-not @($windowsModulePaths | Where-Object { $_ -ieq $defaultModulePath }).Count) {
+            $windowsModulePaths += $defaultModulePath
+        }
+    }
+    $env:PSModulePath = ($windowsModulePaths -join ';')
+}
+
 function Assert-True {
     param([bool] $Condition, [string] $Name)
     if (-not $Condition) { throw "$Name failed." }

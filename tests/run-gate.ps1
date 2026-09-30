@@ -27,6 +27,26 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+# WINDOWS POWERSHELL MUST NOT AUTOLOAD PWSH'S MODULES. A powershell.exe descended from a pwsh 7 process
+# inherits pwsh's PSModulePath with the PowerShell 7 module folders FIRST, and the 5.1 engine then autoloads
+# Get-FileHash from the 7-only Microsoft.PowerShell.Utility manifest it cannot run. This gate, launched
+# through a shell that pwsh had started, reported `runtime-hardening-selftest.ps1: The term 'Get-FileHash'
+# is not recognized` (2026-09-30): the N-fortunes-01 trap reaching the gate itself, after the mutation
+# harnesses had already learnt to hand their powershell.exe children a Windows PowerShell module path.
+# Which shell started the gate must not decide whether it can run, so under the Desktop edition the
+# process keeps only the WindowsPowerShell entries it inherited and is guaranteed the two system defaults.
+# Under pwsh this does nothing. Same block in tests/runtime-hardening-selftest.ps1, which also runs alone.
+if ($PSVersionTable.PSEdition -eq 'Desktop') {
+    $windowsModulePaths = @(($env:PSModulePath -split ';') | Where-Object { $_ -and $_ -match '(?i)windowspowershell' })
+    foreach ($defaultModulePath in @((Join-Path $env:ProgramFiles 'WindowsPowerShell\Modules'),
+                                     (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\Modules'))) {
+        if (-not @($windowsModulePaths | Where-Object { $_ -ieq $defaultModulePath }).Count) {
+            $windowsModulePaths += $defaultModulePath
+        }
+    }
+    $env:PSModulePath = ($windowsModulePaths -join ';')
+}
+
 $repoRoot = [IO.Path]::GetFullPath((Split-Path $PSScriptRoot -Parent))
 Push-Location $repoRoot
 try {
