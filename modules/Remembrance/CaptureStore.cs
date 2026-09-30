@@ -106,12 +106,13 @@ namespace DesktopAICompanion.RemembranceModule
         /// <summary>
         /// Does this file name match something <see cref="NewCapture"/> would have produced?
         ///
-        /// Derived from the same strings NewCapture and AudioRecorder use, so they cannot drift apart silently: inside a
-        /// capture folder it writes "recording.wav" and "snap*.png"; flat in the root it writes
-        /// "{base}.wav" and "{base} - snap*.png". The flat audio case is the loose one -- any .wav in the root
-        /// matches -- and it has to be, because the base name is the user's meeting title and is not
-        /// recoverable from the file name alone. That is the case the one-level rule and the folder-per-capture
-        /// default exist to contain.
+        /// Derived from the same strings NewCapture and AudioRecorder use, so they cannot drift apart silently:
+        /// inside a capture folder it writes "recording.wav", the two scratch WAVs and stamped snapshot PNGs;
+        /// flat in the root it writes "{stamp}.wav" or "{meeting} - {stamp}.wav", their scratch siblings and
+        /// "{base} - snap ..." PNGs. Every branch is a PARSED shape (a trailing stamp, a known suffix), never an
+        /// extension alone. Until 1.0.16 the flat audio case matched ANY .wav in the root, and this summary went
+        /// on describing that loose rule after the body stopped implementing it (F170); the one-level rule and
+        /// the folder-per-capture default are the second and third fences.
         /// </summary>
         internal static bool NamesThisModuleWrites(string fileName, bool insideCaptureFolder)
         {

@@ -787,6 +787,14 @@ would make the checks follow a change they exist to flag; the literal is the pin
 the WITNESS that compared CompanionXmlValidator.MaximumSpriteTiles to the constant it is defined as (F300),
 which now pins the literal on both sides and names the converter's two literal copies.
 
+**Remembrance keeps friendly names, not endpoint ids, and MeetingContext.Location stays parsed ahead of a
+consumer (2026-09-30, F167, F172).** The `AudioDevice.Id` field was write-only from the day it shipped (the design
+began with stable ids and shipped with names), so it went rather than gaining a display-to-id map in a lane about dead
+code; the collapse of two same-named endpoints onto one row is filed as N-deadcode-01 for the module's owner, who
+decides between ids and names. `MeetingContext.Location` is parsed and read only by the self-test, which is the point:
+modules/Reminder/CALENDAR-FEED.md promises the producer that `.location` is safe to include, and the check keeps the
+consumer side honest until something reads it.
+
 #### fix/scripts
 
 (none yet)
