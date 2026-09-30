@@ -289,7 +289,7 @@ namespace DesktopAICompanion.Wpf
 
             var top = new StackPanel { Orientation = Orientation.Horizontal };
             ImageSource img = LoadThumb(addId);
-            if (img == null && row.IsBuiltIn) img = LoadAppIcon();   // the default eSheep isn't in the thumbnail zip
+            if (img == null && row.IsBuiltIn) img = LoadAppIconCached();   // the default eSheep isn't in the thumbnail zip
             if (img != null) top.Children.Add(new Image { Source = img, Width = 32, Height = 32, Margin = new Thickness(0, 0, 6, 0) });
             var nameStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
             nameStack.Children.Add(new TextBlock { Text = row.DisplayName ?? row.Id, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
@@ -387,13 +387,18 @@ namespace DesktopAICompanion.Wpf
                 };
                 soundLink.Click += delegate
                 {
-                    enabled = !enabled;
-                    soundRun.Text = enabled ? "sound on" : "sound off";
-                    try { if (Program.Mainthread != null) Program.Mainthread.SetPetSound(addId, enabled); } catch { }
+                    bool wanted = !enabled;
+                    try { if (Program.Mainthread != null) Program.Mainthread.SetPetSound(addId, wanted); } catch { }
                     // Read back: IsPetSoundEnabled is the same question the toggle asked above.
-                    bool stored = enabled;
+                    bool stored = wanted;
                     try { if (Program.MyData != null) stored = Program.MyData.IsPetSoundEnabled(addId); } catch { }
-                    _status.Text = stored != enabled
+                    // The link follows the STORE, not the click (F363). It used to flip before the write
+                    // and stay flipped when the write failed, so the card read "sound off" for a pet that
+                    // kept making sounds, the status line saying "unchanged" beside it was the transient
+                    // one, and the next click "changed" it back to the value it had never left.
+                    enabled = stored;
+                    soundRun.Text = enabled ? "sound on" : "sound off";
+                    _status.Text = stored != wanted
                         ? "Couldn't save the sound setting for " + displayName + "; it is unchanged."
                         : displayName + (enabled ? " sounds on." : " sounds muted.");
                 };
@@ -448,6 +453,11 @@ namespace DesktopAICompanion.Wpf
             // while the STORE hears about it once, when the drag ends.
             bool dragging = false;
             int pendingPercent = startPercent;
+            // What the last persist read back: true until a write is seen to fail (F364).
+            bool storeTookIt = true;
+            // True while persistPending moves the thumb back to the stored value, so the ValueChanged that
+            // programmatic move raises is not taken for a new request and re-run (F363).
+            bool reverting = false;
             Action persistPending = delegate
             {
                 try { if (Program.Mainthread != null) Program.Mainthread.SetPetScalePercent(addId, pendingPercent); }
@@ -463,8 +473,20 @@ namespace DesktopAICompanion.Wpf
                         storedPercent = Program.MyData.GetEffectivePetScalePercent(addId);
                 }
                 catch { }
-                if (storedPercent != pendingPercent)
-                    _status.Text = "Couldn't save the size for " + displayName + "; it is unchanged.";
+                storeTookIt = storedPercent == pendingPercent;
+                if (storeTookIt) return;
+                _status.Text = "Couldn't save the size for " + displayName + "; it is unchanged.";
+                // ...and the thumb and readout follow the store too (F363): a slider left at the value
+                // that was not saved is a control disagreeing with the status line beside it, and the
+                // status line is the transient one.
+                reverting = true;
+                try
+                {
+                    pendingPercent = storedPercent;
+                    slider.Value = storedPercent;
+                    readout.Text = storedPercent + "%";
+                }
+                finally { reverting = false; }
             };
 
             slider.AddHandler(Thumb.DragStartedEvent, new DragStartedEventHandler(delegate { dragging = true; }));
@@ -480,12 +502,20 @@ namespace DesktopAICompanion.Wpf
 
             slider.ValueChanged += delegate
             {
+                if (reverting) return;
                 int pct = (int)Math.Round(slider.Value);
                 pendingPercent = pct;
                 readout.Text = pct + "%";
+                storeTookIt = true;
                 // Keyboard, a click on the track, or a programmatic set: no drag is in progress, so
                 // there is nothing to coalesce and the old immediate behaviour is exactly right.
                 if (!dragging) persistPending();
+                // Only when the store took it (F364). This line is a claim about the STORE, and on the
+                // keyboard and track-click path it was written one statement after persistPending's
+                // "Couldn't save the size", so the read-back's verdict lived for exactly one statement
+                // and a success-shaped sentence replaced it. The drag path was never affected: it
+                // persists from DragCompleted, after the last ValueChanged.
+                if (!storeTookIt) return;
                 _status.Text = displayName + " size " + pct + "%. Add " + displayName + " (or restart) to see it.";
             };
 
@@ -530,8 +560,12 @@ namespace DesktopAICompanion.Wpf
             box.SelectedIndex = pinned >= 0 ? pinned + 1 : 0;   // index 0 is "Any screen"
             box.ToolTip = "pin " + displayName + " to one screen; it will not wander or be moved off it";
 
+            // True while the failure branch below puts the combo back on the stored screen, so the
+            // SelectionChanged that raises is not taken for a new choice and written again (F363).
+            bool syncingBox = false;
             box.SelectionChanged += delegate
             {
+                if (syncingBox) return;
                 int choice = box.SelectedIndex - 1;             // -1 == Any
                 // READ BACK, do not echo the input. The setter returns false for a failed durable
                 // write AND rolls the in-memory value back with it, and that bool was discarded --
@@ -549,6 +583,10 @@ namespace DesktopAICompanion.Wpf
                 if (storedChoice != choice)
                 {
                     _status.Text = "Couldn't save the screen for " + displayName + "; it is unchanged.";
+                    // The combo follows the store (F363): it showed the pin that did not take.
+                    syncingBox = true;
+                    try { box.SelectedIndex = storedChoice >= 0 ? storedChoice + 1 : 0; }
+                    finally { syncingBox = false; }
                 }
                 else
                 {
@@ -572,10 +610,10 @@ namespace DesktopAICompanion.Wpf
             {
                 if (_netCts != null) { _netCts.Cancel(); _netCts.Dispose(); }
                 _netCts = new CancellationTokenSource();
-                // Pressing the button is an explicit "check NOW", so drop the shared copy first:
-                // reusing an answer from seconds ago would make the button look like it did nothing.
-                RemoteCatalogClient.InvalidateShared();
-                _lastCatalog = await RemoteCatalogClient.FetchAsync(_netCts.Token);
+                // Pressing the button is an explicit "check NOW", so the shared copy is dropped and
+                // REFILLED (F286): reusing an answer from seconds ago would make the button look like it
+                // did nothing, and dropping it without refilling made the next pane fetch again.
+                _lastCatalog = await RemoteCatalogClient.RefreshSharedAsync(_netCts.Token);
                 if (!IsLoaded) return;
                 List<CatalogCompanion> newPets = DiffNew();
                 // Off the UI thread, for the reason RefreshCatalogOnOpen gives: this SHA-256s every
@@ -786,7 +824,13 @@ namespace DesktopAICompanion.Wpf
                 if (!IsLoaded) return;
                 RenderUpdates(restale);
             }
-            catch (OperationCanceledException) { }
+            // Said out loud, as the Modules pane's install already does (F366). The Check button cancels
+            // this token, so a silent swallow left the status line reading whatever the check wrote, the
+            // button re-enabled, and the user never told the download had been stopped.
+            catch (OperationCanceledException)
+            {
+                if (IsLoaded) _status.Text = "Stopped " + (isUpdate ? "updating " : "downloading ") + display + ".";
+            }
             catch (Exception ex) { if (IsLoaded) _status.Text = "Couldn't " + (isUpdate ? "update " : "download ") + display + ": " + Short(ex.Message); }
             finally { if (IsLoaded && trigger != null) trigger.IsEnabled = true; }
         }
@@ -941,6 +985,14 @@ namespace DesktopAICompanion.Wpf
         /// </summary>
         private static readonly Dictionary<string, ImageSource> _iconCache = new Dictionary<string, ImageSource>(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>The pane's caches follow the catalog's Forget: any writer that rewrites or deletes a pet
+        /// file calls CompanionCatalog.Forget, and this is what makes that one call reach the stats and icon
+        /// caches too, without src/dotNet having to know about a WPF class (F336).</summary>
+        static CompanionsPaneControl()
+        {
+            CompanionCatalog.Forgotten += ForgetStats;
+        }
+
         /// <summary>
         /// Forget one pet's cached counts, because its animations.xml has just been rewritten. Paired with
         /// <see cref="CompanionCatalog.Forget"/>: both caches are process-lifetime and keyed by id, so an in-process
@@ -1092,6 +1144,9 @@ namespace DesktopAICompanion.Wpf
                 for (int i = 0; i < onScreen; i++)
                     try { if (Program.Mainthread != null) Program.Mainthread.RemoveOnePet(id); } catch { }
                 if (Directory.Exists(dir)) Directory.Delete(dir, true);
+                // The file is gone, so the name, icon and counts cached under this id are for a pet that no
+                // longer exists; a later reinstall under the same id would have shown the old ones (F249).
+                CompanionCatalog.Forget(id);
                 _status.Text = "Uninstalled " + name + ".";
             }
             catch (Exception ex) { _status.Text = "Couldn't uninstall: " + ex.Message; }
@@ -1101,12 +1156,35 @@ namespace DesktopAICompanion.Wpf
             RenderAvailable(DiffNew());
         }
 
-        /// <summary>Fallback thumbnail for the built-in eSheep (not present in the thumbnail zip): the app icon.</summary>
+        /// <summary>
+        /// The built-in card's icon, cached under <see cref="CompanionCatalog.BuiltInPetId"/> (F365).
+        /// LoadThumb caches its MISS for that id -- the thumbnail zip has no esheep.png -- which is right
+        /// for a library pet and meant this card alone re-ran LoadAppIcon on every rebuild: one fresh Icon
+        /// (a live HICON, left to the finalizer), one PNG encode and one decode per pane visit and per
+        /// Use/Add/Remove press. A hit REPLACES the null entry; FromPng returns a frozen image, so sharing
+        /// one instance across cards is safe, and ForgetStats never targets the built-in id.
+        /// </summary>
+        private static ImageSource LoadAppIconCached()
+        {
+            lock (_iconCache)
+            {
+                ImageSource hit;
+                if (_iconCache.TryGetValue(CompanionCatalog.BuiltInPetId, out hit) && hit != null) return hit;
+            }
+            ImageSource icon = LoadAppIcon();
+            if (icon != null) lock (_iconCache) { _iconCache[CompanionCatalog.BuiltInPetId] = icon; }
+            return icon;
+        }
+
+        /// <summary>Fallback thumbnail for the built-in eSheep (not present in the thumbnail zip): the app
+        /// icon. The resource accessor materialises a NEW Icon on every read (ResourceManager caches only
+        /// primitive-typed resources), so it is disposed here rather than left for the finalizer (F365).</summary>
         private static ImageSource LoadAppIcon()
         {
             try
             {
-                using (var bmp = DesktopAICompanion.Properties.Resources.icon.ToBitmap())
+                using (System.Drawing.Icon icon = DesktopAICompanion.Properties.Resources.icon)
+                using (var bmp = icon.ToBitmap())
                 using (var ms = new MemoryStream())
                 {
                     bmp.Save(ms, System.Drawing.Imaging.ImageFormat.Png);

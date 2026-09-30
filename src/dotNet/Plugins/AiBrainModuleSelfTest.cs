@@ -44,9 +44,7 @@ namespace DesktopAICompanion.Plugins
                 // (the shared build folder also has fortunes/sound/testmodule, which DO subscribe).
                 tempRoot = SelfTestScratch.Create("aibrain");
                 string dest = Path.Combine(tempRoot, "aibrain");
-                Directory.CreateDirectory(dest);
-                foreach (string file in Directory.GetFiles(bundled))
-                    File.Copy(file, Path.Combine(dest, Path.GetFileName(file)), true);
+                SelfTestScratch.CopyTree(bundled, dest);   // subfolders included (F354)
 
                 // Isolate the module's settings store + the base->module migrator under this temp root, so
                 // the test never reads or writes the real ai-settings.json and the brain loads fresh (OFF).
@@ -105,6 +103,14 @@ namespace DesktopAICompanion.Plugins
                     ok &= Check(sb, "brain ON: a drop the module declines is not claimed, so Fortunes still answers",
                         host.FireDrop(new FakeCompanion(1)) == false);
                     host.PetAlive = true;
+                    // ...and OFF again before anything else runs (F327). Enabling reconfigures the session in
+                    // the background -- up to a 20 s server-start deadline, and with AutoStartServer on by
+                    // default it can launch a detached `ollama serve` -- while the engine leg below promises no
+                    // live LLM and swaps the process-global log sink for its own. The row's Label is static
+                    // (only its DynamicText reads "Disable AI"), so the same press is the off switch; the
+                    // second Reconfigure cancels the first before it reaches the server start.
+                    ok &= Check(sb, "brain toggled back OFF before the engine leg", host.ClickTray("Enable AI"));
+                    ok &= Check(sb, "brain OFF again: the drop responder declines", host.FireDrop(new FakeCompanion(1)) == false);
                     host.Said.Clear();
 
                     // ---- STAND DOWN FOR A GAME ----

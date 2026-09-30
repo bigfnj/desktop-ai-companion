@@ -39,7 +39,6 @@
         private void InitializeComponent()
         {
 			this.components = new System.ComponentModel.Container();
-			System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(FormCompanion));
 			this.timer1 = new System.Windows.Forms.Timer(this.components);
 			this.pictureBox1 = new System.Windows.Forms.PictureBox();
 			((System.ComponentModel.ISupportInitialize)(this.pictureBox1)).BeginInit();
@@ -73,7 +72,8 @@
 			this.ControlBox = false;
 			this.Controls.Add(this.pictureBox1);
 			this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.None;
-			this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
+			// No Icon (F272): the border is None, ShowIcon is false, the window is a tool window off the
+			// taskbar, so the HICON the designer deserialised from the resx per spawn was never shown.
 			this.MaximizeBox = false;
 			this.MinimizeBox = false;
 			this.Name = "FormCompanion";

@@ -375,6 +375,7 @@ namespace DesktopAICompanion
             const BindingFlags PubInstance = BindingFlags.Public | BindingFlags.Instance;
             const BindingFlags NpStatic = BindingFlags.NonPublic | BindingFlags.Static;
             const BindingFlags NpInstance = BindingFlags.NonPublic | BindingFlags.Instance;
+            Type[] TryReadXmlSignature = new[] { typeof(string), typeof(string).MakeByRefType() };
 
             try
             {
@@ -479,7 +480,8 @@ namespace DesktopAICompanion
                 object scaledXml = Activator.CreateInstance(xmlT, new object[] { 4 });
                 try
                 {
-                    MethodInfo tryRead = xmlT.GetMethod("TryReadXml", PubInstance);
+                    // By parameter list: an unqualified lookup is ambiguous the moment a second overload exists.
+                    MethodInfo tryRead = xmlT.GetMethod("TryReadXml", PubInstance, null, TryReadXmlSignature, null);
                     Check("bundled pet decodes at requested 4x scale", (bool)tryRead.Invoke(scaledXml, new object[] { bundledXml, null }));
                     PropertyInfo spriteCountP = xmlT.GetProperty("SpriteCount", BindingFlags.Instance | BindingFlags.NonPublic);
                     int spriteCount = (int)spriteCountP.GetValue(scaledXml, new object[0]);
@@ -504,7 +506,7 @@ namespace DesktopAICompanion
                 object halfXml = Activator.CreateInstance(xmlT, new object[] { 0.5 });
                 try
                 {
-                    MethodInfo tryRead2 = xmlT.GetMethod("TryReadXml", PubInstance);
+                    MethodInfo tryRead2 = xmlT.GetMethod("TryReadXml", PubInstance, null, TryReadXmlSignature, null);
                     tryRead2.Invoke(oneXxml, new object[] { bundledXml, null });
                     tryRead2.Invoke(halfXml, new object[] { bundledXml, null });
                     long w1 = Convert.ToInt64(MemberValue(xmlT, oneXxml, "spriteWidth"));
@@ -979,6 +981,300 @@ namespace DesktopAICompanion
                 Check("name: ...and supplying null is exactly what loses it",
                     CompanionCatalog.DisplayName("shimeji-abc123", null) == "Shimeji Abc123");
 
+                // Forget reaches every per-id cache through one call (F249, F336): the pane's stats and icon
+                // caches subscribe to Forgotten, so a writer that calls Forget invalidates all three. A
+                // writer that forgot to call it is what the source invariants pin; this pins the raise.
+                string forgotten = null;
+                Action<string> listener = delegate(string id) { forgotten = id; };
+                CompanionCatalog.Forgotten += listener;
+                try
+                {
+                    CompanionCatalog.Forget("dp_selftest_rewritten_pet");
+                    Check("name: Forget raises Forgotten with the id, so the pane's caches follow",
+                        forgotten == "dp_selftest_rewritten_pet");
+                    forgotten = null;
+                    CompanionCatalog.Forget(null);
+                    Check("name: WITNESS Forget of nothing raises nothing", forgotten == null);
+                }
+                finally { CompanionCatalog.Forgotten -= listener; }
+
+                // The header read runs to </header> (F250) and is cached per file (F251). The old fixed 32K
+                // read missed a petname behind a long <info> or a large icon; the old uncached read reopened
+                // every installed pet's file on every tray open.
+                string headerDir = Path.Combine(Path.GetTempPath(), "dp-headerprobe-selftest-" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(headerDir);
+                    string headerXml = Path.Combine(headerDir, "animations.xml");
+                    string longInfo = new string('a', 40 * 1024);   // past the old 32K read, inside the new bound
+                    File.WriteAllText(headerXml,
+                        "<?xml version=\"1.0\"?><animations><header><author>x</author><title>t</title><info>" +
+                        longInfo + "</info><petname>Deep Name</petname></header><image></image></animations>");
+                    int readsBefore = CompanionCatalog.HeaderFileReads;
+                    Check("header: a petname past the old 32K read is still found",
+                        CompanionCatalog.ReadHeaderName(headerXml) == "Deep Name");
+                    Check("header: WITNESS the first look read the file", CompanionCatalog.HeaderFileReads == readsBefore + 1);
+                    CompanionCatalog.ReadHeaderName(headerXml);
+                    CompanionCatalog.ReadHeaderName(headerXml);
+                    Check("header: repeat looks at an unchanged file do not read it again",
+                        CompanionCatalog.HeaderFileReads == readsBefore + 1);
+                    // A rewrite is a MISS: the key is the file's write time and length, so the same path
+                    // with new content is read again, and the new name comes back.
+                    File.WriteAllText(headerXml,
+                        "<?xml version=\"1.0\"?><animations><header><petname>Renamed</petname></header></animations>");
+                    File.SetLastWriteTimeUtc(headerXml, File.GetLastWriteTimeUtc(headerXml).AddMinutes(1));
+                    Check("header: a rewritten file is read again and its new name comes back",
+                        CompanionCatalog.ReadHeaderName(headerXml) == "Renamed" &&
+                        CompanionCatalog.HeaderFileReads == readsBefore + 2);
+                    Check("header: WITNESS the read bound admits the largest icon a header may carry",
+                        CompanionCatalog.HeaderReadBoundChars > CompanionXmlValidator.MaximumIconBytes * 4 / 3);
+                }
+                finally { try { Directory.Delete(headerDir, true); } catch { } }
+
+                // Settings writes coalesce inside a batch (F361): N setters, ONE durable write, and a
+                // failed commit rolls every one of them back. Stated as a COUNT of writes through the
+                // store's own counter, never as a timing.
+                string batchDir = Path.Combine(Path.GetTempPath(), "dp-batchprobe-selftest-" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(batchDir);
+                    var store = new AppSettingsStore(Path.Combine(batchDir, "settings.json"), new string[0]);
+                    var data = new LocalData(store);
+                    int writesBefore = store.DurableWrites;
+                    data.SetVolume(0.4); data.SetMultiscreen(true); data.SetSpeechDuration(9);
+                    Check("batch: WITNESS three setters outside a batch are three durable writes",
+                        store.DurableWrites == writesBefore + 3);
+                    writesBefore = store.DurableWrites;
+                    bool committed;
+                    using (LocalData.Batch batch = data.BeginBatch())
+                    {
+                        data.SetVolume(0.5); data.SetMultiscreen(false); data.SetSpeechDuration(11); data.SetSuppressRepeats(false);
+                        Check("batch: setters inside a batch write nothing yet", store.DurableWrites == writesBefore);
+                        committed = batch.Commit();
+                    }
+                    Check("batch: Commit is ONE durable write for every setter in the batch",
+                        committed && store.DurableWrites == writesBefore + 1);
+                    Check("batch: ...and the values are what was set",
+                        Math.Abs(data.GetVolume() - 0.5f) < 0.001f && !data.GetMultiscreen() && data.GetSpeechDuration() == 11);
+                    // Abandoned without Commit: nothing written, every setter rolled back.
+                    writesBefore = store.DurableWrites;
+                    using (data.BeginBatch()) { data.SetSpeechDuration(20); }
+                    Check("batch: a batch disposed without Commit writes nothing and rolls its setters back",
+                        store.DurableWrites == writesBefore && data.GetSpeechDuration() == 11);
+                    // A commit the store refuses rolls back too: the file is held open with no sharing, so
+                    // the atomic replace cannot land.
+                    using (new FileStream(Path.Combine(batchDir, "settings.json"), FileMode.Open, FileAccess.Read, FileShare.None))
+                    using (LocalData.Batch batch = data.BeginBatch())
+                    {
+                        data.SetSpeechDuration(25);
+                        Check("batch: a Commit the store cannot complete answers false and rolls back",
+                            !batch.Commit() && data.GetSpeechDuration() == 11 && store.DurableWrites == writesBefore);
+                    }
+                }
+                finally { try { Directory.Delete(batchDir, true); } catch { } }
+
+                // ---- lane fix/host: the no-stage loader (F318) ----
+                // TryReadXml(xml, false) adopts the definition with no sprite decoded and reads the frame
+                // size from the PNG header, so a graph-only reader (PetStudio's analyze, F155) pays for the
+                // parse and nothing else. Same class, so no reflection.
+                using (var stagedXml = new Xml(1.0))
+                using (var graphOnlyXml = new Xml(1.0))
+                {
+                    string stagedError, graphError;
+                    bool okStaged = stagedXml.TryReadXml(bundledXml, out stagedError);
+                    bool okGraph = graphOnlyXml.TryReadXml(bundledXml, false, out graphError);
+                    Check("no-stage: TryReadXml(xml, false) adopts the definition",
+                        okGraph && graphOnlyXml.AnimationXML != null && ReferenceEquals(graphOnlyXml.AnimationXMLString, bundledXml));
+                    Check("no-stage: WITNESS the staged read has frames", okStaged && stagedXml.SpriteCount > 0);
+                    Check("no-stage: ...and the no-stage read decodes none", graphOnlyXml.SpriteCount == 0);
+                    Check("no-stage: the frame size read from the PNG header equals the decoded one",
+                        Convert.ToInt64(MemberValue(xmlT, graphOnlyXml, "spriteWidth")) == Convert.ToInt64(MemberValue(xmlT, stagedXml, "spriteWidth")) &&
+                        Convert.ToInt64(MemberValue(xmlT, graphOnlyXml, "spriteHeight")) == Convert.ToInt64(MemberValue(xmlT, stagedXml, "spriteHeight")));
+                }
+                {
+                    // The header reader on its own: IHDR carries the size at bytes 16..23, big-endian.
+                    byte[] ihdr = new byte[33];
+                    ihdr[16] = 0; ihdr[17] = 0; ihdr[18] = 0x02; ihdr[19] = 0x80;   // 640
+                    ihdr[20] = 0; ihdr[21] = 0; ihdr[22] = 0x01; ihdr[23] = 0xE0;   // 480
+                    int pngW, pngH;
+                    Xml.ReadPngSize(ihdr, out pngW, out pngH);
+                    Check("no-stage: the PNG header reader takes width and height from IHDR", pngW == 640 && pngH == 480);
+                    CheckRejects("no-stage: a sheet too short to hold IHDR is rejected", () => Xml.ReadPngSize(new byte[8], out pngW, out pngH));
+                }
+
+                // ---- lane fix/host: the chooser evaluates nothing (F241) ----
+                // The consumer, FormCompanion.SetNewAnimationCore, evaluates its own copy for the pet's screen;
+                // the chooser's own pass against the primary screen was discarded. Counted, not timed.
+                using (var chooserXml = new Xml(1.0))
+                {
+                    string chooserError;
+                    if (chooserXml.TryReadXml(bundledXml, out chooserError))
+                    {
+                        var chooserAnimations = new Animations(chooserXml);
+                        try
+                        {
+                            chooserXml.LoadAnimations(chooserAnimations);
+                            int from = -1;
+                            foreach (var pair in chooserAnimations.SheepAnimations)
+                                if (pair.Value.EndAnimation != null && pair.Value.EndAnimation.Count > 0) { from = pair.Key; break; }
+                            int evaluationsBefore = TAnimation.EvaluationCount;
+                            int chosen = from < 0 ? -1 : chooserAnimations.SetNextSequenceAnimation(from, TNextAnimation.TOnly.NONE);
+                            Check("chooser: WITNESS the bundled pet has a sequence edge to follow", chosen > 0);
+                            Check("chooser: choosing the next animation evaluates no expression",
+                                TAnimation.EvaluationCount == evaluationsBefore);
+                            TAnimation consumerCopy = chooserAnimations.GetAnimation(chosen);
+                            consumerCopy.UpdateValues(0);
+                            Check("chooser: WITNESS the consumer's own evaluation is counted",
+                                TAnimation.EvaluationCount == evaluationsBefore + 1);
+                        }
+                        finally { chooserAnimations.Dispose(); }
+                    }
+                    else Check("chooser: the bundled pet loads for the chooser probe: " + chooserError, false);
+                }
+
+                // ---- lane fix/host: the drag-drop read is sized from the file (F271) ----
+                // The buffer is the file's length plus a sentinel, clamped to one over the limit; a file over
+                // the limit is still refused. Allocation is COUNTED through the GC, never timed.
+                int maximumXmlBytes = CompanionXmlValidator.MaximumXmlBytes;
+                Check("drop read: capacity is the stream's length plus one sentinel byte",
+                    FormCompanion.BoundedReadCapacity(new MemoryStream(new byte[100000]), maximumXmlBytes) == 100001);
+                Check("drop read: ...never below the 4 KB floor",
+                    FormCompanion.BoundedReadCapacity(new MemoryStream(new byte[10]), maximumXmlBytes) == 4096);
+                string dropDir = Path.Combine(Path.GetTempPath(), "dp-dropprobe-selftest-" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(dropDir);
+                    MethodInfo readBoundedPet = typeof(FormCompanion).GetMethod("ReadBoundedPetXml", NpStatic);
+                    string smallPet = Path.Combine(dropDir, "small.xml");
+                    File.WriteAllText(smallPet, "<?xml version=\"1.0\"?><animations>" + new string('x', 2000) + "</animations>");
+                    long allocatedBefore = GC.GetAllocatedBytesForCurrentThread();
+                    string readBack = (string)readBoundedPet.Invoke(null, new object[] { smallPet });
+                    long allocated = GC.GetAllocatedBytesForCurrentThread() - allocatedBefore;
+                    Check("drop read: a 2 KB pet reads back intact", readBack != null && readBack.EndsWith("</animations>", StringComparison.Ordinal));
+                    Check("drop read: ...allocating under 1 MiB for it, not the 12 MiB ceiling (allocated " + allocated + ")",
+                        allocated < 1024 * 1024);
+                    string oversizePet = Path.Combine(dropDir, "oversize.xml");
+                    using (var oversize = new FileStream(oversizePet, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
+                    {
+                        oversize.SetLength((long)maximumXmlBytes + 1);
+                        Check("drop read: capacity clamps to one over the limit",
+                            FormCompanion.BoundedReadCapacity(oversize, maximumXmlBytes) == (long)maximumXmlBytes + 1);
+                    }
+                    string refusal = null;
+                    try { readBoundedPet.Invoke(null, new object[] { oversizePet }); }
+                    catch (TargetInvocationException tie) { if (tie.InnerException is InvalidDataException) refusal = tie.InnerException.Message; }
+                    Check("drop read: a file one byte over the limit is refused (" + refusal + ")",
+                        refusal != null && refusal.IndexOf("12 MiB", StringComparison.Ordinal) >= 0);
+                    // The sentinel through the read loop itself: a stream that claims 100 bytes and holds one
+                    // over the limit (a file that grew after it was opened) is read to the sentinel, the
+                    // buffer growing to the clamp and no further, and the total comes back over the bound.
+                    using (var grown = new UnderstatedLengthStream(new byte[maximumXmlBytes + 1], 100))
+                    {
+                        byte[] grownBytes;
+                        int grownTotal = FormCompanion.ReadBoundedBytes(grown, maximumXmlBytes, out grownBytes);
+                        Check("drop read: a stream that grows past the limit while read is still caught by the sentinel",
+                            grownTotal == maximumXmlBytes + 1 && grownBytes.Length == maximumXmlBytes + 1);
+                    }
+                    using (var exact = new MemoryStream(new byte[2048]))
+                    {
+                        byte[] exactBytes;
+                        int exactTotal = FormCompanion.ReadBoundedBytes(exact, maximumXmlBytes, out exactBytes);
+                        Check("drop read: WITNESS a 2 KB stream reads whole into the 4 KB floor without growing",
+                            exactTotal == 2048 && exactBytes.Length == 4096);
+                    }
+                }
+                finally { try { Directory.Delete(dropDir, true); } catch { } }
+
+                // ---- lane fix/host: tray item trees dispose their Images and children (F255, F256) ----
+                {
+                    // Disposal is witnessed through the Disposed EVENT: ToolStripItem.IsDisposed is not set
+                    // by every Dispose path, so counting the event is the answer that cannot be mistaken.
+                    int disposedEvents = 0;
+                    EventHandler countDisposed = delegate { disposedEvents++; };
+                    var treeParent = new ToolStripMenuItem("parent");
+                    var treeChild = new ToolStripMenuItem("child");
+                    var childImage = new Bitmap(4, 4);
+                    treeChild.Image = childImage;
+                    var treeGrandchild = new ToolStripMenuItem("grandchild");
+                    treeParent.Disposed += countDisposed; treeChild.Disposed += countDisposed; treeGrandchild.Disposed += countDisposed;
+                    treeChild.DropDownItems.Add(treeGrandchild);
+                    treeParent.DropDownItems.Add(treeChild);
+                    ContextMenus.DisposeItemTree(treeParent);
+                    bool imageDisposed;
+                    try { int unused = childImage.Width; imageDisposed = unused < 0; }
+                    catch (ArgumentException) { imageDisposed = true; }
+                    Check("tray: disposing an item tree disposes a submenu child's Image", imageDisposed);
+                    Check("tray: ...and every item in the tree (" + disposedEvents + " of 3 disposed)", disposedEvents == 3);
+                    disposedEvents = 0;
+                    var treeOwner = new ToolStripMenuItem("owner");
+                    var rowA = new ToolStripMenuItem("a");
+                    var rowB = new ToolStripMenuItem("b");
+                    rowA.Disposed += countDisposed; rowB.Disposed += countDisposed;
+                    treeOwner.DropDownItems.Add(rowA);
+                    treeOwner.DropDownItems.Add(rowB);
+                    ContextMenus.ClearAndDispose(treeOwner.DropDownItems);
+                    Check("tray: ClearAndDispose empties the drop-down AND disposes what was in it (" + disposedEvents + " of 2 disposed)",
+                        treeOwner.DropDownItems.Count == 0 && disposedEvents == 2);
+                    treeOwner.Dispose();
+                }
+
+                // ---- lane fix/host: a root that cannot be listed is a failed wipe (F260) ----
+                {
+                    var resetLog = new System.Collections.Generic.List<string>();
+                    int listingFailures = 0;
+                    string[] listed = FactoryReset.SafeList(delegate { throw new IOException("locked"); }, "the files of a probe", resetLog, ref listingFailures);
+                    Check("reset: a listing that throws counts as a failure and is logged",
+                        listed != null && listed.Length == 0 && listingFailures == 1 &&
+                        resetLog.Count == 1 && resetLog[0].IndexOf("could not list", StringComparison.Ordinal) >= 0);
+                    listingFailures = 0;
+                    listed = FactoryReset.SafeList(delegate { return new[] { "a" }; }, "the files of a probe", resetLog, ref listingFailures);
+                    Check("reset: WITNESS a listing that succeeds counts nothing", listed.Length == 1 && listingFailures == 0);
+                }
+
+                // ---- lane fix/host: the debug window caps its rows (F273) and hands text over by file (F274) ----
+                using (var debugWindow = new FormDebug())
+                {
+                    for (int row = 0; row < FormDebug.MaxRows + 25; row++)
+                        debugWindow.AddDebugInfo(StartUp.DEBUG_TYPE.error, "row " + row);
+                    Check("debug: the row count is capped at MaxRows (" + debugWindow.RowCount + ")",
+                        debugWindow.RowCount == FormDebug.MaxRows);
+                }
+                {
+                    string written = FormDebug.WriteDebugText("selftest/probe", "hello é");
+                    Check("debug: the text goes to one per-kind file under TEMP with a sanitised name",
+                        File.Exists(written) && Path.GetFileName(written) == "dp-debug-selftest-probe.txt" &&
+                        File.ReadAllText(written) == "hello é");
+                    try { File.Delete(written); } catch { }
+                }
+
+                // ---- lane fix/host: the DOT export escapes names (F325) ----
+                {
+                    var dotRoot = new XmlData.RootNode
+                    {
+                        Header = new XmlData.HeaderNode { Title = "t" },
+                        Animations = new XmlData.AnimationsNode
+                        {
+                            Animation = new[]
+                            {
+                                new XmlData.AnimationNode
+                                {
+                                    Id = 1, Name = "say \"hi\" \\ bye",
+                                    Sequence = new XmlData.SequenceNode { Next = new[] { new XmlData.NextNode { Value = 2, Probability = 100 } } },
+                                },
+                                new XmlData.AnimationNode { Id = 2, Name = "plain" },
+                            },
+                        },
+                    };
+                    string dot = DesktopAICompanion.Tools.XmlToDot.ProcessXml(dotRoot);
+                    Check("dot: a quote and a backslash in an animation name are escaped in the label",
+                        dot != null && dot.IndexOf("label=\"say \\\"hi\\\" \\\\ bye (1)\"", StringComparison.Ordinal) >= 0);
+                    Check("dot: WITNESS the raw name is not emitted verbatim",
+                        dot != null && dot.IndexOf("label=\"say \"hi\"", StringComparison.Ordinal) < 0);
+                    Check("dot: an animation with no sequence is exported without throwing",
+                        dot != null && dot.IndexOf("anim_2 [ label=\"plain (2)\" ]", StringComparison.Ordinal) >= 0);
+                    Check("dot: the sequence edge is present", dot != null && dot.IndexOf("anim_1 -> anim_2", StringComparison.Ordinal) >= 0);
+                }
+
                 // ---- FACTORY RESET ----
                 // The installer's "clear all settings and modules" empties directories. The only failure
                 // that matters is emptying the WRONG one, so the refusal rules are asserted directly and
@@ -1392,6 +1688,15 @@ namespace DesktopAICompanion
         {
             foreach (string leftover in new[] { path, path + ".bak", path + ".lock" })
                 try { if (File.Exists(leftover)) File.Delete(leftover); } catch (Exception) { }
+        }
+
+        /// <summary>A stream that holds more than it admits to: Length reports a smaller number than the
+        /// bytes Read hands out, which is what a file that grew after it was opened looks like (F271).</summary>
+        private sealed class UnderstatedLengthStream : MemoryStream
+        {
+            private readonly long claimed;
+            public UnderstatedLengthStream(byte[] contents, long claimedLength) : base(contents, false) { claimed = claimedLength; }
+            public override long Length { get { return claimed; } }
         }
 
         private static object MemberValue(Type t, object instance, string name)

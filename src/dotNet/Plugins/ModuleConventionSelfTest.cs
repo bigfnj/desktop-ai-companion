@@ -65,19 +65,30 @@ namespace DesktopAICompanion.Plugins
                 }
 
                 // Isolate, so the recording host reflects this module's Init alone and a sibling module's
-                // failure cannot be misread as this one's.
+                // failure cannot be misread as this one's. The whole tree, subfolders included (F354).
                 tempRoot = SelfTestScratch.Create("module");
                 string dest = Path.Combine(tempRoot, moduleId);
-                Directory.CreateDirectory(dest);
-                foreach (string file in Directory.GetFiles(bundled))
-                    File.Copy(file, Path.Combine(dest, Path.GetFileName(file)), true);
+                SelfTestScratch.CopyTree(bundled, dest);
 
                 var host = new ConventionHost();
                 using (var loader = new ModuleHost())
                 {
                     int loaded = loader.LoadFrom(tempRoot, host, s => sb.AppendLine("  " + s));
                     ok &= Check(sb, "the real loader accepted the module", loaded == 1);
-                    if (loaded != 1) return Finish(moduleId, sb, false);
+                    if (loaded != 1)
+                    {
+                        // Name the reason, distinctly (F341). The FAIL above said nothing about WHY, and the
+                        // commonest why for an out-of-tree module is this host: ConventionHost returns null
+                        // from GetStorage and GetSettings, which the shipped host never does, so a module
+                        // written against the app alone throws a NullReferenceException here and nowhere
+                        // else. The contract now says so (IHost.GetStorage in PluginApi.cs); this points at it.
+                        foreach (ModuleLoadFailure f in loader.Failures)
+                            sb.AppendLine("  loader: " + f.Id + " -- " + f.Reason +
+                                (f.Reason != null && f.Reason.Contains("NullReference")
+                                    ? " (this convention host returns null from GetStorage/GetSettings, which the shipped host never does; see IHost.GetStorage)"
+                                    : ""));
+                        return Finish(moduleId, sb, false);
+                    }
 
                     IModule module = null;
                     foreach (IModule candidate in loader.Modules)
@@ -173,7 +184,7 @@ namespace DesktopAICompanion.Plugins
         /// are their names" beats a coin flip, and it is the only version that holds for a
         /// third-party module this repo does not own.
         /// </summary>
-        private static bool TryFindSelfTest(Type moduleType, out MethodInfo entry, out string ambiguity)
+        internal static bool TryFindSelfTest(Type moduleType, out MethodInfo entry, out string ambiguity)
         {
             entry = null;
             ambiguity = null;
@@ -183,21 +194,31 @@ namespace DesktopAICompanion.Plugins
             if (entry != null) return true;
 
             Assembly assembly = moduleType.Assembly;
-            var candidates = new List<MethodInfo>();
-            var owners = new List<string>();
-            Type[] types;
-            try { types = assembly.GetTypes(); }
-            catch (ReflectionTypeLoadException ex) { types = ex.Types ?? new Type[0]; }
+            // GetTypes cannot throw here: ModuleHost.LoadFrom already called it on this very assembly and
+            // refuses the module wholesale when it does -- fail-closed, recorded in the register (F342) --
+            // so the ReflectionTypeLoadException catch that stood here was unreachable, and a partial type
+            // list is a policy this file must not quietly adopt on the loader's behalf.
+            Type[] types = assembly.GetTypes();
 
-            // Prefer other IModule implementations before anything else in the assembly.
+            // Other IModule implementations first, and ALL of them (F339): the first match in GetTypes()
+            // order was the coin flip the summary above says this method does not make, and it fell to
+            // whichever of two extra module types the runtime listed first.
+            var moduleCandidates = new List<MethodInfo>();
+            var moduleOwners = new List<string>();
             foreach (Type type in types)
             {
                 if (type == null || type == moduleType) continue;
                 if (!typeof(IModule).IsAssignableFrom(type)) continue;
                 MethodInfo found = SelfTestOn(type);
-                if (found != null) { entry = found; return true; }
+                if (found == null) continue;
+                moduleCandidates.Add(found);
+                moduleOwners.Add(type.FullName ?? type.Name);
             }
+            if (moduleCandidates.Count == 1) { entry = moduleCandidates[0]; return true; }
+            if (moduleCandidates.Count > 1) { ambiguity = Ambiguous(moduleOwners); return false; }
 
+            var candidates = new List<MethodInfo>();
+            var owners = new List<string>();
             foreach (Type type in types)
             {
                 if (type == null) continue;
@@ -207,31 +228,36 @@ namespace DesktopAICompanion.Plugins
                 owners.Add(type.FullName ?? type.Name);
             }
             if (candidates.Count == 1) { entry = candidates[0]; return true; }
-            if (candidates.Count > 1)
-            {
-                owners.Sort(StringComparer.Ordinal);
-                ambiguity = "more than one type declares static bool SelfTest(out string): "
-                            + string.Join(", ", owners.ToArray())
-                            + ". Put it on the module type, or rename the others.";
-                return false;
-            }
+            if (candidates.Count > 1) { ambiguity = Ambiguous(owners); return false; }
             return false;
         }
 
+        private static string Ambiguous(List<string> owners)
+        {
+            owners.Sort(StringComparer.Ordinal);
+            return "more than one type declares static bool SelfTest(out string): "
+                   + string.Join(", ", owners.ToArray())
+                   + ". Put it on the module type, or rename the others.";
+        }
+
         /// <summary>The exact shape, on one type. PUBLIC and STATIC only, and the parameter must be
-        /// <c>out string</c> rather than merely out-anything.</summary>
+        /// <c>out string</c> rather than merely out-anything. ENUMERATED rather than GetMethod(name) (F339):
+        /// GetMethod throws AmbiguousMatchException when the type carries a second public static SelfTest
+        /// overload, and swallowing that into null reported a module that DOES expose the exact shape as
+        /// having none, with advice to add one.</summary>
         private static MethodInfo SelfTestOn(Type type)
         {
-            MethodInfo candidate;
-            try
+            MethodInfo[] methods;
+            try { methods = type.GetMethods(BindingFlags.Public | BindingFlags.Static); }
+            catch { return null; }
+            foreach (MethodInfo candidate in methods)
             {
-                candidate = type.GetMethod("SelfTest", BindingFlags.Public | BindingFlags.Static);
+                if (candidate.Name != "SelfTest" || candidate.ReturnType != typeof(bool)) continue;
+                ParameterInfo[] parameters = candidate.GetParameters();
+                if (parameters.Length != 1 || !parameters[0].IsOut) continue;
+                if (parameters[0].ParameterType == typeof(string).MakeByRefType()) return candidate;
             }
-            catch (AmbiguousMatchException) { return null; }
-            if (candidate == null || candidate.ReturnType != typeof(bool)) return null;
-            ParameterInfo[] parameters = candidate.GetParameters();
-            if (parameters.Length != 1 || !parameters[0].IsOut) return null;
-            return parameters[0].ParameterType == typeof(string).MakeByRefType() ? candidate : null;
+            return null;
         }
 
         /// <summary>Find and run the module's own <c>public static bool SelfTest(out string)</c>. Absent is a

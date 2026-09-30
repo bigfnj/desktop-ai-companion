@@ -711,6 +711,12 @@ namespace DesktopAICompanion.Modules
         // here read as "never null".
         ScreenContext CaptureScreenContext(ICompanion pet);
         IDisposable RegisterHotkey(string combo, Action onPressed);
+        // NEVER NULL from the shipped host, for any module id and whether or not the module declared
+        // Storage: the host provisions <data root>\modules\<id> on first ask and hands it back. Test
+        // doubles are another matter -- ModuleKit.Testing.RecordingHost returns null for a storage id no
+        // test registered, and some host-side convention hosts return null for everything -- so a module
+        // that wants to run under them tolerates a null and degrades to scratch space (ModulePaths does).
+        // Documented 2026-09-29 (F341): the contract was silent and the two behaviours had to be inferred.
         IModuleStorage GetStorage(string moduleId);
         IModuleSettings GetSettings(string moduleId);
 
@@ -766,6 +772,11 @@ namespace DesktopAICompanion.Modules
         //
         // The motivating case is a local LLM: several GB of VRAM claimed while a game already owns it can take
         // the game down, so a module should decline the work and fall back to something free.
+        //
+        // UI thread, like every service here. "Cached" means cached on the companions' own scan cycle:
+        // when nothing has scanned for two seconds (no companion on screen, or startup) a read RUNS the
+        // scan itself, about 0.6 ms of window enumeration. The host raises FullscreenChanged on the UI
+        // thread even if a caller breaks the thread rule, so a handler never runs on another module's worker.
         bool IsFullscreenActive { get; }
 
         // Raised when IsFullscreenActive changes, with the new value. Lets a module react to a game STARTING

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Threading;
 using System.Windows.Forms;
 using System.Text.Json;
 using DesktopAICompanion.Ai;
@@ -107,7 +108,9 @@ namespace DesktopAICompanion.Plugins
             };
             list.Add(entry);
             SortResponders(list);
-            return new Remover(() => list.Remove(entry));
+            var remover = new Remover(() => list.Remove(entry));
+            if (_initLedger != null) _initLedger.Registrations.Add(remover);   // undone if this Init throws (F344)
+            return remover;
         }
 
         /// <summary>Offer one arbitrated chain to its responders, highest priority first, until one handles
@@ -133,7 +136,16 @@ namespace DesktopAICompanion.Plugins
             {
                 bool handled = false;
                 Func<ICompanion, bool> fn = r.OnFire;
-                Safe(() => { handled = fn(handle); });
+                // Treated as DECLINED, and RECORDED (F328). This was a bare Safe(), so a responder that threw
+                // was indistinguishable from one that passed: the chain fell through to the next module
+                // exactly as it should, and nothing anywhere said why the pet did not speak. RaiseEach had
+                // already learned this lesson for the events; the three chains that decide whether the pet
+                // speaks at all had not, although each entry carries the module id the event path lacks.
+                try { handled = fn(handle); }
+                catch (Exception ex)
+                {
+                    Log(r.ModuleId, "responder threw and was treated as declined: " + ex.GetType().Name + ": " + ex.Message);
+                }
                 if (handled) return true;
             }
             return false;
@@ -141,6 +153,11 @@ namespace DesktopAICompanion.Plugins
 
         public readonly List<TrayItem> TrayItems = new List<TrayItem>();
         public readonly List<OptionsPane> OptionsPanes = new List<OptionsPane>();
+
+        /// <summary>The UI thread's SynchronizationContext and id, captured at construction: StartUp builds
+        /// this on the UI thread. A target-less bubble re-shown from a worker is posted through it (F333).</summary>
+        private readonly SynchronizationContext _ui = SynchronizationContext.Current;
+        private readonly int _uiThreadId = Thread.CurrentThread.ManagedThreadId;
 
         public CompanionHost(StartUp startUp) { _startUp = startUp; }
 
@@ -160,10 +177,35 @@ namespace DesktopAICompanion.Plugins
         }
 
         // ---- lifecycle events (raised by StartUp at the existing hook points) ----
-        public event Action<ICompanion> CompanionSpawned;
-        public event Action<PokeInfo> CompanionPoked;
-        public event Action<ICompanion> CompanionLanded;
-        public event Action HostShutdown;
+        //
+        // EXPLICIT ACCESSORS over private backing fields, same ABI (F344). A subscription made inside a
+        // module's Init is recorded on the Init ledger, so a module whose Init throws AFTER subscribing is
+        // unsubscribed again by RollBackModuleInit instead of staying wired into a host that reports it
+        // failed. Raise sites read the backing fields; the remove accessors are the plain ones.
+        private Action<ICompanion> _companionSpawned;
+        private Action<PokeInfo> _companionPoked;
+        private Action<ICompanion> _companionLanded;
+        private Action _hostShutdown;
+        public event Action<ICompanion> CompanionSpawned
+        {
+            add { _companionSpawned += value; Ledger(delegate { _companionSpawned -= value; }); }
+            remove { _companionSpawned -= value; }
+        }
+        public event Action<PokeInfo> CompanionPoked
+        {
+            add { _companionPoked += value; Ledger(delegate { _companionPoked -= value; }); }
+            remove { _companionPoked -= value; }
+        }
+        public event Action<ICompanion> CompanionLanded
+        {
+            add { _companionLanded += value; Ledger(delegate { _companionLanded -= value; }); }
+            remove { _companionLanded -= value; }
+        }
+        public event Action HostShutdown
+        {
+            add { _hostShutdown += value; Ledger(delegate { _hostShutdown -= value; }); }
+            remove { _hostShutdown -= value; }
+        }
 
         internal ICompanion HandleFor(FormCompanion pet)
         {
@@ -209,20 +251,33 @@ namespace DesktopAICompanion.Plugins
 
         internal void RaiseCompanionSpawned(FormCompanion pet)
         {
-            RaiseEach<Action<ICompanion>>(CompanionSpawned, "CompanionSpawned", h => h(HandleFor(pet)));
+            RaiseEach<Action<ICompanion>>(_companionSpawned, "CompanionSpawned", h => h(HandleFor(pet)));
         }
         internal void RaiseCompanionPoked(FormCompanion pet, int count)
         {
             var info = new PokeInfo { Pet = HandleFor(pet), PokeCount = count };
-            RaiseEach<Action<PokeInfo>>(CompanionPoked, "CompanionPoked", h => h(info));
+            RaiseEach<Action<PokeInfo>>(_companionPoked, "CompanionPoked", h => h(info));
         }
         internal void RaiseCompanionLanded(FormCompanion pet)
         {
-            RaiseEach<Action<ICompanion>>(CompanionLanded, "CompanionLanded", h => h(HandleFor(pet)));
+            RaiseEach<Action<ICompanion>>(_companionLanded, "CompanionLanded", h => h(HandleFor(pet)));
         }
         internal void RaiseShutdown()
         {
-            RaiseEach<Action>(HostShutdown, "HostShutdown", h => h());
+            RaiseEach<Action>(_hostShutdown, "HostShutdown", h => h());
+        }
+
+        /// <summary>Every subscriber across the six module-facing events, for the self-test that proves a
+        /// rolled-back Init left none behind (F344), and its witness that a healthy Init left some.</summary>
+        internal int LifecycleSubscriberCount
+        {
+            get
+            {
+                int n = 0;
+                foreach (Delegate d in new Delegate[] { _companionSpawned, _companionPoked, _companionLanded, _hostShutdown, _fullscreenChanged, _contextChanged })
+                    if (d != null) n += d.GetInvocationList().Length;
+                return n;
+            }
         }
 
         /// <summary>
@@ -324,6 +379,7 @@ namespace DesktopAICompanion.Plugins
 
             var windows = new System.Collections.Generic.List<ScreenWindow>();
             PixelRect foregroundBounds = default(PixelRect);
+            string foregroundProcess = null;
             try
             {
                 foreach (DesktopWindowInfo w in DesktopWindows.Snapshot(petHandles))
@@ -338,7 +394,7 @@ namespace DesktopAICompanion.Plugins
                         IsForeground = w.IsForeground,
                         ZOrder = w.ZOrder,
                     });
-                    if (w.IsForeground) foregroundBounds = rect;
+                    if (w.IsForeground) { foregroundBounds = rect; foregroundProcess = w.ProcessName; }
                 }
             }
             catch
@@ -349,7 +405,12 @@ namespace DesktopAICompanion.Plugins
             return new ScreenContext
             {
                 WindowTitle = ctx.ActiveWindowTitle,
-                ProcessName = ActiveWindow.ProcessName(),
+                // From the snapshot entry that IS the foreground window, which already resolved the name
+                // (F329): a third GetForegroundWindow and a second Process.GetProcessById per ask could
+                // disagree with the two before them. The fallback keeps the old answer for the cases the
+                // snapshot filters out -- our own window, a cloaked or shell foreground, past the cap --
+                // including blank for our own process.
+                ProcessName = !string.IsNullOrEmpty(foregroundProcess) ? foregroundProcess : ActiveWindow.ProcessName(),
                 MonitorBounds = new PixelRect(b.X, b.Y, b.Width, b.Height),
                 WindowUnderCompanion = p.Pet.WindowUnderCompanion,
                 ForegroundWindowBounds = foregroundBounds,
@@ -381,7 +442,9 @@ namespace DesktopAICompanion.Plugins
                 return new Noop();
             }
             HotkeyListener registered = listener;
-            return new Remover(() => { try { registered.Dispose(); } catch { } });
+            var remover = new Remover(() => { try { registered.Dispose(); } catch { } });
+            if (_initLedger != null) _initLedger.Registrations.Add(remover);   // undone if this Init throws (F344)
+            return remover;
         }
         public IModuleStorage GetStorage(string moduleId) { return new ModuleStorage(ModuleDataDir(moduleId)); }
         public IModuleSettings GetSettings(string moduleId) { return new ModuleSettings(Path.Combine(ModuleDataDir(moduleId), "settings.json")); }
@@ -464,7 +527,9 @@ namespace DesktopAICompanion.Plugins
                 int byPriority = y.Priority.CompareTo(x.Priority);
                 return byPriority != 0 ? byPriority : x.Seq.CompareTo(y.Seq);
             });
-            return new Remover(() => _speechResponders.Remove(entry));
+            var remover = new Remover(() => _speechResponders.Remove(entry));
+            if (_initLedger != null) _initLedger.Registrations.Add(remover);
+            return remover;
         }
 
         public bool IsFullscreenActive
@@ -472,13 +537,18 @@ namespace DesktopAICompanion.Plugins
             get { return _startUp != null && _startUp.IsFullscreenActive; }
         }
 
-        public event Action<bool> FullscreenChanged;
+        private Action<bool> _fullscreenChanged;
+        public event Action<bool> FullscreenChanged
+        {
+            add { _fullscreenChanged += value; Ledger(delegate { _fullscreenChanged -= value; }); }
+            remove { _fullscreenChanged -= value; }
+        }
 
         /// <summary>Raise <see cref="FullscreenChanged"/>. Wrapped in Safe for the same reason every other
         /// module-facing event is: a module throwing from its handler must not take the host's scan down.</summary>
         internal void RaiseFullscreenChanged(bool active)
         {
-            RaiseEach<Action<bool>>(FullscreenChanged, "FullscreenChanged", h => h(active));
+            RaiseEach<Action<bool>>(_fullscreenChanged, "FullscreenChanged", h => h(active));
         }
 
         public bool IsCompanionAlive(ICompanion pet)
@@ -556,12 +626,21 @@ namespace DesktopAICompanion.Plugins
             _raisingSpeech = true;
             try
             {
-                foreach (SpeechResponder r in _speechResponders)
+                // A SNAPSHOT, as RaiseChain takes (F332): a responder that disposes its own registration from
+                // inside the callback mutates _speechResponders, and List<T>'s versioned enumerator would
+                // throw InvalidOperationException out of Say/SayAll on the next step -- outside the catch
+                // below, which covers only the callback itself.
+                foreach (SpeechResponder r in _speechResponders.ToArray())
                 {
                     if (!ModuleDeclares(r.ModuleId, ModulePermissions.Voice)) continue;   // raise-time gate
                     bool claimed = false;
                     Func<SpeechRequest, bool> fn = r.OnSpeech;
-                    Safe(() => { claimed = fn(request); });
+                    // Declined and recorded, as in RaiseChain (F328).
+                    try { claimed = fn(request); }
+                    catch (Exception ex)
+                    {
+                        Log(r.ModuleId, "speech responder threw and was treated as declined: " + ex.GetType().Name + ": " + ex.Message);
+                    }
                     if (claimed) return request.SuppressBubble;   // read only AFTER a claim
                 }
             }
@@ -600,12 +679,20 @@ namespace DesktopAICompanion.Plugins
                 };
                 // A module resuming a synthesis await will normally already be on the UI thread, but a
                 // Task.Run continuation would not be, and touching a window off-thread corrupts it.
+                //
+                // BOTH branches are marshalled (F333). Only the targeted one was: a broadcast bubble (SayAll,
+                // no target) re-shown from a worker ran draw() inline, and ShowBubbleOnAll builds a FormSpeech
+                // -- a window -- on that thread. The host's UI context, captured when StartUp constructed it,
+                // is the anchor a target-less bubble never had; the thread id decides, not the context
+                // instance, because WinForms may hand the UI thread a fresh context object.
                 try
                 {
-                    if (_target != null && _target.InvokeRequired) _target.BeginInvoke(draw);
+                    if (_host._ui != null && Thread.CurrentThread.ManagedThreadId != _host._uiThreadId)
+                        _host._ui.Post(delegate { try { draw(); } catch (Exception ex) { _host.Log(null, "bubble draw failed: " + ex.Message); } }, null);
+                    else if (_target != null && _target.InvokeRequired) _target.BeginInvoke(draw);
                     else draw();
                 }
-                catch { }
+                catch (Exception ex) { _host.Log(null, "bubble draw failed: " + ex.Message); }
             }
         }
 
@@ -619,8 +706,11 @@ namespace DesktopAICompanion.Plugins
         private readonly Random _random = new Random();
         // Last successfully fetched catalog, so downloading N items after a browse doesn't re-fetch the
         // catalog N times. Explicit-refresh only (a fresh FetchCatalogItemsAsync replaces it) — same shape
-        // as the AI brain's model-list cache, no TTL.
-        private RemoteCatalog _catalogCache;
+        // as the AI brain's model-list cache, no TTL. Volatile because it is written on whichever pool
+        // thread the fetch completes on and read on the caller's; RemoteCatalog is never mutated after it
+        // is parsed, so the accepted worst case is two concurrent browses both fetching and the second
+        // write winning, the same acceptance RemoteCatalogClient.FetchSharedAsync records (F335).
+        private volatile RemoteCatalog _catalogCache;
 
         public async System.Threading.Tasks.Task<IReadOnlyList<CatalogItem>> FetchCatalogItemsAsync(string kind)
         {
@@ -784,7 +874,12 @@ namespace DesktopAICompanion.Plugins
         // ---- shared context (host 1.9.0+): a key/value channel between modules that can't reference each other ----
         private readonly Dictionary<string, string> _context = new Dictionary<string, string>(StringComparer.Ordinal);
         private readonly object _contextSync = new object();
-        public event Action<string> ContextChanged;
+        private Action<string> _contextChanged;
+        public event Action<string> ContextChanged
+        {
+            add { _contextChanged += value; Ledger(delegate { _contextChanged -= value; }); }
+            remove { _contextChanged -= value; }
+        }
 
         public void PublishContext(string moduleId, string key, string valueJson)
         {
@@ -792,7 +887,7 @@ namespace DesktopAICompanion.Plugins
             lock (_contextSync) { _context[key] = valueJson ?? ""; }
             // Publishers call this on the UI thread (a module tick), so a synchronous raise delivers to readers
             // on the UI thread too. Best-effort: a throwing subscriber must not take down the publisher's tick.
-            Action<string> handler = ContextChanged;
+            Action<string> handler = _contextChanged;
             if (handler != null) { try { handler(key); } catch { } }
         }
 
@@ -848,7 +943,15 @@ namespace DesktopAICompanion.Plugins
             catch { return new List<string>(); }
         }
 
-        public void AddTrayItems(IEnumerable<TrayItem> items) { if (items != null) TrayItems.AddRange(items); }
+        public void AddTrayItems(IEnumerable<TrayItem> items)
+        {
+            if (items == null) return;
+            foreach (TrayItem item in items)
+            {
+                TrayItems.Add(item);
+                if (_initLedger != null) _initLedger.Tray.Add(item);   // undone if this Init throws (F344)
+            }
+        }
 
         // Which module contributed which pane.
         //
@@ -867,10 +970,49 @@ namespace DesktopAICompanion.Plugins
             new Dictionary<OptionsPane, string>((IEqualityComparer<OptionsPane>)ReferenceEqualityComparer.Instance);
         private string _initialisingModuleId;
 
+        /// <summary>
+        /// What a module contributed inside its Init, so an Init that THROWS after contributing can be undone
+        /// (F344). Without this the loader recorded the failure and unloaded the context while the tray
+        /// items, panes, responders, hotkeys and event handlers the module had already registered stayed
+        /// live: the Modules pane said "failed to load" and the module kept answering pokes. No in-tree
+        /// module can reach it; the isolation promise at the top of ModuleHost is for the ones we do not
+        /// own. Entries are removed by IDENTITY, never by count, because AddResponder re-sorts its lists.
+        /// </summary>
+        private sealed class InitLedger
+        {
+            public readonly List<TrayItem> Tray = new List<TrayItem>();
+            public readonly List<OptionsPane> Panes = new List<OptionsPane>();
+            public readonly List<IDisposable> Registrations = new List<IDisposable>();
+            public readonly List<Action> Undo = new List<Action>();
+        }
+        private InitLedger _initLedger;
+        private void Ledger(Action undo) { if (_initLedger != null && undo != null) _initLedger.Undo.Add(undo); }
+
         /// <summary>Set by ModuleHost around a module's Init so contributions made inside it can be
-        /// attributed. Null outside that window, which is the honest answer for a pane registered late.</summary>
-        internal void BeginModuleInit(string moduleId) { _initialisingModuleId = moduleId; }
-        internal void EndModuleInit() { _initialisingModuleId = null; }
+        /// attributed, and recorded for rollback. Null outside that window, which is the honest answer for
+        /// a pane registered late.</summary>
+        internal void BeginModuleInit(string moduleId) { _initialisingModuleId = moduleId; _initLedger = new InitLedger(); }
+        internal void EndModuleInit() { _initialisingModuleId = null; _initLedger = null; }
+
+        /// <summary>Undo everything the module registered inside the Init window that just threw, then close
+        /// the window. ModuleHost calls this in place of EndModuleInit when Init did not return.</summary>
+        internal void RollBackModuleInit()
+        {
+            InitLedger ledger = _initLedger;
+            string id = _initialisingModuleId;
+            _initLedger = null;   // nothing the rollback itself does is recorded
+            if (ledger != null)
+            {
+                foreach (TrayItem t in ledger.Tray) TrayItems.Remove(t);
+                foreach (OptionsPane p in ledger.Panes) { OptionsPanes.Remove(p); _paneOwners.Remove(p); }
+                foreach (IDisposable r in ledger.Registrations) { try { r.Dispose(); } catch { } }
+                foreach (Action undo in ledger.Undo) { try { undo(); } catch { } }
+                int undone = ledger.Tray.Count + ledger.Panes.Count + ledger.Registrations.Count + ledger.Undo.Count;
+                if (undone > 0)
+                    Log(id, "Init threw after contributing; " + undone + " contribution(s) were rolled back so the failed module holds nothing");
+            }
+            EndModuleInit();
+        }
 
         /// <summary>The id of the module that contributed <paramref name="pane"/>, or null for a pane the
         /// HOST built (Preferences) or one registered outside Init. Callers must treat null as "no
@@ -887,6 +1029,7 @@ namespace DesktopAICompanion.Plugins
             if (pane == null) return;
             OptionsPanes.Add(pane);
             if (!string.IsNullOrEmpty(_initialisingModuleId)) _paneOwners[pane] = _initialisingModuleId;
+            if (_initLedger != null) _initLedger.Panes.Add(pane);   // undone if this Init throws (F344)
         }
 
         /// <summary>The module's own data directory (settings/storage) — separate from its install folder
@@ -907,7 +1050,9 @@ namespace DesktopAICompanion.Plugins
             try { Directory.CreateDirectory(dir); } catch { }
             return dir;
         }
-        private static string SafeId(string id)
+        /// <summary>The folder-name form of a module id, shared with PendingModuleRemovals so a removal deletes
+        /// exactly the data directory GetStorage handed out.</summary>
+        internal static string SafeId(string id)
         {
             if (string.IsNullOrWhiteSpace(id)) return "_";
             var sb = new StringBuilder();
@@ -1081,6 +1226,18 @@ namespace DesktopAICompanion.Plugins
                 string directory = SafeLibraryDir(typeId);
                 Directory.CreateDirectory(directory);
                 SecureDownload.WriteAllBytesAtomic(Path.Combine(directory, "animations.xml"), bytes);
+                // The file under this id is now a DIFFERENT pet (F249, F336): the name the tray shows and
+                // the icon and counts the Companions pane shows are cached per id for the process lifetime,
+                // and Companion Studio suggests the opened pet's own folder as the install id, so editing
+                // an installed pet and pressing Install kept every surface on the old one. Forget reaches
+                // all three caches. Then the copies on screen are swapped onto the new definition, as the
+                // pane's download already does; Deferred and NeedsRestart are not failures of the install.
+                CompanionCatalog.Forget(typeId);
+                if (_startUp != null)
+                {
+                    int reloaded; string reloadError;
+                    try { _startUp.ReloadPetType(typeId, out reloaded, out reloadError); } catch { }
+                }
                 return true;
             }
             catch (Exception ex) { error = ex.Message; return false; }
@@ -1095,6 +1252,7 @@ namespace DesktopAICompanion.Plugins
                 { error = "Unsafe pet id."; return false; }
                 string directory = SafeLibraryDir(typeId);
                 if (Directory.Exists(directory)) Directory.Delete(directory, true);
+                CompanionCatalog.Forget(typeId);   // the caches hold a pet that no longer exists (F249)
                 return true;
             }
             catch (Exception ex) { error = ex.Message; return false; }

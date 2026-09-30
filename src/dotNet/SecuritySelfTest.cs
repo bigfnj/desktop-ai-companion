@@ -17,6 +17,23 @@ namespace DesktopAICompanion
     /// <summary>Dependency-free security regression checks run by CI and release packaging.</summary>
     internal static class SecuritySelfTest
     {
+        /// <summary>
+        /// A structurally valid MPEG audio clip (frame sync, a few near-silent frames), shared with
+        /// --audio-selftest so the ACM decode branch has an input that is really an MP3 (F246). Fresh bytes
+        /// per call: AudioOutput's decode cache is keyed by array identity and a shared instance would let
+        /// one test's decode satisfy another's.
+        /// </summary>
+        internal static byte[] ValidMp3Fixture()
+        {
+            return Convert.FromBase64String(
+                "/+MYxAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV" +
+                "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV/+MYxDsAAANIAAAAAFVVVVVVVVVVVVVV" +
+                "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV" +
+                "/+MYxHYAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV" +
+                "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV/+MYxLEAAANIAAAAAFVVVVVVVVVVVVVV" +
+                "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV");
+        }
+
         public static bool Run(TextWriter output)
         {
             output = output ?? TextWriter.Null;
@@ -741,13 +758,7 @@ namespace DesktopAICompanion
 
                 // A structurally-valid MP3 (MPEG frame sync) is accepted and its raw bytes are carried for
                 // the Sound module; the base itself does not decode or open an audio device.
-                byte[] validAudio = Convert.FromBase64String(
-                    "/+MYxAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV" +
-                    "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV/+MYxDsAAANIAAAAAFVVVVVVVVVVVVVV" +
-                    "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV" +
-                    "/+MYxHYAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV" +
-                    "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV/+MYxLEAAANIAAAAAFVVVVVVVVVVVVVV" +
-                    "VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV");
+                byte[] validAudio = ValidMp3Fixture();
                 animations.AddSound(2, 100, 3, Convert.ToBase64String(validAudio));
                 List<TSound> variants;
                 Check(

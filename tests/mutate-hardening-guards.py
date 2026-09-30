@@ -264,6 +264,521 @@ CASES = (
 
     # ---- lane fix/host ----
 
+    # F278: the exclusion set drops the speech bubble again -- a TopMost window that decides a monitor as clear.
+    (
+        "the fullscreen exclusion set forgets the speech bubble",
+        FORMPET,
+        b"            if (bubble != null && !bubble.IsDisposed && bubble.IsHandleCreated) into.Add(bubble.Handle);\n",
+        b"",
+        "gathers the children recursively AND the speech bubble",
+    ),
+    # F270: the screen-position test comes back in place of the rect-shape test.
+    (
+        "CheckTopWindow rejects title bars above screen y=0 again",
+        FORMPET,
+        b"(titleBarInfo.rcTitleBar.Bottom >= titleBarInfo.rcTitleBar.Top || sTitle.ToString() == \"sheep\"))",
+        b"(titleBarInfo.rcTitleBar.Bottom >= 0 || sTitle.ToString() == \"sheep\"))",
+        "by its title bar having a shape",
+    ),
+    # F268: relocation stops un-suppressing the bubble, which is the code as it shipped.
+    (
+        "RelocateToDisplay leaves the bubble suppressed",
+        FORMPET,
+        b"            if (_speech != null && !_speech.IsDisposed) _speech.SetFullscreenSuppressed(false);\n"
+        b"            DisplayIndex = target;",
+        b"            DisplayIndex = target;",
+        "both exits from the fullscreen stand-down un-suppress",
+    ),
+    # The stood-down bubble: the guard weakens to the hidden flag alone, so a stood-down but visible
+    # (relocating) companion opens a bubble over the game again.
+    (
+        "SayWithDwell stops testing the fullscreen marker",
+        FORMPET,
+        b"            if (hwndFullscreenWindow != IntPtr.Zero || _fullscreenHidden)\n"
+        b"            {\n"
+        b"                _deferredSpeechText = text;",
+        b"            if (_fullscreenHidden)\n"
+        b"            {\n"
+        b"                _deferredSpeechText = text;",
+        "defers its line before the repeat guard",
+    ),
+    # F263: the degenerate-rect release loses its bNewAnimation, so one of the sites finishes the tick in
+    # the old pose again.
+    (
+        "the degenerate-rect grip release skips bNewAnimation",
+        FORMPET,
+        b"                    ReleaseWindowGrip(true);\n"
+        b"                    bNewAnimation = true;\n"
+        b"                }\n"
+        b"                else if (windowGrip == WindowGrip.Bottom)",
+        b"                    ReleaseWindowGrip(true);\n"
+        b"                }\n"
+        b"                else if (windowGrip == WindowGrip.Bottom)",
+        "every grip release in NextStep is followed by bNewAnimation",
+    ),
+    # F264: the fork's horizontal-velocity gate returns in front of FollowWindow.
+    (
+        "FollowWindow is gated on horizontal velocity again",
+        FORMPET,
+        b"                        if (FollowWindow())\n                        {",
+        b"                        if (CurrentAnimation.Start.X.Value != 0 && FollowWindow())\n                        {",
+        "rides a moving window",
+    ),
+    # F309/F331: the worker-thread post is removed; the inline raise still stands, which is exactly why the
+    # invariant asserts the ORDER and not the presence of a raise.
+    (
+        "NoteFullscreenScan raises FullscreenChanged on whatever thread scanned",
+        STARTUP,
+        b"            if (uiContext != null && Thread.CurrentThread.ManagedThreadId != uiThreadId)\n"
+        b"            {\n"
+        b"                bool posted = any;\n"
+        b"                uiContext.Post(delegate { if (!disposed && Host != null) Host.RaiseFullscreenChanged(posted); }, null);\n"
+        b"                return;\n"
+        b"            }\n",
+        b"",
+        "posts its FullscreenChanged raise to the UI thread",
+    ),
+    # F310: the module-facing getter stops stamping the attempt.
+    (
+        "IsFullscreenActive stops stamping the scan attempt",
+        STARTUP,
+        b"                _fullscreenScanUtc = DateTime.UtcNow;   // the ATTEMPT, stamped as the stand-down does (F310)\n"
+        b"                try { NoteFullscreenScan(FullscreenScan.BlockedMonitors(SheepHandles())); }",
+        b"                try { NoteFullscreenScan(FullscreenScan.BlockedMonitors(SheepHandles())); }",
+        "stamps the attempt before it walks the desktop",
+    ),
+    # F373: the interactive refresh attaches a second click handler again, so a stale cache opens two tabs.
+    (
+        "the update stamp's refresh attaches a second click handler",
+        os.path.join(REPO, "src", "Portable", "Wpf", "OptionsWindow.cs"),
+        b"                label.Text = text;\n"
+        b"                MarkAsUpdateLink(label);\n",
+        b"                label.Text = text;\n"
+        b"                MarkAsUpdateLink(label);\n"
+        b"                label.MouseLeftButtonUp += delegate { OpenReleasesPage(runningVersion); };\n",
+        "attaches exactly one click handler",
+    ),
+    # F372: the constructor goes back to a fixed height beside the fit it no longer uses.
+    (
+        "the settings window opens at a fixed 820 again",
+        os.path.join(REPO, "src", "Portable", "Wpf", "OptionsWindow.cs"),
+        b"            Width = fitted.Width;\n            Height = fitted.Height;\n",
+        b"            Width = fitted.Width;\n            Height = 820;\n",
+        "fitted to the primary work area",
+    ),
+    # F369: one diagnostic-log setter drops its ok &= again.
+    (
+        "a Preferences setter discards its durable result again",
+        os.path.join(REPO, "src", "Portable", "Wpf", "OptionsShell.cs"),
+        b"                    ok &= data.SetDiagnosticLogMutedModules(CollectMutedModules(values));",
+        b"                    data.SetDiagnosticLogMutedModules(CollectMutedModules(values));",
+        "folds its durable result into ok",
+    ),
+    # F371: the reset touches the dormant theme again.
+    (
+        "reset to defaults resets the dormant theme again",
+        os.path.join(REPO, "src", "Portable", "Wpf", "OptionsShell.cs"),
+        b"                data.SetAudioDeviceId(def.AudioDeviceId);\n",
+        b"                data.SetThemeMode(def.ThemeMode);\n                data.SetAudioDeviceId(def.AudioDeviceId);\n",
+        "does not touch the dormant theme mode",
+    ),
+    # F363: the sound link shows the click instead of the store again.
+    (
+        "the sound link stops following the store",
+        PETSPANE,
+        b"                    enabled = stored;\n",
+        b"",
+        "shows what the store holds",
+    ),
+    # F364: the success-shaped line overwrites persistPending's failure line again.
+    (
+        "the size row's success line ignores the store's verdict again",
+        PETSPANE,
+        b"                if (!storeTookIt) return;\n",
+        b"",
+        "only when the store took it",
+    ),
+    # F363: the combo keeps showing the pin that did not take.
+    (
+        "a failed screen pin leaves the combo on the failed choice",
+        PETSPANE,
+        b"                    syncingBox = true;\n"
+        b"                    try { box.SelectedIndex = storedChoice >= 0 ? storedChoice + 1 : 0; }\n"
+        b"                    finally { syncingBox = false; }\n",
+        b"",
+        "puts the combo back on the stored screen",
+    ),
+    # F365: the built-in card bypasses the cache again; and the Icon goes back to the finalizer.
+    (
+        "the built-in card re-encodes its icon on every rebuild",
+        PETSPANE,
+        b"img = LoadAppIconCached();",
+        b"img = LoadAppIcon();",
+        "takes its icon from the cache",
+    ),
+    (
+        "the app icon resource is left to the finalizer again",
+        PETSPANE,
+        b"                using (System.Drawing.Icon icon = DesktopAICompanion.Properties.Resources.icon)\n"
+        b"                using (var bmp = icon.ToBitmap())\n",
+        b"                using (var bmp = DesktopAICompanion.Properties.Resources.icon.ToBitmap())\n",
+        "disposed after it is converted",
+    ),
+    # F367: a new module is extracted straight into modules/<id> again.
+    (
+        "a new module is unpacked straight into modules/<id> again",
+        PETSPANE_MODULES,
+        b"                using (var zipStream = new MemoryStream(bytes))\n"
+        b"                    await ZipFile.ExtractToDirectoryAsync(zipStream, stagedHere, true, _netCts.Token);\n"
+        b"                Directory.CreateDirectory(ModulesRoot());\n"
+        b"                Directory.Move(stagedHere, installDir);\n"
+        b"                stagedHere = null;   // it is the install folder now\n",
+        b"                Directory.CreateDirectory(installDir);\n"
+        b"                using (var zipStream = new MemoryStream(bytes))\n"
+        b"                    await ZipFile.ExtractToDirectoryAsync(zipStream, installDir, true, _netCts.Token);\n",
+        "never extracted in place",
+    ),
+    # F366: the update's cancel goes silent and strands its staging folder again.
+    (
+        "a cancelled module update goes silent and strands its staging folder",
+        PETSPANE_MODULES,
+        b"            catch (OperationCanceledException)\n"
+        b"            {\n"
+        b"                DiscardStaged(stagedHere);\n"
+        b"                if (IsLoaded) _status.Text = \"Stopped updating \" + module.Name + \".\";\n"
+        b"            }\n",
+        b"            catch (OperationCanceledException) { }\n",
+        "discards its staging folder in both catches",
+    ),
+    # F366: the companion download's cancel goes silent again.
+    (
+        "a cancelled companion download goes silent again",
+        PETSPANE,
+        b"            catch (OperationCanceledException)\n"
+        b"            {\n"
+        b"                if (IsLoaded) _status.Text = \"Stopped \" + (isUpdate ? \"updating \" : \"downloading \") + display + \".\";\n"
+        b"            }\n",
+        b"            catch (OperationCanceledException) { }\n",
+        "a cancelled companion download says so",
+    ),
+    # F328: the bare Safe() wrapper comes back in the drop/poke chain, so a throwing responder is silent again.
+    (
+        "a throwing drop or poke responder is swallowed without a record again",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+        b"                try { handled = fn(handle); }\n"
+        b"                catch (Exception ex)\n"
+        b"                {\n"
+        b"                    Log(r.ModuleId, \"responder threw and was treated as declined: \" + ex.GetType().Name + \": \" + ex.Message);\n"
+        b"                }\n",
+        b"                Safe(() => { handled = fn(handle); });\n",
+        "logged under its module id and treated as declined",
+    ),
+    # F332: the speech chain walks the live list again.
+    (
+        "the speech chain walks the live responder list again",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+        b"                foreach (SpeechResponder r in _speechResponders.ToArray())",
+        b"                foreach (SpeechResponder r in _speechResponders)",
+        "walks a snapshot",
+    ),
+    # F333: only the targeted branch is marshalled again.
+    (
+        "a broadcast bubble re-shown from a worker draws inline again",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+        b"                    if (_host._ui != null && Thread.CurrentThread.ManagedThreadId != _host._uiThreadId)\n"
+        b"                        _host._ui.Post(delegate { try { draw(); } catch (Exception ex) { _host.Log(null, \"bubble draw failed: \" + ex.Message); } }, null);\n"
+        b"                    else if (_target != null && _target.InvokeRequired) _target.BeginInvoke(draw);\n",
+        b"                    if (_target != null && _target.InvokeRequired) _target.BeginInvoke(draw);\n",
+        "posted to the UI thread before the targeted-only marshal",
+    ),
+    # F335: the volatile goes.
+    (
+        "the shared catalog cache loses its volatile",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+        b"        private volatile RemoteCatalog _catalogCache;",
+        b"        private RemoteCatalog _catalogCache;",
+        "volatile publish",
+    ),
+    # F329: the third foreground read is the answer again.
+    (
+        "the screen context reads the foreground process a third time again",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+        b"                ProcessName = !string.IsNullOrEmpty(foregroundProcess) ? foregroundProcess : ActiveWindow.ProcessName(),",
+        b"                ProcessName = ActiveWindow.ProcessName(),",
+        "from the window snapshot",
+    ),
+    # F327: the brain is left ON into the engine leg again.
+    (
+        "--aibrain-selftest leaves the brain enabled into the engine leg",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "AiBrainModuleSelfTest.cs"),
+        b"                    ok &= Check(sb, \"brain toggled back OFF before the engine leg\", host.ClickTray(\"Enable AI\"));\n",
+        b"",
+        "presses Enable a second time",
+    ),
+    # F341: the runner stops naming the loader's reason.
+    (
+        "the convention runner refuses a module without saying why",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "ModuleConventionSelfTest.cs"),
+        b"                        foreach (ModuleLoadFailure f in loader.Failures)\n"
+        b"                            sb.AppendLine(\"  loader: \" + f.Id + \" -- \" + f.Reason +\n"
+        b"                                (f.Reason != null && f.Reason.Contains(\"NullReference\")\n"
+        b"                                    ? \" (this convention host returns null from GetStorage/GetSettings, which the shipped host never does; see IHost.GetStorage)\"\n"
+        b"                                    : \"\"));\n",
+        b"",
+        "reported with the loader's reason",
+    ),
+    # F353: the staging folder drops out of the factory reset.
+    (
+        "factory reset leaves the module staging folder alone again",
+        os.path.join(REPO, "src", "dotNet", "FactoryReset.cs"),
+        b"            ok &= Wipe(stagingRoot, \"staged module updates\", log);\n",
+        b"",
+        "wipes the module staging folder",
+    ),
+    # F352: the launch stops telling the loader which removals did not finish.
+    (
+        "the launch loads a folder whose removal could not finish",
+        STARTUP,
+        b"msg => AddDebugInfo(DEBUG_TYPE.info, \"[module] \" + msg), stillRemoving);",
+        b"msg => AddDebugInfo(DEBUG_TYPE.info, \"[module] \" + msg));",
+        "removals that could not finish",
+    ),
+    # F308: a kill mid-reload persists the shrinking mix again.
+    (
+        "a pet closed by a reload persists the mix again",
+        STARTUP,
+        b"            if (bSheepRemoved && !wasTransient && !reloadInProgress) PersistMix();",
+        b"            if (bSheepRemoved && !wasTransient) PersistMix();",
+        "does not persist the mix; the reload persists once",
+    ),
+    # F312: the flag is never raised.
+    (
+        "KillSheeps stops raising the shutting-down flag",
+        STARTUP,
+        b"            shuttingDown = true;\n",
+        b"",
+        "raises the shutting-down flag before it disposes the tray icon",
+    ),
+    # F312: SetIcon dereferences the disposed icon again.
+    (
+        "SetIcon touches the disposed tray icon again",
+        os.path.join(REPO, "src", "dotNet", "ProcessIcon.cs"),
+        b"            if (ni == null) return;\n",
+        b"",
+        "no-op once the tray icon is disposed",
+    ),
+    # F305: the fallback keeps the rejected pet's key.
+    (
+        "the built-in fallback keeps the rejected pet's id",
+        STARTUP,
+        b"                activeId = CompanionCatalog.BuiltInPetId;\n",
+        b"",
+        "leaves the built-in keyed as the built-in",
+    ),
+    # F307: the preview spawn's throw path leaks the entry again.
+    (
+        "a throwing preview spawn leaks its registry entry again",
+        STARTUP,
+        b"            try { spawned = AddSheepCore(entry.Xml, entry.Animations, entry); }\n"
+        b"            catch { registry.DropIfUnused(entry); throw; }\n",
+        b"            spawned = AddSheepCore(entry.Xml, entry.Animations, entry);\n",
+        "drops its registry entry on the way out",
+    ),
+    # F282: the tray click dereferences Program.Mainthread bare again.
+    (
+        "the tray click dereferences the main thread unguarded again",
+        os.path.join(REPO, "src", "dotNet", "ProcessIcon.cs"),
+        b"                StartUp main = Program.Mainthread;\n"
+        b"                if (main == null) return;\n"
+        b"                main.TopMostSheeps();",
+        b"                Program.Mainthread.TopMostSheeps();",
+        "guard the main thread before using it",
+    ),
+    # F286: the app-version check downloads for itself again.
+    (
+        "the app-version check downloads the catalog for itself again",
+        os.path.join(REPO, "src", "dotNet", "RemoteCatalog.cs"),
+        b"            byte[] bytes = await FetchSharedBytesAsync(cancellationToken).ConfigureAwait(false);\n"
+        b"            return ParseAppVersion(",
+        b"            byte[] bytes = await SecureDownload.DownloadBytesAsync(uri, MaximumCatalogBytes, cancellationToken).ConfigureAwait(false);\n"
+        b"            return ParseAppVersion(",
+        "reads the shared catalog bytes",
+    ),
+    # F286: the Companions pane's check drops the shared copy without refilling it again.
+    (
+        "the Companions check-now drops the shared catalog without refilling it",
+        PETSPANE,
+        b"                _lastCatalog = await RemoteCatalogClient.RefreshSharedAsync(_netCts.Token);",
+        b"                RemoteCatalogClient.InvalidateShared();\n"
+        b"                _lastCatalog = await RemoteCatalogClient.FetchAsync(_netCts.Token);",
+        "refill the shared catalog copy",
+    ),
+    # F249: the Studio uninstall stops forgetting the caches.
+    (
+        "a Studio uninstall leaves the per-id caches serving a deleted pet",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+        b"                CompanionCatalog.Forget(typeId);   // the caches hold a pet that no longer exists (F249)\n",
+        b"",
+        "its uninstall forgets too",
+    ),
+    # F336: the Studio install stops reloading the on-screen copies.
+    (
+        "a Studio install leaves the on-screen copies on the old definition",
+        os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
+        b"                if (_startUp != null)\n"
+        b"                {\n"
+        b"                    int reloaded; string reloadError;\n"
+        b"                    try { _startUp.ReloadPetType(typeId, out reloaded, out reloadError); } catch { }\n"
+        b"                }\n",
+        b"",
+        "reloads the on-screen copies",
+    ),
+    # F361: the Preferences Apply discards the batch's durable result.
+    (
+        "the Preferences Apply discards its batch commit's result",
+        os.path.join(REPO, "src", "Portable", "Wpf", "OptionsShell.cs"),
+        b"                    ok &= batch.Commit();\n",
+        b"                    batch.Commit();\n",
+        "commits it once after the last",
+    ),
+
+    # F318: the loader grows a base64 decode of its own again.
+    (
+        "the loader decodes the icon's base64 itself again",
+        os.path.join(REPO, "src", "dotNet", "Xml.cs"),
+        b"            stagedIcon = new MemoryStream(iconBytes ?? new byte[0], false);\n",
+        b'            stagedIcon = new MemoryStream(Convert.FromBase64String(root.Header.Icon ?? ""), false);\n',
+        "the loader takes the sheet and icon bytes",
+    ),
+    # F317: the alpha flag is written before the commit block again.
+    (
+        "the alpha flag is assigned before DisposeAssets again",
+        os.path.join(REPO, "src", "dotNet", "Xml.cs"),
+        b"                DisposeAssets();\n                AnimationXML = parsed;\n",
+        b"                usesAlpha = stagedUsesAlpha;\n                DisposeAssets();\n                AnimationXML = parsed;\n",
+        "the alpha flag is committed with the rest",
+    ),
+    # F241: the chooser evaluates the chosen animation against the primary screen again.
+    (
+        "the chooser evaluates the chosen animation itself again",
+        os.path.join(REPO, "src", "dotNet", "Animations.cs"),
+        b'            TAnimation ani = SheepAnimations[id];\n            StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info, "new animation: "',
+        b'            TAnimation ani = SheepAnimations[id];\n            ani.UpdateValues();\n            StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info, "new animation: "',
+        "the chooser only announces the chosen animation",
+    ),
+    # F271: the fixed 12 MiB drop buffer comes back.
+    (
+        "the drop read allocates the 12 MiB ceiling again",
+        FORMPET,
+        b"            bytes = new byte[(int)BoundedReadCapacity(stream, maximumBytes)];\n",
+        b"            bytes = new byte[checked(maximumBytes + 1)];\n",
+        "the drop read allocates from the file",
+    ),
+    # F229: the bare EndsWith comes back into the resource lookup.
+    (
+        "the resource lookup matches a bare suffix again",
+        os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "EmbeddedResources.cs"),
+        b"                if (MatchesResourceName(candidate, fileNameSuffix))\n",
+        b"                if (candidate.EndsWith(fileNameSuffix, StringComparison.OrdinalIgnoreCase))\n",
+        "the resource lookup matches an exact name",
+    ),
+    # F230: Update writes defaults over an unreadable document again.
+    (
+        "JsonSettingsStore.Update stops refusing an unreadable document",
+        os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "JsonSettingsStore.cs"),
+        b"                        if (result == ReadResult.Unreadable) return false;\n",
+        b"",
+        "Update takes its lease first",
+    ),
+    # F207: TestModule walks the installed library by hand again.
+    (
+        "TestModule's preview reads %LOCALAPPDATA% by hand again",
+        os.path.join(REPO, "modules", "TestModule", "TestModule.cs"),
+        b"                if (pets.TryReadTypeXml(type.TypeId, out xml, out readError)) break;\n",
+        b'                xml = System.IO.File.ReadAllText(System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "x")); if (xml != null) break;\n',
+        "the preview verb reads the installed pet",
+    ),
+    # F330 follow-up: the template fetches a fresh settings handle per call again.
+    (
+        "the module template fetches settings per call again",
+        os.path.join(REPO, "templates", "desktop-ai-companion-module", "SampleModule.cs"),
+        b"            if (_settings == null && _host != null) _settings = _host.GetSettings(Info.Id);\n",
+        b"            _settings = _host != null ? _host.GetSettings(Info.Id) : null;\n",
+        "memoises one handle instead of fetching",
+    ),
+    # F256: a host drop-down is Clear()ed without disposal again.
+    (
+        "the Add-a-companion drop-down is Clear()ed without disposal again",
+        os.path.join(REPO, "src", "dotNet", "ContextMenus.cs"),
+        b"            ClearAndDispose(addPetMenuItem.DropDownItems);\n",
+        b"            addPetMenuItem.DropDownItems.Clear();\n",
+        "no tray drop-down is Clear()ed",
+    ),
+    # F255: the item is disposed before its children, which orphans their Images.
+    (
+        "DisposeItemTree disposes the item before its children",
+        os.path.join(REPO, "src", "dotNet", "ContextMenus.cs"),
+        b"            if (item == null) return;\n            var dropDown = item as ToolStripDropDownItem;\n",
+        b"            if (item == null) return;\n            try { item.Dispose(); } catch { }\n            var dropDown = item as ToolStripDropDownItem;\n",
+        "DisposeItemTree disposes the children and the Image",
+    ),
+    # F272: the never-shown Icon is deserialised per spawn again.
+    (
+        "the companion form deserialises its Icon again",
+        os.path.join(REPO, "src", "dotNet", "FormCompanion.Designer.cs"),
+        b"\t\t\tthis.ShowIcon = false;\n",
+        b'\t\t\tthis.ShowIcon = false;\n\t\t\tthis.Icon = ((System.Drawing.Icon)(new System.ComponentModel.ComponentResourceManager(typeof(FormCompanion)).GetObject("$this.Icon")));\n',
+        "the companion form loads no Icon",
+    ),
+    # F273: the row cap is not applied after a plain add.
+    (
+        "the debug window stops trimming after a plain add",
+        os.path.join(REPO, "src", "dotNet", "FormDebug.cs"),
+        b"\t\t\tlistView1.Items.Add(item);\n\t\t\tTrimRows();\n",
+        b"\t\t\tlistView1.Items.Add(item);\n",
+        "the debug window trims after every add",
+    ),
+    # F274: a failed handoff is swallowed again (the catch no longer starts with the log line).
+    (
+        "the debug window swallows a failed text handoff again",
+        os.path.join(REPO, "src", "dotNet", "FormDebug.cs"),
+        b"\t\t\tcatch (Exception ex)\n\t\t\t{\n\t\t\t\tStartUp.AddDebugInfo(StartUp.DEBUG_TYPE.error,\n",
+        b"\t\t\tcatch (Exception ex)\n\t\t\t{\n\t\t\t\tif (ex == null) return;\n\t\t\t\tStartUp.AddDebugInfo(StartUp.DEBUG_TYPE.error,\n",
+        "the debug window trims after every add",
+    ),
+    # F325: an animation name goes into the label verbatim again.
+    (
+        "the DOT export emits an animation name unescaped again",
+        os.path.join(REPO, "src", "Tools", "XmlToDot.cs"),
+        b".Append(EscapeLabel(anim.Name))",
+        b".Append(anim.Name)",
+        "every animation name and only-flag",
+    ),
+    # F260: a listing that throws is logged but no longer counted.
+    (
+        "a root that cannot be listed is a clean wipe again",
+        os.path.join(REPO, "src", "dotNet", "FactoryReset.cs"),
+        b'                failed++;\n                if (log != null) log.Add("    could not list " + what',
+        b'                if (log != null) log.Add("    could not list " + what',
+        "a listing that throws counts as a failure",
+    ),
+    # F321: the per-file layout rule is disabled while its statement stays in place.
+    (
+        "the classifier stops rejecting a row whose field count differs",
+        os.path.join(REPO, "src", "Fortunes", "classify-corpus.py"),
+        b"                elif len(parts) != layout:\n",
+        b"                elif False and len(parts) != layout:\n",
+        "the classifier fixes the field layout",
+    ),
+    # F323: the stripped count moves back before the drop test.
+    (
+        "the stripper counts a dropped row as stripped again",
+        os.path.join(REPO, "src", "Fortunes", "strip-authors.py"),
+        b"                    if len(new) < 8:\n                        dropped += 1\n                        continue\n",
+        b"                    if new != text:\n                        changed += 1\n                    if len(new) < 8:\n                        dropped += 1\n                        continue\n",
+        "the stripper counts a byline as stripped only",
+    ),
+
 
     # ---- lane fix/settings ----
 

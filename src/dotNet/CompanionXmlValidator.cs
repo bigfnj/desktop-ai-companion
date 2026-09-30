@@ -372,13 +372,45 @@ namespace DesktopAICompanion
                 CancellationToken.None);
         }
 
+        /// <summary>
+        /// As <see cref="TryParse(string, out XmlData.RootNode, out string)"/>, and hands back the sprite sheet
+        /// and icon bytes the validation already decoded and proved (F318). The runtime loader decoded both
+        /// again from the same base64 -- a second pass over a multi-megabyte string, on the UI thread, per
+        /// staged pet -- so the bytes this pass produced are what <c>Xml.TryReadXml</c> reads now. ADDITIVE:
+        /// PetStudio source-links this file and calls the three-argument form, which is unchanged.
+        /// </summary>
+        public static bool TryParse(
+            string xml,
+            out XmlData.RootNode root,
+            out byte[] spriteBytes,
+            out byte[] iconBytes,
+            out string error)
+        {
+            return TryParse(xml, out root, out spriteBytes, out iconBytes, out error, CancellationToken.None);
+        }
+
         public static bool TryParse(
             string xml,
             out XmlData.RootNode root,
             out string error,
             CancellationToken cancellationToken)
         {
+            byte[] spriteBytes;
+            byte[] iconBytes;
+            return TryParse(xml, out root, out spriteBytes, out iconBytes, out error, cancellationToken);
+        }
+
+        private static bool TryParse(
+            string xml,
+            out XmlData.RootNode root,
+            out byte[] spriteBytes,
+            out byte[] iconBytes,
+            out string error,
+            CancellationToken cancellationToken)
+        {
             root = null;
+            spriteBytes = null;
+            iconBytes = null;
             error = null;
             try
             {
@@ -414,7 +446,7 @@ namespace DesktopAICompanion
                 if (!string.IsNullOrEmpty(schemaError))
                     throw new InvalidDataException("XSD validation failed: " + schemaError);
 
-                Validate(root, cancellationToken);
+                Validate(root, cancellationToken, out spriteBytes, out iconBytes);
                 return true;
             }
             catch (OperationCanceledException)
@@ -424,6 +456,8 @@ namespace DesktopAICompanion
             catch (Exception ex)
             {
                 root = null;
+                spriteBytes = null;
+                iconBytes = null;
                 error = ex.Message;
                 return false;
             }
@@ -454,8 +488,12 @@ namespace DesktopAICompanion
 
         private static void Validate(
             XmlData.RootNode root,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            out byte[] spriteBytesOut,
+            out byte[] iconBytesOut)
         {
+            spriteBytesOut = null;
+            iconBytesOut = null;
             cancellationToken.ThrowIfCancellationRequested();
             if (root == null || root.Header == null || root.Image == null ||
                 root.Animations == null || root.Animations.Animation == null ||
@@ -501,6 +539,9 @@ namespace DesktopAICompanion
                 "pet icon",
                 RequiredImageContainer.Icon,
                 cancellationToken);
+            // Proven, and handed to the caller so the loader need not decode them again (F318).
+            spriteBytesOut = imageBytes;
+            iconBytesOut = iconBytes;
 
             XmlData.AnimationNode[] animations = root.Animations.Animation;
             if (animations.Length < 1 || animations.Length > MaximumAnimations)

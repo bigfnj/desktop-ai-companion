@@ -13,51 +13,129 @@ namespace DesktopAICompanion.Plugins
     /// files it is trying to delete. The marker lives under <c>AppPaths.DataRoot</c>, never inside the
     /// <c>modules/</c> install folder itself, so it is never mistaken for a module id by the loader's
     /// directory scan.
+    ///
+    /// A removal that does not finish STAYS MARKED (F352). The marker used to be deleted whatever happened,
+    /// so an uninstall whose folder was still locked -- a sibling instance holding the DLL, an indexer or
+    /// antivirus mid-scan -- was simply lost: the half-deleted folder stayed, the loader loaded and locked
+    /// what was left of it, the pane listed it as installed, and the user's one action had vanished
+    /// without a word. Now the ids whose delete threw are written back, the launch that hit the lock skips
+    /// loading them (<c>ModuleHost.LoadFrom</c> takes the list), and the next launch tries again. The
+    /// counterpart is <see cref="Unmark"/>: a reinstall or update of the same id forgets the pending
+    /// removal, because removals run before updates on every launch and would otherwise delete the module
+    /// the user had just re-staged.
     /// </summary>
     internal static class PendingModuleRemovals
     {
         private static string FilePath { get { return Path.Combine(AppPaths.DataRoot, "pending-module-removals.txt"); } }
 
+        /// <summary>Where every module's DATA directory lives: <c>&lt;data root&gt;\modules</c>.</summary>
+        private static string DefaultModuleDataRoot { get { return Path.Combine(AppPaths.DataRoot, "modules"); } }
+
         internal static void MarkForRemoval(string moduleId)
         {
-            if (string.IsNullOrWhiteSpace(moduleId)) return;
-            var ids = new HashSet<string>(ReadIds(), StringComparer.OrdinalIgnoreCase);
-            ids.Add(moduleId.Trim());
-            try { File.WriteAllLines(FilePath, ids, new UTF8Encoding(false)); } catch { }
+            MarkForRemoval(moduleId, FilePath);
         }
 
-        /// <summary>Delete every pending module's install folder and data folder, then clear the marker.
-        /// Call BEFORE <c>ModuleHost.LoadFrom</c> on every launch so a pending removal is never (re-)loaded
-        /// by the very process trying to remove it. A no-op when nothing is pending.</summary>
-        internal static void ProcessPending(string modulesRoot, Action<string> log)
+        /// <summary>Marker path is explicit for the self-test, as it is on PendingModuleUpdates: AppPaths.DataRoot
+        /// is resolved once per process, so a test cannot redirect it by setting the override late.</summary>
+        internal static void MarkForRemoval(string moduleId, string markerPath)
         {
-            List<string> ids = ReadIds();
-            if (ids.Count == 0) return;
+            if (string.IsNullOrWhiteSpace(moduleId)) return;
+            var ids = new HashSet<string>(ReadIds(markerPath), StringComparer.OrdinalIgnoreCase);
+            ids.Add(moduleId.Trim());
+            WriteIds(markerPath, ids);
+        }
+
+        /// <summary>
+        /// Forget a pending removal of <paramref name="moduleId"/>, because the user has since staged an
+        /// update or a reinstall of the same id, or installed it anew (F352). Without this a retained marker
+        /// outlived the re-install: removals run first on the next launch and would have deleted the module
+        /// the user just put back, after which the staged update was "discarded" as belonging to nothing.
+        /// </summary>
+        internal static void Unmark(string moduleId)
+        {
+            Unmark(moduleId, FilePath);
+        }
+
+        internal static void Unmark(string moduleId, string markerPath)
+        {
+            if (string.IsNullOrWhiteSpace(moduleId)) return;
+            List<string> ids = ReadIds(markerPath);
+            string wanted = moduleId.Trim();
+            int before = ids.Count;
+            ids.RemoveAll(id => string.Equals(id, wanted, StringComparison.OrdinalIgnoreCase));
+            if (ids.Count == before) return;
+            WriteIds(markerPath, ids);
+        }
+
+        /// <summary>
+        /// Delete every pending module's install folder and data folder, then rewrite the marker with the
+        /// ids that could NOT be removed (or delete it when every one went). Call BEFORE
+        /// <c>ModuleHost.LoadFrom</c> on every launch so a pending removal is never (re-)loaded by the very
+        /// process trying to remove it, and hand the returned ids to LoadFrom so a folder whose delete threw
+        /// is not loaded and locked again by this launch either. A no-op when nothing is pending.
+        /// </summary>
+        internal static IReadOnlyList<string> ProcessPending(string modulesRoot, Action<string> log)
+        {
+            return ProcessPending(modulesRoot, FilePath, DefaultModuleDataRoot, log);
+        }
+
+        internal static IReadOnlyList<string> ProcessPending(
+            string modulesRoot,
+            string markerPath,
+            string moduleDataRoot,
+            Action<string> log)
+        {
+            List<string> ids = ReadIds(markerPath);
+            var unfinished = new List<string>();
+            if (ids.Count == 0) return unfinished;
             foreach (string id in ids)
             {
                 try
                 {
+                    // Install folder first, data folder second, in ONE try: a locked install folder must not
+                    // cost the user their settings while the module itself survives.
                     string installDir = Path.Combine(modulesRoot, id);
                     if (Directory.Exists(installDir)) Directory.Delete(installDir, true);
-                    string dataDir = CompanionHost.ModuleDataDirectory(id);
+                    // The data directory's PATH, never ModuleDataDirectory(), which creates the folder it names:
+                    // a removal must not bring into existence the thing it is about to delete.
+                    string dataDir = Path.Combine(moduleDataRoot, CompanionHost.SafeId(id));
                     if (Directory.Exists(dataDir)) Directory.Delete(dataDir, true);
                     if (log != null) log("removed pending-uninstalled module '" + id + "'");
                 }
                 catch (Exception ex)
                 {
-                    if (log != null) log("could not finish removing '" + id + "': " + ex.Message);
+                    unfinished.Add(id);
+                    if (log != null)
+                        log("could not finish removing '" + id + "': " + ex.Message +
+                            " -- it stays marked, is not loaded this launch, and is retried next launch");
                 }
             }
-            try { File.Delete(FilePath); } catch { }
+            // Rewrite rather than delete: the ids that DID go must not be retried, and the ones that did not
+            // must not be forgotten.
+            WriteIds(markerPath, unfinished);
+            return unfinished;
         }
 
-        private static List<string> ReadIds()
+        private static void WriteIds(string markerPath, IEnumerable<string> ids)
+        {
+            var kept = new List<string>();
+            foreach (string id in ids) if (!string.IsNullOrWhiteSpace(id)) kept.Add(id.Trim());
+            try
+            {
+                if (kept.Count == 0) { if (File.Exists(markerPath)) File.Delete(markerPath); return; }
+                File.WriteAllLines(markerPath, kept, new UTF8Encoding(false));
+            }
+            catch { }
+        }
+
+        private static List<string> ReadIds(string markerPath)
         {
             try
             {
-                if (!File.Exists(FilePath)) return new List<string>();
+                if (!File.Exists(markerPath)) return new List<string>();
                 var result = new List<string>();
-                foreach (string line in File.ReadAllLines(FilePath))
+                foreach (string line in File.ReadAllLines(markerPath))
                     if (!string.IsNullOrWhiteSpace(line)) result.Add(line.Trim());
                 return result;
             }

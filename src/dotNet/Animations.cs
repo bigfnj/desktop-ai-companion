@@ -430,6 +430,10 @@ namespace DesktopAICompanion
         /// </summary>
     public struct TAnimation
     {
+        /// <summary>How many times any animation's expressions were evaluated in this process. A counter
+        /// seam for the self-test (F241): the chooser must add nothing to it, the consumer exactly one.</summary>
+        internal static int EvaluationCount;
+
         private readonly Xml evaluator;
 
             /// <summary>
@@ -501,6 +505,7 @@ namespace DesktopAICompanion
             /// <param name="screenIndex">Set to screen id used for the calculation</param>
         public void UpdateValues(int screenIndex = -1)
         {
+            EvaluationCount++;
             Sequence.Repeat.Value =
                 AnimationRuntimeLimits.ClampRepeat(Sequence.Repeat.GetRawValue(screenIndex));
             Sequence.TotalSteps = AnimationRuntimeLimits.CalculateTotalSteps(
@@ -1163,7 +1168,7 @@ namespace DesktopAICompanion
                     // If an animation was found, re-calculate the values (if there are some Random values, they must be evaluated again)
                 if (iDefaultID > 0)
                 {
-                    UpdateAnimationValues(iDefaultID);
+                    AnnounceChosenAnimation(iDefaultID);
                     List<TSound> soundVariants;
                     if (SheepSound.TryGetValue(iDefaultID, out soundVariants))
                     {
@@ -1228,12 +1233,15 @@ namespace DesktopAICompanion
             /// Total steps are also calculated, so it has a better performance by playing it.
             /// </summary>
             /// <param name="id">ID of the Animation.</param>
-        private void UpdateAnimationValues(int id)
+        private void AnnounceChosenAnimation(int id)
         {
+            // Announce only (F241). This used to evaluate the chosen animation's expressions against the
+            // PRIMARY screen and store the result back, and the one consumer -- FormCompanion.SetNewAnimationCore,
+            // through GetAnimation -- evaluates its own copy for the pet's DisplayIndex straight after, so the
+            // first pass was every expression of the animation evaluated once more per transition and
+            // discarded. TAnimation is a struct and nothing reads evaluated values out of SheepAnimations,
+            // only names and edge lists, so there is nothing to store.
             TAnimation ani = SheepAnimations[id];
-            ani.UpdateValues();
-            SheepAnimations[id] = ani;
-			
             StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info, "new animation: " + ani.Name + " (" + ani.ID + ")");
         }
 

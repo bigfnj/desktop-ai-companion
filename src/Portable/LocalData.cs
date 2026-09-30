@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.Json.Nodes;
+using System.Threading;
 
 namespace DesktopAICompanion
 {
@@ -886,11 +887,109 @@ namespace DesktopAICompanion
                 delegate { _settings.Icon = value; });
         }
 
+        // ---- coalesced writes (F361, F308) ----
+        //
+        // Every setter is one full-document durable write on the UI thread: ~130 ms at the default pet's
+        // 1.17 MB, because the active pet's XML is embedded in settings.json, and ~1 s extrapolated at the
+        // largest shipped pet. An Apply of the Preferences page ran 22 setters, so it was 22 writes of the
+        // same file. Inside a batch the setters apply in memory and answer true; Commit performs the ONE
+        // write and returns its durable result, rolling every setter in the batch back on failure. The
+        // read-back pattern the panes rely on keeps its meaning: a value read after Commit is the store's.
+        //
+        // NOT a debounced background writer, deliberately. The setters' bools are read as durable results
+        // (OptionsWindow.ApplyCurrent shows "could not be saved" on false) and a deferred write would make
+        // them lies. The batch belongs to the thread that opened it: a setter from another thread while
+        // one is open writes through at once, as it always did (carrying the batch's in-memory changes
+        // with it, which is harmless), so a module's background stamp can never be lost to a rollback it
+        // did not ask for. Un-embedding the payload, which is the fix for the per-write COST, is a schema
+        // change recorded in the register as a later release.
+        private int _batchDepth;
+        private int _batchThreadId;
+        private bool _batchDirty;
+        private AppSettingsDocument _batchBefore;
+
+        /// <summary>A scope of setters that share one durable write. See <see cref="BeginBatch"/>.</summary>
+        public sealed class Batch : IDisposable
+        {
+            private LocalData _owner;
+            private bool _decided;
+            internal Batch(LocalData owner) { _owner = owner; }
+
+            /// <summary>The one durable write for everything set since <see cref="BeginBatch"/>. False means
+            /// nothing was written and every setter in the batch has been rolled back. An inner scope's
+            /// Commit answers true and leaves the write to the outermost.</summary>
+            public bool Commit()
+            {
+                LocalData owner = _owner;
+                if (owner == null || _decided) return false;
+                _decided = true;
+                return owner.EndBatch(true);
+            }
+
+            /// <summary>Disposed without <see cref="Commit"/>: nothing is written and the setters are rolled back.</summary>
+            public void Dispose()
+            {
+                LocalData owner = _owner;
+                _owner = null;
+                if (owner != null && !_decided) { _decided = true; owner.EndBatch(false); }
+            }
+        }
+
+        /// <summary>Open a batch on the calling thread. Nestable; the outermost Commit is the durable one.</summary>
+        public Batch BeginBatch()
+        {
+            lock (_sync)
+            {
+                if (_batchDepth == 0)
+                {
+                    _batchBefore = CloneSettings(_settings);
+                    _batchThreadId = Thread.CurrentThread.ManagedThreadId;
+                    _batchDirty = false;
+                }
+                _batchDepth++;
+                return new Batch(this);
+            }
+        }
+
+        private bool EndBatch(bool commit)
+        {
+            lock (_sync)
+            {
+                if (_batchDepth == 0) return false;
+                _batchDepth--;
+                if (_batchDepth > 0) return true;   // an inner scope: the outermost decides
+                AppSettingsDocument before = _batchBefore;
+                _batchBefore = null;
+                bool dirty = _batchDirty;
+                _batchDirty = false;
+                if (!dirty) return true;
+                if (commit && _store.Save(_settings)) return true;
+                _settings = before;
+                SynchronizeLegacySettingsObject();
+                return false;
+            }
+        }
+
+        private bool InBatchOnThisThread
+        {
+            get { return _batchDepth > 0 && Thread.CurrentThread.ManagedThreadId == _batchThreadId; }
+        }
+
         private bool Update(Func<bool> changed, Action apply)
         {
             lock (_sync)
             {
                 if (!changed()) return true;
+                if (InBatchOnThisThread)
+                {
+                    // Applied in memory; the batch's Commit is the durable write, and its rollback point
+                    // is the snapshot BeginBatch took.
+                    apply();
+                    _settings.Normalize();
+                    SynchronizeLegacySettingsObject();
+                    _batchDirty = true;
+                    return true;
+                }
                 AppSettingsDocument before = CloneSettings(_settings);
                 apply();
                 _settings.Normalize();

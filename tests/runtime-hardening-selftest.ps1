@@ -1201,7 +1201,9 @@ foreach ($pane in @('CompanionsPaneControl', 'ModulesPaneControl')) {
         $paneSource -match 'private async void RefreshCatalogOnOpen\(\)'
     ) "$pane refreshes itself when it opens rather than waiting for a button"
     # A user-initiated check must not be served the shared copy, or the button appears to do nothing.
-    Assert-True ($paneSource -match 'RemoteCatalogClient\.InvalidateShared\(\);') (
+    # Since F286 the pane calls RefreshSharedAsync, which drops the copy and REFILLS it with what the
+    # check finds; the lane's own invariant below asserts the refill, this one keeps asserting the drop.
+    Assert-True ($paneSource -match 'RemoteCatalogClient\.(InvalidateShared\(\);|RefreshSharedAsync\()') (
         "$pane drops the shared catalog when the user asks to check now")
 }
 
@@ -1970,6 +1972,694 @@ Assert-True (
 
 # ---- lane fix/host ----
 # (invariants added by lane fix/host go directly below this line)
+
+# The fullscreen scan's exclusion set is EVERY window a companion owns, not just the root form (F278). A
+# TopMost child (the UFO) or a speech bubble that covered a monitor's centre pixel was enumerated ahead of
+# the game and decided that monitor as clear, so the whole family stayed visible over it for as long as the
+# overlap lasted. The runtime suites cannot see this (a child and a bubble need a live desktop), so the
+# two methods are sliced and the DELEGATION is asserted, with the old root-only shape asserted absent.
+$formPetCodeHost = Remove-LineComments $formPetSource
+$startUpCodeHost = Remove-LineComments $startUpSource
+$sheepHandlesBody = Get-MethodBody $startUpCodeHost 'public HashSet<IntPtr> SheepHandles()' `
+    @("`n        public ", "`n        internal ", "`n        private ")
+$ownedHandlesBody = Get-MethodBody $formPetCodeHost 'internal void CollectOwnedHandles(HashSet<IntPtr> into)' `
+    @("`n        internal ", "`n        private ", "`n        public ")
+Assert-True ($sheepHandlesBody.Length -gt 0 -and $ownedHandlesBody.Length -gt 0) (
+    'SheepHandles and CollectOwnedHandles were both located')
+Assert-True (
+    $sheepHandlesBody -cmatch 'sheep\.CollectOwnedHandles\(handles\)' -and
+    $sheepHandlesBody -cnotmatch 'handles\.Add\(sheep\.Handle\)'
+) 'the fullscreen scan excludes every window a companion OWNS, through CollectOwnedHandles, not only the root handle'
+Assert-True (
+    $ownedHandlesBody -cmatch 'child\.CollectOwnedHandles\(into\)' -and
+    $ownedHandlesBody -cmatch 'into\.Add\(bubble\.Handle\)'
+) 'CollectOwnedHandles gathers the children recursively AND the speech bubble'
+
+# CheckTopWindow decides "is this window a real occluder" from the title bar's RECT SHAPE, not from its
+# screen position (F270). TITLEBARINFO.rcTitleBar is in screen coordinates, so `Bottom >= 0` rejected every
+# genuine title bar on a monitor arranged ABOVE the primary and coverage detection was simply off there.
+$checkTopBody = Get-MethodBody $formPetCodeHost 'private bool CheckTopWindow(bool bCheck)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($checkTopBody.Length -gt 0) 'CheckTopWindow was located'
+Assert-True (
+    $checkTopBody -cmatch 'rcTitleBar\.Bottom >= titleBarInfo\.rcTitleBar\.Top' -and
+    $checkTopBody -cnotmatch 'rcTitleBar\.Bottom >= 0'
+) 'CheckTopWindow accepts an occluder by its title bar having a shape, not by its title bar lying below screen y=0'
+
+# Leaving the stand-down has ONE implementation (F268). RelocateToDisplay cleared the marker on its own and
+# left the bubble suppressed, while the clear branch that would have un-suppressed it was gated on the very
+# marker relocation had just cleared. Both exits must reach the bubble, and inside RelocateToDisplay the
+# ORDER matters: un-suppress before the Play() that re-shows the pet.
+$clearBody = Get-MethodBody $formPetCodeHost 'private void ClearFullscreenStandDown()' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+$relocateBody = Get-MethodBody $formPetCodeHost 'private void RelocateToDisplay(int target)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+$checkFsBodyHost = Get-MethodBody $formPetCodeHost 'private void CheckFullScreen()' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($clearBody.Length -gt 0 -and $relocateBody.Length -gt 0 -and $checkFsBodyHost.Length -gt 0) (
+    'the three fullscreen stand-down methods were located')
+Assert-True (
+    $checkFsBodyHost -cmatch 'ClearFullscreenStandDown\(\)' -and
+    $clearBody -cmatch '_speech\.SetFullscreenSuppressed\(false\)' -and
+    $relocateBody -cmatch '_speech\.SetFullscreenSuppressed\(false\)'
+) 'both exits from the fullscreen stand-down un-suppress the speech bubble'
+Assert-True (
+    $relocateBody.IndexOf('SetFullscreenSuppressed(false)') -lt $relocateBody.IndexOf('Play(false)')
+) 'RelocateToDisplay un-suppresses the bubble BEFORE the respawn that shows the pet'
+
+# A stood-down companion DEFERS its line rather than opening a bubble over the game (found while fixing
+# F278; a bubble is its own window and a new one lands above a borderless game whatever its TopMost). The
+# stand-down test sits ahead of the bubble's construction AND ahead of the repeat guard -- recording the
+# line as said would make its own replay a duplicate -- and the clear path is what replays it.
+$sayBody = Get-MethodBody $formPetCodeHost 'internal void SayWithDwell(' `
+    @("`n        internal ", "`n        private ", "`n        public ")
+Assert-True ($sayBody.Length -gt 0) 'SayWithDwell was located'
+$standDownTest = $sayBody.IndexOf('hwndFullscreenWindow != IntPtr.Zero || _fullscreenHidden')
+Assert-True (
+    $standDownTest -ge 0 -and
+    $standDownTest -lt $sayBody.IndexOf('_lastSaid') -and
+    $standDownTest -lt $sayBody.IndexOf('new FormSpeech()') -and
+    $clearBody -cmatch 'ReplayDeferredSpeech\(\)'
+) 'a stood-down companion defers its line before the repeat guard and before any bubble exists, and the clear path replays it'
+
+# Every grip release inside NextStep finishes the tick as a NEW animation (F263). ReleaseWindowGrip swaps
+# CurrentAnimation to the fall but renders nothing, so a release without bNewAnimation showed the old
+# climbing pose for one more step at the old interval and ran the y-detectors against the fall. Counted
+# as a ratio rather than listed, so a fifth site added later is held to the same rule.
+$nextStepBody = Get-MethodBody $formPetCodeHost 'private void NextStep()' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+$gripReleases = ([regex]::Matches($nextStepBody, 'ReleaseWindowGrip\(true\);')).Count
+$gripRestarts = ([regex]::Matches($nextStepBody, 'ReleaseWindowGrip\(true\);\s*\}?\s*bNewAnimation = true;')).Count
+Assert-True ($nextStepBody.Length -gt 0 -and $gripReleases -ge 4) (
+    "NextStep was located and releases the window grip at its sites (found $gripReleases)")
+Assert-True ($gripRestarts -eq $gripReleases) (
+    "every grip release in NextStep is followed by bNewAnimation = true ($gripRestarts of $gripReleases)")
+
+# A stationary pose rides a moving window (F264). The fork's `Start.X.Value != 0 &&` gate in front of
+# FollowWindow sent a sitting or sleeping pet down the "covered" branch whenever its window was dragged.
+Assert-True (
+    $nextStepBody -cmatch 'if \(FollowWindow\(\)\)' -and
+    $nextStepBody -cnotmatch 'Start\.X\.Value != 0 && FollowWindow\(\)'
+) 'a stationary pose rides a moving window: FollowWindow is not gated on horizontal velocity'
+
+# The FullscreenChanged raise lands on the UI thread whichever thread scanned (F309, F331). The getter can
+# scan from a module's worker; the ORDER is what is asserted -- thread test, then Post, then the inline
+# raise -- because a mutation that drops the marshalling leaves the inline raise standing and a presence
+# check would still match it.
+$noteScanBody = Get-MethodBody $startUpCodeHost 'internal void NoteFullscreenScan(bool[] blocked)' `
+    @("`n        internal ", "`n        private ", "`n        public ")
+Assert-True ($noteScanBody.Length -gt 0) 'NoteFullscreenScan was located'
+$threadTest = $noteScanBody.IndexOf('Thread.CurrentThread.ManagedThreadId != uiThreadId')
+$uiPost = $noteScanBody.IndexOf('uiContext.Post(')
+$inlineRaise = $noteScanBody.LastIndexOf('Host.RaiseFullscreenChanged(any)')
+Assert-True ($threadTest -ge 0 -and $uiPost -gt $threadTest -and $inlineRaise -gt $uiPost) (
+    'a fullscreen scan on a worker thread posts its FullscreenChanged raise to the UI thread before the inline raise is reached')
+
+# IsFullscreenActive stamps the ATTEMPT before it scans (F310), the way BlockedMonitorsForStandDown does,
+# so the two entry points to the one scan share one design.
+$fullscreenGetterBody = Get-MethodBody $startUpCodeHost 'internal bool IsFullscreenActive' `
+    @("`n        internal ", "`n        private ", "`n        public ")
+Assert-True (
+    $fullscreenGetterBody.Length -gt 0 -and
+    $fullscreenGetterBody.IndexOf('_fullscreenScanUtc = DateTime.UtcNow;') -ge 0 -and
+    $fullscreenGetterBody.IndexOf('_fullscreenScanUtc = DateTime.UtcNow;') -lt $fullscreenGetterBody.IndexOf('FullscreenScan.BlockedMonitors(')
+) 'the module-facing fullscreen getter stamps the attempt before it walks the desktop'
+
+# The footer update stamp has ONE click handler (F373). The constructor attached one when the cached check
+# offered an update and the interactive refresh attached another when its fresh answer differed, so a user two
+# releases behind opened the releases page twice per click. The refresh may only RESTYLE the label; the single
+# attach re-reads the cached answer at click time, which is what lets it be unconditional.
+$optionsWindowCodeHost = Remove-LineComments $optionsWindowSource
+$refreshStampBody = Get-MethodBody $optionsWindowCodeHost 'private static async void RefreshUpdateStampAsync(TextBlock label, string runningVersion)' `
+    @("`n        private ", "`n        internal ", "`n        public ", "`n        protected ")
+$openReleasesBody = Get-MethodBody $optionsWindowCodeHost 'private static void OpenReleasesPage(string runningVersion)' `
+    @("`n        private ", "`n        internal ", "`n        public ", "`n        protected ")
+Assert-True ($refreshStampBody.Length -gt 0 -and $openReleasesBody.Length -gt 0) 'RefreshUpdateStampAsync and OpenReleasesPage were located'
+Assert-True (
+    ([regex]::Matches($optionsWindowCodeHost, 'MouseLeftButtonUp \+=')).Count -eq 1 -and
+    $refreshStampBody -cnotmatch 'MouseLeftButtonUp' -and
+    $refreshStampBody -cnotmatch 'Process\.Start'
+) 'the footer update stamp attaches exactly one click handler, and the interactive refresh only restyles it'
+Assert-True (
+    $openReleasesBody.IndexOf('AppUpdateCheck.OffersUpdate(runningVersion, latest)') -ge 0 -and
+    $openReleasesBody.IndexOf('AppUpdateCheck.OffersUpdate(runningVersion, latest)') -lt $openReleasesBody.IndexOf('Process.Start(')
+) 'the footer click re-reads the cached update answer before it opens anything'
+
+# The window is FITTED to the work area before it is shown (F372). --wpf-options-selftest proves the pure
+# InitialSize on displays this box does not have; this pins that the constructor CALLS it with the live work
+# area and takes both axes from the answer, with no fixed height left standing beside it.
+$optionsCtorBody = Get-MethodBody $optionsWindowCodeHost 'public OptionsWindow(IReadOnlyList<ShellPane> panes, string initialPaneTitle = null)' `
+    @("`n        private ", "`n        internal ", "`n        public ", "`n        protected ")
+Assert-True ($optionsCtorBody.Length -gt 0) 'the OptionsWindow constructor was located'
+Assert-True (
+    $optionsCtorBody -cmatch 'InitialSize\(PreferredSize, MinimumSize, SystemParameters\.WorkArea\)' -and
+    $optionsCtorBody -cmatch 'Height = fitted\.Height;' -and
+    $optionsCtorBody -cmatch 'Width = fitted\.Width;' -and
+    $optionsCtorBody -cnotmatch 'Height = 820;'
+) 'the settings window opens at a size fitted to the primary work area, never at a fixed 820'
+
+# Every LocalData setter in the Preferences Save folds its durable result into ok (F369). Five diagnostic-log
+# setters discarded it, so a failed save of only those fields greyed Apply out without the "could not be
+# saved" dialog and handed the running logger the rolled-back values. A RATIO, so a setter added later is
+# held to the same rule; the delegate is sliced from its Save = to the Actions = that follows it.
+$optionsShellCodeHost = Remove-LineComments $optionsShellSource
+$prefsSaveStart = $optionsShellCodeHost.IndexOf('Save = delegate(IReadOnlyDictionary<string, string> values)')
+$prefsSaveEnd = $optionsShellCodeHost.IndexOf('Actions = BuildPreferencesActions(),', [Math]::Max($prefsSaveStart, 0))
+Assert-True ($prefsSaveStart -ge 0 -and $prefsSaveEnd -gt $prefsSaveStart) 'the Preferences Save delegate was located'
+$prefsSaveBody = $optionsShellCodeHost.Substring($prefsSaveStart, $prefsSaveEnd - $prefsSaveStart)
+$prefsSetters = ([regex]::Matches($prefsSaveBody, 'data\.Set\w+\(')).Count
+$prefsFolded = ([regex]::Matches($prefsSaveBody, 'ok &= data\.Set\w+\(')).Count
+Assert-True ($prefsSetters -ge 18) "the Preferences Save writes through LocalData setters (found $prefsSetters)"
+Assert-True ($prefsFolded -eq $prefsSetters) (
+    "every LocalData setter in the Preferences Save folds its durable result into ok ($prefsFolded of $prefsSetters)")
+
+# Reset to defaults leaves the dormant themeMode alone (F371): the page has had no theme control since the
+# dropdown was dropped, so the only non-default value is a hand edit of settings.json, which the reset
+# reverted silently. The audio-device reset beside it is the WITNESS that the slice still holds its setters.
+$resetBodyHost = Get-MethodBody $optionsShellCodeHost 'private static string ResetToDefaultSettings()' @("`n        private ", "`n    }")
+Assert-True ($resetBodyHost.Length -gt 0 -and $resetBodyHost -cmatch 'SetAudioDeviceId\(def\.AudioDeviceId\)') (
+    'the reset-to-defaults body was located and still resets the audio device')
+Assert-True ($resetBodyHost -cnotmatch 'SetThemeMode\(') 'reset to defaults does not touch the dormant theme mode, which the page does not show'
+
+# The per-companion controls follow the STORE, not the click (F363), and the size row's success line is
+# written only when the store took the value (F364). ORDER is what is asserted: in the sound handler the
+# read-back precedes the control update; in ValueChanged the persist precedes the verdict test, which
+# precedes the success-shaped line that used to overwrite persistPending's failure one statement later.
+$companionsPaneCodeHost = Remove-LineComments $companionsPaneSource
+$soundClickStart = $companionsPaneCodeHost.IndexOf('soundLink.Click += delegate')
+$soundClickEnd = $companionsPaneCodeHost.IndexOf('line.Inlines.Add(soundLink);', [Math]::Max($soundClickStart, 0))
+Assert-True ($soundClickStart -ge 0 -and $soundClickEnd -gt $soundClickStart) 'the per-companion sound toggle handler was located'
+$soundClick = $companionsPaneCodeHost.Substring($soundClickStart, $soundClickEnd - $soundClickStart)
+$soundReadBack = $soundClick.IndexOf('Program.MyData.IsPetSoundEnabled(addId)')
+$soundFollow = $soundClick.IndexOf('enabled = stored;')
+$soundText = $soundClick.IndexOf('soundRun.Text = enabled')
+Assert-True (
+    $soundReadBack -ge 0 -and $soundFollow -gt $soundReadBack -and $soundText -gt $soundFollow -and
+    $soundClick -cnotmatch 'enabled = !enabled;'
+) 'the sound link reads the store back and then shows what the store holds, never the click that failed'
+$sizeRowBody = Get-MethodBody $companionsPaneCodeHost 'private FrameworkElement BuildSizeRow(string addId, string displayName)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($sizeRowBody.Length -gt 0) 'BuildSizeRow was located'
+$sizePersist = $sizeRowBody.IndexOf('if (!dragging) persistPending();')
+$sizeVerdict = $sizeRowBody.IndexOf('if (!storeTookIt) return;')
+$sizeSuccess = $sizeRowBody.IndexOf('_status.Text = displayName + " size "')
+Assert-True ($sizePersist -ge 0 -and $sizeVerdict -gt $sizePersist -and $sizeSuccess -gt $sizeVerdict) (
+    'the size row announces a size only when the store took it')
+Assert-True (
+    $sizeRowBody -cmatch 'storeTookIt = storedPercent == pendingPercent;' -and
+    $sizeRowBody -cmatch 'slider\.Value = storedPercent;'
+) 'a failed size write moves the thumb back to the stored size'
+$monitorRowBody = Get-MethodBody $companionsPaneCodeHost 'private FrameworkElement BuildMonitorRow(string addId, string displayName)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($monitorRowBody.Length -gt 0) 'BuildMonitorRow was located'
+$monitorFailure = $monitorRowBody.IndexOf("Couldn't save the screen for")
+$monitorRevert = $monitorRowBody.IndexOf('box.SelectedIndex = storedChoice >= 0 ? storedChoice + 1 : 0;')
+Assert-True (
+    $monitorFailure -ge 0 -and $monitorRevert -gt $monitorFailure -and $monitorRowBody -cmatch 'if \(syncingBox\) return;'
+) 'a failed screen pin puts the combo back on the stored screen, behind a re-entrancy flag'
+
+# The built-in card's icon is made ONCE and the resource Icon behind it is disposed (F365). LoadThumb caches
+# its miss for the built-in id, so the fallback ran on every rebuild and left a live HICON per run.
+$loadAppIconBody = Get-MethodBody $companionsPaneCodeHost 'private static ImageSource LoadAppIcon()' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+$loadAppIconCachedBody = Get-MethodBody $companionsPaneCodeHost 'private static ImageSource LoadAppIconCached()' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+$buildCardBody = Get-MethodBody $companionsPaneCodeHost 'private FrameworkElement BuildCard(CompanionRow row, Dictionary<string, int> mix)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($loadAppIconBody.Length -gt 0 -and $loadAppIconCachedBody.Length -gt 0 -and $buildCardBody.Length -gt 0) (
+    'the built-in icon path was located')
+Assert-True (
+    $loadAppIconBody -cmatch 'using \(System\.Drawing\.Icon icon = DesktopAICompanion\.Properties\.Resources\.icon\)' -and
+    $loadAppIconBody -cnotmatch 'Resources\.icon\.ToBitmap\(\)'
+) 'the app icon resource is disposed after it is converted, not left to the finalizer'
+Assert-True (
+    $buildCardBody -cmatch 'LoadAppIconCached\(\)' -and
+    $buildCardBody -cnotmatch 'LoadAppIcon\(\)' -and
+    $loadAppIconCachedBody -cmatch '_iconCache\[CompanionCatalog\.BuiltInPetId\] = icon;'
+) 'the built-in card takes its icon from the cache, keyed by the built-in id, instead of re-encoding it per rebuild'
+
+# A new module is unpacked into staging and MOVED into place once whole (F367), and every interrupted install
+# or update discards its staging folder and says so (F366). ORDER in InstallModuleAsync: extraction into the
+# staged folder, then the move; extraction straight into installDir asserted absent.
+$modulesPaneCodeHost = Remove-LineComments $modulesPaneSource
+$installBody = Get-MethodBody $modulesPaneCodeHost 'private async Task InstallModuleAsync(CatalogModule module, Button install)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+$updateBody = Get-MethodBody $modulesPaneCodeHost 'private async Task UpdateModuleAsync(CatalogModule module, Button update, ModuleInfo installed)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($installBody.Length -gt 0 -and $updateBody.Length -gt 0) 'InstallModuleAsync and UpdateModuleAsync were located'
+$installExtract = $installBody.LastIndexOf('ZipFile.ExtractToDirectoryAsync(zipStream, stagedHere, true, _netCts.Token)')
+$installMove = $installBody.IndexOf('Directory.Move(stagedHere, installDir);')
+Assert-True (
+    $installExtract -ge 0 -and $installMove -gt $installExtract -and
+    $installBody -cnotmatch 'ExtractToDirectoryAsync\(zipStream, installDir'
+) 'a new module is unpacked into the staging folder and moved into modules/<id> whole, never extracted in place'
+Assert-True (
+    ([regex]::Matches($installBody, 'DiscardStaged\(stagedHere\);')).Count -eq 2 -and
+    ([regex]::Matches($updateBody, 'DiscardStaged\(stagedHere\);')).Count -eq 2 -and
+    $updateBody -cmatch '"Stopped updating "' -and
+    $installBody -cmatch '"Stopped installing "'
+) 'a cancelled or failed install or update discards its staging folder in both catches and says so'
+$fetchPetBody = Get-MethodBody $companionsPaneCodeHost 'private async Task FetchPetAsync(CatalogCompanion pet, Button trigger, bool isUpdate)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($fetchPetBody.Length -gt 0) 'FetchPetAsync was located'
+Assert-True (
+    $fetchPetBody -cmatch '"Stopped " \+ \(isUpdate \? "updating " : "downloading "\)' -and
+    $fetchPetBody -cnotmatch 'catch \(OperationCanceledException\) \{ \}'
+) 'a cancelled companion download says so instead of leaving the status line to the check that cancelled it'
+
+# The responder chains RECORD a throwing responder and treat it as declined (F328), the speech chain walks a
+# SNAPSHOT (F332), and a target-less bubble re-shown from a worker is posted to the UI thread (F333). None of
+# the three is reachable headless -- Program.MyData is null, so SpeechEnabled is false and the speech chain
+# never runs -- so the ARGUMENT and the ORDER are asserted: the catch logs under the responder's module id and
+# the bare Safe() wrapper is gone; ToArray() is what the foreach walks; the Post branch precedes the
+# targeted-only InvokeRequired one and decides by thread id, not by context instance.
+$petHostCodeHost = Remove-LineComments $petHostSource
+$raiseChainBody = Get-MethodBody $petHostCodeHost 'private bool RaiseChain(List<Responder> chain, FormCompanion subject, string only, bool shuffle)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+$raiseSpeechBody = Get-MethodBody $petHostCodeHost 'internal bool RaiseSpeechRequest(FormCompanion target, string text)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+$showBubbleBody = Get-MethodBody $petHostCodeHost 'internal void Show(double seconds)' `
+    @("`n            private ", "`n            internal ", "`n            public ", "`n        }")
+Assert-True ($raiseChainBody.Length -gt 0 -and $raiseSpeechBody.Length -gt 0 -and $showBubbleBody.Length -gt 0) (
+    'RaiseChain, RaiseSpeechRequest and PendingBubble.Show were located')
+Assert-True (
+    $raiseChainBody -cmatch 'catch \(Exception ex\)' -and
+    $raiseChainBody -cmatch 'Log\(r\.ModuleId, "responder threw and was treated as declined' -and
+    $raiseChainBody -cnotmatch 'Safe\(' -and
+    $raiseSpeechBody -cmatch 'Log\(r\.ModuleId, "speech responder threw and was treated as declined' -and
+    $raiseSpeechBody -cnotmatch 'Safe\('
+) 'a responder that throws is logged under its module id and treated as declined, in every chain'
+Assert-True (
+    $raiseSpeechBody -cmatch 'foreach \(SpeechResponder r in _speechResponders\.ToArray\(\)\)'
+) 'the speech chain walks a snapshot, so a responder disposing itself in-callback cannot break the walk'
+$bubblePost = $showBubbleBody.IndexOf('_host._ui.Post(')
+$bubbleInvoke = $showBubbleBody.IndexOf('_target.InvokeRequired')
+Assert-True (
+    $bubblePost -ge 0 -and $bubbleInvoke -gt $bubblePost -and
+    $showBubbleBody -cmatch 'Thread\.CurrentThread\.ManagedThreadId != _host\._uiThreadId'
+) 'a bubble re-shown from a worker thread is posted to the UI thread before the targeted-only marshal is consulted'
+
+# The shared catalog cache is a volatile publish (F335): written on a pool thread, read on the caller's.
+Assert-True ($petHostCodeHost -cmatch 'private volatile RemoteCatalog _catalogCache;') 'the shared catalog cache is a volatile publish'
+
+# The foreground process name comes from the snapshot entry that IS the foreground window (F329), and the
+# old third GetForegroundWindow read is the FALLBACK, not the answer: ORDER of the capture and the use.
+$captureBody = Get-MethodBody $petHostCodeHost 'public ScreenContext CaptureScreenContext(ICompanion pet)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($captureBody.Length -gt 0) 'CaptureScreenContext was located'
+$foregroundCapture = $captureBody.IndexOf('foregroundProcess = w.ProcessName;')
+$foregroundUse = $captureBody.IndexOf('ProcessName = !string.IsNullOrEmpty(foregroundProcess) ? foregroundProcess : ActiveWindow.ProcessName(),')
+Assert-True (
+    $foregroundCapture -ge 0 -and $foregroundUse -gt $foregroundCapture -and
+    $captureBody -cnotmatch 'ProcessName = ActiveWindow\.ProcessName\(\),'
+) 'the screen context names the foreground process from the window snapshot, falling back to a fresh read only when no entry is flagged'
+
+# --aibrain-selftest switches the brain OFF again before the engine leg (F327). Enabling it for the
+# declined-drop check reconfigures the session in the background (up to a 20 s server-start deadline, with
+# AutoStartServer on by default) while the engine probe promises no live LLM and swaps the process-global log
+# sink. The row's Label is static, so the same press is the off switch: TWO presses, the second before the probe.
+$aiBrainSelfTestCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'src\dotNet\Plugins\AiBrainModuleSelfTest.cs') -Raw)
+$aiRunBody = Get-MethodBody $aiBrainSelfTestCode 'public static bool Run()' @("`n        private ", "`n        internal ", "`n        public ")
+$firstEnablePress = $aiRunBody.IndexOf('host.ClickTray("Enable AI")')
+$secondEnablePress = -1
+if ($firstEnablePress -ge 0) { $secondEnablePress = $aiRunBody.IndexOf('host.ClickTray("Enable AI")', $firstEnablePress + 1) }
+$engineLeg = $aiRunBody.IndexOf('AiEngineProbe')
+Assert-True ($aiRunBody.Length -gt 0 -and $firstEnablePress -ge 0 -and $engineLeg -gt 0) (
+    'the AiBrain self-test Run body, its Enable press and its engine leg were located')
+Assert-True ($secondEnablePress -gt $firstEnablePress -and $secondEnablePress -lt $engineLeg) (
+    'the AiBrain self-test presses Enable a second time, switching the brain OFF, before the engine leg runs')
+
+# The convention runner names the loader's reason when it refuses a module (F341), and the commonest reason
+# for an out-of-tree module -- this host's null GetStorage/GetSettings, which the shipped host never returns
+# -- is named beside it. ORDER: the reasons follow the acceptance check they explain.
+$conventionCode = Remove-LineComments (Get-Content -LiteralPath (
+    Join-Path $repoRoot 'src\dotNet\Plugins\ModuleConventionSelfTest.cs') -Raw)
+$conventionRun = Get-MethodBody $conventionCode 'public static bool Run(string moduleId)' @("`n        private ", "`n        internal ", "`n        public ")
+$acceptedAt = $conventionRun.IndexOf('"the real loader accepted the module"')
+$reasonsAt = $conventionRun.IndexOf('foreach (ModuleLoadFailure f in loader.Failures)')
+Assert-True ($conventionRun.Length -gt 0 -and $acceptedAt -ge 0) 'the convention runner and its loader-acceptance check were located'
+Assert-True ($reasonsAt -gt $acceptedAt -and $conventionRun -cmatch 'returns null from GetStorage/GetSettings') (
+    "a module the convention host refused is reported with the loader's reason, and the null-storage cause is named")
+
+# The loader is fail-closed on a partial type load (F342, register): a module any of whose types fails to load
+# is refused whole, so the ReflectionTypeLoadException catch the finder carried was unreachable and is gone.
+Assert-True (
+    $conventionCode -cmatch 'Type\[\] types = assembly\.GetTypes\(\);' -and
+    $conventionCode -cnotmatch 'catch \(ReflectionTypeLoadException'
+) 'the self-test finder takes the whole type list the loader already accepted, with no partial-load catch of its own'
+
+# Factory reset wipes the module staging folder too (F353): a staged or half-swapped update beside modules\
+# survived both "Clear all settings and modules" and an MSI uninstall, which removes INSTALLFOLDER only when empty.
+$factoryResetCode = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\FactoryReset.cs') -Raw)
+$factoryRunBody = Get-MethodBody $factoryResetCode 'internal static int Run()' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True (
+    $factoryRunBody.Length -gt 0 -and
+    $factoryRunBody -cmatch 'Wipe\(stagingRoot, "staged module updates", log\)' -and
+    $factoryRunBody -cmatch 'PendingModuleUpdates\.DefaultStagingRoot'
+) 'factory reset wipes the module staging folder beside modules\, at the path the update machinery uses'
+
+# A removal that could not finish is handed to the loader (F352): the ids ProcessPending reports back are what
+# LoadFrom is told to skip, so this launch does not lock again the folder the next launch must delete.
+Assert-True (
+    $startUpCodeHost -cmatch 'IReadOnlyList<string> stillRemoving = DesktopAICompanion\.Plugins\.PendingModuleRemovals\.ProcessPending\(' -and
+    $startUpCodeHost -cmatch 'moduleHost\.LoadFrom\(modulesDir, Host, [^;]*, stillRemoving\);'
+) 'the launch hands the loader the removals that could not finish, so it skips rather than re-locks them'
+
+# A kill mid-RELOAD does not persist the shrinking transient mix (F308): ReloadPetType closes N pets and
+# respawns N, then persists once, so the CONDITION on the KillSheep persist is what is asserted, not the
+# presence of PersistMix, which the reverted code also calls.
+$killSheepBody = Get-MethodBody $startUpCodeHost 'public bool KillSheep(FormCompanion sheep)' `
+    @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($killSheepBody.Length -gt 0) 'KillSheep was located'
+Assert-True (
+    $killSheepBody -cmatch 'if \(bSheepRemoved && !wasTransient && !reloadInProgress\) PersistMix\(\);' -and
+    $killSheepBody -cnotmatch 'if \(bSheepRemoved && !wasTransient\) PersistMix\(\);'
+) 'a pet closed by a reload does not persist the mix; the reload persists once at its end'
+
+# Nothing spawns, restages or persists behind the exit (F312). KillSheeps sets the flag FIRST -- before the
+# tray icon is disposed -- and closes the modal settings window; each entry point declines on it. The tray
+# icon's SetIcon is a no-op once disposed, so a restage that raced the exit can no longer throw from inside
+# its caller's catch and abandon the pending Application.Exit.
+$killSheepsBody = Get-MethodBody $startUpCodeHost 'public void KillSheeps()' @("`n        private ", "`n        internal ", "`n        public ")
+$loadNewBody = Get-MethodBody $startUpCodeHost 'public bool LoadNewXMLFromString(string strXml)' @("`n        private ", "`n        internal ", "`n        public ")
+$addCoreBody = Get-MethodBody $startUpCodeHost 'private FormCompanion AddSheepCore(Xml petXml, Animations petAnimations, CompanionTypeRegistry.Entry entry)' @("`n        private ", "`n        internal ", "`n        public ")
+$persistMixBody = Get-MethodBody $startUpCodeHost 'private void PersistMix()' @("`n        private ", "`n        internal ", "`n        public ")
+$reloadTypeBody = Get-MethodBody $startUpCodeHost 'internal CompanionReloadOutcome ReloadPetType(string id, out int reloaded, out string error)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True (
+    $killSheepsBody.Length -gt 0 -and $loadNewBody.Length -gt 0 -and $addCoreBody.Length -gt 0 -and
+    $persistMixBody.Length -gt 0 -and $reloadTypeBody.Length -gt 0
+) 'KillSheeps, LoadNewXMLFromString, AddSheepCore, PersistMix and ReloadPetType were located'
+$flagSet = $killSheepsBody.IndexOf('shuttingDown = true;')
+$iconDisposed = $killSheepsBody.IndexOf('pi.Dispose();')
+Assert-True (
+    $flagSet -ge 0 -and $iconDisposed -gt $flagSet -and $killSheepsBody -cmatch 'OptionsShell\.CloseOpenWindow\(\)'
+) 'KillSheeps raises the shutting-down flag before it disposes the tray icon, and closes the settings window'
+Assert-True (
+    $loadNewBody -cmatch 'if \(disposed \|\| shuttingDown\) return false;' -and
+    $addCoreBody.IndexOf('if (shuttingDown)') -ge 0 -and
+    $addCoreBody.IndexOf('if (shuttingDown)') -lt $addCoreBody.IndexOf('iSheeps >= MAX_SHEEPS') -and
+    $persistMixBody -cmatch 'if \(disposed \|\| shuttingDown\) return;' -and
+    $reloadTypeBody.IndexOf('if (shuttingDown)') -ge 0 -and
+    $reloadTypeBody.IndexOf('if (shuttingDown)') -lt $reloadTypeBody.IndexOf('reloadInProgress = true;')
+) 'every spawn, restage and persist entry point declines while the app is shutting down'
+$processIconCodeHost = Remove-LineComments $processIconSource
+$setIconBody = Get-MethodBody $processIconCodeHost 'public void SetIcon(System.IO.MemoryStream icon, string petName, string aboutAuthor, string aboutTitle, string aboutVersion, string aboutInfo)' `
+    @("`n        private ", "`n        internal ", "`n        public ", "`n            /// ")
+Assert-True (
+    $setIconBody.Length -gt 0 -and
+    $setIconBody.IndexOf('if (ni == null) return;') -ge 0 -and
+    $setIconBody.IndexOf('if (ni == null) return;') -lt $setIconBody.IndexOf('bool success = true;')
+) 'SetIcon is a no-op once the tray icon is disposed, before it touches anything'
+
+# The built-in that runs after a rejected configured pet is keyed as the built-in (F305), and the rejected
+# XML is left in settings rather than re-persisted under the built-in's key. ORDER: the rekey precedes the
+# PetTypeId assignment, and the persist is conditional on not having fallen back.
+$startUpCtorBody = Get-MethodBody $startUpCodeHost 'public StartUp(ProcessIcon processIcon)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($startUpCtorBody.Length -gt 0) 'the StartUp constructor was located'
+$rekey = $startUpCtorBody.IndexOf('activeId = CompanionCatalog.BuiltInPetId;')
+$keyed = $startUpCtorBody.IndexOf('animations.PetTypeId = activeId;')
+Assert-True (
+    $rekey -ge 0 -and $keyed -gt $rekey -and
+    $startUpCtorBody -cmatch 'if \(!fellBackToBuiltIn && !Program\.MyData\.SetXml\(candidate\)\)'
+) 'a rejected configured pet leaves the built-in keyed as the built-in and the rejected XML unpersisted'
+
+# The preview registry entry goes on the THROW path too (F307), not only on the null return.
+$spawnPreviewBody = Get-MethodBody $startUpCodeHost 'internal FormCompanion SpawnPreviewPet(string animationsXml, out string error)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($spawnPreviewBody.Length -gt 0) 'SpawnPreviewPet was located'
+Assert-True (
+    $spawnPreviewBody -cmatch 'catch \{ registry\.DropIfUnused\(entry\); throw; \}'
+) 'a preview spawn that throws drops its registry entry on the way out'
+
+# The tray handlers never dereference a Program.Mainthread that is not there yet (F282), and Exit is never a
+# silent no-op.
+$mouseClickBody = Get-MethodBody $processIconCodeHost 'void Ni_MouseClick(object sender, MouseEventArgs e)' @("`n        void ", "`n        private ", "`n        internal ", "`n        public ", "`n            /// ")
+$mouseDoubleBody = Get-MethodBody $processIconCodeHost 'void Ni_MouseDoubleClick(object sender, MouseEventArgs e)' @("`n        void ", "`n        private ", "`n        internal ", "`n        public ", "`n        /// ")
+$contextMenusCodeHost = Remove-LineComments $contextMenusSource
+$exitClickBody = Get-MethodBody $contextMenusCodeHost 'void Exit_Click(object sender, EventArgs e)' @("`n        void ", "`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($mouseClickBody.Length -gt 0 -and $mouseDoubleBody.Length -gt 0 -and $exitClickBody.Length -gt 0) (
+    'the tray click, double-click and Exit handlers were located')
+Assert-True (
+    $mouseClickBody -cmatch 'if \(main == null\) return;' -and $mouseClickBody -cnotmatch 'Program\.Mainthread\.TopMostSheeps' -and
+    $mouseDoubleBody -cmatch 'if \(main == null\) return;' -and $mouseDoubleBody -cnotmatch 'Program\.Mainthread\.AddSheep' -and
+    $contextMenusCodeHost -cnotmatch 'Program\.Mainthread\.SayAll\('
+) 'the tray click, double-click and Test Speech handlers guard the main thread before using it'
+Assert-True (
+    $exitClickBody -cmatch 'else Application\.Exit\(\);' -and $exitClickBody -cnotmatch 'Program\.Mainthread\.KillSheeps\(\);'
+) 'Exit quits outright when there is no StartUp to close the pets, never a silent no-op'
+
+# One catalog.json per launch window (F286): the three due checks share the bytes, the app-version check
+# parses only its block from them, and a pane's "check now" refills the shared copy it drops.
+$remoteCatalogCodeHost = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\RemoteCatalog.cs') -Raw)
+$appVersionBody = Get-MethodBody $remoteCatalogCodeHost 'public static async Task<string> FetchAppVersionAsync(CancellationToken cancellationToken)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($appVersionBody.Length -gt 0) 'FetchAppVersionAsync was located'
+Assert-True (
+    $appVersionBody -cmatch 'FetchSharedBytesAsync\(cancellationToken\)' -and
+    $appVersionBody -cnotmatch 'SecureDownload\.DownloadBytesAsync\(' -and
+    $appVersionBody -cmatch 'ParseAppVersion\('
+) 'the app-version check reads the shared catalog bytes and still parses only its own block'
+$petCheckBody = Get-MethodBody $startUpCodeHost 'private async System.Threading.Tasks.Task RunPetUpdateCheckAsync()' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True (
+    $petCheckBody.Length -gt 0 -and
+    $petCheckBody -cmatch 'RemoteCatalogClient\s*\.FetchSharedAsync\(' -and
+    $startUpCodeHost -cnotmatch 'RemoteCatalogClient\s*\.FetchAsync\('
+) 'the launch checks read the shared catalog copy, never a private download'
+$companionsCheckBody = Get-MethodBody $companionsPaneCodeHost 'private async void CheckButton_Click(object sender, RoutedEventArgs e)' @("`n        private ", "`n        internal ", "`n        public ")
+$modulesCheckBody = Get-MethodBody $modulesPaneCodeHost 'private async void CheckButton_Click(object sender, RoutedEventArgs e)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True (
+    $companionsCheckBody.Length -gt 0 -and $modulesCheckBody.Length -gt 0 -and
+    $companionsCheckBody -cmatch 'RemoteCatalogClient\.RefreshSharedAsync\(' -and $companionsCheckBody -cnotmatch 'InvalidateShared\(\)' -and
+    $modulesCheckBody -cmatch 'RemoteCatalogClient\.RefreshSharedAsync\(' -and $modulesCheckBody -cnotmatch 'InvalidateShared\(\)'
+) "both panes' check-now buttons refill the shared catalog copy rather than dropping it for the next pane to fetch again"
+
+# Every writer of a pet file invalidates the per-id caches through the one call (F249, F336): Companion
+# Studio's install and uninstall through the host, and the pane's uninstall, beside the download that
+# already did. The install also swaps the on-screen copies onto the new definition.
+$installTypeBody = Get-MethodBody $petHostCodeHost 'public bool InstallType(string typeId, string animationsXml, out string error)' @("`n        private ", "`n        internal ", "`n        public ")
+$uninstallTypeBody = Get-MethodBody $petHostCodeHost 'public bool UninstallType(string typeId, out string error)' @("`n        private ", "`n        internal ", "`n        public ")
+$uninstallPetBody = Get-MethodBody $companionsPaneCodeHost 'private void UninstallPet(string id, string name, int onScreen)' @("`n        private ", "`n        internal ", "`n        public ")
+Assert-True ($installTypeBody.Length -gt 0 -and $uninstallTypeBody.Length -gt 0 -and $uninstallPetBody.Length -gt 0) (
+    'InstallType, UninstallType and UninstallPet were located')
+Assert-True (
+    $installTypeBody -cmatch 'CompanionCatalog\.Forget\(typeId\)' -and
+    $installTypeBody -cmatch '_startUp\.ReloadPetType\(typeId' -and
+    $uninstallTypeBody -cmatch 'CompanionCatalog\.Forget\(typeId\)'
+) 'a Companion Studio install forgets the cached name and reloads the on-screen copies, and its uninstall forgets too'
+Assert-True (
+    $uninstallPetBody.IndexOf('Directory.Delete(dir, true)') -ge 0 -and
+    $uninstallPetBody.IndexOf('CompanionCatalog.Forget(id)') -gt $uninstallPetBody.IndexOf('Directory.Delete(dir, true)') -and
+    $companionsPaneCodeHost -cmatch 'CompanionCatalog\.Forgotten \+= ForgetStats;'
+) "the pane's uninstall forgets the deleted pet's caches, and the pane's own caches follow the catalog's Forget"
+
+# The Preferences Apply and the reset are ONE durable write each (F361): the setters run inside a batch and
+# the batch's Commit is the write whose result reaches the user; what reads the store back runs after it.
+$prefsSaveBatch = $prefsSaveBody.IndexOf('using (LocalData.Batch batch = data.BeginBatch())')
+$prefsFirstSet = $prefsSaveBody.IndexOf('data.Set')
+$prefsCommit = $prefsSaveBody.IndexOf('ok &= batch.Commit();')
+$prefsConfigure = $prefsSaveBody.IndexOf('DiagnosticLog.Configure(')
+Assert-True (
+    $prefsSaveBatch -ge 0 -and $prefsFirstSet -gt $prefsSaveBatch -and $prefsCommit -gt $prefsFirstSet -and
+    $prefsCommit -gt $prefsSaveBody.LastIndexOf('data.Set') -and $prefsConfigure -gt $prefsCommit
+) 'the Preferences Apply opens a batch before its first setter, commits it once after the last, and configures the logger from the committed store'
+Assert-True (
+    $resetBodyHost -cmatch 'using \(LocalData\.Batch batch = data\.BeginBatch\(\)\)' -and
+    $resetBodyHost -cmatch 'if \(!batch\.Commit\(\)\)' -and
+    $resetBodyHost -cmatch 'Reset failed: the settings could not be saved'
+) 'the reset is one committed batch whose failure is reported instead of a rebuilt pane over unmoved values'
+
+# ---- lane fix/host, groups F to H: loader, ModuleKit, TestModule, tray, debug window, corpus scripts ----
+$xmlCodeHost = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\Xml.cs') -Raw)
+$animationsCodeHost = Remove-LineComments $animationsSource
+$formDebugCodeHost = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\FormDebug.cs') -Raw)
+$xmlToDotCodeHost = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\Tools\XmlToDot.cs') -Raw)
+$formPetDesignerCodeHost = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\FormCompanion.Designer.cs') -Raw)
+$factoryResetCodeHost = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\dotNet\FactoryReset.cs') -Raw)
+$embeddedResourcesCodeHost = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\DesktopAICompanion.ModuleKit\EmbeddedResources.cs') -Raw)
+$jsonStoreCodeHost = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'src\DesktopAICompanion.ModuleKit\JsonSettingsStore.cs') -Raw)
+$testModuleCodeHost = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'modules\TestModule\TestModule.cs') -Raw)
+$sampleModuleCodeHost = Remove-LineComments (Get-Content -LiteralPath (Join-Path $repoRoot 'templates\desktop-ai-companion-module\SampleModule.cs') -Raw)
+$classifySource = Get-Content -LiteralPath (Join-Path $repoRoot 'src\Fortunes\classify-corpus.py') -Raw
+$stripAuthorsSource = Get-Content -LiteralPath (Join-Path $repoRoot 'src\Fortunes\strip-authors.py') -Raw
+$hostMemberStops = @("`n        private ", "`n        internal ", "`n        public ", "`n        void ", "`n        static ")
+
+# The loader reads the bytes the validator already decoded and proved, and decodes no base64 of its own (F318):
+# one pass over a multi-megabyte string per staged pet, not two. The overload that skips the sprite staging is
+# the additive shape PetStudio's F155 asked for, and its frame size comes from the PNG header. Asserted as an
+# ABSENCE across the whole file beside the argument the loader passes.
+$tryReadBodyHost = Get-MethodBody $xmlCodeHost 'public bool TryReadXml(string xmlText, bool stageImages, out string error)' $hostMemberStops
+$readImagesBodyHost = Get-MethodBody $xmlCodeHost 'private void ReadImages(' $hostMemberStops
+Assert-True ($tryReadBodyHost.Length -gt 0 -and $readImagesBodyHost.Length -gt 0) 'Xml.TryReadXml(xml, stageImages, out error) and ReadImages were located'
+Assert-True (
+    $xmlCodeHost -cnotmatch 'FromBase64String' -and
+    $tryReadBodyHost -cmatch 'CompanionXmlValidator\.TryParse\(xmlText, out parsed, out sheetBytes, out iconBytes, out error\)' -and
+    $readImagesBodyHost -cmatch 'if \(!stageImages\)' -and
+    $readImagesBodyHost -cmatch 'ReadPngSize\(imageBytes, out sheetWidth, out sheetHeight\)'
+) 'the loader takes the sheet and icon bytes the validator decoded, decodes no base64 of its own, and the no-stage path sizes the frame from the PNG header'
+
+# The alpha flag is part of the commit block (F317): assigned after DisposeAssets, and ReadImages assigns a
+# local, never the field, so a failed re-read cannot leave the old frames with the new pet's flag.
+$disposeAssetsAt = $tryReadBodyHost.IndexOf('DisposeAssets();')
+$usesAlphaAt = $tryReadBodyHost.IndexOf('usesAlpha = stagedUsesAlpha;')
+Assert-True (
+    $disposeAssetsAt -ge 0 -and $usesAlphaAt -gt $disposeAssetsAt -and
+    $readImagesBodyHost -cnotmatch '(?m)^\s*usesAlpha ='
+) 'the alpha flag is committed with the rest of the definition, after DisposeAssets, and ReadImages assigns a local instead of the field'
+
+# The chooser announces the chosen animation and evaluates nothing (F241): the one consumer evaluates its own
+# copy for the pet's DisplayIndex right after GetAnimation, and the old evaluate-and-store method is gone.
+$announceBodyHost = Get-MethodBody $animationsCodeHost 'private void AnnounceChosenAnimation(int id)' $hostMemberStops
+$setNewAnimationCoreBody = Get-MethodBody $formPetCodeHost 'private void SetNewAnimationCore(int id)' $hostMemberStops
+Assert-True ($announceBodyHost.Length -gt 0 -and $setNewAnimationCoreBody.Length -gt 0) 'AnnounceChosenAnimation and SetNewAnimationCore were located'
+Assert-True (
+    $announceBodyHost -cnotmatch '\.UpdateValues\(' -and
+    $announceBodyHost -cmatch 'AddDebugInfo\(StartUp\.DEBUG_TYPE\.info, "new animation: "' -and
+    $animationsCodeHost -cnotmatch 'UpdateAnimationValues' -and
+    $setNewAnimationCoreBody.IndexOf('CurrentAnimation.UpdateValues(DisplayIndex);') -gt $setNewAnimationCoreBody.IndexOf('CurrentAnimation = Animations.GetAnimation(id);')
+) 'the chooser only announces the chosen animation; the one evaluation is the consumer''s, for its own DisplayIndex, right after GetAnimation'
+
+# The drag-drop read is sized from the file (F271): the fixed 12 MiB buffer is gone, the capacity comes from
+# BoundedReadCapacity given the stream, and the over-limit test on the bytes actually read stays.
+$readBoundedBody = Get-MethodBody $formPetCodeHost 'private static string ReadBoundedPetXml(string file)' $hostMemberStops
+$readBoundedBytesBody = Get-MethodBody $formPetCodeHost 'internal static int ReadBoundedBytes(Stream stream, int maximumBytes, out byte[] bytes)' $hostMemberStops
+Assert-True ($readBoundedBody.Length -gt 0 -and $readBoundedBytesBody.Length -gt 0) 'ReadBoundedPetXml and ReadBoundedBytes were located'
+Assert-True (
+    $readBoundedBody -cnotmatch 'new byte\[' -and
+    $readBoundedBody -cmatch 'total = ReadBoundedBytes\(stream, maximumBytes, out bytes\);' -and
+    $readBoundedBody -cmatch 'if \(total > maximumBytes\)' -and
+    $readBoundedBytesBody -cmatch 'bytes = new byte\[\(int\)BoundedReadCapacity\(stream, maximumBytes\)\];' -and
+    $readBoundedBytesBody -cnotmatch 'checked\(maximumBytes \+ 1\)'
+) 'the drop read allocates from the file''s length through BoundedReadCapacity and keeps the over-limit test on the bytes read'
+
+# The embedded-resource suffix starts at a segment boundary (F229): FindName tries the exact name, then the
+# boundary rule, and the bare EndsWith that let "icon.png" find "tray-icon.png" is gone.
+$findNameBody = Get-MethodBody $embeddedResourcesCodeHost 'private static string FindName(Assembly assembly, string fileNameSuffix)' $hostMemberStops
+$matchesBody = Get-MethodBody $embeddedResourcesCodeHost 'public static bool MatchesResourceName(string manifestName, string fileNameSuffix)' $hostMemberStops
+Assert-True ($findNameBody.Length -gt 0 -and $matchesBody.Length -gt 0) 'EmbeddedResources.FindName and MatchesResourceName were located'
+Assert-True (
+    $findNameBody -cnotmatch 'candidate\.EndsWith\(' -and
+    $findNameBody -cmatch 'MatchesResourceName\(candidate, fileNameSuffix\)' -and
+    $matchesBody -cmatch "manifestName\[manifestName\.Length - fileNameSuffix\.Length - 1\] == '\.'"
+) 'the resource lookup matches an exact name or a suffix that starts after a dot, never a bare EndsWith'
+
+# JsonSettingsStore.Update reads, mutates and writes under ONE lease and refuses an unreadable document
+# (F230, F231), and the write keeps the previous document as a backup. ORDER inside Update, not presence.
+$jsonUpdateBody = Get-MethodBody $jsonStoreCodeHost 'public bool Update(Action<T> mutate)' $hostMemberStops
+$jsonSaveCoreBody = Get-MethodBody $jsonStoreCodeHost 'private bool SaveCore(T value)' $hostMemberStops
+Assert-True ($jsonUpdateBody.Length -gt 0 -and $jsonSaveCoreBody.Length -gt 0) 'JsonSettingsStore.Update and SaveCore were located'
+$jsonLeaseAt = $jsonUpdateBody.IndexOf('CrossSessionLock.TryAcquire(')
+$jsonReadAt = $jsonUpdateBody.IndexOf('TryRead(out current)')
+$jsonRefuseAt = $jsonUpdateBody.IndexOf('if (result == ReadResult.Unreadable) return false;')
+$jsonWriteAt = $jsonUpdateBody.IndexOf('SaveCore(current)')
+Assert-True (
+    $jsonLeaseAt -ge 0 -and $jsonReadAt -gt $jsonLeaseAt -and $jsonRefuseAt -gt $jsonReadAt -and $jsonWriteAt -gt $jsonRefuseAt -and
+    $jsonUpdateBody -cnotmatch 'Load\(\)' -and $jsonUpdateBody -cnotmatch 'return Save\(' -and
+    $jsonSaveCoreBody -cmatch 'AtomicFile\.TryWriteAllText\(_path, json, BackupPath_\)'
+) 'Update takes its lease first, reads under it, refuses an unreadable document before mutating, writes under the same lease, and the write names the backup path'
+
+# TestModule's preview verb reads the installed pet through the ABI (F207): no hand-rolled walk of the
+# installed layout's %LOCALAPPDATA% library, which the portable dev tree never has.
+$previewClickedBody = Get-MethodBody $testModuleCodeHost 'private void PreviewClicked()' $hostMemberStops
+Assert-True ($previewClickedBody.Length -gt 0) 'TestModule.PreviewClicked was located'
+Assert-True (
+    $previewClickedBody -cmatch 'pets\.TryReadTypeXml\(type\.TypeId, out xml, out readError\)' -and
+    $testModuleCodeHost -cnotmatch 'LocalApplicationData' -and
+    $testModuleCodeHost -cnotmatch 'ReadInstalledXml'
+) 'the preview verb reads the installed pet through ICompanionManager.TryReadTypeXml, with no hand-rolled path into the installed library'
+
+# The module template holds ONE settings handle (F330 follow-up in the lane's own boundary): each
+# IHost.GetSettings call is a file parse, so the sample every module is copied from must not fetch per call.
+$templateSettingsBody = Get-MethodBody $sampleModuleCodeHost 'private IModuleSettings Settings()' $hostMemberStops
+Assert-True ($templateSettingsBody.Length -gt 0) 'the template''s Settings() accessor was located'
+Assert-True (
+    $templateSettingsBody -cmatch 'if \(_settings == null && _host != null\) _settings = _host\.GetSettings\(Info\.Id\);' -and
+    $sampleModuleCodeHost -cnotmatch 'Settings\(\) \{ return _host\.GetSettings'
+) 'the template''s Settings() memoises one handle instead of fetching a fresh parse per call'
+
+# Tray drop-downs are emptied with ClearAndDispose and module items disposed as trees (F255, F256): no
+# DropDownItems.Clear() anywhere in the file, and the tree disposal reaches children and Image before the item.
+$moduleTrayOpeningBody = Get-MethodBody $contextMenusCodeHost 'private void ModuleTray_Opening(object sender, System.ComponentModel.CancelEventArgs e)' $hostMemberStops
+$rebuildSubmenuBody = Get-MethodBody $contextMenusCodeHost 'private static void RebuildModuleSubmenu(ToolStripMenuItem parent, TrayItem ti)' $hostMemberStops
+$disposeTreeBody = Get-MethodBody $contextMenusCodeHost 'internal static void DisposeItemTree(ToolStripItem item)' $hostMemberStops
+Assert-True ($moduleTrayOpeningBody.Length -gt 0 -and $rebuildSubmenuBody.Length -gt 0 -and $disposeTreeBody.Length -gt 0) 'ModuleTray_Opening, RebuildModuleSubmenu and DisposeItemTree were located'
+Assert-True (
+    $contextMenusCodeHost -cnotmatch 'DropDownItems\.Clear\(\);' -and
+    $moduleTrayOpeningBody -cmatch 'DisposeItemTree\(prior\);' -and
+    $rebuildSubmenuBody -cmatch 'ClearAndDispose\(parent\.DropDownItems\);' -and
+    $contextMenusCodeHost -cmatch 'ClearAndDispose\(addPetMenuItem\.DropDownItems\);' -and
+    $contextMenusCodeHost -cmatch 'ClearAndDispose\(removePetMenuItem\.DropDownItems\);' -and
+    $contextMenusCodeHost -cmatch 'ClearAndDispose\(petSpeechMenuItem\.DropDownItems\);'
+) 'no tray drop-down is Clear()ed without disposing its rows, and the module items are disposed as trees'
+Assert-True (
+    $disposeTreeBody.IndexOf('DisposeItemTree(child)') -ge 0 -and $disposeTreeBody.IndexOf('image.Dispose()') -ge 0 -and
+    $disposeTreeBody.IndexOf('DisposeItemTree(child)') -lt $disposeTreeBody.IndexOf('item.Dispose()') -and
+    $disposeTreeBody.IndexOf('image.Dispose()') -lt $disposeTreeBody.IndexOf('item.Dispose()')
+) 'DisposeItemTree disposes the children and the Image before the item itself'
+
+# The companion form deserialises no Icon (F272): no border, ShowIcon false, a tool window off the taskbar, so
+# nothing could ever show the HICON the designer created per spawn.
+$initComponentBody = Get-MethodBody $formPetDesignerCodeHost 'private void InitializeComponent()' @("`n        private ", "`n        #endregion", "`n        internal ", "`n        public ")
+Assert-True ($initComponentBody.Length -gt 0) 'FormCompanion.InitializeComponent was located'
+Assert-True (
+    $initComponentBody -cnotmatch 'this\.Icon = ' -and
+    $initComponentBody -cnotmatch 'ComponentResourceManager' -and
+    $initComponentBody -cmatch 'this\.ShowIcon = false;'
+) 'the companion form loads no Icon from its resx: ShowIcon is false and nothing could show one'
+
+# The debug window caps its rows and hands text over by file (F273, F274): no P/Invoke, no WM_SETTEXT into a
+# window it did not create, and a failed handoff is logged in the window instead of swallowed.
+$debugMemberStops = @("`n`t`tprivate ", "`n`t`tinternal ", "`n`t`tpublic ", "`n        private ", "`n        internal ", "`n        public ")
+$addDebugInfoBody = Get-MethodBody $formDebugCodeHost 'public void AddDebugInfo(StartUp.DEBUG_TYPE type, string text)' $debugMemberStops
+$openTextBody = Get-MethodBody $formDebugCodeHost 'private static void OpenText(string kind, string text)' $debugMemberStops
+Assert-True ($addDebugInfoBody.Length -gt 0 -and $openTextBody.Length -gt 0) 'FormDebug.AddDebugInfo and OpenText were located'
+Assert-True (
+    $formDebugCodeHost -cnotmatch 'DllImport' -and
+    $formDebugCodeHost -cnotmatch 'SendMessageTimeout|FindWindowEx|MainWindowHandle' -and
+    $addDebugInfoBody.IndexOf('TrimRows();') -gt $addDebugInfoBody.IndexOf('listView1.Items.Add(item);') -and
+    $openTextBody -cmatch 'UseShellExecute = true' -and
+    $openTextBody -cmatch 'catch \(Exception ex\)\s*\{\s*StartUp\.AddDebugInfo\(StartUp\.DEBUG_TYPE\.error,'
+) 'the debug window trims after every add, opens its text through the shell from a file, and logs a failed handoff instead of swallowing it'
+
+# The DOT export escapes every name it puts inside a label (F325), builds into a StringBuilder and writes no
+# Console line a windowed process could read.
+$dotMemberStops = @("`n`t`tstatic ", "`n`t`tprivate ", "`n`t`tinternal ", "`n`t`tpublic ")
+$processNextBody = Get-MethodBody $xmlToDotCodeHost 'static private void ProcessNext(StringBuilder dot, Next type, int totalProbability, XmlData.AnimationNode anim, XmlData.NextNode[] nexts)' $dotMemberStops
+$processAnimationsBody = Get-MethodBody $xmlToDotCodeHost 'static private string ProcessAnimations(string animationTitle, XmlData.AnimationNode[] animations)' $dotMemberStops
+Assert-True ($processNextBody.Length -gt 0 -and $processAnimationsBody.Length -gt 0) 'XmlToDot.ProcessAnimations and ProcessNext were located'
+Assert-True (
+    $xmlToDotCodeHost -cnotmatch 'Console\.WriteLine' -and
+    $processAnimationsBody -cmatch 'Append\(EscapeLabel\(anim\.Name\)\)' -and
+    $processNextBody -cmatch 'Append\(EscapeLabel\(next\.OnlyFlag\)\)' -and
+    $xmlToDotCodeHost -cnotmatch 'returnString \+='
+) 'every animation name and only-flag in a DOT label passes through EscapeLabel, into a StringBuilder, with no Console line'
+
+# A root that cannot be listed is a failed wipe (F260): SafeList counts and logs a listing that throws, and both
+# of Wipe's listings pass the failure counter in.
+$safeListBody = Get-MethodBody $factoryResetCodeHost 'internal static string[] SafeList(Func<string[]> list, string what, List<string> log, ref int failed)' $hostMemberStops
+$wipeBody = Get-MethodBody $factoryResetCodeHost 'private static bool Wipe(string root, string what, List<string> log)' $hostMemberStops
+Assert-True ($safeListBody.Length -gt 0 -and $wipeBody.Length -gt 0) 'FactoryReset.SafeList and Wipe were located'
+Assert-True (
+    $safeListBody -cmatch 'catch \(Exception ex\)\s*\{\s*failed\+\+;' -and
+    $safeListBody -cnotmatch 'catch \{ return new string\[0\]; \}' -and
+    ([regex]::Matches($wipeBody, 'ref failed\)')).Count -eq 2
+) 'a listing that throws counts as a failure in SafeList, and both of Wipe''s listings pass the counter in'
+
+# The corpus classifier decides the field layout ONCE per file (F321) and the byline stripper counts a stripped
+# row only after the drop test (F323). Python, so no comment stripping; the bodies are sliced on def boundaries.
+$classifyProcessBody = Get-MethodBody $classifySource 'def process(path):' @("`ndef ", "`nif __name__")
+$stripProcessBody = Get-MethodBody $stripAuthorsSource 'def process(path):' @("`ndef ", "`nif __name__")
+Assert-True ($classifyProcessBody.Length -gt 0 -and $stripProcessBody.Length -gt 0) 'both corpus transforms'' process() bodies were located'
+Assert-True (
+    $classifyProcessBody -cmatch '(?m)^\s+if layout is None:' -and
+    $classifyProcessBody -cmatch '(?m)^\s+elif len\(parts\) != layout:' -and
+    $classifyProcessBody -cmatch '(?m)^\s+if layout == 6:' -and
+    $classifyProcessBody -cnotmatch 'if len\(parts\) == 6:'
+) 'the classifier fixes the field layout from row 1, rejects a later row that differs, and no longer infers the schema per row'
+$stripDropAt = $stripProcessBody.IndexOf('dropped += 1')
+$stripChangedAt = $stripProcessBody.IndexOf('changed += 1')
+$stripContinueAt = if ($stripDropAt -ge 0) { $stripProcessBody.IndexOf('continue', $stripDropAt) } else { -1 }
+Assert-True (
+    $stripDropAt -ge 0 -and $stripContinueAt -gt $stripDropAt -and $stripChangedAt -gt $stripContinueAt
+) 'the stripper counts a byline as stripped only for a row it kept: the count follows the drop test''s continue'
 
 
 

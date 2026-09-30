@@ -27,9 +27,14 @@ namespace DesktopAICompanion.Plugins
         // roots were found a month later, including dp-petmgr-<guid> directories whose creating code no longer
         // exists anywhere in the tree. They could never be collected, because they did not carry the marker.
         //
-        // Every "dp-" directory under %TEMP% is transient scratch owned by a self-test, so age is the only
-        // safe question to ask about one. Nothing this app keeps in %TEMP% uses this prefix (ModulePaths uses
-        // "DesktopAICompanion..."), and files are untouched -- only directories are enumerated.
+        // Every "dp-" directory THIS APP puts under %TEMP% is transient scratch owned by a self-test, so age
+        // is the only safe question to ask about one. Nothing this app keeps in %TEMP% uses this prefix
+        // (ModulePaths uses "DesktopAICompanion..."), and files are untouched -- only directories are
+        // enumerated. The prefix is not ours alone, though: another program's dp-* directory older than an
+        // hour in the same user's %TEMP% would be swept too. ACCEPTED (F356, 2026-09-29): the sweep runs
+        // only under a self-test flag, on developer and CI boxes, and lengthening the prefix would
+        // re-couple cleanup to a convention across some twenty creators in src/, modules/, tools/ and
+        // ModuleKit, any one of which missed leaks forever -- the exact orphan failure this sweep fixed.
         private const string Prefix = "dp-";
 
         // Long enough that a concurrent self-test (or a developer mid-debug) is never swept out from under
@@ -48,6 +53,27 @@ namespace DesktopAICompanion.Plugins
                 Prefix + tag + "-selftest-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(root);
             return root;
+        }
+
+        /// <summary>
+        /// Copy a bundled module folder into a scratch root, SUBFOLDERS INCLUDED (F354). The three isolating
+        /// self-tests each copied Directory.GetFiles(bundled) -- the top level only -- so --petstudio-selftest
+        /// loaded a module without the native\ folder it ships with, and the module ran a code path no user
+        /// has. Relative paths are preserved beneath <paramref name="destination"/>.
+        /// </summary>
+        public static void CopyTree(string source, string destination)
+        {
+            Directory.CreateDirectory(destination);
+            foreach (string dir in Directory.GetDirectories(source, "*", SearchOption.AllDirectories))
+                Directory.CreateDirectory(Path.Combine(destination, RelativeTo(source, dir)));
+            foreach (string file in Directory.GetFiles(source, "*", SearchOption.AllDirectories))
+                File.Copy(file, Path.Combine(destination, RelativeTo(source, file)), true);
+        }
+
+        private static string RelativeTo(string root, string path)
+        {
+            string prefix = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            return path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? path.Substring(prefix.Length) : Path.GetFileName(path);
         }
 
         /// <summary>

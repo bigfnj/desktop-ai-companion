@@ -87,6 +87,10 @@ namespace DesktopAICompanion
             /// </summary>
         public void SetIcon(System.IO.MemoryStream icon, string petName, string aboutAuthor, string aboutTitle, string aboutVersion, string aboutInfo)
         {
+            // After Dispose there is no icon to set (F312). The log line below dereferenced the nulled
+            // field OUTSIDE either try, so a restage that raced the exit threw from inside its caller's
+            // catch and abandoned the pending Application.Exit.
+            if (ni == null) return;
             bool success = true;
 			try
 			{
@@ -222,8 +226,11 @@ namespace DesktopAICompanion
             // Handle mouse button clicks.
             if (e.Button == MouseButtons.Left)
             {
-                // Start Windows Explorer.
-                Program.Mainthread.TopMostSheeps();
+                // Guarded like the other handlers (F282): the icon is live before Program.Mainthread is
+                // assigned, and a module that pumps messages from Init would let a click in first.
+                StartUp main = Program.Mainthread;
+                if (main == null) return;
+                main.TopMostSheeps();
             }
         }
 
@@ -237,9 +244,9 @@ namespace DesktopAICompanion
             // Handle mouse button clicks.
             if (e.Button == MouseButtons.Left)
             {
-                // Start Windows Explorer.
-                //Process.Start("explorer", null);
-                Program.Mainthread.AddSheep();
+                StartUp main = Program.Mainthread;   // see Ni_MouseClick (F282)
+                if (main == null) return;
+                main.AddSheep();
             }
         }
 

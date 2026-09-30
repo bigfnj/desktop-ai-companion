@@ -45,7 +45,7 @@ namespace DesktopAICompanion.Wpf
                     try
                     {
                         _openWindow.Activate();
-                        if (!string.IsNullOrEmpty(initialPaneTitle)) _openWindow.ShowPane(initialPaneTitle);
+                        if (!string.IsNullOrEmpty(initialPaneTitle)) RedirectOpenWindow(_openWindow, initialPaneTitle);
                     }
                     catch (Exception) { }
                     return;
@@ -62,9 +62,39 @@ namespace DesktopAICompanion.Wpf
             }
         }
 
+        /// <summary>
+        /// Send the open window to the caller's pane, unless the pane that is up has unsaved edits (F368).
+        /// The caller is the module-update balloon or the restart reopen timer, so the redirect arrives
+        /// unbidden over a pane the user may be halfway through editing, and it used to drop those edits
+        /// without a word. Asked rather than decided: the balloon's pane is what they clicked for, and
+        /// the edits are what they were doing. Yes discards and goes; anything else stays put, edits
+        /// intact. A title the window does not know is simply not shown, as before.
+        /// </summary>
+        private static void RedirectOpenWindow(OptionsWindow window, string paneTitle)
+        {
+            if (window.ShowPane(paneTitle) || !window.HasPane(paneTitle)) return;
+            var choice = System.Windows.MessageBox.Show(window,
+                "You have unsaved changes on the " + window.CurrentPaneTitle + " pane.\n\n" +
+                "Discard them and open " + paneTitle + "?",
+                "Settings",
+                System.Windows.MessageBoxButton.YesNo,
+                System.Windows.MessageBoxImage.Warning);
+            if (choice == System.Windows.MessageBoxResult.Yes) window.ShowPane(paneTitle, true);
+        }
+
         /// <summary>The settings window currently on screen, or null. UI thread only, like everything
         /// that touches a Window.</summary>
         private static OptionsWindow _openWindow;
+
+        /// <summary>Close the open settings window, if any. Called from the exit path (F312): the window is
+        /// modal on the UI thread, and left open it outlived the exit request, so the process sat behind a
+        /// dialog with no tray icon to reach it by.</summary>
+        internal static void CloseOpenWindow()
+        {
+            OptionsWindow window = _openWindow;
+            if (window == null) return;
+            try { window.Close(); } catch { }
+        }
 
         /// <summary>True while the settings window is up. Read by the About entry, which must not
         /// open a second modal over it.</summary>
@@ -498,6 +528,12 @@ namespace DesktopAICompanion.Wpf
                     bool ok = true;
                     string s; int n; bool b;
                     if (values.TryGetValue("runAtStartup", out s) && bool.TryParse(s, out b)) StartupRegistration.Set(b);
+                    // ONE durable write for the whole page (F361). Each setter below used to write the full
+                    // 1.17 MB document on its own, 22 times per Apply. Inside the batch the setters apply in
+                    // memory; batch.Commit() is the write whose result `ok` carries, and it rolls every
+                    // setter back on failure, so the read-back and dialog below keep meaning what they say.
+                    using (LocalData.Batch batch = data.BeginBatch())
+                    {
                     if (values.TryGetValue("volume", out s) && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out n)) ok &= data.SetVolume(Math.Max(0, Math.Min(10, n)) / 10.0);
                     if (values.TryGetValue("windowForeground", out s) && bool.TryParse(s, out b)) ok &= data.SetWindowForeground(b);
                     if (values.TryGetValue("stealFocus", out s) && bool.TryParse(s, out b)) ok &= data.SetStealTaskbarFocus(b);
@@ -523,22 +559,18 @@ namespace DesktopAICompanion.Wpf
                     if (values.TryGetValue("monthlyModuleUpdateCheck", out s) && bool.TryParse(s, out b)) ok &= data.SetMonthlyModuleUpdateCheck(b);
                     if (values.TryGetValue("companionUpdateCheck", out s) && bool.TryParse(s, out b)) ok &= data.SetPetUpdateCheck(b);
                     if (values.TryGetValue("appUpdateCheck", out s) && bool.TryParse(s, out b)) ok &= data.SetAppUpdateCheck(b);
-                    if (values.TryGetValue("diagLog", out s) && bool.TryParse(s, out b)) data.SetDiagnosticLog(b);
+                    // Folded into ok like every other setter here (F369). These five discarded the durable
+                    // result, so with the store read-only or holding a future-schema document an Apply that
+                    // changed only logging fields greyed Apply out as a success, skipped the "could not be
+                    // saved" dialog, and the Configure below then read the rolled-back values -- the running
+                    // logger was told the OLD configuration while the user watched the tick land.
+                    if (values.TryGetValue("diagLog", out s) && bool.TryParse(s, out b)) ok &= data.SetDiagnosticLog(b);
                     if (values.TryGetValue("diagLogKb", out s) && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out n))
-                        data.SetDiagnosticLogMaxKilobytes(n);
+                        ok &= data.SetDiagnosticLogMaxKilobytes(n);
                     if (values.TryGetValue("diagLogKeep", out s) && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out n))
-                        data.SetDiagnosticLogKeep(n);
-                    data.SetDiagnosticLogMutedCategories(CollectMutedCategories(values));
-                    data.SetDiagnosticLogMutedModules(CollectMutedModules(values));
-                    // Apply immediately rather than at the next launch. The thing most often being
-                    // diagnosed IS a launch, so "change the setting, reproduce, read the log" has to work
-                    // without a restart in between.
-                    DesktopAICompanion.DiagnosticLog.Configure(
-                        data.GetDiagnosticLog(),
-                        data.GetDiagnosticLogMaxKilobytes(),
-                        data.GetDiagnosticLogKeep(),
-                        data.GetDiagnosticLogMutedCategories(),
-                        data.GetDiagnosticLogMutedModules());
+                        ok &= data.SetDiagnosticLogKeep(n);
+                    ok &= data.SetDiagnosticLogMutedCategories(CollectMutedCategories(values));
+                    ok &= data.SetDiagnosticLogMutedModules(CollectMutedModules(values));
                     if (values.TryGetValue("defaultSpeakingCompanion", out s))
                     {
                         string chosenType;
@@ -575,6 +607,20 @@ namespace DesktopAICompanion.Wpf
                     if (values.TryGetValue("randomDropJitter", out s) && int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out n)) rdJitter = n;
                     ok &= data.SetRandomDrop(rdEnabled, rdMinutes, rdJitter);
 
+                    ok &= batch.Commit();
+                    }   // the batch: every data.Set above is one write, committed on the line before this one
+
+                    // Apply immediately rather than at the next launch. The thing most often being
+                    // diagnosed IS a launch, so "change the setting, reproduce, read the log" has to work
+                    // without a restart in between. AFTER the commit, because these read the store's truth
+                    // back: a failed commit has rolled the values back by now, and the logger must be told
+                    // what is persisted, not what was asked for.
+                    DesktopAICompanion.DiagnosticLog.Configure(
+                        data.GetDiagnosticLog(),
+                        data.GetDiagnosticLogMaxKilobytes(),
+                        data.GetDiagnosticLogKeep(),
+                        data.GetDiagnosticLogMutedCategories(),
+                        data.GetDiagnosticLogMutedModules());
                     try { if (Program.Mainthread != null) ((DesktopAICompanion.Options.ICompanionRuntime)Program.Mainthread).ReloadAiSettings(); } catch { }
                     try { ContextMenus.RefreshSpeechMenuItem(); } catch { }
                     return ok;
@@ -958,36 +1004,61 @@ namespace DesktopAICompanion.Wpf
                 // Core preferences: pull each default from a fresh document, apply via the validated setters
                 // (so nothing outside the preference fields — pet XML, pet mix, etc. — is touched).
                 AppSettingsDocument def = AppSettingsDocument.CreateDefault();
-                data.SetVolume(def.Volume);
-                data.SetWindowForeground(def.WindowForeground);
-                data.SetStealTaskbarFocus(def.StealTaskbarFocus);
-                data.SetMultiscreen(def.MultiScreen);
-                data.SetAutoStartPets(def.AutoStartPets);
-                data.SetScale(def.ScaleLevel);                 // the internal size fallback
-                data.SetPetSoundsEnabled(def.PetSoundsEnabled ?? true);
-                data.SetNotificationSoundsEnabled(def.NotificationSoundsEnabled ?? true);
-                // Back to the built-in chime. The chosen FILE is not touched -- it is the user's, sitting
-                // wherever they keep it; this page only forgets that it was pointing at it.
-                data.SetNotificationSoundPath(def.NotificationSoundPath ?? "");
-                data.SetSpeechEnabled(def.SpeechEnabled);
-                data.SetSpeechDuration(def.SpeechDurationSeconds);
-                data.SetSuppressRepeats(def.SuppressRepeats ?? true);
-                data.SetThemeMode(def.ThemeMode);
-                data.SetAudioDeviceId(def.AudioDeviceId);
+                // ONE durable write for the whole reset (F361), and one that can be reported: the setters
+                // used to write the full document twenty times over and their results were discarded, so
+                // a store that could not save rebuilt the pane over values that had not moved. The commit is
+                // the write; everything below the batch reads the store back, so it runs after the commit.
+                using (LocalData.Batch batch = data.BeginBatch())
+                {
+                    data.SetVolume(def.Volume);
+                    data.SetWindowForeground(def.WindowForeground);
+                    data.SetStealTaskbarFocus(def.StealTaskbarFocus);
+                    data.SetMultiscreen(def.MultiScreen);
+                    data.SetAutoStartPets(def.AutoStartPets);
+                    data.SetScale(def.ScaleLevel);                 // the internal size fallback
+                    data.SetPetSoundsEnabled(def.PetSoundsEnabled ?? true);
+                    data.SetNotificationSoundsEnabled(def.NotificationSoundsEnabled ?? true);
+                    // Back to the built-in chime. The chosen FILE is not touched -- it is the user's, sitting
+                    // wherever they keep it; this page only forgets that it was pointing at it.
+                    data.SetNotificationSoundPath(def.NotificationSoundPath ?? "");
+                    data.SetSpeechEnabled(def.SpeechEnabled);
+                    data.SetSpeechDuration(def.SpeechDurationSeconds);
+                    data.SetSuppressRepeats(def.SuppressRepeats ?? true);
+                    // NOT the theme (F371). themeMode has had no control on this page since the Theme dropdown
+                    // was dropped (2026-08-07: the window follows the OS, the plumbing stays dormant), so the
+                    // only way a user holds a non-default value is by editing settings.json, and the
+                    // confirmation text names the "settings shown here". Resetting it here reverted that
+                    // hand-edit silently, visible only on the next open.
+                    data.SetAudioDeviceId(def.AudioDeviceId);
 
-                // THE REST OF THE PAGE. These were missing, and their absence was invisible: the
-                // button says "Reset all preferences on this page", the pane rebuilds underneath it,
-                // and a field that did not move looks exactly like a field whose default is what it
-                // already held. The update checks and the whole diagnostic-log group are preferences
-                // shown on this page and carry none of the reasons the exclusions below do.
-                data.SetMonthlyModuleUpdateCheck(def.MonthlyModuleUpdateCheck ?? true);
-                data.SetAppUpdateCheck(def.AppUpdateCheck ?? true);
-                data.SetPetUpdateCheck(def.PetUpdateCheck ?? true);
-                data.SetDiagnosticLog(def.DiagnosticLog ?? true);
-                data.SetDiagnosticLogMaxKilobytes(def.DiagnosticLogMaxKilobytes);
-                data.SetDiagnosticLogKeep(def.DiagnosticLogKeep);
-                data.SetDiagnosticLogMutedCategories(def.DiagnosticLogMutedCategories ?? "");
-                data.SetDiagnosticLogMutedModules(def.DiagnosticLogMutedModules ?? "");
+                    // THE REST OF THE PAGE. These were missing, and their absence was invisible: the
+                    // button says "Reset all preferences on this page", the pane rebuilds underneath it,
+                    // and a field that did not move looks exactly like a field whose default is what it
+                    // already held. The update checks and the whole diagnostic-log group are preferences
+                    // shown on this page and carry none of the reasons the exclusions below do.
+                    data.SetMonthlyModuleUpdateCheck(def.MonthlyModuleUpdateCheck ?? true);
+                    data.SetAppUpdateCheck(def.AppUpdateCheck ?? true);
+                    data.SetPetUpdateCheck(def.PetUpdateCheck ?? true);
+                    data.SetDiagnosticLog(def.DiagnosticLog ?? true);
+                    data.SetDiagnosticLogMaxKilobytes(def.DiagnosticLogMaxKilobytes);
+                    data.SetDiagnosticLogKeep(def.DiagnosticLogKeep);
+                    data.SetDiagnosticLogMutedCategories(def.DiagnosticLogMutedCategories ?? "");
+                    data.SetDiagnosticLogMutedModules(def.DiagnosticLogMutedModules ?? "");
+                    // The global "companion that speaks for the app" is a preference on this page, and the
+                    // confirmation text promises the reset restores the SPEECH settings shown here. The
+                    // per-pet triggerSpeech entries below are excluded for a stated reason; this one carried
+                    // none of it and was simply missed.
+                    data.SetDefaultSpeakingPet(def.DefaultSpeakingPet ?? "");
+                    // Poke speaker back to "Default & Random" (the global entry; per-pet entries, when they
+                    // exist, are pet configuration rather than a preference on this page).
+                    try { data.SetTriggerSpeechModule("", ""); } catch { }
+                    // Fortune/insight drop cadence (settings.json, S5c): the three drop fields shown on this page.
+                    try { data.SetRandomDrop(def.RandomDropEnabled ?? false, def.RandomDropMinutes ?? 15, def.RandomDropJitterMinutes ?? 3); } catch { }
+
+                    if (!batch.Commit())
+                        return "Reset failed: the settings could not be saved, so nothing was changed.";
+                }
+
                 // RE-APPLIED, exactly as Save does it and for the same reason. Writing the five settings
                 // above without this left the running logger on the old configuration: the pane rebuild
                 // showed the restored values, so switching logging off and pressing Reset brought the
@@ -1001,28 +1072,13 @@ namespace DesktopAICompanion.Wpf
                     data.GetDiagnosticLogKeep(),
                     data.GetDiagnosticLogMutedCategories(),
                     data.GetDiagnosticLogMutedModules());
-                // The global "companion that speaks for the app" is a preference on this page, and the
-                // confirmation text promises the reset restores the SPEECH settings shown here. The
-                // per-pet triggerSpeech entries below are excluded for a stated reason; this one carried
-                // none of it and was simply missed.
-                data.SetDefaultSpeakingPet(def.DefaultSpeakingPet ?? "");
 
                 // Run-at-startup lives in the registry, not the settings doc; default is off.
                 try { StartupRegistration.Set(false); } catch { }
-                // Poke speaker back to "Default & Random" (the global entry; per-pet entries, when they
-                // exist, are pet configuration rather than a preference on this page).
-                try { data.SetTriggerSpeechModule("", ""); } catch { }
-                // Apply the reset output device to the running pet right away (theme applies on next open).
+                // Apply the reset output device to the running pet right away.
                 try { if (Program.Mainthread != null) Program.Mainthread.ApplyAudioDevice(def.AudioDeviceId ?? ""); } catch { }
-
-                // Fortune/insight drop cadence (settings.json, S5c): reset the three drop fields shown on
-                // this page to their defaults and re-arm the running pet's drop timer.
-                try
-                {
-                    data.SetRandomDrop(def.RandomDropEnabled ?? false, def.RandomDropMinutes ?? 15, def.RandomDropJitterMinutes ?? 3);
-                    if (Program.Mainthread != null) ((DesktopAICompanion.Options.ICompanionRuntime)Program.Mainthread).ReloadAiSettings();
-                }
-                catch { }
+                // ...and re-arm the running pet's drop timer on the reset cadence.
+                try { if (Program.Mainthread != null) ((DesktopAICompanion.Options.ICompanionRuntime)Program.Mainthread).ReloadAiSettings(); } catch { }
 
                 try { ContextMenus.RefreshSpeechMenuItem(); } catch { }
                 return "";   // no status text needed: the pane rebuild shows the restored values

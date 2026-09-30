@@ -184,16 +184,26 @@ def process(path):
                 descriptor, "w", encoding="utf-8",
                 errors="strict", newline="\n") as writer:
             descriptor = -1
+            layout = None
             for line_number, line in _bounded_lines(target):
                 parts = line.rstrip("\n").split("\t")
-                if len(parts) not in (3, 5, 6):
+                # The layout is decided ONCE, by the first row, and every later row must match it
+                # (F321). Inferring it per row let a 3-field or legacy-5 row whose text held a tab
+                # pass as the next layout up, its text silently cut to the segment after the last tab.
+                if layout is None:
+                    if len(parts) not in (3, 5, 6):
+                        raise ValueError(
+                            f"{path}:{line_number}: expected 3, legacy 5, or "
+                            f"schema-v2 6 fields; got {len(parts)}")
+                    layout = len(parts)
+                elif len(parts) != layout:
                     raise ValueError(
-                        f"{path}:{line_number}: expected 3, legacy 5, or "
-                        f"schema-v2 6 fields; got {len(parts)}")
+                        f"{path}:{line_number}: expected {layout} fields, the layout row 1 "
+                        f"set; got {len(parts)} (a tab inside the text?)")
                 source = parts[0]
                 text = parts[-1]
                 level, prof = classify(text, source)
-                if len(parts) == 6:
+                if layout == 6:
                     # Exact schema v2: source, topic, genre, level, prof, text.
                     fields = [
                         source, parts[1], parts[2], level, str(prof), text]
@@ -224,7 +234,52 @@ def process(path):
                 pass
     print(f"{path}: general={counts['general']} edgy={counts['edgy']} nsfw={counts['nsfw']} "
           f"profane={prof_n} total={row_count}")
+    return row_count
+
+
+def _selfcheck():
+    """--selfcheck: the layout rule (F321) fails on the row it exists for and passes a clean file.
+    Exit 0 when every line below reads PASS, 1 otherwise."""
+    failures = []
+
+    def expect(label, ok):
+        print(("PASS: " if ok else "FAIL: ") + label)
+        if not ok:
+            failures.append(label)
+
+    with tempfile.TemporaryDirectory() as scratch:
+        target = os.path.join(scratch, "selfcheck.tsv")
+        # WITNESS: a homogeneous 3-field file classifies, and both rows come out as legacy v1.
+        with open(target, "w", encoding="utf-8", newline="\n") as writer:
+            writer.write("src\ttech\tA first fortune.\n"
+                         "src\ttech\tA second fortune.\n")
+        rows = process(target)
+        with open(target, encoding="utf-8") as reader:
+            widths = [len(line.rstrip("\n").split("\t")) for line in reader]
+        expect("witness: a clean 3-field file classifies both rows to 5 fields",
+               rows == 2 and widths == [5, 5])
+        # The defect: row 2 of a 3-field file carries two tabs in its text, so it splits into 5
+        # fields. Per-row inference took it for a legacy-5 row and kept the text after the last tab.
+        with open(target, "w", encoding="utf-8", newline="\n") as writer:
+            writer.write("src\ttech\tA first fortune.\n"
+                         "src\ttech\tA quote with\ta tab\tinside it.\n")
+        with open(target, "rb") as reader:
+            before = reader.read()
+        try:
+            process(target)
+            expect("a row whose field count differs from row 1 is rejected (the file was rewritten instead)", False)
+        except ValueError as exc:
+            expect("a row whose field count differs from row 1 is rejected, naming the line",
+                   ":2:" in str(exc) and "expected 3 fields" in str(exc))
+            # Only meaningful after a rejection: a rewrite is already the failure above.
+            with open(target, "rb") as reader:
+                after = reader.read()
+            expect("the rejected file is left byte-identical", after == before)
+    return 1 if failures else 0
+
 
 if __name__ == '__main__':
+    if sys.argv[1:] == ['--selfcheck']:
+        sys.exit(_selfcheck())
     for f in (sys.argv[1:] or ['fortunes.txt']):
         process(f)

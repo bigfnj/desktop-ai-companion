@@ -180,8 +180,12 @@ namespace DesktopAICompanion.Wpf
             return (ResourceDictionary)XamlReader.Parse(xaml);
         }
 
-        // A minimal dark vertical scrollbar (thin dark track + rounded grey thumb). The window's
-        // ScrollViewers disable the horizontal bar, so a vertical-only template is sufficient.
+        // A minimal dark vertical scrollbar (thin dark track + rounded grey thumb). Vertical-only is
+        // sufficient because every ScrollViewer in the window disables its horizontal bar: the ones the
+        // panes construct do so explicitly, and the nav ListBox -- the one ScrollViewer this code does not
+        // build, which kept WPF's horizontal Auto -- has it disabled in OptionsWindow (F377). A horizontal
+        // bar given this template renders as a squashed vertical track, which is how PetStudio's copy of
+        // it broke that window's horizontal bars before it was removed there.
         private static Style BuildScrollBarStyle()
         {
             const string xaml =

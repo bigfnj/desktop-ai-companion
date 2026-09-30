@@ -204,6 +204,55 @@ CASES = [
 
     # ---- lane fix/host ----
 
+    # F372: the pure fit stops clamping the height, so the 1366x768 probe gets 820 back.
+    ("the settings window's fit stops clamping the height to the work area", OPTIONSWINDOW,
+     "                height = Math.Min(height, workArea.Height - WorkAreaClearance);",
+     "                height = preferred.Height;",
+     "wpf", "fits a 1366x768 laptop"),
+
+    # F375: the pane-identity half of the guard is removed, so a ReloadPaneAfter finishing after a pane
+    # switch rebuilds its pane over the one the user moved to. The _closed half stays, because a field that
+    # is written and never read is a warning, and warnings are errors: the mutation has to compile.
+    ("a late ReloadPaneAfter rebuilds its pane over the one on screen again", OPTIONSWINDOW,
+     "                if (_closed || !ReferenceEquals(_current, pane)) return false;\n",
+     "                if (_closed) return false;\n",
+     "wpf", "does not rebuild its pane over the one on screen"),
+
+    # F375: the declined rebuild leaves its stash in the one slot for the next build to consume.
+    ("a declined rebuild leaves its stash behind", OPTIONSWINDOW,
+     "                    if (!_requestReload())\n"
+     "                    {\n"
+     "                        TakeActionRebuild(_pane);\n"
+     "                        return;\n"
+     "                    }",
+     "                    if (!_requestReload()) return;",
+     "wpf", "leaves nothing stashed"),
+
+    # F368: a redirect by title switches panes over unsaved edits again.
+    ("a redirect by title discards unsaved edits again", OPTIONSWINDOW,
+     "            if (IsDirty && !discardEdits) return false;\n",
+     "",
+     "wpf", "REFUSED while the pane has unsaved edits"),
+
+    # F376: the resolved file is compared against the UNRESOLVED root again, which refuses every file
+    # under a root reached through a junction.
+    ("reveal containment compares the resolved file against the unresolved root again", OPTIONSWINDOW,
+     "            if (!IsUnder(real, realRoot)) { refusal = outside; return null; }",
+     "            if (!IsUnder(real, dataRoot)) { refusal = outside; return null; }",
+     "wpf", "reached through a junction still allows"),
+
+    # F316: the owned-storage probe points its directories back at the live data root.
+    ("the owned-storage probe writes into the live data root again", "src/dotNet/WpfOptionsSelfTest.cs",
+     "                string alphaProbeRoot = Path.Combine(scratchDataRoot, \"modules\", \"alphaprobe\");",
+     "                string alphaProbeRoot = DesktopAICompanion.Wpf.PaneView.RevealRootFor(\"alphaprobe\");",
+     "wpf", "never under the live data root"),
+
+    # F377: the nav ListBox gets WPF's horizontal Auto back.
+    ("the nav list can grow a horizontal scrollbar again", OPTIONSWINDOW,
+     "            ScrollViewer.SetHorizontalScrollBarVisibility(nav, ScrollBarVisibility.Disabled);\n",
+     "",
+     "wpf", "never grows a horizontal scrollbar"),
+
 
     # ---- lane fix/settings ----
 ]

@@ -492,6 +492,260 @@ CASES = (
 
     # ---- lane fix/host ----
 
+    # F352: the removal marker is cleared whatever happened, which is the code as it shipped: a locked
+    # folder's uninstall is lost.
+    ("a pending removal that could not finish is forgotten again",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "PendingModuleRemovals.cs"),
+     b"            WriteIds(markerPath, unfinished);\n            return unfinished;",
+     b"            WriteIds(markerPath, new List<string>());\n            return unfinished;",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt", "the locked module stays marked"),
+
+    # F352: the loader stops honouring the pending-removal list (the folder never matches).
+    ("the loader loads a folder whose removal is still pending",
+     MODULE_HOST,
+     b"                if (string.Equals(id, folder, StringComparison.OrdinalIgnoreCase)) return true;",
+     b"                if (string.Equals(id, folder + \"-\", StringComparison.OrdinalIgnoreCase)) return true;",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "does not load a folder whose removal is pending"),
+
+    # F353: the discarded payload stays on disk again.
+    ("a discarded update leaves its staging folder behind again",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "PendingModuleUpdates.cs"),
+     b"                        discard = true;\n"
+     b"                        if (log != null) log(\"module '\" + id + \"' is no longer installed; discarded its update\");",
+     b"                        if (log != null) log(\"module '\" + id + \"' is no longer installed; discarded its update\");",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "a discarded payload's staging folder is removed"),
+
+    # F353: the strand sweep is dropped from the launch path.
+    ("abandoned staging folders are never swept",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "PendingModuleUpdates.cs"),
+     b"            SweepStrands(modulesRoot, stagingRoot, unfinished, log);\n",
+     b"",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "unmarked staging folder older than the age limit is swept"),
+
+    # F343: the refusal is filed under Info.Id again, which the pane cannot match to a folder.
+    ("a MinHostVersion refusal is keyed by Info.Id again",
+     MODULE_HOST,
+     b"                            Id = folder,\n",
+     b"                            Id = declaredId.Length > 0 ? declaredId : folder,\n",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt", "keyed by the folder name"),
+
+    # F344: an Init that throws after contributing keeps its contributions (the code as it shipped).
+    ("a module whose Init threw keeps its tray items, pane and subscriptions",
+     MODULE_HOST,
+     b"                            else attributing.RollBackModuleInit();",
+     b"                            else attributing.EndModuleInit();",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt", "holds no tray item, no pane"),
+
+    # F339: stage two takes the first match again instead of failing on more than one.
+    ("the self-test finder hands over the first of two module-type matches",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "ModuleConventionSelfTest.cs"),
+     b"            if (moduleCandidates.Count == 1) { entry = moduleCandidates[0]; return true; }",
+     b"            if (moduleCandidates.Count >= 1) { entry = moduleCandidates[0]; return true; }",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt", "reported as ambiguous"),
+
+    # F339: GetMethod(name) again, whose AmbiguousMatchException is swallowed into "no SelfTest".
+    ("an overload beside SelfTest(out string) hides it again",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "ModuleConventionSelfTest.cs"),
+     b"            try { methods = type.GetMethods(BindingFlags.Public | BindingFlags.Static); }\n"
+     b"            catch { return null; }",
+     b"            try { methods = new[] { type.GetMethod(\"SelfTest\", BindingFlags.Public | BindingFlags.Static) }; }\n"
+     b"            catch { return null; }\n"
+     b"            if (methods[0] == null) return null;",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt", "no longer hides it"),
+
+    # F345: the data root is no longer redirected before the module Inits run.
+    ("--module-host-selftest runs module Inits against the real data root again",
+     MODULE_HOST_SELFTEST,
+     b"                Environment.SetEnvironmentVariable(AppPaths.DataRootOverrideEnvironmentVariable, dataRootScratch);\n",
+     b"",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt", "data root isolated for this run"),
+
+    # F328: a throwing responder takes the chain down with it instead of being treated as declined.
+    ("a throwing responder aborts the chain",
+     HOST,
+     b"                    Log(r.ModuleId, \"responder threw and was treated as declined: \" + ex.GetType().Name + \": \" + ex.Message);\n"
+     b"                }\n"
+     b"                if (handled) return true;",
+     b"                    Log(r.ModuleId, \"responder threw and was treated as declined: \" + ex.GetType().Name + \": \" + ex.Message);\n"
+     b"                    throw;\n"
+     b"                }\n"
+     b"                if (handled) return true;",
+     HOST_CSPROJ, EXE,
+     "--module-host-selftest", "dp-module-host-selftest.txt", "treated as declined"),
+
+    # F354: the top-level copy comes back, and the isolated PetStudio runs without its native\ folder.
+    ("--petstudio-selftest copies the module's top level only again",
+     os.path.join(REPO, "src", "dotNet", "Plugins", "PetStudioModuleSelfTest.cs"),
+     b"                SelfTestScratch.CopyTree(bundled, dest);\n",
+     b"                Directory.CreateDirectory(dest);\n"
+     b"                foreach (string file in Directory.GetFiles(bundled))\n"
+     b"                    File.Copy(file, Path.Combine(dest, Path.GetFileName(file)), true);\n",
+     HOST_CSPROJ, EXE,
+     "--petstudio-selftest", "dp-petstudio-selftest.txt", "carries the module's subfolders"),
+
+    # F249/F336: Forget stops telling the pane's caches, so a Studio install keeps the old icon and counts.
+    # The raise is gated on a condition the early return above it makes impossible, rather than deleted:
+    # an event that is declared and never raised is CS0067, and warnings are errors, so the deletion
+    # would not compile and the case would prove nothing.
+    ("CompanionCatalog.Forget stops raising Forgotten",
+     os.path.join(REPO, "src", "dotNet", "CompanionCatalog.cs"),
+     b"            if (listeners != null) { try { listeners(id); } catch { } }\n",
+     b"            if (listeners != null && id.Length == 0) { try { listeners(id); } catch { } }\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "Forget raises Forgotten"),
+
+    # F250: the header read stops at the old 32K again.
+    ("the header read stops at 32K again",
+     os.path.join(REPO, "src", "dotNet", "CompanionCatalog.cs"),
+     b"        internal const int HeaderReadBoundChars = CompanionXmlValidator.MaximumIconBytes * 4 / 3 + 70 * 1024;",
+     b"        internal const int HeaderReadBoundChars = 32 * 1024;",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "past the old 32K read"),
+
+    # F251: the header cache stops keying on the file's write time and length, so a rewrite is a hit.
+    ("the header cache ignores a rewritten file",
+     os.path.join(REPO, "src", "dotNet", "CompanionCatalog.cs"),
+     b"                    if (HeaderByPath.TryGetValue(xmlPath, out hit) && hit.WrittenUtc == writtenUtc && hit.Length == length)",
+     b"                    if (HeaderByPath.TryGetValue(xmlPath, out hit))",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "a rewritten file is read again"),
+
+    # F251: nothing is ever found in the cache, so every look reads the file (the code as it shipped). The
+    # entry is stored under a key no lookup uses rather than not stored at all: deleting the store leaves
+    # CachedHeader's fields never assigned, which is CS0649, and warnings are errors.
+    ("the header read is uncached again",
+     os.path.join(REPO, "src", "dotNet", "CompanionCatalog.cs"),
+     b"                    HeaderByPath[xmlPath] = new CachedHeader { WrittenUtc = writtenUtc, Length = length, Name = name };",
+     b"                    HeaderByPath[xmlPath + \"#never-found\"] = new CachedHeader { WrittenUtc = writtenUtc, Length = length, Name = name };",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "do not read it again"),
+
+    # F361: a batched setter never marks the batch dirty, so Commit writes nothing.
+    ("a batch commit writes nothing",
+     os.path.join(REPO, "src", "Portable", "LocalData.cs"),
+     b"                    _batchDirty = true;\n                    return true;",
+     b"                    return true;",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "Commit is ONE durable write"),
+
+    # F245: the one place a device failure is visible is PlaybackStopped. Drop the subscription and the
+    # output stays 'started' on a device that does not exist, which is the code as it shipped.
+    ("AudioOutput stops observing PlaybackStopped",
+     os.path.join(REPO, "src", "dotNet", "AudioOutput.cs"),
+     b"                output.PlaybackStopped += OnPlaybackStopped;\n",
+     b"",
+     HOST_CSPROJ, EXE,
+     "--audio-selftest", "dp-audio-selftest.txt",
+     "asynchronous failure is observed"),
+
+
+    # F318: the no-stage path is never taken, so TryReadXml(xml, false) decodes the sheet anyway.
+    ("the no-stage loader decodes the sprite sheet anyway",
+     os.path.join(REPO, "src", "dotNet", "Xml.cs"),
+     b"                if (!stageImages)\n",
+     b"                if (!stageImages && imageBytes == null)\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "the no-stage read decodes none"),
+
+    # F241: the chooser evaluates the chosen animation itself again, which the counter sees.
+    ("the chooser evaluates an expression again",
+     os.path.join(REPO, "src", "dotNet", "Animations.cs"),
+     b'            TAnimation ani = SheepAnimations[id];\n            StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info, "new animation: "',
+     b'            TAnimation ani = SheepAnimations[id];\n            ani.UpdateValues();\n            StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.info, "new animation: "',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "choosing the next animation evaluates no expression"),
+
+    # F271: the fixed 12 MiB drop buffer comes back, which the allocation count sees.
+    ("the drop read allocates the 12 MiB ceiling again",
+     os.path.join(REPO, "src", "dotNet", "FormCompanion.cs"),
+     b"            bytes = new byte[(int)BoundedReadCapacity(stream, maximumBytes)];\n",
+     b"            bytes = new byte[checked(maximumBytes + 1)];\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "allocating under 1 MiB"),
+
+    # F255: the tree disposal stops disposing an item's Image.
+    ("DisposeItemTree leaves the Image alive",
+     os.path.join(REPO, "src", "dotNet", "ContextMenus.cs"),
+     b"                if (image != null) { item.Image = null; image.Dispose(); }\n",
+     b"                if (image != null) { item.Image = null; }\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "disposes a submenu child's Image"),
+
+    # F260: a listing that throws is logged but no longer counted as a failure.
+    ("SafeList stops counting a listing that throws",
+     os.path.join(REPO, "src", "dotNet", "FactoryReset.cs"),
+     b'                failed++;\n                if (log != null) log.Add("    could not list " + what',
+     b'                if (log != null) log.Add("    could not list " + what',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "counts as a failure and is logged"),
+
+    # F273: the row cap is twice what it says.
+    ("the debug window's row cap is doubled",
+     os.path.join(REPO, "src", "dotNet", "FormDebug.cs"),
+     b"\t\t\twhile (listView1.Items.Count > MaxRows)\n",
+     b"\t\t\twhile (listView1.Items.Count > MaxRows * 2)\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "the row count is capped at MaxRows"),
+
+    # F274: the debug text goes to a random file name instead of one fixed file per kind.
+    ("the debug text file gets a random name",
+     os.path.join(REPO, "src", "dotNet", "FormDebug.cs"),
+     b'\t\t\t\t"dp-debug-" + (safe.Length == 0 ? "text" : safe.ToString()) + ".txt");\n',
+     b'\t\t\t\t"dp-debug-" + (safe.Length == 0 ? "text" : safe.ToString()) + Guid.NewGuid().ToString("N") + ".txt");\n',
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "one per-kind file under TEMP"),
+
+    # F325: a quote inside a label is no longer escaped.
+    ("the DOT label leaves a quote unescaped",
+     os.path.join(REPO, "src", "Tools", "XmlToDot.cs"),
+     b"\t\t\t\t\tcase '\"': escaped.Append(\"\\\\\\\"\"); break;\n",
+     b"\t\t\t\t\tcase '\"': escaped.Append('\"'); break;\n",
+     HOST_CSPROJ, EXE,
+     "--hardening-selftest", "dp-hardening-selftest.txt", "escaped in the label"),
+
+    # F229: the segment-boundary rule answers true for any suffix, so the decoy wins again.
+    ("MatchesResourceName accepts a suffix that starts mid-segment",
+     os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "EmbeddedResources.cs"),
+     b"            return manifestName[manifestName.Length - fileNameSuffix.Length - 1] == '.';\n",
+     b"            return true;\n",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "ModuleKit embedded resources"),
+
+    # F230: Update writes defaults over an unreadable document again.
+    ("JsonSettingsStore.Update writes over an unreadable document",
+     os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "JsonSettingsStore.cs"),
+     b"                        if (result == ReadResult.Unreadable) return false;\n",
+     b"",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "ModuleKit json settings store"),
+
+    # F230: the write keeps no backup.
+    ("JsonSettingsStore.Save keeps no backup",
+     os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "JsonSettingsStore.cs"),
+     b"            return AtomicFile.TryWriteAllText(_path, json, BackupPath_);\n",
+     b"            return AtomicFile.TryWriteAllText(_path, json, null);\n",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "ModuleKit json settings store"),
+
+    # F231: Update proceeds without the lease.
+    ("JsonSettingsStore.Update proceeds without the lease",
+     os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "JsonSettingsStore.cs"),
+     b"                        if (lease == null) return false;\n                        T current;\n",
+     b"                        if (lease == null) { }\n                        T current;\n",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "ModuleKit json settings store"),
 
     # ---- lane fix/tools ----
 
@@ -1713,6 +1967,7 @@ BASELINES = (
     # Lane fix/fortunes' cases all run this flag; a red baseline here is refused, not scored.
     ("--module-selftest=fortunes", "dp-module-fortunes-selftest.txt"),
     ("--module-selftest=aibrain", "dp-module-aibrain-selftest.txt"),
+    ("--audio-selftest", "dp-audio-selftest.txt"),
     (CORETESTS, None),
 )
 

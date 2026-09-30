@@ -81,7 +81,36 @@ namespace DesktopAICompanion
         private float[] _builtInChime;   // the notification default, synthesized on first use
         private bool _started;
         private bool _unavailable;
+        /// <summary>
+        /// The CHOSEN device failed this round -- synchronously in <see cref="TryStart"/>, or asynchronously
+        /// through <see cref="OnPlaybackStopped"/> -- so the next <see cref="EnsureStarted"/> goes straight to
+        /// the default device instead of re-opening the one that just died. Cleared by <see cref="SetDevice"/>
+        /// and by the retry below.
+        /// </summary>
+        private bool _chosenDeviceFailed;
+        /// <summary>
+        /// When <see cref="_unavailable"/> may be tried again. The latch used to be permanent, which was right
+        /// for "this box has no sound card" and wrong for "the dock with the speakers was unplugged for a
+        /// minute": the output stayed dead until a different device was picked or the app restarted. Bounded
+        /// retry keeps the "don't retry on every trigger" property and gives a returning endpoint a way back.
+        /// </summary>
+        private DateTime _retryAfterUtc = DateTime.MinValue;
+        internal static readonly TimeSpan RetryInterval = TimeSpan.FromMinutes(2);
+        /// <summary>The device the running output was opened on; null when nothing is running.</summary>
+        private Guid? _runningDevice;
+        /// <summary>How many times the output thread reported a stop we did not ask for.</summary>
+        private int _observedFailures;
         private bool _disposed;
+
+        // Test seams for --audio-selftest, which has to watch the asynchronous failure path (F245) on a box
+        // whose real devices it cannot rely on. Read-only, and every one takes _sync like the code they observe.
+        internal bool IsOutputRunning { get { lock (_sync) return _started; } }
+        internal Guid? RunningDevice { get { lock (_sync) return _runningDevice; } }
+        internal bool ChosenDeviceFailed { get { lock (_sync) return _chosenDeviceFailed; } }
+        internal int ObservedOutputFailures { get { lock (_sync) return _observedFailures; } }
+        /// <summary>Run <see cref="EnsureStarted"/> without queuing anything, so a self-test can prove where
+        /// the NEXT sound would go without making the box beep.</summary>
+        internal bool EnsureStartedForTest() { lock (_sync) return !_disposed && EnsureStarted(); }
 
         /// <summary>Playback devices as (device GUID string, friendly name); the first is the default.</summary>
         public static IReadOnlyList<KeyValuePair<string, string>> EnumerateDevices()
@@ -103,10 +132,18 @@ namespace DesktopAICompanion
             if (string.IsNullOrEmpty(deviceId) || !Guid.TryParse(deviceId, out g)) g = Guid.Empty;
             lock (_sync)
             {
-                if (_disposed || g == _deviceId) return;
-                _deviceId = g;
-                DisposeOutput();        // rebuild on the new device the next time something plays
-                _unavailable = false;   // give the new device a fresh chance
+                if (_disposed) return;
+                if (g != _deviceId)
+                {
+                    _deviceId = g;
+                    DisposeOutput();    // rebuild on the new device the next time something plays
+                }
+                // A fresh chance whether or not the GUID moved. Re-applying the SAME device from Preferences
+                // is the one recovery a user has after the output died, and the old `g == _deviceId` early
+                // return made that click a no-op (F245).
+                _unavailable = false;
+                _chosenDeviceFailed = false;
+                _retryAfterUtc = DateTime.MinValue;
             }
         }
 
@@ -267,11 +304,28 @@ namespace DesktopAICompanion
         private bool EnsureStarted()
         {
             if (_started) return true;
-            if (_unavailable) return false;
-            if (TryStart(_deviceId)) return true;
-            if (_deviceId != Guid.Empty && TryStart(Guid.Empty)) return true;   // chosen device gone -> default
-            _unavailable = true;   // no usable device: stay silent, don't retry on every trigger
+            if (_unavailable)
+            {
+                if (DateTime.UtcNow < _retryAfterUtc) return false;   // stay silent, don't retry on every trigger
+                _unavailable = false;                                   // ...but do give it one try per interval
+                _chosenDeviceFailed = false;
+            }
+            // The chosen device first -- unless it has already failed this round, synchronously here or
+            // asynchronously through OnPlaybackStopped, in which case the default gets the sound.
+            if (!_chosenDeviceFailed && TryStart(_deviceId)) return true;
+            if (_deviceId != Guid.Empty)
+            {
+                _chosenDeviceFailed = true;                             // chosen device gone -> default
+                if (TryStart(Guid.Empty)) return true;
+            }
+            MarkUnavailable();
             return false;
+        }
+
+        private void MarkUnavailable()
+        {
+            _unavailable = true;
+            _retryAfterUtc = DateTime.UtcNow + RetryInterval;
         }
 
         private bool TryStart(Guid device)
@@ -284,16 +338,79 @@ namespace DesktopAICompanion
                 mixer.MixerInputEnded += OnMixerInputEnded;
                 output = new DirectSoundOut(device, 100);
                 output.Init(mixer.ToWaveProvider16());   // 16-bit PCM: universally accepted by DirectSound
+                // BEFORE Play(): the device is opened on the playback thread Play starts, and a failure
+                // there is reported through this event and nowhere else (see OnPlaybackStopped).
+                output.PlaybackStopped += OnPlaybackStopped;
                 output.Play();
                 _mixer = mixer;
                 _output = output;
+                _runningDevice = device;
                 _started = true;
                 return true;
             }
             catch
             {
-                if (output != null) { try { output.Dispose(); } catch { } }
+                if (output != null)
+                {
+                    try { output.PlaybackStopped -= OnPlaybackStopped; } catch { }
+                    try { output.Dispose(); } catch { }
+                }
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// DirectSound's report that the output thread has stopped. This is the ONLY place a device failure is
+        /// visible: the DirectSoundOut constructor stores the GUID, Init stores the provider and Play only
+        /// starts a thread, so a nonexistent device, a box with no audio device at all, and an endpoint that
+        /// vanished mid-session (a dock unplugged, HDMI speakers powered off) all "succeed" in TryStart and
+        /// fail HERE, milliseconds to seconds later, with the exception in the event args. Until this handler
+        /// existed nothing subscribed: `_started` stayed true for the rest of the session, every later sound was
+        /// decoded and queued into a mixer no thread read, PlayOwned and PlayNotification answered true, and
+        /// the fallback-to-default branch in EnsureStarted was unreachable for the one class of failure it was
+        /// written for (F245). Measured with the pinned NAudio 3.0.0-preview.6: a random GUID returns from
+        /// ctor+Init+Play in about a millisecond with PlaybackState Playing, and DSERR_NODRIVER arrives here
+        /// a few milliseconds later.
+        ///
+        /// Thread: NAudio marshals the event to the SynchronizationContext the output was constructed on --
+        /// the UI thread for every play that starts there, the playback thread itself for the deferred
+        /// custom-notification read, which runs on a pool thread with no context. Either way this takes _sync
+        /// and then, through DisposeOutput, _liveSync: the same order every caller uses, so no inversion. It
+        /// never adds a mixer input and never plays, which the class doc forbids from a callback.
+        ///
+        /// A stop WE asked for never reaches here: DisposeOutput unsubscribes before it calls Stop, and the
+        /// sender check below is the belt for the window between nulling the field and unsubscribing.
+        /// </summary>
+        private void OnPlaybackStopped(object sender, StoppedEventArgs e)
+        {
+            lock (_sync)
+            {
+                if (_disposed || _output == null || !ReferenceEquals(sender, _output)) return;
+                Guid failed = _runningDevice ?? _deviceId;
+                DisposeOutput();
+                _observedFailures++;
+                string why = e != null && e.Exception != null
+                    ? e.Exception.GetType().Name + ": " + e.Exception.Message
+                    : "the playback thread stopped without an error";
+                try
+                {
+                    DiagnosticLog.Write(LogCategory.Audio, "warning", null,
+                        "audio output stopped on device " +
+                        (failed == Guid.Empty ? "(default)" : failed.ToString()) + ": " + why);
+                }
+                catch { }
+                if (failed != Guid.Empty && !_chosenDeviceFailed)
+                {
+                    // The chosen device died: the next sound goes to the default. Not restarted from inside
+                    // the callback; the next play is the natural moment, and it costs that one sound nothing
+                    // but the fallback it would have had anyway.
+                    _chosenDeviceFailed = true;
+                }
+                else
+                {
+                    // The default itself (or the fallback onto it) died: nothing left to try right now.
+                    MarkUnavailable();
+                }
             }
         }
 
@@ -341,7 +458,9 @@ namespace DesktopAICompanion
             while ((n = sp.Read(buf.AsSpan())) > 0)
             {
                 if (all.Count + n > maxSamples) return null;
-                for (int i = 0; i < n; i++) all.Add(buf[i]);
+                // A block copy: ArraySegment is an ICollection<T>, so AddRange copies the chunk in one go
+                // instead of one bounds-checked Add per sample (F265). Up to 5.3 M samples per module clip.
+                all.AddRange(new ArraySegment<float>(buf, 0, n));
             }
             return all.ToArray();
         }
@@ -362,24 +481,21 @@ namespace DesktopAICompanion
                 bool mpegSync = audio[0] == 0xFF && (audio[1] & 0xE0) == 0xE0;
                 if (!riff && !id3 && !mpegSync) return null;
 
+                // The reader is OWNED for the whole decode, as Decode() above owns its own. It was disposed
+                // only on the two reject branches; the success path returned from ReadAll with the reader
+                // still open, which for MP3 is an ACM conversion stream (acmStreamOpen) and two GCHandle-pinned
+                // buffers that the Mp3FileReaderBase constructor opens eagerly and only the finalizer then
+                // released -- one set per Reminder chime, since PlayOwned is uncached by design (F246).
+                // ReadAll drains synchronously before returning, so disposing afterwards is safe.
                 using (var ms = new MemoryStream(audio, false))
+                using (WaveStream reader = riff
+                    ? (WaveStream)new WaveFileReader(ms)
+                    : new Mp3FileReaderBase(ms, wf => new AcmMp3FrameDecompressor(wf)))
                 {
-                    ISampleProvider sp;
-                    if (riff)
-                    {
-                        var wav = new WaveFileReader(ms);
-                        // Reject >2 channels explicitly rather than letting AddMixerInput throw into a silent
-                        // catch: the caller needs the false so it can fall back to a bubble.
-                        if (wav.WaveFormat.Channels < 1 || wav.WaveFormat.Channels > 2) { wav.Dispose(); return null; }
-                        sp = wav.ToSampleProvider();
-                    }
-                    else
-                    {
-                        var mp3 = new Mp3FileReaderBase(ms, wf => new AcmMp3FrameDecompressor(wf));
-                        if (mp3.WaveFormat.Channels < 1 || mp3.WaveFormat.Channels > 2) { mp3.Dispose(); return null; }
-                        sp = mp3.ToSampleProvider();
-                    }
-                    return ReadAll(ToMixFormat(sp), MaximumModuleDecodedSamples);
+                    // Reject >2 channels explicitly rather than letting AddMixerInput throw into a silent
+                    // catch: the caller needs the false so it can fall back to a bubble.
+                    if (reader.WaveFormat.Channels < 1 || reader.WaveFormat.Channels > 2) return null;
+                    return ReadAll(ToMixFormat(reader.ToSampleProvider()), MaximumModuleDecodedSamples);
                 }
             }
             catch { return null; }
@@ -389,11 +505,20 @@ namespace DesktopAICompanion
         {
             DirectSoundOut o = _output;
             MixingSampleProvider m = _mixer;
-            _output = null; _mixer = null; _started = false;
+            _output = null; _mixer = null; _started = false; _runningDevice = null;
             if (m != null) { try { m.MixerInputEnded -= OnMixerInputEnded; } catch { } }
             // Those inputs died with the device, so the registry must not keep naming them as live.
             lock (_liveSync) _live.Clear();
-            if (o != null) { try { o.Stop(); } catch { } o.Dispose(); }
+            if (o != null)
+            {
+                // Unsubscribed FIRST, so the stop we are about to ask for is not read as a failure.
+                try { o.PlaybackStopped -= OnPlaybackStopped; } catch { }
+                try { o.Stop(); } catch { }
+                // Dispose is Stop again under the hood, and NAudio's Stop aborts the playback thread when it
+                // cannot take its lock within 50 ms -- Thread.Abort, which throws PlatformNotSupportedException
+                // on .NET Core. Swallowed like the Stop above it; a torn-down output is torn down either way.
+                try { o.Dispose(); } catch { }
+            }
         }
 
         public void Dispose()

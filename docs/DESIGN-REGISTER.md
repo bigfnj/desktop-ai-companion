@@ -269,7 +269,145 @@ print RESULT=PASS with a new "GUI resource counters readable" PASS line per segm
 
 #### fix/host
 
-(none yet)
+**A borderless window that spans the whole virtual screen IS fullscreen on every monitor it covers, whatever
+program owns it (2026-09-29, N-host-01).** MatrixDesktop's "Matrix Digital Rain", a WinForms form sized to
+`SystemInformation.VirtualScreen`, launched at 15 minutes of idle and closed by the first keystroke, hid every
+companion, and the report read it as a wallpaper behind the desktop icons. It is not: its source has no
+SetParent, WorkerW or HWND_BOTTOM, so it sits in front of the desktop the way a screensaver does, and a TopMost
+companion would draw over it. `FullscreenScan` decides by geometry (`DesktopGeometry.IsFullscreenOnMonitor`),
+not by what a window is for, and that stays: an idle animation shaped like a screensaver is exactly the kind of
+window the companions must not sit on. They return within one 300 ms scan cycle of it closing.
+
+**A companion stood down for a fullscreen window defers its latest line and says it when its monitor clears
+(2026-09-29, N-host-02).** Dropping the line loses a reminder that fired mid-game; queueing replays several
+stale announcements in a row when the game ends. One line, the most recent, replaces any earlier one.
+
+**F265's per-tick detector walk stays declined (0.60 ms per walk, measured; BACKLOG record). F267's per-child
+spawn scan stays as the recorded un-cached spawn check: shipped content spawns at most two children per
+animation, so at most three walks per spawn event, never per tick.**
+
+**A redirect into an open settings window asks before it discards edits (2026-09-29, F368).** A nav click is
+the user leaving a pane, and it discards, as it always has. A module-update balloon or the restart reopen
+timer is not the user leaving: `OptionsWindow.ShowPane(title)` refuses while Apply is lit, and
+`OptionsShell.RedirectOpenWindow` puts the question ("Discard them and open <pane>?"); only Yes discards.
+
+**A pane reload that arrives late is declined, not applied (2026-09-29, F375).** The window answers a
+`ReloadPaneAfter` only for the pane on screen and only while it is open; a continuation from a pane the user
+left drops its stash and its message rather than rebuilding under a nav that lights something else. The
+alternative (driving the rebuild through the nav so the two cannot disagree) would move the user back to a
+pane they had left, which is the same surprise from the other side.
+
+**Reset to defaults touches only what the page shows (2026-09-29, F371).** `themeMode` has been dormant since
+the Theme dropdown went (2026-08-07, "the window follows the OS"); the reset no longer writes it, and no
+Theme control returns as a side effect of this item. A hand edit of settings.json is the only way to hold a
+non-default value, and a button that promises to restore "the settings shown here" leaves it alone.
+
+**A new module installs through the same staging folder an update uses (2026-09-29, F367).** One same-volume
+`Directory.Move` makes `modules/<id>` whole-or-absent; what an interrupted or killed unpack can strand is a
+staging folder beside `modules/`, which the loader never scans, not a half module the pane lists as installed.
+
+**Reveal containment compares resolved against resolved (2026-09-29, F376).** The permitted root goes through
+the same `GetFinalPathNameByHandle` as the file, so a data root behind a junction, SUBST, mapped drive or
+UNC path allows its own files and a junction inside the root still cannot lead out. A root that cannot be
+resolved refuses, on the same fail-closed grounds as the file.
+
+**The loader is fail-closed on a partial type load (2026-09-29, F342).** `ModuleHost.LoadFrom` calls
+`Assembly.GetTypes()` and refuses the module whole when any type in it fails to load, rather than searching
+the partial list for the `IModule` type and letting the broken type throw when first touched. Safer while
+every module is first-party; a module that degrades on load is a decision for the day a third-party module
+needs it, and the convention runner no longer carries a partial-load catch that implied the other policy.
+
+**A module whose Init throws holds nothing in the host (2026-09-29, F344).** The isolation promise at the
+top of `ModuleHost` ("one bad module can never take the host down") covered the host and not the module's
+own leftovers: a tray item, a pane, a responder or a subscription registered before the throw stayed live
+behind a "failed to load" row. `CompanionHost` records what an Init registers and rolls it back when Init
+does not return. The six module-facing events became explicit accessors over backing fields for this; the
+ABI did not move.
+
+**A removal that cannot finish stays marked and is retried (2026-09-29, F352).** A locked module folder
+used to cost the user their uninstall: the marker went whatever happened. Now the id stays, the launch that
+hit the lock does not load the folder either, and the next launch tries again; a reinstall or update of
+the same id forgets the pending removal so the two cannot fight over the folder. What no design fixes: a
+sibling instance still running the module loses its assets under it whichever way the delete happens.
+
+**`IHost.GetStorage` and `GetSettings` never return null from the shipped host (2026-09-29, F341).** The
+contract says so now, and says that test doubles may; the host-side convention host keeps returning null
+on purpose, as the one gate exercise of every module's null tolerance.
+
+**`IHost.GetSettings` stays a fresh parse per call (2026-09-29, F330).** Memoising would share one mutable
+dictionary across the independent handles the contract documents, some read off the UI thread. The cost is
+user-paced and unmeasured; the modules that fetch repeatedly can hold one handle if a measurement ever asks.
+
+**The self-test scratch sweep may take another program's `dp-*` directory (2026-09-29, F356).** Accepted,
+and now said at the site: the sweep runs only under a self-test flag on developer and CI boxes, and a
+longer prefix would re-couple cleanup to a naming convention across some twenty creators, which is the
+orphan failure the sweep fixed.
+
+**Settings writes coalesce per user action, and the setters' results stay durable (2026-09-29, F361, F308).**
+`LocalData.BeginBatch` lets one Apply or one Reset be one write instead of twenty-two; a setter outside a
+batch still writes at once, and a setter's `true` still means "on disk". A debounced background writer was
+declined because those bools are shown to the user as saved-or-not. What this does NOT fix is the per-write
+COST: settings.json embeds the active pet's XML (1.17 MB for the default pet, ~12 MB at the validator's
+cap), so every write is a full-document rewrite. Moving the payload to a sibling file keyed by id and hash
+is a schema change with a LoadCore migration and belongs to a host release of its own; the on-disk format
+did not move in this lane, and an installed 1.2.6 reads what 1.2.7 writes.
+
+**Four unmeasured performance items stay as they are (2026-09-29, F262, F269, F276, F297).** Each finding's
+own first step was a cold measurement in fresh interleaved processes against a variant with the change
+removed, and this lane made none; a saving that is not measured that way has been wrong every time it was
+believed in this repo. The alpha-pet push-skip, the CheckTopWindow throttle, the bubble DPI cache and the
+pooled HttpClient are recorded here so the next reader starts from the measurement, not the idea.
+
+**The loader has a graph-only overload, and the validator hands its decoded bytes on (2026-09-30, F318,
+F317, F155).** `Xml.TryReadXml(string xmlText, bool stageImages, out string error)` is additive: with
+`stageImages` false the definition is validated and adopted (AnimationXML, icon, frame size from the PNG
+IHDR, scale factor) and no bitmap is decoded, SpriteCount is 0, and the instance must never be handed to a
+running companion. `CompanionXmlValidator.TryParse(xml, out root, out spriteBytes, out iconBytes, out
+error)` is the other additive shape: the loader reads the bytes the validator decoded and proved, so the
+second base64 pass is gone rather than made faster. Both files are source-linked by PetStudio, which is
+why the existing signatures did not move. The alpha flag moved into the commit block; the only observable
+was a violated contract, and the contract is what the invariant asserts.
+
+**The XSD schema set stays uncached (2026-09-30, F254, DECLINED-MEASURED).** 0.95 ms per TryParse, warm,
+30 reps. TryParse runs per install, download, drop or Studio analyze; a cached `XmlSchemaSet` would save
+under a millisecond on a user-paced path and add a shared mutable object to a stateless class.
+
+**The chooser evaluates nothing; a counter says so (2026-09-30, F241, F242).** `TAnimation.EvaluationCount`
+is a counter seam like `AppSettingsStore.DurableWrites`: the self-test asserts a chooser call adds nothing
+and the consumer's `UpdateValues(DisplayIndex)` adds one, stated as a count and never as a timing. The
+store-back into `SheepAnimations` went with the evaluation because `TAnimation` is a struct and nothing read
+an evaluated value out of the dictionary, only names and edge lists.
+
+**The drop read is sized from the file, with the sentinel kept (2026-09-30, F271).** The buffer is the
+stream's length plus one byte, clamped to one over the limit, floor 4 KB, and grows if the file grows while
+it is read; the over-limit test on the bytes read is unchanged. The probe COUNTS allocation through
+`GC.GetAllocatedBytesForCurrentThread` rather than timing anything: a 2 KB drop under 1 MiB where the old
+buffer was 12 MiB.
+
+**`JsonSettingsStore.Update` holds its lease across the mutation (2026-09-30, F230, F231).** One lease
+for read, mutate and write closes the two-lease window; the mutation therefore runs under a cross-session
+lock and must stay short, which the doc comment says. An `Unreadable` document is refused rather than
+written over, and `LastLoadWasUnreadable` lets a module say so; the backup is `<path>.bak`, as in the two
+stores the class was distilled from. No in-tree consumer yet, so the CoreTests group is the only caller.
+
+**The companion form's Icon is removed, not disposed (2026-09-30, F272).** Nothing reads the property
+(border None, ShowIcon false, tool window, no reader in `src/`), so not creating the HICON beats creating
+and disposing one per spawn. The `ComponentResourceManager` line went with it: the icon was its only use.
+
+**The debug window hands text over by file, not by automating Notepad (2026-09-30, F274).** On Windows 11
+notepad.exe is a launcher stub, so the WM_SETTEXT handoff wrote into the wrong window or none and swallowed
+the failure. One fixed `dp-debug-<kind>.txt` per kind under %TEMP%, overwritten, opened through the shell;
+this is the user's default editor rather than Notepad by name, and a failure is an error row in the window.
+
+**The module template holds one settings handle (2026-09-30, F330 follow-up).** F330 stays
+ACCEPTED-RECORDED for the host, but the template is this lane's own, and it is the sample every new module
+is copied from, so it now memoises the handle its own comment tells authors to hold.
+
+**The corpus classifier decides its layout once per file (2026-09-30, F321, F323).** A per-row field count
+turned a tab inside a text into a reinterpreted, truncated row; now row 1 sets the layout and a later row
+that differs is an error naming the line. Both transforms carry a `--selfcheck` that `label-selftest.sh`
+runs; the gate does not run that script, so the selfchecks' hand mutations are recorded in the commit and
+the source-text invariants are what the gate sees.
 
 #### fix/tools
 

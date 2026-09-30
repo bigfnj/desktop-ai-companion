@@ -54,10 +54,27 @@ namespace DesktopAICompanion.Plugins
         /// <summary>Scan the modules root and load every module folder. Returns the count loaded.</summary>
         public int LoadFrom(string modulesRoot, IHost host, Action<string> log)
         {
+            return LoadFrom(modulesRoot, host, log, null);
+        }
+
+        /// <summary>
+        /// As above, but never loading a folder named in <paramref name="pendingRemoval"/> (F352). Those are
+        /// the ids PendingModuleRemovals could not delete this launch -- still locked by a sibling instance
+        /// or an indexer -- and loading one would lock its DLL again in THIS process, so the retry on the next
+        /// launch fails the same way for as long as the app keeps being restarted. Recorded as a failure with
+        /// the reason, so the Modules pane says why rather than "restart to activate".
+        /// </summary>
+        public int LoadFrom(string modulesRoot, IHost host, Action<string> log, IReadOnlyCollection<string> pendingRemoval)
+        {
             if (string.IsNullOrWhiteSpace(modulesRoot) || !Directory.Exists(modulesRoot)) return 0;
             int count = 0;
             foreach (string dir in Directory.GetDirectories(modulesRoot))
             {
+                if (IsPendingRemoval(dir, pendingRemoval))
+                {
+                    Fail(dir, "still being removed: its folder was locked when this launch tried; it goes on a later launch", log);
+                    continue;
+                }
                 ModuleLoadContext alc = null;
                 try
                 {
@@ -90,26 +107,43 @@ namespace DesktopAICompanion.Plugins
                     {
                         // Not a defect: a module correctly refusing an older host. Recorded all the same, so
                         // the pane can say WHY rather than showing a module that silently never runs.
+                        //
+                        // Keyed by the FOLDER NAME like every other failure (F343). The pane matches failures
+                        // to the folders it enumerates, so a refusal filed under Info.Id was invisible the
+                        // moment the two differed and the row fell back to "restart to activate". The
+                        // declared id still travels in the reason when it is not the folder's.
+                        string folder = Path.GetFileName(dir);
+                        string declaredId = info != null && !string.IsNullOrWhiteSpace(info.Id) ? info.Id.Trim() : "";
+                        bool idDiffers = declaredId.Length > 0 && !string.Equals(declaredId, folder, StringComparison.OrdinalIgnoreCase);
                         _failures.Add(new ModuleLoadFailure
                         {
-                            Id = info != null && !string.IsNullOrWhiteSpace(info.Id) ? info.Id : Path.GetFileName(dir),
-                            Reason = requirement,
+                            Id = folder,
+                            Reason = requirement + (idDiffers ? " (module id '" + declaredId + "')" : ""),
                             NeedsNewerHost = true,
                         });
                         if (log != null)
-                            log("module skipped: " + (info != null ? info.Id : Path.GetFileName(dir)) +
-                                " " + requirement);
+                            log("module skipped: " + (declaredId.Length > 0 ? declaredId : folder) + " " + requirement);
                         alc.Unload();
                         continue;
                     }
 
                     // Attribute everything registered inside Init to this module. The finally is the
                     // whole point: a module that throws from Init must not leave the next one's panes
-                    // credited to it.
+                    // credited to it -- and, since F344, must not keep its OWN either: an Init that threw
+                    // after contributing is rolled back (tray items, panes, responders, hotkeys, event
+                    // subscriptions), so the module the pane reports as failed holds nothing in the host.
                     var attributing = host as CompanionHost;
                     if (attributing != null) attributing.BeginModuleInit(module.Info != null ? module.Info.Id : null);
-                    try { module.Init(host); }
-                    finally { if (attributing != null) attributing.EndModuleInit(); }
+                    bool initialised = false;
+                    try { module.Init(host); initialised = true; }
+                    finally
+                    {
+                        if (attributing != null)
+                        {
+                            if (initialised) attributing.EndModuleInit();
+                            else attributing.RollBackModuleInit();
+                        }
+                    }
                     _loaded.Add(new Loaded { Module = module, Alc = alc });
                     count++;
                     // GUARDED, like the two reads of Info above it. This line dereferenced it bare,
@@ -137,6 +171,15 @@ namespace DesktopAICompanion.Plugins
                 }
             }
             return count;
+        }
+
+        private static bool IsPendingRemoval(string dir, IReadOnlyCollection<string> pendingRemoval)
+        {
+            if (pendingRemoval == null || pendingRemoval.Count == 0) return false;
+            string folder = Path.GetFileName(dir);
+            foreach (string id in pendingRemoval)
+                if (string.Equals(id, folder, StringComparison.OrdinalIgnoreCase)) return true;
+            return false;
         }
 
         private static string FindModuleDll(string dir)

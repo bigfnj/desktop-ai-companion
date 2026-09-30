@@ -2,7 +2,6 @@
 using System;
 using System.Diagnostics;
 using System.Drawing;
-using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
 namespace DesktopAICompanion
@@ -13,43 +12,14 @@ namespace DesktopAICompanion
 	/// </summary>
 	public partial class FormDebug : Form
     {
-        /// <summary>
-        /// FindWindowEx is used to open another application
-        /// </summary>
-        /// <param name="hwndParent">hwnd of the parent (this application)</param>
-        /// <param name="hwndChildAfter">hwnd of the next application (0)</param>
-        /// <param name="lpszClass">null</param>
-        /// <param name="lpszWindow">null</param>
-        /// <returns>A pointer to the opened application</returns>
-		[DllImport("user32.dll", CharSet = CharSet.Unicode)]
-		private static extern IntPtr FindWindowEx(
-			IntPtr hwndParent,
-			IntPtr hwndChildAfter,
-			string lpszClass,
-			string lpszWindow);
+		/// <summary>
+		/// The most rows the list keeps (F273). A multi-pet session logs 5 to 12 lines a second for as long
+		/// as it runs, and with no cap the list grew for the whole session; the oldest rows go first.
+		/// </summary>
+		internal const int MaxRows = 5000;
 
-        /// <summary>
-        /// Send a message to the opened application (<see cref="FindWindowEx(IntPtr, IntPtr, string, string)"/>
-        /// </summary>
-        /// <param name="hWnd">hWnd of the created application pointer.</param>
-        /// <param name="uMsg">Message type</param>
-        /// <param name="wParam">wParam is 0</param>
-        /// <param name="lParam">lParam is the text to show in the application</param>
-        /// <returns></returns>
-		[DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-		private static extern IntPtr SendMessageTimeout(
-			IntPtr hWnd,
-			uint message,
-			IntPtr wParam,
-			string lParam,
-			uint flags,
-			uint timeoutMilliseconds,
-			out IntPtr result);
-
-		private const uint WmSetText = 0x000C;
-		private const uint SmtoBlock = 0x0001;
-		private const uint SmtoAbortIfHung = 0x0002;
-		private const uint TextMessageTimeoutMilliseconds = 2000;
+		/// <summary>How many rows the list holds; read by the self-test.</summary>
+		internal int RowCount { get { return listView1.Items.Count; } }
 
 		private bool addingAnimationsLog;
 		private bool addingSpawnLog;
@@ -100,6 +70,7 @@ namespace DesktopAICompanion
 				Color.White;
 			item.SubItems.Add(text);
 			listView1.Items.Add(item);
+			TrimRows();
 
 			addingAnimationsLog =
 				text.StartsWith("adding animation", StringComparison.Ordinal);
@@ -125,6 +96,7 @@ namespace DesktopAICompanion
 				};
 				continuation.SubItems.Add(text);
 				listView1.Items.Add(continuation);
+				TrimRows();
 				if (checkBox4.Checked) continuation.EnsureVisible();
 				return true;
 			}
@@ -156,56 +128,61 @@ namespace DesktopAICompanion
 			playingNewAnimation = false;
 		}
 
+		/// <summary>Drop the oldest rows past <see cref="MaxRows"/> (F273). The coalescing state looks only
+		/// at the LAST row, so trimming from the front never disturbs it.</summary>
+		private void TrimRows()
+		{
+			while (listView1.Items.Count > MaxRows)
+				listView1.Items.RemoveAt(0);
+		}
+
 		private void convertoToDOTToolStripMenuItem_Click(object sender, EventArgs e)
 		{
 			if (Animations.Xml != null)
-				OpenTextInNotepad(XmlToDot.ProcessXml(Animations.Xml.AnimationXML));
+				OpenText("animations-dot", XmlToDot.ProcessXml(Animations.Xml.AnimationXML));
 		}
 
 		private void openXMLToolStripMenuItem_Click(object sender, EventArgs e)
 		{
 			if (Animations.Xml != null)
-				OpenTextInNotepad(Animations.Xml.AnimationXMLString);
+				OpenText("animations-xml", Animations.Xml.AnimationXMLString);
 		}
 
-		private static void OpenTextInNotepad(string text)
+		/// <summary>
+		/// Show a text in the user's editor (F274). The old handoff started notepad.exe and pushed the text
+		/// into its edit control with WM_SETTEXT. On Windows 11 notepad.exe is a launcher stub for the Store
+		/// app, so the window it found belonged to the stub or to nobody, the text went nowhere and the
+		/// failure was swallowed; and an unguarded MainWindowHandle could retitle a foreign window in a race.
+		/// The text goes to a file under %TEMP% and the file is opened through the shell, the one handoff
+		/// that works on every Windows; a failure is logged in this window instead of swallowed.
+		/// </summary>
+		private static void OpenText(string kind, string text)
 		{
+			string path = null;
 			try
 			{
-				var startInfo = new ProcessStartInfo
-				{
-					FileName = System.IO.Path.Combine(
-						Environment.SystemDirectory,
-						"notepad.exe"),
-					UseShellExecute = false
-				};
-				using (Process notepad = Process.Start(startInfo))
-				{
-					if (notepad == null || !notepad.WaitForInputIdle(5000)) return;
-					notepad.Refresh();
-					IntPtr child = FindWindowEx(
-						notepad.MainWindowHandle,
-						IntPtr.Zero,
-						null,
-						null);
-					if (child != IntPtr.Zero)
-					{
-						IntPtr ignored;
-						SendMessageTimeout(
-							child,
-							WmSetText,
-							IntPtr.Zero,
-							text ?? "",
-							SmtoBlock | SmtoAbortIfHung,
-							TextMessageTimeoutMilliseconds,
-							out ignored);
-					}
-				}
+				path = WriteDebugText(kind, text);
+				using (Process.Start(new ProcessStartInfo(path) { UseShellExecute = true })) { }
 			}
-			catch
+			catch (Exception ex)
 			{
-				// The diagnostic window must not crash the pet if Notepad is unavailable.
+				StartUp.AddDebugInfo(StartUp.DEBUG_TYPE.error,
+					"could not open " + kind + (path == null ? "" : " (" + path + ")") + ": " + ex.Message);
 			}
+		}
+
+		/// <summary>Write a debug text to one fixed file per kind under %TEMP% and return its path (F274).
+		/// Overwritten on every open, so the debug window leaves nothing to accumulate.</summary>
+		internal static string WriteDebugText(string kind, string text)
+		{
+			var safe = new System.Text.StringBuilder();
+			foreach (char c in kind ?? "")
+				safe.Append(char.IsLetterOrDigit(c) || c == '-' ? c : '-');
+			string path = System.IO.Path.Combine(
+				System.IO.Path.GetTempPath(),
+				"dp-debug-" + (safe.Length == 0 ? "text" : safe.ToString()) + ".txt");
+			System.IO.File.WriteAllText(path, text ?? "", new System.Text.UTF8Encoding(false));
+			return path;
 		}
 
 		private void clearWindowToolStripMenuItem_Click(object sender, EventArgs e)

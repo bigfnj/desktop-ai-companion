@@ -850,6 +850,7 @@ namespace DesktopAICompanion
                 // exercise the refusal and this self-test never opens an Explorer window.
                 string revealRoot = Path.Combine(Path.GetTempPath(), "dp-wpf-reveal-" + Guid.NewGuid().ToString("N"));
                 string revealSibling = revealRoot + "-outside";
+                string revealRootLink = revealRoot + "-link";   // a junction pointing AT the root (F376)
                 try
                 {
                     Directory.CreateDirectory(revealRoot);
@@ -930,6 +931,30 @@ namespace DesktopAICompanion
                         !linkMade
                         || DesktopAICompanion.Wpf.PaneView.ResolveRevealTarget(linkPath, revealRoot, out refusal) == null);
 
+                    // The ROOT reached through a junction (F376). The escape check above compares the
+                    // FILE's resolved path against the root, so the root has to be resolved the same way:
+                    // a data root behind a junction, a SUBST or a mapped drive -- which is exactly how a
+                    // data directory gets relocated to another drive -- used to refuse every one of its own
+                    // files as "outside". The link is a SIBLING of the root pointing at it, so the escape
+                    // junction inside the root stays an escape and the witness below can show it.
+                    var mkRoot = new System.Diagnostics.ProcessStartInfo("cmd.exe",
+                        "/c mklink /J \"" + revealRootLink + "\" \"" + revealRoot + "\"")
+                    { UseShellExecute = false, CreateNoWindow = true,
+                      RedirectStandardOutput = true, RedirectStandardError = true,
+                      StandardOutputEncoding = System.Text.Encoding.UTF8,
+                      StandardErrorEncoding = System.Text.Encoding.UTF8 };
+                    using (System.Diagnostics.Process p = System.Diagnostics.Process.Start(mkRoot)) p.WaitForExit();
+                    string throughRootLink = Path.Combine(revealRootLink, Path.GetFileName(insideFile));
+                    ok &= Check(sb, "the junctioned root is actually set up (so the next check is not vacuous)",
+                        Directory.Exists(revealRootLink) && File.Exists(throughRootLink));
+                    ok &= Check(sb, "a permitted root reached through a junction still allows the files inside it",
+                        DesktopAICompanion.Wpf.PaneView.ResolveRevealTarget(throughRootLink, revealRootLink, out refusal) == throughRootLink
+                        && refusal == null);
+                    ok &= Check(sb, "WITNESS ...and still refuses a path that leaves it through the escape junction",
+                        DesktopAICompanion.Wpf.PaneView.ResolveRevealTarget(
+                            Path.Combine(revealRootLink, "escape", Path.GetFileName(outsideFile)), revealRootLink, out refusal) == null
+                        && refusal != null);
+
                     // ...and through the button, which is where the empty / already-a-result pass-throughs
                     // live: an action must still be able to report a failure the ordinary way.
                     var revealPane = new OptionsPane
@@ -961,6 +986,7 @@ namespace DesktopAICompanion
                 }
                 finally
                 {
+                    try { Directory.Delete(revealRootLink); } catch { }   // the junction itself, never its target
                     try { Directory.Delete(revealRoot, true); } catch { }
                     try { Directory.Delete(revealSibling, true); } catch { }
                 }
@@ -988,9 +1014,13 @@ namespace DesktopAICompanion
 
                 // 12b) RevealsPath is scoped to the OWNING MODULE, not the whole data root.
                 // Both roots are inside AppPaths.DataRoot, so the old rule allowed every one of these and
-                // the interesting assertion is the one that now REFUSES. Nothing is created on disk beyond
-                // the two probe files, and neither is ever opened: ResolveRevealTarget is the decision, and
-                // the Explorer call is downstream of it.
+                // the interesting assertion is the one that now REFUSES. The MAPPING (RevealRootFor) is
+                // asserted as pure string shape; the containment DECISION (ResolveRevealTarget) takes its
+                // root as a parameter, so it runs against a scratch tree standing in for the data root.
+                // This block used to mkdir and recursively delete <live DataRoot>\modules\alpha and \beta
+                // on every run -- a module whose id happened to be one of those would have lost its
+                // settings to a self-test, with the transcript reading PASS (F316). Nothing here touches
+                // the live data root now, and the disk probe asserts that it did not.
                 string alphaRoot = DesktopAICompanion.Wpf.PaneView.RevealRootFor("alpha");
                 string betaRoot = DesktopAICompanion.Wpf.PaneView.RevealRootFor("beta");
                 ok &= Check(sb, "a pane with no owning module keeps the data-root-wide rule",
@@ -1000,27 +1030,50 @@ namespace DesktopAICompanion
                     alphaRoot != AppPaths.DataRoot && alphaRoot.StartsWith(AppPaths.DataRoot, StringComparison.OrdinalIgnoreCase) &&
                     alphaRoot.EndsWith(Path.Combine("modules", "alpha"), StringComparison.OrdinalIgnoreCase));
                 ok &= Check(sb, "two modules do not share a reveal root", alphaRoot != betaRoot);
+                string scratchDataRoot = Path.Combine(Path.GetTempPath(), "dp-wpf-owned-" + Guid.NewGuid().ToString("N"));
+                string alphaProbeRoot = Path.Combine(scratchDataRoot, "modules", "alphaprobe");
+                string betaProbeRoot = Path.Combine(scratchDataRoot, "modules", "betaprobe");
+                // Where the probe ids WOULD land in the live root, and whether anything was there before
+                // this run: the hygiene check below asserts nothing appears there, and the finally removes
+                // only what this run put there -- never a folder that existed before it.
+                string liveAlphaRoot = DesktopAICompanion.Wpf.PaneView.RevealRootFor("alphaprobe");
+                string liveBetaRoot = DesktopAICompanion.Wpf.PaneView.RevealRootFor("betaprobe");
+                bool liveProbeRootsExisted = Directory.Exists(liveAlphaRoot) || Directory.Exists(liveBetaRoot);
+                ok &= Check(sb, "WITNESS the live data root holds no module storage named like the probes before they run",
+                    !liveProbeRootsExisted);
                 try
                 {
-                    Directory.CreateDirectory(alphaRoot);
-                    Directory.CreateDirectory(betaRoot);
-                    string alphaFile = Path.Combine(alphaRoot, "own.log");
-                    string betaFile = Path.Combine(betaRoot, "someone-elses.log");
+                    Directory.CreateDirectory(alphaProbeRoot);
+                    Directory.CreateDirectory(betaProbeRoot);
+                    string alphaFile = Path.Combine(alphaProbeRoot, "own.log");
+                    string betaFile = Path.Combine(betaProbeRoot, "someone-elses.log");
                     File.WriteAllText(alphaFile, "x");
                     File.WriteAllText(betaFile, "x");
                     string why;
                     ok &= Check(sb, "WITNESS a module may still reveal a file in its OWN storage",
-                        DesktopAICompanion.Wpf.PaneView.ResolveRevealTarget(alphaFile, alphaRoot, out why) == alphaFile);
+                        DesktopAICompanion.Wpf.PaneView.ResolveRevealTarget(alphaFile, alphaProbeRoot, out why) == alphaFile);
                     // THE POINT. This is the case the data-root-wide rule allowed.
                     ok &= Check(sb, "a module may NOT reveal a file inside another module's storage",
-                        DesktopAICompanion.Wpf.PaneView.ResolveRevealTarget(betaFile, alphaRoot, out why) == null && why != null);
+                        DesktopAICompanion.Wpf.PaneView.ResolveRevealTarget(betaFile, alphaProbeRoot, out why) == null && why != null);
                     ok &= Check(sb, "WITNESS the old data-root-wide rule DID allow exactly that",
-                        DesktopAICompanion.Wpf.PaneView.ResolveRevealTarget(betaFile, AppPaths.DataRoot, out why) == betaFile);
+                        DesktopAICompanion.Wpf.PaneView.ResolveRevealTarget(betaFile, scratchDataRoot, out why) == betaFile);
+                    // The hygiene assertion (F316), INSIDE the try while the probe tree is on disk, because
+                    // that is the moment the old shape had created its directories in the live root.
+                    ok &= Check(sb, "the owned-storage probe writes under a scratch root, never under the live data root",
+                        Directory.Exists(alphaProbeRoot) &&
+                        !Directory.Exists(liveAlphaRoot) && !Directory.Exists(liveBetaRoot));
                 }
                 finally
                 {
-                    try { Directory.Delete(alphaRoot, true); } catch { }
-                    try { Directory.Delete(betaRoot, true); } catch { }
+                    try { Directory.Delete(scratchDataRoot, true); } catch { }
+                    // Belt, for a regression that points the probe back at the live root: the check above
+                    // has already failed by then, and what THIS run created goes with it, so a red run does
+                    // not poison the next one. Nothing that existed before the run is touched.
+                    if (!liveProbeRootsExisted)
+                    {
+                        try { if (Directory.Exists(liveAlphaRoot)) Directory.Delete(liveAlphaRoot, true); } catch { }
+                        try { if (Directory.Exists(liveBetaRoot)) Directory.Delete(liveBetaRoot, true); } catch { }
+                    }
                 }
 
                 // 13) PaneAction.InvokeWithPendingAsync. InvokeAsync takes no arguments, so an action
@@ -1155,6 +1208,168 @@ namespace DesktopAICompanion
                         StatusOf(listPendingButtons[0]) != null && StatusOf(listPendingButtons[0]).Text == "✓ list pending ran");
                 }
                 else ok &= Check(sb, "list-card pending probe rendered its button", false);
+
+                // 14) THE WINDOW ITSELF, built headlessly and never shown. Four things about it that no
+                // pane-level probe can see: how big it opens, what its nav can scroll, what a pane reload
+                // arriving late does, and what a redirect by title does to unsaved edits.
+
+                // 14a) F372. The preferred 1050x820 is fitted to the primary work area, because WPF's
+                // CenterScreen centres the REQUESTED height and Windows clamps only the SIZE, so a window
+                // taller than the work area opened with its caption above the screen top. The fit is a
+                // pure function so the displays this box does not have can be handed in.
+                System.Windows.Size preferredSize = DesktopAICompanion.Wpf.OptionsWindow.PreferredSize;
+                System.Windows.Size minimumSize = DesktopAICompanion.Wpf.OptionsWindow.MinimumSize;
+                double clearance = DesktopAICompanion.Wpf.OptionsWindow.WorkAreaClearance;
+                System.Windows.Size laptop = DesktopAICompanion.Wpf.OptionsWindow.InitialSize(
+                    preferredSize, minimumSize, new System.Windows.Rect(0, 0, 1366, 720));      // 1366x768 under a Win11 taskbar
+                ok &= Check(sb, "the settings window fits a 1366x768 laptop's 720 DIP work area, with clearance",
+                    laptop.Height <= 720 - clearance && laptop.Height >= minimumSize.Height && laptop.Width <= 1366 - clearance);
+                System.Windows.Size scaled = DesktopAICompanion.Wpf.OptionsWindow.InitialSize(
+                    preferredSize, minimumSize, new System.Windows.Rect(0, 0, 1280, 672));      // 1080p at 150%
+                ok &= Check(sb, "...and a 1080p panel at 150% scaling (672 DIP)",
+                    scaled.Height <= 672 - clearance && scaled.Height >= minimumSize.Height);
+                ok &= Check(sb, "WITNESS a roomy work area gets the preferred size unchanged",
+                    DesktopAICompanion.Wpf.OptionsWindow.InitialSize(
+                        preferredSize, minimumSize, new System.Windows.Rect(0, 0, 2560, 1380)) == preferredSize);
+                // Per AXIS: an 800x480 work area is too short for the floor (480 - 24 < 520) but wide
+                // enough to fit (800 - 24), so the height is the floor and the width is the fit.
+                System.Windows.Size cramped = DesktopAICompanion.Wpf.OptionsWindow.InitialSize(
+                    preferredSize, minimumSize, new System.Windows.Rect(0, 0, 800, 480));
+                ok &= Check(sb, "...and a work area below the floor still yields the floor on that axis, never less",
+                    cramped.Height == minimumSize.Height && cramped.Width == 800 - clearance);
+
+                // Two schema panes, both with a Save so Apply is on screen; the first carries a
+                // ReloadPaneAfter action whose task completes when this test says so, and a title long
+                // enough to overrun the nav column.
+                System.Threading.Tasks.TaskCompletionSource<string> slowAction = null;
+                var slowPane = new OptionsPane
+                {
+                    Title = "Slow pane with a title long enough to overrun the nav column",
+                    Schema = new[] { new SettingField { Id = "note", Label = "Note", Kind = SettingKind.Text } },
+                    Load = delegate { return new Dictionary<string, string>(StringComparer.Ordinal) { { "note", "" } }; },
+                    Save = delegate { return true; },
+                    Actions = new[]
+                    {
+                        new PaneAction
+                        {
+                            Label = "Slow reset",
+                            ReloadPaneAfter = true,
+                            InvokeAsync = delegate
+                            {
+                                slowAction = new System.Threading.Tasks.TaskCompletionSource<string>();
+                                return slowAction.Task;
+                            },
+                        },
+                    },
+                };
+                var otherPane = new OptionsPane
+                {
+                    Title = "Other",
+                    Schema = new[] { new SettingField { Id = "flag", Label = "Flag", Kind = SettingKind.Bool } },
+                    Load = delegate { return new Dictionary<string, string>(StringComparer.Ordinal) { { "flag", "false" } }; },
+                    Save = delegate { return true; },
+                };
+                var window = new DesktopAICompanion.Wpf.OptionsWindow(new List<DesktopAICompanion.Wpf.ShellPane>
+                {
+                    new DesktopAICompanion.Wpf.SchemaShellPane(slowPane),
+                    new DesktopAICompanion.Wpf.SchemaShellPane(otherPane),
+                });
+                ok &= Check(sb, "the window opens on its first pane",
+                    window.SelectedNavIndex == 0 && window.CurrentPaneTitle == slowPane.Title);
+                // The constructor must USE the fit. On a roomy display both numbers are 820, so the source
+                // invariant in runtime-hardening-selftest.ps1 is what pins the call itself; this pins that
+                // the two agree on whatever display the gate runs on.
+                ok &= Check(sb, "the window asks for the size the fit says for this display's work area",
+                    window.Height == DesktopAICompanion.Wpf.OptionsWindow.InitialSize(
+                        preferredSize, minimumSize, System.Windows.SystemParameters.WorkArea).Height);
+
+                // 14b) F377. The nav ListBox brings its own ScrollViewer with WPF's horizontal Auto, and in
+                // dark mode every ScrollBar takes a vertical-only template: a title wider than the column
+                // would have drawn a horizontal bar as a squashed vertical track. Disabled, with the entry
+                // trimmed and the whole title in its tooltip.
+                ok &= Check(sb, "the nav list never grows a horizontal scrollbar (the dark ScrollBar template is vertical-only)",
+                    window.NavHorizontalScrollBarVisibility == System.Windows.Controls.ScrollBarVisibility.Disabled);
+                var navEntry = window.NavItemAt(0) as System.Windows.Controls.TextBlock;
+                ok &= Check(sb, "a nav entry trims a long title and carries the whole of it as its tooltip",
+                    navEntry != null && navEntry.Text == slowPane.Title &&
+                    navEntry.TextTrimming == System.Windows.TextTrimming.CharacterEllipsis &&
+                    (navEntry.ToolTip as string) == slowPane.Title);
+
+                // 14c) F375. The action row captures its pane's reload delegate and calls it after an
+                // await, and the nav stays live during that await. A completion arriving after the user
+                // switched panes used to rebuild ITS pane into the content area under a nav still lighting
+                // the other one, dropping that pane's edits. The awaited continuation is posted to this
+                // thread's dispatcher, so the test pins a dispatcher context and pumps it once.
+                System.Threading.SynchronizationContext previousContext = System.Threading.SynchronizationContext.Current;
+                System.Threading.SynchronizationContext.SetSynchronizationContext(
+                    new System.Windows.Threading.DispatcherSynchronizationContext(
+                        System.Windows.Threading.Dispatcher.CurrentDispatcher));
+                try
+                {
+                    var slowButtons = new List<System.Windows.Controls.Button>();
+                    CollectAll(window.CurrentContent as System.Windows.DependencyObject, slowButtons);
+                    ok &= Check(sb, "the slow pane rendered its action button", slowButtons.Count == 1);
+                    if (slowButtons.Count == 1)
+                    {
+                        slowButtons[0].RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                        ok &= Check(sb, "WITNESS the action is still running when the user moves on",
+                            slowAction != null && !slowAction.Task.IsCompleted);
+                        ok &= Check(sb, "the user switches to the other pane meanwhile",
+                            window.ShowPane("Other") && window.SelectedNavIndex == 1);
+                        object otherContent = window.CurrentContent;
+                        slowAction.SetResult("✓ reset");
+                        PumpDispatcher();
+                        ok &= Check(sb, "a ReloadPaneAfter action finishing after a pane switch does not rebuild its pane over the one on screen",
+                            ReferenceEquals(window.CurrentContent, otherContent) && window.SelectedNavIndex == 1 &&
+                            window.CurrentPaneTitle == "Other");
+                        ok &= Check(sb, "...and leaves nothing stashed for the next build of that pane",
+                            !DesktopAICompanion.Wpf.PaneView.ActionRebuildIsStashed);
+
+                        // WITNESS: the same action finishing while its pane IS on screen rebuilds it, and
+                        // the rebuilt row still says what the action reported.
+                        ok &= Check(sb, "back to the slow pane", window.ShowPane(slowPane.Title) && window.SelectedNavIndex == 0);
+                        object slowContentBefore = window.CurrentContent;
+                        slowButtons.Clear();
+                        CollectAll(slowContentBefore as System.Windows.DependencyObject, slowButtons);
+                        if (slowButtons.Count == 1)
+                        {
+                            slowButtons[0].RaiseEvent(new System.Windows.RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
+                            slowAction.SetResult("✓ reset");
+                            PumpDispatcher();
+                            var rebuiltButtons = new List<System.Windows.Controls.Button>();
+                            CollectAll(window.CurrentContent as System.Windows.DependencyObject, rebuiltButtons);
+                            ok &= Check(sb, "WITNESS the same action finishing on its own pane rebuilds it and carries its message",
+                                !ReferenceEquals(window.CurrentContent, slowContentBefore) && window.CurrentPaneTitle == slowPane.Title &&
+                                rebuiltButtons.Count == 1 && StatusOf(rebuiltButtons[0]) != null &&
+                                StatusOf(rebuiltButtons[0]).Text == "✓ reset");
+                        }
+                        else ok &= Check(sb, "the slow pane rendered its action button again", false);
+                    }
+                }
+                finally { System.Threading.SynchronizationContext.SetSynchronizationContext(previousContext); }
+
+                // 14d) F368. A redirect by title (the module-update balloon, the restart reopen timer)
+                // arrives over whatever pane is up. It used to switch and discard that pane's unsaved
+                // edits without a word; now it is refused while the pane is dirty unless told to discard.
+                ok &= Check(sb, "WITNESS with nothing edited, a redirect by title switches panes",
+                    window.ShowPane("Other") && window.CurrentPaneTitle == "Other");
+                var flagBoxes = new List<System.Windows.Controls.CheckBox>();
+                CollectAll(window.CurrentContent as System.Windows.DependencyObject, flagBoxes);
+                ok &= Check(sb, "the other pane rendered its checkbox", flagBoxes.Count == 1);
+                if (flagBoxes.Count == 1)
+                {
+                    ok &= Check(sb, "a freshly built pane is not dirty", !window.IsDirty);
+                    flagBoxes[0].IsChecked = true;
+                    ok &= Check(sb, "a field edit makes the window dirty", window.IsDirty);
+                    ok &= Check(sb, "a redirect by title is REFUSED while the pane has unsaved edits, and the pane stays",
+                        !window.ShowPane(slowPane.Title) && window.CurrentPaneTitle == "Other" && window.IsDirty);
+                    ok &= Check(sb, "...a redirect to the pane already showing is a no-op success",
+                        window.ShowPane("Other") && window.CurrentPaneTitle == "Other" && window.IsDirty);
+                    ok &= Check(sb, "...and an unknown title is refused whatever the state, and known to be unknown",
+                        !window.ShowPane("Nowhere") && !window.HasPane("Nowhere") && window.HasPane("Other"));
+                    ok &= Check(sb, "WITNESS the same redirect told to discard the edits goes through, and the new pane is clean",
+                        window.ShowPane(slowPane.Title, true) && window.CurrentPaneTitle == slowPane.Title && !window.IsDirty);
+                }
 
                 // ---- AN "AVAILABLE TO DOWNLOAD" CARD SAYS WHAT THE PET CONTAINS ----
                 // An installed card has always carried "N animations  ·  M sounds"; a download card carried
@@ -1306,6 +1521,15 @@ namespace DesktopAICompanion
         }
 
         private static bool Check(StringBuilder sb, string name, bool cond) { sb.AppendLine((cond ? "PASS: " : "FAIL: ") + name); return cond; }
+
+        // Run everything queued on this thread's dispatcher at Normal priority or above. The awaited
+        // continuation of a pane action is posted there, and a headless self-test has no message loop
+        // of its own; a Background-priority Invoke pumps a nested loop until the queue ahead of it drains.
+        private static void PumpDispatcher()
+        {
+            System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(
+                System.Windows.Threading.DispatcherPriority.Background, new Action(delegate { }));
+        }
 
         // Build() returns an un-rendered tree, so the visual tree does not exist yet; walk the LOGICAL tree,
         // which is populated at construction time.

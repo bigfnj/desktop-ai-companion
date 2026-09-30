@@ -7,11 +7,13 @@ namespace DesktopAICompanion.TestModule
     /// <summary>Reference module for S1: subscribes to a lifecycle event and contributes UI, exercising
     /// the whole ABI (events + services + tray/options contributions) with no real behavior.
     ///
-    /// It also carries the only live exercise of the pet-manager ABI. This module is never published (no
-    /// modules-dist entry), so its tray items are a developer's way to drive ICompanionManager -- including the
-    /// preview spawn -- through a real AssemblyLoadContext against the real host, which is the only way to
-    /// eyeball that a preview pet stays out of settings.json and out of the tray's Remove submenu. Building
-    /// it is also the compile-time proof that the ABI is sufficient to write a pet-authoring module against.
+    /// It also carries the minimal exercise of the pet-manager ABI (Companion Studio drives SpawnPreview
+    /// live; this is the smallest module that does). This module is never published (no modules-dist
+    /// entry), so its tray items are a developer's way to drive ICompanionManager -- including the preview
+    /// spawn -- through a real AssemblyLoadContext against the real host, which is the only way to eyeball
+    /// that a preview pet stays out of settings.json and out of the tray's Remove submenu. Since F207 every
+    /// read here goes through the ABI too, so building it is the compile-time proof that the ABI is
+    /// sufficient to write a pet-authoring module against.
     /// </summary>
     public sealed class TestModule : IModule
     {
@@ -59,7 +61,17 @@ namespace DesktopAICompanion.TestModule
                     new SettingField { Id = "greeting", Label = "Greeting", Kind = SettingKind.Text },
                 },
             });
+
+            // A switch for --module-host-selftest and nothing else: with this variable set, Init throws
+            // AFTER every contribution above has landed, which is the shape no in-tree module has and the
+            // host's isolation promise is written for -- a failed module must hold nothing in the host
+            // (F344). The self-test sets it for one load and clears it again.
+            if (Environment.GetEnvironmentVariable(ThrowInInitSwitch) == "1")
+                throw new InvalidOperationException("self-test: Init threw after contributing");
         }
+
+        /// <summary>Environment variable name the host self-test sets to make Init throw after contributing.</summary>
+        public const string ThrowInInitSwitch = "DESKTOP_AI_COMPANION_TESTMODULE_THROW_IN_INIT";
 
         // Say(pet, ...), not SayAll: a poke is a reaction belonging to the pet that was poked. This is the
         // reference module, so it should demonstrate the policy rather than the bug it replaced.
@@ -82,17 +94,21 @@ namespace DesktopAICompanion.TestModule
             string error;
 
             // Any installed type will do as sample XML; prefer a non-built-in one so the preview is visibly
-            // a different pet from the one already on screen.
+            // a different pet from the one already on screen. Read through the ABI verb the module already
+            // has permission for (F207): the old hand-rolled read walked the INSTALLED layout's %LOCALAPPDATA%
+            // library, so in the portable dev tree this module builds into it found nothing to preview.
             string xml = null;
             foreach (CompanionTypeInfo type in pets.InstalledTypes())
             {
                 if (type == null || type.IsBuiltIn) continue;
-                xml = ReadInstalledXml(type.TypeId);
-                if (xml != null) break;
+                string readError;
+                if (pets.TryReadTypeXml(type.TypeId, out xml, out readError)) break;
+                xml = null;
             }
             if (xml == null)
             {
-                _host.SayAll("No installed companion to preview. Download one from Options, Companions first.");
+                _host.SayAll("No installed companion to preview. Download one from Options, Companions first" +
+                             (string.IsNullOrEmpty(pets.CompanionsDirectory) ? "." : " (the library is " + pets.CompanionsDirectory + ")."));
                 return;
             }
 
@@ -114,20 +130,6 @@ namespace DesktopAICompanion.TestModule
             _preview = null;
             if (preview != null) preview.Remove();
             if (_host != null) _host.SayAll("Preview removed.");
-        }
-
-        /// <summary>Read an installed pet's animations.xml. A module has no path helpers by design, so this
-        /// walks the same per-user library location the host installs pets into.</summary>
-        private static string ReadInstalledXml(string typeId)
-        {
-            try
-            {
-                if (string.IsNullOrEmpty(typeId)) return null;
-                string root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                string path = System.IO.Path.Combine(root, "DesktopAICompanion", "companions", typeId, "animations.xml");
-                return System.IO.File.Exists(path) ? System.IO.File.ReadAllText(path) : null;
-            }
-            catch { return null; }
         }
 
         public void Shutdown()

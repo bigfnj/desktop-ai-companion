@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using System.Text;
 using DesktopAICompanion.Modules;
 
@@ -20,6 +21,9 @@ namespace DesktopAICompanion.Plugins
             var sb = new StringBuilder();
             bool ok = true;
             string scratch = null;
+            string dataRootScratch = null;
+            string previousDataRoot = null;
+            bool dataRootRedirected = false;
             try
             {
                 string modulesRoot = Path.Combine(AppContext.BaseDirectory, "modules");
@@ -28,6 +32,20 @@ namespace DesktopAICompanion.Plugins
                     sb.AppendLine("SKIP: no bundled test module at " + Path.Combine(modulesRoot, "testmodule"));
                     return Finish(sb, true);
                 }
+
+                // ISOLATE THE DATA ROOT FIRST (F345). PaneAttribution loads every bundled module through a
+                // REAL CompanionHost, whose GetStorage provisions <data root>\modules\<id> and whose Inits
+                // write there: six modules' Inits ran against the gate exe's own data\ (or the user's live
+                // root, when the flag is run against an installed exe). AppPaths resolves once, on first
+                // touch, and nothing in Program.cs touches it before dispatching here, so the override set
+                // now is the one that binds -- and the assertion is what makes that checkable rather than
+                // assumed: a future early touch would leave DataRoot elsewhere and this line red.
+                dataRootScratch = SelfTestScratch.Create("module-host-data");
+                previousDataRoot = Environment.GetEnvironmentVariable(AppPaths.DataRootOverrideEnvironmentVariable);
+                Environment.SetEnvironmentVariable(AppPaths.DataRootOverrideEnvironmentVariable, dataRootScratch);
+                dataRootRedirected = true;
+                ok &= Check(sb, "data root isolated for this run (every module Init below writes under scratch)",
+                    AppPaths.IsDataRootOverridden && SamePath(AppPaths.DataRoot, dataRootScratch));
 
                 // One scratch root for every module these loads Init. The fake used to hand them
                 // Path.GetTempPath() itself -- the user's TEMP root, not a scratch directory -- so Fortunes
@@ -75,15 +93,312 @@ namespace DesktopAICompanion.Plugins
                 ok &= UpdateScanVersionRule(sb);
                 ok &= ScratchSweep(sb);
                 ok &= SharedContextChannel(sb);
+                ok &= PendingRemovalRetry(sb);
+                ok &= InitRollback(sb, modulesRoot);
+                ok &= RefusalKeyedByFolder(sb, modulesRoot, scratch);
+                ok &= SelfTestFinder(sb);
+                ok &= ResponderChainDeclines(sb);
             }
             catch (Exception ex) { ok = false; sb.AppendLine("EXC: " + ex.GetType().Name + ": " + ex.Message); }
             finally
             {
+                if (dataRootRedirected)
+                {
+                    try { Environment.SetEnvironmentVariable(AppPaths.DataRootOverrideEnvironmentVariable, previousDataRoot); } catch { }
+                }
                 string releaseDetail;
                 if (!SelfTestScratch.TryRelease(scratch, out releaseDetail))
                     sb.AppendLine("NOTE: scratch left for the next sweep (" + releaseDetail + ")");
+                if (!SelfTestScratch.TryRelease(dataRootScratch, out releaseDetail))
+                    sb.AppendLine("NOTE: data-root scratch left for the next sweep (" + releaseDetail + ")");
             }
             return Finish(sb, ok);
+        }
+
+        private static bool SamePath(string a, string b)
+        {
+            if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b)) return false;
+            try
+            {
+                return string.Equals(
+                    Path.GetFullPath(a).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    Path.GetFullPath(b).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
+        }
+
+        /// <summary>
+        /// A removal whose folder is LOCKED stays marked, is reported back for the loader to skip, and goes on
+        /// a later launch once the lock is gone (F352). The marker used to be deleted whatever happened, so the
+        /// uninstall was lost and the half-deleted folder loaded again. Driven on throwaway roots with a held
+        /// file handle standing in for the sibling instance or indexer that holds the DLL.
+        /// </summary>
+        private static bool PendingRemovalRetry(StringBuilder sb)
+        {
+            string root = SelfTestScratch.Create("module-removal");
+            bool ok = true;
+            FileStream held = null;
+            try
+            {
+                string modulesRoot = Path.Combine(root, "modules");
+                string dataRoot = Path.Combine(root, "data", "modules");
+                string marker = Path.Combine(root, "pending-module-removals.txt");
+                string locked = Path.Combine(modulesRoot, "lockedmod");
+                string free = Path.Combine(modulesRoot, "freemod");
+                Directory.CreateDirectory(locked);
+                Directory.CreateDirectory(free);
+                File.WriteAllText(Path.Combine(locked, "Locked.dll"), "not an assembly");
+                File.WriteAllText(Path.Combine(free, "Free.dll"), "not an assembly");
+                Directory.CreateDirectory(Path.Combine(dataRoot, "lockedmod"));
+                File.WriteAllText(Path.Combine(dataRoot, "lockedmod", "settings.json"), "kept until the module goes");
+                Directory.CreateDirectory(Path.Combine(dataRoot, "freemod"));
+                PendingModuleRemovals.MarkForRemoval("lockedmod", marker);
+                PendingModuleRemovals.MarkForRemoval("freemod", marker);
+                held = new FileStream(Path.Combine(locked, "Locked.dll"), FileMode.Open, FileAccess.Read, FileShare.None);
+
+                IReadOnlyList<string> unfinished = PendingModuleRemovals.ProcessPending(
+                    modulesRoot, marker, dataRoot, s => sb.AppendLine("  " + s));
+                ok &= Check(sb, "removal: the unlocked module is removed, install folder and data folder both",
+                    !Directory.Exists(free) && !Directory.Exists(Path.Combine(dataRoot, "freemod")));
+                ok &= Check(sb, "removal: the locked module is reported back as unfinished",
+                    unfinished.Count == 1 && string.Equals(unfinished[0], "lockedmod", StringComparison.OrdinalIgnoreCase));
+                ok &= Check(sb, "removal: the locked module stays marked, and only it",
+                    File.Exists(marker) && File.ReadAllText(marker).Trim().Equals("lockedmod", StringComparison.OrdinalIgnoreCase));
+                ok &= Check(sb, "removal: a locked install folder keeps the module's data folder, so its settings survive the retry",
+                    File.Exists(Path.Combine(dataRoot, "lockedmod", "settings.json")));
+
+                // The loader is told, and skips the folder with a reason instead of loading and locking what
+                // is left of it. WITNESS: not told, the same folder is tried and fails for its own reason.
+                using (var loader = new ModuleHost())
+                {
+                    int loaded = loader.LoadFrom(modulesRoot, new RecordingHost(), delegate { }, unfinished);
+                    ModuleLoadFailure skipped = null;
+                    foreach (ModuleLoadFailure f in loader.Failures)
+                        if (string.Equals(f.Id, "lockedmod", StringComparison.OrdinalIgnoreCase)) skipped = f;
+                    ok &= Check(sb, "removal: the loader does not load a folder whose removal is pending, and records why",
+                        loaded == 0 && skipped != null && skipped.Reason.Contains("still being removed") && !skipped.NeedsNewerHost);
+                }
+                using (var loader = new ModuleHost())
+                {
+                    loader.LoadFrom(modulesRoot, new RecordingHost(), delegate { });
+                    ModuleLoadFailure tried = loader.Failures.Count == 1 ? loader.Failures[0] : null;
+                    ok &= Check(sb, "removal: WITNESS a loader NOT told about the removal tries the folder and fails for its own reason",
+                        tried != null && !tried.Reason.Contains("still being removed"));
+                }
+
+                held.Dispose();
+                held = null;
+                unfinished = PendingModuleRemovals.ProcessPending(modulesRoot, marker, dataRoot, s => sb.AppendLine("  " + s));
+                ok &= Check(sb, "removal: once the lock is gone the retry removes it, data folder too, and clears the marker",
+                    unfinished.Count == 0 && !Directory.Exists(locked) &&
+                    !Directory.Exists(Path.Combine(dataRoot, "lockedmod")) && !File.Exists(marker));
+
+                // A reinstall or update of the same id forgets the pending removal, or removals -- which run
+                // first on the next launch -- would delete what the user just put back.
+                PendingModuleRemovals.MarkForRemoval("again", marker);
+                PendingModuleRemovals.MarkForRemoval("other", marker);
+                PendingModuleRemovals.Unmark("again", marker);
+                ok &= Check(sb, "removal: Unmark forgets one id and keeps the rest",
+                    File.Exists(marker) && File.ReadAllText(marker).Trim().Equals("other", StringComparison.OrdinalIgnoreCase));
+                PendingModuleRemovals.Unmark("other", marker);
+                ok &= Check(sb, "removal: Unmark of the last id removes the marker file", !File.Exists(marker));
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("EXC (pending removal retry): " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                if (held != null) { try { held.Dispose(); } catch { } }
+                string releaseDetail;
+                if (!SelfTestScratch.TryRelease(root, out releaseDetail))
+                    sb.AppendLine("NOTE: scratch left for the next sweep (" + releaseDetail + ")");
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// A module whose Init throws AFTER contributing holds nothing in the host afterwards (F344): its tray
+        /// items, pane and event subscriptions are rolled back, not left live behind a "failed to load" row.
+        /// Against the REAL CompanionHost, because the ledger lives there; the bundled test module throws on
+        /// a switch this probe sets for one load. The healthy load first is the witness that the zeros mean
+        /// "rolled back" and not "never registered".
+        /// </summary>
+        private static bool InitRollback(StringBuilder sb, string modulesRoot)
+        {
+            string bundled = Path.Combine(modulesRoot, "testmodule");
+            if (!Directory.Exists(bundled))
+            {
+                sb.AppendLine("SKIP: no bundled test module for the Init rollback");
+                return true;
+            }
+            const string Switch = "DESKTOP_AI_COMPANION_TESTMODULE_THROW_IN_INIT";   // TestModule.ThrowInInitSwitch
+            string root = SelfTestScratch.Create("module-rollback");
+            string previous = Environment.GetEnvironmentVariable(Switch);
+            bool ok = true;
+            try
+            {
+                SelfTestScratch.CopyTree(bundled, Path.Combine(root, "testmodule"));
+
+                var healthy = new CompanionHost(null);
+                using (var loader = new ModuleHost())
+                {
+                    int loaded = loader.LoadFrom(root, healthy, delegate { });
+                    ok &= Check(sb, "rollback: WITNESS a healthy Init contributes tray items, a pane and a subscription",
+                        loaded == 1 && healthy.TrayItems.Count >= 1 && healthy.OptionsPanes.Count == 1 &&
+                        healthy.LifecycleSubscriberCount >= 1);
+                    loader.ShutdownAll(delegate { });
+                }
+
+                Environment.SetEnvironmentVariable(Switch, "1");
+                var failed = new CompanionHost(null);
+                using (var loader = new ModuleHost())
+                {
+                    int loaded = loader.LoadFrom(root, failed, delegate { });
+                    ModuleLoadFailure failure = loader.Failures.Count == 1 ? loader.Failures[0] : null;
+                    ok &= Check(sb, "rollback: an Init that throws after contributing is reported as a failure, not loaded",
+                        loaded == 0 && failure != null && failure.Id == "testmodule" &&
+                        failure.Reason.Contains("InvalidOperationException"));
+                    ok &= Check(sb, "rollback: ...and the failed module holds no tray item, no pane and no event subscription in the host",
+                        failed.TrayItems.Count == 0 && failed.OptionsPanes.Count == 0 && failed.LifecycleSubscriberCount == 0);
+                    // The Init window closed properly after the rollback: a pane registered now has no owner.
+                    var late = new OptionsPane { Title = "after the failed Init" };
+                    failed.AddOptionsPane(late);
+                    ok &= Check(sb, "rollback: ...and the Init window is closed, so a later pane is unowned",
+                        failed.ModuleOwningPane(late) == null);
+                }
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("EXC (init rollback): " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                try { Environment.SetEnvironmentVariable(Switch, previous); } catch { }
+                string releaseDetail;
+                if (!SelfTestScratch.TryRelease(root, out releaseDetail))
+                    sb.AppendLine("NOTE: scratch left for the next sweep (" + releaseDetail + ")");
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// A MinHostVersion refusal is keyed by the FOLDER name, as every other failure is (F343). The Modules
+        /// pane matches failures to the folders it enumerates, so a refusal filed under Info.Id vanished the
+        /// moment the two differed and the row fell back to "restart to activate". The folder is renamed away
+        /// from the module's declared id to make the two differ.
+        /// </summary>
+        private static bool RefusalKeyedByFolder(StringBuilder sb, string modulesRoot, string scratch)
+        {
+            string bundled = Path.Combine(modulesRoot, "testmodule");
+            if (!Directory.Exists(bundled))
+            {
+                sb.AppendLine("SKIP: no bundled test module for the refusal key");
+                return true;
+            }
+            string root = SelfTestScratch.Create("module-refusal");
+            bool ok = true;
+            try
+            {
+                SelfTestScratch.CopyTree(bundled, Path.Combine(root, "renamed-testmodule"));
+                var tooOld = new RecordingHost { HostVersionValue = "0.0.1", StorageRoot = scratch };
+                using (var loader = new ModuleHost())
+                {
+                    int loaded = loader.LoadFrom(root, tooOld, delegate { });
+                    ModuleLoadFailure f = loader.Failures.Count == 1 ? loader.Failures[0] : null;
+                    ok &= Check(sb, "refusal: a MinHostVersion refusal is keyed by the folder name the pane enumerates, not by Info.Id",
+                        loaded == 0 && f != null && f.Id == "renamed-testmodule" && f.NeedsNewerHost);
+                    ok &= Check(sb, "refusal: ...and the declared id still travels in the reason",
+                        f != null && f.Reason.Contains("testmodule"));
+                }
+            }
+            catch (Exception ex)
+            {
+                ok = false;
+                sb.AppendLine("EXC (refusal key): " + ex.GetType().Name + ": " + ex.Message);
+            }
+            finally
+            {
+                string releaseDetail;
+                if (!SelfTestScratch.TryRelease(root, out releaseDetail))
+                    sb.AppendLine("NOTE: scratch left for the next sweep (" + releaseDetail + ")");
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// The self-test entry-point finder is as deterministic as its doc promises (F339). Two edges: a type
+        /// carrying a second SelfTest overload used to hide the conventional one (GetMethod threw, the throw
+        /// was swallowed into "none"), and a module type without one, in an assembly where two other module
+        /// types have one, used to be handed whichever the runtime listed first.
+        /// </summary>
+        private static bool SelfTestFinder(StringBuilder sb)
+        {
+            bool ok = true;
+            MethodInfo entry;
+            string ambiguity;
+            bool found = ModuleConventionSelfTest.TryFindSelfTest(typeof(OverloadedSelfTestModule), out entry, out ambiguity);
+            ok &= Check(sb, "finder: an overload beside the conventional SelfTest(out string) no longer hides it",
+                found && entry != null && entry.DeclaringType == typeof(OverloadedSelfTestModule) &&
+                entry.GetParameters().Length == 1 && ambiguity == null);
+            found = ModuleConventionSelfTest.TryFindSelfTest(typeof(BareModule), out entry, out ambiguity);
+            ok &= Check(sb, "finder: two other module types with a SelfTest is reported as ambiguous, naming both, rather than handing over the first",
+                !found && entry == null && ambiguity != null &&
+                ambiguity.Contains("OverloadedSelfTestModule") && ambiguity.Contains("SiblingSelfTestModule"));
+            return ok;
+        }
+
+        /// <summary>
+        /// A responder that throws is treated as DECLINED, and the chain still reaches the next one (F328).
+        /// The record of the throw goes to the diagnostic log, which a headless run cannot read back; what
+        /// this pins is the semantics the record was added beside, against the real CompanionHost, in
+        /// priority order (the drop chain does not shuffle).
+        /// </summary>
+        private static bool ResponderChainDeclines(StringBuilder sb)
+        {
+            var host = new CompanionHost(null);
+            int throwerCalls = 0, survivorCalls = 0;
+            bool handled = false;
+            string escaped = null;
+            using (host.RegisterCompanionDropResponder(10, delegate { throwerCalls++; throw new InvalidOperationException("self-test: responder threw"); }))
+            using (host.RegisterCompanionDropResponder(5, delegate { survivorCalls++; return true; }))
+            {
+                // Caught here so a chain that lets the throw out reads as this assertion failing, not as the
+                // whole self-test aborting with an EXC line that names nothing.
+                try { handled = host.RaiseDropTick(null); }
+                catch (Exception ex) { escaped = ex.GetType().Name; }
+            }
+            return Check(sb, "chain: a responder that throws is treated as declined, and the next in priority order is still offered the turn"
+                             + (escaped != null ? " -- the throw escaped the chain as " + escaped : ""),
+                escaped == null && handled && throwerCalls == 1 && survivorCalls == 1);
+        }
+
+        // F339 fixtures. Both SelfTest carriers implement IModule so the finder's stage two (other IModule
+        // types in the assembly) sees exactly these two; nothing else in the host assembly implements IModule
+        // with a public static SelfTest, so the ambiguity below names exactly this pair.
+        private sealed class OverloadedSelfTestModule : IModule
+        {
+            public ModuleInfo Info { get { return new ModuleInfo { Id = "overloaded", Name = "Overloaded", Version = "1.0.0" }; } }
+            public void Init(IHost host) { }
+            public void Shutdown() { }
+            public static bool SelfTest(out string detail) { detail = "exact"; return true; }
+            public static bool SelfTest(out string detail, bool verbose) { detail = "overload"; return verbose; }
+        }
+        private sealed class SiblingSelfTestModule : IModule
+        {
+            public ModuleInfo Info { get { return new ModuleInfo { Id = "sibling", Name = "Sibling", Version = "1.0.0" }; } }
+            public void Init(IHost host) { }
+            public void Shutdown() { }
+            public static bool SelfTest(out string detail) { detail = "sibling"; return true; }
+        }
+        private sealed class BareModule : IModule
+        {
+            public ModuleInfo Info { get { return new ModuleInfo { Id = "bare", Name = "Bare", Version = "1.0.0" }; } }
+            public void Init(IHost host) { }
+            public void Shutdown() { }
         }
 
         /// <summary>
@@ -201,20 +516,52 @@ namespace DesktopAICompanion.Plugins
                     File.Exists(Path.Combine(moduleData, "settings.json")));
                 ok &= Check(sb, "update: marker cleared so the swap runs once", !File.Exists(marker));
 
-                // An update for something no longer installed must be discarded, not resurrected.
+                // An update for something no longer installed must be discarded, not resurrected -- and its
+                // payload must GO (F353): it used to stay, bounded to one per id and collected by nothing.
                 string gone = PendingModuleUpdates.PrepareStagingDirectory("removed", stagingRoot);
                 File.WriteAllText(Path.Combine(gone, "Removed.dll"), "new");
                 PendingModuleUpdates.MarkForUpdate("removed", marker);
                 PendingModuleUpdates.ProcessPending(modulesRoot, stagingRoot, marker, s => sb.AppendLine("  " + s));
                 ok &= Check(sb, "update: an uninstalled module is not resurrected",
                     !Directory.Exists(Path.Combine(modulesRoot, "removed")));
+                ok &= Check(sb, "update: a discarded payload's staging folder is removed with it", !Directory.Exists(gone));
 
-                // An empty staging folder must leave the installed copy intact.
-                PendingModuleUpdates.PrepareStagingDirectory("demo", stagingRoot);
+                // An empty staging folder must leave the installed copy intact, and go.
+                string empty = PendingModuleUpdates.PrepareStagingDirectory("demo", stagingRoot);
                 PendingModuleUpdates.MarkForUpdate("demo", marker);
                 PendingModuleUpdates.ProcessPending(modulesRoot, stagingRoot, marker, s => sb.AppendLine("  " + s));
                 ok &= Check(sb, "update: an empty staged payload keeps the installed module",
                     File.Exists(Path.Combine(installed, "Demo.dll")) &&
+                    File.ReadAllText(Path.Combine(installed, "Demo.dll")) == "new");
+                ok &= Check(sb, "update: an empty payload's staging folder is removed too", !Directory.Exists(empty));
+
+                // Strands nothing marked will ever visit again (F353): a previous copy beside a module that
+                // is installed (Swap's post-swap delete is swallowed), and an unpack that died with its
+                // process before MarkForUpdate. Both are swept on a launch with NO marker at all. A fresh
+                // unmarked folder survives (a sibling process could be writing it), and a previous copy
+                // whose module is NOT installed survives (it may be the only copy left).
+                string oldCopy = Path.Combine(stagingRoot, "demo.replaced");
+                Directory.CreateDirectory(oldCopy);
+                File.WriteAllText(Path.Combine(oldCopy, "Demo.dll"), "older");
+                string stale = Path.Combine(stagingRoot, "stale.staged");
+                Directory.CreateDirectory(stale);
+                File.WriteAllText(Path.Combine(stale, "Stale.dll"), "half");
+                Directory.SetLastWriteTimeUtc(stale, DateTime.UtcNow - PendingModuleUpdates.AbandonedStagingAge - TimeSpan.FromMinutes(5));
+                string fresh = Path.Combine(stagingRoot, "fresh.staged");
+                Directory.CreateDirectory(fresh);
+                File.WriteAllText(Path.Combine(fresh, "Fresh.dll"), "half");
+                string orphanCopy = Path.Combine(stagingRoot, "orphan.replaced");
+                Directory.CreateDirectory(orphanCopy);
+                File.WriteAllText(Path.Combine(orphanCopy, "Orphan.dll"), "only copy");
+                ok &= Check(sb, "update: WITNESS no marker is pending before the sweep runs", !File.Exists(marker));
+                PendingModuleUpdates.ProcessPending(modulesRoot, stagingRoot, marker, s => sb.AppendLine("  " + s));
+                ok &= Check(sb, "update: a previous copy left beside an installed module is removed on the next launch",
+                    !Directory.Exists(oldCopy));
+                ok &= Check(sb, "update: an abandoned, unmarked staging folder older than the age limit is swept",
+                    !Directory.Exists(stale));
+                ok &= Check(sb, "update: WITNESS a fresh unmarked staging folder survives the sweep", Directory.Exists(fresh));
+                ok &= Check(sb, "update: WITNESS a previous copy whose module is not installed is left alone", Directory.Exists(orphanCopy));
+                ok &= Check(sb, "update: WITNESS the installed module is untouched by the sweep",
                     File.ReadAllText(Path.Combine(installed, "Demo.dll")) == "new");
             }
             catch (Exception ex)

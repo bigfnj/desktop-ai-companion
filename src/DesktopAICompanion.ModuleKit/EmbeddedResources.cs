@@ -91,11 +91,31 @@ namespace DesktopAICompanion.ModuleKit
 
         private static string FindName(Assembly assembly, string fileNameSuffix)
         {
+            // An exact name first, then a suffix that starts at a segment boundary (F229). A bare EndsWith
+            // let "icon.png" match "tray-icon.png", so a module embedding both got whichever the manifest
+            // listed first -- and the template's own icon suffix is "icon.png".
             string[] names = assembly.GetManifestResourceNames();
             foreach (string candidate in names)
-                if (candidate.EndsWith(fileNameSuffix, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(candidate, fileNameSuffix, StringComparison.OrdinalIgnoreCase))
+                    return candidate;
+            foreach (string candidate in names)
+                if (MatchesResourceName(candidate, fileNameSuffix))
                     return candidate;
             return null;
+        }
+
+        /// <summary>
+        /// The suffix rule, on its own: <paramref name="manifestName"/> matches when it IS the suffix or ends
+        /// with the suffix immediately after a '.', so the SDK's namespace-and-folder prefix is skipped
+        /// while a longer file name that merely ends the same way ("tray-icon.png" for "icon.png") is
+        /// not. Public and pure so a module's self-test can assert it without embedding anything.
+        /// </summary>
+        public static bool MatchesResourceName(string manifestName, string fileNameSuffix)
+        {
+            if (string.IsNullOrEmpty(manifestName) || string.IsNullOrEmpty(fileNameSuffix)) return false;
+            if (!manifestName.EndsWith(fileNameSuffix, StringComparison.OrdinalIgnoreCase)) return false;
+            if (manifestName.Length == fileNameSuffix.Length) return true;
+            return manifestName[manifestName.Length - fileNameSuffix.Length - 1] == '.';
         }
     }
 }
