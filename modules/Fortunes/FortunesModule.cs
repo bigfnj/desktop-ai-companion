@@ -48,7 +48,13 @@ namespace DesktopAICompanion.FortunesModule
         {
             Id = "fortunes",
             Name = "Fortunes",
-            Version = "1.0.11",  // 1.0.11: exposes SelfTest on the module class, so --module-selftest runs
+            Version = "1.0.12",  // 1.0.12: the pane's smart-index status reads the SETTING and the stand-down
+                                 //         reason instead of whether a picker object exists yet; pack parses
+                                 //         and imports leave the UI thread; a damaged undeclared tagged pack is
+                                 //         refused rather than recited as prose; the vector cache stops
+                                 //         re-reading itself at every checkpoint and drops its raw copy once
+                                 //         the warm has saved. (The 2026-09-29 audit's Fortunes findings.)
+                                 // 1.0.11: exposes SelfTest on the module class, so --module-selftest runs
                                  //         FortuneEngineProbe through the convention the gate and CI use.
                                  // 1.0.10: the smart-index status no longer reads "Indexing N fortunes in the
                                  //         background" for ever when the text engine could not start. That
