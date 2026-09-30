@@ -43,10 +43,33 @@ def write(p, data):
         h.write(data)
 
 
+def windows_powershell_env():
+    """A child environment whose PSModulePath is Windows PowerShell's own.
+
+    Launched from pwsh 7, a powershell.exe child inherits pwsh's PSModulePath with the PowerShell 7
+    module folders FIRST, and the 5.1 engine then autoloads Get-FileHash from the 7-only
+    Microsoft.PowerShell.Utility manifest it cannot run: the invariant script died with
+    "Get-FileHash is not recognized" and this harness refused its own baseline, while the same
+    command passed from a Windows shell (N-fortunes-01, measured 2026-09-29 and again 2026-09-30:
+    exit 1 under a pwsh parent, exit 0 under Git Bash). Which shell started the harness must not
+    decide whether it can run, so the child keeps only the WindowsPowerShell entries it inherited
+    and is guaranteed the two system defaults.
+    """
+    env = dict(os.environ)
+    kept = [p for p in (env.get("PSModulePath") or "").split(os.pathsep)
+            if p and "windowspowershell" in p.lower()]
+    for default in (os.path.join(env.get("ProgramFiles", r"C:\Program Files"), "WindowsPowerShell", "Modules"),
+                    os.path.join(env.get("SystemRoot", r"C:\Windows"), "System32", "WindowsPowerShell", "v1.0", "Modules")):
+        if default.lower() not in [p.lower() for p in kept]:
+            kept.append(default)
+    env["PSModulePath"] = os.pathsep.join(kept)
+    return env
+
+
 def run():
     proc = subprocess.run(
         ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", HARDENING],
-        capture_output=True, text=True, timeout=900)
+        capture_output=True, text=True, timeout=900, env=windows_powershell_env())
     return (proc.returncode, (proc.stdout or "") + (proc.stderr or ""))
 
 

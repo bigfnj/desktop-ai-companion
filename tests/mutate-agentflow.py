@@ -1099,29 +1099,32 @@ def write(path, text):
         handle.write(text)
 
 
-def build():
+def build(relaxed=False):
     """Build the MODULE, not the host. Returns True when it compiled.
 
-    TreatWarningsAsErrors is turned OFF for the mutation builds only, and that is a fix rather
-    than a loosening. modules/Directory.Build.props gained WarningLevel 4 and
+    TreatWarningsAsErrors is turned OFF for the mutation builds only (relaxed=True), and that is a
+    fix rather than a loosening. modules/Directory.Build.props gained WarningLevel 4 and
     TreatWarningsAsErrors on 2026-09-17, which is right for real code -- and it silently broke
     NINE of this file's cases, taking the suite from 23/23 to 14/23 with the other nine reporting
     BROKEN (does not compile). The cause is that several mutations disable a line with
     `if (false)`, which is CS0162 unreachable code: a warning, and therefore now an error.
 
     A mutation is a deliberate temporary break whose only job is to make one assertion fail. Its
-    build has nothing to prove about warning policy, and the BASELINE build below still runs under
-    the real settings, so a genuine new warning in the real source still fails there.
+    build has nothing to prove about warning policy. The BASELINE build and the restoring rebuild
+    in the finally run under the real settings, so a genuine new warning in the real source fails
+    the baseline here and a tree that no longer builds strictly is reported at the end. That was
+    this docstring's claim before 2026-09-30 too, while every build in the file passed the relaxed
+    flag (F401); the parameter is what made the sentence true.
 
     Recorded at length because of how it was found: the suite was run in full as the last step of
     a session, having been run case-by-case for hours. A suite nobody runs whole is a suite that
     reports more coverage than it has, which is the exact defect this file caught in
     mutate-diagnostics.py earlier the same day.
     """
-    proc = subprocess.run(
-        ["dotnet", "build", CSPROJ, "-c", "Release", "--nologo", "-v:quiet",
-         "-p:TreatWarningsAsErrors=false"],
-        capture_output=True, text=True, timeout=900)
+    arguments = ["dotnet", "build", CSPROJ, "-c", "Release", "--nologo", "-v:quiet"]
+    if relaxed:
+        arguments.append("-p:TreatWarningsAsErrors=false")
+    proc = subprocess.run(arguments, capture_output=True, text=True, timeout=900)
     return proc.returncode == 0, proc.stdout or ""
 
 
@@ -1268,7 +1271,7 @@ def score():
             # A same-second rebuild can leave the timestamp unchanged on a coarse
             # filesystem clock, which would read as "never rebuilt".
             time.sleep(1.1)
-            compiled, output = build()
+            compiled, output = build(relaxed=True)
             if not compiled:
                 print("  %-52s BROKEN (does not compile)" % name)
                 restore()
@@ -1308,11 +1311,16 @@ def score():
                     print("        %s" % line)
     finally:
         restore()
-        # Leave the tree building, so a later gate run is not measuring a mutant.
-        build()
+        # Leave the tree building, so a later gate run is not measuring a mutant -- under the REAL
+        # settings, and CHECKED. This call passed the relaxed flag and discarded its result (F401), so a
+        # restored tree that no longer built strictly was the one outcome nobody would have seen here.
+        strict_rebuilt, strict_output = build()
+        if not strict_rebuilt:
+            print("\nTHE STRICT REBUILD OF THE RESTORED TREE FAILED -- build\\ may hold the last mutant's DLL:")
+            print(strict_output[-800:])
 
     print("\n%d/%d fired." % (fired, len(cases)))
-    return 0 if fired == len(cases) else 1
+    return 0 if fired == len(cases) and strict_rebuilt else 1
 
 
 if __name__ == "__main__":

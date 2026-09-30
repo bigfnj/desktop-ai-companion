@@ -6,9 +6,9 @@ right assertion. Anything that survives its mutation is not a guard and should n
 
 Two rules this harness exists to enforce, both learned the hard way in this repo:
   * The baseline is the WORKING TREE, captured in memory before anything is touched, and restored
-    from that copy. Restoring with `git checkout --` destroys uncommitted work, and a previous run
-    of this harness did exactly that -- every "FIRED" it printed was measured against a file whose
-    code under test no longer existed.
+    from that copy, byte for byte. Restoring with `git checkout --` destroys uncommitted work, and a
+    previous run of this harness did exactly that -- every "FIRED" it printed was measured against a
+    file whose code under test no longer existed.
   * Every mutation asserts its target text is PRESENT first. A pattern that silently matches nothing
     is a no-op, and a no-op mutation always looks like a passing test.
 
@@ -209,12 +209,79 @@ CASES = [
 ]
 
 
+HOST_CSPROJ = os.path.join(ROOT, "src", "DesktopAICompanion_Portable.csproj")
+
+
+def windows_powershell_env():
+    """A child environment whose PSModulePath is Windows PowerShell's own.
+
+    Launched from pwsh 7, a powershell.exe child inherits pwsh's PSModulePath with the PowerShell 7
+    module folders FIRST, and the 5.1 engine then autoloads Get-FileHash from the 7-only manifest it
+    cannot run, so the invariant script dies with "Get-FileHash is not recognized" and the baseline is
+    refused; from a Windows shell the same command passes (N-fortunes-01, measured 2026-09-29/30 on
+    the sibling harness, which spawns the same script). The child keeps only the WindowsPowerShell
+    entries it inherited and is guaranteed the two system defaults.
+    """
+    env = dict(os.environ)
+    kept = [p for p in (env.get("PSModulePath") or "").split(os.pathsep)
+            if p and "windowspowershell" in p.lower()]
+    for default in (os.path.join(env.get("ProgramFiles", r"C:\Program Files"), "WindowsPowerShell", "Modules"),
+                    os.path.join(env.get("SystemRoot", r"C:\Windows"), "System32", "WindowsPowerShell", "v1.0", "Modules")):
+        if default.lower() not in [p.lower() for p in kept]:
+            kept.append(default)
+    env["PSModulePath"] = os.pathsep.join(kept)
+    return env
+
+
+def read_bytes(path):
+    with io.open(path, "rb") as handle:
+        return handle.read()
+
+
+def write_bytes(path, data):
+    with io.open(path, "wb") as handle:
+        handle.write(data)
+
+
+def line_ending_variant(base, old, new):
+    """Pick the (old, new) pair whose line endings match the FILE being mutated.
+
+    Every pattern in CASES is written with LF. src/dotNet/StartUp.cs is CRLF in the working tree, and a
+    CRLF file cannot contain an LF pattern, so once the targets are handled as bytes (below) its two
+    cases would print NO-OP and cover nothing -- the exact rot the sibling harnesses documented and
+    fixed the same way (their line_ending_variant). The bytes are written back exactly as read, so a
+    file's line endings are never rewritten by a mutation run.
+    """
+    if base.count(old) == 1:
+        return old, new
+    as_crlf = lambda b: b.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+    crlf_old, crlf_new = as_crlf(old), as_crlf(new)
+    if base.count(crlf_old) == 1:
+        return crlf_old, crlf_new
+    return old, new
+
+
 def run_gate():
     """Source invariants only. Returns (ok, text)."""
     p = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
                         "-File", os.path.join(ROOT, "tests", "runtime-hardening-selftest.ps1")],
-                       cwd=ROOT, capture_output=True, text=True)
+                       cwd=ROOT, capture_output=True, text=True, env=windows_powershell_env())
     return p.returncode == 0, p.stdout + p.stderr
+
+
+def build_host():
+    """`dotnet build` of the HOST project alone. Returns (ok, text).
+
+    build.ps1 -Release ran here, for the baseline and again for every wpf case: the host plus all eight
+    module projects, when every wpf target (OptionsShell.cs, OptionsWindow.cs, DiagnosticLog.cs) compiles
+    into the host alone and --wpf-options-selftest loads no module (F402). The sibling harnesses build the
+    one csproj that contains the code under test; so does this. The csproj fixes its OutputPath on
+    Configuration alone, so no platform argument is needed, and run_wpf's timestamp assertion is what
+    proves the exe was rebuilt.
+    """
+    p = subprocess.run(["dotnet", "build", HOST_CSPROJ, "-c", "Release", "--nologo", "-v:quiet"],
+                       cwd=ROOT, capture_output=True, text=True, timeout=1800)
+    return p.returncode == 0, (p.stdout or "") + (p.stderr or "")
 
 
 def run_wpf(expect_rebuild):
@@ -234,13 +301,11 @@ def run_wpf(expect_rebuild):
     `expect_rebuild` is False for the baseline, whose build is legitimately up to date.
     """
     before = os.path.getmtime(EXE) if os.path.isfile(EXE) else 0.0
-    b = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
-                        "-File", os.path.join(ROOT, "build.ps1"), "-Release"],
-                       cwd=ROOT, capture_output=True, text=True)
-    if b.returncode != 0:
+    built, build_text = build_host()
+    if not built:
         # A mutation that will not compile proves nothing about the check, so say so rather than
         # counting it as a pass.
-        return None, "BUILD FAILED"
+        return None, "BUILD FAILED: " + build_text[-600:].strip()
     if expect_rebuild and (not os.path.isfile(EXE) or os.path.getmtime(EXE) <= before):
         return None, ("the exe was not rebuilt (its timestamp did not advance), so the mutation never "
                       "reached the binary")
@@ -295,14 +360,18 @@ def score():
             only = a[len("--only="):]
     cases = [c for c in CASES if not (fast and c[4] == "wpf") and (not only or only in c[0])]
 
+    # BYTES, both ways. This read with universal newlines and wrote with utf-8-sig, so the CRLF StartUp.cs
+    # came back as LF from its first case and from every restore(), and a BOM-less target would have
+    # gained a BOM -- invisible to git (eol=lf), harmless to the gate, but not the working tree this
+    # docstring promises to restore (F404). Bytes in, the same bytes out.
     baseline = {}
     for _, rel, _, _, _, _ in cases:
         path = os.path.join(ROOT, rel)
-        baseline[rel] = io.open(path, encoding="utf-8-sig").read()
+        baseline[rel] = read_bytes(path)
 
     def restore():
-        for rel, text in baseline.items():
-            io.open(os.path.join(ROOT, rel), "w", encoding="utf-8-sig", newline="").write(text)
+        for rel, data in baseline.items():
+            write_bytes(os.path.join(ROOT, rel), data)
 
     # BASELINE MUST BE GREEN FIRST. Without this the whole run is worthless: if a check is already
     # failing before anything is mutated, every mutation "fails" too, the expected assertion is sitting
@@ -349,16 +418,17 @@ def score():
                 return 2
 
     results = []
+    rebuilt = True
     try:
         for name, rel, find, repl, checker, expect in cases:
             src = baseline[rel]
-            if src.count(find) != 1:
+            find_b, repl_b = line_ending_variant(src, find.encode("utf-8"), repl.encode("utf-8"))
+            if src.count(find_b) != 1:
                 results.append(("NO-OP", name,
                                 "pattern matched %d times in %s -- the mutation would change nothing"
-                                % (src.count(find), rel)))
+                                % (src.count(find_b), rel)))
                 continue
-            io.open(os.path.join(ROOT, rel), "w", encoding="utf-8-sig", newline="").write(
-                src.replace(find, repl))
+            write_bytes(os.path.join(ROOT, rel), src.replace(find_b, repl_b))
             ok, text = (run_gate() if checker == "gate" else run_wpf(True))
             restore()
 
@@ -395,13 +465,23 @@ def score():
                 results.append(("FIRED", name, hits[0][:120] + extra))
     finally:
         restore()
+        # Leave build\ current with the restored source, the rule the sibling harnesses follow. A wpf case
+        # compiles its mutant into build\...\DesktopAICompanion.exe and restore() alone puts the SOURCE
+        # back, so every run that ended on a wpf case left a mutant exe for the next hand-run smoke or
+        # self-test to load (F406's larger instance, per its verifier). Checked, not discarded: a clean
+        # rebuild that fails is the one thing this rebuild exists to prevent.
+        if any(c[4] == "wpf" for c in cases):
+            rebuilt, rebuild_text = build_host()
+            if not rebuilt:
+                print("\nTHE CLEAN REBUILD FAILED -- build\\ may still hold the last mutant's exe:")
+                print(rebuild_text[-800:])
 
     print("")
     for verdict, name, detail in results:
         print("%-9s %s\n          %s" % (verdict, name, detail))
     bad = [r for r in results if r[0] != "FIRED"]
     print("\n%d/%d fired" % (len(results) - len(bad), len(results)))
-    return 1 if bad else 0
+    return 1 if bad or not rebuilt else 0
 
 
 if __name__ == "__main__":
