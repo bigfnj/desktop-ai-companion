@@ -54,11 +54,15 @@ namespace DesktopAICompanion.AgentFlow
         private static readonly HashSet<string> CommandTools =
             new HashSet<string>(StringComparer.Ordinal) { "Bash", "PowerShell" };
 
-        // Keyed on the exact rule string and holding a pure function of it, so nothing here can go
-        // stale. Bounded because a module lives for the whole app session: a real allow list plus a
-        // managed policy is a few hundred distinct strings, so reaching the cap means a caller is
-        // synthesizing rules in a loop, which is a bug rather than a workload. Eviction is a
-        // wholesale clear, since an LRU's bookkeeping would cost more than the compile it saves.
+        // Keyed on the exact RULE string and holding a pure function of it, so nothing here can go
+        // stale. Rules only, never the concrete permission string: a permission is one per distinct
+        // command an agent runs, and caching those too (which this did until 2026-09-29, F051)
+        // crossed the cap in a day of ordinary use and kept up to five thousand full command
+        // strings in a static map for the life of the process. With rules alone, a real allow list
+        // plus a managed policy is a few hundred distinct strings, so reaching the cap means a
+        // caller is synthesizing rules in a loop, which is a bug rather than a workload. Eviction
+        // is a wholesale clear, since an LRU's bookkeeping would cost more than the compile it
+        // saves.
         private const int MatchCacheLimit = 5000;
         private static readonly Dictionary<string, string> NormalizedRules =
             new Dictionary<string, string>(StringComparer.Ordinal);
@@ -162,10 +166,28 @@ namespace DesktopAICompanion.AgentFlow
         public static bool RuleMatches(string rule, string permission)
         {
             if (rule == null || permission == null) return false;
-            string target = NormalizeRule(permission);
-            if (NormalizeRule(rule) == target) return true;
+            return RuleMatchesNormalized(rule, NormalizeRuleUncached(permission));
+        }
+
+        /// <summary>
+        /// The per-rule half of <see cref="RuleMatches"/>, for a permission the caller has already
+        /// normalised ONCE.
+        ///
+        /// The RULE side is cached: a rule is one of a few hundred strings that recur on every tick.
+        /// The PERMISSION side is not, and used to be. It went through the same cached NormalizeRule
+        /// and so became a key in NormalizedRules -- one entry per distinct command with its
+        /// arguments and paths -- which crossed the 5000 cap in a day of ordinary use, contradicted
+        /// the cap's own comment, and left up to five thousand full command strings in a static map
+        /// for the life of the process. It also cost a lock round trip per rule per segment to look
+        /// the same command up several hundred times over (F051). Evaluate now normalises the
+        /// permission once and hands the result down.
+        /// </summary>
+        private static bool RuleMatchesNormalized(string rule, string normalizedPermission)
+        {
+            if (rule == null || normalizedPermission == null) return false;
+            if (NormalizeRule(rule) == normalizedPermission) return true;
             Regex pattern = CompiledRule(rule);
-            return pattern != null && pattern.IsMatch(target);
+            return pattern != null && pattern.IsMatch(normalizedPermission);
         }
 
         /// <summary>
@@ -175,12 +197,13 @@ namespace DesktopAICompanion.AgentFlow
         public static RuleVerdict Evaluate(string permission, RuleSet rules)
         {
             if (rules == null) return RuleVerdict.WouldPrompt;
+            string target = NormalizeRuleUncached(permission ?? string.Empty);
             foreach (string rule in rules.Deny)
-                if (RuleMatches(rule, permission)) return RuleVerdict.WouldDeny;
+                if (RuleMatchesNormalized(rule, target)) return RuleVerdict.WouldDeny;
             foreach (string rule in rules.Ask)
-                if (RuleMatches(rule, permission)) return RuleVerdict.WouldPrompt;
+                if (RuleMatchesNormalized(rule, target)) return RuleVerdict.WouldPrompt;
             foreach (string rule in rules.Allow)
-                if (RuleMatches(rule, permission)) return RuleVerdict.WouldAllow;
+                if (RuleMatchesNormalized(rule, target)) return RuleVerdict.WouldAllow;
             return RuleVerdict.WouldPrompt;
         }
 

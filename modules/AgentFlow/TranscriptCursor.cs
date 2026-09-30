@@ -371,6 +371,11 @@ namespace DesktopAICompanion.AgentFlow
         private readonly Dictionary<string, TranscriptCursor> _cursors =
             new Dictionary<string, TranscriptCursor>(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>The parsed permission-rule files, kept between ticks beside the cursors and for
+        /// the same reason: a tick should cost O(what changed), and a settings file changes when the
+        /// user edits it, not every ten seconds. See <see cref="RuleCache"/>.</summary>
+        internal readonly RuleCache Rules = new RuleCache();
+
         internal int Count { get { return _cursors.Count; } }
 
         internal TranscriptCursor For(string path, string agent)

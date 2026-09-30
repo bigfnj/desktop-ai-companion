@@ -1199,12 +1199,20 @@ namespace DesktopAICompanion.AgentFlow
                                              IList<string> resetNotes)
         {
             int sources;
-            RuleSet rules = RuleLoader.Load(RuleLoader.DefaultPaths(), out sources);
+            // Through the tick's RuleCache when there is one, so an unchanged settings file costs a
+            // stat rather than a read and a parse every ten seconds (F055); the cold path reads
+            // whole, as it does for transcripts.
+            RuleSet rules = sessions != null
+                ? sessions.Rules.Load(RuleLoader.DefaultPaths(), out sources)
+                : RuleLoader.Load(RuleLoader.DefaultPaths(), out sources);
             // NO RULE FILES AT ALL is a different state from "rules loaded, nothing matched", and
-            // until now the difference was thrown away: `sources` was read into this local and
-            // never used. Zero means every call reads Undecidable for ever with no explanation,
-            // which is exactly what a user whose settings live somewhere unexpected would see.
-            if (sources == 0 && resetNotes != null) resetNotes.Add(NoRuleFilesNote);
+            // until 1.4.0 the difference was thrown away: `sources` was read into this local and
+            // never used. What zero actually changes -- and the note used to say otherwise -- is
+            // that nothing can be recognised as ALLOWED: nothing-matched prompts by design, so every
+            // stalled Claude command call still evaluates WouldPrompt and still reaches Blocked, and
+            // only the approvals audit goes quiet. Codex never consults these files at all, so a
+            // Codex-only watcher is not told about them (F031).
+            if (sources == 0 && watchClaude && resetNotes != null) resetNotes.Add(NoRuleFilesNote);
             DateTime now = DateTime.UtcNow;
             var results = new List<Detection>();
             approved = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -1226,7 +1234,11 @@ namespace DesktopAICompanion.AgentFlow
                          rules, threshold, now, approvalsCounted, approved, recent,
                          sessions, resetNotes, results, liveSessions, livePaths);
 
-            if (sessions != null) sessions.Retain(livePaths);
+            if (sessions != null)
+            {
+                sessions.Retain(livePaths);
+                sessions.Rules.Retain();
+            }
 
             if (approvalsCounted != null)
             {
@@ -1275,9 +1287,21 @@ namespace DesktopAICompanion.AgentFlow
                 if (session == null) continue;
                 if (!string.IsNullOrEmpty(session.SessionId)) liveSessions.Add(session.SessionId);
 
-                Detection detection = BlockedDetector.Evaluate(session, rules, threshold, now);
+                // PROJECT-SCOPE RULES, per session (F053). Claude Code writes "Yes, allow ... for this
+                // project" into <cwd>/.claude/settings.json or settings.local.json and evaluates them
+                // beside the home tiers. This module listed both destinations so it could refuse to
+                // PRESS them, and never read what they held -- so a call allowed only by a project
+                // rule evaluated WouldPrompt: a false "waiting for an answer" bubble in default mode,
+                // and a hole in the approvals audit in every mode, for exactly the rules a user
+                // delegated most recently. Codex has no rule corpus and skips the join entirely.
+                RuleSet forSession = agent == TranscriptReader.AgentCodex
+                    ? rules
+                    : RuleLoader.WithProjectRules(rules, session.Cwd,
+                                                  sessions != null ? sessions.Rules : null);
+
+                Detection detection = BlockedDetector.Evaluate(session, forSession, threshold, now);
                 if (detection != null) results.Add(detection);
-                Tally(session, rules, approvalsCounted, approved, recent);
+                Tally(session, forSession, approvalsCounted, approved, recent);
             }
         }
 
@@ -1504,16 +1528,25 @@ namespace DesktopAICompanion.AgentFlow
         }
 
         /// <summary>
-        /// Said once when no permission-rule file was found anywhere.
+        /// Said once when no permission-rule file was found under the home directory.
         ///
         /// Carried on the `resetNotes` channel rather than a ninth parameter on Scan, which
         /// already takes eight plus two outs across sixteen call sites. Unlike everything else on
         /// that channel this is a STATE rather than an event, so it would repeat every ten
         /// seconds; the caller dedupes it and re-arms when rules reappear.
+        ///
+        /// It says what actually changes. The first wording claimed "nothing can predict which
+        /// calls will prompt; the notify half stands down", and neither half was true: with no
+        /// rules at all, nothing-matched still PROMPTS, so a stalled Claude command call still
+        /// reaches Blocked and is announced; Codex decides on the stall alone; and the on-screen
+        /// prompt path reads no rules. What goes quiet is the approvals audit, because nothing can
+        /// be recognised as allowed (F031). SelfCheckNoRuleFilesIsSaid pins the wording to that
+        /// behaviour, so a change to the nothing-matched verdict has to change this sentence too.
         /// </summary>
         internal const string NoRuleFilesNote =
-            "no permission-rule file was found, so nothing can predict which calls will prompt; "
-            + "the notify half stands down until one appears";
+            "no permission-rule file was found under the home directory, so every stalled Claude "
+            + "command call is treated as a prompt (nothing can be recognised as allowed) and the "
+            + "approvals audit records nothing until one appears";
 
         /// <summary>What every Codex transcript filename begins with. See <see cref="Short"/>.</summary>
         private const string CodexNamePrefix = "rollout-";
@@ -2597,6 +2630,7 @@ namespace DesktopAICompanion.AgentFlow
                         SelfCheckCodexTransport,
                         SelfCheckCapabilityLog,
                         SelfCheckPetChoices,
+                        SelfCheckProjectRules,
                         SelfCheckCacheBound,
                     };
                     // Short-circuits on the first false, exactly as the && chain did. The result is
@@ -2868,6 +2902,170 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("WITNESS an ask rule beats an allow rule for the same command",
                 PermissionRules.EvaluateCall("Bash", "curl https://x", null, ordered)
                     == RuleVerdict.WouldPrompt);
+
+            // F051: the concrete PERMISSION string is normalised once per verdict and never cached.
+            // It used to go into NormalizedRules as a key -- one entry per distinct command the
+            // agents ran -- so the 5000 cap was crossed by ordinary use and up to five thousand full
+            // command strings sat in a static map for the life of the process. The three rules above
+            // are already warm from the verdicts just taken, so the only thing forty distinct
+            // commands could add is themselves.
+            int normalizedBefore, compiledBefore, limitIgnored;
+            PermissionRules.CacheStats(out normalizedBefore, out compiledBefore, out limitIgnored);
+            for (int i = 0; i < 40; i++)
+                PermissionRules.EvaluateCall("Bash",
+                    "echo distinct-command-" + i.ToString(CultureInfo.InvariantCulture), null, rules);
+            int normalizedAfter, compiledAfter;
+            PermissionRules.CacheStats(out normalizedAfter, out compiledAfter, out limitIgnored);
+            probe.Check("WITNESS forty distinct commands add nothing to the rule caches, which hold rules only",
+                normalizedAfter == normalizedBefore && compiledAfter == compiledBefore);
+            probe.Check("...and the verdicts on them are unchanged",
+                PermissionRules.EvaluateCall("Bash", "echo distinct-command-7", null, rules)
+                    == RuleVerdict.WouldAllow);
+            return true;
+        }
+
+        /// <summary>
+        /// Project-scope permission rules are read per session, and the settings files are parsed
+        /// once rather than once per tick.
+        ///
+        /// F053: Claude Code writes "Yes, allow ... for this project" into <cwd>/.claude/settings*.json
+        /// and evaluates it beside the home tiers; the module listed those destinations so it could
+        /// refuse to PRESS them and never read what they held, so a call allowed only by a project
+        /// rule read WouldPrompt -- a false bubble in default mode and a hole in the approvals audit
+        /// in every mode. Two sessions stalled on the same `git push`, same home rules, same wait:
+        /// one started in a project holding a local allow, one elsewhere. The cwd is the only thing
+        /// that can separate their verdicts. Driven through the environment overrides, so the path
+        /// exercised is the one production takes, cold (whole-file) and warm (cursors + RuleCache).
+        ///
+        /// F055: the RuleCache is asserted on what it does NOT do -- a second scan over unchanged
+        /// files parses nothing -- and on what it still must: an edited file is re-read on the next
+        /// tick and its new rule is in force.
+        /// </summary>
+        private static bool SelfCheckProjectRules(SelfTestProbe probe)
+        {
+            var utf8 = new System.Text.UTF8Encoding(false);
+            string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "dp-agentflow-proj-" + Guid.NewGuid().ToString("N").Substring(0, 10));
+            string home = System.IO.Path.Combine(root, "home");
+            string project = System.IO.Path.Combine(root, "repo");
+            string elsewhere = System.IO.Path.Combine(root, "other-repo");
+            string transcripts = System.IO.Path.Combine(root, "transcripts");
+            string empty = System.IO.Path.Combine(root, "none");
+            string homeWas = Environment.GetEnvironmentVariable(RuleLoader.HomeVariable);
+            string claudeWas = Environment.GetEnvironmentVariable(TranscriptReader.ClaudeRootVariable);
+            string codexWas = Environment.GetEnvironmentVariable(TranscriptReader.CodexRootVariable);
+            try
+            {
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(home, ".claude"));
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(project, ".claude"));
+                System.IO.Directory.CreateDirectory(elsewhere);
+                System.IO.Directory.CreateDirectory(transcripts);
+                System.IO.Directory.CreateDirectory(empty);
+                string homeSettings = System.IO.Path.Combine(home, ".claude", "settings.json");
+                System.IO.File.WriteAllBytes(homeSettings,
+                    utf8.GetBytes("{\"permissions\":{\"allow\":[\"Bash(git status)\"]}}"));
+                System.IO.File.WriteAllBytes(
+                    System.IO.Path.Combine(project, ".claude", "settings.local.json"),
+                    utf8.GetBytes("{\"permissions\":{\"allow\":[\"Bash(git push:*)\"]}}"));
+                Environment.SetEnvironmentVariable(RuleLoader.HomeVariable, home);
+                Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, transcripts);
+                Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, empty);
+
+                probe.Check("WITNESS a project cwd names the two files Claude Code writes, and a "
+                            + "relative or empty cwd names none",
+                    new List<string>(RuleLoader.ProjectPaths(project)).Count == 2
+                    && new List<string>(RuleLoader.ProjectPaths("")).Count == 0
+                    && new List<string>(RuleLoader.ProjectPaths("relative\\dir")).Count == 0);
+
+                // Ten minutes old: inside the 15-minute window, well past the 30 s threshold. One
+                // COMPLETED push per session too, for the approvals audit: only the in-project one
+                // is allowed by any rule, so the tally can only ever be one, and only if project
+                // rules are read.
+                DateTime started = DateTime.UtcNow.AddMinutes(-10);
+                string stamp = started.ToString("o", CultureInfo.InvariantCulture);
+                Func<string, string, string> transcript = (cwd, id) =>
+                    "{\"type\":\"permission-mode\",\"permissionMode\":\"default\"}\n"
+                    + "{\"timestamp\":\"" + stamp + "\",\"cwd\":\"" + cwd.Replace("\\", "\\\\")
+                    + "\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"" + id
+                    + "-done\",\"name\":\"Bash\",\"input\":{\"command\":\"git push origin main\"}}]}}\n"
+                    + "{\"timestamp\":\"" + stamp + "\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\""
+                    + id + "-done\"}]}}\n"
+                    + "{\"timestamp\":\"" + stamp + "\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"id\":\"" + id
+                    + "-open\",\"name\":\"Bash\",\"input\":{\"command\":\"git push origin main\"}}]}}\n";
+                string inProject = System.IO.Path.Combine(transcripts, "in-project.jsonl");
+                string outside = System.IO.Path.Combine(transcripts, "outside.jsonl");
+                System.IO.File.WriteAllBytes(inProject, utf8.GetBytes(transcript(project, "p")));
+                System.IO.File.WriteAllBytes(outside, utf8.GetBytes(transcript(elsewhere, "q")));
+                System.IO.File.SetLastWriteTimeUtc(inProject, started);
+                System.IO.File.SetLastWriteTimeUtc(outside, started);
+
+                Func<List<Detection>, string, Detection> named = (list, id) =>
+                {
+                    foreach (Detection d in list)
+                        if (d.Session != null && d.Session.SessionId == id) return d;
+                    return null;
+                };
+
+                // Cold, the path "Check now" takes.
+                List<Detection> cold = Scan(true, false, 30.0);
+                Detection coldIn = named(cold, "in-project"), coldOut = named(cold, "outside");
+                probe.Check("WITNESS the fixture is not vacuous: both sessions are read, in default mode, "
+                            + "with an outstanding Bash call",
+                    coldIn != null && coldOut != null && coldIn.ToolName == "Bash"
+                    && coldOut.ToolName == "Bash" && coldIn.Outcome != DetectionOutcome.Idle
+                    && coldIn.Outcome != DetectionOutcome.StoodDownAutoMode);
+                probe.Check("WITNESS a call allowed only by a PROJECT rule reads as slow, not blocked",
+                    coldIn != null && coldIn.Outcome == DetectionOutcome.StalledButAllowed);
+                probe.Check("WITNESS ...while the same call from a cwd with no project rules is still BLOCKED",
+                    coldOut != null && coldOut.Outcome == DetectionOutcome.Blocked);
+
+                // Warm, the path the tick takes: cursors plus the rule cache.
+                var cache = new SessionCache();
+                var counted = new HashSet<string>(StringComparer.Ordinal);
+                Dictionary<string, int> approved;
+                List<Detection> warm = Scan(true, false, 30.0, counted, out approved, null, cache, null);
+                Detection warmIn = named(warm, "in-project"), warmOut = named(warm, "outside");
+                probe.Check("WITNESS the cursor path agrees: project rule allows, no project rule blocks",
+                    warmIn != null && warmIn.Outcome == DetectionOutcome.StalledButAllowed
+                    && warmOut != null && warmOut.Outcome == DetectionOutcome.Blocked);
+                int gitApproved;
+                probe.Check("WITNESS the approvals audit counts the push a PROJECT rule allowed, and only that one",
+                    approved.TryGetValue("git", out gitApproved) && gitApproved == 1);
+
+                // F055: seven paths were asked for (three home, two per Claude session), two exist.
+                // Two parses, and a second tick over the same unchanged files adds none.
+                probe.Check("WITNESS the first tick parsed each present settings file once",
+                    cache.Rules.Parses == 2);
+                int parsesAfterFirst = cache.Rules.Parses;
+                Scan(true, false, 30.0, counted, out approved, null, cache, null);
+                probe.Check("WITNESS a second tick over unchanged settings files parses nothing",
+                    cache.Rules.Parses == parsesAfterFirst);
+
+                // ...and an EDITED file is re-read on the next tick, with its new rule in force: allow
+                // the push at home, and the outside session stops reading as blocked. The write time
+                // is SET rather than trusted, so two writes inside one filesystem tick cannot make
+                // this pass or fail on scheduling.
+                System.IO.File.WriteAllBytes(homeSettings, utf8.GetBytes(
+                    "{\"permissions\":{\"allow\":[\"Bash(git status)\",\"Bash(git push:*)\"]}}"));
+                System.IO.File.SetLastWriteTimeUtc(homeSettings,
+                    System.IO.File.GetLastWriteTimeUtc(homeSettings).AddSeconds(5));
+                List<Detection> edited = Scan(true, false, 30.0, counted, out approved, null, cache, null);
+                Detection editedOut = named(edited, "outside");
+                probe.Check("WITNESS an edited settings file is re-read on the next tick and its new rule is in force",
+                    cache.Rules.Parses == parsesAfterFirst + 1
+                    && editedOut != null && editedOut.Outcome == DetectionOutcome.StalledButAllowed);
+                probe.Check("the rule cache holds only the paths the last tick asked for: three home, "
+                            + "two per Claude session",
+                    cache.Rules.Count == 7);
+            }
+            catch (Exception ex) { probe.Check("project rules: " + ex.Message, false); }
+            finally
+            {
+                Environment.SetEnvironmentVariable(RuleLoader.HomeVariable, homeWas);
+                Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, claudeWas);
+                Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, codexWas);
+                try { System.IO.Directory.Delete(root, true); } catch { }
+            }
             return true;
         }
 
@@ -5482,6 +5680,27 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("WITNESS ...and stays quiet once one exists, so the note tracks the "
                             + "state instead of being unconditional",
                     !quiet.Contains(NoRuleFilesNote));
+
+                // F031: the note describes what zero rule files CHANGES, and is only for a Claude
+                // watcher. It used to claim "nothing can predict which calls will prompt; the notify
+                // half stands down", and neither half was true.
+                System.IO.File.Delete(System.IO.Path.Combine(root, ".claude", "settings.json"));
+                var codexOnly = new List<string>();
+                Scan(false, true, 30.0, new HashSet<string>(StringComparer.Ordinal),
+                     out approved, null, null, codexOnly);
+                probe.Check("WITNESS a Codex-only watcher is not told about Claude's rule files, which "
+                            + "Codex never consults",
+                    !codexOnly.Contains(NoRuleFilesNote));
+                DateTime now = DateTime.UtcNow;
+                probe.Check("WITNESS with NO rules a stalled default-mode Bash call is still BLOCKED, "
+                            + "which is what the note now says",
+                    BlockedDetector.Evaluate(
+                        Session(now.AddSeconds(-600), now.AddSeconds(-600), "curl https://x", "default"),
+                        new RuleSet(), 30, now).Outcome == DetectionOutcome.Blocked);
+                probe.Check("...and the note's wording says prompt-and-audit, not stand-down",
+                    NoRuleFilesNote.IndexOf("treated as a prompt", StringComparison.Ordinal) >= 0
+                    && NoRuleFilesNote.IndexOf("approvals audit", StringComparison.Ordinal) >= 0
+                    && NoRuleFilesNote.IndexOf("stands down", StringComparison.Ordinal) < 0);
             }
             catch (Exception ex) { probe.Check("no-rule-files note: " + ex.Message, false); }
             finally
@@ -6123,6 +6342,26 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("WITNESS ...and over it reads as BLOCKED, which is the new capability",
                 look(BlockedDetector.CodexOnRequest, 200).Outcome == DetectionOutcome.Blocked);
 
+            // F043: Codex has more asking policies than on-request, and only `never` cannot ask. The
+            // allow-list was `on-request` alone, so a session under `untrusted` -- the MOST
+            // conservative policy, which asks before every command not on Codex's trusted list --
+            // was stood down for ever and described as one that never stops to ask.
+            probe.Check("WITNESS an untrusted session over the threshold reads as BLOCKED",
+                look("untrusted", 200).Outcome == DetectionOutcome.Blocked);
+            probe.Check("WITNESS an on-failure rollout, which older Codex builds write, reads as BLOCKED too",
+                look("on-failure", 200).Outcome == DetectionOutcome.Blocked);
+            probe.Check("...and under the threshold as working, on the same 180 s",
+                look("untrusted", 120).Outcome == DetectionOutcome.Working);
+            Detection granular = look("granular", 9999);
+            probe.Check("WITNESS an unmeasured asking policy still stands down, and the reason says "
+                        + "UNMEASURED rather than that the session cannot ask",
+                granular.Outcome == DetectionOutcome.StoodDownAutoMode
+                && granular.Reason.IndexOf("not been measured", StringComparison.Ordinal) >= 0
+                && granular.Reason.IndexOf("never stops to ask", StringComparison.Ordinal) < 0);
+            probe.Check("WITNESS an unread policy says nothing is known yet, not that the session never asks",
+                look(null, 9999).Reason.IndexOf("no approval policy", StringComparison.Ordinal) >= 0
+                && look(null, 9999).Reason.IndexOf("never stops to ask", StringComparison.Ordinal) < 0);
+
             // The threshold is the measurement. Borrowing Claude's 30 s would have fired on 5%
             // of calls in sessions that cannot prompt at all.
             probe.Check("WITNESS Codex waits longer than Claude before calling it a person",
@@ -6520,8 +6759,9 @@ namespace DesktopAICompanion.AgentFlow
             if (limit <= 0) return false;
 
             // limit + 10 distinct rules, so the cap is crossed and then refilled a little. Each
-            // iteration inserts two normalize keys (the rule and the permission) and one compiled
-            // key, so both caches are pushed past the cap.
+            // iteration inserts one normalize key and one compiled key -- the RULE's; since F051 the
+            // permission string is normalised without being cached -- so both caches are pushed past
+            // the cap.
             for (int i = 0; i < limit + 10; i++)
             {
                 string tag = "cachebound" + i.ToString(CultureInfo.InvariantCulture);

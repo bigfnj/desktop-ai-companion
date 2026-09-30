@@ -852,6 +852,56 @@ CASES = (
         "            while (end < blanked.Length && blanked[end] != '\\n'\n                   && blanked[end] != ',' && blanked[end] != '}') end++;",
         "Enable on a last member with a trailing comment keeps the comment",
     ),
+    (
+        # F043: the Codex stand-down allow-listed on-request alone, so untrusted sessions -- which ask
+        # before every non-trusted command -- were never flagged. Shrink the list back to one.
+        "the Codex asking policies shrink back to on-request alone",
+        DETECTOR,
+        '        public static readonly string[] CodexAskingPolicies = { CodexOnRequest, "untrusted", "on-failure" };',
+        '        public static readonly string[] CodexAskingPolicies = { CodexOnRequest };',
+        "an untrusted session over the threshold reads as BLOCKED",
+    ),
+    (
+        # F043, the wording half: an unmeasured policy must not be described as one that never asks.
+        "an unmeasured Codex policy is described as never asking again",
+        DETECTOR,
+        '                        detection.Reason = "codex " + mode + ": this approval policy has not been "\n                                           + "measured, so it is not acted on";',
+        '                        detection.Reason = "codex " + mode + ": this session never stops to ask, so "\n                                           + "nothing here is waiting on you";',
+        "UNMEASURED rather than that the session cannot ask",
+    ),
+    (
+        # F053: project-scope rules were never read. Hand every session the home tiers alone again.
+        "project-scope rule files are ignored again",
+        MODULE,
+        "                RuleSet forSession = agent == TranscriptReader.AgentCodex\n                    ? rules\n                    : RuleLoader.WithProjectRules(rules, session.Cwd,\n                                                  sessions != null ? sessions.Rules : null);",
+        "                RuleSet forSession = rules;",
+        "a call allowed only by a PROJECT rule reads as slow, not blocked",
+    ),
+    (
+        # F055: the stat key stops matching, so every tick re-parses every file as it used to.
+        "the rule cache re-parses unchanged files every tick",
+        RULELOADER,
+        "            if (_files.TryGetValue(path, out entry) && entry.Exists == exists\n                && entry.WrittenUtc == written && entry.Length == length)\n                return entry;",
+        "            if (_files.TryGetValue(path, out entry) && entry.Exists == exists && false\n                && entry.WrittenUtc == written && entry.Length == length)\n                return entry;",
+        "a second tick over unchanged settings files parses nothing",
+    ),
+    (
+        # F031: the no-rule-files note was emitted for a Codex-only watcher, which never reads them.
+        "the no-rule-files note ignores whether Claude is watched",
+        MODULE,
+        "            if (sources == 0 && watchClaude && resetNotes != null) resetNotes.Add(NoRuleFilesNote);",
+        "            if (sources == 0 && resetNotes != null) resetNotes.Add(NoRuleFilesNote);",
+        "a Codex-only watcher is not told about Claude's rule files",
+    ),
+    (
+        # F051: the permission string went through the CACHED normaliser and became a key, one per
+        # distinct command. Put that back and forty distinct commands grow the cache by forty.
+        "the permission string is cached as a rule again",
+        RULES,
+        "            string target = NormalizeRuleUncached(permission ?? string.Empty);",
+        "            string target = NormalizeRule(permission ?? string.Empty);",
+        "forty distinct commands add nothing to the rule caches",
+    ),
 )
 
 
