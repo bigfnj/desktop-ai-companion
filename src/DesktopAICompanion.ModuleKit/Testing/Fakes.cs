@@ -9,11 +9,27 @@ namespace DesktopAICompanion.ModuleKit.Testing
     public sealed class FakeModuleSettings : IModuleSettings
     {
         private readonly Dictionary<string, string> _values = new Dictionary<string, string>(StringComparer.Ordinal);
+        /// <summary>What the last successful Save() left (empty at the start): the "disk" a failed Save()
+        /// puts the values back to.</summary>
+        private Dictionary<string, string> _saved = new Dictionary<string, string>(StringComparer.Ordinal);
 
         /// <summary>How many times Save() was called, so a test can assert a pane actually persisted.</summary>
         public int SaveCount { get; private set; }
 
-        /// <summary>Make Save() report failure, to exercise a module's degraded path.</summary>
+        /// <summary>
+        /// Make Save() report failure, to exercise a module's degraded path.
+        ///
+        /// A failed Save() also puts the values back to what the last successful Save() left, because that
+        /// is what the host's store shows a module afterwards: CompanionHost hands out a FRESH instance
+        /// loaded from disk on every GetSettings, and a write that failed never reached the disk. Until
+        /// 2026-09-30 this fake kept the Set() values through a failed Save(), so a module's degraded path
+        /// read its own unsaved edits back and a test could assert the log line but never "the click did
+        /// nothing" (N-blinkingled-02). Two consequences: seed a test's values before the module's first
+        /// Save(), or Save() them yourself, or a later failed Save() puts them back too; and a module that
+        /// holds ONE handle across a failed write would, under the shipped host, keep reading its own
+        /// edits from that handle, which this fake cannot show at the same time as the disk. It shows the
+        /// disk, because that is the state every later GetSettings and every restart reads.
+        /// </summary>
         public bool FailSaves { get; set; }
 
         public IReadOnlyDictionary<string, string> Values { get { return _values; } }
@@ -47,7 +63,16 @@ namespace DesktopAICompanion.ModuleKit.Testing
         public bool Save()
         {
             SaveCount++;
-            return !FailSaves;
+            if (FailSaves) { RevertToSaved(); return false; }
+            _saved = new Dictionary<string, string>(_values, StringComparer.Ordinal);
+            return true;
+        }
+
+        /// <summary>The failed write never landed: read back what the disk still holds.</summary>
+        private void RevertToSaved()
+        {
+            _values.Clear();
+            foreach (KeyValuePair<string, string> kv in _saved) _values[kv.Key] = kv.Value;
         }
     }
 

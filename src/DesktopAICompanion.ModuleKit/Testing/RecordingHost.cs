@@ -29,12 +29,49 @@ namespace DesktopAICompanion.ModuleKit.Testing
         // ---- what the module contributed ----
         public List<TrayItem> TrayItems { get; private set; }
         public List<OptionsPane> OptionsPanes { get; private set; }
-        public List<string> SaidLines { get; private set; }
         public List<string> PlayedAnimations { get; private set; }
-        public List<string> OpenedLinks { get; private set; }
+
+        // ---- the recorded lists a module may append to from ANY thread ----
+        // Say/SayAll, Log and OpenLink are the IHost verbs a module reaches from a pool task (Remembrance
+        // logs the end of a stop from its capture thread; a background probe's continuation may speak), while
+        // the test reads on its own thread. List<T> is safe for neither: an append during a foreach throws,
+        // and a Count read during a growth can see the new length before the item. So these five are
+        // recorded under ONE lock and HANDED OUT AS SNAPSHOTS: every property read is a copy taken under
+        // that lock. The type stays List<string>, so every assertion a module self-test already makes
+        // (Count, the indexer, Contains, foreach, LINQ) compiles unchanged, and a copy taken before an
+        // append keeps its count, which is what lets a test hold a stable view. What no longer works is
+        // MUTATING the list a getter returns -- host.OpenedLinks.Clear() cleared a copy -- so the Clear*
+        // methods below are the reset between phases. Until 2026-09-30 the Remembrance stop-path checks
+        // worked around the race with a queueing SynchronizationContext and by ordering the pool task's
+        // log line before it released the waiter, a fix in the test rather than in the fake (N-remembrance-01).
+        private readonly object _recordSync = new object();
+        private readonly List<string> _saidLines = new List<string>();
+        private readonly List<string> _loggedLines = new List<string>();
+        private readonly List<string> _openedLinks = new List<string>();
+        private readonly List<string> _broadcastLines = new List<string>();
+        private readonly List<KeyValuePair<ICompanion, string>> _saidToCompanions =
+            new List<KeyValuePair<ICompanion, string>>();
+
+        /// <summary>Every line, targeted or broadcast, in order (a snapshot; see above).</summary>
+        public List<string> SaidLines { get { lock (_recordSync) return new List<string>(_saidLines); } }
+        /// <summary>Links the module asked to open (a snapshot; see above).</summary>
+        public List<string> OpenedLinks { get { lock (_recordSync) return new List<string>(_openedLinks); } }
         /// <summary>Everything the module logged, as "&lt;moduleId&gt;: &lt;message&gt;" — assert on it instead of
-        /// making the pet speak diagnostics.</summary>
-        public List<string> LoggedLines { get; private set; }
+        /// making the pet speak diagnostics (a snapshot; see above).</summary>
+        public List<string> LoggedLines { get { lock (_recordSync) return new List<string>(_loggedLines); } }
+
+        /// <summary>Forget every recorded line: the targeted, the broadcast and the union.</summary>
+        public void ClearSaidLines()
+        {
+            lock (_recordSync) { _saidLines.Clear(); _saidToCompanions.Clear(); _broadcastLines.Clear(); }
+        }
+
+        /// <summary>Forget every recorded log line.</summary>
+        public void ClearLoggedLines() { lock (_recordSync) _loggedLines.Clear(); }
+
+        /// <summary>Forget every recorded link, so a second press can be asserted on its own.</summary>
+        public void ClearOpenedLinks() { lock (_recordSync) _openedLinks.Clear(); }
+
         public List<Func<bool>> DropResponders { get; private set; }
         public List<Func<bool>> PokeResponders { get; private set; }
         /// <summary>Pet-aware responders (host 1.5.0+), kept separately from the legacy pair so a test can see
@@ -42,10 +79,14 @@ namespace DesktopAICompanion.ModuleKit.Testing
         public List<Func<ICompanion, bool>> CompanionDropResponders { get; private set; }
         public List<Func<ICompanion, bool>> CompanionPokeResponders { get; private set; }
         /// <summary>Every targeted line and the pet it went to. This is how you assert a reaction reached ONE
-        /// pet rather than all of them.</summary>
-        public List<KeyValuePair<ICompanion, string>> SaidToCompanions { get; private set; }
-        /// <summary>Lines sent via SayAll. Should be rare: announcements to the user, not pet reactions.</summary>
-        public List<string> BroadcastLines { get; private set; }
+        /// pet rather than all of them (a snapshot; see the recorded lists above).</summary>
+        public List<KeyValuePair<ICompanion, string>> SaidToCompanions
+        {
+            get { lock (_recordSync) return new List<KeyValuePair<ICompanion, string>>(_saidToCompanions); }
+        }
+        /// <summary>Lines sent via SayAll. Should be rare: announcements to the user, not pet reactions (a
+        /// snapshot; see the recorded lists above).</summary>
+        public List<string> BroadcastLines { get { lock (_recordSync) return new List<string>(_broadcastLines); } }
         /// <summary>Backs IsCompanionAlive. Null means every non-null pet is alive.</summary>
         public Func<ICompanion, bool> CompanionAlivePredicate { get; set; }
         /// <summary>Audio buffers your module handed to PlaySound.</summary>
@@ -83,16 +124,11 @@ namespace DesktopAICompanion.ModuleKit.Testing
         {
             TrayItems = new List<TrayItem>();
             OptionsPanes = new List<OptionsPane>();
-            SaidLines = new List<string>();
             PlayedAnimations = new List<string>();
-            OpenedLinks = new List<string>();
-            LoggedLines = new List<string>();
             DropResponders = new List<Func<bool>>();
             PokeResponders = new List<Func<bool>>();
             CompanionDropResponders = new List<Func<ICompanion, bool>>();
             CompanionPokeResponders = new List<Func<ICompanion, bool>>();
-            SaidToCompanions = new List<KeyValuePair<ICompanion, string>>();
-            BroadcastLines = new List<string>();
             PlayedSounds = new List<byte[]>();
             StoppedSoundOwners = new List<string>();
             SpeechResponders = new List<Func<SpeechRequest, bool>>();
@@ -209,14 +245,20 @@ namespace DesktopAICompanion.ModuleKit.Testing
         /// </summary>
         public void Say(ICompanion pet, string text)
         {
-            SaidLines.Add(text ?? "");
-            SaidToCompanions.Add(new KeyValuePair<ICompanion, string>(pet, text ?? ""));
+            lock (_recordSync)
+            {
+                _saidLines.Add(text ?? "");
+                _saidToCompanions.Add(new KeyValuePair<ICompanion, string>(pet, text ?? ""));
+            }
         }
 
         public void SayAll(string text)
         {
-            SaidLines.Add(text ?? "");
-            BroadcastLines.Add(text ?? "");
+            lock (_recordSync)
+            {
+                _saidLines.Add(text ?? "");
+                _broadcastLines.Add(text ?? "");
+            }
         }
 
         // Styled overloads record identically to the plain ones (the style is a render-only concern the fake
@@ -413,7 +455,7 @@ namespace DesktopAICompanion.ModuleKit.Testing
 
         public void Log(string moduleId, string message)
         {
-            LoggedLines.Add((moduleId ?? "") + ": " + (message ?? ""));
+            lock (_recordSync) _loggedLines.Add((moduleId ?? "") + ": " + (message ?? ""));
         }
 
         public event Action<string> ContextChanged;
@@ -440,7 +482,7 @@ namespace DesktopAICompanion.ModuleKit.Testing
         {
             // Refused BEFORE recording, as the host refuses before it does anything.
             if (Refuses(ModulePermissions.Network)) return false;
-            OpenedLinks.Add(httpsUrl ?? "");
+            lock (_recordSync) _openedLinks.Add(httpsUrl ?? "");
             return true;
         }
 

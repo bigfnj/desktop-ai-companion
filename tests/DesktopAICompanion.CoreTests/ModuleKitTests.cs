@@ -17,6 +17,9 @@ using DesktopAICompanion.Modules;
 // asserts the assembly it landed in, so the next same-named type cannot rebind them in silence.
 using KitAtomicFile = DesktopAICompanion.ModuleKit.AtomicFile;
 using KitUnicode = DesktopAICompanion.ModuleKit.UnicodeTextProgress;
+// The host's twin, compiled INTO this harness from src\Portable\AppSettingsStore.cs, named explicitly for
+// the one group that tests both copies side by side (N-gates-01).
+using HostAtomicFile = DesktopAICompanion.AtomicFile;
 
 namespace DesktopAICompanion
 {
@@ -65,6 +68,79 @@ namespace DesktopAICompanion
             foreach (string leftover in Directory.GetFiles(directory))
                 AssertFalse(leftover.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase),
                     "A temp file survived an atomic write: " + leftover);
+        }
+
+        /// <summary>The shape both twins' ReplaceExisting share, so one driver exercises each.</summary>
+        private delegate void ReplaceExistingDelegate(string temporaryPath, string destinationPath,
+            string backupPath, System.Threading.CancellationToken cancellationToken,
+            Action<string, string, string, bool> replaceFile);
+
+        /// <summary>
+        /// The MoveFileEx fallback of BOTH AtomicFile twins past MAX_PATH (N-gates-01), reached through the
+        /// test seam that refuses File.Replace, the way the Fortunes VectorCache probe reaches it. The raw
+        /// P/Invoke was handed the plain path and failed with ERROR_FILENAME_EXCED_RANGE once that path passed
+        /// 260 characters, while File.Replace on the happy path accepted the same path, so the fallback was
+        /// durable only under a short data root: measured on 2026-09-29, a 74-character %TEMP% passed and a
+        /// 107-character one lost the save. The WITNESS runs the same forced fallback at a short path, where
+        /// it always worked, so a failure past MAX_PATH is the length and nothing else.
+        /// </summary>
+        private static void TestAtomicReplaceFallbackPastMaxPath()
+        {
+            AssertEqual(ModuleKitAssemblyName, typeof(KitAtomicFile).Assembly.GetName().Name,
+                "This group bound to an AtomicFile outside ModuleKit.dll, so it would test the wrong copy.");
+            AssertEqual(typeof(Program).Assembly.GetName().Name, typeof(HostAtomicFile).Assembly.GetName().Name,
+                "The host twin did not bind to the copy compiled into this harness.");
+
+            // Past MAX_PATH on the directory alone, whatever TEMP the harness runs under: the shortest
+            // realistic one (C:\Users\x\AppData\Local\Temp) is 30 characters, and this adds 300.
+            string longDirectory = Path.Combine(_testRoot, "atomic-long",
+                new string('a', 120), new string('b', 120), new string('c', 40));
+            AssertTrue(longDirectory.Length > 260,
+                "WITNESS: the long fixture must be past MAX_PATH to test anything; it is " +
+                longDirectory.Length + " characters.");
+            string shortDirectory = Path.Combine(_testRoot, "atomic-short");
+            AssertTrue(Path.Combine(shortDirectory, "settings.json").Length < 260,
+                "WITNESS: the short fixture must be inside MAX_PATH, or both runs test the same thing.");
+
+            // WITNESS first: the forced fallback at a short path, which is where it has always worked.
+            RunForcedFallbackReplace(shortDirectory, "ModuleKit AtomicFile", KitAtomicFile.ReplaceExisting);
+            RunForcedFallbackReplace(shortDirectory, "host AtomicFile (AppSettingsStore.cs)", HostAtomicFile.ReplaceExisting);
+            RunForcedFallbackReplace(longDirectory, "ModuleKit AtomicFile", KitAtomicFile.ReplaceExisting);
+            RunForcedFallbackReplace(longDirectory, "host AtomicFile (AppSettingsStore.cs)", HostAtomicFile.ReplaceExisting);
+        }
+
+        private static void RunForcedFallbackReplace(string directory, string twin, ReplaceExistingDelegate replace)
+        {
+            Directory.CreateDirectory(directory);
+            string destination = Path.Combine(directory, "settings.json");
+            string temporary = Path.Combine(directory, ".settings.json.tmp");
+            string backup = Path.Combine(directory, "settings.bak");
+            File.WriteAllText(destination, "old");
+            File.WriteAllText(temporary, "new");
+            if (File.Exists(backup)) File.Delete(backup);
+
+            int refused = 0;
+            Action<string, string, string, bool> unsupported = delegate
+            {
+                refused++;
+                throw new PlatformNotSupportedException("File.Replace refused by the test seam");
+            };
+            string where = directory.Length > 260 ? "past MAX_PATH" : "at a short path";
+            string label = twin + ": the MoveFileEx fallback";
+            try
+            {
+                replace(temporary, destination, backup, System.Threading.CancellationToken.None, unsupported);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(label + " threw " + where + " (" + directory.Length +
+                    " characters): " + ex.GetType().Name + ": " + ex.Message);
+            }
+            AssertEqual(1, refused, "WITNESS: " + label + " was not reached " + where +
+                ", so the File.Replace seam did not refuse.");
+            AssertEqual("new", File.ReadAllText(destination), label + " did not replace the file " + where + ".");
+            AssertFalse(File.Exists(temporary), label + " left the temporary file behind " + where + ".");
+            AssertEqual("old", File.ReadAllText(backup), label + " did not keep the previous content as the backup " + where + ".");
         }
 
         private static void TestModuleKitEmbeddedResources()
@@ -258,27 +334,44 @@ namespace DesktopAICompanion
                 AssertTrue(Directory.Exists(sub), "Directory_() did not create the subdirectory.");
             }
 
-            // A module WITHOUT the Storage permission gets null storage: it must still get a usable root
-            // (scratch space) rather than crash on every path call.
-            ModulePaths fallback = ModulePaths.FromStorage(null, "probe");
-            AssertTrue(!string.IsNullOrEmpty(fallback.Root), "A null storage produced no root.");
-            AssertTrue(fallback.Root.StartsWith(Path.GetTempPath(), StringComparison.OrdinalIgnoreCase),
-                "The no-storage fallback did not land under the temp directory.");
-
-            // A hostile id cannot escape the fallback directory. The property that matters is containment of
-            // the RESOLVED path, not the spelling of the id.
-            string tempRoot = Path.GetFullPath(Path.GetTempPath())
-                .TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-            foreach (string hostileId in new[] { "../../escape", @"..\..\escape", "a/b/c", "..", "   " })
+            // A module handed NO storage gets no root, not a temp folder (N-aibrain-02). The %TEMP% fallback
+            // this group used to assert is the shape N-gates-02 removed from AiBrain: a directory nobody
+            // owned or swept, written on every headless --module-selftest run. The shipped host always
+            // provisions a storage directory, so in the product the branch is unreachable; a test host that
+            // hands none gets HasRoot false, a Warning that names the module and the missing storage, and a
+            // clear exception from every path member. Nothing is created anywhere.
+            string oldFallback = Path.Combine(Path.GetTempPath(), "DesktopAICompanion.probe");
+            if (Directory.Exists(oldFallback)) Directory.Delete(oldFallback, true);
+            ModulePaths none = ModulePaths.FromStorage(null, "probe");
+            AssertFalse(none.HasRoot, "A null storage produced a root.");
+            AssertTrue(none.Warning != null && none.Warning.Contains("'probe'") && none.Warning.Contains("no storage directory"),
+                "The no-storage warning does not name the module and the missing storage: " + none.Warning);
+            AssertThrows<InvalidOperationException>(() => { string r = none.Root; },
+                "Root did not throw with no storage.");
+            AssertThrows<InvalidOperationException>(() => none.Ensure(), "Ensure() did not throw with no storage.");
+            AssertThrows<InvalidOperationException>(() => none.File("state.json"),
+                "File() did not throw with no storage; it used to hand out a %TEMP% path and create it.");
+            AssertThrows<InvalidOperationException>(() => none.Directory_("cache"), "Directory_() did not throw with no storage.");
+            AssertFalse(Directory.Exists(oldFallback),
+                "A module handed no storage created the old %TEMP%\\DesktopAICompanion.<id> fallback directory.");
+            // A blank directory from a storage handle is the same case as none.
+            AssertFalse(ModulePaths.FromStorage(new BlankStorage(), "probe").HasRoot, "A blank storage directory produced a root.");
+            // WITNESS: the same members work as before once there IS a root, so the throws above are the
+            // no-storage state and not a broken class.
+            using (var storage = new TempModuleStorage("probe"))
             {
-                string resolved = Path.GetFullPath(ModulePaths.FromStorage(null, hostileId).Root);
-                AssertTrue(resolved.StartsWith(tempRoot, StringComparison.OrdinalIgnoreCase),
-                    "A hostile module id escaped the temp fallback root: '" + hostileId + "' -> " + resolved);
-                AssertPathEqual(tempRoot.TrimEnd(Path.DirectorySeparatorChar),
-                    Path.GetDirectoryName(resolved));
+                ModulePaths rooted = ModulePaths.FromStorage(storage, "probe");
+                AssertTrue(rooted.HasRoot && rooted.Warning == null, "WITNESS: a real storage did not yield a root.");
+                AssertPathEqual(storage.DataDirectory, rooted.Ensure());
             }
 
             AssertThrows<ArgumentException>(() => ModulePaths.FromRoot(""), "An empty root was accepted.");
+        }
+
+        /// <summary>A storage handle whose directory is blank, for the ModulePaths no-root case.</summary>
+        private sealed class BlankStorage : IModuleStorage
+        {
+            public string DataDirectory { get { return "   "; } }
         }
 
         private static void TestModuleKitSelfTestProbe()
@@ -334,6 +427,53 @@ namespace DesktopAICompanion
             AssertEqual(1, host.SaidLines.Count, "SayAll was not captured.");
             AssertEqual("hello", host.SaidLines[0], "The captured line was wrong.");
 
+            // The recorded lists are SNAPSHOTS taken under a lock (N-remembrance-01): a module appends from
+            // whatever thread it calls on, the test reads on its own, and List<T> is safe for neither an
+            // append during a foreach nor a Count read during a growth. A view handed out before an append
+            // keeps its count; a fresh read sees the append; the Clear* methods are the reset, since a
+            // Clear() on the view clears a copy.
+            List<string> view = host.SaidLines;
+            host.SayAll("later");
+            AssertEqual(1, view.Count, "A list handed to a test moved under it: the fake hands out its live list again.");
+            AssertEqual(2, host.SaidLines.Count, "A fresh read did not see the later line.");
+            AssertEqual(2, host.BroadcastLines.Count, "The broadcast copy did not see both lines.");
+            host.ClearSaidLines();
+            AssertEqual(0, host.SaidLines.Count, "ClearSaidLines left lines behind.");
+            AssertEqual(0, host.BroadcastLines.Count, "ClearSaidLines left the broadcast copy behind.");
+            AssertEqual(0, host.SaidToCompanions.Count, "ClearSaidLines left the targeted copy behind.");
+
+            // ...and a pool thread appending while this thread enumerates: nothing thrown, nothing lost. The
+            // writer parks half way so one snapshot is provably taken mid-append (the WITNESS that the reader
+            // overlapped the writer at all), then the rest is appended under continuous enumeration.
+            var stress = new RecordingHost();
+            const int Lines = 20000;
+            var midway = new System.Threading.ManualResetEventSlim();
+            var proceed = new System.Threading.ManualResetEventSlim();
+            System.Threading.Tasks.Task writer = System.Threading.Tasks.Task.Run(delegate
+            {
+                for (int i = 0; i < Lines; i++)
+                {
+                    if (i == Lines / 2) { midway.Set(); proceed.Wait(); }
+                    stress.Log("probe", i.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                }
+            });
+            AssertTrue(midway.Wait(TimeSpan.FromSeconds(30)), "The writer never reached the half-way mark.");
+            AssertEqual(Lines / 2, stress.LoggedLines.Count,
+                "WITNESS: the snapshot taken while the writer is parked half way does not hold exactly the lines written so far.");
+            proceed.Set();
+            int enumerated = 0;
+            while (!writer.IsCompleted)
+            {
+                foreach (string line in stress.LoggedLines)
+                    if (line == null) throw new InvalidOperationException("A null line was recorded.");
+                enumerated++;
+            }
+            writer.GetAwaiter().GetResult();
+            AssertEqual(Lines, stress.LoggedLines.Count, "Lines appended from a pool thread were lost.");
+            AssertTrue(enumerated > 0, "The reader never enumerated while the writer ran.");
+            stress.ClearLoggedLines();
+            AssertEqual(0, stress.LoggedLines.Count, "ClearLoggedLines left lines behind.");
+
             // Responders are arbitrated in registration order: the first that returns true wins.
             var order = new List<string>();
             host.RegisterPokeResponder("first", 0, () => { order.Add("first"); return false; });
@@ -371,6 +511,23 @@ namespace DesktopAICompanion
             settings.Save();
             AssertEqual("v", host.SettingsFor("probe").Get("k", null), "Settings did not persist in the fake.");
             AssertEqual(1, host.SettingsFor("probe").SaveCount, "Save() was not counted.");
+
+            // A failed Save() puts the values back (N-blinkingled-02): the host hands a fresh instance loaded
+            // from disk to every GetSettings, and a write that failed never reached it, so a module that
+            // re-reads after a failed write sees the click did nothing. The same handle still shows a Set()
+            // before Save(), as the host's does.
+            FakeModuleSettings probeSettings = host.SettingsFor("probe");
+            probeSettings.FailSaves = true;
+            settings.Set("k", "unsaved");
+            AssertEqual("unsaved", settings.Get("k", null), "A Set() was not visible on the same handle before Save().");
+            AssertFalse(settings.Save(), "FailSaves did not fail the save.");
+            AssertEqual("v", settings.Get("k", null),
+                "A failed Save() kept the unsaved value; the host's next GetSettings would have read the disk.");
+            AssertEqual(2, probeSettings.SaveCount, "A failed Save() was not counted.");
+            probeSettings.FailSaves = false;
+            settings.Set("k", "saved");
+            AssertTrue(settings.Save(), "WITNESS: a Save() with FailSaves off failed.");
+            AssertEqual("saved", settings.Get("k", null), "WITNESS: a successful Save() did not keep the value.");
 
             // Storage is absent unless the test provides it (mirroring an undeclared Storage permission).
             AssertEqual(null, host.GetStorage("probe"), "Storage was handed out without being provided.");

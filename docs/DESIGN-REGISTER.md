@@ -539,6 +539,15 @@ Lock the USER had lit before enabling (N-blinkingled-01), but it lets `Stop()` c
 light, which the `Stop()` comment forbids. That is the owner's rule to change, not a lane's, so (C) is filed
 rather than taken.
 
+**Variant (C) was chosen on 2026-09-30 by the coordinator (N-blinkingled-01, implemented by lane fix/followups).**
+`Start()` adopts the key's state (`_phaseOn = reader()`), so a Scroll Lock the user had lit before enabling
+runs the cadence from its lit phase rather than inverted, and `Stop()` clears it: the Readme's "stopping
+always leaves the light off" (Readme.md, Blinking LED) now holds for a key the module did not light too. The
+reason: a user who switches the blinker on has asked for the light to be driven, and "off when it stops" is
+the promise the Readme makes; (B) kept that promise only for a key the module lit. A key the user lit is still
+left alone while the blinker was never started (startup with the feature off), which is the `Stop()` rule's
+remaining scope.
+
 **Stop() keeps the belief when its corrective toggle is refused (2026-09-29, F116).** `_phaseOn` is the object's
 claim that it is holding the key lit; after a refused clearing press that claim is still true, so it stands and
 the next `Stop()` or `Start()` retries. Zeroing it regardless was the third write of the flag that ignored the
@@ -874,6 +883,65 @@ no differential varies, which is the drift the "changing one means changing all 
 order of work is: confirm against Claude Code with both shapes (a plain quoted newline, and the heredoc inside
 `$( )`, which Claude Code may prompt on regardless of allow rules); change the JS original; then both ports; then
 add both shapes to the shared corpus. The first three steps are outside this module's lane.
+
+#### fix/followups
+
+**The MoveFileEx fallback keeps its P/Invoke and gains the extended-length form; it does not move to
+File.Move(overwrite: true) (2026-09-30, N-gates-01).** Both `AtomicFile` twins (ModuleKit, and the host's in
+`AppSettingsStore.cs`) now hand `MoveFileEx` `\\?\`-prefixed paths (`\\?\UNC\` for a network path), normalised
+first because the prefix switches Win32's own normalisation off. `File.Move(overwrite)` handles long paths
+by itself and was rejected: it asks for `MOVEFILE_COPY_ALLOWED` without `MOVEFILE_WRITE_THROUGH`, so it may
+degrade to a copy-and-delete and returns before the rename is on disk, and the write-through rename is the
+durability the fallback exists to give. The app has no `longPathAware` manifest entry, so the registry's
+`LongPathsEnabled` does not reach a raw P/Invoke; .NET's own file APIs add the prefix themselves, which is
+why `File.Replace` and `File.Copy` on the neighbouring lines never failed. Pinned in CoreTests through the
+`replaceFile` seam at a 400-character path, with the same forced fallback at a short path as the WITNESS.
+
+**RecordingHost hands out snapshots of what it recorded, and `List<string>` stays their type (2026-09-30,
+N-remembrance-01).** `SaidLines`, `LoggedLines`, `OpenedLinks`, `BroadcastLines` and `SaidToCompanions` are
+appended under one lock and every property read is a copy taken under it. Two alternatives were rejected: a
+thread-safe collection type, which changes the type every module self-test compiles against and loses the
+`List<T>` members some of them call; and locking the writers alone, which leaves the reader side exactly as
+racy as before unless every test learns to take the lock. The price is that a `Clear()` on a property clears
+a copy, so `ClearSaidLines`/`ClearLoggedLines`/`ClearOpenedLinks` exist and Remembrance's two call sites moved
+to them. `PlayedAnimations`, `PlayedSounds` and the contribution lists stay live: the module appends to them
+from the raise the test itself made, on the test's thread.
+
+**A failed `Save()` on the fake settings shows the disk, not the handle (2026-09-30, N-blinkingled-02).** The
+host hands a fresh instance loaded from disk to every `GetSettings`, so a module that re-reads after a failed
+write sees the old values, and the fake now puts them back. Modelling the host exactly (a fresh handle per
+`GetSettings` over one shared store) was rejected: every module self-test seeds through `SettingsFor` without
+a `Save()`, and those seeds would never reach a module's handle. The residue is stated at the site: a module
+holding one handle across a failed write keeps its own edits under the shipped host, which the fake cannot
+show at the same time as the disk; both current `FailSaves` users (BlinkingLed, Fortunes) re-fetch.
+
+**AgentFlow's reveal button asks for its own settings file, and the pane names the log's path (2026-09-30,
+N-host-03).** The host's rule that an owned pane reveals only inside the module's own storage stands
+(F376's narrowing, its recorded intent being to stop reveals in the app's own settings folder), so the
+module side moved. Three alternatives were declined: a second permitted root for the app's top-level log
+(the host lane's call, and against that intent); a new `IHost` verb for the app's log (an ABI member for one
+button); and removing the button (it is the only shipped `RevealsPath` consumer, so the containment
+machinery would have no user, and a module's data folder is worth a click for support). What the old button
+was really for, the log's location, is stated as an Info row in the same section through the two-levels-up
+arithmetic the module already asserted; the walk step H15 in `SMOKETEST.md` presses the real reveal, which
+no automated check does.
+
+**A chain step for a collapsed member plays the survivor's poses under the member's own name (2026-09-30,
+N-tools-01).** Only the poses move: the step keeps `<seq>_<n>_<member>` with the member the sequence declared,
+because that name is what the residue's chain accounting and a reader of the emitted XML look for, and the
+survivor's frames are the member's by the collapse rule. Renaming the step after the survivor was rejected
+as making two members of one run read as the same animation. The converter gained no format-ladder rung
+for this, for the reason `#### fix/tools` gives for F431: a chain step's provenance is not recoverable from
+emitted XML, and no shipped pet carries a chain step at all.
+
+**`ModulePaths` degrades to "no root" rather than throwing from `FromStorage` or falling back to `%TEMP%`
+(2026-09-30, N-aibrain-02).** Three shapes were on the table. The old one, a stable `%TEMP%\DesktopAICompanion.<id>`
+folder, wrote into a directory nobody owned or swept on every headless self-test run (the N-gates-02 leak).
+Throwing from `FromStorage` fails a module's Init under the app's own convention self-test host, which hands
+no storage on purpose as the gate's exercise of every module's null tolerance (F341), so it would have made
+`ModulePaths` unusable in the very test the repo runs. Chosen: `HasRoot` false and a `Warning` to log, with
+every path member throwing that warning, which is AiBrain's N-gates-02 shape (defaults, nothing persisted,
+said once in the log) generalised. The template shows the check; the only in-tree caller was the template.
 
 #### fix/deadcode
 

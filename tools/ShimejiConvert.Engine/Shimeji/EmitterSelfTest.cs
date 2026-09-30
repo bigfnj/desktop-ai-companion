@@ -77,6 +77,9 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 const int StrollFrequency = 40;
                 config.BehaviorFrequency["GatorRide"] = 60;
                 config.BehaviorFrequency["StrollAndHop"] = StrollFrequency;
+                // StrollBackPlayed is StrollBack (the collapsed WalkBack, then Bounce) WITH a frequency, so it
+                // is chained through PLAYED and its first step must play the survivor's poses (N-tools-01).
+                config.BehaviorFrequency["StrollBackPlayed"] = 25;
 
                 Func<string, Bitmap> load = delegate(string name) { return new Bitmap(owned[name]); };
 
@@ -294,6 +297,43 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                                                  && s.IndexOf("WalkBack", StringComparison.Ordinal) >= 0))
                     failures.Add("the residue does not list 'WalkBack' under 'Merged into an identical sibling', so "
                         + "the accounting counted a collapsed member as emitted");
+
+                // ---- A PLAYED SEQUENCE NAMING A COLLAPSED MEMBER PLAYS THE SURVIVOR (N-tools-01) ----
+                // StrollBackPlayed is StrollBack with a behaviour frequency. WalkBack is collapsed into Walk
+                // (asserted just above), so the chain's first step must be built from WALK's poses -- the
+                // survivor's, whose -2 x-velocity matches the unmirrored, left-facing art -- and not from
+                // WalkBack's own +2, which walked the pet rightwards over left-facing frames: a moonwalk inside
+                // the run. The step keeps the member's declared name, which the sequence and the residue name.
+                XmlData.AnimationNode strollBackEntry = FindAnimationNamed(r, "StrollBackPlayed_1_WalkBack");
+                XmlData.AnimationNode strollBackHop = FindAnimationNamed(r, "StrollBackPlayed_2_Bounce");
+                XmlData.AnimationNode plainWalkNode = FindAnimationNamed(r, "Walk");
+                XmlData.AnimationNode gatorRunOff = FindAnimationNamed(r, "GatorRide_2_RunOff");
+                if (strollBackEntry == null || strollBackHop == null || plainWalkNode == null || gatorRunOff == null)
+                    failures.Add("the PLAYED sequence 'StrollBackPlayed', naming the collapsed WalkBack, was not chained: "
+                        + "expected StrollBackPlayed_1_WalkBack and StrollBackPlayed_2_Bounce beside Walk and GatorRide_2_RunOff, got ["
+                        + string.Join(", ", NamesStartingWith(r, "StrollBackPlayed_").ToArray()) + "]");
+                else
+                {
+                    int walkVx = ParseIntOrZero(plainWalkNode.Start != null ? plainWalkNode.Start.X : null);
+                    int stepVx0 = ParseIntOrZero(strollBackEntry.Start != null ? strollBackEntry.Start.X : null);
+                    int stepVxN = ParseIntOrZero(strollBackEntry.End != null ? strollBackEntry.End.X : null);
+                    if (walkVx >= 0)
+                        failures.Add("WITNESS: 'Walk' does not travel leftward (x=" + walkVx + "), so the direction "
+                            + "assertion below could not tell the survivor from its mirror");
+                    if (stepVx0 != walkVx || stepVxN != walkVx)
+                        failures.Add("the chain step built for the collapsed 'WalkBack' travels x=" + stepVx0 + ".." + stepVxN
+                            + " where its survivor 'Walk' travels x=" + walkVx + ": the step was built from the collapsed "
+                            + "member's own mirrored poses, so it moonwalks over the left-facing art");
+                    // WITNESS: an uncollapsed member keeps its own poses. Bounce stands still; RunOff (a GatorRide
+                    // member no collapse touched) runs off at its own -6, which is neither Walk's speed nor zero,
+                    // so a substitution that reached beyond the collapsed members would show here.
+                    int hopVx0 = ParseIntOrZero(strollBackHop.Start != null ? strollBackHop.Start.X : null);
+                    int runOffVx0 = ParseIntOrZero(gatorRunOff.Start != null ? gatorRunOff.Start.X : null);
+                    if (hopVx0 != 0)
+                        failures.Add("WITNESS: the uncollapsed member 'Bounce' lost its own poses (x=" + hopVx0 + " where it declares 0)");
+                    if (runOffVx0 != -6)
+                        failures.Add("WITNESS: the uncollapsed member 'RunOff' lost its own poses (x=" + runOffVx0 + " where it declares -6)");
+                }
 
                 // ---- A JUMP LANDS, WHETHER OR NOT IT IS LOCOMOTION ----
                 // The whole border block used to sit behind `loco`, which requires Type="Move". The
@@ -1147,17 +1187,18 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
                 // the count of <sound> nodes is the whole observation.
                 byte[] fakeMp3 = FakeMp3(200 * 1024);
                 Func<string, byte[]> stubClips = delegate(string clip) { return fakeMp3; };
-                // WITNESS: with the sheet's real projection every embedding fits, and there are FOUR of them
-                // for two clips -- Stand's, and Walk's on Walk plus the two chain steps that replay it -- which
-                // is more than the near-cap room below admits.
+                // WITNESS: with the sheet's real projection every embedding fits, and there are FIVE of them
+                // for two clips -- Stand's, and Walk's on Walk plus the three chain steps that replay it,
+                // StrollBackPlayed_1_WalkBack among them because it plays Walk's poses and so Walk's clip
+                // (N-tools-01) -- which is more than the near-cap room below admits.
                 ConversionResult rs = PetEmitter.Emit(config, sheet, load, "TestSkinSound", stubClips);
                 int embedded = EmbeddedSoundCount(rs);
                 if (!rs.Valid || !rs.Accepted)
                     failures.Add("with room for every clip the sounded pet was not accepted: " + rs.Error);
-                if (embedded != 4)
-                    failures.Add("WITNESS: expected 4 embedded sounds (Stand, Walk, GatorRide_1_Walk, StrollAndHop_1_Walk), got "
-                        + embedded + " [" + string.Join(", ", EmbeddedSoundNames(rs).ToArray()) + "]; the room assertion "
-                        + "below needs more embeddings than the room admits");
+                if (embedded != 5)
+                    failures.Add("WITNESS: expected 5 embedded sounds (Stand, Walk, GatorRide_1_Walk, StrollAndHop_1_Walk, "
+                        + "StrollBackPlayed_1_WalkBack), got " + embedded + " [" + string.Join(", ", EmbeddedSoundNames(rs).ToArray())
+                        + "]; the room assertion below needs more embeddings than the room admits");
                 // A sheet that left room for exactly TWO embeddings: the projection the compositor would have
                 // reported for a near-cap sheet, set on the real sheet so the document stays small and valid
                 // while the arithmetic under test sees a 12 MiB document. Restored afterwards.
@@ -2417,6 +2458,14 @@ namespace DesktopAICompanion.Tools.ShimejiConvert.Shimeji
       </Animation>
     </Action>
     <Action Name=""StrollBack"" Type=""Sequence"">
+      <ActionReference Name=""WalkBack"" />
+      <ActionReference Name=""Bounce"" />
+    </Action>
+    <!-- THE SAME RUN, PLAYED: the test gives StrollBackPlayed a <Behavior Frequency>, so it IS chained, and
+         its first step names the collapsed WalkBack. That step must be built from Walk's poses (the survivor,
+         leftward over the unmirrored art), not WalkBack's own rightward ones, or the pet moonwalks through the
+         run (N-tools-01). -->
+    <Action Name=""StrollBackPlayed"" Type=""Sequence"">
       <ActionReference Name=""WalkBack"" />
       <ActionReference Name=""Bounce"" />
     </Action>

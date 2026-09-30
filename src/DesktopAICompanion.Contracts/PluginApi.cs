@@ -798,6 +798,14 @@ namespace DesktopAICompanion.Modules
         // Deliberately no completion callback and no IsSoundPlaying: a caller knows the duration of the audio
         // it just produced (sample count / sample rate) and can time its own queue, whereas a callback would
         // mean invoking module code from the audio callback thread.
+        //
+        // THREAD-SAFE, unlike the rest of this interface: PlaySound and StopSound may be called from any
+        // thread. The host takes them straight to the shared audio output under its own lock
+        // (AudioOutput.PlayOwned / StopOwned) and touches no window on the way; the host's own notification
+        // path already hands a custom chime's read and decode to a pool thread, and Reminder 1.0.7 calls
+        // PlaySound from one for a custom chime (F188). Whatever thread it comes from, a call that cannot
+        // play answers false and never throws. PlayNotificationSound below stays a UI-thread call like every
+        // other service here; a module that wants the shared chime off-thread marshals the call.
         bool PlaySound(string moduleId, byte[] audio, double volume);
 
         // Stop whatever this module is currently playing -- barge-in, or the user switching the voice off.

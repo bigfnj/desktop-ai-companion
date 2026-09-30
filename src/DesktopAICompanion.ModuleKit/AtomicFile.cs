@@ -52,8 +52,37 @@ namespace DesktopAICompanion.ModuleKit
             if (!string.IsNullOrEmpty(backupPath))
                 File.Copy(destinationPath, backupPath, true);
             cancellationToken.ThrowIfCancellationRequested();
-            if (!MoveFileEx(temporaryPath, destinationPath, MoveFileReplaceExisting | MoveFileWriteThrough))
+            // The extended-length form on BOTH paths. This fallback is reached where File.Replace is
+            // unsupported, and it failed a second way on ordinary NTFS: once the module's data directory was
+            // deep enough the plain path passed MAX_PATH and MoveFileEx refused it, while File.Replace and
+            // the File.Copy above, which add the prefix themselves, kept working on the same path. That is
+            // how a "durable" self-test line went red under a 107-character %TEMP% (N-gates-01).
+            //
+            // The P/Invoke stays rather than moving to File.Move(overwrite: true), which handles long paths
+            // on its own: File.Move asks for MOVEFILE_COPY_ALLOWED and not MOVEFILE_WRITE_THROUGH, so it may
+            // degrade to a copy-and-delete (not a rename, so not atomic) and it returns before the rename is
+            // on disk, and the write-through rename is the durability this method exists to give.
+            if (!MoveFileEx(ExtendedLengthPath(temporaryPath), ExtendedLengthPath(destinationPath),
+                    MoveFileReplaceExisting | MoveFileWriteThrough))
                 throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
+
+        /// <summary>
+        /// A path in the extended-length form Win32 accepts past MAX_PATH (260): <c>\\?\C:\...</c>, or
+        /// <c>\\?\UNC\server\share\...</c> for a network path; one already in a device form is returned as
+        /// it is. A process that has not opted into long paths through its manifest gets the 260-character
+        /// limit on every plain path it hands to Win32 whatever the registry says, and this app has not;
+        /// .NET's own file APIs add the prefix themselves, a raw P/Invoke does not. The prefix switches
+        /// Win32's own normalisation OFF, so the path is fully qualified and normalised here first.
+        /// </summary>
+        private static string ExtendedLengthPath(string path)
+        {
+            string full = Path.GetFullPath(path);
+            if (full.StartsWith(@"\\?\", StringComparison.Ordinal) || full.StartsWith(@"\\.\", StringComparison.Ordinal))
+                return full;
+            if (full.StartsWith(@"\\", StringComparison.Ordinal))
+                return @"\\?\UNC\" + full.Substring(2);
+            return @"\\?\" + full;
         }
 
         /// <summary>

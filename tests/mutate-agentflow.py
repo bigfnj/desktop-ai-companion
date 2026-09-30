@@ -690,6 +690,10 @@ CASES = (
         "the animation played is not the one-pet list any more",
     ),
     (
+        # Kept as it stands, checked 2026-09-30 by lane fix/followups: the whole run scored this case WRONG
+        # for a day after N-host-03 folded the log-path arithmetic into the containment WITNESSes, whose
+        # labels said containment while the arithmetic was what failed. SelfCheckRevealPath asserts the
+        # arithmetic under its own labels again, this one among them, so the expectation below is unchanged.
         "the log path goes up one level instead of two",
         PANE,
         "                return System.IO.Path.Combine(modules.Parent.FullName, " + chr(34) + "diagnostics.log" + chr(34) + ");",
@@ -1077,6 +1081,17 @@ CASES = (
         "            return _installedForLoad ?? FetchInstalledPets();",
         "            return FetchInstalledPets();",
         "one pane build asks for the installed pets ONCE",
+    ),
+    # ---- lane fix/followups ----
+    (
+        # N-host-03: the data-folder button asks for the app's log two levels up again, the shape the host's
+        # PermittedRevealRoot refused on every machine. The self-check pins containment in the module's
+        # own storage, so the old answer fails it.
+        "the data-folder button asks for the app's log two levels up again",
+        PANE,
+        '            return System.IO.Path.Combine(storage.DataDirectory, "settings.json");',
+        '            return LogPathFrom(storage);',
+        "the reveal path stays inside this module's own storage",
     ),
 )
 

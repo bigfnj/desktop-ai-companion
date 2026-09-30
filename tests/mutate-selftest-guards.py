@@ -106,10 +106,28 @@ CORETESTS_MODULEKIT_DLL = os.path.join(REPO, "tests", "DesktopAICompanion.CoreTe
                                        "DesktopAICompanion.ModuleKit.dll")
 MODULEKIT_ATOMIC = os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "AtomicFile.cs")
 MODULEKIT_UNICODE = os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "UnicodeTextProgress.cs")
+MODULEKIT_FAKES = os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "Testing", "Fakes.cs")
+MODULEKIT_RECORDING_HOST = os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "Testing", "RecordingHost.cs")
+# ModuleKit.dll as COPIED into a module's folder by its ProjectReference: a ModuleKit edit recompiles
+# ModuleKit and the module build copies the new DLL beside the module, while the module's own DLL need not
+# move, so this copy is the artefact for a module self-test case whose mutation lives in ModuleKit.
+BLINKINGLED_MODULEKIT_DLL = os.path.join(BIN, "modules", "blinkingled", "DesktopAICompanion.ModuleKit.dll")
 APPSETTINGS_STORE = os.path.join(REPO, "src", "Portable", "AppSettingsStore.cs")
 APPPATHS = os.path.join(REPO, "src", "Portable", "AppPaths.cs")
 # The pseudo-flag a case names to run CoreTests instead of the host exe. Its marker is None.
 CORETESTS = "CORETESTS"
+
+# The Shimeji converter is a third runner: the gate's last two steps build tools\ShimejiConvert and run its
+# `verify` and `selftest` verbs, and the emitter under test (tools\ShimejiConvert.Engine) is also
+# source-linked into PetStudio. The engine DLL as copied into the CLI's output by its ProjectReference is
+# the artefact: an engine edit recompiles the engine, not the CLI, so ShimejiConvert.exe's timestamp does
+# not move and only that copy proves the mutated code is what the run loaded (lane fix/followups).
+SHIMEJI_CSPROJ = os.path.join(REPO, "tools", "ShimejiConvert", "ShimejiConvert.csproj")
+SHIMEJI_EXE = os.path.join(REPO, "tools", "ShimejiConvert", "bin", "Release", "ShimejiConvert.exe")
+SHIMEJI_ENGINE_DLL = os.path.join(REPO, "tools", "ShimejiConvert", "bin", "Release", "ShimejiConvert.Engine.dll")
+PET_EMITTER = os.path.join(REPO, "tools", "ShimejiConvert.Engine", "Emit", "PetEmitter.cs")
+# The pseudo-flag a case names to run the converter's selftest verb. Its marker is None.
+SHIMEJI = "SHIMEJI"
 
 TEMP = os.environ.get("TEMP", ".")
 # One private TEMP per harness run, created in main() and handed to every child through its environment
@@ -433,11 +451,14 @@ CASES = (
      CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
      CORETESTS, None, "ModuleKit recording host"),
 
+    # Re-pointed 2026-09-30 by lane fix/followups: the recorded lists are appended under a lock into private
+    # fields (N-remembrance-01), so the `OpenedLinks.Add` shape matched 0 times. Same regression, same
+    # expected assertion.
     ("RecordingHost.OpenLink stops refusing a module without Network",
      os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "Testing", "RecordingHost.cs"),
      b"            if (Refuses(ModulePermissions.Network)) return false;\n"
-     b"            OpenedLinks.Add(httpsUrl ?? \"\");",
-     b"            OpenedLinks.Add(httpsUrl ?? \"\");",
+     b"            lock (_recordSync) _openedLinks.Add(httpsUrl ?? \"\");",
+     b"            lock (_recordSync) _openedLinks.Add(httpsUrl ?? \"\");",
      CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
      CORETESTS, None, "ModuleKit recording host"),
 
@@ -1001,9 +1022,11 @@ CASES = (
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
      "a refused cadence tick leaves the phase where it was"),
 
+    # Re-pointed 2026-09-30 by lane fix/followups: Start() adopts the key's state (variant C, N-blinkingled-01),
+    # so the variant-B reconciliation line matched 0 times. Same regression, same expected assertion.
     ("Start() zeroes the phase against a key it lit again (the 1.0.5 shape)",
      SCROLLLOCK_BLINKER,
-     b"            try { if (_phaseOn && !ScrollLockReader()) _phaseOn = false; } catch { }",
+     b"            try { _phaseOn = ScrollLockReader(); } catch { }",
      b"            _phaseOn = false;",
      BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
@@ -1017,15 +1040,17 @@ CASES = (
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
      "arms the LIT phase's interval"),
 
-    # The design rule Stop() states (our belief AND the hardware) applied to Start(): a lit key the
-    # blinker never lit is not adopted.
-    ("Start() adopts a lit key it never lit",
+    # Inverted 2026-09-30 by lane fix/followups. This case used to put ADOPTION in as the mutation and expect
+    # "does not adopt a lit key it never lit"; the coordinator chose that adoption (variant C, N-blinkingled-01),
+    # so the regression is now the 1.0.6 first cut coming back: a lit key the blinker never lit is left
+    # un-adopted and the cadence starts inverted.
+    ("Start() stops adopting a lit key it never lit (the 1.0.6 first cut)",
      SCROLLLOCK_BLINKER,
-     b"            try { if (_phaseOn && !ScrollLockReader()) _phaseOn = false; } catch { }",
      b"            try { _phaseOn = ScrollLockReader(); } catch { }",
+     b"            try { if (_phaseOn && !ScrollLockReader()) _phaseOn = false; } catch { }",
      BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
      "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
-     "does not adopt a lit key it never lit"),
+     "Start() adopts a lit key it never lit"),
 
     ("Stop() zeroes the belief after a refused corrective toggle",
      SCROLLLOCK_BLINKER,
@@ -2178,6 +2203,116 @@ CASES = (
      "does not serve the previous target's events as healthy"),
 
 
+    # ---- lane fix/followups ----
+    # The N-* items other lanes filed and could not fix (their file was outside the lane). Every case names
+    # the csproj that compiles the code under test and the artefact that run loads, so a stale DLL cannot
+    # score a mutation as survived. Named "followups: ..." so one --only=followups: run covers the lane.
+
+    # N-gates-01: the MoveFileEx fallback is handed the plain path again, which Win32 refuses past MAX_PATH
+    # in a process that has not opted into long paths (this one has not). One case per twin; the CoreTests
+    # group forces the fallback through the File.Replace seam at a 400-character path and names the twin
+    # that lost the file. ModuleKit's copy lands in the CoreTests output through its ProjectReference, so
+    # that copy is the artefact; the host twin compiles into CoreTests itself.
+    ("followups: ModuleKit's MoveFileEx fallback drops the long-path form",
+     MODULEKIT_ATOMIC,
+     b"            if (!MoveFileEx(ExtendedLengthPath(temporaryPath), ExtendedLengthPath(destinationPath),",
+     b"            if (!MoveFileEx(temporaryPath, destinationPath,",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "ModuleKit AtomicFile: the MoveFileEx fallback threw past MAX_PATH"),
+
+    ("followups: the host twin's MoveFileEx fallback drops the long-path form",
+     APPSETTINGS_STORE,
+     b"                    ExtendedLengthPath(temporaryPath),",
+     b"                    temporaryPath,",
+     CORETESTS_CSPROJ, CORETESTS_DLL,
+     CORETESTS, None, "host AtomicFile (AppSettingsStore.cs): the MoveFileEx fallback threw past MAX_PATH"),
+
+    # N-remembrance-01: the recorded lists are handed out live again. The CoreTests group holds a view,
+    # appends through the host, and requires the view's count not to move.
+    ("followups: RecordingHost hands out its live SaidLines list again",
+     MODULEKIT_RECORDING_HOST,
+     b"        public List<string> SaidLines { get { lock (_recordSync) return new List<string>(_saidLines); } }",
+     b"        public List<string> SaidLines { get { return _saidLines; } }",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "A list handed to a test moved under it"),
+
+    # N-blinkingled-02: a failed Save() keeps the unsaved values again, the shape the fake shipped with. Two
+    # checks see it: the fake's own contract in CoreTests, and BlinkingLed's strengthened F110 check, which
+    # reads the settings back after a tray pick whose write failed and requires the old values.
+    ("followups: the fake settings keep a failed Save()'s values again (CoreTests)",
+     MODULEKIT_FAKES,
+     b"            if (FailSaves) { RevertToSaved(); return false; }",
+     b"            if (FailSaves) { return false; }",
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "A failed Save() kept the unsaved value"),
+
+    ("followups: the fake settings keep a failed Save()'s values again (BlinkingLed reads them back)",
+     MODULEKIT_FAKES,
+     b"            if (FailSaves) { RevertToSaved(); return false; }",
+     b"            if (FailSaves) { return false; }",
+     BLINKINGLED_CSPROJ, BLINKINGLED_MODULEKIT_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "leaves the saved values as they were"),
+
+    # N-aibrain-02: a module handed no storage gets the %TEMP%\DesktopAICompanion.<id> folder again, the
+    # shape the class shipped with and N-gates-02 removed from AiBrain.
+    ("followups: ModulePaths falls back to a %TEMP% folder again",
+     os.path.join(REPO, "src", "DesktopAICompanion.ModuleKit", "ModulePaths.cs"),
+     b"            if (string.IsNullOrWhiteSpace(root)) return new ModulePaths(null, moduleId);",
+     b'            if (string.IsNullOrWhiteSpace(root)) return new ModulePaths(Path.Combine(Path.GetTempPath(), "DesktopAICompanion." + moduleId), moduleId);',
+     CORETESTS_CSPROJ, CORETESTS_MODULEKIT_DLL,
+     CORETESTS, None, "A null storage produced a root"),
+
+    # N-remembrance-02: the .part is kept when the CALLER's token cancels the download, the shipped shape (only
+    # the download's own idle bound deleted it). The self-test cancels after the first chunk has landed.
+    ("followups: remembrance: a download the caller cancels keeps its .part again",
+     WHISPER_INSTALLER,
+     b"                if (!completed) TryDelete(temporary);",
+     b"                if (!completed && !cancellationToken.IsCancellationRequested) TryDelete(temporary);",
+     REMEMBRANCE_CSPROJ, REMEMBRANCE_DLL,
+     "--module-selftest=remembrance", "dp-module-remembrance-selftest.txt",
+     "a download the CALLER cancels leaves no .part behind"),
+
+    # N-blinkingled-01: Start() adopts the INVERSE of what the key reads, the purest form of the inverted
+    # cadence. The adopted-key probe's Stop() then believes it holds nothing and leaves the lit key lit.
+    ("followups: blinkingled: Start() adopts the inverse of what the key reads",
+     SCROLLLOCK_BLINKER,
+     b"            try { _phaseOn = ScrollLockReader(); } catch { }",
+     b"            try { _phaseOn = !ScrollLockReader(); } catch { }",
+     BLINKINGLED_CSPROJ, BLINKINGLED_DLL,
+     "--module-selftest=blinkingled", "dp-module-blinkingled-selftest.txt",
+     "and Stop() then clears it, so stopping always leaves the light off"),
+
+    # N-reminder-03: the two on-demand paths stop asking whether a companion is on screen, the shipped shape.
+    # `_host == null &&` keeps each guard compiling and never true after Init, with no unreachable-code
+    # warning (CS0162 would fail the module's warnings-as-errors build).
+    ("followups: reminder: 'Test this reminder' reports sent with nobody on screen again",
+     os.path.join(REPO, "modules", "Reminder", "ReminderModule.cs"),
+     b"                if (!AnyCompanionOnScreen()) return NoCompanionStatus;",
+     b"                if (_host == null && !AnyCompanionOnScreen()) return NoCompanionStatus;",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "says so instead of"),
+
+    ("followups: reminder: the Agenda click speaks into nothing again",
+     os.path.join(REPO, "modules", "Reminder", "ReminderModule.cs"),
+     b"                    if (!AnyCompanionOnScreen()) { try { _host.Log(Id, AgendaNobodyLogLine); } catch { } return; }",
+     b"                    if (_host == null && !AnyCompanionOnScreen()) { try { _host.Log(Id, AgendaNobodyLogLine); } catch { } return; }",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "the Agenda tray click with no companion on screen speaks nothing"),
+
+    # N-tools-01: a PLAYED sequence's chain step is built from a direction-collapsed member's own poses
+    # again, the shipped shape: a rightward leg over the unmirrored left-facing art, a moonwalk inside the
+    # run. EmitterSelfTest's StrollBackPlayed fixture compares the step's velocity with its survivor's.
+    ("followups: tools: a played chain step plays a collapsed member's own mirrored poses again",
+     PET_EMITTER,
+     b"                    ShimejiAction source = SurvivorOf(members[i]);",
+     b"                    ShimejiAction source = members[i];",
+     SHIMEJI_CSPROJ, SHIMEJI_ENGINE_DLL,
+     SHIMEJI, None, "moonwalks over the left-facing art"),
+
+
     # ---- lane fix/deadcode ----
 )
 
@@ -2231,6 +2366,8 @@ def selftest(flag, marker):
     """
     if flag == CORETESTS:
         return coretests()
+    if flag == SHIMEJI:
+        return shimeji_selftest()
     path = os.path.join(RUN_TEMP, marker)
     try:
         os.remove(path)
@@ -2283,6 +2420,27 @@ def coretests():
             lines.append(line)
     lines.append("RESULT=PASS" if proc.returncode == 0 else "RESULT=FAIL")
     return "\n".join(lines) + "\n", proc.returncode
+
+
+def shimeji_selftest():
+    """The converter's `selftest` verb (the gate's last step) in the marker vocabulary the ladder grades.
+
+    EngineSelfTest.RunAll prints every sub-test's detail, a failing sub-test's failures as indented
+    `FAIL <why>` lines, and then SELFTEST PASS or SELFTEST FAIL with exit 0 or 1. The indented FAIL
+    lines already read as failure lines here (the ladder strips and looks for a FAIL prefix), so a
+    case names its failure text as the expected fragment; the exit code becomes the column-0 RESULT=
+    line, which is the verb's real verdict.
+    """
+    if not os.path.isfile(SHIMEJI_EXE):
+        return None, "ShimejiConvert exe is missing: " + SHIMEJI_EXE
+    try:
+        proc = subprocess.run([SHIMEJI_EXE, "selftest"], capture_output=True, text=True, timeout=1800,
+                              env=CHILD_ENV)
+    except subprocess.TimeoutExpired:
+        return None, "ShimejiConvert selftest did not exit in 1800s"
+    report = (proc.stdout or "") + (proc.stderr or "")
+    report += "\nRESULT=PASS\n" if proc.returncode == 0 else "\nRESULT=FAIL\n"
+    return report, proc.returncode
 
 
 def line_ending_variant(base, old, new):

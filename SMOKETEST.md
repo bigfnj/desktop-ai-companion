@@ -236,6 +236,14 @@ Run the MSI **over a running app** — that is the path that used to fail.
       (`Bash`) and ONE path segment (`my-project`), never a command and never a full path. Then open
       `diagnostics.log` and confirm the same. This reads the most sensitive files the application touches,
       and a bubble is visible to anyone standing behind you.
+- [ ] **H15. AgentFlow — the pane's reveal button and its log note.** In the AgentFlow pane's "Recently
+      auto-approved" section, the note names the diagnostics.log path for THIS install (installed:
+      `%LOCALAPPDATA%\DesktopAICompanion\diagnostics.log`; portable: `data\diagnostics.log` beside the exe),
+      and "Show this module's data folder" opens Explorer on `modules\agentflow` with `settings.json`
+      selected and the status line reads "✓ shown in Explorer". Before the first Apply it must say
+      "Nothing is saved in this module's folder yet" rather than open anything. The old button asked for
+      the log itself and was refused on every machine from 2026-09-29 until 2026-09-30 (N-host-03); no
+      automated check presses a real reveal, which is why this walk step exists.
 
 ## I. Update check (2 min)
 

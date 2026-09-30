@@ -207,7 +207,7 @@ Reference [`src/DesktopAICompanion.ModuleKit`](../src/DesktopAICompanion.ModuleK
 | `AtomicFile.TryWriteAllText` | A write that survives a crash. Returns false rather than throwing. UTF-8, no BOM. |
 | `CrossSessionLock` | Guarding a file against a second session/instance writing at the same time. |
 | `JsonSettingsStore<T>` | Structured state a settings pane can't express (lists, nested objects, a schema version). |
-| `ModulePaths` | Your data directory, from `IModuleStorage`, with a temp fallback if Storage wasn't declared. |
+| `ModulePaths` | Your data directory, from `IModuleStorage`. No temp fallback: a host that hands none gives `HasRoot == false` and a `Warning` to log, and every path member throws until a root exists. |
 | `EmbeddedResources` | Reading a file you embedded (icon, seed data), matched on the trailing name. |
 | `UnicodeTextProgress` | Advancing or clipping text without splitting a surrogate pair. |
 | `SelfTestProbe` | The PASS/FAIL/RESULT report shape the gate parses. |

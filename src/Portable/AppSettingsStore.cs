@@ -1657,11 +1657,32 @@ namespace DesktopAICompanion
             if (!string.IsNullOrEmpty(backupPath))
                 File.Copy(destinationPath, backupPath, true);
             cancellationToken.ThrowIfCancellationRequested();
+            // The extended-length form on BOTH paths, as in the ModuleKit twin (N-gates-01): a plain path
+            // past MAX_PATH is refused by the raw P/Invoke while File.Replace and File.Copy, which add the
+            // prefix themselves, accept the same path. The P/Invoke stays rather than File.Move(overwrite),
+            // which asks for MOVEFILE_COPY_ALLOWED without MOVEFILE_WRITE_THROUGH and so gives up the
+            // atomic, on-disk-before-return rename this method exists for.
             if (!MoveFileEx(
-                    temporaryPath,
-                    destinationPath,
+                    ExtendedLengthPath(temporaryPath),
+                    ExtendedLengthPath(destinationPath),
                     MoveFileReplaceExisting | MoveFileWriteThrough))
                 throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
+
+        /// <summary>
+        /// A path in the extended-length form Win32 accepts past MAX_PATH: <c>\\?\C:\...</c>, or
+        /// <c>\\?\UNC\server\share\...</c> for a network path; a device-form path is returned as it is.
+        /// The prefix switches Win32's normalisation off, so the path is fully qualified first.
+        /// </summary>
+        private static string ExtendedLengthPath(string path)
+        {
+            string full = Path.GetFullPath(path);
+            if (full.StartsWith(@"\\?\", StringComparison.Ordinal) ||
+                full.StartsWith(@"\\.\", StringComparison.Ordinal))
+                return full;
+            if (full.StartsWith(@"\\", StringComparison.Ordinal))
+                return @"\\?\UNC\" + full.Substring(2);
+            return @"\\?\" + full;
         }
 
         public static bool TryWriteAllText(string path, string contents, string backupPath)
