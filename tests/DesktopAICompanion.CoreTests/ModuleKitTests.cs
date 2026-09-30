@@ -7,8 +7,10 @@ using DesktopAICompanion.ModuleKit;
 using DesktopAICompanion.ModuleKit.Testing;
 using DesktopAICompanion.Modules;
 // ALIASES, NOT SIMPLE NAMES. This harness compiles src\Portable\AppSettingsStore.cs and
-// src\dotNet\RuntimeGeometry.cs into itself, and each declares a same-named production twin in the
-// enclosing namespace (DesktopAICompanion.AtomicFile, DesktopAICompanion.UnicodeTextProgress). C#
+// src\dotNet\RuntimeGeometry.cs into itself, and RuntimeGeometry.cs declares a same-named production
+// twin in the enclosing namespace (DesktopAICompanion.UnicodeTextProgress; AppSettingsStore.cs declared
+// DesktopAICompanion.AtomicFile until F358, 2026-09-30, when the host started compiling ModuleKit's
+// AtomicFile.cs by source link, so that twin no longer exists). C#
 // resolves a simple name against the enclosing namespace BEFORE the compilation unit's using
 // directives, so inside `namespace DesktopAICompanion` the bare names bound to the twins compiled
 // here -- silently, with no warning (CS0436 needs identical fully-qualified names) -- and two of the
@@ -17,9 +19,6 @@ using DesktopAICompanion.Modules;
 // asserts the assembly it landed in, so the next same-named type cannot rebind them in silence.
 using KitAtomicFile = DesktopAICompanion.ModuleKit.AtomicFile;
 using KitUnicode = DesktopAICompanion.ModuleKit.UnicodeTextProgress;
-// The host's twin, compiled INTO this harness from src\Portable\AppSettingsStore.cs, named explicitly for
-// the one group that tests both copies side by side (N-gates-01).
-using HostAtomicFile = DesktopAICompanion.AtomicFile;
 
 namespace DesktopAICompanion
 {
@@ -70,13 +69,14 @@ namespace DesktopAICompanion
                     "A temp file survived an atomic write: " + leftover);
         }
 
-        /// <summary>The shape both twins' ReplaceExisting share, so one driver exercises each.</summary>
+        /// <summary>The shape of AtomicFile.ReplaceExisting, so one driver exercises it at both path lengths.</summary>
         private delegate void ReplaceExistingDelegate(string temporaryPath, string destinationPath,
             string backupPath, System.Threading.CancellationToken cancellationToken,
             Action<string, string, string, bool> replaceFile);
 
         /// <summary>
-        /// The MoveFileEx fallback of BOTH AtomicFile twins past MAX_PATH (N-gates-01), reached through the
+        /// The MoveFileEx fallback of AtomicFile past MAX_PATH (N-gates-01; until F358 the host carried a twin
+        /// copy, exercised here side by side, and now compiles this same file), reached through the
         /// test seam that refuses File.Replace, the way the Fortunes VectorCache probe reaches it. The raw
         /// P/Invoke was handed the plain path and failed with ERROR_FILENAME_EXCED_RANGE once that path passed
         /// 260 characters, while File.Replace on the happy path accepted the same path, so the fallback was
@@ -88,8 +88,6 @@ namespace DesktopAICompanion
         {
             AssertEqual(ModuleKitAssemblyName, typeof(KitAtomicFile).Assembly.GetName().Name,
                 "This group bound to an AtomicFile outside ModuleKit.dll, so it would test the wrong copy.");
-            AssertEqual(typeof(Program).Assembly.GetName().Name, typeof(HostAtomicFile).Assembly.GetName().Name,
-                "The host twin did not bind to the copy compiled into this harness.");
 
             // Past MAX_PATH on the directory alone, whatever TEMP the harness runs under: the shortest
             // realistic one (C:\Users\x\AppData\Local\Temp) is 30 characters, and this adds 300.
@@ -104,9 +102,7 @@ namespace DesktopAICompanion
 
             // WITNESS first: the forced fallback at a short path, which is where it has always worked.
             RunForcedFallbackReplace(shortDirectory, "ModuleKit AtomicFile", KitAtomicFile.ReplaceExisting);
-            RunForcedFallbackReplace(shortDirectory, "host AtomicFile (AppSettingsStore.cs)", HostAtomicFile.ReplaceExisting);
             RunForcedFallbackReplace(longDirectory, "ModuleKit AtomicFile", KitAtomicFile.ReplaceExisting);
-            RunForcedFallbackReplace(longDirectory, "host AtomicFile (AppSettingsStore.cs)", HostAtomicFile.ReplaceExisting);
         }
 
         private static void RunForcedFallbackReplace(string directory, string twin, ReplaceExistingDelegate replace)
