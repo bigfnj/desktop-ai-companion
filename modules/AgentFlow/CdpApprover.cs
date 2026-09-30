@@ -33,6 +33,15 @@ namespace DesktopAICompanion.AgentFlow
         /// and never a person. Computed in the renderer precisely so the path stays there.
         /// </summary>
         public string PathExtension = "";
+        /// <summary>
+        /// The card's IDENTITY: eight hex digits of a 32-bit FNV-1a over the card's visible text with
+        /// the option buttons removed, computed in the renderer. Empty when the reader could not hash.
+        /// The HASH crosses the wire; the text never does, so this is as safe to hold as the extension.
+        /// It is what tells "the same card is still here" from "an identical-looking new card": the
+        /// repeat guard keys on it (RA-023, RA-049) and so does the screen one-shot (RA-022). Never
+        /// logged; it is an identity, not a description.
+        /// </summary>
+        public string Fingerprint = "";
         public List<string> Options = new List<string>();
         /// <summary>Options the UI itself has disabled. Never pressable, whatever they say.</summary>
         public List<bool> Disabled = new List<bool>();
@@ -172,6 +181,21 @@ namespace DesktopAICompanion.AgentFlow
   // The bare webview shell is eight elements. A panel with any conversation in it is thousands.
   // Anything under this floor means the content was not reachable, not that it was empty.
   var MinElements = 30;
+  // A card's IDENTITY without its text: the card's visible text with one subtree dropped (the option
+  // buttons, which travel as options already), hashed to eight hex digits of 32-bit FNV-1a. The hash
+  // crosses the wire; the text never does. Math.imul keeps the multiply in 32 bits, where a plain `*`
+  // would lose low bits past 2^53. See PromptView.Fingerprint.
+  function cardText(root, dropSelector) {
+    var clone = root.cloneNode(true);
+    var drop = clone.querySelectorAll(dropSelector);
+    for (var di = 0; di < drop.length; di++) drop[di].parentNode.removeChild(drop[di]);
+    return (clone.textContent || '').replace(/\s+/g, ' ').trim();
+  }
+  function fingerprint(s) {
+    var h = 0x811c9dc5;
+    for (var i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0;
+    return ('0000000' + h.toString(16)).slice(-8);
+  }
 ";
 
         private const string ReadExpression = @"
@@ -184,7 +208,9 @@ namespace DesktopAICompanion.AgentFlow
   // not be reported as an idle editor. See ReadOutcome.Blind.
   var bc = c.querySelector('[class*=""buttonContainer""]');
   if (!bc) return 'blind';
-  var out = { tool: '', header: '', ext: '', options: [], disabled: [] };
+  var out = { tool: '', header: '', ext: '', fp: '', options: [], disabled: [] };
+  // Identity first, and never fatal: a card whose text cannot be hashed is still a card with options.
+  try { out.fp = fingerprint(cardText(c, '[class*=""buttonContainer""]')); } catch (e) { out.fp = ''; }
   var hd = c.querySelector('[class*=""permissionRequestHeader""]');
   if (hd) {
     var st = hd.querySelector('strong');
@@ -284,7 +310,9 @@ namespace DesktopAICompanion.AgentFlow
   var form = card.querySelector('form');
   if (!form) return 'blind';
   var trigger = form.querySelector('button[aria-label=""Approval options""]');
-  var out = { tool: '', header: '', ext: '', options: [], disabled: [] };
+  var out = { tool: '', header: '', ext: '', fp: '', options: [], disabled: [] };
+  // The card minus its form: the command body and header are the identity, the buttons are the options.
+  try { out.fp = fingerprint(cardText(card, 'form')); } catch (e) { out.fp = ''; }
   var btns = form.querySelectorAll('button');
   for (var i = 0; i < btns.length; i++) {
     var b = btns[i];
@@ -622,6 +650,7 @@ namespace DesktopAICompanion.AgentFlow
                         ToolName = Str(root, "tool"),
                         UnsafeHeader = Str(root, "header"),
                         PathExtension = Str(root, "ext"),
+                        Fingerprint = Str(root, "fp"),
                     };
                     JsonElement options;
                     if (!root.TryGetProperty("options", out options)

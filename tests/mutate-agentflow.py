@@ -1131,6 +1131,41 @@ CASES = (
         "                if (unpressed.Count >= 1) return unpressed[0];",
         "two unpressed prompts announce as one notice naming both subjects",
     ),
+    (
+        # RA-049: 1.4.0 cleared the repeat counter on every 'clicked', so a card that stays after a click --
+        # the loop the guard exists for -- was re-clicked every tick with no stand-down. Put the clear back.
+        "burn: a confirmed click clears the repeat counter again",
+        MODULE,
+        "            pressed = string.Equals(outcome, \"clicked\", StringComparison.Ordinal);\n",
+        "            pressed = string.Equals(outcome, \"clicked\", StringComparison.Ordinal);\n            if (pressed && budget != null) budget.NotePromptCleared();\n",
+        "a card that stays after a confirmed click stands the module down after three presses",
+    ),
+    (
+        # RA-023: the card's fingerprint is what tells two same-labelled prompts apart in the press signature.
+        "burn: the press signature ignores the card's fingerprint",
+        BUDGETPRESS,
+        "            if (!string.IsNullOrEmpty(fingerprint)) { text.Append('\\u001F'); text.Append(fingerprint); }",
+        "            if (fingerprint == null && fingerprint != null) { text.Append('\\u001F'); text.Append(fingerprint); }",
+        "two prompts with the same labels and different cards are different prompts",
+    ),
+    (
+        # RA-022: the screen one-shot keyed on agent + labels alone, so a same-labelled prompt on a new card
+        # arriving within a tick was never announced.
+        "burn: the screen one-shot ignores the card's fingerprint",
+        MODULE,
+        "                return view.Agent + \"|\" + view.Fingerprint + \"|\" + string.Join(\"|\", view.Options);",
+        "                return view.Agent + \"|\" + string.Join(\"|\", view.Options);",
+        "a same-labelled prompt on a different card is a different screen prompt",
+    ),
+    (
+        # The Claude reader stops emitting the fingerprint at all; the source-text witness is what notices,
+        # since the fake serves canned JSON and cannot run the JavaScript.
+        "burn: the Claude reader stops fingerprinting the card",
+        CDP,
+        "  try { out.fp = fingerprint(cardText(c, '[class*=\"\"buttonContainer\"\"]')); } catch (e) { out.fp = ''; }",
+        "  out.fp = '';",
+        "both readers fingerprint the card without its buttons",
+    ),
     # ---- lane fix/deadcode ----
     # F047: the detailed split's separators were produced and read by nothing; the splitter self-test
     # now pins them. F048: FakeCdpServer serves connections concurrently, so the WIRE press case runs

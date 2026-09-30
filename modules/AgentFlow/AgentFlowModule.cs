@@ -186,6 +186,11 @@ namespace DesktopAICompanion.AgentFlow
                                  //         standing refusal on one webview no longer starves the next one's
                                  //         approvals and announcements, and every refusal read reaches the
                                  //         log; the per-prompt decision is a SweepPass the self-test drives.
+                                 //         Both readers fingerprint the card (a hash, never its text); the
+                                 //         press signature and the screen one-shot carry it, so two cards
+                                 //         with the same labels are two prompts, and a confirmed click no
+                                 //         longer clears the repeat counter, so a card that stays after a
+                                 //         click stands the module down as the guard always claimed.
                                  // 1.4.11: the options pane no longer probes VS Code's setup on the UI
                                  //         thread. The doc said the cold path was only between Init and
                                  //         the first tick, but OnTick returns before the probe when the
@@ -878,7 +883,10 @@ namespace DesktopAICompanion.AgentFlow
             if (budget != null)
             {
                 string refusal;
-                if (!budget.TryPress(PressBudget.Signature(view.ToolName, view.Options),
+                // The CARD is part of the identity (RA-023): two prompts whose labels sign alike --
+                // every compound-command prompt is `Bash|Yes|No` -- are two prompts when they are two
+                // cards, and one prompt pressed twice when the same card is still there.
+                if (!budget.TryPress(PressBudget.Signature(view.ToolName, view.Options, view.Fingerprint),
                                      DateTime.UtcNow, out refusal))
                     return refusal;
             }
@@ -886,13 +894,11 @@ namespace DesktopAICompanion.AgentFlow
             string outcome = CdpApprover.Click(port, view.TargetId, decision.Index,
                                                decision.ChosenRaw, 1500, view.Agent);
             pressed = string.Equals(outcome, "clicked", StringComparison.Ordinal);
-            // A click the CDP layer CONFIRMED is the direct evidence that this prompt is gone, so
-            // the next identical-looking one is a different prompt rather than the same one
-            // refusing to close. Without this the repeat guard counted three distinct
-            // compound-command prompts -- which all sign as `Bash|Yes|No`, having no wider-grant
-            // row to tell them apart -- as one prompt pressed three times, and latched the module
-            // off in the middle of ordinary work. See PressBudget.NotePromptCleared.
-            if (pressed && budget != null) budget.NotePromptCleared();
+            // No NotePromptCleared on 'clicked' (RA-049). A click that ran is not evidence that the
+            // card went away, and the card that stays after a click is the loop the repeat guard
+            // exists to catch; clearing here made that case unreachable from 1.4.0 on. The
+            // fingerprint in the signature is what tells the 1.4.0 collision apart now, and the
+            // sweep that finds nothing is the one clear left. See PressBudget.NotePromptCleared.
             return "auto-approve " + outcome + " for " + DescribeSubject(view)
                    + ": " + decision.Reason;
         }
@@ -2168,12 +2174,15 @@ namespace DesktopAICompanion.AgentFlow
             /// </summary>
             public string Notice;
 
-            /// <summary>The identity of a prompt on screen: the agent and its option labels, so the same
-            /// prompt seen ten seconds later is the same prompt and a different one announces.</summary>
+            /// <summary>The identity of a prompt on screen: the agent, the card's fingerprint and its
+            /// option labels, so the same prompt seen ten seconds later is the same prompt and a different
+            /// one announces. The fingerprint is what makes a same-labelled prompt on a NEW card a
+            /// different prompt (RA-022): keyed on labels alone, Codex asking twice in a row was
+            /// announced once and left to the transcript path's 180 s, with no log line.</summary>
             internal static string SignatureFor(PromptView view)
             {
                 if (view == null) return "";
-                return view.Agent + "|" + string.Join("|", view.Options);
+                return view.Agent + "|" + view.Fingerprint + "|" + string.Join("|", view.Options);
             }
 
             /// <summary>
@@ -4395,6 +4404,29 @@ namespace DesktopAICompanion.AgentFlow
                 padded != null && padded.Disabled.Count == padded.Options.Count
                 && padded.Disabled[0] && !padded.Disabled[1]);
 
+            // The card's identity (RA-022, RA-023, RA-049): read off the reply, empty when absent, and
+            // what separates two same-labelled prompts on two cards in both the press signature and the
+            // screen one-shot.
+            PromptView cardA = CdpApprover.Parse("t1",
+                "{\"tool\":\"Bash\",\"fp\":\"0000000a\",\"options\":[\"Yes\",\"No\"]}");
+            PromptView cardB = CdpApprover.Parse("t1",
+                "{\"tool\":\"Bash\",\"fp\":\"0000000b\",\"options\":[\"Yes\",\"No\"]}");
+            probe.Check("reads the card's fingerprint off a CDP reply, and an absent one as empty",
+                cardA != null && cardA.Fingerprint == "0000000a" && view.Fingerprint == "");
+            probe.Check("WITNESS a same-labelled prompt on a different card is a different screen prompt, so the one-shot announces it",
+                ScreenPrompt.SignatureFor(cardA) != ScreenPrompt.SignatureFor(cardB)
+                && ScreenPrompt.SignatureFor(cardA).IndexOf("0000000a", StringComparison.Ordinal) >= 0);
+            probe.Check("...and a prompt with different labels is a different screen prompt whatever its card",
+                ScreenPrompt.SignatureFor(cardA) != ScreenPrompt.SignatureFor(CdpApprover.Parse("t1",
+                    "{\"tool\":\"Bash\",\"fp\":\"0000000a\",\"options\":[\"Yes\",\"Yes, and don't ask again\",\"No\"]}")));
+            string claudeReader = CdpApprover.ReadExpressionForSelfTest;
+            string codexReader = CdpApprover.CodexReadExpressionForSelfTest;
+            probe.Check("WITNESS both readers fingerprint the card without its buttons, so a hash and never the card's text crosses the wire",
+                claudeReader.IndexOf("out.fp = fingerprint(cardText(c, '[class*=\"buttonContainer\"]'))", StringComparison.Ordinal) >= 0
+                && codexReader.IndexOf("out.fp = fingerprint(cardText(card, 'form'))", StringComparison.Ordinal) >= 0
+                && claudeReader.IndexOf("function fingerprint(s)", StringComparison.Ordinal) >= 0
+                && claudeReader.IndexOf("Math.imul(", StringComparison.Ordinal) >= 0);
+
             probe.Check("malformed JSON is no answer, not a crash",
                 CdpApprover.Parse("t1", "{not json") == null);
             probe.Check("a reply with no options array is no answer",
@@ -4527,6 +4559,60 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("WIRE a pressing sweep attached twice and evaluated twice: once to read, once to click",
                     pressable.AttachCount == 2 && pressable.EvaluateCount == 2);
                 probe.Check("WIRE sawPanel stays TRUE after a real press", sawPanelAfterPress);
+            }
+
+            // RA-049: a card that STAYS after a confirmed click is the loop the repeat guard exists for, and
+            // 1.4.0 made it unreachable by clearing the counter on every 'clicked'. With the card's
+            // fingerprint in the signature the counter runs; the sweep that finds nothing is the one clear
+            // left. Real clicks over the wire, so 'clicked' is the CDP layer's answer and not a stub's.
+            const string PromptJsonFp = "{\"tool\":\"Bash\",\"header\":\"ls\",\"ext\":\"\",\"fp\":\"0badf00d\","
+                                        + "\"options\":[\"Yes\",\"No\"]}";
+            using (var wedged = new FakeCdpServer(new[]
+            {
+                new FakeCdpServer.Target
+                {
+                    Id = "claude-1", Url = claudeUrl, EvaluateResult = PromptJsonFp, ClickResult = "clicked",
+                },
+            }))
+            {
+                PromptView card = CdpApprover.Parse("claude-1", PromptJsonFp);
+                card.Agent = CdpApprover.AgentClaude;
+                var stuckBudget = new PressBudget();
+                int landed = 0;
+                bool pressedNow;
+                for (int i = 0; i < PressBudget.MaxIdenticalPresses; i++)
+                    if (Decide(wedged.Port, card, stuckBudget, false, false, out pressedNow) != null && pressedNow) landed++;
+                probe.Check("WITNESS the same card is pressed up to the repeat cap, each click confirmed over the wire",
+                    landed == PressBudget.MaxIdenticalPresses);
+                string stood = Decide(wedged.Port, card, stuckBudget, false, false, out pressedNow);
+                probe.Check("WIRE a card that stays after a confirmed click stands the module down after three presses",
+                    !pressedNow && stood != null
+                    && stood.IndexOf("standing down", StringComparison.Ordinal) >= 0
+                    && stood.IndexOf("still there", StringComparison.Ordinal) >= 0);
+                // The 1.4.0 collision, kept: four same-labelled prompts on four DIFFERENT cards are four
+                // prompts, and none of them is the loop.
+                var runBudget = new PressBudget();
+                int through = 0;
+                foreach (string fp in new[] { "00000001", "00000002", "00000003", "00000004" })
+                {
+                    PromptView next = CdpApprover.Parse("claude-1", PromptJsonFp.Replace("0badf00d", fp));
+                    next.Agent = CdpApprover.AgentClaude;
+                    Decide(wedged.Port, next, runBudget, false, false, out pressedNow);
+                    if (pressedNow) through++;
+                }
+                probe.Check("WITNESS four same-labelled prompts on four different cards are four prompts, and every one is pressed",
+                    through == PressBudget.MaxIdenticalPresses + 1);
+                // ...and a card that goes away between clicks (a sweep that found nothing) never trips it.
+                var clearedBudget = new PressBudget();
+                int afterClears = 0;
+                for (int i = 0; i < PressBudget.MaxIdenticalPresses + 1; i++)
+                {
+                    Decide(wedged.Port, card, clearedBudget, false, false, out pressedNow);
+                    if (pressedNow) afterClears++;
+                    clearedBudget.NotePromptCleared();
+                }
+                probe.Check("...while the same card seen again after an empty sweep is a new prompt and never trips the cap",
+                    afterClears == PressBudget.MaxIdenticalPresses + 1);
             }
 
             // An idle editor: reachable, nothing waiting. sawPanel must be true -- the panel WAS
@@ -5122,6 +5208,14 @@ namespace DesktopAICompanion.AgentFlow
             probe.Check("WITNESS two Bash prompts with different options are different prompts",
                 PressBudget.Signature("Bash", new[] { "Yes", "Yes, allow Bash(npm test)" })
                 != PressBudget.Signature("Bash", new[] { "Yes", "Yes, allow Bash(npm run lint)" }));
+            // RA-023: the CARD is part of the identity. Two prompts whose labels sign alike are two prompts
+            // when they are two cards, which is what every compound-command prompt needs (all `Bash|Yes|No`).
+            probe.Check("WITNESS two prompts with the same labels and different cards are different prompts",
+                PressBudget.Signature("Bash", new[] { "Yes", "No" }, "0000000a")
+                != PressBudget.Signature("Bash", new[] { "Yes", "No" }, "0000000b"));
+            probe.Check("...the fingerprint travels as a fourth control-separated part, and no fingerprint leaves the label-only signature",
+                PressBudget.Signature("Bash", new[] { "Yes", "No" }, "0000000a").Split((char)0x1F).Length == 4
+                && PressBudget.Signature("Bash", new[] { "Yes", "No" }, "") == same);
             // ⚠ THIS PAIR OF LINES USED TO PIN THE BUG AS CORRECT BEHAVIOUR. The second one
             // read "...and the identical prompt is the same prompt" and asserted that
             // Signature("Bash", {Yes, No}) equals itself -- which is both unfalsifiable and, worse,

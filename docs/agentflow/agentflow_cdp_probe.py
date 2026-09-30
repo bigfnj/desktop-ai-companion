@@ -48,6 +48,17 @@ DOCUMENT_PRELUDE = r"""
     return { doc: best, elements: bestCount };
   }
   var MinElements = 30;
+  function cardText(root, dropSelector) {
+    var clone = root.cloneNode(true);
+    var drop = clone.querySelectorAll(dropSelector);
+    for (var di = 0; di < drop.length; di++) drop[di].parentNode.removeChild(drop[di]);
+    return (clone.textContent || '').replace(/\s+/g, ' ').trim();
+  }
+  function fingerprint(s) {
+    var h = 0x811c9dc5;
+    for (var i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619) >>> 0;
+    return ('0000000' + h.toString(16)).slice(-8);
+  }
 """
 
 CLAUDE_READ = "(function () {" + DOCUMENT_PRELUDE + r"""
@@ -57,7 +68,8 @@ CLAUDE_READ = "(function () {" + DOCUMENT_PRELUDE + r"""
   if (!c) return 'none';
   var bc = c.querySelector('[class*="buttonContainer"]');
   if (!bc) return 'blind';
-  var out = { tool: '', header: '', ext: '', options: [], disabled: [] };
+  var out = { tool: '', header: '', ext: '', fp: '', options: [], disabled: [] };
+  try { out.fp = fingerprint(cardText(c, '[class*="buttonContainer"]')); } catch (e) { out.fp = ''; }
   var hd = c.querySelector('[class*="permissionRequestHeader"]');
   if (hd) {
     var st = hd.querySelector('strong');
@@ -93,7 +105,8 @@ CODEX_READ = "(function () {" + DOCUMENT_PRELUDE + r"""
   var form = card.querySelector('form');
   if (!form) return 'blind';
   var trigger = form.querySelector('button[aria-label="Approval options"]');
-  var out = { tool: '', header: '', ext: '', options: [], disabled: [] };
+  var out = { tool: '', header: '', ext: '', fp: '', options: [], disabled: [] };
+  try { out.fp = fingerprint(cardText(card, 'form')); } catch (e) { out.fp = ''; }
   var btns = form.querySelectorAll('button');
   for (var i = 0; i < btns.length; i++) {
     var b = btns[i];
@@ -140,6 +153,10 @@ LOAD_BEARING = [
     # because every substring it knew about was still there. A drift guard is only as
     # good as the list, so anything the copies are supposed to mirror belongs in it.
     "return 'blind'",
+    # The card fingerprint both readers emit since the 2026-09-30 burn-down (RA-022/RA-023/RA-049):
+    # a hash of the card's text with the buttons dropped, never the text. The probe prints it beside
+    # the options so a live prompt shows whether two ticks saw one card or two.
+    "out.fp = fingerprint(cardText(",
 ]
 
 

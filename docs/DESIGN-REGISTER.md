@@ -960,6 +960,24 @@ subject, keyed on the sorted set, so the once-per-prompt guard re-arms when the 
 the first-listed prompt, the old behaviour, was the same starvation in the other channel and was not kept.
 The string-only `Sweep` overloads survive for the assertions and read every note as a refusal.
 
+**The card's fingerprint is the prompt's identity, and a confirmed click no longer clears the repeat guard
+(2026-09-30, RA-022, RA-023, RA-049).** Both read expressions hash the card's visible text with the option
+buttons removed (32-bit FNV-1a, eight hex digits, computed in the renderer) and the hash alone crosses the
+wire; the press signature and the screen one-shot carry it. 1.4.0's clear-on-'clicked' was fixing three
+different compound-command prompts signing alike (`Bash|Yes|No`) and latching the module off, but it did so
+by reading a click that ran as proof the card went away, which made the loop the guard exists for (the
+click runs, the card stays) unreachable: a wedged card was re-clicked and logged every ten seconds with no
+stand-down. Identity is the signature's job, so the fingerprint carries it and the clear goes; the sweep
+that finds nothing is the one clear left. Accepted cost, stated at both sites: three identical retries of
+one command inside thirty seconds, each genuinely answered, read as one wedged card and stand the module
+down until the switch moves (the refusal says how), and an empty sweep between them clears it. Rejected:
+re-reading the card straight after the click to confirm it went, because the renderer re-renders
+asynchronously and a read a few milliseconds later can still see the old card, which would count working
+clicks as stuck. Not verified against a live editor in this lane (no GUI work here): should a card's text
+change while it stands, the fingerprint changes with it and the guard degrades to 1.4.0's never-latch,
+never to a wrong press; `docs/agentflow/agentflow_cdp_probe.py` replays both expressions with the
+fingerprint in them, so the next live probe shows whether two ticks saw one card or two.
+
 #### fix/deadcode
 
 **A member whose only reader is a test is not dead, and what the test pins decides what happens to it
