@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Windows.Forms;
+using DesktopAICompanion.ModuleKit;   // CrossSessionLock (F358)
 
 namespace DesktopAICompanion
 {
@@ -23,7 +24,6 @@ namespace DesktopAICompanion
         public static StartUp Mainthread;
         internal static bool ResourceChurnSelfTestActive { get; private set; }
 
-#if PORTABLE
         public static LocalData MyData;
         public static string InitialXmlOverride = "";
         private static int restartRequested;
@@ -452,43 +452,10 @@ namespace DesktopAICompanion
                 1000);
         }
 
-#else
-
-        public static LocalData.LocalData MyData = null;
-
-        /// <summary>
-        /// The main entry point for the application.
-        /// </summary>
-        [STAThread]
-        static void Main(string[] args)
-        {
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-
-            MyData = new LocalData.LocalData(Windows.Storage.ApplicationData.Current.LocalFolder.Path, Application.ExecutablePath);
-
-            // Show the system tray icon.					
-            using (ProcessIcon pi = new ProcessIcon())
-            {
-                pi.Display();
-
-                Mainthread = new StartUp(pi);
-
-                // Make sure the application runs! (See AppLifetime for why it needs a main form.)
-                using (var lifetime = new AppLifetime())
-                    Application.Run(lifetime);
-            }
-        }
-#endif
-
-        /// <summary>
-        /// Check if application is started from the installation path.
-        /// </summary>
-        /// <returns>true if the executed application is installed.</returns>
-        public static bool IsApplicationInstalled()
-        {
-            return AppPaths.IsInstalled;
-        }
+        // ONE Main. The #else branch that sat here was the upstream Store build's entry point: it named a
+        // LocalData.LocalData type and Windows.Storage, neither of which exists in this repository, so it never
+        // compiled and only hid ~20 errors behind a lost DefineConstants; IsApplicationInstalled beside it had no
+        // caller (F283). The PORTABLE symbol went with them.
 
         private static string ReadBoundedUtf8File(string path, int maximumBytes)
         {
@@ -537,7 +504,6 @@ namespace DesktopAICompanion
         }
     }
 
-#if PORTABLE
     internal sealed class RuntimeResourceChurnConfiguration
     {
         internal string MarkerPath;
@@ -931,5 +897,4 @@ namespace DesktopAICompanion
             }
         }
     }
-#endif
 }

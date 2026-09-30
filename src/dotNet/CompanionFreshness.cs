@@ -153,7 +153,26 @@ namespace DesktopAICompanion
                 ReadStamp(directory));
         }
 
-        /// <summary>True when this id has a pet in the WRITABLE library (as opposed to bundled, or absent).</summary>
+        /// <summary>
+        /// The one containment check for a write into the pet library: the id must be safe and the resulting
+        /// directory must stay under <see cref="AppPaths.LibraryPetsDirectory"/>. CompanionHost (module installs)
+        /// and the Companions pane (downloads) each carried a copy, already apart in their message text (F337),
+        /// and a hardening applied to one copy and not the other is how a containment check drifts.
+        /// </summary>
+        internal static string SafeLibraryDirectory(string id)
+        {
+            if (!SecureDownload.IsSafeId(id)) throw new InvalidDataException("Unsafe companion id.");
+            string root = Path.GetFullPath(AppPaths.LibraryPetsDirectory)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) +
+                Path.DirectorySeparatorChar;
+            string directory = Path.GetFullPath(Path.Combine(root, id));
+            if (!directory.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("Companion path escapes the library.");
+            return directory;
+        }
+
+        /// <summary>True when this id has a pet in the WRITABLE library (as opposed to bundled, or absent). Also
+        /// the Companions pane's "may this be uninstalled" test, which used to be a private copy (F337).</summary>
         internal static bool IsInLibrary(string id)
         {
             try

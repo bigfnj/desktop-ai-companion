@@ -704,20 +704,16 @@ namespace DesktopAICompanion.Plugins
             return RaiseChain(_pokeResponders, subject, preferredModuleId, shuffle: true);
         }
         private readonly Random _random = new Random();
-        // Last successfully fetched catalog, so downloading N items after a browse doesn't re-fetch the
-        // catalog N times. Explicit-refresh only (a fresh FetchCatalogItemsAsync replaces it) — same shape
-        // as the AI brain's model-list cache, no TTL. Volatile because it is written on whichever pool
-        // thread the fetch completes on and read on the caller's; RemoteCatalog is never mutated after it
-        // is parsed, so the accepted worst case is two concurrent browses both fetching and the second
-        // write winning, the same acceptance RemoteCatalogClient.FetchSharedAsync records (F335).
-        private volatile RemoteCatalog _catalogCache;
-
+        // Both catalog verbs read RemoteCatalogClient's SHARED copy: a 90 s lifetime, the same copy the two panes
+        // read and "Check for ... online" invalidates. The host used to keep a second RemoteCatalog of its own
+        // with no TTL, so a pack re-published mid-session failed its hash check on every download until the module
+        // happened to re-browse, and the panes' explicit check could not clear it (F334). Downloading N items
+        // after a browse still fetches once: the shared copy is what the 90 s window is for.
         public async System.Threading.Tasks.Task<IReadOnlyList<CatalogItem>> FetchCatalogItemsAsync(string kind)
         {
             RemoteCatalog catalog = await RemoteCatalogClient
-                .FetchAsync(System.Threading.CancellationToken.None)
+                .FetchSharedAsync(System.Threading.CancellationToken.None)
                 .ConfigureAwait(false);
-            _catalogCache = catalog;
             var items = new List<CatalogItem>();
             if (IsPackKind(kind))
                 foreach (CatalogPack pack in catalog.Packs)
@@ -748,14 +744,9 @@ namespace DesktopAICompanion.Plugins
         {
             if (!IsPackKind(kind) && !IsPetKind(kind))
                 throw new InvalidDataException("Unknown catalog kind: " + (kind ?? ""));
-            RemoteCatalog catalog = _catalogCache;
-            if (catalog == null)
-            {
-                catalog = await RemoteCatalogClient
-                    .FetchAsync(System.Threading.CancellationToken.None)
-                    .ConfigureAwait(false);
-                _catalogCache = catalog;
-            }
+            RemoteCatalog catalog = await RemoteCatalogClient
+                .FetchSharedAsync(System.Threading.CancellationToken.None)
+                .ConfigureAwait(false);
 
             if (IsPetKind(kind))
             {
@@ -1223,7 +1214,7 @@ namespace DesktopAICompanion.Plugins
                 if (!CompanionXmlValidator.TryParse(xml, out parsed, out validationError))
                 { error = validationError; return false; }
 
-                string directory = SafeLibraryDir(typeId);
+                string directory = CompanionProvenance.SafeLibraryDirectory(typeId);
                 Directory.CreateDirectory(directory);
                 SecureDownload.WriteAllBytesAtomic(Path.Combine(directory, "animations.xml"), bytes);
                 // The file under this id is now a DIFFERENT pet (F249, F336): the name the tray shows and
@@ -1250,7 +1241,7 @@ namespace DesktopAICompanion.Plugins
             {
                 if (string.IsNullOrWhiteSpace(typeId) || !SecureDownload.IsSafeId(typeId))
                 { error = "Unsafe pet id."; return false; }
-                string directory = SafeLibraryDir(typeId);
+                string directory = CompanionProvenance.SafeLibraryDirectory(typeId);
                 if (Directory.Exists(directory)) Directory.Delete(directory, true);
                 CompanionCatalog.Forget(typeId);   // the caches hold a pet that no longer exists (F249)
                 return true;
@@ -1258,18 +1249,8 @@ namespace DesktopAICompanion.Plugins
             catch (Exception ex) { error = ex.Message; return false; }
         }
 
-        // Contain every write inside the writable pet library (mirrors CompanionsPaneControl.SafeLibraryDir).
-        private static string SafeLibraryDir(string id)
-        {
-            if (!SecureDownload.IsSafeId(id)) throw new InvalidDataException("Unsafe pet id.");
-            string root = Path.GetFullPath(AppPaths.LibraryPetsDirectory)
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) +
-                Path.DirectorySeparatorChar;
-            string directory = Path.GetFullPath(Path.Combine(root, id));
-            if (!directory.StartsWith(root, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException("Pet path escapes the library.");
-            return directory;
-        }
+        // The library containment check is CompanionProvenance.SafeLibraryDirectory, shared with the Companions pane
+        // (F337); the copy that sat here had already drifted from the pane's in its message text.
     }
 
     /// <summary>What a module without ModulePermissions.Companions gets: every verb refuses, nothing throws.</summary>

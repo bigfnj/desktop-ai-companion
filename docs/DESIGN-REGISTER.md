@@ -828,6 +828,36 @@ covers tools/ShimejiConvert, so the per-suite guard (a throwing suite is a named
 the csproj's reordered Exists() error were each mutation-tested by hand and the runs recorded in the commit message;
 N-deadcode-05 asks for the harness, N-deadcode-04 for the gate to read the SELFTEST-COUNT sentinel the CLI now prints.
 
+**The six host-side IHost fakes stay until a shared HeadlessHost base is designed (2026-09-30, F340, F349,
+ACCEPTED-RECORDED).** Six private `IHost` implementations and five `FakeCompanion` copies live in src/dotNet/Plugins,
+roughly 600 lines. They are duplication, not dead code, and their deltas are load-bearing: ConventionHost returns null
+storage and exposes `...HasSubs` observers a subclass of ModuleKit's field-like events could not read, AiBrain's fake
+carries `ClickTray`, Fortunes' carries `PaneNamed`, and DESIGN-REGISTER's existing rule keeps host-only observers off
+`ModuleKit.Testing.RecordingHost` (a ModuleKit change stales every published payload). The right shape is an internal
+abstract base in the host with virtual services and a scratch storage default, done in one pass after the storage
+defaults (F338, F341, F351) settle; this lane deleted the fakes' write-only recorders (F350) and wrote the routing
+assertion they were added for, and left the copies.
+
+**The second-tier info items of lane fix/deadcode are recorded, not worked (2026-09-30, ACCEPTED-RECORDED).**
+- F112: the tautological IsKnownRate check inside BlinkingLed's loop is one line whose comment explains itself.
+- F117: the inert LangVersion in modules/Directory.Build.props costs nothing while every module sets its own.
+- F227: three ABI members without a consumer stay as frozen contract surface (register: unexercised ABI).
+- F228: IHost.Log's thread contract is a documentation question for the ABI's owner.
+- F232: ModuleKit RecordingHost's unread observation hooks are out-of-tree surface (register).
+- F257: the triplicated window-walk P/Invokes cross a file fix/host moved this campaign (N-deadcode-07).
+- F259: DiagnosticLog.CurrentPath and the redundant WasNamed condition are two lines in a logger fix/host owns.
+- F261: pictureBox1.Tag and the empty designer click handler are designer residue with no behaviour.
+- F275: the designer placeholder label1 is a gap in a debug toolbar.
+- F277: the second Region dispose is a no-op verified on .NET 10.
+- F280: the WM_CLOSE survival assertion is a property the owner chose to pin.
+- F281: the duplicate RegisterWindowMessageW P/Invoke is one declaration.
+- F303: the HTTP stub comments cite .NET Framework transport behaviour; a comment-only edit in a security self-test the host lane owns.
+- F306: the redundant MyData null-checks and the double IsDisposed test are harmless guards.
+- F320: four staging helpers duplicated across two hand-run corpus scripts.
+- F370: the ProbeBounded comment's kernel-handle claim is wrong and the code is right.
+Each is real and each is below the line this campaign drew: no behaviour, no gate, and in five cases a file another
+lane moved this week. They stay pinned in BACKLOG.md for the next sweep with this paragraph as their reason.
+
 #### fix/scripts
 
 (none yet)

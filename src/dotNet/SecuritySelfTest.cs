@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Net;
+using DesktopAICompanion.ModuleKit;   // CrossSessionLock (F358)
 using System.Net.Http;
 using System.Text;
 using System.Text.RegularExpressions;

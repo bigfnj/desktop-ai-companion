@@ -496,13 +496,19 @@ CASES = (
         b"                    if (_target != null && _target.InvokeRequired) _target.BeginInvoke(draw);\n",
         "posted to the UI thread before the targeted-only marshal",
     ),
-    # F335: the volatile goes.
+    # F334 (replacing F335's volatile case, whose field is gone): the browse verb fetches its own copy again.
     (
-        "the shared catalog cache loses its volatile",
+        "the browse verb bypasses RemoteCatalogClient's shared copy",
         os.path.join(REPO, "src", "dotNet", "Plugins", "CompanionHost.cs"),
-        b"        private volatile RemoteCatalog _catalogCache;",
-        b"        private RemoteCatalog _catalogCache;",
-        "volatile publish",
+        b"        public async System.Threading.Tasks.Task<IReadOnlyList<CatalogItem>> FetchCatalogItemsAsync(string kind)\n"
+        b"        {\n"
+        b"            RemoteCatalog catalog = await RemoteCatalogClient\n"
+        b"                .FetchSharedAsync(System.Threading.CancellationToken.None)\n",
+        b"        public async System.Threading.Tasks.Task<IReadOnlyList<CatalogItem>> FetchCatalogItemsAsync(string kind)\n"
+        b"        {\n"
+        b"            RemoteCatalog catalog = await RemoteCatalogClient\n"
+        b"                .FetchAsync(System.Threading.CancellationToken.None)\n",
+        "read RemoteCatalogClient's shared copy",
     ),
     # F329: the third foreground read is the answer again.
     (

@@ -446,7 +446,6 @@ namespace DesktopAICompanion.Plugins
             public double Volume { get { return 0.5; } }
             public string OwnerName { get { return ""; } }
             public void SetOwnerName(string name) { }
-            public string LastSayAll;
             public readonly List<string> Said = new List<string>();   // all SayAll/Say calls (other modules speak too)
             // Both registration styles are captured, and FireDrop/FirePoke run whichever the module used, so
             // these assertions survive the module's migration to the pet-aware overloads instead of having to
@@ -482,8 +481,8 @@ namespace DesktopAICompanion.Plugins
             // Never called: it exists so HostShutdown counts as "used" under TreatWarningsAsErrors (CS0067).
             internal void TouchEvents() { HostShutdown?.Invoke(); }
 
-            public void Say(ICompanion pet, string text) { LastSayAll = text; Said.Add(text); }
-            public void SayAll(string text) { LastSayAll = text; Said.Add(text); }
+            public void Say(ICompanion pet, string text) { Said.Add(text); }
+            public void SayAll(string text) { Said.Add(text); }
             public void Say(ICompanion pet, string text, DesktopAICompanion.Modules.SpeechStyle style) { Say(pet, text); }
             public void SayAll(string text, DesktopAICompanion.Modules.SpeechStyle style) { SayAll(text); }
             public bool TryPlayAnimation(ICompanion pet, string animationName) { return true; }
@@ -533,8 +532,7 @@ namespace DesktopAICompanion.Plugins
             public bool IsDarkTheme { get { return false; } }
             public void Log(string moduleId, string message) { }
             public IReadOnlyList<string> PickFilesToOpen(string title, string fileKindLabel, IReadOnlyList<string> extensions) { return PickedFiles; }
-            public string OpenedLink;
-            public bool OpenLink(string moduleId, string httpsUrl) { OpenedLink = httpsUrl; return true; }
+            public bool OpenLink(string moduleId, string httpsUrl) { return true; }
             public void AddTrayItems(IEnumerable<TrayItem> items) { }
             // Every loaded module contributes a pane here (aibrain/testmodule too), so keep them all and
             // let the caller pick by title rather than letting the last one loaded win.

@@ -386,7 +386,7 @@ namespace DesktopAICompanion.Wpf
             catch (Exception ex)
             {
                 DiscardStaged(stagedHere);
-                if (IsLoaded) _status.Text = "Couldn't update " + module.Name + ": " + Short(ex.Message);
+                if (IsLoaded) _status.Text = "Couldn't update " + module.Name + ": " + PaneText.Short(ex.Message);
             }
             finally { if (IsLoaded) update.IsEnabled = true; }
         }
@@ -420,7 +420,7 @@ namespace DesktopAICompanion.Wpf
                 DesktopAICompanion.Plugins.PendingModuleRemovals.MarkForRemoval(id);
                 RestartToApply();
             }
-            catch (Exception ex) { _status.Text = "Couldn't uninstall " + displayName + ": " + Short(ex.Message); }
+            catch (Exception ex) { _status.Text = "Couldn't uninstall " + displayName + ": " + PaneText.Short(ex.Message); }
         }
 
         // ---- Check for modules online (catalog) ----------------------------------
@@ -445,7 +445,7 @@ namespace DesktopAICompanion.Wpf
                     (updates > 0 ? "  " + Describe(updates, "with an update") : "");
             }
             catch (OperationCanceledException) { }
-            catch (Exception ex) { if (IsLoaded) _status.Text = "Couldn't reach the catalog: " + Short(ex.Message); }
+            catch (Exception ex) { if (IsLoaded) _status.Text = "Couldn't reach the catalog: " + PaneText.Short(ex.Message); }
             finally { if (IsLoaded) _checkButton.IsEnabled = true; }
         }
 
@@ -629,7 +629,7 @@ namespace DesktopAICompanion.Wpf
             catch (Exception ex)
             {
                 DiscardStaged(stagedHere);
-                if (IsLoaded) _status.Text = "Couldn't install " + module.Name + ": " + Short(ex.Message);
+                if (IsLoaded) _status.Text = "Couldn't install " + module.Name + ": " + PaneText.Short(ex.Message);
             }
             finally { if (IsLoaded) install.IsEnabled = true; }
         }
@@ -666,13 +666,6 @@ namespace DesktopAICompanion.Wpf
             Window ownerWindow = Window.GetWindow(this);
             if (ownerWindow != null) ownerWindow.Close();
             System.Windows.Forms.Application.Exit();
-        }
-
-        private static string Short(string message)
-        {
-            if (string.IsNullOrEmpty(message)) return "";
-            message = message.Trim();
-            return message.Length > 200 ? message.Substring(0, 200) + "…" : message;
         }
     }
 }

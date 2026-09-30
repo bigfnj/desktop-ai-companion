@@ -296,7 +296,8 @@ namespace DesktopAICompanion
                 ok &= Check(sb, "...but a companion that has no animations still reports itself",
                     DiagnosticLog.IsEnabled(DiagnosticLog.Infer("No animations for this pet"), null));
 
-                // Leave it as the user would have it, so a later self-test in this process still logs.
+                // Reset to the field defaults; nothing later in this process reads them, every self-test flag
+                // ends in Environment.Exit (F346).
                 DiagnosticLog.Configure(true, 512, 2, "", "");
                 ok &= Check(sb, "collect includes the host Companions pane, alphabetized into the tail",
                     panes != null && panes.Count >= 3 && panes[2] != null && panes[2].Title == "Companions" && !panes[2].HasApply);

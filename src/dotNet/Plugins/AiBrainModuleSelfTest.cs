@@ -43,7 +43,10 @@ namespace DesktopAICompanion.Plugins
                 // Isolate: load ONLY aibrain, so the recording host reflects this module's Init alone
                 // (the shared build folder also has fortunes/sound/testmodule, which DO subscribe).
                 tempRoot = SelfTestScratch.Create("aibrain");
-                string dest = Path.Combine(tempRoot, "aibrain");
+                // Under a modules folder of its own, not the scratch root: the loader walks every child of the
+                // root it is given, and the storage folder created beside the module read as a module folder
+                // with no DLL, a "module did not load: store" line in every green transcript (F326).
+                string dest = Path.Combine(tempRoot, "modules", "aibrain");
                 SelfTestScratch.CopyTree(bundled, dest);   // subfolders included (F354)
 
                 // Isolate the module's settings store + the base->module migrator under this temp root, so
@@ -57,8 +60,10 @@ namespace DesktopAICompanion.Plugins
                 var host = new RecordingHost(storageDir);
                 using (var loader = new ModuleHost())
                 {
-                    int loaded = loader.LoadFrom(tempRoot, host, s => sb.AppendLine("  " + s));
+                    int loaded = loader.LoadFrom(Path.Combine(tempRoot, "modules"), host, s => sb.AppendLine("  " + s));
                     ok &= Check(sb, "exactly one module loaded (isolated)", loaded == 1);
+                    ok &= Check(sb, "...and the loader reports no failure (the storage folder is no longer read as a module)",
+                        loader.Failures.Count == 0);
 
                     IModule brain = FindModule(loader, "aibrain");
                     ok &= Check(sb, "aibrain module reports its id", brain != null);
@@ -283,9 +288,7 @@ namespace DesktopAICompanion.Plugins
             // Both registration styles captured, so these assertions survive the module's migration to the
             // pet-aware overloads rather than needing to change in lockstep with it.
             public Func<bool> DropResponder;
-            public Func<bool> PokeResponder;
             public Func<ICompanion, bool> PetDropResponder;
-            public Func<ICompanion, bool> PetPokeResponder;
             public bool HasDropResponder { get { return DropResponder != null || PetDropResponder != null; } }
             public bool FireDrop(ICompanion pet)
             {
@@ -320,9 +323,9 @@ namespace DesktopAICompanion.Plugins
             public IModuleStorage GetStorage(string moduleId) { return new DirStorage(_storageDir); }
             public IModuleSettings GetSettings(string moduleId) { return new MemSettings(); }
             public IDisposable RegisterDropResponder(int priority, Func<bool> onDrop) { DropResponder = onDrop; return new NoopDisposable(); }
-            public IDisposable RegisterPokeResponder(string moduleId, int priority, Func<bool> onPoke) { PokeResponder = onPoke; return new NoopDisposable(); }
+            public IDisposable RegisterPokeResponder(string moduleId, int priority, Func<bool> onPoke) { return new NoopDisposable(); }
             public IDisposable RegisterCompanionDropResponder(int priority, Func<ICompanion, bool> onDrop) { PetDropResponder = onDrop; return new NoopDisposable(); }
-            public IDisposable RegisterCompanionPokeResponder(string moduleId, int priority, Func<ICompanion, bool> onPoke) { PetPokeResponder = onPoke; return new NoopDisposable(); }
+            public IDisposable RegisterCompanionPokeResponder(string moduleId, int priority, Func<ICompanion, bool> onPoke) { return new NoopDisposable(); }
             public bool IsCompanionAlive(ICompanion pet) { return PetAlive && pet != null; }
             // Fullscreen is environmental, so a double reports "no game running" unless a test says
             // otherwise; FullscreenActive lets one say otherwise.
@@ -350,8 +353,7 @@ namespace DesktopAICompanion.Plugins
             public bool IsDarkTheme { get { return false; } }
             public void Log(string moduleId, string message) { }
             public IReadOnlyList<string> PickFilesToOpen(string title, string fileKindLabel, IReadOnlyList<string> extensions) { return PickedFiles; }
-            public string OpenedLink;
-            public bool OpenLink(string moduleId, string httpsUrl) { OpenedLink = httpsUrl; return true; }
+            public bool OpenLink(string moduleId, string httpsUrl) { return true; }
             public List<string> PickedFiles = new List<string>();
             public readonly List<TrayItem> Tray = new List<TrayItem>();
             public void AddTrayItems(IEnumerable<TrayItem> items) { if (items != null) foreach (var i in items) { TrayCount++; Tray.Add(i); } }

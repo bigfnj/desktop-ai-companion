@@ -66,6 +66,9 @@ REMINDER_DLL = os.path.join(BIN, "modules", "reminder", "Reminder.dll")
 REMINDER_PARSER = os.path.join(REPO, "modules", "Reminder", "PersonalReminderParser.cs")
 CACHING_CALENDAR_SOURCE = os.path.join(REPO, "modules", "Reminder", "CachingCalendarSource.cs")
 REMINDER_MODULE = os.path.join(REPO, "modules", "Reminder", "ReminderModule.cs")
+TESTMODULE_CS = os.path.join(REPO, "modules", "TestModule", "TestModule.cs")
+TESTMODULE_CSPROJ = os.path.join(REPO, "modules", "TestModule", "TestModule.csproj")
+TESTMODULE_DLL = os.path.join(BIN, "modules", "testmodule", "TestModule.dll")
 REMINDER_QUIET_HOURS = os.path.join(REPO, "modules", "Reminder", "QuietHours.cs")
 REMINDER_ICS = os.path.join(REPO, "modules", "Reminder", "IcsUrlSource.cs")
 AIBRAIN_CSPROJ = os.path.join(REPO, "modules", "AiBrain", "AiBrain.csproj")
@@ -2146,6 +2149,16 @@ CASES = (
      REMINDER_CSPROJ, REMINDER_DLL,
      "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
      "a signed hour is refused"),
+
+    # F350: the module-host self-test asserts the poke ROUTING (to the poked pet, not a broadcast), the property
+    # the Say/SayAll split was added for and never asserted. The test module broadcasting again is what fails it.
+    ("deadcode: the test module broadcasts a poke instead of answering the poked pet",
+     TESTMODULE_CS,
+     b"            if (info.Pet != null) _host.Say(info.Pet, \"poked!\"); else _host.SayAll(\"poked!\");",
+     b"            _host.SayAll(\"poked!\");",
+     TESTMODULE_CSPROJ, TESTMODULE_DLL,
+     "--module-host-selftest", "dp-module-host-selftest.txt",
+     "the poke was routed to the poked pet, not broadcast"),
 )
 
 BASELINES = (

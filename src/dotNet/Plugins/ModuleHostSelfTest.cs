@@ -76,7 +76,11 @@ namespace DesktopAICompanion.Plugins
                     ok &= Check(sb, "module contributed an options pane", host.OptionsPanes.Count >= 1);
 
                     host.RaiseCompanionPoked(new PokeInfo { Pet = new FakeCompanion(), PokeCount = 1 });
-                    ok &= Check(sb, "CompanionPoked event reached the module (SayAll recorded)", host.LastSayAll == "poked!");
+                    ok &= Check(sb, "CompanionPoked event reached the module (a line was spoken)", host.LastSayAll == "poked!");
+                    // The routing the Say/SayAll split was added to make assertable, and then never asserted
+                    // (F350): a poke is the poked pet's reaction, so the line goes to THAT pet, not to all of them.
+                    ok &= Check(sb, "the poke was routed to the poked pet, not broadcast",
+                        host.LastSayPet != null && host.LastSay == "poked!");
 
                     loader.ShutdownAll(s => sb.AppendLine("  " + s));
                     // After shutdown the module unsubscribes: a second poke must NOT re-trigger.
@@ -87,6 +91,7 @@ namespace DesktopAICompanion.Plugins
 
                 ok &= PaneAttribution(sb, modulesRoot);
                 ok &= MinHostVersionGate(sb, modulesRoot, scratch);
+                ok &= FailuresAreReported(sb);
                 ok &= PetManagerPermissionGate(sb);
                 ok &= PendingUpdateSwap(sb);
                 ok &= WeeklyCheckSchedule(sb);
@@ -783,8 +788,6 @@ namespace DesktopAICompanion.Plugins
             ok &= Check(sb, "gate: an unparseable HOST version never refuses anything",
                 ModuleHostRequirement.IsSatisfied("selftest", "9.9.9", out reason) && reason.Length > 0);
 
-            ok &= FailuresAreReported(sb);
-
             // Wiring: the real loader, the real testmodule (which declares MinHostVersion 1.0.0).
             if (!Directory.Exists(Path.Combine(modulesRoot, "testmodule")))
             {
@@ -971,6 +974,9 @@ namespace DesktopAICompanion.Plugins
         {
             sb.AppendLine(ok ? "RESULT=PASS" : "RESULT=FAIL");
             try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "dp-module-host-selftest.txt"), sb.ToString()); } catch { }
+            // To stdout as well, like its six siblings: the gate's red-run diagnostics come from the redirected
+            // stdout log, which for this flag was empty, so a failure printed no FAIL line at all (F348).
+            Console.Out.Write(sb.ToString());
             return ok;
         }
 
@@ -980,8 +986,9 @@ namespace DesktopAICompanion.Plugins
         private sealed class RecordingHost : IHost
         {
             // Settable so the MinHostVersion gate can be exercised by lying about the HOST's version, which
-            // avoids needing a purpose-built too-new module DLL on disk. Defaults to the unparseable
-            // "selftest", which the gate treats permissively.
+            // avoids needing a purpose-built too-new module DLL on disk. Defaults to "9999.0.0", which parses
+            // and satisfies every module's MinHostVersion; the unparseable-host path is driven by the explicit
+            // "selftest" value in MinHostVersionGate (F346).
             public string HostVersionValue = "9999.0.0";
             public string HostVersion { get { return HostVersionValue; } }
             public bool SpeechEnabled { get { return true; } }
@@ -1005,12 +1012,11 @@ namespace DesktopAICompanion.Plugins
             // Split, because Say and SayAll both writing LastSayAll made "did the module route this line to
             // one pet, or broadcast it to all of them?" unassertable -- which is precisely the distinction
             // this release exists to introduce. LastSayAll stays as the union so existing assertions read
-            // unchanged; LastSay/LastSayPet are the additive channel.
+            // unchanged; LastSay/LastSayPet carry the routing, which Run asserts after the poke (F350).
             public string LastSay;
             public ICompanion LastSayPet;
-            public int SayAllCount;
             public void Say(ICompanion pet, string text) { LastSay = text; LastSayPet = pet; LastSayAll = text; }
-            public void SayAll(string text) { SayAllCount++; LastSayAll = text; }
+            public void SayAll(string text) { LastSayAll = text; }
             public void Say(ICompanion pet, string text, DesktopAICompanion.Modules.SpeechStyle style) { Say(pet, text); }
             public void SayAll(string text, DesktopAICompanion.Modules.SpeechStyle style) { SayAll(text); }
             public bool TryPlayAnimation(ICompanion pet, string animationName) { return true; }
@@ -1039,12 +1045,9 @@ namespace DesktopAICompanion.Plugins
                 FullscreenActive = on;
                 var h = FullscreenChanged; if (h != null) h(on);
             }
-            public int PlaySoundCount;
-            public int StopSoundCount;
-            public bool PlaySound(string moduleId, byte[] audio, double volume) { PlaySoundCount++; return false; }
-            public int NotificationSoundCount;
-            public bool PlayNotificationSound(string moduleId) { NotificationSoundCount++; return false; }
-            public bool StopSound(string moduleId) { StopSoundCount++; return false; }
+            public bool PlaySound(string moduleId, byte[] audio, double volume) { return false; }
+            public bool PlayNotificationSound(string moduleId) { return false; }
+            public bool StopSound(string moduleId) { return false; }
             public IDisposable RegisterSpeechResponder(string moduleId, int priority, Func<SpeechRequest, bool> onSpeech) { return new NoopDisposable(); }
             public System.Threading.Tasks.Task<IReadOnlyList<CatalogItem>> FetchCatalogItemsAsync(string kind) { return System.Threading.Tasks.Task.FromResult((IReadOnlyList<CatalogItem>)new List<CatalogItem>()); }
             public System.Threading.Tasks.Task<byte[]> DownloadCatalogItemAsync(string kind, string id) { return System.Threading.Tasks.Task.FromResult(new byte[0]); }
@@ -1054,8 +1057,7 @@ namespace DesktopAICompanion.Plugins
             public bool IsDarkTheme { get { return false; } }
             public void Log(string moduleId, string message) { }
             public IReadOnlyList<string> PickFilesToOpen(string title, string fileKindLabel, IReadOnlyList<string> extensions) { return PickedFiles; }
-            public string OpenedLink;
-            public bool OpenLink(string moduleId, string httpsUrl) { OpenedLink = httpsUrl; return true; }
+            public bool OpenLink(string moduleId, string httpsUrl) { return true; }
             public List<string> PickedFiles = new List<string>();
             public void AddTrayItems(IEnumerable<TrayItem> items) { if (items != null) TrayItems.AddRange(items); }
             public void AddOptionsPane(OptionsPane pane) { if (pane != null) OptionsPanes.Add(pane); }

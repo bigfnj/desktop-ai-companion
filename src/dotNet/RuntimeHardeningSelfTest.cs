@@ -296,6 +296,7 @@ namespace DesktopAICompanion
 
             sb.AppendLine(ok ? "RESULT=PASS" : "RESULT=FAIL");
             try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "dp-pettyperegistry-selftest.txt"), sb.ToString()); } catch { }
+            Console.Out.Write(sb.ToString());   // the gate's red-run diagnostics read stdout (F348)
             return ok;
         }
 
@@ -1676,6 +1677,9 @@ namespace DesktopAICompanion
 
             sb.AppendLine(ok ? "RESULT=PASS" : "RESULT=FAIL");
             try { File.WriteAllText(Path.Combine(Path.GetTempPath(), "dp-hardening-selftest.txt"), sb.ToString()); } catch { }
+            // To stdout as well: Invoke-SelfTests.ps1 prints the FAIL/EXC lines of a red run from the redirected
+            // stdout log, which for this flag held nothing, so CI showed the exit code and no line (F348).
+            Console.Out.Write(sb.ToString());
             return ok;
         }
 

@@ -2262,8 +2262,15 @@ Assert-True (
     $showBubbleBody -cmatch 'Thread\.CurrentThread\.ManagedThreadId != _host\._uiThreadId'
 ) 'a bubble re-shown from a worker thread is posted to the UI thread before the targeted-only marshal is consulted'
 
-# The shared catalog cache is a volatile publish (F335): written on a pool thread, read on the caller's.
-Assert-True ($petHostCodeHost -cmatch 'private volatile RemoteCatalog _catalogCache;') 'the shared catalog cache is a volatile publish'
+# CompanionHost keeps no catalog copy of its own (F334): both catalog verbs read RemoteCatalogClient's shared
+# copy, the one the panes read and "Check ... online" invalidates. The host's private copy had no TTL, so a pack
+# re-published mid-session failed its hash check until the module re-browsed; its volatile publish (F335) went
+# with it, and this invariant replaces that one.
+Assert-True (
+    $petHostCodeHost -cnotmatch '_catalogCache' -and
+    ([regex]::Matches($petHostCodeHost, 'RemoteCatalogClient\s*\.FetchSharedAsync\(')).Count -ge 2 -and
+    $petHostCodeHost -cnotmatch 'RemoteCatalogClient\s*\.FetchAsync\('
+) "both catalog verbs read RemoteCatalogClient's shared copy and the host keeps no catalog cache of its own"
 
 # The foreground process name comes from the snapshot entry that IS the foreground window (F329), and the
 # old third GetForegroundWindow read is the FALLBACK, not the answer: ORDER of the capture and the use.

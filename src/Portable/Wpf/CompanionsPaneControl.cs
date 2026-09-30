@@ -186,7 +186,7 @@ namespace DesktopAICompanion.Wpf
                     case StartUp.CompanionReloadOutcome.Deferred:
                         return string.IsNullOrEmpty(reloadError)
                             ? " Companions on screen keep the old version until they respawn."
-                            : " Companions on screen keep the old version for now: " + Short(reloadError);
+                            : " Companions on screen keep the old version for now: " + PaneText.Short(reloadError);
                     default:
                         return "";
                 }
@@ -195,7 +195,7 @@ namespace DesktopAICompanion.Wpf
             {
                 // A failed reload must never turn a SUCCESSFUL download into an error: the file is written,
                 // the pet is updated on disk, and the worst case is that it takes effect on the next spawn.
-                return " Companions on screen keep the old version for now: " + Short(ex.Message);
+                return " Companions on screen keep the old version for now: " + PaneText.Short(ex.Message);
             }
         }
 
@@ -323,7 +323,7 @@ namespace DesktopAICompanion.Wpf
             // Uninstall: delete an INSTALLED library pet (downloaded / converted / authored). Never offered
             // for the built-in eSheep or the active pet; only when the pet actually lives in the writable
             // library folder. "Remove" above just despawns one instance -- this deletes it for good.
-            if (!row.IsActive && !row.IsBuiltIn && LibraryFolderExists(addId))
+            if (!row.IsActive && !row.IsBuiltIn && CompanionProvenance.IsInLibrary(addId))
             {
                 var uninstall = new Button { Content = "Uninstall", Width = 78, Margin = new Thickness(5, 0, 0, 0) };
                 string display = row.DisplayName ?? row.Id;
@@ -639,7 +639,7 @@ namespace DesktopAICompanion.Wpf
                     : "Every companion you have is up to date, and you already have all of them.";
             }
             catch (OperationCanceledException) { }
-            catch (Exception ex) { if (IsLoaded) _status.Text = "Couldn't reach the catalog: " + Short(ex.Message); }
+            catch (Exception ex) { if (IsLoaded) _status.Text = "Couldn't reach the catalog: " + PaneText.Short(ex.Message); }
             finally { if (IsLoaded) _checkButton.IsEnabled = true; }
         }
 
@@ -790,11 +790,11 @@ namespace DesktopAICompanion.Wpf
                 string validationError;
                 if (!CompanionXmlValidator.TryParse(xml, out parsed, out validationError))
                 {
-                    _status.Text = display + " failed validation: " + Short(validationError);
+                    _status.Text = display + " failed validation: " + PaneText.Short(validationError);
                     return;
                 }
 
-                string directory = SafeLibraryDir(pet.Id);
+                string directory = CompanionProvenance.SafeLibraryDirectory(pet.Id);
                 Directory.CreateDirectory(directory);
                 SecureDownload.WriteAllBytesAtomic(Path.Combine(directory, "animations.xml"), bytes);
                 // Record what was installed, so a LATER catalog change can be told apart from a local edit.
@@ -831,7 +831,7 @@ namespace DesktopAICompanion.Wpf
             {
                 if (IsLoaded) _status.Text = "Stopped " + (isUpdate ? "updating " : "downloading ") + display + ".";
             }
-            catch (Exception ex) { if (IsLoaded) _status.Text = "Couldn't " + (isUpdate ? "update " : "download ") + display + ": " + Short(ex.Message); }
+            catch (Exception ex) { if (IsLoaded) _status.Text = "Couldn't " + (isUpdate ? "update " : "download ") + display + ": " + PaneText.Short(ex.Message); }
             finally { if (IsLoaded && trigger != null) trigger.IsEnabled = true; }
         }
 
@@ -946,24 +946,9 @@ namespace DesktopAICompanion.Wpf
             return ids;
         }
 
-        private static string SafeLibraryDir(string id)
-        {
-            if (!SecureDownload.IsSafeId(id)) throw new InvalidDataException("Unsafe companion id.");
-            string root = Path.GetFullPath(AppPaths.LibraryPetsDirectory)
-                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) +
-                Path.DirectorySeparatorChar;
-            string directory = Path.GetFullPath(Path.Combine(root, id));
-            if (!directory.StartsWith(root, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException("Companion path escapes the library.");
-            return directory;
-        }
-
-        private static string Short(string message)
-        {
-            if (string.IsNullOrEmpty(message)) return "";
-            message = message.Trim();
-            return message.Length > 200 ? message.Substring(0, 200) + "…" : message;
-        }
+        // SafeLibraryDir and Short used to sit here. The containment check is CompanionProvenance.SafeLibraryDirectory
+        // (one copy for this pane and CompanionHost) and the status-text trim is PaneText.Short, shared with the
+        // Modules pane (F337).
 
         // Animation + sound counts read from the pet's XML, cached per id (the sheep XMLs are large).
         private sealed class CompanionStats { public int Animations; public int Sounds; }
@@ -1109,12 +1094,7 @@ namespace DesktopAICompanion.Wpf
         }
 
         // Only a pet that actually lives in the writable library can be uninstalled (deleted). Built-in and
-        // bundled pets ship with the app and are not the user's to remove.
-        private static bool LibraryFolderExists(string id)
-        {
-            try { return !string.IsNullOrEmpty(id) && File.Exists(Path.Combine(AppPaths.LibraryPetsDirectory, id, "animations.xml")); }
-            catch { return false; }
-        }
+        // bundled pets ship with the app and are not the user's to remove. The test is CompanionProvenance.IsInLibrary.
 
         private void UninstallPet(string id, string name, int onScreen)
         {

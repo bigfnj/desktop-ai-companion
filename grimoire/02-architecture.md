@@ -30,7 +30,7 @@ that animation-loop model.
 
 ## 2. Entry point and process model — `Program.cs`
 
-`Program.Main` (`Program.cs:Main`, the `#if PORTABLE` branch — the shipped one):
+`Program.Main` (`Program.cs:Main`; one `Main`, since the `#if PORTABLE` / `#else` pair went in F283):
 
 1. **Two cross-session instance slots.** `Program.TryAcquireInstanceSlot` attempts two leases rooted in
    `AppPaths.DataRoot`. Each lease combines a current-user `Global\` mutex with a same-directory lock
@@ -48,7 +48,8 @@ that animation-loop model.
 4. **Tray + controller.** Creates a `ProcessIcon` (`pi.Display()`), then
    `Mainthread = new StartUp(pi)`, then `Application.Run()`.
 
-Only the `PORTABLE` branch is part of the maintained product. It uses the `src/Portable/LocalData.cs`
+There is one build of the product (the former `PORTABLE` branch; the non-portable Store `Main` was
+deleted as dead in F283, and the symbol with it). It uses the `src/Portable/LocalData.cs`
 facade and is built with Visual Studio/MSBuild plus locked `PackageReference` graphs. The old non-portable
 Upstream's UWP/classic projects and its `PetTester`/`PetEditor` utilities are **not** carried in this
 repository. Companion validation lives in the app itself (`CompanionXmlValidator`), and Shimeji import
@@ -298,9 +299,9 @@ stripped in `Animations.AddSound`). If audio fails, volume is forced to 0 and th
   fortunes, vectors, and catalog cache) without consulting the current working directory.
   `Program.MyData` is a facade over the schema-versioned `settings.json` managed by
   `AppSettingsStore`: cross-session locked reads/writes, normalization and legacy migration, atomic
-  replacement with a backup, corrupt-file preservation, and future-schema write blocking. The generated
-  `Properties.Settings` object is mirrored only for old extension code and is never the canonical save
-  path. Portable file-watcher registration is intentionally a no-op; current option/import code applies
+  replacement with a backup, corrupt-file preservation, and future-schema write blocking. (The generated
+  `Properties.Settings` object that used to be mirrored on every save was read by nothing and went in
+  F362.) Portable file-watcher registration is intentionally a no-op; current option/import code applies
   changes explicitly (§3).
 - **Tray icon &amp; menu:** `ProcessIcon.cs` owns the `NotifyIcon`; `ContextMenus.cs` builds the menu
   (add companion, options, kill all, about, and — in this fork — "Ask about my screen"). `ProcessIcon.SetIcon`

@@ -214,4 +214,16 @@ namespace DesktopAICompanion.Wpf
             res[target] = style;   // no x:Key => implicit style for every instance of the type in this window
         }
     }
+
+    /// <summary>Text helpers the panes share. <see cref="Short"/> trims an exception message to a status line;
+    /// the Companions and Modules panes each carried an identical copy (F337).</summary>
+    internal static class PaneText
+    {
+        internal static string Short(string message)
+        {
+            if (string.IsNullOrEmpty(message)) return "";
+            message = message.Trim();
+            return message.Length > 200 ? message.Substring(0, 200) + "…" : message;
+        }
+    }
 }

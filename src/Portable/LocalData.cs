@@ -39,7 +39,6 @@ namespace DesktopAICompanion
                 SettingsWarning = _store.LastLoadWarning;
                 MigrateRandomDropIfAbsent();
                 _settings.Normalize();
-                SynchronizeLegacySettingsObject();
             }
         }
 
@@ -844,10 +843,8 @@ namespace DesktopAICompanion
                 _settings.Images = images ?? "";
                 _settings.Icon = icon ?? "";
                 _settings.Normalize();
-                SynchronizeLegacySettingsObject();
                 if (_store.Save(_settings)) return true;
                 _settings = before;
-                SynchronizeLegacySettingsObject();
                 return false;
             }
         }
@@ -953,7 +950,6 @@ namespace DesktopAICompanion
                 if (!dirty) return true;
                 if (commit && _store.Save(_settings)) return true;
                 _settings = before;
-                SynchronizeLegacySettingsObject();
                 return false;
             }
         }
@@ -974,17 +970,14 @@ namespace DesktopAICompanion
                     // is the snapshot BeginBatch took.
                     apply();
                     _settings.Normalize();
-                    SynchronizeLegacySettingsObject();
                     _batchDirty = true;
                     return true;
                 }
                 AppSettingsDocument before = CloneSettings(_settings);
                 apply();
                 _settings.Normalize();
-                SynchronizeLegacySettingsObject();
                 if (_store.Save(_settings)) return true;
                 _settings = before;
-                SynchronizeLegacySettingsObject();
                 return false;
             }
         }
@@ -1000,31 +993,10 @@ namespace DesktopAICompanion
             return Math.Max(0.0, Math.Min(1.0, volume));
         }
 
-        /// <summary>
-        /// Keep the generated settings object coherent for old extension code, but never call its
-        /// Save method. The canonical durable file is AppPaths.SettingsFile.
-        /// </summary>
-        private void SynchronizeLegacySettingsObject()
-        {
-            try
-            {
-                Properties.Settings.Default.Volume = (float)_settings.Volume;
-                Properties.Settings.Default.Scale = _settings.ScaleLevel;
-                Properties.Settings.Default.AutostartPets = _settings.AutoStartPets;
-                Properties.Settings.Default.Multiscreen = _settings.MultiScreen;
-                Properties.Settings.Default.WinForeground = _settings.WindowForeground;
-                Properties.Settings.Default.StealTaskbarFocus = _settings.StealTaskbarFocus;
-                Properties.Settings.Default.SpeechEnabled = _settings.SpeechEnabled;
-                Properties.Settings.Default.SpeechDuration = _settings.SpeechDurationSeconds;
-                Properties.Settings.Default.xml = _settings.Xml;
-                Properties.Settings.Default.Images = _settings.Images;
-                Properties.Settings.Default.Icon = _settings.Icon;
-            }
-            catch
-            {
-                // A corrupt legacy user.config cannot make the canonical settings unusable.
-            }
-        }
+        // No Properties.Settings mirror. Eleven fields of the generated settings object were written on every
+        // load and save "for old extension code" that does not exist in this repository, and nothing read them
+        // back; the ApplicationSettingsBase machinery they dragged in (Settings.settings, Settings1.Designer.cs,
+        // Settings.cs) went with them (F362). settings.json, through AppSettingsStore, is the one store.
 
         private static IEnumerable<string> BuildLegacyCandidates()
         {

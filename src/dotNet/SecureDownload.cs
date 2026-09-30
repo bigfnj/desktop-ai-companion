@@ -127,13 +127,12 @@ namespace DesktopAICompanion
         // through a per-id DIRECTORY, not the flat root\<id><ext> this built, and each of the three
         // call paths does its own IsSafeId -> GetFullPath -> StartsWith(root) -> throw:
         //
-        //     CompanionHost.SafeLibraryDir          (pet installs)
-        //     CompanionsPaneControl.SafeLibraryDir  (pet downloads from the pane)
-        //     ModulesPaneControl.SafeModuleDir      (module installs)
+        //     CompanionProvenance.SafeLibraryDirectory  (pet installs from CompanionHost and downloads from
+        //                                               the pane; one helper since F337, two copies before)
+        //     ModulesPaneControl.SafeModuleDir         (module installs)
         //
         // Wiring this in at those sites would have been a strictly WEAKER check anyway, since the
-        // filename there is a hardcoded literal containing no id. Those three copies are a fair
-        // candidate for one shared helper, which is a different change with its own review.
+        // filename there is a hardcoded literal containing no id.
 
         public static async Task<byte[]> DownloadBytesAsync(Uri uri, int maximumBytes, CancellationToken ct)
         {
