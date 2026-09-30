@@ -290,6 +290,95 @@ CASES = (
         b"            SetStatus(statusPrefix + AnalysisStatus(report.IsValid, report.UnreachableAnimations.Count, 0));",
         "reaches the one status the analysis writes",
     ),
+    # F158: the zip import's flag is set late again (the 1.1.17 shape), or set a second time after the await.
+    (
+        "the zip import no longer sets _importing before extracting",
+        PETSTUDIO_WINDOW,
+        b"            _importing = true;\n"
+        b"            try\n"
+        b"            {\n"
+        b"                RememberSkinDir(Path.GetDirectoryName(dlg.FileName));",
+        b"            try\n"
+        b"            {\n"
+        b"                RememberSkinDir(Path.GetDirectoryName(dlg.FileName));",
+        "sets _importing before its extraction await",
+    ),
+    (
+        "the zip import sets _importing after the extraction await",
+        PETSTUDIO_WINDOW,
+        b"                await ImportSkinFromRootCoreAsync(destination);",
+        b"                _importing = true;\n"
+        b"                await ImportSkinFromRootCoreAsync(destination);",
+        "sets _importing before its extraction await",
+    ),
+    # F163: one of the two document-swap guards is weakened to a condition that never holds there.
+    (
+        "Open is no longer refused during an import",
+        PETSTUDIO_WINDOW,
+        b"            if (_importing) { SetStatus(StillConverting); return; }\n"
+        b"            BeginOrphanSweep();\n"
+        b"            try\n"
+        b"            {\n"
+        b"                // Own the dialog here",
+        b"            if (_importing && _pets == null) { SetStatus(StillConverting); return; }\n"
+        b"            BeginOrphanSweep();\n"
+        b"            try\n"
+        b"            {\n"
+        b"                // Own the dialog here",
+        "Open and the installed picker are refused",
+    ),
+    (
+        "the installed picker is no longer refused during an import",
+        PETSTUDIO_WINDOW,
+        b"            if (_importing)\n"
+        b"            {\n"
+        b"                // Refused like a second Import (F163), and the dropdown",
+        b"            if (_importing && _pets == null)\n"
+        b"            {\n"
+        b"                // Refused like a second Import (F163), and the dropdown",
+        "Open and the installed picker are refused",
+    ),
+    # F159: a recursive delete comes back onto the UI thread, in the click handler or in Closed.
+    (
+        "the previous skin's tree is deleted on the UI thread again",
+        PETSTUDIO_WINDOW,
+        b"                await Task.Run(delegate\n"
+        b"                {\n"
+        b"                    DeleteTree(previous);\n"
+        b"                    Directory.CreateDirectory(destination);",
+        b"                DeleteTree(previous);\n"
+        b"                await Task.Run(delegate\n"
+        b"                {\n"
+        b"                    Directory.CreateDirectory(destination);",
+        "deleted and swept on a pool thread",
+    ),
+    (
+        "Closed deletes the extraction tree inline again",
+        PETSTUDIO_WINDOW,
+        b"            Task.Run(delegate { DeleteTree(path); });",
+        b"            DeleteTree(path);",
+        "deleted and swept on a pool thread",
+    ),
+    # F160: one load path stops sweeping.
+    (
+        "the folder import no longer starts the orphan sweep",
+        PETSTUDIO_WINDOW,
+        b"            RememberSkinDir(root);\n"
+        b"            BeginOrphanSweep();\n"
+        b"            await ImportSkinFromRootAsync(root);",
+        b"            RememberSkinDir(root);\n"
+        b"            await ImportSkinFromRootAsync(root);",
+        "started at construction and on every load path",
+    ),
+    # F162: the core remembers the root it is handed again, which on the zip path is the extraction tree.
+    (
+        "the import core remembers the extraction tree as the skin folder again",
+        PETSTUDIO_WINDOW,
+        b"                if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) { SetStatus(\"No such folder.\"); return; }\n",
+        b"                if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) { SetStatus(\"No such folder.\"); return; }\n"
+        b"                RememberSkinDir(root);\n",
+        "the import core remembers nothing",
+    ),
 
 
     # ---- lane fix/host ----

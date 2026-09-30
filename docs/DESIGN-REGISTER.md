@@ -764,6 +764,15 @@ right edges of the work area and HORIZONTAL at its top. The label vocabulary has
 drop reads "Plays in place" once it leaves the surface set; that predates this change and is not widened
 here.
 
+**Typing during an import is still replaced when the conversion lands; Open and the picker are refused
+instead (2026-09-29, F163).** The finding offered a document generation -- a counter bumped by
+SetEditorText, Open, the picker and TextChanged, compared by LoadConvertedIntoEditor, with a "conversion
+finished" affordance to load the result by hand when it moved. Declined: the two document-SWAP paths are
+closed by the same guard the two imports already used, which costs one line each and no state; the
+generation protects only edits typed into the editor during the seconds a conversion takes, adds a fifth
+writer to a counter and a second way for a conversion to end, and the window has no place to show a
+finished conversion that is not in the editor. If that case ever matters, the generation is the design.
+
 **F151, re-closed with F150 (2026-09-29).** Done: `AgreesWithTheFixture` asserts five named labels on the
 fixture (#37, #39, #41 CLIMB; #8 MOVE; #42 unbadged), by id and name, each of which failed on the 1.1.17
 classifier, and the identity line it opened with is gone; the gates lane's deferral under `#### fix/gates`

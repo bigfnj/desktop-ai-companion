@@ -2750,6 +2750,71 @@ Assert-True (
     ($renderAnalysisBody -cmatch 'AnalysisStatus\(report\.IsValid, report\.UnreachableAnimations\.Count, droppedSteps\)')
 ) 'the dropped-step count Resync returns reaches the one status the analysis writes (F165)'
 
+# The zip-import lifecycle (F158, F163, F159, F160, F162): five dispatcher-ordering and thread-placement
+# facts no headless self-test can drive, asserted as shape on the method bodies. Each slice gets its
+# non-vacuity line first.
+#
+# F158: the zip import OWNS _importing through its extraction. The guard tested a flag that was first set
+# inside ImportSkinFromRootAsync, after the extraction await, so for the seconds a skin took to extract a
+# second click deleted the tree the extractor was writing. ORDER: set before the first await, and never
+# after one (a `_importing = true` after an await is the old shape wherever it sits).
+$importZipBody = Get-MethodBody $petStudioWindowCode 'private async void ImportShimejiZip()' `
+    @("`n        private ", "`n        internal ")
+Assert-True ($importZipBody.Length -gt 0) 'ImportShimejiZip exists and could be sliced out for inspection'
+Assert-True (
+    ($importZipBody -cmatch '(?s)_importing = true;.*await Task\.Run') -and
+    ($importZipBody -cnotmatch '(?s)await .*_importing = true;')
+) 'the zip import sets _importing before its extraction await, and never after one (F158)'
+
+# F163: Open and the installed picker refuse during an import, as the two imports already did.
+$openFileBody = Get-MethodBody $petStudioWindowCode 'private void OpenFile()' `
+    @("`n        private ", "`n        internal ")
+$pickedBody = Get-MethodBody $petStudioWindowCode 'private void OnInstalledPicked()' `
+    @("`n        private ", "`n        internal ")
+$importFolderBody = Get-MethodBody $petStudioWindowCode 'private async void ImportShimeji()' `
+    @("`n        private ", "`n        internal ")
+$ctorBody = Get-MethodBody $petStudioWindowCode 'internal PetStudioWindow(IHost host)' `
+    @("`n        private ", "`n        internal ")
+$importCoreBody = Get-MethodBody $petStudioWindowCode 'private async Task ImportSkinFromRootCoreAsync(string root)' `
+    @("`n        private ", "`n        internal ")
+$beginDeleteBody = Get-MethodBody $petStudioWindowCode 'private void BeginDeleteExtracted()' `
+    @("`n        private ", "`n        internal ")
+$beginSweepBody = Get-MethodBody $petStudioWindowCode 'private static void BeginOrphanSweep()' `
+    @("`n        private ", "`n        internal ")
+Assert-True (
+    $openFileBody.Length -gt 0 -and $pickedBody.Length -gt 0 -and $importFolderBody.Length -gt 0 -and
+    $ctorBody.Length -gt 0 -and $importCoreBody.Length -gt 0 -and $beginDeleteBody.Length -gt 0 -and
+    $beginSweepBody.Length -gt 0
+) 'OpenFile, OnInstalledPicked, ImportShimeji, the constructor, the import core, BeginDeleteExtracted and BeginOrphanSweep could be sliced out for inspection'
+Assert-True (
+    ($openFileBody -cmatch 'if \(_importing\)') -and ($pickedBody -cmatch 'if \(_importing\)')
+) 'Open and the installed picker are refused while an import is converting (F163)'
+
+# F159: the recursive deletes and the sweep run on a pool thread. Directory.Delete appears in the window
+# exactly twice (DeleteTree and the sweep), the zip path's delete of the previous tree is the first
+# statement of the awaited Task.Run, Closed's delete is handed to Task.Run, and the sweep runs inside one.
+Assert-True (
+    ([regex]::Matches($petStudioWindowCode, 'Directory\.Delete\(').Count -eq 2) -and
+    ($importZipBody -cmatch '(?s)await Task\.Run\(delegate\s*\{\s*DeleteTree\(previous\);') -and
+    ($beginDeleteBody -cmatch 'Task\.Run\(delegate \{ DeleteTree\(path\); \}\)') -and
+    ($beginSweepBody -cmatch '(?s)Task\.Run\(delegate\s*\{.*SweepOrphanedExtractions\(\);')
+) 'the extraction trees are deleted and swept on a pool thread, never in the click handler or in Closed (F159)'
+
+# F160: the sweep is started on every load path, and when the window opens.
+Assert-True (
+    ($ctorBody -cmatch 'BeginOrphanSweep\(\);') -and ($openFileBody -cmatch 'BeginOrphanSweep\(\);') -and
+    ($pickedBody -cmatch 'BeginOrphanSweep\(\);') -and ($importFolderBody -cmatch 'BeginOrphanSweep\(\);') -and
+    ($importZipBody -cmatch 'BeginOrphanSweep\(\);')
+) 'the orphan sweep is started at construction and on every load path: Open, the picker, both imports (F160)'
+
+# F162: the skin folder is remembered at the two entry points from what the author chose, and never from
+# the root the core is handed (which is the extraction tree on the zip path).
+Assert-True (
+    ($importCoreBody -cnotmatch 'RememberSkinDir\(') -and
+    ($importFolderBody -cmatch 'RememberSkinDir\(root\);') -and
+    ($importZipBody -cmatch 'RememberSkinDir\(Path\.GetDirectoryName\(dlg\.FileName\)\);')
+) 'the remembered skin folder is the one the author chose: the import core remembers nothing (F162)'
+
 
 
 # ---- lane fix/reminder ----
