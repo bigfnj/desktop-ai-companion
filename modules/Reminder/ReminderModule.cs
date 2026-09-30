@@ -69,6 +69,10 @@ namespace DesktopAICompanion.ReminderModule
                                 //        change; the fired set is pruned per slot; "Check now" re-reads
                                 //        the feeds; a custom chime is read off the UI thread; a feed error
                                 //        is logged on change, not per tick; Teams' short join links match.
+                                //        Round 2 (R-043): a slot's cached and last-good events belong to the
+                                //        URL or file that produced them, so an edit to a target that fails
+                                //        shows the loading state and then that target's error, never the
+                                //        previous calendar's events.
                                 // 1.0.6: "Make the companion react" reached 35 of 54 companions, and
                                 //        reactOn defaults to true, so 19 users had a feature switched
                                 //        on that did nothing. The eSheep-era names it used are absent
@@ -2195,8 +2199,72 @@ namespace DesktopAICompanion.ReminderModule
                 chimeRead.Gate.Set();
             }
 
+            // ---- retained events belong to the key that produced them (R-043) ----
+            // F200 keeps a slot's source across Apply, which made the key-change branch in Fetch reachable on
+            // a populated cache for the first time: a URL or file edited to a target that fails served the
+            // previous target's cache as healthy for one tick, then its last-good events behind the new
+            // target's error for as long as that target failed. The key is the calendar's identity.
+            var keyedProbe = new KeyedProbe();
+            var eventsFromA = new List<CalendarEvent> { new CalendarEvent { Id = "a", Title = "From A", Start = monday } };
+            keyedProbe.Answer = delegate(string key)
+            {
+                return key == "A"
+                    ? new CalendarSnapshot { Events = eventsFromA }
+                    : new CalendarSnapshot { Events = Array.Empty<CalendarEvent>(), Error = "the new address does not answer" };
+            };
+            CalendarSnapshot fromA = WaitForFeed(keyedProbe, delegate(CalendarSnapshot snap)
+            {
+                return snap != null && snap.Error == null && snap.Events != null && snap.Events.Count == 1;
+            });
+            check("WITNESS the first target's events landed", fromA != null);
+            keyedProbe.Key = "B";   // the user Applied a new address, and it fails
+            CalendarSnapshot interim = keyedProbe.Fetch();
+            check("the tick after a key change does not serve the previous target's events as healthy",
+                interim != null && interim.Error != null && (interim.Events == null || interim.Events.Count == 0));
+            CalendarSnapshot fromB = WaitForFeed(keyedProbe, delegate(CalendarSnapshot snap)
+            {
+                return snap != null && snap.Error != null && snap.Error.Contains("does not answer");
+            });
+            check("a target that fails after a key change serves nothing behind its error, not the previous target's events",
+                fromB != null && (fromB.Events == null || fromB.Events.Count == 0));
+            // WITNESS: the SAME key failing still falls back to its own last-good list, which is the 1.0.4
+            // retention this change must not remove.
+            keyedProbe.Key = "A";
+            CalendarSnapshot backToA = WaitForFeed(keyedProbe, delegate(CalendarSnapshot snap)
+            {
+                return snap != null && snap.Error == null && snap.Events != null && snap.Events.Count == 1;
+            });
+            keyedProbe.Answer = delegate(string key)
+            {
+                return new CalendarSnapshot { Events = Array.Empty<CalendarEvent>(), Error = "A went away" };
+            };
+            keyedProbe.Invalidate();
+            CalendarSnapshot aFailed = WaitForFeed(keyedProbe, delegate(CalendarSnapshot snap)
+            {
+                return snap != null && snap.Error == "A went away";
+            });
+            check("WITNESS a same-key refresh that fails still falls back to that key's last-good events",
+                backToA != null && aFailed != null && aFailed.Events != null && aFailed.Events.Count == 1 && aFailed.Events[0].Id == "a");
+
             detail = sb.ToString();
             return ok;
+        }
+
+        /// <summary>A caching source whose key the test switches and whose answer depends on the key it was
+        /// handed (R-043): key "A" is a calendar that answers, anything else a target that fails. A one-hour
+        /// interval, so only a key change or Invalidate kicks a refresh.</summary>
+        private sealed class KeyedProbe : CachingCalendarSource
+        {
+            internal volatile string Key = "A";
+            internal volatile Func<string, CalendarSnapshot> Answer;
+            internal KeyedProbe() : base(TimeSpan.FromHours(1)) { }
+            public override string Name { get { return "keyed probe"; } }
+            protected override string RefreshKey() { return Key; }
+            protected override CalendarSnapshot FetchCore(string key, DateTimeOffset now)
+            {
+                Func<string, CalendarSnapshot> answer = Answer;
+                return answer != null ? answer(key) : null;
+            }
         }
 
         /// <summary>A custom-chime loader that records the thread it ran on and waits on a gate, so the self-test
