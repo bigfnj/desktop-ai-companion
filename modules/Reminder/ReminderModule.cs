@@ -2162,8 +2162,61 @@ namespace DesktopAICompanion.ReminderModule
                 try { System.IO.Directory.Delete(applyDirectory, true); } catch { }
             }
 
+            // ---- a custom chime is read off the caller's thread, one at a time (F188) ----
+            // Chime.Play read the custom file (a FileInfo probe plus up to 8 MiB) and handed it to the host, which
+            // decodes it synchronously, all on the caller's thread -- the module's UI-thread tick -- on every
+            // fire; and the Browse dialog accepts a share, where the probe alone blocks for the SMB timeout once
+            // the VPN is down. The loader is the seam: a gated one proves the read left the thread without a
+            // file that can be made slow, and that a second chime during the read is dropped, not stacked.
+            var chimeHost = new RecordingHost();
+            var chimeRead = new ChimeReadProbe();
+            try
+            {
+                int chimeCaller = Environment.CurrentManagedThreadId;
+                Chime.Play(chimeHost, "custom.mp3", chimeRead.Load);
+                check("a custom chime's read does not run on the caller's thread: Play returns while the read is still open",
+                    !chimeRead.Completed);
+                Chime.Play(chimeHost, "custom.mp3", chimeRead.Load);
+                bool readStarted = System.Threading.SpinWait.SpinUntil(delegate { return chimeRead.Calls >= 1; }, TimeSpan.FromSeconds(10));
+                check("WITNESS the read did start", readStarted);
+                check("the read ran on a different thread from the caller",
+                    readStarted && chimeRead.ThreadId != 0 && chimeRead.ThreadId != chimeCaller);
+                check("a second chime while the first is still being read is dropped, not stacked", chimeRead.Calls == 1);
+                chimeRead.Gate.Set();
+                bool played = System.Threading.SpinWait.SpinUntil(delegate { return chimeHost.PlayedSounds.Count >= 1; }, TimeSpan.FromSeconds(10));
+                check("...and the bytes the read returned reach the host once it lands",
+                    played && chimeHost.PlayedSounds.Count == 1 && chimeHost.PlayedSounds[0].Length == 3);
+                Chime.Play(chimeHost, "", chimeRead.Load);
+                check("WITNESS the embedded default chime is handed to the host synchronously and reads no file",
+                    chimeHost.PlayedSounds.Count == 2 && chimeRead.Calls == 1);
+            }
+            finally
+            {
+                chimeRead.Gate.Set();
+            }
+
             detail = sb.ToString();
             return ok;
+        }
+
+        /// <summary>A custom-chime loader that records the thread it ran on and waits on a gate, so the self-test
+        /// can prove Chime.Play returned while the read was still open and that the read was not on the caller's
+        /// thread (F188). Bounded wait, so a forgotten gate costs seconds rather than a parked pool thread.</summary>
+        private sealed class ChimeReadProbe
+        {
+            internal readonly System.Threading.ManualResetEventSlim Gate = new System.Threading.ManualResetEventSlim(false);
+            private int _calls;
+            internal volatile bool Completed;
+            internal volatile int ThreadId;
+            internal int Calls { get { return System.Threading.Volatile.Read(ref _calls); } }
+            internal byte[] Load(string path)
+            {
+                System.Threading.Interlocked.Increment(ref _calls);
+                ThreadId = Environment.CurrentManagedThreadId;
+                Gate.Wait(TimeSpan.FromSeconds(10));
+                Completed = true;
+                return new byte[] { 1, 2, 3 };
+            }
         }
 
         /// <summary>A companion manager that reports one pet on screen and refuses everything else, for the

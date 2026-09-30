@@ -1,4 +1,6 @@
 using System;
+using System.Threading;
+using System.Threading.Tasks;
 using DesktopAICompanion.Modules;
 
 namespace DesktopAICompanion.ReminderModule
@@ -111,6 +113,12 @@ namespace DesktopAICompanion.ReminderModule
         // safe cap here; a blank path, a missing/oversize file, or a read error simply falls back to the default.
         private const long MaximumCustomBytes = 8 * 1024 * 1024;
 
+        // Decoded once. The base64 literal used to be re-decoded on every fire; ~6 KB each time, cosmetic but free.
+        private static readonly byte[] DefaultChime = Convert.FromBase64String(ChimeMp3Base64);
+
+        // Single-flight latch for the custom read: 1 while a read-and-play is in flight on a pool thread.
+        private static int _customReadInFlight;
+
         /// <summary>
         /// Play the default chime once. Best-effort and silent on failure: decoding or the host call may throw
         /// or return false, and in every case the caller simply gets no sound.
@@ -121,20 +129,65 @@ namespace DesktopAICompanion.ReminderModule
         /// Play a reminder chime once. When <paramref name="customPath"/> points at a readable WAV/MP3 within the
         /// size cap, that file is played; otherwise the embedded default chime is used. Best-effort and silent
         /// on failure, so a reminder still announces even if audio is unavailable.
+        ///
+        /// The CUSTOM path is read and handed to the host on a pool thread. Both used to happen on the caller's
+        /// thread, which is the module's UI-thread tick: a FileInfo probe plus ReadAllBytes of up to 8 MiB, then
+        /// AudioOutput.PlayOwned decoding up to 60 s of audio, synchronously, on every fire -- the same class of
+        /// stall 1.0.4 removed from the file source, and the Browse dialog accepts a share, where the probe alone
+        /// blocks for the SMB timeout once the VPN is down (F188). The host fixed the identical shape for
+        /// PlayNotificationSound on 2026-09-28 (NotificationSound.Play, deferCustomRead) and this is that fix in
+        /// the module: Task.Run, an Interlocked single-flight guard so a burst of reminders cannot stack one
+        /// 8 MiB read and one decode per chime (a dropped duplicate chime is not a loss), and the embedded default
+        /// left synchronous, because it costs nothing to read and a thread hop would make the default
+        /// configuration behave differently from every assertion written about it.
+        ///
+        /// Rejected: a module-side byte cache keyed on LastWriteTimeUtc. It still needs the FileInfo probe on the
+        /// share per fire, which IS the stall; it pins up to 8 MiB for a sound played a few times a day; and it
+        /// saves no decode, because PlayOwned decodes fresh by design.
+        ///
+        /// IHost.PlaySound carries no thread note of its own (the ABI's blanket "services must be called on the
+        /// UI thread unless noted" covers it by omission); its implementation reads the module list and the
+        /// volume and hands the bytes to AudioOutput, which the host itself already drives from a pool thread for
+        /// the shared chime. The note that says so belongs in the Contracts project, outside this module.
         /// </summary>
-        public static void Play(IHost host, string customPath)
+        public static void Play(IHost host, string customPath) { Play(host, customPath, LoadCustom); }
+
+        /// <summary>The seam the self-test uses: the loader is what blocks, so a gated loader proves the read
+        /// leaves the caller's thread without needing a file that can be made slow.</summary>
+        internal static void Play(IHost host, string customPath, Func<string, byte[]> loadCustom)
         {
             if (host == null) return;
             try
             {
-                byte[] audio = LoadCustom(customPath) ?? Convert.FromBase64String(ChimeMp3Base64);
-                // Same module id the host checks ModulePermissions.Audio against.
-                host.PlaySound(ReminderModule.Id, audio, ChimeVolume);
+                if (string.IsNullOrWhiteSpace(customPath))
+                {
+                    // Same module id the host checks ModulePermissions.Audio against.
+                    host.PlaySound(ReminderModule.Id, DefaultChime, ChimeVolume);
+                    return;
+                }
+                if (Interlocked.CompareExchange(ref _customReadInFlight, 1, 0) != 0) return;
+                string path = customPath;
+                try { Task.Run(() => PlayCustom(host, path, loadCustom)); }
+                catch { Interlocked.Exchange(ref _customReadInFlight, 0); throw; }
             }
             catch
             {
                 // A chime is decoration; a reminder must still announce even if audio is unavailable.
             }
+        }
+
+        // Off the caller's thread. Releases the single-flight guard whatever happens; a file that cannot be read
+        // falls back to the default chime, as it always did.
+        private static void PlayCustom(IHost host, string path, Func<string, byte[]> loadCustom)
+        {
+            try
+            {
+                byte[] audio = null;
+                try { audio = loadCustom != null ? loadCustom(path) : null; } catch { }
+                host.PlaySound(ReminderModule.Id, audio ?? DefaultChime, ChimeVolume);
+            }
+            catch { }
+            finally { Interlocked.Exchange(ref _customReadInFlight, 0); }
         }
 
         private static byte[] LoadCustom(string path)

@@ -649,6 +649,26 @@ CASES = (
      "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
      "the erroring slot's id is kept"),
 
+    # The custom chime's read leaves the caller's thread (F188). The mutation runs PlayCustom inline, which is
+    # the shipped shape; the self-test's gated loader then completes before Play returns.
+    ("the custom chime is read inline on the caller's thread",
+     os.path.join(REPO, "modules", "Reminder", "Chime.cs"),
+     b"                try { Task.Run(() => PlayCustom(host, path, loadCustom)); }\n",
+     b"                try { PlayCustom(host, path, loadCustom); }\n",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "a custom chime's read does not run on the caller's thread"),
+
+    # Teams' short work-tenant join link (F193). The mutation deletes the provider; SelfCheck names the case
+    # in its detail line and the suite's FAIL line names the detector.
+    ("the Teams short join link is no longer matched",
+     os.path.join(REPO, "modules", "Reminder", "MeetingLinkDetector.cs"),
+     b"            new Provider(\"Teams\", @\"https://teams\\.microsoft\\.com/meet/[^\\s\"\"'<>]+\"),\n",
+     b"",
+     REMINDER_CSPROJ, REMINDER_DLL,
+     "--module-selftest=reminder", "dp-module-reminder-selftest.txt",
+     "MeetingLinkDetector"),
+
 
     # ---- lane fix/deadcode ----
 )
