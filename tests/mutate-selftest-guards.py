@@ -603,6 +603,119 @@ CASES = (
      "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
      "every probe restored the settings root it borrowed"),
 
+    # F101, both halves: CanUse lets a blank cloud model through again, and the brain's constructor fills a
+    # blank cloud model with the local default again.
+    ("aibrain: CanUse accepts a cloud provider with no cloud text model again",
+     os.path.join(REPO, "modules", "AiBrain", "AiBrainModule.cs"),
+     b"                if (string.IsNullOrWhiteSpace(s.CloudTextModel))\n"
+     b"                {\n"
+     b'                    error = "Pick a cloud text model first (Refresh cloud models, then choose one).";',
+     b"                if (s.CloudTextModel == null)\n"
+     b"                {\n"
+     b'                    error = "Pick a cloud text model first (Refresh cloud models, then choose one).";',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a cloud provider with no cloud text model does not pass CanUse"),
+
+    ("aibrain: a blank cloud model is filled with the local default again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiBrain.cs"),
+     b"            _textModel = AiModelPolicy.TryNormalize(\n"
+     b"                _settings.TextModel, out normalizedModel)\n"
+     b"                ? normalizedModel\n"
+     b'                : (cloudSlot ? "" : "gemma3:4b");',
+     b"            _textModel = AiModelPolicy.TryNormalize(\n"
+     b"                _settings.TextModel, out normalizedModel)\n"
+     b"                ? normalizedModel\n"
+     b'                : "gemma3:4b";',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a cloud snapshot with no model never invents the local default"),
+
+    # F103: the composite stops being a lister (the method stays; only the interface goes).
+    ("aibrain: the cloud+local composite cannot be enumerated again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "FallbackBackend.cs"),
+     b"    internal sealed class FallbackBackend : ICompanionBrainBackend, IModelLister",
+     b"    internal sealed class FallbackBackend : ICompanionBrainBackend",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the cloud+local composite can be enumerated"),
+
+    # F102: the marker miss becomes a hard gate again on a backend that reports nothing.
+    ("aibrain: a marker miss refuses a configured vision model again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiSettings.cs"),
+     b"                if (needVision && listing.Vision == false)\n"
+     b"                {\n"
+     b"                    listedButCannotSee = true;",
+     b"                if (needVision && !IsVisionCapable(listing.Id, listing.Vision))\n"
+     b"                {\n"
+     b"                    listedButCannotSee = true;",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a listed vision model with no marker and no report is used as configured"),
+
+    # F107, both halves: the log category and the probe.
+    ("aibrain: an answered status is filed as backend-unreachable again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiBrain.cs"),
+     b'            if (http != null) return "http-" + http.StatusCode.ToString(CultureInfo.InvariantCulture);',
+     b'            if (http != null && http.StatusCode < 0) return "http-" + http.StatusCode.ToString(CultureInfo.InvariantCulture);',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an answered HTTP status is its own category in the log"),
+
+    ("aibrain: an answered 401 reads as not reachable again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "OpenAiCompatBackend.cs"),
+     b"                    return await AiEndpointPolicy.SendAndCheckAnsweredAsync(",
+     b"                    return await AiEndpointPolicy.SendAndCheckSuccessAsync(",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "an answered 401 is reachable"),
+
+    # F080: the failing body is never read again.
+    ("aibrain: a provider's error body is dropped again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiEndpointPolicy.cs"),
+     b"                body = await ReadResponseStringAsync(\n"
+     b"                    response.Content,\n"
+     b"                    cancellationToken,\n"
+     b"                    MaximumProviderErrorBytes).ConfigureAwait(false);",
+     b'                body = "";',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "the provider's error message reaches the exception"),
+
+    # F078: the listing reads under the reply cap again.
+    ("aibrain: the cloud model listing reads under the 1 MiB reply cap again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "OpenAiCompatBackend.cs"),
+     b"                        ct,\n"
+     b"                        AiEndpointPolicy.MaximumListingResponseBytes).ConfigureAwait(false);\n"
+     b"                    JsonNode obj = JsonNode.Parse(json);\n"
+     b'                    JsonArray data = obj?["data"] as JsonArray;',
+     b"                        ct).ConfigureAwait(false);\n"
+     b"                    JsonNode obj = JsonNode.Parse(json);\n"
+     b'                    JsonArray data = obj?["data"] as JsonArray;',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a /models catalogue above the 1 MiB reply cap still lists"),
+
+    # F073: the failure line reads the SETTING again instead of the model that was sent.
+    ("aibrain: the failure line names the configured model instead of the one sent again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiBrain.cs"),
+     b'                   " model=" + (choice != null && !string.IsNullOrEmpty(choice.Model) ? choice.Model : "(unresolved)") +',
+     b'                   " model=" + (_useVision ? _visionModel : _textModel) +',
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a failure after resolution names the model actually SENT"),
+
+    # F072: a usable substitution stops being announced before the capture.
+    ("aibrain: a substitution is announced only after the generation again",
+     os.path.join(REPO, "modules", "AiBrain", "engine", "AiBrain.cs"),
+     b"                advisory = AdvisoryOnce(choice.Advisory);\n"
+     b"                if (advisory != null) return false;",
+     b"                advisory = AdvisoryOnce(choice.Advisory);\n"
+     b"                if (advisory != null && !choice.Usable) return false;",
+     AIBRAIN_CSPROJ, AIBRAIN_DLL,
+     "--module-selftest=aibrain", "dp-module-aibrain-selftest.txt",
+     "a substitution is announced before any capture"),
+
 
     # ---- lane fix/fortunes ----
 

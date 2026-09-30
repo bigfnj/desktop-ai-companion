@@ -144,7 +144,31 @@ namespace DesktopAICompanion.Ai
             Log("backend " + (up ? "reachable" : "unreachable") +
                 (first ? " (first check)" : " (was " + (!up ? "reachable" : "unreachable") + ")") +
                 (up || string.IsNullOrEmpty(reason) ? "" : " reason=" + reason) +
-                " endpoint=" + DescribeEndpoint(_settings.Endpoint));
+                " endpoint=" + BackendHostDescription);
+        }
+
+        /// <summary>
+        /// The host(s) the backend was actually built against, for the availability, inventory and failure
+        /// lines. Defaults to the snapshot's local Endpoint host, which is right for the local slot only: a
+        /// cloud-primary brain's snapshot still carries the local URL (ActiveSlotSnapshot promotes only the
+        /// models), so every line said "endpoint=localhost" during a cloud outage (F073).
+        /// AiBrainModule.CreateBrain sets it to the cloud host, or "cloudHost->localHost" for the composite.
+        /// </summary>
+        internal string BackendHostDescription { get; set; }
+
+        /// <summary>
+        /// The failure line's fields, from the path actually TAKEN: the model that was sent (a substitute, or
+        /// "(unresolved)" when the failure came before resolution), whether this turn was a vision turn, and
+        /// the backend host. The old line read the SETTING (<c>_useVision ? _visionModel : _textModel</c>) and
+        /// the local endpoint from the snapshot, so a failed text-path poke under UseVision logged the vision
+        /// model with vision=True, and a cloud outage logged "endpoint=localhost" (F073).
+        /// </summary>
+        internal string DescribeFailure(Exception ex, ModelChoice choice, bool useVisionPath)
+        {
+            return DescribeError(ex) +
+                   " model=" + (choice != null && !string.IsNullOrEmpty(choice.Model) ? choice.Model : "(unresolved)") +
+                   " vision=" + useVisionPath +
+                   " endpoint=" + BackendHostDescription;
         }
 
         /// <summary>
@@ -177,7 +201,18 @@ namespace DesktopAICompanion.Ai
         internal static string DescribeError(Exception ex)
         {
             if (ex == null) return "none";
-            if (ex is TaskCanceledException || ex is OperationCanceledException) return "timeout-or-cancelled";
+            // TimeoutException is what AiEndpointPolicy's end-to-end deadline throws, and it was missing from
+            // the bucket named for it: a deadline that fired logged as "TimeoutException" while a client-side
+            // cancel logged as "timeout-or-cancelled", two spellings of one thing (found while adding the F107
+            // case below).
+            if (ex is TaskCanceledException || ex is OperationCanceledException || ex is TimeoutException)
+                return "timeout-or-cancelled";
+            // BEFORE the HttpRequestException test it derives from: an answered status is a category of its own.
+            // Every 4xx and 5xx used to be filed as "backend-unreachable", so a bad cloud key logged "backend
+            // reachable (first check)" and "screen ask failed: backend-unreachable" for the same turn (F107).
+            // The status code carries nothing identifying; the provider's message can, and stays out.
+            AiBackendHttpException http = ex as AiBackendHttpException;
+            if (http != null) return "http-" + http.StatusCode.ToString(CultureInfo.InvariantCulture);
             if (ex is HttpRequestException) return "backend-unreachable";
             if (ex is System.Text.Json.JsonException) return "bad-response-json";
             if (ex is UnauthorizedAccessException) return "access-denied";
@@ -705,17 +740,25 @@ namespace DesktopAICompanion.Ai
         {
             _backend = backend;
             _settings = settings ?? new AiSettings();
+            // The literal fallback belongs to the LOCAL slot only. A cloud snapshot (Provider set) promotes the
+            // cloud ids into TextModel/VisionModel, and an unset cloud model is empty by design
+            // (AiSettings.NormalizeOptionalModel: "a cloud slot has no meaningful Ollama default"); filling the
+            // blank with an Ollama tag sent "gemma3:4b" to OpenRouter on every remark (F101). Empty stays empty
+            // here, and ChooseModel answers "none-configured" with an advisory the user can act on, before any
+            // capture.
+            bool cloudSlot = !string.IsNullOrEmpty(_settings.Provider);
             string normalizedModel;
             _textModel = AiModelPolicy.TryNormalize(
                 _settings.TextModel, out normalizedModel)
                 ? normalizedModel
-                : "gemma3:4b";
+                : (cloudSlot ? "" : "gemma3:4b");
             _visionModel = AiModelPolicy.TryNormalize(
                 _settings.VisionModel, out normalizedModel)
                 ? normalizedModel
-                : "gemma3:4b";
+                : (cloudSlot ? "" : "gemma3:4b");
             _useVision = _settings.UseVision;
             _tesseractPath = _settings.TesseractPath;
+            BackendHostDescription = DescribeEndpoint(_settings.Endpoint);
         }
 
         /// <summary>
@@ -847,10 +890,15 @@ namespace DesktopAICompanion.Ai
             try
             {
                 IReadOnlyList<ModelListing> listed = await lister(ct).ConfigureAwait(false);
-                if (listed == null) return;
+                if (listed == null)
+                {
+                    // Said, because this used to be the silent reason BUG-002's advisory never fired for a
+                    // cloud user with the default fallback (F103): the composite could not enumerate.
+                    Log("model inventory: the backend cannot enumerate models, so the configured id is not re-validated");
+                    return;
+                }
                 _available = listed;
-                Log("model inventory: " + listed.Count + " model(s) reported by " +
-                    DescribeEndpoint(_settings.Endpoint));
+                Log("model inventory: " + listed.Count + " model(s) reported by " + BackendHostDescription);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
@@ -906,6 +954,10 @@ namespace DesktopAICompanion.Ai
             bool allowVision = true,
             CancellationToken ct = default(CancellationToken))
         {
+            // Hoisted out of the try so the failure line can say which path was taken and which model was sent
+            // (F073); a null choice means the failure came before the model was resolved.
+            bool useVisionPath = _useVision && allowVision;
+            ModelChoice choice = null;
             try
             {
                 if (!await CheckBackendAvailableAsync(ct).ConfigureAwait(false))
@@ -949,23 +1001,12 @@ namespace DesktopAICompanion.Ai
                 // bandwidth: 896 is the native input size of a Gemma-family SigLIP encoder, and pixels
                 // beyond it are either thrown away by the model or turned into extra image tiles that
                 // multiply prefill cost for detail a one-line remark does not need.
-                bool useVisionPath = _useVision && allowVision;
 
-                // BUG-002: settle WHICH model before paying for a capture. A saved id is not evidence the
-                // backend still has it -- "Refresh local models" can drop one, and the shipped default is
-                // an id many machines never had -- and the ask path returns null on any failure, so an
-                // absent model was indistinguishable from a quiet companion. Resolving here also avoids
-                // capturing the screen for a request that cannot be sent.
-                ModelChoice choice = AiModelPolicy.ChooseModel(
-                    useVisionPath ? _visionModel : _textModel,
-                    _available,
-                    useVisionPath);
-                Log("model resolve: " + choice.Reason +
-                    " configured=" + (useVisionPath ? _visionModel : _textModel) +
-                    " using=" + (choice.Model ?? "(none)") +
-                    " vision=" + useVisionPath);
-                if (!choice.Usable)
-                    return AdvisoryOnce(choice.Advisory);
+                // BUG-002: settle WHICH model before paying for a capture, and say anything that needs saying
+                // about it BEFORE the capture too (F072). ResolveBeforeCapture holds the reasoning.
+                BrainResponse advisory;
+                if (!ResolveBeforeCapture(useVisionPath, out choice, out advisory))
+                    return advisory;
 
                 using (Bitmap shot = CaptureScreen(captureBounds, useVisionPath ? VisionMaxWidth : OcrCaptureWidth))
                 {
@@ -1015,18 +1056,10 @@ namespace DesktopAICompanion.Ai
                     }
 
                     // Generation, the already-said list and the repeat check all live in there, so the
-                    // reply-parse diagnostic does too rather than being written twice.
-                    BrainResponse resp = await GenerateWithRepeatGuardAsync(
+                    // reply-parse diagnostic does too rather than being written twice. Nothing generated here
+                    // is discarded any more: a substitution's advisory was spoken before the capture (F072).
+                    return await GenerateWithRepeatGuardAsync(
                         model, userText, images, ct).ConfigureAwait(false);
-                    // A substitution worked, so the turn is fine -- but the user is now talking to a model
-                    // they did not choose, and silently swapping one is how BUG-002 stayed hidden. Said
-                    // once, then never again for the same message.
-                    if (choice.Advisory != null)
-                    {
-                        BrainResponse advisory = AdvisoryOnce(choice.Advisory);
-                        if (advisory != null) return advisory;
-                    }
-                    return resp;
                 }
             }
             catch (OperationCanceledException)
@@ -1038,13 +1071,54 @@ namespace DesktopAICompanion.Ai
                 // Still returns null -- the pet staying silent on a broken backend is correct -- but no
                 // longer SILENTLY. Before this line a missing model, an unreachable server and "nothing
                 // interesting to say" were the same observable event, which is what made BUG-002 take a
-                // maintainer bisect to explain. Category and model id only; see LogSink's contract.
-                Log("screen ask failed: " + DescribeError(ex) +
-                    " model=" + (_useVision ? _visionModel : _textModel) +
-                    " vision=" + _useVision +
-                    " endpoint=" + DescribeEndpoint(_settings.Endpoint));
+                // maintainer bisect to explain. Category and model id only; see LogSink's contract. The
+                // fields come from the path actually taken (F073): see DescribeFailure.
+                Log("screen ask failed: " + DescribeFailure(ex, choice, useVisionPath));
                 return null;   // never crash the app over the AI layer
             }
+        }
+
+        /// <summary>
+        /// Everything a turn decides BEFORE it pays for a capture, and whether it should go on to one.
+        ///
+        /// BUG-002: settle WHICH model first. A saved id is not evidence the backend still has it ("Refresh
+        /// local models" can drop one, and the shipped default is an id many machines never had), and the ask
+        /// path returns null on any failure, so an absent model used to be indistinguishable from a quiet
+        /// companion. Resolving here also avoids capturing the screen for a request that cannot be sent.
+        ///
+        /// F072: a SUBSTITUTION is announced here as well, once, instead of after the generation. The old order
+        /// wanted the substitute proven before it was named, and paid for that with a capture, an OCR pass and
+        /// a full generation (a cold load under the default residency) whose remark was then discarded for the
+        /// advisory and remembered as spoken, so the next prompt quoted, under "you have ALREADY said", a line
+        /// nobody heard. If the substitute fails after being announced, the log says so; the user hears one
+        /// advisory either way.
+        ///
+        /// Split out so the probe can drive it with a fake inventory and no screen at all.
+        /// </summary>
+        /// <returns>True to go on to the capture; false to return <paramref name="advisory"/> (null when the
+        /// advisory for this configuration has already been spoken) and end the turn.</returns>
+        internal bool ResolveBeforeCapture(bool useVisionPath, out ModelChoice choice, out BrainResponse advisory)
+        {
+            advisory = null;
+            choice = AiModelPolicy.ChooseModel(
+                useVisionPath ? _visionModel : _textModel,
+                _available,
+                useVisionPath);
+            Log("model resolve: " + choice.Reason +
+                " configured=" + (useVisionPath ? _visionModel : _textModel) +
+                " using=" + (choice.Model ?? "(none)") +
+                " vision=" + useVisionPath);
+            if (!choice.Usable)
+            {
+                advisory = AdvisoryOnce(choice.Advisory);
+                return false;
+            }
+            if (choice.Advisory != null)
+            {
+                advisory = AdvisoryOnce(choice.Advisory);
+                if (advisory != null) return false;
+            }
+            return true;
         }
 
         private async Task<string> ChatWithRetryAsync(string model, IList<ChatMessage> messages, CancellationToken ct)

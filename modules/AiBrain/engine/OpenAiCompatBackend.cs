@@ -18,7 +18,7 @@ namespace DesktopAICompanion.Ai
     /// VRAM; local servers load on first request). Ollama keeps its native client for keep-alive VRAM
     /// control; everything else routes here.
     /// </summary>
-    internal sealed class OpenAiCompatBackend : ICompanionBrainBackend
+    internal sealed class OpenAiCompatBackend : ICompanionBrainBackend, IModelLister
     {
         private readonly HttpClient _http;
         private readonly string _base;   // ".../v1"
@@ -54,13 +54,23 @@ namespace DesktopAICompanion.Ai
             _http.DefaultRequestHeaders.Add("X-Title", "DesktopAICompanion");
         }
 
+        /// <summary>
+        /// "Reachable" means the endpoint ANSWERED, whatever it answered. A 401 is a server saying the key is
+        /// wrong and a 404 a server saying the path is wrong; until 2026-09-29 both came back false here, so
+        /// "Test connection" told an OpenAI user with a mistyped key that api.openai.com was not reachable, and
+        /// the cloud+local composite treated a keyed-out cloud as down (F107). Only a redirect and a transport
+        /// failure or timeout are "not reachable". The status itself surfaces from the chat request, where the
+        /// recorded no-fallover-on-a-bad-key decision wants it. Local to this backend, deliberately: OllamaClient
+        /// keeps the SUCCESS probe, because its EnsureServerAsync uses that answer to decide whether to launch
+        /// `ollama serve`, and a foreign server answering 404 on :11434 must not suppress the launch.
+        /// </summary>
         public async Task<bool> IsAvailableAsync(CancellationToken ct)
         {
             try
             {
                 using (var request = CreateRequest(HttpMethod.Get, "/models"))
                 {
-                    return await AiEndpointPolicy.SendAndCheckSuccessAsync(
+                    return await AiEndpointPolicy.SendAndCheckAnsweredAsync(
                         _http,
                         request,
                         _deadline,
@@ -85,11 +95,15 @@ namespace DesktopAICompanion.Ai
             {
                 using (var request = CreateRequest(HttpMethod.Get, "/models"))
                 {
+                    // The LISTING cap, not the reply cap: a provider's catalogue is a flat list that only grows,
+                    // and OpenRouter's stood at 72.5% of the 1 MiB reply cap on 2026-09-29; crossing it would
+                    // have turned this into an empty list reported as "No models found" (F078).
                     string json = await AiEndpointPolicy.SendAndReadResponseStringAsync(
                         _http,
                         request,
                         _deadline,
-                        ct).ConfigureAwait(false);
+                        ct,
+                        AiEndpointPolicy.MaximumListingResponseBytes).ConfigureAwait(false);
                     JsonNode obj = JsonNode.Parse(json);
                     JsonArray data = obj?["data"] as JsonArray;
                     if (data != null)

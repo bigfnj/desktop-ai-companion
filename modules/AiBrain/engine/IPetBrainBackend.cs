@@ -37,4 +37,18 @@ namespace DesktopAICompanion.Ai
         /// </summary>
         Task UnloadAsync(string model, CancellationToken ct);
     }
+
+    /// <summary>
+    /// A backend that can say what models it offers. Optional, and separate from
+    /// <see cref="ICompanionBrainBackend"/> on purpose: the composite <see cref="FallbackBackend"/> answers for
+    /// its PRIMARY (those are the ids the brain is configured with), and a double that lists nothing is not
+    /// made to lie. Until 2026-09-29 the module reached the listing through two type tests, so the composite,
+    /// which every cloud user with the default fallback runs, could never be enumerated and BUG-002's
+    /// re-validation silently did not apply to the configuration it was written for (F103).
+    /// </summary>
+    internal interface IModelLister
+    {
+        /// <summary>The backend's list, or null when it cannot enumerate. Never throws except on cancellation.</summary>
+        Task<IReadOnlyList<ModelListing>> ListModelsAsync(CancellationToken ct);
+    }
 }

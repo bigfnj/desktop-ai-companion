@@ -17,7 +17,7 @@ namespace DesktopAICompanion.Ai
     /// called with the model the brain chose (a cloud model); on fallback the corresponding LOCAL model is
     /// used (vision vs text is decided by comparing the incoming model to the primary's vision model).
     /// </summary>
-    internal sealed class FallbackBackend : ICompanionBrainBackend
+    internal sealed class FallbackBackend : ICompanionBrainBackend, IModelLister
     {
         private readonly ICompanionBrainBackend _primary;
         private readonly ICompanionBrainBackend _local;
@@ -97,6 +97,20 @@ namespace DesktopAICompanion.Ai
         {
             try { await _primary.UnloadAsync(model, ct).ConfigureAwait(false); } catch { }
             try { await _local.UnloadAsync(LocalModelFor(model), ct).ConfigureAwait(false); } catch { }
+        }
+
+        /// <summary>
+        /// The PRIMARY's list: those are the ids the brain is configured with, so they are the ones BUG-002's
+        /// re-validation has to check. Null when the primary cannot enumerate, which ChooseModel treats as
+        /// "unknown, do not complain". The local leg's models are mapped by name on fallover and stay
+        /// unvalidated, which is acceptable because they run only after the primary has already failed (F103).
+        /// </summary>
+        public Task<IReadOnlyList<ModelListing>> ListModelsAsync(CancellationToken ct)
+        {
+            IModelLister lister = _primary as IModelLister;
+            return lister != null
+                ? lister.ListModelsAsync(ct)
+                : Task.FromResult<IReadOnlyList<ModelListing>>(null);
         }
 
         public void Dispose()

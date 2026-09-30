@@ -3,6 +3,7 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Text;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -15,6 +16,18 @@ namespace DesktopAICompanion.Ai
     internal static class AiEndpointPolicy
     {
         public const int MaximumResponseBytes = 1024 * 1024;
+        /// <summary>
+        /// The cap for a MODEL LISTING, which is a catalogue rather than a reply. OpenRouter's /models answered
+        /// 754-760 KB for 460 models on 2026-09-29, 72.5% of <see cref="MaximumResponseBytes"/>; the list only
+        /// grows, and crossing the reply cap turned the whole cloud catalogue into a silent empty list reported
+        /// as "No models found" (F078). Eight times the reply cap leaves years of growth; a listing is read once
+        /// per refresh and once per PrepareAsync, never per remark.
+        /// </summary>
+        public const int MaximumListingResponseBytes = 8 * 1024 * 1024;
+        /// <summary>How much of a FAILING answer's body is read for the provider's own error text (F080).</summary>
+        public const int MaximumProviderErrorBytes = 4096;
+        /// <summary>The longest provider error text carried to the pane.</summary>
+        public const int MaximumProviderMessageCharacters = 200;
         private static readonly UTF8Encoding StrictUtf8 =
             new UTF8Encoding(false, true);
         public static bool TryNormalize(string value, out string normalized, out string error)
@@ -90,13 +103,81 @@ namespace DesktopAICompanion.Ai
         {
             EnsureNotRedirect(response);
             if (response.IsSuccessStatusCode) return;
+            throw new AiBackendHttpException((int)response.StatusCode, IsTransientStatus((int)response.StatusCode));
+        }
 
+        private static bool IsTransientStatus(int statusCode)
+        {
+            return statusCode == 408 || statusCode == 429 || statusCode >= 500;
+        }
+
+        /// <summary>
+        /// As <see cref="EnsureSuccess"/>, but a failing answer's body is read first (bounded, best-effort) so
+        /// the exception can carry the provider's own words for the PANE: OpenAI-compatible providers answer
+        /// every 4xx with <c>{"error":{"message":...}}</c> and Ollama with <c>{"error":"..."}</c>, and dropping
+        /// that turned "Insufficient credits" and "not a valid model ID" into "HTTP 402." and "HTTP 400." (F080).
+        /// The diagnostic log never sees the text: <see cref="AiBrain.DescribeError"/> is category-only by
+        /// contract, and a provider's message is the one string here that could echo something from the
+        /// request.
+        /// </summary>
+        public static async Task EnsureSuccessAsync(
+            HttpResponseMessage response,
+            CancellationToken cancellationToken)
+        {
+            EnsureNotRedirect(response);
+            if (response.IsSuccessStatusCode) return;
             int statusCode = (int)response.StatusCode;
-            bool transient =
-                statusCode == 408 ||
-                statusCode == 429 ||
-                statusCode >= 500;
-            throw new AiBackendHttpException(statusCode, transient);
+            string body;
+            try
+            {
+                body = await ReadResponseStringAsync(
+                    response.Content,
+                    cancellationToken,
+                    MaximumProviderErrorBytes).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch { body = ""; }   // oversized, malformed or gone: the status alone is still the answer
+            throw new AiBackendHttpException(statusCode, IsTransientStatus(statusCode), ExtractProviderErrorMessage(body));
+        }
+
+        /// <summary>
+        /// The human-readable part of a provider's error body, or "" when there is none: <c>error.message</c>
+        /// (OpenAI, OpenRouter, LM Studio) or a bare <c>error</c> string (Ollama). Control characters are
+        /// dropped, whitespace collapsed and the result capped at <see cref="MaximumProviderMessageCharacters"/>,
+        /// so a provider cannot put a paragraph, or a line break, into a status line.
+        /// </summary>
+        public static string ExtractProviderErrorMessage(string body)
+        {
+            if (string.IsNullOrWhiteSpace(body)) return "";
+            string message = null;
+            try
+            {
+                JsonNode root = JsonNode.Parse(body);
+                JsonNode error = root == null ? null : root["error"];
+                if (error is JsonObject) message = JsonRead.Str(error["message"]);
+                else if (error != null) message = JsonRead.Str(error);
+            }
+            catch { return ""; }
+            if (string.IsNullOrWhiteSpace(message)) return "";
+
+            var clean = new StringBuilder(Math.Min(message.Length, MaximumProviderMessageCharacters));
+            bool pendingSpace = false;
+            foreach (char c in message)
+            {
+                if (char.IsWhiteSpace(c) || char.IsControl(c))
+                {
+                    pendingSpace = clean.Length > 0;
+                    continue;
+                }
+                if (clean.Length + (pendingSpace ? 2 : 1) > MaximumProviderMessageCharacters) break;
+                if (pendingSpace)
+                {
+                    clean.Append(' ');
+                    pendingSpace = false;
+                }
+                clean.Append(c);
+            }
+            return clean.ToString();
         }
 
         /// <summary>
@@ -152,7 +233,13 @@ namespace DesktopAICompanion.Ai
                 });
         }
 
-        public static Task<bool> SendAndEnsureSuccessAsync(
+        /// <summary>
+        /// True when the endpoint ANSWERED with anything but a redirect, whatever the status: a 401 or a 404 is
+        /// a server that is there and says no. For a reachability probe whose caller separates "is it there"
+        /// from "did it accept the request" (<see cref="OpenAiCompatBackend.IsAvailableAsync"/>, F107). Not for
+        /// OllamaClient, whose EnsureServerAsync uses a SUCCESS probe to decide whether to launch the server.
+        /// </summary>
+        public static Task<bool> SendAndCheckAnsweredAsync(
             HttpClient client,
             HttpRequestMessage request,
             TimeSpan deadline,
@@ -165,8 +252,26 @@ namespace DesktopAICompanion.Ai
                 cancellationToken,
                 delegate(HttpResponseMessage response, CancellationToken boundedToken)
                 {
-                    EnsureSuccess(response);
+                    EnsureNotRedirect(response);
                     return Task.FromResult(true);
+                });
+        }
+
+        public static Task<bool> SendAndEnsureSuccessAsync(
+            HttpClient client,
+            HttpRequestMessage request,
+            TimeSpan deadline,
+            CancellationToken cancellationToken)
+        {
+            return SendWithDeadlineAsync(
+                client,
+                request,
+                deadline,
+                cancellationToken,
+                async delegate(HttpResponseMessage response, CancellationToken boundedToken)
+                {
+                    await EnsureSuccessAsync(response, boundedToken).ConfigureAwait(false);
+                    return true;
                 });
         }
 
@@ -189,7 +294,7 @@ namespace DesktopAICompanion.Ai
                     HttpResponseMessage response,
                     CancellationToken boundedToken)
                 {
-                    EnsureSuccess(response);
+                    await EnsureSuccessAsync(response, boundedToken).ConfigureAwait(false);
                     return await ReadResponseStringAsync(
                         response.Content,
                         boundedToken,
@@ -442,11 +547,21 @@ namespace DesktopAICompanion.Ai
         public new int StatusCode { get; private set; }
         public bool IsTransient { get; private set; }
 
+        /// <summary>The provider's own error text, bounded and sanitised, or "" when it sent none. For the
+        /// PANE only: the diagnostic log records the status category (F080, F107).</summary>
+        public string ProviderMessage { get; private set; }
+
         public AiBackendHttpException(int statusCode, bool isTransient)
+            : this(statusCode, isTransient, "")
+        {
+        }
+
+        public AiBackendHttpException(int statusCode, bool isTransient, string providerMessage)
             : base("AI backend returned HTTP " + statusCode + ".")
         {
             StatusCode = statusCode;
             IsTransient = isTransient;
+            ProviderMessage = providerMessage ?? "";
         }
     }
 }

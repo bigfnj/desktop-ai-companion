@@ -16,7 +16,7 @@ namespace DesktopAICompanion.Ai
     /// Non-streaming; the request JSON is built by hand so we control the vision "images" array.
     /// A single <see cref="HttpClient"/> is reused for the client's lifetime.
     /// </summary>
-    internal sealed class OllamaClient : ICompanionBrainBackend
+    internal sealed class OllamaClient : ICompanionBrainBackend, IModelLister
     {
         private static readonly TimeSpan DefaultStartupDeadline =
             TimeSpan.FromSeconds(20);
@@ -136,7 +136,8 @@ namespace DesktopAICompanion.Ai
                         _http,
                         request,
                         _deadline,
-                        ct).ConfigureAwait(false);
+                        ct,
+                        AiEndpointPolicy.MaximumListingResponseBytes).ConfigureAwait(false);
                     JsonNode obj = JsonNode.Parse(json);
                     JsonArray models = obj?["models"] as JsonArray;
                     if (models != null)

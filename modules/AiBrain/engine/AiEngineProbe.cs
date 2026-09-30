@@ -577,6 +577,9 @@ namespace DesktopAICompanion.AiBrainModule
                 // is lost when the base's dead Ai/* copy is deleted in a later phase. ---
                 ok &= RunSecurity(sb);
 
+                // --- the cloud slot, the composite, and how HTTP answers are described (AiEngineProbe.Backends.cs) ---
+                ok &= RunBackends(sb);
+
                 // --- the MODULE's own entry points, through ModuleKit's RecordingHost (AiEngineProbe.Module.cs) ---
                 ok &= RunModule(sb);
             }

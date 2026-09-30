@@ -314,6 +314,50 @@ host always provisions a storage directory, so the fallback served only the head
 it by writing into a directory nobody owned was the wrong answer. ModuleKit's `ModulePaths.FromStorage` still
 carries the same fallback for every other module; that is the ModuleKit owner's call and is noted, not changed.
 
+**The vision dropdowns keep the name-marker filter for backends that report no capabilities; the ask does not
+(F102, 2026-09-29).** `ChooseModel` now gates a vision ask only on a REPORTED `Vision == false`: a listed model the
+marker list does not know is used as configured and named `configured-unverified-vision` in the log, because the
+list is maintained by hand and had gone stale (no gpt-5, gemini-3 or grok-4 on 2026-09-29), and a miss used to
+reroute a working configured model to another vendor's with an advisory that said it "isn't available" while it
+sat in the list. `BuildModelOptions(visionOnly)` keeps filtering `/v1` lists by the same markers, deliberately: on
+OpenRouter that list is 460 ids and an unfiltered vision dropdown defeats the filter's purpose, and with the ask
+no longer punishing a miss, a model the dropdown hides can still be configured by file or migration and will run.
+The marker list was refreshed with the families that had shipped; refreshing it again is the maintenance this
+records, not a design change. Reached only when the composite can enumerate at all (F103), which is why the two
+landed together.
+
+**A cloud endpoint that answers is reachable, whatever it answers (F107, 2026-09-29).** `OpenAiCompatBackend.
+IsAvailableAsync` used to return false on a 401, so "Test connection" told an OpenAI user with a mistyped key that
+api.openai.com was not reachable, and the cloud+local composite treated a keyed-out cloud as down. Now only a
+redirect and a transport failure or timeout are "not reachable", and the status surfaces from the chat request,
+where the recorded no-fallover-on-a-bad-key decision wants it (`FallbackBackend`, HISTORY-pre-1.0.0.md 53d130b87).
+The cost, stated: a cloud answering 5xx during an outage now counts as reachable, so each ask pays one failed
+cloud request before `IsRetryable` fails it over to the local leg, where the probe used to short-circuit that.
+`OllamaClient` keeps the SUCCESS probe, because `EnsureServerAsync` uses its answer to decide whether to launch
+`ollama serve`, and a foreign server answering 404 on :11434 must not suppress the launch.
+
+**A substitution is announced before it is proven (F072, 2026-09-29).** The old order generated a remark on the
+substitute first and spoke the advisory instead of it, so the substitute was known to work before it was named;
+the price was a capture, an OCR pass and a generation (a cold load under the default residency) thrown away, plus
+a remark remembered as spoken that nobody heard. The advisory is spoken from `ResolveBeforeCapture` now; if the
+substitute then fails, the failure line names it and the next ask stays quiet, which is the same silence with one
+more line in the log.
+
+**Certificate revocation checking stays off on the cloud slot's TLS handler (F079, 2026-09-29): an owner-decision
+candidate, not a lane decision.** It is the .NET default. Turning `CheckCertificateRevocationList` on for the
+non-loopback handler makes an unreachable OCSP or CRL responder a hard failure ("The SSL connection could not be
+established") of every cloud ask and of "Test connection" on the networks most likely to be hostile, and the
+exploit it closes needs an on-path attacker holding a revoked-but-unexpired certificate for the provider host.
+The host's own `src/dotNet/SecureDownload.cs` and Remembrance's `WhisperInstaller` carry the same posture, so a
+flip belongs to all three at once, with `DescribeChain`-style text that shows the revocation cause, or to none.
+If the owner wants it: `AiEndpointPolicy.CreateNoRedirectHandler(bool remote)` setting the flag when the
+normalized base is not loopback is the whole module-side change.
+
+**The credential caps stay as they are (F092, 2026-09-29).** 32 scopes x 16 KB ciphertext exceeds the 256 KB file
+cap in arithmetic only: it needs about 24 keys of 8 KB each, and real provider keys are 50-200 characters (32 of
+them serialize to about 20 KB). If a real key ever approaches 8 KB, the useful half is a size reason on the save
+refusal, not smaller caps.
+
 #### fix/fortunes
 
 (none yet)

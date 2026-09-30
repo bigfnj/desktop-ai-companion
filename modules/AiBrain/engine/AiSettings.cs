@@ -1617,7 +1617,10 @@ namespace DesktopAICompanion.Ai
 
         // Known multimodal (image-capable) families, matched case-insensitively as substrings of the
         // model id. Provider-agnostic and deliberately loose so a genuine vision model is rarely
-        // mis-flagged; a model with no marker is treated as text-only and gets an advisory.
+        // mis-flagged. A model with no marker is offered in no vision dropdown; on a backend that reports
+        // nothing about capabilities, a CONFIGURED one is used unverified rather than refused (see
+        // ChooseModel, F102). Maintained by hand, so it goes stale: refreshed 2026-09-29 with the families
+        // that had shipped since it was written (gpt-5, gemini-3, grok-4, mistral-small/medium-3, glm-4.5v).
         private static readonly string[] VisionModelMarkers =
         {
             "llava", "bakllava", "moondream", "vision", "-vl", "vl-", "vl:", "pixtral",
@@ -1627,11 +1630,9 @@ namespace DesktopAICompanion.Ai
             "claude-3", "claude-4", "claude-opus", "claude-sonnet", "claude-haiku",
             "gemini-1.5", "gemini-2", "gemini-pro-vision", "glm-4v", "deepseek-vl",
             "phi-3-vision", "phi3.5-vision", "phi-4-multimodal", "smolvlm", "aya-vision",
+            "gpt-5", "gemini-3", "grok-4", "mistral-small-3", "mistral-medium-3", "glm-4.5v", "glm-4.6v",
         };
 
-        /// <summary>Best-effort, name-based guess of whether a model accepts image input, so the
-        /// options UI can advise when a text-only model is picked for the vision feature. Advisory
-        /// only, never a hard gate. Empty -> true (no advisory).</summary>
         /// <summary>
         /// Whether to offer a model as vision-capable: the UNION of what the backend reported and the
         /// name heuristic, never one overriding the other.
@@ -1692,17 +1693,41 @@ namespace DesktopAICompanion.Ai
             System.Collections.Generic.IReadOnlyList<ModelListing> available,
             bool needVision)
         {
+            // No id at all is not "unknown inventory": nothing can be sent, and the fix is in the pane. An
+            // empty id used to reach here only because the constructor had filled it with the local default
+            // (F101); now that a cloud slot keeps its blank, this is the branch that says so, once.
+            if (string.IsNullOrWhiteSpace(configured))
+                return new ModelChoice(
+                    null,
+                    needVision
+                        ? "No vision model is set for this provider. Pick one in AI Brain settings."
+                        : "No text model is set for this provider. Pick one in AI Brain settings.",
+                    "none-configured");
+
             if (available == null || available.Count == 0)
                 return new ModelChoice(configured, null, "model-list-unknown");
 
+            bool listedButCannotSee = false;
             foreach (ModelListing listing in available)
             {
                 if (listing == null) continue;
                 if (!ModelIdMatches(configured, listing.Id)) continue;
-                // Present, but it still has to be able to do the job asked of it. A text-only model
-                // selected for the vision path fails the same silent way a missing one does.
-                if (needVision && !IsVisionCapable(listing.Id, listing.Vision))
+                // Present, but it still has to be able to do the job asked of it. A text-only model selected
+                // for the vision path fails the same silent way a missing one does, so a backend that REPORTS
+                // the model cannot see (Ollama's capabilities array) is a hard gate. A backend that reports
+                // nothing (every OpenAI-compatible /v1 list carries Vision = null) is not: the name-marker
+                // list is a hint maintained by hand, and on 2026-09-29 it knew no gpt-5, gemini-3 or grok-4, so
+                // treating a miss as "cannot see" rerouted a working configured model to another vendor's,
+                // with an advisory claiming it "isn't available" while it sat in the list (F102). Unverified
+                // is used as configured and named in the log; a genuinely blind model then fails at request
+                // time with a logged 4xx, which is the direction the dropdown's union rule already chose.
+                if (needVision && listing.Vision == false)
+                {
+                    listedButCannotSee = true;
                     break;
+                }
+                if (needVision && listing.Vision == null && !LooksVisionCapable(listing.Id))
+                    return new ModelChoice(listing.Id, null, "configured-unverified-vision");
                 return new ModelChoice(listing.Id, null, "configured");
             }
 
@@ -1712,7 +1737,8 @@ namespace DesktopAICompanion.Ai
                 if (needVision && !IsVisionCapable(listing.Id, listing.Vision)) continue;
                 return new ModelChoice(
                     listing.Id,
-                    Describe(configured) + " isn't available, so I'm using " + listing.Id + " instead.",
+                    Describe(configured) + (listedButCannotSee ? " can't see images" : " isn't available") +
+                        ", so I'm using " + listing.Id + " instead.",
                     "substituted");
             }
 
@@ -1730,6 +1756,10 @@ namespace DesktopAICompanion.Ai
             return string.IsNullOrWhiteSpace(model) ? "The configured model" : model;
         }
 
+        /// <summary>Best-effort, name-based guess of whether a model accepts image input. Empty -> true (no
+        /// advisory). A hint maintained by hand: on a backend that reports nothing it decides the vision
+        /// DROPDOWNS (a miss hides the model from them) but no longer the ASK, where a configured model it does
+        /// not know is used unverified (see <see cref="ChooseModel"/>, F102).</summary>
         public static bool LooksVisionCapable(string model)
         {
             if (string.IsNullOrWhiteSpace(model)) return true;

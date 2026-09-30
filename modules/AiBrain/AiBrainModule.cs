@@ -105,8 +105,19 @@ namespace DesktopAICompanion.AiBrainModule
                                  //         decision, BUG-010): the code stood, the label and comments changed,
                                  //         and the module self-test pins the drop's routing. The hotkey and
                                  //         the tray row honour the fullscreen stand-down. LaunchProcess is
-                                 //         declared. Every item is dispositioned in BACKLOG.md; decisions
-                                 //         under `#### fix/aibrain` in docs/DESIGN-REGISTER.md.
+                                 //         declared. The settings store reads a BOM'd or UTF-16 file, keeps a
+                                 //         rejected primary as ai-settings.corrupt-*.json, says in the log
+                                 //         when it could not load, restores an empty endpoint or hotkey, and
+                                 //         has no %TEMP% fallback root. A cloud slot needs a model before the
+                                 //         brain builds; the cloud+local composite can be enumerated, so a bad
+                                 //         cloud id is re-validated (BUG-002); a vision model the marker list
+                                 //         does not know is used, not refused; an answered 401 is reachable
+                                 //         and described as a rejected key, and the log files answered
+                                 //         statuses as http-<n>; model listings read under their own 8 MiB
+                                 //         cap; the failure line names the model sent and the host built
+                                 //         against; a substitution is announced before any capture. Every
+                                 //         item is dispositioned in BACKLOG.md; decisions under
+                                 //         `#### fix/aibrain` in docs/DESIGN-REGISTER.md.
                                  // 1.1.13: the emotion reaction reached 18/54, 35/54, 8/54, 8/54 and
                                  //         8/54 companions. "thinking" fires on EVERY ask, so on 46 of
                                  //         54 it silently did nothing -- the eSheep-era names it used
@@ -588,15 +599,48 @@ namespace DesktopAICompanion.AiBrainModule
                     if (!await backend.IsAvailableAsync(CancellationToken.None).ConfigureAwait(false))
                         return "✗ Not reachable at " + normalized;
                     // Test whichever slot is active: cloud model when a cloud provider is selected, else local.
+                    // A blank cloud model is refused, not defaulted: this used to substitute the LOCAL default
+                    // "gemma3:4b" and report the provider's 400 (F101).
                     string activeModel = local ? s.TextModel : s.CloudTextModel;
-                    string model = string.IsNullOrWhiteSpace(activeModel) ? "gemma3:4b" : activeModel.Trim();
+                    if (string.IsNullOrWhiteSpace(activeModel))
+                        return local
+                            ? "✗ No local text model is set."
+                            : "✗ Pick a cloud text model first (Refresh cloud models, then choose one).";
+                    string model = activeModel.Trim();
                     var msgs = new List<ChatMessage> { ChatMessage.System("Reply with OK."), ChatMessage.User("OK?", null) };
                     string reply = await backend.ChatAsync(model, msgs, false, CancellationToken.None).ConfigureAwait(false);
                     sw.Stop();
                     return TestConnectionVerdict(reply, model, sw.ElapsedMilliseconds);
                 }
             }
+            catch (AiBackendHttpException ex) { return DescribeHttpFailure(ex, normalized); }
             catch (Exception ex) { return "✗ " + ex.Message; }
+        }
+
+        /// <summary>
+        /// The pane's line for an answered HTTP failure: the status, the host it came from, the likely cause
+        /// for the ones a user can fix themselves, and the provider's own words when it sent any. "AI backend
+        /// returned HTTP 401." named neither the host nor the key (F107), and the provider's error.message
+        /// ("Insufficient credits", "not a valid model ID") was never read at all (F080). Pane text only; the
+        /// diagnostic log carries the status category.
+        /// </summary>
+        internal static string DescribeHttpFailure(AiBackendHttpException ex, string endpoint)
+        {
+            string host = AiBrain.DescribeEndpoint(endpoint);
+            string cause;
+            switch (ex.StatusCode)
+            {
+                case 401:
+                case 403: cause = "the provider rejected the API key"; break;
+                case 402: cause = "the provider wants payment or credits on this key"; break;
+                case 404: cause = "check the base URL (it usually ends in /v1) and the model id"; break;
+                case 429: cause = "the provider is rate-limiting this key"; break;
+                default: cause = ex.StatusCode >= 500 ? "the provider is having trouble; try again later" : ""; break;
+            }
+            string line = "✗ HTTP " + ex.StatusCode.ToString(CultureInfo.InvariantCulture) + " from " + host +
+                          (cause.Length > 0 ? ": " + cause : "");
+            if (!string.IsNullOrEmpty(ex.ProviderMessage)) line += " (" + ex.ProviderMessage + ")";
+            return line;
         }
 
         /// <summary>
@@ -1023,16 +1067,8 @@ namespace DesktopAICompanion.AiBrainModule
             {
                 IReadOnlyList<ModelListing> models;
                 using (ICompanionBrainBackend backend = BuildLocalBackend(s, normalized, timeout))
-                {
-                    OllamaClient ollama = backend as OllamaClient;
-                    OpenAiCompatBackend compat = backend as OpenAiCompatBackend;
-                    if (ollama != null)
-                        models = await ollama.ListModelsAsync(CancellationToken.None).ConfigureAwait(false);
-                    else if (compat != null)
-                        models = await compat.ListModelsAsync(CancellationToken.None).ConfigureAwait(false);
-                    else
-                        models = new List<ModelListing>();
-                }
+                    models = await ListBackendModelsAsync(backend, CancellationToken.None).ConfigureAwait(false)
+                             ?? (IReadOnlyList<ModelListing>)new List<ModelListing>();
                 // One critical section: swapping the list and rebuilding the dropdowns from it is a
                 // single logical update, so a concurrent cloud refresh cannot read a half-replaced list.
                 lock (_modelsLock)
@@ -1295,8 +1331,13 @@ namespace DesktopAICompanion.AiBrainModule
             // brain is on; clear it when off so they fall back to their own default (the Windows user name).
             try { if (_host != null) _host.SetOwnerName((s.AiBrainEnabled && !string.IsNullOrWhiteSpace(s.UserName)) ? s.UserName.Trim() : ""); }
             catch { }
-            string err;
+            string err = null;
             bool allowed = s.AiBrainEnabled && CanUse(s, out err);
+            // The reason the brain is NOT being built, said once per Apply. `err` was computed and dropped, so
+            // an invalid endpoint, a missing consent or a missing cloud model disabled the brain with nothing
+            // in the log while the tray row still read "Disable AI" (F101, F099).
+            if (s.AiBrainEnabled && !allowed && _host != null)
+                try { _host.Log(Info.Id, "AI brain not started: " + err); } catch { }
             bool prepare = allowed && (s.AutoStartServer || s.WarmUpDesired);
             AiSettings snapshot = s;
 
@@ -1315,7 +1356,9 @@ namespace DesktopAICompanion.AiBrainModule
 
         // ---- brain construction (mirrors StartUp.CreateBrain / CanUseAiConfiguration) -------------
 
-        private static AiBrain CreateBrain(AiSettings s)
+        // internal, not private: the self-test builds a cloud-primary brain from settings alone (no network is
+        // touched by construction) to assert what the failure line will name as its endpoint (F073).
+        internal static AiBrain CreateBrain(AiSettings s)
         {
             string endpoint = SelectedEndpoint(s);
             string normalized, error;
@@ -1325,6 +1368,10 @@ namespace DesktopAICompanion.AiBrainModule
                 throw new InvalidOperationException("Cloud data consent is required for a non-local AI endpoint.");
 
             TimeSpan timeout = TimeSpan.FromSeconds(s.TimeoutSeconds);
+            // The host(s) the brain will name in its log lines: the endpoint it was built against, plus the
+            // local leg when one is wrapped in below. The snapshot the brain receives keeps the LOCAL Endpoint
+            // for a cloud-primary brain, so without this every line said "endpoint=localhost" (F073).
+            string backendHosts = AiBrain.DescribeEndpoint(normalized);
             // No cloud selected (Provider == "") -> the LOCAL backend (BuildLocalBackend: Ollama-native or a
             // generic OpenAI-compatible /v1 server per LocalBackendKind). A cloud selector -> the OpenAI-
             // compatible backend with the cloud-scoped key; and when "use local as fallback" is on and the
@@ -1346,6 +1393,7 @@ namespace DesktopAICompanion.AiBrainModule
                 {
                     ICompanionBrainBackend local = BuildLocalBackend(s, localNormalized, timeout);
                     backend = new FallbackBackend(cloud, local, s.CloudVisionModel, s.TextModel, s.VisionModel);
+                    backendHosts += "->" + AiBrain.DescribeEndpoint(localNormalized);
                 }
                 else
                 {
@@ -1353,6 +1401,7 @@ namespace DesktopAICompanion.AiBrainModule
                 }
             }
             AiBrain brain = new AiBrain(backend, s.ActiveSlotSnapshot());
+            brain.BackendHostDescription = backendHosts;
             // Let the brain re-validate its configured model against what the backend actually offers
             // (BUG-002). Uses the SAME listing call the Options pane uses, so the two can never disagree
             // about what is installed. Captures the backend the brain owns, not a fresh one.
@@ -1361,22 +1410,24 @@ namespace DesktopAICompanion.AiBrainModule
         }
 
         /// <summary>
-        /// List what a backend offers, or an empty list when that backend has no listing endpoint. Empty
-        /// and null mean different things downstream: <see cref="AiModelPolicy.ChooseModel"/> treats an
-        /// unknown inventory as "do not complain", so a backend that cannot enumerate must not be able to
-        /// make the brain claim a model is missing.
+        /// List what a backend offers, or NULL when that backend cannot enumerate. Null and empty mean different
+        /// things downstream: <see cref="AiModelPolicy.ChooseModel"/> treats an unknown inventory as "do not
+        /// complain", so a backend that cannot enumerate must not be able to make the brain claim a model is
+        /// missing. Through <see cref="IModelLister"/> rather than two type tests: the type tests answered null
+        /// for the cloud+local composite, i.e. for every cloud user who left the default fallback on, so a
+        /// removed or mistyped cloud id was never re-validated and BUG-002's spoken advisory never fired on the
+        /// configuration it was written for (F103).
         /// </summary>
-        private static async Task<IReadOnlyList<ModelListing>> ListBackendModelsAsync(
+        internal static async Task<IReadOnlyList<ModelListing>> ListBackendModelsAsync(
             ICompanionBrainBackend backend, CancellationToken ct)
         {
-            OllamaClient ollama = backend as OllamaClient;
-            if (ollama != null) return await ollama.ListModelsAsync(ct).ConfigureAwait(false);
-            OpenAiCompatBackend compat = backend as OpenAiCompatBackend;
-            if (compat != null) return await compat.ListModelsAsync(ct).ConfigureAwait(false);
-            return null;
+            IModelLister lister = backend as IModelLister;
+            if (lister == null) return null;
+            return await lister.ListModelsAsync(ct).ConfigureAwait(false);
         }
 
-        private static bool CanUse(AiSettings s, out string error)
+        // internal, not private: the self-test asserts the cloud-slot rule below without a host.
+        internal static bool CanUse(AiSettings s, out string error)
         {
             error = null;
             if (s == null) { error = "AI settings are unavailable."; return false; }
@@ -1386,6 +1437,25 @@ namespace DesktopAICompanion.AiBrainModule
             {
                 error = "Approve cloud data sharing before using a non-local AI endpoint.";
                 return false;
+            }
+            // A cloud slot has no model until the user picks one: the dropdown is empty until "Refresh cloud
+            // models" runs, so a first-time cloud setup naturally leaves it blank, and the brain used to fill
+            // the blank with the LOCAL default "gemma3:4b" and send that to the provider: HTTP 400 on every
+            // remark, logged as unreachable, or with the fallback off a silent substitution to whatever the
+            // provider listed first, billed to the user's key (F101). Refused here, where ApplyState logs the
+            // reason, rather than discovered one remark at a time.
+            if (!IsLocalSlot(s))
+            {
+                if (string.IsNullOrWhiteSpace(s.CloudTextModel))
+                {
+                    error = "Pick a cloud text model first (Refresh cloud models, then choose one).";
+                    return false;
+                }
+                if (s.UseVision && string.IsNullOrWhiteSpace(s.CloudVisionModel))
+                {
+                    error = "Pick a cloud vision model first (Refresh cloud models, then choose one), or turn vision off.";
+                    return false;
+                }
             }
             return true;
         }
