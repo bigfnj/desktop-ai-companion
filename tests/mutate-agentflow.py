@@ -1166,6 +1166,23 @@ CASES = (
         "  out.fp = '';",
         "both readers fingerprint the card without its buttons",
     ),
+    (
+        # RA-036: Init's immediate scan ran whether or not a UI thread existed to receive it, so the app's
+        # convention runner scanned the developer's real transcripts beside this self-test. Put it back.
+        "burn: Init starts the immediate scan with no UI context again",
+        MODULE,
+        "            if (_ui != null) OnTick(null, EventArgs.Empty);\n            else Log(\"no UI context at Init, so the first scan waits for the timer\");",
+        "            OnTick(null, EventArgs.Empty);",
+        "with no UI context Init does not start the immediate scan",
+    ),
+    (
+        # RA-036, the other direction: the shipped host has a context and must still get its first scan at once.
+        "burn: Init attempts no first tick even with a UI context",
+        MODULE,
+        "            if (_ui != null) OnTick(null, EventArgs.Empty);",
+        "            if (_ui == null && _ui != null) OnTick(null, EventArgs.Empty);",
+        "with a UI context Init attempts the first tick at once",
+    ),
     # ---- lane fix/deadcode ----
     # F047: the detailed split's separators were produced and read by nothing; the splitter self-test
     # now pins them. F048: FakeCdpServer serves connections concurrently, so the WIRE press case runs

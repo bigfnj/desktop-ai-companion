@@ -771,6 +771,7 @@ namespace DesktopAICompanion.AgentFlow
             private static byte[] NewReceiveBuffer()
             {
                 Interlocked.Increment(ref _receiveBufferAllocations);
+                _receiveBufferAllocationsOnThread++;
                 return new byte[16 * 1024];
             }
 
@@ -940,10 +941,25 @@ namespace DesktopAICompanion.AgentFlow
 
         private static int _receiveBufferAllocations;
 
+        // Per THREAD as well as per process (N-scripts-03). The self-test compares the count before and
+        // after ONE sweep, and a process-wide static is shared with every other sweep in the process: the
+        // app's convention runner's own module instance swept the live editor from a pool thread during
+        // one gate run, and the check failed on an allocation that was not its sweep's. A sweep builds
+        // and uses its CdpSession on the calling thread, so the thread's own count is exactly the
+        // sweep's, whatever another thread allocates meanwhile. (RA-036 also stopped that other sweep.)
+        [ThreadStatic] private static int _receiveBufferAllocationsOnThread;
+
         /// <summary>Receive buffers allocated so far, process-wide. See CdpSession.NewReceiveBuffer.</summary>
         internal static int ReceiveBufferAllocationsForSelfTest
         {
             get { return Volatile.Read(ref _receiveBufferAllocations); }
+        }
+
+        /// <summary>Receive buffers allocated on THIS thread, which for a sweep run synchronously on it is the
+        /// sweep's own count and nobody else's.</summary>
+        internal static int ReceiveBufferAllocationsOnThisThreadForSelfTest
+        {
+            get { return _receiveBufferAllocationsOnThread; }
         }
 
         /// <summary>

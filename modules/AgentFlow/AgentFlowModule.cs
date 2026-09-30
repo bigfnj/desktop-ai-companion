@@ -191,6 +191,10 @@ namespace DesktopAICompanion.AgentFlow
                                  //         with the same labels are two prompts, and a confirmed click no
                                  //         longer clears the repeat counter, so a card that stays after a
                                  //         click stands the module down as the guard always claimed.
+                                 //         Init starts its immediate scan only under a UI context, so the
+                                 //         app's convention runner no longer scans real transcripts or
+                                 //         sweeps the live editor beside the module's own self-test, whose
+                                 //         receive-buffer check now counts on its own thread.
                                  // 1.4.11: the options pane no longer probes VS Code's setup on the UI
                                  //         thread. The doc said the cold path was only between Init and
                                  //         the first tick, but OnTick returns before the probe when the
@@ -484,7 +488,18 @@ namespace DesktopAICompanion.AgentFlow
             _timer = new Timer { Interval = TickMilliseconds };
             _timer.Tick += _tickHandler;
             _timer.Start();
-            OnTick(null, EventArgs.Empty);   // don't make the user wait a full interval after launch
+            // The first scan now, so the user does not wait a full interval after launch -- but ONLY
+            // where its results have a UI thread to come back to. With no SynchronizationContext, which
+            // is the app's own convention self-test host (it hands this module no settings, so the mode
+            // migrates to Notify and scans), the immediate scan read the developer's real rules and
+            // transcripts and swept the live editor on a pool thread while the module's SelfTest
+            // asserted beside it, contradicting that test's "nothing in this run reads real data" and
+            // racing its receive-buffer count (RA-036, N-scripts-03). The WinForms timer never fires
+            // without a message loop, so under such a host nothing scans at all, which is what a host
+            // with no UI thread should get. The shipped host installs the context before Init, so
+            // nothing changes there. Said in the log: a control that stands down says so.
+            if (_ui != null) OnTick(null, EventArgs.Empty);
+            else Log("no UI context at Init, so the first scan waits for the timer");
         }
 
         public void Shutdown()
@@ -591,6 +606,7 @@ namespace DesktopAICompanion.AgentFlow
 
         private void OnTick(object sender, EventArgs args)
         {
+            TicksEnteredForSelfTest++;
             if (!Enabled) return;
             // A self-test seam, and nothing else sets it. SelfCheckAutoApprove has to drive the
             // tray's Off -> Watching transition, which calls this, and a scan started from a
@@ -2097,6 +2113,11 @@ namespace DesktopAICompanion.AgentFlow
         /// seeds mode Off before Init expects the answer to stay false, and asserts it (F037).</summary>
         internal bool ScanEverStartedForSelfTest;
 
+        /// <summary>Self-test seam: how often OnTick was entered, whatever it then decided. Init's
+        /// immediate tick is asserted through this in both directions (RA-036): not entered with no UI
+        /// context, entered once with one.</summary>
+        internal int TicksEnteredForSelfTest;
+
         /// <summary>
         /// May a press happen right now? One place, so the worker and the self-test ask the same
         /// question, and so the shutdown case cannot be reintroduced by an inline condition that
@@ -2938,6 +2959,7 @@ namespace DesktopAICompanion.AgentFlow
                         SelfCheckPetChoices,
                         SelfCheckProjectRules,
                         SelfCheckResumedSessionNotRetallied,
+                        SelfCheckInitNeedsUiContext,
                         SelfCheckCacheBound,
                     };
                     // Short-circuits on the first false, exactly as the && chain did. The result is
@@ -4505,7 +4527,12 @@ namespace DesktopAICompanion.AgentFlow
             {
                 var seen = new List<PromptView>();
                 bool sawPanel;
-                int buffersBefore = CdpApprover.ReceiveBufferAllocationsForSelfTest;
+                // THIS THREAD's count (N-scripts-03). The process-wide count is shared with every sweep
+                // in the process, and one gate run failed this line on a buffer another thread's sweep
+                // allocated; the sweep below builds and uses its session on this thread, so the thread
+                // count is its own and nobody else's.
+                int buffersBefore = CdpApprover.ReceiveBufferAllocationsOnThisThreadForSelfTest;
+                int processBefore = CdpApprover.ReceiveBufferAllocationsForSelfTest;
                 string note = CdpApprover.Sweep(server.Port,
                     delegate(PromptView v) { seen.Add(v); return "pressed Yes"; },
                     4000, out sawPanel);
@@ -4515,7 +4542,9 @@ namespace DesktopAICompanion.AgentFlow
                 probe.Check("WIRE one sweep fetches /json/list ONCE, not once per agent",
                     server.ListCount == 1);
                 probe.Check("WIRE one sweep allocates ONE set of receive buffers, not one per message",
-                    CdpApprover.ReceiveBufferAllocationsForSelfTest == buffersBefore + 1);
+                    CdpApprover.ReceiveBufferAllocationsOnThisThreadForSelfTest == buffersBefore + 1);
+                probe.Check("WITNESS the thread's count is a count: the process-wide one moved with it",
+                    CdpApprover.ReceiveBufferAllocationsForSelfTest >= processBefore + 1);
 
                 probe.Check("WIRE a prompt on a real socket reaches the press callback",
                     seen.Count == 1 && seen[0].Options.Count == 2 && seen[0].ToolName == "Bash");
@@ -6481,6 +6510,59 @@ namespace DesktopAICompanion.AgentFlow
                 Environment.SetEnvironmentVariable(TranscriptReader.ClaudeRootVariable, claudeWas);
                 Environment.SetEnvironmentVariable(TranscriptReader.CodexRootVariable, codexWas);
                 try { System.IO.Directory.Delete(root, true); } catch { }
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Init starts its immediate scan only where a UI thread exists to receive it (RA-036).
+        ///
+        /// The app's own convention self-test host hands this module no settings, so the mode migrates
+        /// to Notify and scans; under --module-selftest there is no SynchronizationContext, so that scan
+        /// read the developer's real rules and transcripts and swept the live editor on a pool thread
+        /// while this SelfTest asserted beside it, contradicting the "nothing in this run reads real
+        /// data" rule at the top of SelfTest and racing the receive-buffer count (N-scripts-03). Both
+        /// directions: no context, no scan and a log line saying so; a context, and the tick is
+        /// attempted (suppressed inside OnTick here, so nothing scans even the scratch root).
+        /// </summary>
+        private static bool SelfCheckInitNeedsUiContext(SelfTestProbe probe)
+        {
+            var host = new DesktopAICompanion.ModuleKit.Testing.RecordingHost();
+            using (var storage =
+                       new DesktopAICompanion.ModuleKit.Testing.TempModuleStorage("agentflow-uictx"))
+            {
+                host.UseStorage("agentflow", storage);
+                // UNSEEDED on purpose: an empty settings store is the convention host's shape, and Notify
+                // is what it migrates to. Every other group seeds Off (F037); this one is about what
+                // happens when nothing does.
+                var module = new AgentFlowModule();
+                probe.Check("WITNESS no UI context is installed on this thread, as under the convention runner",
+                    SynchronizationContext.Current == null);
+                module.Init(host);
+                probe.Check("WITNESS an unseeded module is in a scanning mode, so only the missing context can stop its first scan",
+                    module.Enabled);
+                probe.Check("WITNESS with no UI context Init does not start the immediate scan, and the tick is not even entered",
+                    !module.ScanEverStartedForSelfTest && module.TicksEnteredForSelfTest == 0);
+                probe.Check("...and says so in the log, since a control that stands down must say so",
+                    CountLoggedContaining(host.LoggedLines, "no UI context at Init") == 1);
+                module.Shutdown();
+
+                // With a context the immediate tick IS attempted. Suppressed inside OnTick so it starts no
+                // worker; what is asserted is the attempt, which the shipped host's Init makes every launch.
+                var context = new CountingSyncContext();
+                SynchronizationContext.SetSynchronizationContext(context);
+                try
+                {
+                    var withContext = new AgentFlowModule();
+                    withContext.SuppressScanForSelfTest = true;
+                    withContext.Init(host);
+                    probe.Check("WITNESS with a UI context Init attempts the first tick at once",
+                        withContext.TicksEnteredForSelfTest == 1 && !withContext.ScanEverStartedForSelfTest);
+                    probe.Check("...and writes no no-context line for it",
+                        CountLoggedContaining(host.LoggedLines, "no UI context at Init") == 1);
+                    withContext.Shutdown();
+                }
+                finally { SynchronizationContext.SetSynchronizationContext(null); }
             }
             return true;
         }
